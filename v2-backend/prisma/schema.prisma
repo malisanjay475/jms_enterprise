@@ -1,0 +1,119 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["metrics", "tracing"] // Observability & Prometheus
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------
+// 1. Sync & Infrastructure Tables
+// -----------------------------------------------------
+
+enum SyncAction {
+  INSERT
+  UPDATE
+  DELETE
+}
+
+enum SyncStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+}
+
+model SyncQueue {
+  id             String     @id @default(uuid()) @db.Uuid
+  factory_id     Int
+  table_name     String
+  record_id      String
+  action         SyncAction
+  row_data       Json       @db.JsonB
+  version        Int        @default(1) // Optimistic locking MVCC
+  retry_count    Int        @default(0)
+  sync_status    SyncStatus @default(PENDING)
+  created_at     DateTime   @default(now())
+  last_attempt   DateTime?
+  error_message  String?    @db.Text
+  correlation_id String?    @db.Uuid
+
+  @@index([factory_id, sync_status])
+  @@index([created_at])
+  @@map("sync_queue")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  factory_id Int
+  user_id    String   @db.Uuid
+  action     String
+  resource   String
+  details    Json     @db.JsonB
+  created_at DateTime @default(now())
+
+  @@index([factory_id, created_at])
+  @@map("audit_logs")
+}
+
+// -----------------------------------------------------
+// 2. Multi-Tenant Master Entities (RLS Enabled via SQL)
+// -----------------------------------------------------
+
+enum Role {
+  SUPERADMIN
+  FACTORY_ADMIN
+  SUPERVISOR
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  factory_id   Int?      // Null for superadmins who access all
+  username     String    @unique
+  password     String
+  role         Role      @default(SUPERVISOR)
+  is_active    Boolean   @default(true)
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  
+  JobCards     JobCard[] 
+
+  @@index([factory_id])
+  @@map("users")
+}
+
+model Factory {
+  id           Int       @id @default(autoincrement())
+  name         String
+  api_key      String    @unique // VPS accepts sync payloads with this key
+  is_active    Boolean   @default(true)
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  @@map("factories")
+}
+
+// -----------------------------------------------------
+// 3. Example Operational Entity (JobCard)
+// -----------------------------------------------------
+
+model JobCard {
+  id             String   @id @default(uuid()) @db.Uuid
+  factory_id     Int      // Mandatory for Row-Level Security isolation
+  user_id        String   @db.Uuid
+  machine_name   String
+  part_name      String
+  quantity       Int
+  entity_version Int      @default(1) // Conflict Resolution versioning
+  
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  user           User     @relation(fields: [user_id], references: [id])
+
+  // RLS ensures users query this without EXPLICITLY doing WHERE factory_id = X
+  @@index([factory_id])
+  @@map("job_cards")
+}
