@@ -1,3 +1,6 @@
+import React from 'react';
+import './globals.css';
+
 export const metadata = {
   title: 'JMS Enterprise V2',
   description: 'Multi-Factory Enterprise Management System',
