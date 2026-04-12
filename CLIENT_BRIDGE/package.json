@@ -1,0 +1,10 @@
+{
+  "name": "jpsms-client-bridge",
+  "version": "1.0.0",
+  "description": "Serial Port to WebSocket Bridge for JPSMS Scanning",
+  "main": "bridge.js",
+  "dependencies": {
+    "serialport": "^10.0.0",
+    "ws": "^8.0.0"
+  }
+}
