@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # Application Service
+  app:
+    build: .
+    container_name: jpsms-app
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - SERVER_TYPE=${SERVER_TYPE} # MAIN or LOCAL
+      - MAIN_SERVER_URL=${MAIN_SERVER_URL}
+      - LOCAL_FACTORY_ID=${LOCAL_FACTORY_ID}
+      - SYNC_API_KEY=${SYNC_API_KEY}
+    depends_on:
+      - db
+    networks:
+      - jpsms-net
+
+  # Database Service
+  db:
+    image: postgres:14-alpine
+    container_name: jpsms-db
+    restart: always
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # - ./init.sql:/docker-entrypoint-initdb.d/init.sql # Optional init script
+    networks:
+      - jpsms-net
+
+  # Nginx Reverse Proxy (Optional, good for SSL)
+  nginx:
+    image: nginx:alpine
+    container_name: jpsms-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    depends_on:
+      - app
+    networks:
+      - jpsms-net
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    networks:
+      - jpsms-net
+
+networks:
+  jpsms-net:
+
+
+volumes:
+  postgres_data:
