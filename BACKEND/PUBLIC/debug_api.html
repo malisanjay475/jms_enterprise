@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Debugger</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #f0fdf4;
+            color: #166534;
+        }
+
+        .log {
+            background: #fff;
+            padding: 10px;
+            border: 1px solid #bbf7d0;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+
+        .error {
+            color: #dc2626;
+            background: #fef2f2;
+            border-color: #fecaca;
+        }
+
+        .success {
+            color: #16a34a;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #16a34a;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>VPS API Debugger</h1>
+    <p>Use this page to test if the API is reachable and what version is running.</p>
+
+    <div style="margin-bottom: 20px;">
+        <button onclick="runTests()">Run API Tests</button>
+    </div>
+
+    <div id="results"></div>
+
+    <script src="/assets/app.js"></script> <!-- Load App Logic -->
+    <script>
+        async function runTests() {
+            const results = document.getElementById('results');
+            results.innerHTML = '<div class="log">Running tests...</div>';
+
+            const log = (msg, type = 'info') => {
+                const div = document.createElement('div');
+                div.className = 'log ' + type;
+                div.innerHTML = msg;
+                results.appendChild(div);
+            };
+
+            try {
+                // 1. Check API Base
+                log(`<strong>1. Config Check:</strong> API_BASE = "<strong>${JPSMS.api ? '/api (Assumed)' : 'Unknown'}</strong>"`);
+
+                // 2. Test Login API (Just reachable?)
+                log('<strong>2. Testing /api/login existence...</strong>');
+                const t1Start = Date.now();
+                try {
+                    // We expect 400 or 401, but NOT 404
+                    const res = await fetch('/api/login', { method: 'POST', body: JSON.stringify({ username: 'test', password: '123' }), headers: { 'Content-Type': 'application/json' } });
+                    const txt = await res.text();
+                    log(`Status: ${res.status} (Time: ${Date.now() - t1Start}ms)<br>Response: ${txt.substring(0, 100)}...`, res.status === 404 ? 'error' : 'success');
+                } catch (e) {
+                    log(`Fetch Failed: ${e.message}`, 'error');
+                }
+
+                // 3. Test Planning Board API
+                log('<strong>3. Testing /api/planning/board...</strong>');
+                const t2Start = Date.now();
+                try {
+                    const res = await fetch('/api/planning/board?plant=DUNGRA');
+                    if (res.status === 200) {
+                        const data = await res.json();
+                        log(`Success! Loaded ${data.data?.plans?.length || 0} plans.`, 'success');
+                    } else {
+                        const txt = await res.text();
+                        log(`Failed: Status ${res.status}<br>Response: ${txt}`, 'error');
+                    }
+                } catch (e) {
+                    log(`Fetch Failed: ${e.message}`, 'error');
+                }
+
+                // 4. Test Restore API (New Endpoint)
+                log('<strong>4. Testing /api/planning/restore (Existence Check)...</strong>');
+                try {
+                    // Sending GET to a POST route usually returns 404 or 405 Method Not Allowed
+                    const res = await fetch('/api/planning/restore', { method: 'GET' });
+                    // If 404 -> Endpoint Missing. If 405 or 400 -> It exists.
+                    if (res.status === 404) {
+                        log('Error: 404 Not Found (Endpoint likely missing on server)', 'error');
+                    } else {
+                        log(`Status: ${res.status} (Likely exists, just wrong method)`, 'success');
+                    }
+                } catch (e) {
+                    log(`Fetch Failed: ${e.message}`, 'error');
+                }
+
+            } catch (err) {
+                log('Critical Test Error: ' + err.message, 'error');
+            }
+        }
+    </script>
+</body>
+
+</html>

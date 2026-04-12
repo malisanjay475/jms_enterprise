@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Production Scanning (List)</title>
+    <link rel="stylesheet" href="/assets/app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        /* VERTICAL LAYOUT CSS OVERRIDES */
+        .scanning-container {
+            display: flex;
+            flex-direction: column;
+            /* VERTICAL */
+            gap: 20px;
+            overflow-y: auto;
+            padding-bottom: 20px;
+            height: calc(100vh - 120px);
+            padding-right: 10px;
+            /* Space for scrollbar */
+        }
+
+        /* Card Style - Full Width */
+        .scan-card {
+            width: 100%;
+            max-width: 100%;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            display: flex;
+            flex-direction: row;
+            /* Horizontal Content */
+            overflow: hidden;
+            flex-shrink: 0;
+            /* Less height in list view? */
+            min-height: 200px;
+        }
+
+        /* Header Side by Side */
+        .scan-card-header {
+            padding: 16px;
+            background: #f8fafc;
+            border-right: 1px solid #e2e8f0;
+            border-bottom: none;
+            font-weight: 700;
+            color: #475569;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-width: 150px;
+            text-align: center;
+            gap: 10px;
+        }
+
+        .scan-card-header span:first-child {
+            font-size: 1.5rem;
+            color: #334155;
+        }
+
+        .scan-card-body {
+            padding: 16px;
+            flex: 1;
+            display: grid;
+            grid-template-columns: 2fr 1.5fr 1.5fr;
+            /* 3 Column Inner Layout */
+            gap: 20px;
+            overflow-y: visible;
+        }
+
+        /* Responsive Breakpoint for mobile? */
+        @media (max-width: 1000px) {
+            .scan-card {
+                flex-direction: column;
+            }
+
+            .scan-card-header {
+                flex-direction: row;
+                border-right: none;
+                border-bottom: 1px solid #e2e8f0;
+                justify-content: space-between;
+                min-width: unset;
+            }
+
+            .scan-card-body {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Reused Styles */
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+            color: #64748b;
+        }
+
+        .info-value {
+            font-weight: 600;
+            color: #334155;
+        }
+
+        .ean-display {
+            background: #f1f5f9;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 1.1rem;
+            text-align: center;
+            border: 1px dashed #cbd5e1;
+            margin: 10px 0;
+        }
+
+        .scan-metrics {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            background: #f8fafc;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .metric-box {
+            text-align: center;
+        }
+
+        .metric-label {
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+
+        .metric-val {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .log-area {
+            height: 100%;
+            max-height: 150px;
+            background: #1e293b;
+            color: #10b981;
+            font-family: monospace;
+            font-size: 0.8rem;
+            padding: 10px;
+            border-radius: 6px;
+            overflow-y: auto;
+        }
+
+        .log-error {
+            color: #ef4444;
+        }
+
+        .log-warn {
+            color: #f59e0b;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .scanner-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            margin-bottom: 5px;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #cbd5e1;
+        }
+
+        .dot.connected {
+            background: #10b981;
+            box-shadow: 0 0 4px #10b981;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title">Production Scanning (List View)</div>
+            <div>
+                <button class="btn btn-sm btn-outline" onclick="loadActivePlans()"><i class="bi bi-arrow-clockwise"></i>
+                    Refresh</button>
+            </div>
+        </div>
+
+        <div class="scanning-container" id="cardsContainer">
+            <div style="margin:auto; text-align:center; color:#94a3b8">
+                <i class="bi bi-box-seam" style="font-size:3rem"></i>
+                <p>Loading Active Lines...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script src="/js/production_scanning.js"></script>
+    <script>
+        const cardsContainer = document.getElementById('cardsContainer');
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initScanning(renderCards);
+        });
+
+        // CUSTOM RENDER FUNCTION FOR LIST LAYOUT
+        function renderCards() {
+            window.renderCards = renderCards; // Allow shared JS to re-render
+            const tables = window.getVisibleTables ? window.getVisibleTables() : Object.keys(TABLE_PLANS);
+
+            if (!tables.length) {
+                cardsContainer.innerHTML = `
+                    <div style="margin:auto; text-align:center; color:#94a3b8">
+                        <i class="bi bi-clipboard-check" style="font-size:3rem"></i>
+                        <p>No Active Plans Found</p>
+                    </div>`;
+                return;
+            }
+
+            cardsContainer.innerHTML = tables.map(tid => {
+                const plans = TABLE_PLANS[tid];
+                const activePlan = plans[0];
+
+                let jobSelectHtml = '';
+                if (plans.length > 1) {
+                    jobSelectHtml = `
+                        <div class="form-group mb-2">
+                            <label class="form-label text-xs">Select Job</label>
+                            <select class="form-select form-select-sm" onchange="switchPlan('${tid}', this.value)">
+                                ${plans.map(p => `
+                                    <option value="${p.id}" ${p.id === activePlan.id ? 'selected' : ''}>
+                                        ${p.id}: ${p.item_name.substring(0, 15)}...
+                                    </option>
+                                `).join('')}
+                            </select>
+                        </div>
+                    `;
+                }
+
+                const isConnected = !!TABLE_SCANNERS[tid];
+
+                // DIFFERENT HTML STRUCTURE FOR LIST VIEW
+                return `
+                <div class="scan-card" id="card-${tid}" data-plan-id="${activePlan.id}">
+                    <!-- LEFT COLUMN: HEADER -->
+                    <div class="scan-card-header">
+                        <span>${tid}</span>
+                        <span id="badge-${tid}" class="status-badge" style="background:${activePlan.status === 'RUNNING' ? '#dcfce7' : '#f1f5f9'}; color:${activePlan.status === 'RUNNING' ? '#166534' : '#475569'}">
+                            ${activePlan.status}
+                        </span>
+                    </div>
+
+                    <div class="scan-card-body">
+                        <!-- COL 1: DETAILS -->
+                        <div style="display:flex; flex-direction:column; gap:10px">
+                             ${jobSelectHtml}
+                             <div id="details-${tid}">${getDetailsHtml(activePlan)}</div>
+                        </div>
+
+                        <!-- COL 2: SCANNER SETUP -->
+                        <div style="display:flex; flex-direction:column; justify-content:center">
+                             ${getScannerControlHtml(tid)}
+                             
+                             <div class="mt-3">
+                                <input class="form-control form-control-sm" placeholder="Manual Shim" onkeydown="handleManualScan(event, '${tid}')">
+                             </div>
+                        </div>
+
+                        <!-- COL 3: LOGS -->
+                        <div class="log-area" id="log-${tid}">
+                            <div>Ready.</div>
+                        </div>
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+    </script>
+</body>
+
+</html>

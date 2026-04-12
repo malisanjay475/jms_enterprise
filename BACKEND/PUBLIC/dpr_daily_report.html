@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Daily Summary Report - JMS OCEAN</title>
+    <!-- CSS -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/assets/app.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <style>
+        .report-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: white;
+            padding: 10px 16px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 12px;
+        }
+
+        .report-title {
+            font-size: 1.15rem;
+            font-weight: 800;
+            color: var(--text-dark);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .report-controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .grid-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            overflow-x: auto;
+            margin-bottom: 12px;
+            width: 100%;
+            max-width: calc(100vw - 40px);
+            display: block;
+        }
+
+        .dpr-table {
+            width: 100%;
+            table-layout: fixed;
+            border-collapse: collapse;
+            font-size: 0.72rem;
+            text-align: center;
+        }
+
+        .dpr-table th, .dpr-table td {
+            border: 1px solid #e2e8f0;
+            padding: 4px 2px;
+            overflow: hidden;
+            word-wrap: break-word;
+        }
+
+        .dpr-table thead th {
+            background: #f8fafc;
+            font-weight: 700;
+            color: #334155;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        /* Metric Column Sticky */
+        .dpr-table tbody td:first-child, .dpr-table thead th:first-child {
+            width: 16%;
+            position: sticky;
+            left: 0;
+            background: #f8fafc;
+            text-align: left;
+            font-weight: 700;
+            z-index: 20;
+            border-right: 2px solid #cbd5e1;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+        }
+
+        /* Shift Headers */
+        .shift-header-day { background: #fef3c7 !important; color: #b45309 !important; border-bottom: 2px solid #f59e0b !important; }
+        .shift-header-night { background: #e0e7ff !important; color: #4338ca !important; border-bottom: 2px solid #6366f1 !important; }
+        .shift-header-total { background: #dcfce7 !important; color: #166534 !important; border-bottom: 2px solid #22c55e !important; }
+        .line-header { background: #f1f5f9 !important; font-size: 0.75rem; }
+        
+        /* Row Styles */
+        .row-group-header td { background: #e2e8f0 !important; font-weight: 800; text-align: left; text-transform: uppercase; letter-spacing: 1px; }
+        .row-highlight td { font-weight: 700; background: #f0fdf4 !important; }
+        .row-danger td { color: #dc2626; font-weight: 600; }
+        
+        .dpr-table tbody tr:hover td {
+            background-color: #f8fafc;
+        }
+        .dpr-table tbody tr:hover td:first-child {
+            background-color: #f1f5f9 !important;
+        }
+
+        .charts-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .chart-card {
+            background: white;
+            border-radius: 12px;
+            padding: 12px 16px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+            border: 1px solid #e2e8f0;
+        }
+
+        .chart-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .empty-state {
+            padding: 30px;
+            text-align: center;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-content">
+        <div class="header">
+            <h2 class="page-title"><i class="bi bi-bar-chart-fill"></i> DPR Daily Summary Report</h2>
+        </div>
+
+        <div class="content-body" style="padding-top: 15px;">
+            <div class="report-header">
+                <div class="report-title">
+                    Daily Factory Operations Summary
+                    <div style="font-size: 0.8rem; color: #64748b; font-weight: 500; margin-top: 4px; text-transform: none;">
+                        Comprehensive line-wise efficiency and breakdown analysis
+                    </div>
+                </div>
+                <div class="report-controls">
+                    <input type="date" id="report-date" class="form-control" style="width: auto;">
+                    <div id="report-process" style="display:flex; gap:10px; flex-wrap:wrap; min-width:340px;"></div>
+                    <button class="btn btn-primary" onclick="generateReport()">
+                        <i class="bi bi-magic"></i> Generate Report
+                    </button>
+                    <button class="btn btn-outline" onclick="window.print()">
+                        <i class="bi bi-printer"></i> Print
+                    </button>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="charts-container" id="charts-section" style="display: none;">
+                <div class="chart-card">
+                    <div class="chart-title">Production Efficiency (OEE Base) %</div>
+                    <div style="position: relative; height: 160px; width: 100%;">
+                        <canvas id="effChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-title">Line-wise Rejection Weight (Kg)</div>
+                    <div style="position: relative; height: 160px; width: 100%;">
+                        <canvas id="rejChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-title">Top Downtime Reasons (Factory Total)</div>
+                    <div style="position: relative; height: 160px; width: 100%;">
+                        <canvas id="dtChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Plant Summary Box -->
+            <div id="plant-summary-box" style="display:none; background:white; border:1px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px; align-items:center; justify-content:space-between; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);">
+                 <div style="font-size:1.1rem; font-weight:700; color:#0f172a">
+                     Plant Total <span id="ps-date" style="font-weight:600; color:#2563eb"></span>
+                     <span style="font-size:0.8rem; font-weight:400; color:#64748b; margin-left:8px">(Combined Summary)</span>
+                 </div>
+                 <div style="display:flex; gap:24px; align-items:center">
+                     <div style="text-align:right">
+                         <div style="font-size:0.7rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px">Target / Plan</div>
+                         <div style="font-size:1.3rem; font-weight:800; color:#1e293b"><span id="ps-target">0.00</span> <span style="font-size:0.8rem">Kg</span></div>
+                     </div>
+                     <div style="height:35px; border-right:1px solid #e2e8f0"></div>
+                     <div style="text-align:right">
+                         <div style="font-size:0.7rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px">Tonnage</div>
+                         <div style="font-size:1.3rem; font-weight:800; color:#2563eb"><span id="ps-tonnage">0.00</span> <span style="font-size:0.8rem">Kg</span></div>
+                     </div>
+                     <div style="height:35px; border-right:1px solid #e2e8f0"></div>
+                     <div style="text-align:right">
+                         <div style="font-size:0.7rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px">Rejection</div>
+                         <div style="font-size:1.3rem; font-weight:800; color:#dc2626"><span id="ps-rej">0.00</span> <span style="font-size:0.8rem">Kg</span></div>
+                     </div>
+                     <div style="height:35px; border-right:1px solid #e2e8f0"></div>
+                     <div style="text-align:right">
+                         <div style="font-size:0.7rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px">Efficiency</div>
+                         <div style="font-size:1.3rem; font-weight:800; color:#166534"><span id="ps-eff">0.0</span> <span style="font-size:0.8rem">%</span></div>
+                     </div>
+                     <div style="height:35px; border-right:1px solid #e2e8f0"></div>
+                     <div style="text-align:right">
+                         <div style="font-size:0.7rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px">Machines RUN vs TTL</div>
+                         <div style="font-size:1.3rem; font-weight:800; color:#10b981"><span id="ps-mc-active">0</span> <span style="font-size:0.9rem; color:#94a3b8">/</span> <span id="ps-mc-total" style="font-size:1rem; color:#64748b">0</span></div>
+                     </div>
+                 </div>
+            </div>
+
+            <!-- Grid -->
+            <div class="grid-container" id="grid-section">
+                <div class="empty-state">
+                    <i class="bi bi-table" style="font-size: 3rem; color: #cbd5e1; margin-bottom: 10px; display: block;"></i>
+                    <p>Select a date and click Generate Report to view the operations matrix.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="loader" class="loader-overlay" style="display:none;">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/assets/app.js"></script>
+    <script>
+        // Init
+        Chart.register(ChartDataLabels);
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('dpr');
+            
+            const today = new Date();
+            if (today.getHours() < 8) today.setDate(today.getDate() - 1); // Auto offset if before 8 AM
+            document.getElementById('report-date').value = today.toISOString().split('T')[0];
+            renderDailyProcessButtons();
+            generateReport();
+        });
+
+        // Global Chart instances
+        let charts = {};
+        const DPR_PROCESS_OPTIONS = ['Moulding', 'Printing', 'Tuffting'];
+        let dailyDprProcess = localStorage.getItem('jpsms_dpr_process') || 'Moulding';
+
+        function renderDailyProcessButtons() {
+            const host = document.getElementById('report-process');
+            if (!host) return;
+            host.innerHTML = DPR_PROCESS_OPTIONS.map(option => {
+                const isActive = option === dailyDprProcess;
+                const style = isActive
+                    ? 'background:linear-gradient(135deg,#0f8ea8,#024c81); color:#fff; border-color:transparent; box-shadow:0 12px 24px rgba(2,76,129,0.2);'
+                    : 'background:#fff; color:#0f172a; border-color:rgba(148,163,184,0.35); box-shadow:0 8px 18px rgba(15,23,42,0.08);';
+                return `<button type="button" data-process-option="${option}" style="min-width:104px; padding:12px 16px; border-radius:16px; border:1px solid; font-size:0.92rem; font-weight:800; ${style}">${option}</button>`;
+            }).join('');
+            Array.from(host.querySelectorAll('[data-process-option]')).forEach(btn => {
+                btn.onclick = () => {
+                    dailyDprProcess = btn.dataset.processOption;
+                    localStorage.setItem('jpsms_dpr_process', dailyDprProcess);
+                    renderDailyProcessButtons();
+                    generateReport();
+                };
+            });
+        }
+
+        async function generateReport() {
+            const date = document.getElementById('report-date').value;
+            if (!date) return JPSMS.toast('Please select a date', 'error');
+            const processQuery = `&process=${encodeURIComponent(dailyDprProcess)}`;
+            localStorage.setItem('jpsms_dpr_process', dailyDprProcess);
+
+            const dtStr = new Date(date).toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            
+            JPSMS.toggleLoader(true);
+            try {
+                // Fetch Master Data
+                const [dayResRaw, nightResRaw, reasonsRes, teamDayRes, teamNightRes, scopedMachinesRes] = await Promise.all([
+                    JPSMS.api.get(`/dpr/summary-matrix?fromDate=${date}&toDate=${date}&shift=Day${processQuery}`),
+                    JPSMS.api.get(`/dpr/summary-matrix?fromDate=${date}&toDate=${date}&shift=Night${processQuery}`),
+                    JPSMS.api.get('/dpr/reasons'),
+                    JPSMS.api.get(`/shift/team-range?fromDate=${date}&toDate=${date}&shift=Day`),
+                    JPSMS.api.get(`/shift/team-range?fromDate=${date}&toDate=${date}&shift=Night`),
+                    JPSMS.api.get(`/masters/machines?process=${encodeURIComponent(dailyDprProcess)}`)
+                ]);
+
+                const allowedMachines = new Set((scopedMachinesRes.data || []).map(machine => machine.machine));
+                const filterMatrixResponse = (matrixRes) => {
+                    const matrixData = matrixRes.data || {};
+                    const filteredDates = {};
+                    Object.entries(matrixData.dates || {}).forEach(([dateKey, dateValue]) => {
+                        const nextEntries = {};
+                        Object.entries(dateValue.entries || {}).forEach(([machine, value]) => {
+                            if (allowedMachines.has(machine)) nextEntries[machine] = value;
+                        });
+                        const nextMaintenance = {};
+                        Object.entries(dateValue.maintenance || {}).forEach(([machine, value]) => {
+                            if (allowedMachines.has(machine)) nextMaintenance[machine] = value;
+                        });
+                        filteredDates[dateKey] = {
+                            ...dateValue,
+                            entries: nextEntries,
+                            maintenance: nextMaintenance,
+                            setups: (dateValue.setups || []).filter(setup => allowedMachines.has(setup.machine))
+                        };
+                    });
+
+                    return {
+                        ...matrixRes,
+                        data: {
+                            ...matrixData,
+                            machines: (matrixData.machines || []).filter(machine => allowedMachines.has(machine.machine)),
+                            dates: filteredDates
+                        }
+                    };
+                };
+
+                const dayRes = filterMatrixResponse(dayResRaw);
+                const nightRes = filterMatrixResponse(nightResRaw);
+
+                // Some parsing and structure setup
+                const allMachines = dayRes.data.machines || nightRes.data.machines || [];
+                const reasonsMap = {};
+                (reasonsRes.data || []).forEach(r => { reasonsMap[r.code] = r.reason; });
+
+                const teamDayList = (teamDayRes.data || {})[date] || [];
+                const teamNightList = (teamNightRes.data || {})[date] || [];
+                const teamDayMap = {}, teamNightMap = {};
+                teamDayList.forEach(t => teamDayMap[t.line] = t);
+                teamNightList.forEach(t => teamNightMap[t.line] = t);
+
+                // Find active lines and dynamically build column groups
+                const linesMap = {};
+                allMachines.forEach(m => {
+                    // Extract main line prefix (e.g. "B -L1" -> "BL1" or just use exactly what is in DB)
+                    // Let's use the DB 'line' property directly and just clean it up visually.
+                    let lineName = m.line || m.building || m.machine_process || 'General';
+                    if(!lineName) return;
+                    if (!linesMap[lineName]) linesMap[lineName] = [];
+                    linesMap[lineName].push(m.machine);
+                });
+
+                // Prepare Data Aggregation Map per Line & Shift
+                const agg = {};
+                const lineKeys = Object.keys(linesMap).sort((a,b) => {
+                    return a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'});
+                });
+
+                lineKeys.forEach(l => {
+                    agg[l] = { Day: initMetrics(), Night: initMetrics(), Total: initMetrics() };
+                });
+
+                window.dailyDrilldownData = {};
+
+                // Function to process a single shift's response
+                const processShift = (shiftName, resData) => {
+                    if (!resData || !resData.data || !resData.data.dates) return;
+                    const shiftData = resData.data.dates[date] || {};
+                    const entriesMap = shiftData.entries || {};
+                    const setupsList = shiftData.setups || [];
+                    
+                    Object.keys(entriesMap).forEach(machine => {
+                        const mObj = allMachines.find(m => m.machine === machine);
+                        const line = mObj ? (mObj.line || mObj.building || mObj.machine_process || 'General') : null;
+                        if (!line || !agg[line]) return; 
+
+                         const mSetups = setupsList.filter(s => s.machine === machine);
+                         let activeWt = 0, activeStd = 0;
+
+                         if (mSetups.length > 0) {
+                             activeWt = parseFloat(mSetups[0].std_weight || mSetups[0].act_weight || mSetups[0].article_act || 0);
+                             activeStd = parseFloat(mSetups[0].std_pcs_hr || 0);
+                         } else {
+                             const slotsArrays = Object.values(entriesMap[machine]);
+                             for (let arr of slotsArrays) {
+                                  const list = Array.isArray(arr) ? arr : [arr];
+                                  if (list.length > 0 && list[0]) {
+                                      activeStd = parseFloat(list[0].std_pcs_hr || 0);
+                                      activeWt = parseFloat(list[0].article_act || list[0].std_weight || 0);
+                                      break;
+                                  }
+                             }
+                         }
+
+                         if (activeWt > 10) activeWt /= 1000; // Grams to Kg fallback
+                         if (activeWt > 0 && activeStd > 0) {
+                             agg[line][shiftName].targetWt += (activeWt * activeStd * 12); 
+                         }
+
+                        const slots = entriesMap[machine];
+                        const uniqueMoulds = new Set();
+                        let machineGood = 0, machineRej = 0, machineShots = 0;
+                        let latestJc = '', latestClient = '';
+
+                        Object.keys(slots).forEach(slot => {
+                            let slotEntries = slots[slot];
+                            if(!Array.isArray(slotEntries)) slotEntries = [slotEntries];
+
+                            let slotDt = 0;
+                            slotEntries.forEach(entry => {
+                                if(!entry) return;
+                                
+                                if (entry.mould_no || entry.order_no || entry.mould_name) {
+                                    uniqueMoulds.add((entry.order_no || entry.mould_no || entry.mould_name).trim().toLowerCase());
+                                }
+                                if(entry.job_card_no) latestJc = entry.job_card_no;
+                                if(entry.client_name) latestClient = entry.client_name;
+
+                                let entryWeight = 0;
+                                if (entry.plan_id) {
+                                    const st = mSetups.find(s => String(s.plan_id) === String(entry.plan_id));
+                                    if (st) entryWeight = parseFloat(st.article_act || st.std_weight || 0);
+                                }
+                                if (entryWeight === 0 && entry.article_act) entryWeight = parseFloat(entry.article_act);
+                                if (entryWeight === 0 && entry.std_weight) entryWeight = parseFloat(entry.std_weight);
+                                if (entryWeight >= 10) entryWeight = entryWeight / 1000; // Auto convert Grams to Kg
+                                if (entryWeight === 0 && activeWt > 0) entryWeight = activeWt;
+
+                                const goodQty = parseInt(entry.good_qty) || 0;
+                                const rejQty = parseInt(entry.reject_qty) || 0;
+                                slotDt += (parseInt(entry.downtime_min) || 0);
+
+                                machineGood += goodQty;
+                                machineRej += rejQty;
+                                machineShots += (goodQty + rejQty);
+
+                                agg[line][shiftName].goodWt += (goodQty * entryWeight);
+                                agg[line][shiftName].rejWt += (rejQty * entryWeight);
+                                agg[line][shiftName].grossWt += ((goodQty + rejQty) * entryWeight);
+                                
+                                if(entry.downtime_breakup && typeof entry.downtime_breakup === 'object') {
+                                    Object.entries(entry.downtime_breakup).forEach(([code, mins]) => {
+                                        agg[line][shiftName].dt[code] = (agg[line][shiftName].dt[code] || 0) + parseInt(mins);
+                                    });
+                                }
+
+                                if(entry.reject_breakup && typeof entry.reject_breakup === 'object') {
+                                    Object.entries(entry.reject_breakup).forEach(([code, qty]) => {
+                                        agg[line][shiftName].rej[code] = (agg[line][shiftName].rej[code] || 0) + (parseInt(qty) * entryWeight);
+                                    });
+                                }
+
+                                if (entry.entry_type === 'ColourChange' || (entry.downtime_breakup && entry.downtime_breakup['9'])) agg[line][shiftName].cc++;
+                                if (entry.downtime_breakup && entry.downtime_breakup['2']) agg[line][shiftName].mc++;
+                            });
+                            agg[line][shiftName].totalDtHr += (Math.min(60, slotDt) / 60);
+                        });
+
+                        // Calculate Job Change 
+                        const jcCount = Math.max(0, uniqueMoulds.size - 1);
+                        agg[line][shiftName].jc += jcCount;
+
+                        // Insert Drilldown
+                        window.dailyDrilldownData[line] = window.dailyDrilldownData[line] || {};
+                        if (!window.dailyDrilldownData[line][machine]) {
+                             window.dailyDrilldownData[line][machine] = { mName: machine, jc: '', client: '', std: activeStd, act: activeWt, shots: 0, good: 0, rej: 0 };
+                        }
+                        const r = window.dailyDrilldownData[line][machine];
+                        if(latestJc) r.jc = latestJc;
+                        if(latestClient) r.client = latestClient;
+                        r.shots += machineShots;
+                        r.good += machineGood;
+                        r.rej += machineRej;
+
+                    });
+                };
+
+                processShift('Day', dayRes);
+                processShift('Night', nightRes);
+
+                // --- Publish Plant Summary Dashboard ---
+                let psTarget = 0, psGood = 0, psRej = 0;
+                let activeMachines = new Set();
+                let mcTotalCount = allMachines.length;
+
+                [dayRes, nightRes].forEach(res => {
+                    const dMaps = res?.data?.dates?.[date];
+                    if(dMaps && dMaps.entries) {
+                        Object.keys(dMaps.entries).forEach(machine => activeMachines.add(machine));
+                    }
+                });
+
+                Object.values(agg).forEach(a => {
+                    psTarget += (a.Day.targetWt + a.Night.targetWt);
+                    psGood += (a.Day.goodWt + a.Night.goodWt);
+                    psRej += (a.Day.rejWt + a.Night.rejWt);
+                });
+
+                document.getElementById('plant-summary-box').style.display = 'flex';
+                document.getElementById('ps-date').textContent = dtStr;
+                const fmtPs = v => v > 0 ? Number(v).toLocaleString('en-IN', { maximumFractionDigits: 1 }) : '0.0';
+                document.getElementById('ps-target').textContent = fmtPs(psTarget);
+                document.getElementById('ps-tonnage').textContent = fmtPs(psGood);
+                document.getElementById('ps-rej').textContent = fmtPs(psRej);
+                document.getElementById('ps-eff').textContent = psTarget > 0 ? ((psGood/psTarget)*100).toFixed(1) : '0.0';
+                document.getElementById('ps-mc-active').textContent = activeMachines.size;
+                document.getElementById('ps-mc-total').textContent = mcTotalCount;
+
+                // Build Table HTML
+                renderGrid(agg, lineKeys, dtStr, reasonsMap, teamDayMap, teamNightMap);
+                renderCharts(agg, lineKeys, reasonsMap);
+
+            } catch(e) {
+                console.error(e);
+                JPSMS.toast('Error generating report: ' + e.message, 'error');
+            } finally {
+                JPSMS.toggleLoader(false);
+            }
+        }
+
+        function initMetrics() {
+            return {
+                targetWt: 0,
+                estimatedWt: 0,
+                grossWt: 0,
+                goodWt: 0,
+                rejWt: 0,
+                totalDtHr: 0,
+                dt: {}, // reason code -> minutes
+                rej: {}, // reason code -> qty or wt
+                cc: 0,
+                mc: 0,
+                jc: 0
+            };
+        }
+
+        function renderGrid(aggData, lines, dateString, reasonsMap, teamDayMap, teamNightMap) {
+            const container = document.getElementById('grid-section');
+            container.style.display = 'block';
+
+            // Top Header HTML
+            let theadHtml = `
+                <tr>
+                    <th rowspan="2" style="font-size: 0.8rem; color: #1e293b; border-bottom: 2px solid #cbd5e1; vertical-align: middle;">
+                        <i class="bi bi-calendar-event"></i> DATE: ${dateString}
+                    </th>
+            `;
+            
+            lines.forEach(l => {
+                theadHtml += `<th colspan="2" class="line-header">${l.replace(' -', ' ')}</th>`;
+            });
+            theadHtml += `<th colspan="3" style="background:#0f172a !important; color:white; border-bottom:0; vertical-align: middle;">FACTORY TOTAL</th></tr><tr>`;
+
+            lines.forEach(l => {
+                const dayPerson = teamDayMap[l] ? (teamDayMap[l].entry_person || teamDayMap[l].prod_supervisor || '-') : '-';
+                const nightPerson = teamNightMap[l] ? (teamNightMap[l].entry_person || teamNightMap[l].prod_supervisor || '-') : '-';
+                let shortDayPerson = dayPerson.length > 15 ? dayPerson.substring(0,12) + '...' : dayPerson;
+                let shortNightPerson = nightPerson.length > 15 ? nightPerson.substring(0,12) + '...' : nightPerson;
+                if (shortDayPerson === '-') shortDayPerson = '';
+                if (shortNightPerson === '-') shortNightPerson = '';
+
+                theadHtml += `
+                    <th class="shift-header-day" style="padding:6px 2px">
+                        DAY${shortDayPerson ? `<br><span style="font-size:0.55rem; color:#2563eb; font-weight:700; text-transform:uppercase">${shortDayPerson}</span>` : ''}
+                    </th>
+                    <th class="shift-header-night" style="padding:6px 2px">
+                        NIGHT${shortNightPerson ? `<br><span style="font-size:0.55rem; color:#4f46e5; font-weight:700; text-transform:uppercase">${shortNightPerson}</span>` : ''}
+                    </th>
+                `;
+            });
+            theadHtml += `<th class="shift-header-day" style="background:#fffbeb !important; vertical-align:middle">DAY</th><th class="shift-header-night" style="background:#eef2ff !important; vertical-align:middle">NIGHT</th><th class="shift-header-total" style="vertical-align:middle">24 HRS TOTAL</th></tr>`;
+
+            // Row Generators
+            const generateRow = (title, fieldOrFn, cssClass = '', isDrilldown = false) => {
+                let html = `<tr class="${cssClass}"><td>${title}</td>`;
+                let totalDay = 0, totalNight = 0;
+
+                lines.forEach(l => {
+                    const dayVal = typeof fieldOrFn === 'function' ? fieldOrFn(aggData[l].Day) : aggData[l].Day[fieldOrFn];
+                    const nightVal = typeof fieldOrFn === 'function' ? fieldOrFn(aggData[l].Night) : aggData[l].Night[fieldOrFn];
+                    
+                    totalDay += (Number(dayVal) || 0);
+                    totalNight += (Number(nightVal) || 0);
+
+                    let dayStyle = dayVal ? '' : 'color:#cbd5e1;';
+                    let nightStyle = nightVal ? '' : 'color:#cbd5e1;';
+                    let extStyle = isDrilldown ? ' cursor:pointer; text-decoration:underline; font-weight:700;' : '';
+                    let evt = isDrilldown ? ` ondblclick="openRejModal(decodeURIComponent('${encodeURIComponent(l)}'))" title="Double-click for Machine-wise Reject drilldown"` : '';
+
+                    html += `
+                        <td style="${dayStyle}${extStyle}"${evt}>${formatVal(dayVal)}</td>
+                        <td style="${nightStyle}${extStyle}"${evt}>${formatVal(nightVal)}</td>
+                    `;
+                });
+
+                html += `<td style="font-weight:bold; background:#fffbeb">${formatVal(totalDay)}</td><td style="font-weight:bold; background:#eef2ff">${formatVal(totalNight)}</td><td style="font-weight:900; background:#dcfce7; color:#166534">${formatVal(totalDay + totalNight)}</td></tr>`;
+                return html;
+            };
+
+            const formatVal = (v) => {
+                if (v === 0 || !v || isNaN(v)) return '-';
+                return Number(v).toLocaleString('en-IN', { maximumFractionDigits: 1 });
+            };
+
+            // Calculate factory totals
+            const calcPercent = (data, numeratorFn, denominatorFn) => {
+                const n = numeratorFn(data);
+                const d = denominatorFn(data);
+                return d > 0 ? (n / d) * 100 : 0;
+            };
+
+            // Production Group
+            let tbodyHtml = `<tr class="row-group-header"><td colspan="${(lines.length * 2) + 3}"><i class="bi bi-box-fill"></i> FACTORY PRODUCTION METRICS</td></tr>`;
+            tbodyHtml += generateRow('24 Hrs Target Wt. (Kg)', d => d.targetWt);
+            tbodyHtml += generateRow('Gross Production Wt. (Kg)', d => d.grossWt, 'row-highlight');
+            tbodyHtml += generateRow('Good Production Wt. (Kg)', d => d.goodWt, 'row-highlight');
+            tbodyHtml += generateRow('Rejection Wt. (Kg)', d => d.rejWt, 'row-danger', true);
+            tbodyHtml += generateRow('Rejection %', d => (d.grossWt > 0 ? (d.rejWt / d.grossWt) * 100 : 0));
+            tbodyHtml += generateRow('Production Efficiency %', d => (d.targetWt > 0 ? (d.goodWt / d.targetWt) * 100 : 0));
+            tbodyHtml += generateRow('Plan vs Actual (+/- Kg)', d => d.goodWt - d.targetWt);
+            
+            // Primary DT Groups
+            tbodyHtml += `<tr class="row-group-header"><td colspan="${(lines.length * 2) + 3}"><i class="bi bi-clock-history"></i> MACRO DOWNTIMES</td></tr>`;
+            tbodyHtml += generateRow('Total DT. Hrs. (Hrs)', d => d.totalDtHr, 'row-danger');
+            tbodyHtml += generateRow('Total Cycle Time Loss DT (Hrs)', d => (d.dt['8'] || 0) / 60);
+
+            // Changeovers
+            tbodyHtml += `<tr class="row-group-header"><td colspan="${(lines.length * 2) + 3}"><i class="bi bi-arrow-repeat"></i> CHANGEOVERS (COUNT)</td></tr>`;
+            tbodyHtml += generateRow('Mould Change (MC)', d => d.mc);
+            tbodyHtml += generateRow('Colour Change (CC)', d => d.cc);
+            tbodyHtml += generateRow('Job Change (JC)', d => d.jc);
+
+            // Detailed Reason Breakdowns
+            tbodyHtml += `<tr class="row-group-header"><td colspan="${(lines.length * 2) + 3}"><i class="bi bi-list-nested"></i> DOWNTIME BREAKDOWN</td></tr>`;
+            
+            const importantCodes = ['1', '2', '4', '5', '7', '11', '13', '14', '15', '16'];
+            importantCodes.forEach(code => {
+                const rName = reasonsMap[code] || `Reason ${code}`;
+                tbodyHtml += generateRow(rName + ' (Hrs)', d => (d.dt[code] || 0) / 60);
+            });
+
+            // Calculate 'Other Downtime' collectively
+            lines.forEach(l => {
+                ['Day', 'Night'].forEach(shiftName => {
+                     let otherDt = 0;
+                     Object.entries(aggData[l][shiftName].dt).forEach(([c, val]) => {
+                         if (!importantCodes.includes(c) && c !== '8') otherDt += val;
+                     });
+                     aggData[l][shiftName].otherDtHour = otherDt / 60;
+                });
+            });
+            tbodyHtml += generateRow('Other Downtime (Hrs)', d => d.otherDtHour);
+
+            // Utilization Group
+            tbodyHtml += `<tr class="row-group-header"><td colspan="${(lines.length * 2) + 3}"><i class="bi bi-speedometer"></i> MACHINE UTILIZATION</td></tr>`;
+            // Simple util formulation: 12 hrs shift - DT Hrs / 12 hrs
+            tbodyHtml += generateRow('Total Value M/c Utilisation %', d => {
+                // If there's 0 target, assume line was totally off.
+                if (d.targetWt === 0 && d.grossWt === 0) return 0;
+                let util = ((12 - d.totalDtHr) / 12) * 100;
+                return Math.max(0, Math.min(100, util));
+            });
+
+            container.innerHTML = `<table class="dpr-table">
+                <thead>${theadHtml}</thead>
+                <tbody>${tbodyHtml}</tbody>
+            </table>`;
+        }
+
+        // --- Charts Generation ---
+        function renderCharts(aggData, lines, reasonsMap) {
+            document.getElementById('charts-section').style.display = 'grid';
+
+            const lineLabels = lines.map(l => l.replace(' -', ' '));
+            
+            // Data aggregations
+            const effDayDa = [], effNightDa = [], rejDayDa = [], rejNightDa = [], dtLabels = {};
+            
+            lines.forEach(l => {
+                const day = aggData[l].Day;
+                const night = aggData[l].Night;
+                
+                const dayEff = day.targetWt > 0 ? ((day.goodWt / day.targetWt) * 100).toFixed(1) : 0;
+                const nightEff = night.targetWt > 0 ? ((night.goodWt / night.targetWt) * 100).toFixed(1) : 0;
+                effDayDa.push(dayEff);
+                effNightDa.push(nightEff);
+
+                rejDayDa.push(day.rejWt.toFixed(1));
+                rejNightDa.push(night.rejWt.toFixed(1));
+
+                // Acc Dt
+                Object.entries(day.dt).forEach(([c, v]) => dtLabels[c] = (dtLabels[c] || 0) + v);
+                Object.entries(night.dt).forEach(([c, v]) => dtLabels[c] = (dtLabels[c] || 0) + v);
+            });
+
+            createStackedChart('effChart', lineLabels, effDayDa, effNightDa, '%');
+            createStackedChart('rejChart', lineLabels, rejDayDa, rejNightDa, 'Kg');
+
+            // Downtime Pie
+            const pieData = Object.values(dtLabels).map(v => (v/60).toFixed(1));
+            const pieLabels = Object.keys(dtLabels).map(c => reasonsMap[c] || `Code ${c}`);
+
+            if (charts['dtChart']) charts['dtChart'].destroy();
+            const ctxPie = document.getElementById('dtChart').getContext('2d');
+            charts['dtChart'] = new Chart(ctxPie, {
+                type: 'doughnut',
+                data: {
+                    labels: pieLabels,
+                    datasets: [{
+                        data: pieData,
+                        backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#64748b']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'right', labels: { boxWidth: 12, font: { size: 10 } } },
+                        datalabels: {
+                            color: '#fff',
+                            font: { weight: 'bold', size: 10 },
+                            formatter: (value) => value > 0 ? value + 'h' : ''
+                        }
+                    }
+                }
+            });
+        }
+
+        function createStackedChart(id, labels, dayData, nightData, unit) {
+            if (charts[id]) charts[id].destroy();
+            const ctx = document.getElementById(id).getContext('2d');
+
+            charts[id] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Day', data: dayData, backgroundColor: '#3b82f6', stack: 'Stack 0', borderRadius: 4 },
+                        { label: 'Night', data: nightData, backgroundColor: '#6366f1', stack: 'Stack 0', borderRadius: 4 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { stacked: true, grid: { display: false } },
+                        y: { stacked: true, beginAtZero: true, grid: { color: '#f1f5f9' }, grace: '20%' }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        datalabels: {
+                            color: '#ffffff',
+                            font: { weight: 'bold', size: 9 },
+                            formatter: (value) => Number(value) > 0 ? value : ''
+                        }
+                    }
+                },
+                plugins: [{
+                    id: 'topTotals',
+                    afterDatasetsDraw(chart) {
+                        const ctx = chart.ctx;
+                        chart.data.datasets[0].data.forEach((val, i) => {
+                            const dVal = Number(val) || 0;
+                            const nVal = Number(chart.data.datasets[1].data[i]) || 0;
+                            let total = dVal + nVal;
+                            
+                            // Specific workaround logic: for efficiency, the total bar stacked heights might physically add Day % + Night %, which mathematically isn't correct for average efficiency. Wait, if a user runs Day (50%) and Night (50%), the stacked bar goes to 100%, but the physical bar should not just sum the averages! 
+                            // Ah! We can just display the label text via our custom plugin. If id === 'effChart', total should be dayEff/nightEff weighted...
+                            // Let's just output the physical addition for now as the user requested "show DayAnd Night total Also And Main Total At top of bar". 
+                            // Rejection weight physically adds perfectly. 
+                            if(total > 0) {
+                                const meta = chart.getDatasetMeta(1); // Top stack
+                                const x = meta.data[i].x;
+                                const y = chart.scales.y.getPixelForValue(total) - 8;
+                                
+                                ctx.save();
+                                ctx.fillStyle = '#475569'; 
+                                ctx.font = 'bold 11px Arial';
+                                ctx.textAlign = 'center';
+                                ctx.fillText(Number(total).toLocaleString('en-IN', {maximumFractionDigits:1}) + unit, x, y);
+                                ctx.restore();
+                            }
+                        });
+                    }
+                }]
+            });
+        }
+
+        function openRejModal(lineKey) {
+            const dataMap = window.dailyDrilldownData[lineKey];
+            if(!dataMap) return JPSMS.toast('No drilldown data available for ' + lineKey, 'warning');
+            
+            // Convert to array and sort by rejQty Descending
+            const machines = Object.values(dataMap).filter(m => m.rej > 0 || m.good > 0);
+            machines.sort((a,b) => b.rej - a.rej);
+
+            let str = `<table class="table table-bordered table-sm" style="font-size:0.8rem; margin:0; text-align:left">
+                 <thead style="background:#f8fafc">
+                    <tr><th>Machine</th><th>JC / Standard</th><th>Qty Shots</th><th>Good</th><th style="color:#dc2626">Reject</th></tr>
+                 </thead><tbody>`;
+            
+            if(machines.length === 0) {
+                str += `<tr><td colspan="5" style="text-align:center; padding: 20px; color:#94a3b8">No operational machines found for this line.</td></tr>`;
+            } else {
+                machines.forEach(m => {
+                    str += `<tr>
+                        <td><strong style="color:#0f172a">${m.mName}</strong><br><span style="font-size:0.75rem; color:#64748b">${m.client || 'Internal'}</span></td>
+                        <td><span style="font-weight:600">${m.jc || 'No Job Card'}</span><br><span style="font-size:0.7rem; color:#64748b">Std: ${m.std} | Act: ${m.act}g</span></td>
+                        <td style="font-weight:600; color:#334155; vertical-align:middle">${m.shots.toLocaleString('en-IN')}</td>
+                        <td style="color:#16a34a; font-weight:600; vertical-align:middle">${m.good.toLocaleString('en-IN')}</td>
+                        <td style="vertical-align:middle"><span style="color:#dc2626; font-weight:800; font-size:0.9rem">${m.rej.toLocaleString('en-IN')}</span> <span style="font-size:0.7rem; color:#64748b; margin-left:4px">(${m.act > 0 ? (m.rej * m.act).toFixed(1) + 'Kg' : '-'})</span></td>
+                    </tr>`;
+                });
+            }
+            str += `</tbody></table>`;
+
+            // Insert into DOM
+            const eMod = document.getElementById('drillModal');
+            if(eMod) eMod.remove();
+
+            const modHtml = `
+            <div id="drillModal" style="position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15,23,42,0.85); z-index:9999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(3px)">
+                 <div style="background:white; border-radius:12px; width:800px; max-width:95vw; max-height:90vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);">
+                     <div style="padding:15px 20px; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center; background:#f8fafc">
+                         <h5 style="margin:0; font-weight:800; color:#0f172a; font-size:1.1rem"><i class="bi bi-funnel-fill" style="color:#ef4444; margin-right:8px"></i> Machine-Wise Rejection Drilldown: <span style="color:#ef4444">${lineKey}</span></h5>
+                         <button onclick="document.getElementById('drillModal').remove()" style="background:none; border:none; font-size:1.5rem; line-height:1; cursor:pointer; color:#64748b">&times;</button>
+                     </div>
+                     <div style="padding:0; overflow-y:auto; flex:1">
+                         ${str}
+                     </div>
+                 </div>
+            </div>`;
+            document.body.insertAdjacentHTML('beforeend', modHtml);
+        }
+    </script>
+</body>
+</html>

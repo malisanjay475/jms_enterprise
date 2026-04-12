@@ -1,0 +1,3620 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>JMS OCEAN - Master Data</title>
+  <!-- PWA Meta -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#1e293b">
+  <link rel="stylesheet" href="/assets/app.css?v=5">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+
+  <!-- DataTables CSS -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.3.6/css/buttons.dataTables.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/scroller/2.1.1/css/scroller.dataTables.min.css">
+
+  <style>
+    /* Premium Corporate Design */
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --bg-soft: #f8fafc;
+      --text-main: #1e293b;
+      --text-light: #64748b;
+      --border: #e2e8f0;
+    }
+
+    body {
+      background-color: var(--bg-soft);
+      font-family: 'Inter', system-ui, sans-serif;
+      color: var(--text-main);
+      font-size: 0.8rem;
+      /* SMALLER FONTS GLOBALLY */
+    }
+
+    .main-content {
+      padding: 15px;
+      max-width: 100%;
+      margin: 0 auto;
+    }
+
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px 14px;
+      flex-wrap: wrap;
+      margin-bottom: 15px;
+    }
+
+    .page-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.5px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.05);
+      padding: 15px;
+      /* Reduced Padding */
+      margin-bottom: 15px;
+      border: 1px solid var(--border);
+    }
+
+    /* Filter Section */
+    .filter-section {
+      display: none;
+      gap: 15px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 15px;
+      margin-bottom: 15px;
+    }
+
+    .filter-section.active {
+      display: flex;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .scope-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 16px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 15px;
+      margin-bottom: 15px;
+    }
+
+    .scope-grid.dual {
+      grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.95fr);
+      align-items: start;
+    }
+
+    .scope-panel {
+      min-width: 0;
+    }
+
+    .scope-panel .control-group {
+      width: 100%;
+    }
+
+    .scope-panel .form-input {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .scope-note {
+      font-size: 0.72rem;
+      color: #64748b;
+      margin-top: 6px;
+      max-width: none;
+      line-height: 1.4;
+    }
+
+    @media (max-width: 900px) {
+      .scope-grid.dual {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .control-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--text-light);
+    }
+
+    .form-input {
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-size: 0.8rem;
+      min-width: 140px;
+    }
+
+    .btn-action {
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      padding: 7px 16px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-action:hover {
+      background-color: var(--primary-dark);
+    }
+
+    /* Upload Box - Compact */
+    .upload-box {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      background: #f1f5f9;
+      padding: 10px;
+      border-radius: 6px;
+      /* Reduced Size */
+      border: 1px dashed #cbd5e1;
+    }
+
+    .header-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .upload-shell {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .upload-title {
+      flex: 0 0 120px;
+      font-weight: 700;
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+
+    .upload-actions-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex: 1;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+
+    .upload-box:hover {
+      border-color: var(--primary);
+    }
+
+    /* DataTables Customization */
+    table.dataTable.display tbody tr td {
+      padding: 6px 10px;
+      font-size: 0.75rem;
+    }
+
+    table.dataTable thead th {
+      background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%) !important;
+      color: white !important;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      padding: 8px 10px !important;
+      border-bottom: none !important;
+      white-space: nowrap;
+    }
+
+    .dt-buttons .dt-button {
+      background: white !important;
+      border: 1px solid #e2e8f0 !important;
+      border-radius: 4px !important;
+      padding: 4px 10px !important;
+      font-size: 0.75rem !important;
+    }
+
+    /* FIX: Column Visibility Dropdown Overflow */
+    div.dt-button-collection {
+      max-height: 400px;
+      overflow-y: auto;
+      width: 250px;
+    }
+
+    div.dt-button-collection .dt-button {
+      display: block;
+      width: 100%;
+      text-align: left;
+    }
+
+    div.dataTables_wrapper div.dt-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    @media (max-width: 1366px) {
+      .main-content {
+        padding: 12px;
+      }
+
+      .header-row {
+        align-items: flex-start;
+      }
+
+      .upload-shell {
+        flex-wrap: wrap;
+        align-items: stretch;
+      }
+
+      .upload-title {
+        flex: 1 1 100%;
+      }
+
+      .upload-box {
+        flex-wrap: wrap;
+        align-items: flex-start;
+      }
+
+      .upload-actions-row {
+        width: 100%;
+      }
+
+      div.dataTables_wrapper div.dt-buttons,
+      div.dataTables_wrapper div.dataTables_filter,
+      div.dataTables_wrapper div.dataTables_length,
+      div.dataTables_wrapper div.dataTables_info,
+      div.dataTables_wrapper div.dataTables_paginate {
+        float: none;
+        text-align: left;
+      }
+
+      div.dataTables_wrapper div.dataTables_filter input {
+        margin-left: 0;
+        width: min(100%, 280px);
+      }
+    }
+
+    @media (max-width: 1100px) {
+      .page-title {
+        font-size: 1.05rem;
+      }
+
+      .filter-section.active {
+        gap: 10px;
+      }
+
+      .control-group {
+        flex: 1 1 calc(50% - 10px);
+        min-width: 0;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .control-group {
+        flex-basis: 100%;
+      }
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(5px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="main-content">
+
+    <div class="header-row">
+      <div class="page-title" id="pageTitle">Master Data <span
+          style="font-size:0.7rem; background:#2563eb; color:white; padding:2px 6px; border-radius:4px; vertical-align:middle;">v2.3
+          (Polished)</span></div>
+      <div class="header-meta" style="font-size:0.8rem; color:var(--text-light)">
+        <a href="/index.html" style="text-decoration:none; color:var(--primary)">Dashboard</a> / Masters
+      </div>
+    </div>
+
+    <!-- Upload Section - Compact -->
+    <div class="card upload-shell" id="uploadSection" style="padding:10px; display:flex; align-items:center; gap:15px">
+      <div class="upload-title">Data Upload</div>
+      <div class="upload-box" style="flex:1">
+        <i class="bi bi-cloud-arrow-up" style="font-size:1.1rem; color:var(--primary)"></i>
+        <div class="upload-actions-row">
+          <span style="font-size:0.75rem; color:var(--text-light)" id="uploadHint">Select file...</span>
+          <button id="omFetchBtn" class="btn-action" onclick="fetchOrdersFromORJR()"
+            style="padding:5px 12px; background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; display:none; margin-right:5px">
+            <i class="bi bi-cloud-arrow-down"></i> Auto-Fetch Orders
+          </button>
+          <button id="omHistoryBtn" class="btn-action" onclick="openOrderCompletionHistory()"
+            style="padding:5px 12px; background:#1e293b; color:#fff; border:1px solid #0f172a; display:none; margin-right:5px">
+            <i class="bi bi-clock-history"></i> Completion History
+          </button>
+          <span class="muted small" id="omLastFetch"
+            style="margin-right:10px; display:none; font-size:0.75rem; color:#64748b"></span>
+
+          <input type="file" id="uploadFile" class="form-input"
+                style="padding:4px; background:white; width:auto; flex:1" accept=".xlsx,.xls,.xlsm,.xlsb,.csv">
+              <button class="btn-action" onclick="uploadMaster()" style="padding:5px 12px">Preview Upload</button>
+          <button id="templateBtn" class="btn-action" onclick="downloadTemplate()"
+            style="padding:5px 12px; background:#0f766e; margin-left:5px; display:none;">
+            <i class="bi bi-file-earmark-excel"></i> Template
+          </button>
+          <button id="addMachineBtn" class="btn-action" onclick="openMachineModal('add')"
+            style="padding:5px 12px; background:#16a34a; display:none; margin-left:5px;"><i class="bi bi-plus-lg"></i>
+            Add</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="allFactoryUploadLock"
+      style="display:none; padding:10px 12px; border-left:4px solid #2563eb; background:#eff6ff; color:#1e3a8a">
+      <div id="factoryWriteLockTitle" style="font-weight:700; font-size:0.8rem; margin-bottom:4px;">
+        All Factories Scope Selected
+      </div>
+      <div id="factoryWriteLockText" style="font-size:0.76rem; color:#1d4ed8;">
+        Upload, import, and factory-level master changes are available only after selecting one factory.
+      </div>
+      <div style="margin-top:10px;">
+        <button id="allFactoryTemplateBtn" class="btn-action" onclick="downloadTemplate()"
+          style="padding:5px 12px; background:#0f766e; display:none;">
+          <i class="bi bi-file-earmark-excel"></i> Download Template
+        </button>
+      </div>
+    </div>
+
+    <!-- Report & Data Card -->
+    <div class="card">
+
+      <div class="scope-grid" id="machineScopeGrid">
+        <div class="scope-panel" id="factoryScopeSection">
+          <div class="control-group">
+            <label class="control-label">Factory Scope</label>
+            <select id="factorySelector" class="form-input" style="font-weight:600">
+              <option value="">Loading factories...</option>
+            </select>
+            <div id="factoryScopeNote" class="scope-note">
+              Select a factory scope to load and export data.
+            </div>
+          </div>
+        </div>
+
+        <div class="scope-panel" id="machineProcessSection" style="display:none;">
+          <div class="control-group">
+            <label class="control-label">Process</label>
+            <select id="machineProcessFilter" class="form-input" style="font-weight:600">
+              <option value="">All Processes</option>
+              <option value="Moulding">Moulding</option>
+              <option value="Tuffting">Tuffting</option>
+              <option value="Printing">Printing</option>
+            </select>
+            <div class="scope-note">
+              Filter Machine Master by Moulding, Tuffting, or Printing.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="filter-section" id="filterSection">
+        <div class="control-group">
+          <label class="control-label" id="filterFromLabel">From Date</label>
+          <input type="date" id="filterFrom" class="form-input">
+        </div>
+
+        <div class="control-group">
+          <label class="control-label" id="filterToLabel">To Date</label>
+          <input type="date" id="filterTo" class="form-input">
+        </div>
+
+        <div class="control-group">
+          <label class="control-label">Search (Order/Mould)</label>
+          <input type="text" id="filterSearch" class="form-input" placeholder="Order No, Item, Mould...">
+        </div>
+
+        <div style="display:flex; align-items:flex-end">
+          <button class="btn-action" onclick="loadMasterData()">Apply Filters</button>
+        </div>
+
+        <div id="filterDateHint" style="display:none; width:100%; font-size:0.74rem; color:#64748b; margin-top:4px;">
+          Leave dates empty to load all data. Select dates only if you want to filter.
+        </div>
+      </div>
+
+      <!-- Data Table -->
+      <div style="width:100%; overflow-x:auto;">
+        <table id="masterTable" class="display nowrap compact">
+          <thead>
+            <tr>
+              <th>Initializing...</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Review Modal -->
+  <div id="reviewModal"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center">
+    <div
+      style="background:white; padding:20px; border-radius:8px; width:800px; max-width:95%; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 10px 25px rgba(0,0,0,0.2)">
+      <div style="display:flex; justify-content:space-between; margin-bottom:15px; align-items:center">
+        <h3 id="reviewModalTitle" style="margin:0; font-size:1.1rem">Review Changes</h3>
+        <button onclick="closeReviewModal()"
+          style="background:none; border:none; font-size:1.2rem; cursor:pointer; color:#64748b">&times;</button>
+      </div>
+
+      <div
+        style="background:#f1f5f9; padding:8px 12px; border-radius:4px; margin-bottom:10px; font-weight:600; color:var(--text-main); font-size:0.8rem"
+        id="reviewCount">
+        Analyzing file...
+      </div>
+
+      <div style="flex:1; overflow-y:auto; border:1px solid #e2e8f0; border-radius:6px">
+        <table class="table" style="width:100%; border-collapse:collapse">
+          <thead style="background:#f8fafc; position:sticky; top:0">
+            <tr>
+              <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0; font-size:0.75rem">STATUS</th>
+              <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0; font-size:0.75rem">KEY</th>
+              <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0; font-size:0.75rem">DETAILS</th>
+            </tr>
+          </thead>
+          <tbody id="reviewTableBody" style="font-size:0.75rem"></tbody>
+        </table>
+      </div>
+
+      <div style="text-align:right; margin-top:15px; gap:10px; display:flex; justify-content:flex-end">
+        <button onclick="closeReviewModal()"
+          style="padding:6px 16px; border:1px solid #cbd5e1; background:white; border-radius:4px; cursor:pointer; font-size:0.8rem">Cancel</button>
+        <button id="confirmBtn" onclick="confirmUpload()" class="btn-action">Confirm Update</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mould Modal (Enhanced) -->
+  <div id="mouldModal" class="modal"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1100; justify-content:center; align-items:center;">
+    <div
+      style="background:white; padding:20px; border-radius:8px; width:900px; max-width:98%; max-height:90vh; overflow:auto; display:flex; flex-direction:column;">
+      <h3 id="mouldModalTitle" style="margin-top:0">Edit Mould</h3>
+      <!-- Hidden Original ID tracker -->
+      <input type="hidden" id="mould_original_id">
+      <form id="mouldForm" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; font-size:0.9rem">
+        <div><label class="control-label">Mould Number *</label><input type="text" id="mould_mould_number"
+            class="form-input" style="width:100%"></div>
+        <div><label class="control-label">Mould Name</label><input type="text" id="mould_mould_name"
+            class="form-input" style="width:100%"></div>
+        <div><label class="control-label">STD WT (KG)</label><input type="number" step="0.001" id="mould_std_wt_kg"
+            class="form-input" style="width:100%"></div>
+
+        <div><label class="control-label">Runner Weight</label><input type="number" step="0.001"
+            id="mould_runner_weight" class="form-input" style="width:100%"></div>
+        <div><label class="control-label">Primary Machine</label>
+          <input type="text" id="mould_primary_machine" list="machineList" class="form-input" style="width:100%"
+            placeholder="Search Machine...">
+        </div>
+        <div><label class="control-label">Secondary Machine</label>
+          <div style="display:flex; gap:5px">
+            <input type="text" id="mould_secondary_machine" class="form-input" style="flex:1"
+              placeholder="e.g. B-L1>HYD-300-2">
+            <input type="text" id="mould_sec_picker" list="machineList" class="form-input" style="width:140px"
+              placeholder="+ Add Machine">
+          </div>
+        </div>
+
+        <div><label class="control-label">Moulding Sqn.</label><input type="text" id="mould_moulding_sqn"
+            class="form-input" style="width:100%"></div>
+        <div><label class="control-label">Tonnage</label><input type="number" step="0.01" id="mould_tonnage"
+            class="form-input" style="width:100%"></div>
+        <div><label class="control-label">NO OF CAV</label><input type="number" step="0.01" id="mould_no_of_cav"
+            class="form-input" style="width:100%"></div>
+
+        <div><label class="control-label">Cycle Time</label><input type="number" step="0.01" id="mould_cycle_time"
+            class="form-input" style="width:100%"></div>
+        <div><label class="control-label">PCS/HOUR</label><input type="number" step="0.01" id="mould_pcs_per_hour"
+            class="form-input" style="width:100%"></div>
+        <div><label class="control-label">Target PCS/DAY</label><input type="number" step="0.01" id="mould_target_pcs_day"
+            class="form-input" style="width:100%"></div>
+
+        <div><label class="control-label">Material</label><input type="text" id="mould_material" class="form-input"
+            style="width:100%"></div>
+        <div><label class="control-label">Manpower</label><input type="number" step="0.01" id="mould_manpower" class="form-input"
+            style="width:100%"></div>
+        <div><label class="control-label">Operator Activities</label><input type="text" id="mould_operator_activities"
+            class="form-input" style="width:100%"></div>
+
+        <div><label class="control-label">SFG STD Packing</label><input type="text" id="mould_sfg_std_packing"
+            class="form-input" style="width:100%"></div>
+        <div><label class="control-label">STD VOLUME CAP.</label><input type="text" id="mould_std_volume_cap"
+            class="form-input" style="width:100%"></div>
+      </form>
+      <div
+        style="text-align:right; margin-top:20px; display:flex; justify-content:flex-end; gap:10px; border-top:1px solid #eee; padding-top:10px">
+        <button type="button" onclick="document.getElementById('mouldModal').style.display='none'"
+          style="padding:8px 16px; border:1px solid #ddd; background:white; border-radius:4px">Cancel</button>
+        <button type="button" onclick="saveMould()" class="btn-action" style="padding:8px 24px">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Auduts Modal -->
+  <div id="historyModal" class="modal"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1200; justify-content:center; align-items:center;">
+    <div
+      style="background:white; padding:20px; border-radius:8px; width:700px; max-width:95%; max-height:80vh; overflow:auto">
+      <div style="display:flex; justify-content:space-between;">
+        <h3>Audit History</h3>
+        <button onclick="document.getElementById('historyModal').style.display='none'"
+          style="border:none; background:none; font-size:1.5rem">&times;</button>
+      </div>
+      <table class="table" style="width:100%; font-size:0.8rem">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>User</th>
+            <th>Action</th>
+            <th>Changes</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+      <!-- New Button -->
+      <!-- New Button Removed -->
+
+    </div>
+  </div>
+
+  <div id="orderCompletionHistoryModal" class="modal"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.55); z-index:1250; justify-content:center; align-items:center; padding:20px;">
+    <div
+      style="background:white; border-radius:20px; width:min(1100px, 96vw); max-height:88vh; overflow:auto; box-shadow:0 30px 60px rgba(15,23,42,0.24); border:1px solid #dbeafe;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:20px 24px 14px; border-bottom:1px solid #e2e8f0;">
+        <div>
+          <div style="font-size:0.74rem; letter-spacing:0.08em; font-weight:700; color:#0f766e; text-transform:uppercase;">Order Completion History</div>
+          <h3 id="orderCompletionHistoryTitle" style="margin:6px 0 0; font-size:1.2rem; color:#0f172a;">Recent completion confirmations</h3>
+        </div>
+        <button onclick="closeOrderCompletionHistoryModal()"
+          style="border:none; background:#f8fafc; width:38px; height:38px; border-radius:999px; font-size:1.4rem; color:#475569; cursor:pointer;">&times;</button>
+      </div>
+      <div style="padding:18px 24px 24px;">
+        <div id="orderCompletionHistorySummary"
+          style="font-size:0.82rem; color:#64748b; margin-bottom:14px;">Admin and Superadmin can review the status-change timeline and restore confirmed orders here.</div>
+        <div style="overflow:auto;">
+          <table class="table" style="width:100%; font-size:0.82rem;">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Factory</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Details</th>
+                <th>Restore</th>
+              </tr>
+            </thead>
+            <tbody id="orderCompletionHistoryBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Plant Closure Modal -->
+  <div id="plantClosureModal" class="modal"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1300; justify-content:center; align-items:center;">
+    <div style="background:white; padding:20px; border-radius:12px; width:800px; max-width:95%; max-height:90vh; overflow:auto; display:flex; flex-direction:column; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1)">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px">
+        <h3 style="margin:0; color:#be185d"><i class="bi bi-lock"></i> Plant Closure Management</h3>
+        <button onclick="document.getElementById('plantClosureModal').style.display='none'" style="border:none; background:none; font-size:1.5rem; cursor:pointer">&times;</button>
+      </div>
+
+      <div class="row" style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:10px; margin-bottom:20px; background:#fff1f2; padding:15px; border-radius:8px; border:1px solid #fecaca">
+        <div class="control-group">
+          <label class="control-label">Close Date</label>
+          <input type="date" id="pc-date" class="form-input" style="width:100%">
+        </div>
+        <div class="control-group">
+          <label class="control-label">Plant / Line</label>
+          <select id="pc-plant" class="form-input" style="width:100%">
+            <!-- Dynamically populated -->
+          </select>
+        </div>
+        <div class="control-group">
+          <label class="control-label">Shift</label>
+          <select id="pc-shift" class="form-input" style="width:100%">
+            <option value="Day">Day Shift</option>
+            <option value="Night">Night Shift</option>
+            <option value="Both">Both Shifts</option>
+          </select>
+        </div>
+        <div style="display:flex; align-items:flex-end">
+          <button class="btn-action" onclick="savePlantClosure()" style="width:100%; background:#be185d">Add Closure</button>
+        </div>
+        <div class="control-group" style="grid-column: span 4">
+          <label class="control-label">Remarks</label>
+          <input type="text" id="pc-remarks" class="form-input" placeholder="Mention reason for closure..." style="width:100%">
+        </div>
+      </div>
+
+      <div style="flex:1; overflow-y:auto">
+        <h4 style="margin:10px 0; font-size:0.9rem; color:#64748b; text-transform:uppercase; letter-spacing:0.5px">Active Closures</h4>
+        <table class="table" style="width:100%; border-collapse:collapse; font-size:0.8rem">
+          <thead style="background:#f8fafc; position:sticky; top:0">
+            <tr>
+              <th style="padding:10px; text-align:left; border-bottom:2px solid #e2e8f0">Date</th>
+              <th style="padding:10px; text-align:left; border-bottom:2px solid #e2e8f0">Plant</th>
+              <th style="padding:10px; text-align:left; border-bottom:2px solid #e2e8f0">Shift</th>
+              <th style="padding:10px; text-align:left; border-bottom:2px solid #e2e8f0">Remarks</th>
+              <th style="padding:10px; text-align:right; border-bottom:2px solid #e2e8f0">Action</th>
+            </tr>
+          </thead>
+          <tbody id="plantClosureBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <datalist id="machineList"></datalist>
+
+  <script>
+    // ... existing scripts ...
+
+    // clearStdActual REMOVED
+    let mouldMode = 'edit';
+    const mouldFields = [
+      'mould_number', 'mould_name', 'std_wt_kg', 'runner_weight',
+      'primary_machine', 'secondary_machine', 'moulding_sqn', 'tonnage', 'no_of_cav', 'cycle_time', 'pcs_per_hour',
+      'target_pcs_day', 'material', 'manpower', 'operator_activities', 'sfg_std_packing',
+      'std_volume_cap'
+    ];
+    const mouldColumnTitles = {
+      mould_number: 'MOULD NUMBER',
+      mould_name: 'MOULD NAME',
+      std_wt_kg: 'STD WT (KG)',
+      runner_weight: 'RUNNER WEIGHT',
+      primary_machine: 'PRIMARY MACHINE',
+      secondary_machine: 'SECONDARY MACHINE',
+      moulding_sqn: 'MOULDING SQN.',
+      tonnage: 'TONNAGE',
+      no_of_cav: 'NO OF CAV',
+      cycle_time: 'CYCLE TIME',
+      pcs_per_hour: 'PCS/HOUR',
+      target_pcs_day: 'TARGET PCS/DAY',
+      material: 'MATERIAL',
+      manpower: 'MANPOWER',
+      operator_activities: 'OPERATOR ACTIVITIES',
+      sfg_std_packing: 'SFG STD PACKING',
+      std_volume_cap: 'STD VOLUME CAP.'
+    };
+    const orjrWiseSummaryColumns = [
+      'or_jr_no', 'jr_date', 'our_code', 'bom_type', 'jr_item_name', 'jr_qty', 'uom',
+      'mould_no', 'mould', 'mould_item_qty', 'tonnage', 'machine', 'cycle_time', 'cavity'
+    ];
+    const orjrWiseSummaryTitles = {
+      or_jr_no: 'OR/JR No',
+      jr_date: 'JR Date',
+      our_code: 'Our Code',
+      bom_type: 'BomType',
+      jr_item_name: 'JR Item Name',
+      jr_qty: 'JR Qty',
+      uom: 'UOM',
+      mould_no: 'Mould No',
+      mould: 'Mould',
+      mould_item_qty: 'Mould Item Qty',
+      tonnage: 'Tonnage',
+      machine: 'Machine',
+      cycle_time: 'Cycle Time',
+      cavity: 'Cavity'
+    };
+    const orjrWiseDetailColumns = [
+      'or_jr_no', 'jr_date', 'our_code', 'bom_type', 'jr_item_name', 'jr_qty', 'uom',
+      'mould_item_code', 'mould_item_name', 'mould_no', 'mould', 'mould_item_qty',
+      'tonnage', 'machine', 'cycle_time', 'cavity'
+    ];
+    const orjrWiseDetailTitles = {
+      or_jr_no: 'OR/JR No',
+      jr_date: 'JR Date',
+      our_code: 'Our Code',
+      bom_type: 'BomType',
+      jr_item_name: 'JR Item Name',
+      jr_qty: 'JR Qty',
+      uom: 'UOM',
+      mould_item_code: 'Mold Item Code',
+      mould_item_name: 'Mold Item Name',
+      mould_no: 'Mould No',
+      mould: 'Mould',
+      mould_item_qty: 'Mould Item Qty',
+      tonnage: 'Tonnage',
+      machine: 'Machine',
+      cycle_time: 'Cycle Time',
+      cavity: 'Cavity'
+    };
+    const boPlanningDetailColumns = [
+      'or_jr_no', 'jr_date', 'our_code', 'bom_type', 'jr_item_name', 'jr_qty', 'uom',
+      'plan_date', 'plan_qty', 'bo_item_code', 'bo_item_name', 'bo_uom', 'bo_item_qty', 'remarks_all'
+    ];
+    const boPlanningDetailTitles = {
+      or_jr_no: 'OR/JR No',
+      jr_date: 'JR Date',
+      our_code: 'Our Code',
+      bom_type: 'BomType',
+      jr_item_name: 'JR Item Name',
+      jr_qty: 'JR Qty',
+      uom: 'UOM',
+      plan_date: 'Plan Date',
+      plan_qty: 'Plan Qty',
+      bo_item_code: 'Bo Item Code',
+      bo_item_name: 'Bo Item Name',
+      bo_uom: 'Bo UOM',
+      bo_item_qty: 'Bo Item Qty',
+      remarks_all: 'Remarks'
+    };
+    const wipStockColumns = [
+      'factory_name', 'stock_date', 'row_status', 'factory_unit', 'party_group', 'location_floor_dept',
+      'item_code', 'item_name', 'job_no', 'job_date', 'ageing_period',
+      'previous_stock_qty', 'current_stock_available_qty', 'current_live_qty', 'total_qty', 'uom',
+      'remark_from_factory_unit', 'remark_from_ho_sales_team'
+    ];
+    const wipStockTitles = {
+      stock_date: 'Stock Date',
+      row_status: 'Row Status',
+      factory_unit: 'Factory Unit',
+      party_group: 'Party Group',
+      location_floor_dept: 'Location/Floor/Dept',
+      item_code: 'Item Code',
+      item_name: 'Item Name',
+      job_no: 'Job No.',
+      job_date: 'Job Date',
+      ageing_period: 'Ageing Period',
+      previous_stock_qty: 'Previous Stock',
+      current_stock_available_qty: 'Current Stock Available',
+      current_live_qty: 'Current Live Qty',
+      total_qty: 'Total Qty',
+      uom: 'UOM',
+      remark_from_factory_unit: 'Remark From Factory Unit',
+      remark_from_ho_sales_team: 'Remark From HO/Sales Team'
+    };
+    const MACHINE_PROCESS_OPTIONS = ['Moulding', 'Tuffting', 'Printing'];
+
+    function normalizeMachineProcessValue(value, fallback = 'Moulding') {
+      const raw = String(value || '').trim();
+      if (!raw) return fallback;
+      const normalized = raw.toLowerCase().replace(/\s+/g, '');
+      if (['moulding', 'molding'].includes(normalized)) return 'Moulding';
+      if (['tuffting', 'tufting', 'tuf', 'tuft'].includes(normalized)) return 'Tuffting';
+      if (['printing', 'print'].includes(normalized)) return 'Printing';
+      return fallback;
+    }
+
+    function getSelectedMachineProcessFilter() {
+      const selected = document.getElementById('machineProcessFilter')?.value || '';
+      return normalizeMachineProcessValue(selected, '');
+    }
+
+    function isPrintingMachineView() {
+      return currentType === 'machines' && getSelectedMachineProcessFilter() === 'Printing';
+    }
+
+    function updateMachineSearchPlaceholder() {
+      const filterSearch = document.getElementById('filterSearch');
+      if (!filterSearch || currentType !== 'machines') return;
+      filterSearch.placeholder = isPrintingMachineView()
+        ? 'Machine number, vendor, model, machine type...'
+        : 'Machine, process, building, line...';
+    }
+
+    function updateMachineModalProcessView(processValue) {
+      const normalizedProcess = normalizeMachineProcessValue(processValue, 'Moulding');
+      const standardFields = document.getElementById('machineStandardFields');
+      const printingFields = document.getElementById('machinePrintingFields');
+      const machineLabel = document.getElementById('m_machine_label');
+      const machineInput = document.getElementById('m_machine');
+
+      if (machineLabel) machineLabel.textContent = normalizedProcess === 'Printing' ? 'Machine Number' : 'Machine Name';
+      if (machineInput) {
+        machineInput.placeholder = normalizedProcess === 'Printing' ? 'Enter machine number' : 'Enter machine name';
+      }
+      if (standardFields) standardFields.style.display = normalizedProcess === 'Printing' ? 'none' : 'block';
+      if (printingFields) printingFields.style.display = normalizedProcess === 'Printing' ? 'block' : 'none';
+    }
+
+    function openMouldModal(mode, data) {
+      if (!ensureSingleFactoryScope(mode === 'add' ? 'add moulds' : 'edit moulds')) return;
+      mouldMode = mode;
+      document.getElementById('mouldModal').style.display = 'flex';
+      document.getElementById('mouldModalTitle').textContent = mode === 'add' ? 'Add New Mould' : 'Edit Mould';
+
+      const f = document.getElementById('mouldForm');
+      f.reset();
+
+      if (data) {
+        mouldFields.forEach(k => {
+          const el = document.getElementById('mould_' + k);
+          if (el) el.value = data[k] !== undefined && data[k] !== null ? data[k] : '';
+        });
+        // ALLOW EDITING
+        document.getElementById('mould_original_id').value = data.mould_number || '';
+        document.getElementById('mould_mould_number').readOnly = false;
+      } else {
+        document.getElementById('mould_original_id').value = '';
+        document.getElementById('mould_mould_number').readOnly = false;
+      }
+      loadMachineList();
+    }
+
+    async function loadMachineList() {
+      if (document.getElementById('machineList').children.length > 0) return;
+      try {
+        const res = await JPSMS.api.get('/masters/machines?process=Moulding');
+        if (res.ok) {
+          const list = document.getElementById('machineList');
+          list.innerHTML = res.data.map(m => `<option value="${m.machine}">`).join('');
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // Multi-select Picker Logic
+    document.addEventListener('DOMContentLoaded', () => {
+      const picker = document.getElementById('mould_sec_picker');
+      if (picker) {
+        picker.addEventListener('change', function () {
+          const val = this.value;
+          if (!val) return;
+
+          // Optional: Check if valid machine (client-side)
+          // const opts = Array.from(document.getElementById('machineList').options).map(o => o.value);
+          // if (!opts.includes(val)) return; 
+
+          const main = document.getElementById('mould_secondary_machine');
+          if (main.value) {
+            // Check duplicate
+            const parts = main.value.split(',').map(s => s.trim());
+            if (!parts.includes(val)) {
+              main.value += ', ' + val;
+            }
+          } else {
+            main.value = val;
+          }
+          this.value = ''; // Reset picker
+        });
+      }
+    });
+
+    async function saveMould() {
+      if (!ensureSingleFactoryScope('save mould changes')) return;
+      const payload = {};
+      mouldFields.forEach(k => {
+        const el = document.getElementById('mould_' + k);
+        if (el) payload[k] = el.value;
+      });
+
+      // Audit User
+      payload._user = JPSMS.auth.getUser().username || 'Unknown';
+
+      try {
+        let res;
+        if (mouldMode === 'add') {
+          res = await JPSMS.api.post('/moulds', payload);
+        } else {
+          const originalId = document.getElementById('mould_original_id').value;
+          res = await JPSMS.api.put('/moulds/' + encodeURIComponent(originalId), payload);
+        }
+        alert(res.message);
+        document.getElementById('mouldModal').style.display = 'none';
+        loadMasterData();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function viewMouldHistory(id) {
+      try {
+        const res = await JPSMS.api.get('/moulds/history/' + encodeURIComponent(id));
+        if (!res.ok) throw new Error(res.error);
+
+        const tbody = document.getElementById('historyBody');
+        tbody.innerHTML = res.data.map(r => {
+          // Beautify Changes
+          let chgHtml = '';
+          try {
+            const chg = typeof r.changed_fields === 'string' ? JSON.parse(r.changed_fields) : r.changed_fields;
+            if (chg.message) {
+              chgHtml = `<span style="color:green">${chg.message}</span>`;
+            } else {
+              chgHtml = Object.keys(chg).map(k => {
+                const oldV = chg[k].old !== undefined ? chg[k].old : '(empty)';
+                const newV = chg[k].new;
+                // Beautify Key
+                const label = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                return `<div style="font-size:0.75rem"><b>${label}:</b> ${oldV} &rarr; <span style="color:blue;font-weight:bold">${newV}</span></div>`;
+              }).join('');
+            }
+          } catch (e) { chgHtml = String(r.changed_fields); }
+
+          return `
+               <tr>
+                 <td>${new Date(r.changed_at).toLocaleString()}</td>
+                 <td>${r.changed_by}</td>
+                 <td>${r.action_type}</td>
+                 <td>${chgHtml}</td>
+               </tr>
+             `;
+        }).join('');
+
+        document.getElementById('historyModal').style.display = 'flex';
+      } catch (e) { alert(e.message); }
+    }
+
+    async function viewMachineHistory(encodedMachineId) {
+      try {
+        const res = await JPSMS.api.get('/machines/history/' + encodedMachineId);
+        if (!res.ok) throw new Error(res.error);
+
+        const rows = Array.isArray(res.data) ? res.data : [];
+        const tbody = document.getElementById('historyBody');
+
+        if (!rows.length) {
+          tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:#64748b">No machine history found.</td></tr>`;
+          document.getElementById('historyModal').style.display = 'flex';
+          return;
+        }
+
+        tbody.innerHTML = rows.map(r => {
+          let chgHtml = '';
+          try {
+            const chg = typeof r.changed_fields === 'string' ? JSON.parse(r.changed_fields) : (r.changed_fields || {});
+            if (chg.message) {
+              chgHtml = `<span style="color:green">${chg.message}</span>`;
+            } else {
+              chgHtml = Object.keys(chg).map(k => {
+                const oldV = chg[k].old !== undefined ? chg[k].old : '(empty)';
+                const newV = chg[k].new !== undefined ? chg[k].new : '(empty)';
+                const label = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                return `<div style="font-size:0.75rem"><b>${label}:</b> ${oldV} &rarr; <span style="color:blue;font-weight:bold">${newV}</span></div>`;
+              }).join('');
+            }
+          } catch (e) {
+            chgHtml = String(r.changed_fields || '');
+          }
+
+          return `
+               <tr>
+                 <td>${new Date(r.changed_at).toLocaleString()}</td>
+                 <td>${r.changed_by || '-'}</td>
+                 <td>${r.action_type}</td>
+                 <td>${chgHtml}</td>
+               </tr>
+             `;
+        }).join('');
+
+        document.getElementById('historyModal').style.display = 'flex';
+      } catch (e) { alert(e.message); }
+    }
+
+    function closeOrderCompletionHistoryModal() {
+      const modal = document.getElementById('orderCompletionHistoryModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function openOrderCompletionHistory(orderNo = '', factoryId = '') {
+      if (!JPSMS.auth.isAdminLike()) {
+        JPSMS.toast('Only Admin or Superadmin can view completion history.', 'error');
+        return;
+      }
+
+      const modal = document.getElementById('orderCompletionHistoryModal');
+      const body = document.getElementById('orderCompletionHistoryBody');
+      const title = document.getElementById('orderCompletionHistoryTitle');
+      const summary = document.getElementById('orderCompletionHistorySummary');
+
+      try {
+        if (body) {
+          body.innerHTML = `<tr><td colspan="6" style="padding:24px; text-align:center; color:#64748b;">Loading completion history...</td></tr>`;
+        }
+        if (title) {
+          title.textContent = orderNo ? `Completion history for ${orderNo}` : 'Recent completion confirmations';
+        }
+        if (summary) {
+          summary.textContent = orderNo
+            ? 'Date-wise status changes, confirmations, and restores for the selected order.'
+            : 'Date-wise status changes across the allowed factory scope.';
+        }
+        modal.style.display = 'flex';
+
+        const qs = new URLSearchParams();
+        if (orderNo) qs.set('order_no', orderNo);
+        if (factoryId) qs.set('factory_id', factoryId);
+
+        const res = await JPSMS.api.get('/orders/completion-history' + (qs.toString() ? `?${qs.toString()}` : ''));
+        if (!res.ok) throw new Error(res.error || 'Unable to load completion history');
+
+        const rows = Array.isArray(res.data) ? res.data : [];
+        if (!rows.length) {
+          body.innerHTML = `<tr><td colspan="6" style="padding:24px; text-align:center; color:#64748b;">No completion history found yet.</td></tr>`;
+          return;
+        }
+
+        body.innerHTML = rows.map(row => {
+          const canRestore = String(row.action_type || '').toUpperCase() === 'CONFIRMED_COMPLETE'
+            || String(row.master_status_after || '').toLowerCase() === 'completed';
+          const details = [
+            row.summary_text || '-',
+            row.change_to ? `To: ${row.change_to}` : '',
+            row.master_status_before || row.master_status_after
+              ? `Master: ${row.master_status_before || '-'} -> ${row.master_status_after || '-'}`
+              : ''
+          ].filter(Boolean).join('<br>');
+          return `
+            <tr>
+              <td>${row.changed_at ? moment(row.changed_at).format('DD-MMM-YYYY hh:mm A') : '-'}</td>
+              <td>${row.factory_name || '-'}</td>
+              <td>${row.actor_name || 'System'}</td>
+              <td>
+                <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:${canRestore ? '#eff6ff' : '#f8fafc'}; color:${canRestore ? '#1d4ed8' : '#475569'}; font-weight:700; font-size:0.74rem;">
+                  ${row.action_type || 'UPDATED'}
+                </span>
+              </td>
+              <td style="min-width:260px; color:#334155; line-height:1.45;">${details}</td>
+              <td>
+                ${canRestore
+                  ? `<button onclick="restoreOrderCompletion(${row.id})" class="btn-action" style="padding:4px 10px; background:#0f766e;"><i class="bi bi-arrow-counterclockwise"></i> Restore</button>`
+                  : `<span style="color:#94a3b8;">-</span>`}
+              </td>
+            </tr>
+          `;
+        }).join('');
+      } catch (e) {
+        if (body) {
+          body.innerHTML = `<tr><td colspan="6" style="padding:24px; text-align:center; color:#dc2626;">${e.message}</td></tr>`;
+        }
+      }
+    }
+
+    async function confirmOrderCompletion(orderNo, factoryId) {
+      if (!orderNo) return;
+      if (!ensureSingleFactoryScope('confirm an order completion')) return;
+      if (!confirm(`Confirm completion for ${orderNo}?\n\nThis will mark the order completed and remove it from the active Order Master list.`)) return;
+
+      try {
+        const res = await JPSMS.api.post('/orders/confirm-completion', {
+          order_no: orderNo,
+          factory_id: factoryId || null
+        });
+        if (!res.ok) throw new Error(res.error || 'Unable to confirm completion');
+        JPSMS.toast(res.message || 'Order confirmed successfully.', 'success');
+        loadMasterData();
+      } catch (e) {
+        JPSMS.toast(e.message, 'error');
+      }
+    }
+
+    async function restoreOrderCompletion(historyId) {
+      if (!historyId) return;
+      if (!confirm('Restore this completed order back into Order Master?')) return;
+
+      try {
+        const res = await JPSMS.api.post('/orders/restore-completion', {
+          history_id: historyId
+        });
+        if (!res.ok) throw new Error(res.error || 'Unable to restore completion');
+        JPSMS.toast(res.message || 'Order restored successfully.', 'success');
+        await openOrderCompletionHistory();
+        if (currentType === 'orders') {
+          loadMasterData();
+        }
+      } catch (e) {
+        JPSMS.toast(e.message, 'error');
+      }
+    }
+
+    async function setOrderPriority(orderNo, factoryId, priority) {
+      if (!orderNo || !priority) return;
+      if (!ensureSingleFactoryScope('change order priority')) return;
+
+      const normalizedPriority = String(priority).trim();
+      const label = normalizedPriority === 'High' ? 'High Priority' : normalizedPriority;
+      if (!confirm(`Set ${orderNo} as ${label}?`)) return;
+
+      try {
+        const res = await JPSMS.api.post('/orders/priority', {
+          order_no: orderNo,
+          factory_id: factoryId || null,
+          priority: normalizedPriority
+        });
+        if (!res.ok) throw new Error(res.error || 'Unable to update priority');
+        JPSMS.toast(res.message || 'Priority updated.', 'success');
+        if (currentType === 'orders') loadMasterData();
+      } catch (e) {
+        JPSMS.toast(e.message, 'error');
+      }
+    }
+
+    // --- Order Plan View Modal ---
+    window.viewOrderPlan = function (orderNo, detailsEncoded) {
+      const details = JSON.parse(decodeURIComponent(detailsEncoded));
+
+      // Build Markup
+      const modalId = 'orderPlanModal';
+      const old = document.getElementById(modalId);
+      if (old) old.remove();
+
+      let rowsHtml = '';
+      if (!details.length) {
+        rowsHtml = '<tr><td colspan="4" style="text-align:center; padding:20px; color:#64748b">No active plans found for this order.</td></tr>';
+      } else {
+        rowsHtml = details.map(d => `
+            <tr style="border-bottom:1px solid #e2e8f0">
+               <td style="padding:8px">${d.mould || '-'}</td>
+               <td style="padding:8px; font-weight:600">${d.machine || '-'}</td>
+               <td style="padding:8px">${d.startDate ? new Date(d.startDate).toLocaleDateString() : '-'}</td>
+               <td style="padding:8px"><span class="tag ${d.status}">${d.status}</span></td>
+            </tr>
+          `).join('');
+      }
+
+      const mk = `
+       <div id="${modalId}" style="position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:9999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(2px)">
+           <div style="background:white; border-radius:12px; width:600px; max-width:95%; overflow:hidden; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25); animation: popIn 0.2s ease-out">
+               <div style="padding:16px 24px; background:#f8fafc; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center">
+                  <div style="font-weight:700; color:#0f172a; font-size:1.1rem">Plan Details: ${orderNo}</div>
+                  <button onclick="document.getElementById('${modalId}').remove()" style="border:none; background:none; cursor:pointer; font-size:1.2rem">&times;</button>
+               </div>
+               <div style="padding:0; max-height:60vh; overflow-y:auto">
+                   <table style="width:100%; border-collapse:collapse; font-size:0.85rem">
+                       <thead style="background:#f1f5f9; position:sticky; top:0">
+                          <tr>
+                             <th style="padding:8px; text-align:left; color:#64748b; font-size:0.75rem; text-transform:uppercase">Mould</th>
+                             <th style="padding:8px; text-align:left; color:#64748b; font-size:0.75rem; text-transform:uppercase">Machine</th>
+                             <th style="padding:8px; text-align:left; color:#64748b; font-size:0.75rem; text-transform:uppercase">Start Date</th>
+                             <th style="padding:8px; text-align:left; color:#64748b; font-size:0.75rem; text-transform:uppercase">Status</th>
+                          </tr>
+                       </thead>
+                       <tbody>
+                          ${rowsHtml}
+                       </tbody>
+                   </table>
+               </div>
+               <div style="padding:16px 24px; border-top:1px solid #e2e8f0; text-align:right">
+                   <button onclick="document.getElementById('${modalId}').remove()" class="btn-action">Close</button>
+               </div>
+           </div>
+       </div>`;
+
+      document.body.insertAdjacentHTML('beforeend', mk);
+    };
+
+    // --- Plant Closure Logic ---
+    window.openPlantClosureModal = async function() {
+      document.getElementById('pc-date').valueAsDate = new Date();
+      document.getElementById('plantClosureModal').style.display = 'flex';
+      
+      // Populate dropdown dynamically with plants and lines
+      try {
+          const res = await JPSMS.api.get('/machines');
+          const sel = document.getElementById('pc-plant');
+          sel.innerHTML = '<option value="All">All Plants (Factory Shutdown)</option>';
+          
+          const ogPlants = document.createElement('optgroup');
+          ogPlants.label = 'Plants';
+          ['B', 'C', 'E', 'F'].forEach(p => ogPlants.appendChild(new Option('Plant ' + p, p)));
+          sel.appendChild(ogPlants);
+          
+          if (res.ok && res.data && res.data.length > 0) {
+              const lines = [...new Set(res.data.map(m => m.line).filter(Boolean))].sort();
+              if (lines.length > 0) {
+                  const ogLines = document.createElement('optgroup');
+                  ogLines.label = 'Specific Lines';
+                  lines.forEach(l => ogLines.appendChild(new Option('Line ' + l, l)));
+                  sel.appendChild(ogLines);
+              }
+          }
+      } catch(e) { console.error('Error loading lines for closure modal', e); }
+
+      loadPlantClosures();
+    };
+
+    async function loadPlantClosures() {
+      try {
+        const res = await JPSMS.api.get('/admin/closed-plants');
+        if (!res.ok) throw new Error(res.error);
+        
+        const body = document.getElementById('plantClosureBody');
+        body.innerHTML = res.data.map(r => `
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:10px">${moment(r.dpr_date_str || r.dpr_date).format('DD MMM YYYY')}</td>
+            <td style="padding:10px"><span style="font-weight:700; color:#be185d">${r.plant === 'All' ? 'All Plants' : r.plant.includes('-') ? 'Line ' + r.plant : 'Plant ' + r.plant}</span></td>
+            <td style="padding:10px">
+              <span style="background:${r.shift==='Both'?'#fdf2f8':'#eff6ff'}; color:${r.shift==='Both'?'#be185d':'#2563eb'}; padding:2px 8px; border-radius:999px; font-weight:600">
+                ${r.shift}
+              </span>
+            </td>
+            <td style="padding:10px; color:#64748b">${r.remarks || '-'}</td>
+            <td style="padding:10px; text-align:right">
+              <button onclick="deletePlantClosure(${r.id})" style="border:none; background:none; color:#ef4444; cursor:pointer" title="Re-open Plant">
+                <i class="bi bi-unlock"></i> Open
+              </button>
+            </td>
+          </tr>
+        `).join('');
+        if (!res.data.length) body.innerHTML = '<tr><td colspan="5" style="padding:40px; text-align:center; color:#94a3b8">No active closures found.</td></tr>';
+      } catch (e) { alert(e.message); }
+    }
+
+    async function savePlantClosure() {
+      const payload = {
+        dpr_date: document.getElementById('pc-date').value,
+        plant: document.getElementById('pc-plant').value,
+        shift: document.getElementById('pc-shift').value,
+        remarks: document.getElementById('pc-remarks').value,
+        closed_by: JPSMS.auth.getUser().username
+      };
+      
+      if (!payload.dpr_date) return alert('Please select a date');
+      
+      try {
+        const res = await JPSMS.api.post('/admin/close-plant', payload);
+        if (res.ok) {
+          document.getElementById('pc-remarks').value = '';
+          loadPlantClosures();
+        } else alert(res.error);
+      } catch (e) { alert(e.message); }
+    }
+
+    async function deletePlantClosure(id) {
+      if (!confirm('Re-open this plant for entries?')) return;
+      try {
+        const res = await JPSMS.api.delete('/admin/close-plant/' + id);
+        if (res.ok) loadPlantClosures();
+        else alert(res.error);
+      } catch (e) { alert(e.message); }
+    }
+  </script>
+
+  <!-- Scripts -->
+  <script src="/assets/app.js"></script>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.3.6/js/dataTables.buttons.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.3/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/pdfmake.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/vfs_fonts.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.3.6/js/buttons.html5.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.3.6/js/buttons.print.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.3.6/js/buttons.colVis.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.3.6/js/buttons.colVis.min.js"></script>
+  <!-- Moment.js for date formatting -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+  <script src="https://cdn.datatables.net/scroller/2.1.1/js/dataTables.scroller.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <style>
+    /* Aggressive Compact Style + Grid */
+    table.dataTable.compact {
+      border-collapse: collapse !important;
+    }
+
+    table.dataTable.compact thead th,
+    table.dataTable.compact tbody td {
+      padding: 2px 4px !important;
+      line-height: 1.1 !important;
+      font-size: 0.85rem !important;
+      border: 1px solid #ccc !important;
+      /* Grid Lines */
+    }
+
+    table.dataTable.compact tbody tr {
+      height: auto !important;
+    }
+
+    /* Highlight Selected Row */
+    table.dataTable tbody tr.selected {
+      background-color: #e0f2fe !important;
+      /* Light Blue */
+      color: #0f172a !important;
+    }
+
+    table.dataTable tbody tr.selected td {
+      background-color: #e0f2fe !important;
+      border-top: 1px solid #3b82f6 !important;
+      border-bottom: 1px solid #3b82f6 !important;
+      font-weight: 600;
+    }
+  </style>
+
+  <script>
+    // Custom "Natural" Sort: Splits strings into text/number chunks and compares them.
+    // Fixes "Line>Machine-1" vs "Line>Machine-10" deterministically.
+    function naturalCompare(a, b) {
+      const ax = [];
+      const bx = [];
+
+      String(a).replace(/(\d+)|(\D+)/g, function (_, $1, $2) { ax.push([$1 || Infinity, $2 || ""]) });
+      String(b).replace(/(\d+)|(\D+)/g, function (_, $1, $2) { bx.push([$1 || Infinity, $2 || ""]) });
+
+      while (ax.length && bx.length) {
+        const an = ax.shift();
+        const bn = bx.shift();
+        const nn = (an[0] - bn[0]) || an[1].localeCompare(bn[1]);
+        if (nn) return nn;
+      }
+
+      return ax.length - bx.length;
+    }
+
+    jQuery.extend(jQuery.fn.dataTableExt.oSort, {
+      "series-asc": function (a, b) {
+        return naturalCompare(a, b);
+      },
+      "series-desc": function (a, b) {
+        return naturalCompare(b, a);
+      }
+    });
+
+    let masterTable;
+    let pendingUploadData = [];
+    let pendingUploadMode = null;
+    let pendingUploadFile = null;
+    let pendingUploadPreviewMeta = {};
+    let currentType = 'orders';
+    let currentView = 'active'; // 'active' or 'closed'
+    let allowedFactories = [];
+    let currentFactoryScope = { id: null, name: '', isAll: false };
+    let currentWriteScope = { id: null, name: '', isAll: false };
+    let currentMachineIconBase64 = null;
+    const templateSupportedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'boplanningdetail', 'wipstock'];
+    const reportOnlyTypes = [];
+    const clientPreviewSchemas = {
+      boplanningdetail: {
+        label: 'BO Planning Detail',
+        columns: [
+          { key: 'or_jr_no', label: 'OR/JR No', sample: 'OR-123' },
+          { key: 'jr_date', label: 'JR Date', sample: '2024-01-01' },
+          { key: 'our_code', label: 'Our Code', sample: 'ITM-001' },
+          { key: 'bom_type', label: 'BomType', sample: 'FG' },
+          { key: 'jr_item_name', label: 'JR Item Name', sample: 'Product A' },
+          { key: 'jr_qty', label: 'JR Qty', sample: '1000' },
+          { key: 'uom', label: 'UOM', sample: 'PCS' },
+          { key: 'plan_date', label: 'Plan Date', sample: '2024-01-05' },
+          { key: 'plan_qty', label: 'Plan Qty', sample: '500' },
+          { key: 'bo_item_code', label: 'Bo Item Code', sample: 'B-001' },
+          { key: 'bo_item_name', label: 'Bo Item Name', sample: 'Component X' },
+          { key: 'bo_uom', label: 'Bo UOM', sample: 'PCS' },
+          { key: 'bo_item_qty', label: 'Bo Item Qty', sample: '500' },
+          { key: 'remarks_all', label: 'Remarks', sample: 'N/A' }
+        ]
+      },
+      orders: {
+        label: 'Orders Master',
+        maxHeaderScanRows: 25,
+        minMatchedColumns: 5,
+        columns: [
+          { key: 'order_no', label: 'Order No', aliases: ['OrderNo'] },
+          { key: 'item_code', label: 'Item Code', aliases: ['ItemCode'] },
+          { key: 'item_name', label: 'Item Name', aliases: ['ItemName'] },
+          { key: 'mould_code', label: 'Mould Code', aliases: ['MouldCode'] },
+          { key: 'qty', label: 'Qty', aliases: ['Qty'] },
+          { key: 'priority', label: 'Priority', aliases: ['Priority'] },
+          { key: 'client_name', label: 'Client Name', aliases: ['Client Name'] },
+          { key: 'factory_id', label: 'Factory ID', aliases: ['Factory ID', 'Factory', 'Factory Code'], optional: true }
+        ]
+      },
+      moulds: {
+        label: 'Moulds Master',
+        maxHeaderScanRows: 25,
+        minMatchedColumns: 10,
+        columns: [
+          { key: 'mould_number', label: 'Mould Number', aliases: ['MOULD NUMBER', 'ERP Item Code'] },
+          { key: 'mould_name', label: 'Mould Name', aliases: ['MOULD NAME', 'Product Name'] },
+          { key: 'std_wt_kg', label: 'STD WT (KG)', aliases: ['STD WT (KG)', 'STD WT KG'] },
+          { key: 'runner_weight', label: 'Runner Weight', aliases: ['RUNNER WEIGHT'] },
+          { key: 'primary_machine', label: 'Primary Machine', aliases: ['PRIMARY MACHINE'] },
+          { key: 'secondary_machine', label: 'Secondary Machine', aliases: ['SECONDARY MACHINE'] },
+          { key: 'moulding_sqn', label: 'Moulding SQN.', aliases: ['MOULDING SQN.', 'MOULDING SQN'] },
+          { key: 'tonnage', label: 'Tonnage', aliases: ['TONNAGE', 'Machine'] },
+          { key: 'no_of_cav', label: 'No Of Cav', aliases: ['NO OF CAV', 'NO OF CAVITY'] },
+          { key: 'cycle_time', label: 'Cycle Time', aliases: ['CYCLE TIME'] },
+          { key: 'pcs_per_hour', label: 'PCS/HOUR', aliases: ['PCS/HOUR', 'PCS PER HOUR'] },
+          { key: 'target_pcs_day', label: 'Target PCS/Day', aliases: ['TARGET PCS/DAY', 'TARGET PCS DAY', 'OUTPUT PER DAY'] },
+          { key: 'material', label: 'Material', aliases: ['MATERIAL', 'MATERIAL 1'] },
+          { key: 'manpower', label: 'Manpower', aliases: ['MANPOWER'] },
+          { key: 'operator_activities', label: 'Operator Activities', aliases: ['OPERATOR ACTIVITIES'] },
+          { key: 'sfg_std_packing', label: 'SFG STD Packing', aliases: ['SFG STD PACKING', 'SFG QTY'] },
+          { key: 'std_volume_cap', label: 'STD Volume Cap.', aliases: ['STD VOLUME CAP.', 'STD VOLUME CAP', 'STD VOLUME CAPACITY'] },
+          { key: 'factory_id', label: 'Factory ID', aliases: ['FACTORY ID', 'FACTORY', 'FACTORY CODE'], optional: true }
+        ]
+      },
+      orjrwise: {
+        label: 'ORJR Wise Summary',
+        maxHeaderScanRows: 25,
+        minMatchedColumns: 8,
+        columns: [
+          { key: 'or_jr_no', label: 'OR/JR No', aliases: ['OR/JR No'] },
+          { key: 'jr_date', label: 'JR Date', aliases: ['JR Date', 'OR/JR Date'] },
+          { key: 'our_code', label: 'Our Code', aliases: ['Our Code', 'Item Code'] },
+          { key: 'bom_type', label: 'BomType', aliases: ['BomType', 'BOM Type'] },
+          { key: 'jr_item_name', label: 'JR Item Name', aliases: ['JR Item Name', 'Product Name'] },
+          { key: 'jr_qty', label: 'JR Qty', aliases: ['JR Qty'] },
+          { key: 'uom', label: 'UOM', aliases: ['UOM'] },
+          { key: 'mould_no', label: 'Mould No', aliases: ['Mould No', 'Mold No'] },
+          { key: 'mould_name', label: 'Mould', aliases: ['Mould', 'Mould Name', 'Mold'] },
+          { key: 'mould_item_qty', label: 'Mould Item Qty', aliases: ['Mould Item Qty', 'Mold Item Qty'] },
+          { key: 'tonnage', label: 'Tonnage', aliases: ['Tonnage'] },
+          { key: 'machine_name', label: 'Machine', aliases: ['Machine', 'Machine Name'] },
+          { key: 'cycle_time', label: 'Cycle Time', aliases: ['Cycle Time'] },
+          { key: 'cavity', label: 'Cavity', aliases: ['Cavity'] },
+          { key: 'factory_id', label: 'Factory ID', aliases: ['Factory ID', 'Factory', 'Factory Code'], optional: true }
+        ]
+      },
+      orjrwisedetail: {
+        label: 'ORJR Wise Detail',
+        maxHeaderScanRows: 25,
+        minMatchedColumns: 10,
+        columns: [
+          { key: 'or_jr_no', label: 'OR/JR No', aliases: ['OR/JR No'] },
+          { key: 'jr_date', label: 'JR Date', aliases: ['JR Date', 'OR/JR Date'] },
+          { key: 'our_code', label: 'Our Code', aliases: ['Our Code', 'Item Code'] },
+          { key: 'bom_type', label: 'BomType', aliases: ['BomType', 'BOM Type'] },
+          { key: 'jr_item_name', label: 'JR Item Name', aliases: ['JR Item Name', 'Product Name'] },
+          { key: 'jr_qty', label: 'JR Qty', aliases: ['JR Qty'] },
+          { key: 'uom', label: 'UOM', aliases: ['UOM'] },
+          { key: 'mould_item_code', label: 'Mold Item Code', aliases: ['Mold Item Code', 'Mould Item Code'] },
+          { key: 'mould_item_name', label: 'Mold Item Name', aliases: ['Mold Item Name', 'Mould Item Name'] },
+          { key: 'mould_no', label: 'Mould No', aliases: ['Mould No', 'Mold No'] },
+          { key: 'mould_name', label: 'Mould', aliases: ['Mould', 'Mould Name', 'Mold'] },
+          { key: 'mould_item_qty', label: 'Mould Item Qty', aliases: ['Mould Item Qty', 'Mold Item Qty'] },
+          { key: 'tonnage', label: 'Tonnage', aliases: ['Tonnage'] },
+          { key: 'machine_name', label: 'Machine', aliases: ['Machine', 'Machine Name'] },
+          { key: 'cycle_time', label: 'Cycle Time', aliases: ['Cycle Time'] },
+          { key: 'cavity', label: 'Cavity', aliases: ['Cavity'] },
+          { key: 'factory_id', label: 'Factory ID', aliases: ['Factory ID', 'Factory', 'Factory Code'], optional: true }
+        ]
+      }
+    };
+
+    function slugifyText(value) {
+      return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'factory';
+    }
+
+    function getFactoryScopeLabel() {
+      return currentFactoryScope.isAll ? 'All Factories' : (currentFactoryScope.name || 'Factory');
+    }
+
+    function getWriteScopeLabel() {
+      return currentWriteScope.isAll ? 'All Factories' : (currentWriteScope.name || 'Selected Login Factory');
+    }
+
+    function canWriteCurrentFactoryScope() {
+      if (currentType === 'users') return JPSMS.auth.can('masters', 'edit');
+      if (!JPSMS.auth.can('masters', 'edit')) return false;
+      if (currentFactoryScope.isAll || currentWriteScope.isAll) return false;
+      if (!currentFactoryScope.id || !currentWriteScope.id) return false;
+      return String(currentFactoryScope.id) === String(currentWriteScope.id);
+    }
+
+    function getWriteLockReason(actionLabel = 'make changes') {
+      if (currentType === 'users') return '';
+      if (currentWriteScope.isAll) {
+        return `This login is in All Factories mode. Log out and log in to one factory to ${actionLabel}.`;
+      }
+      if (currentFactoryScope.isAll) {
+        return `All Factories view is read only. Select ${getWriteScopeLabel()} to ${actionLabel}.`;
+      }
+      if (currentWriteScope.id && currentFactoryScope.id && String(currentFactoryScope.id) !== String(currentWriteScope.id)) {
+        return `This session can ${actionLabel} only in ${getWriteScopeLabel()}. Log out and log in again to work in another factory.`;
+      }
+      if (!currentFactoryScope.id) {
+        return `Select ${getWriteScopeLabel()} to ${actionLabel}.`;
+      }
+      return `Select the correct factory to ${actionLabel}.`;
+    }
+
+    function getWriteLockShortHint() {
+      if (currentWriteScope.isAll) return 'Log in to one factory';
+      if (currentFactoryScope.isAll) return 'Select one factory';
+      if (currentWriteScope.id && currentFactoryScope.id && String(currentFactoryScope.id) !== String(currentWriteScope.id)) {
+        return `Write: ${getWriteScopeLabel()}`;
+      }
+      return 'Read only';
+    }
+
+    function getExportScopeFileLabel() {
+      return currentFactoryScope.isAll ? 'ALL' : (currentFactoryScope.name || 'Factory');
+    }
+
+    function getExportMasterLabel() {
+      const labels = {
+        orders: 'Orders Master',
+        moulds: 'Mould Master',
+        machines: 'Machine Master',
+        orjr: 'OR-JR Status',
+        orjrwise: 'ORJR Wise Summary',
+        orjrwisedetail: 'ORJR Wise Detail',
+        boplanningdetail: 'BO Planning Detail',
+        wipstock: 'WIP Stock',
+        users: 'User Master'
+      };
+      return labels[currentType] || 'Master Data';
+    }
+
+    function resetPendingUploadState() {
+      pendingUploadData = [];
+      pendingUploadMode = null;
+      pendingUploadFile = null;
+      pendingUploadPreviewMeta = {};
+    }
+
+    function normalizePreviewHeaderKey(value) {
+      return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+
+    function getPreviewSchema(type) {
+      return clientPreviewSchemas[type] || null;
+    }
+
+    function getPreviewAliasKeys(column) {
+      return [...new Set([column.label, ...(column.aliases || [])].map(normalizePreviewHeaderKey).filter(Boolean))];
+    }
+
+    function getPreviewHeaderMatchCount(row, schema) {
+      if (!Array.isArray(row) || !schema) return 0;
+      const normalizedCells = row.map(normalizePreviewHeaderKey).filter(Boolean);
+      if (!normalizedCells.length) return 0;
+
+      let count = 0;
+      schema.columns.forEach(column => {
+        const aliasKeys = getPreviewAliasKeys(column);
+        if (normalizedCells.some(cell => aliasKeys.includes(cell))) count++;
+      });
+      return count;
+    }
+
+    function isPreviewCellFilled(value) {
+      if (value === null || value === undefined) return false;
+      if (typeof value === 'string') return value.trim() !== '';
+      return String(value).trim() !== '';
+    }
+
+    function formatPreviewCell(value) {
+      if (value === null || value === undefined) return '';
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.toISOString().split('T')[0];
+      }
+      return String(value);
+    }
+
+    async function buildClientUploadPreview(file, type) {
+      if (typeof XLSX === 'undefined') {
+        throw new Error('Preview library failed to load. Refresh and try again.');
+      }
+      const schema = getPreviewSchema(type);
+      if (!schema) {
+        throw new Error(`Preview is not configured for ${getExportMasterLabel()}.`);
+      }
+
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array', raw: true, cellDates: true });
+      const firstSheetName = workbook.SheetNames[0];
+      if (!firstSheetName) {
+        throw new Error('Selected file is empty.');
+      }
+
+      const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName], {
+        header: 1,
+        defval: null,
+        blankrows: false,
+        raw: true
+      });
+
+      if (!rawRows.length) {
+        throw new Error('Selected file is empty.');
+      }
+
+      const maxScanRows = Math.min(rawRows.length, schema.maxHeaderScanRows || 20);
+      let headerRowIndex = -1;
+      let bestMatchCount = -1;
+      for (let i = 0; i < maxScanRows; i++) {
+        const matchCount = getPreviewHeaderMatchCount(rawRows[i], schema);
+        if (matchCount > bestMatchCount) {
+          bestMatchCount = matchCount;
+          headerRowIndex = i;
+        }
+      }
+
+      if (headerRowIndex === -1 || bestMatchCount < (schema.minMatchedColumns || 1)) {
+        throw new Error(`Upload file columns do not match the JMS template for ${schema.label}.`);
+      }
+
+      const normalizedHeader = (rawRows[headerRowIndex] || []).map(normalizePreviewHeaderKey);
+      const indexMap = new Map();
+      schema.columns.forEach(column => {
+        const aliasKeys = getPreviewAliasKeys(column);
+        const idx = normalizedHeader.findIndex(cell => aliasKeys.includes(cell));
+        if (idx >= 0) indexMap.set(column.key, idx);
+      });
+
+      const missingColumns = schema.columns
+        .filter(column => !column.optional && !indexMap.has(column.key))
+        .map(column => column.label);
+      if (missingColumns.length) {
+        throw new Error(`Upload file columns do not match the JMS template. Missing: ${missingColumns.join(', ')}.`);
+      }
+
+      const parsedRows = [];
+      for (let i = headerRowIndex + 1; i < rawRows.length; i++) {
+        const sourceRow = rawRows[i];
+        if (!Array.isArray(sourceRow) || !sourceRow.some(isPreviewCellFilled)) continue;
+        if (getPreviewHeaderMatchCount(sourceRow, schema) >= (schema.minMatchedColumns || 1)) continue;
+
+        const previewRow = {};
+        let hasData = false;
+        schema.columns.forEach(column => {
+          const sourceIndex = indexMap.get(column.key);
+          const value = sourceIndex === undefined ? null : sourceRow[sourceIndex];
+          previewRow[column.key] = formatPreviewCell(value);
+          if (!hasData && isPreviewCellFilled(value)) hasData = true;
+        });
+
+        if (hasData) parsedRows.push(previewRow);
+      }
+
+      if (!parsedRows.length) {
+        throw new Error('No data rows were found after the header.');
+      }
+
+      return {
+        rows: parsedRows.slice(0, 200),
+        totalRows: parsedRows.length,
+        keys: schema.columns.map(column => column.key).filter(key => parsedRows.some(row => String(row[key] || '').trim() !== '')),
+        title: `${schema.label} Preview`
+      };
+    }
+
+    function isAllFactoriesScope() {
+      return currentFactoryScope.isAll === true;
+    }
+
+    function ensureSingleFactoryScope(actionLabel = 'perform this action') {
+      if (canWriteCurrentFactoryScope()) return true;
+      JPSMS.toast(getWriteLockReason(actionLabel), 'error');
+      return false;
+    }
+
+    async function initializeFactoryScope() {
+      allowedFactories = Array.isArray(JPSMS.factories.getAllowed()) ? JPSMS.factories.getAllowed() : [];
+
+      if (!allowedFactories.length) {
+        try {
+          const res = await JPSMS.api.get('/factories');
+          allowedFactories = Array.isArray(res.data) ? res.data : [];
+          localStorage.setItem('jpsms_allowed_factories', JSON.stringify(allowedFactories));
+          localStorage.setItem('jpsms_can_all_factories', res.can_select_all_factories ? 'true' : 'false');
+
+          const user = JPSMS.auth.getUser();
+          if (user && typeof user === 'object') {
+            user.can_select_all_factories = !!res.can_select_all_factories;
+            localStorage.setItem('user', JSON.stringify(user));
+          }
+        } catch (error) {
+          console.error('Unable to load factories', error);
+          allowedFactories = [];
+        }
+      }
+
+      const canSelectAll = JPSMS.factories.canSelectAll(JPSMS.auth.getUser());
+      currentFactoryScope = JPSMS.factories.getCurrentScope();
+      currentWriteScope = JPSMS.factories.getWriteScope();
+
+      if (currentFactoryScope.isAll && !canSelectAll) {
+        currentFactoryScope = { id: null, name: '', isAll: false };
+      }
+      if (currentWriteScope.isAll && !canSelectAll) {
+        currentWriteScope = { id: null, name: '', isAll: false };
+      }
+
+      if (currentFactoryScope.isAll) {
+        JPSMS.factories.setCurrentScope('all', 'All Factories');
+      } else {
+        const matchedFactory = allowedFactories.find(factory => String(factory.id) === String(currentFactoryScope.id));
+        const fallbackFactory = matchedFactory || allowedFactories[0] || null;
+
+        if (fallbackFactory) {
+          currentFactoryScope = {
+            id: String(fallbackFactory.id),
+            name: fallbackFactory.name || fallbackFactory.code || `Factory ${fallbackFactory.id}`,
+            isAll: false
+          };
+          JPSMS.factories.setCurrentScope(currentFactoryScope.id, currentFactoryScope.name);
+        } else {
+          currentFactoryScope = { id: null, name: '', isAll: false };
+        }
+      }
+
+      if (!currentWriteScope.id && currentFactoryScope.id) {
+        currentWriteScope = { ...currentFactoryScope };
+        JPSMS.factories.setWriteScope(currentWriteScope.id, currentWriteScope.name);
+      }
+
+      renderFactoryScopeControl();
+    }
+
+    function renderFactoryScopeControl() {
+      const selector = document.getElementById('factorySelector');
+      const note = document.getElementById('factoryScopeNote');
+      if (!selector) return;
+
+      const canSelectAll = JPSMS.factories.canSelectAll(JPSMS.auth.getUser());
+      const options = [];
+
+      if (canSelectAll) {
+        options.push({ id: 'all', name: 'All Factories' });
+      }
+
+      allowedFactories.forEach(factory => {
+        options.push({
+          id: String(factory.id),
+          name: factory.name || factory.code || `Factory ${factory.id}`
+        });
+      });
+
+      selector.innerHTML = options.length
+        ? options.map(option => `<option value="${option.id}">${option.name}</option>`).join('')
+        : '<option value="">No factory access</option>';
+
+      const selectedValue = currentFactoryScope.isAll
+        ? 'all'
+        : (currentFactoryScope.id ? String(currentFactoryScope.id) : (options[0]?.id || ''));
+
+      selector.value = selectedValue;
+      selector.disabled = options.length <= 1;
+
+      if (note) {
+        if (currentType === 'users') {
+          note.textContent = 'User master is global. Factory scope is saved here for the next factory-based screen.';
+        } else if (currentWriteScope.isAll) {
+          note.textContent = `Viewing ${getFactoryScopeLabel()}. This login was opened in All Factories mode, so add, edit, upload, and delete stay disabled until you log out and log in to one factory.`;
+        } else if (currentFactoryScope.isAll) {
+          note.textContent = `Showing combined data from ${allowedFactories.length} allowed factories. Downloads include all of them, but write access for this login stays locked to ${getWriteScopeLabel()}.`;
+        } else if (currentWriteScope.id && currentFactoryScope.id && String(currentFactoryScope.id) !== String(currentWriteScope.id)) {
+          note.textContent = `Viewing ${getFactoryScopeLabel()}. This session can add, edit, upload, and delete only in ${getWriteScopeLabel()}. Log out and log in again to write in another factory.`;
+        } else if (allowedFactories.length > 1) {
+          note.textContent = `Showing ${getFactoryScopeLabel()}. You can switch the view here, but write access stays locked to the factory selected at login.`;
+        } else if (allowedFactories.length === 1) {
+          note.textContent = `Showing ${getFactoryScopeLabel()}. This is also your active write factory for this login.`;
+        } else {
+          note.textContent = 'No factory access is configured for this user.';
+        }
+      }
+
+      updateScopedEditState();
+    }
+
+    function updateScopedEditState() {
+      const uploadSection = document.getElementById('uploadSection');
+      const allFactoryUploadLock = document.getElementById('allFactoryUploadLock');
+      const allFactoryUploadLockTitle = document.getElementById('factoryWriteLockTitle');
+      const allFactoryUploadLockText = document.getElementById('factoryWriteLockText');
+      const addMachineBtn = document.getElementById('addMachineBtn');
+      const canWriteScope = canWriteCurrentFactoryScope();
+      const canEditMasters = JPSMS.auth.can('masters', 'edit');
+
+      if (uploadSection && reportOnlyTypes.includes(currentType)) {
+        uploadSection.style.display = 'none';
+        if (allFactoryUploadLock) allFactoryUploadLock.style.display = 'none';
+      }
+
+      if (uploadSection && currentType !== 'users') {
+        if (reportOnlyTypes.includes(currentType)) return;
+        if (!canEditMasters) {
+          uploadSection.style.display = 'none';
+          if (allFactoryUploadLock) allFactoryUploadLock.style.display = 'none';
+          return;
+        }
+
+        uploadSection.style.opacity = '1';
+        uploadSection.style.pointerEvents = 'auto';
+        uploadSection.title = '';
+        uploadSection.style.display = canWriteScope ? 'flex' : 'none';
+
+        if (allFactoryUploadLock) {
+          allFactoryUploadLock.style.display = canWriteScope ? 'none' : 'block';
+          if (!canWriteScope) {
+            if (allFactoryUploadLockTitle) {
+              allFactoryUploadLockTitle.textContent = currentWriteScope.isAll
+                ? 'All Factories Login Is Read Only'
+                : (currentFactoryScope.isAll ? 'All Factories Scope Selected' : 'Write Access Locked To Login Factory');
+            }
+            if (allFactoryUploadLockText) {
+              allFactoryUploadLockText.textContent = getWriteLockReason('add, edit, upload, or delete data');
+            }
+          }
+        }
+      } else if (allFactoryUploadLock) {
+        allFactoryUploadLock.style.display = 'none';
+      }
+
+      if (addMachineBtn) {
+        addMachineBtn.style.display = currentType === 'machines' && canEditMasters && canWriteScope ? 'inline-block' : 'none';
+        addMachineBtn.disabled = !canWriteScope;
+        addMachineBtn.style.opacity = canWriteScope ? '1' : '0.55';
+        addMachineBtn.title = canWriteScope ? '' : getWriteLockReason('add or edit machines');
+      }
+    }
+
+    function updateTemplateButtons(type) {
+      const templateBtn = document.getElementById('templateBtn');
+      const allFactoryTemplateBtn = document.getElementById('allFactoryTemplateBtn');
+      const enabled = templateSupportedTypes.includes(type);
+      const machineTemplateLabel = isPrintingMachineView() ? 'Printing Machines Template' : 'Machines Template';
+      const typeLabels = {
+        orders: 'Orders Template',
+        moulds: 'Moulds Template',
+        machines: machineTemplateLabel,
+        orjr: 'OR-JR Status Template',
+        orjrwise: 'ORJR Wise Summary Template',
+        orjrwisedetail: 'ORJR Wise Detail Template',
+        boplanningdetail: 'BO Planning Detail Template',
+        wipstock: 'WIP Stock Template'
+      };
+      const btnLabel = typeLabels[type] || 'Download Template';
+
+      if (templateBtn) {
+        templateBtn.style.display = enabled ? 'inline-flex' : 'none';
+        templateBtn.innerHTML = `<i class="bi bi-file-earmark-excel"></i> ${btnLabel}`;
+      }
+
+      if (allFactoryTemplateBtn) {
+        allFactoryTemplateBtn.style.display = enabled ? 'inline-flex' : 'none';
+        allFactoryTemplateBtn.innerHTML = `<i class="bi bi-file-earmark-excel"></i> ${btnLabel}`;
+      }
+    }
+
+    function handleFactoryScopeChange(event) {
+      const selectedValue = event.target.value;
+
+      if (selectedValue === 'all') {
+        currentFactoryScope = { id: 'all', name: 'All Factories', isAll: true };
+        JPSMS.factories.setCurrentScope('all', 'All Factories');
+      } else {
+        const selectedFactory = allowedFactories.find(factory => String(factory.id) === String(selectedValue));
+        currentFactoryScope = {
+          id: selectedFactory ? String(selectedFactory.id) : String(selectedValue || ''),
+          name: selectedFactory?.name || selectedFactory?.code || `Factory ${selectedValue}`,
+          isAll: false
+        };
+        JPSMS.factories.setCurrentScope(currentFactoryScope.id, currentFactoryScope.name);
+      }
+
+      const machineList = document.getElementById('machineList');
+      if (machineList) machineList.innerHTML = '';
+
+      renderFactoryScopeControl();
+      loadMasterData();
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      JPSMS.auth.requireAuth();
+
+      const params = new URLSearchParams(window.location.search);
+      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'boplanningdetail', 'wipstock', 'users'];
+      const requestedType = params.get('type') || 'orders';
+      const optionalDateTypes = ['orjrwise', 'orjrwisedetail', 'boplanningdetail', 'wipstock'];
+      const manualDateTypes = ['orjr'];
+      currentType = allowedTypes.includes(requestedType) ? requestedType : 'orders';
+      currentView = params.get('view') || 'active'; // Allow deep linking
+      if (currentType !== requestedType) {
+        params.set('type', currentType);
+        window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+      }
+      JPSMS.renderShell(params.get('context') || 'masters');
+
+      setupUI(currentType, currentView);
+      await initializeFactoryScope();
+
+      const factorySelector = document.getElementById('factorySelector');
+      if (factorySelector) {
+        factorySelector.addEventListener('change', handleFactoryScopeChange);
+      }
+
+      const machineProcessFilter = document.getElementById('machineProcessFilter');
+      if (machineProcessFilter) {
+        machineProcessFilter.addEventListener('change', () => {
+          if (currentType === 'machines') {
+            updateTemplateButtons(currentType);
+            updateMachineSearchPlaceholder();
+            loadMasterData();
+          }
+        });
+      }
+
+      const machineProcessSelect = document.getElementById('m_machine_process');
+      if (machineProcessSelect) {
+        machineProcessSelect.addEventListener('change', (event) => {
+          updateMachineModalProcessView(event.target.value);
+        });
+      }
+
+      // Default Dates
+      if (optionalDateTypes.includes(currentType)) {
+        document.getElementById('filterTo').value = '';
+        document.getElementById('filterFrom').value = '';
+        loadMasterData();
+      } else if (!manualDateTypes.includes(currentType)) {
+        const now = new Date();
+        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+        document.getElementById('filterTo').valueAsDate = now;
+        document.getElementById('filterFrom').valueAsDate = firstDay;
+
+        loadMasterData();
+      } else {
+        // Manual date screens: clear dates and wait for Apply Filters
+        document.getElementById('filterTo').value = '';
+        document.getElementById('filterFrom').value = '';
+
+        document.querySelector('#masterTable tbody').innerHTML = '<tr><td colspan="5" class="text-center p-3" style="color:#64748b">Click <b>Apply Filters</b> to load data (Leave dates empty for all).</td></tr>';
+      }
+    });
+
+    function setupUI(type, view) {
+      const titleEl = document.getElementById('pageTitle');
+      const hintEl = document.getElementById('uploadHint');
+      const fileIn = document.getElementById('uploadFile');
+      const filterSec = document.getElementById('filterSection');
+      const machineScopeGrid = document.getElementById('machineScopeGrid');
+      const machineProcessSection = document.getElementById('machineProcessSection');
+      const filterFromLabel = document.getElementById('filterFromLabel');
+      const filterToLabel = document.getElementById('filterToLabel');
+      const filterDateHint = document.getElementById('filterDateHint');
+      const filterSearch = document.getElementById('filterSearch');
+
+      const configs = {
+        'orders': { title: 'Orders', hint: 'orders.xlsx', hasDates: false },
+        'moulds': { title: 'Moulds', hint: 'moulds.xlsx', hasDates: false },
+        'machines': { title: 'Machines', hint: 'IT only', hasDates: false },
+        'machines': { title: 'Machines', hint: 'IT only', hasDates: false },
+        'orjr': { title: 'OR-JR Status', hint: 'Upload .xlsx', hasDates: true },
+        'orjrwise': { title: 'ORJR Wise Summary', hint: 'Upload .xlsx', hasDates: true },
+        'orjrwisedetail': { title: 'ORJR Wise Detail', hint: 'Upload .xlsx', hasDates: true, icon: 'bi-file-earmark-richtext' },
+        'boplanningdetail': { title: 'BO Planning Detail', hint: 'Upload .xlsx', hasDates: true, icon: 'bi-clipboard-data' },
+        'wipstock': { title: 'WIP Stock', hint: 'Upload dated WIP stock sheet', hasDates: true, icon: 'bi-box-seam-fill' },
+        'users': { title: 'User Master', hint: 'Admin Only', hasDates: false }
+      };
+
+      const cfg = configs[type] || { title: 'Master Data', hint: 'Upload file', hasDates: false };
+      if (view === 'summary') cfg.title += ' (Summary)';
+      updateTemplateButtons(type);
+
+      const titleIcon = cfg.icon ? `<i class="bi ${cfg.icon}" style="margin-right:8px;"></i>` : '';
+      titleEl.innerHTML = titleIcon + cfg.title + ' <span style="font-size:0.7rem; background:#2563eb; color:white; padding:2px 6px; border-radius:4px; vertical-align:middle;">v2.3</span>';
+      hintEl.textContent = cfg.hint;
+
+      // Show/Hide Add Machine Button
+      const addBtn = document.getElementById('addMachineBtn');
+      if (type === 'machines' && JPSMS.auth.can('masters', 'edit')) {
+        addBtn.style.display = 'inline-block';
+      } else {
+        addBtn.style.display = 'none';
+      }
+
+      if (cfg.hasDates) {
+        filterSec.classList.add('active');
+      } else {
+        filterSec.classList.remove('active');
+      }
+
+      if (machineProcessSection) {
+        const showMachineProcess = type === 'machines';
+        machineProcessSection.style.display = showMachineProcess ? 'block' : 'none';
+        if (machineScopeGrid) {
+          machineScopeGrid.classList.toggle('dual', showMachineProcess);
+        }
+        const machineProcessFilter = document.getElementById('machineProcessFilter');
+        if (type === 'machines' && machineProcessFilter && !machineProcessFilter.value) {
+          machineProcessFilter.value = 'Moulding';
+        }
+      } else if (machineScopeGrid) {
+        machineScopeGrid.classList.remove('dual');
+      }
+
+      if (filterFromLabel && filterToLabel && filterDateHint) {
+        const optionalDateFilters = ['orjrwise', 'orjrwisedetail', 'boplanningdetail', 'wipstock'];
+        const isOptionalDateType = optionalDateFilters.includes(type);
+        filterFromLabel.textContent = type === 'wipstock'
+          ? 'From Stock Date (Optional)'
+          : (isOptionalDateType ? 'From Date (Optional)' : 'From Date');
+        filterToLabel.textContent = type === 'wipstock'
+          ? 'To Stock Date (Optional)'
+          : (isOptionalDateType ? 'To Date (Optional)' : 'To Date');
+        filterDateHint.style.display = isOptionalDateType ? 'block' : 'none';
+      }
+
+      if (filterSearch) {
+        if (['orjrwise', 'orjrwisedetail', 'boplanningdetail'].includes(type)) {
+          filterSearch.placeholder = 'OR/JR No, Code, Name, Bo Item...';
+        } else if (type === 'wipstock') {
+          filterSearch.placeholder = 'Item Code, Item Name, Location, Job No...';
+        } else if (type === 'machines') {
+          updateMachineSearchPlaceholder();
+        } else {
+          filterSearch.placeholder = 'Order No, Item, Mould...';
+        }
+      }
+
+      if (!JPSMS.auth.can('masters', 'edit') && type !== 'users') {
+        document.getElementById('uploadSection').style.display = 'none';
+      }
+
+      if (reportOnlyTypes.includes(type)) {
+        document.getElementById('uploadSection').style.display = 'none';
+      }
+
+      // Hide Upload Section for Orders (Auto-fetch)
+      if (type === 'orders') {
+        document.getElementById('uploadSection').style.display = 'flex'; // Keep flex to show fetch button
+        document.getElementById('uploadFile').style.display = 'none';    // Hide file input
+        document.getElementById('uploadHint').style.display = 'none';    // Hide hint
+        document.querySelector('#uploadSection button[onclick="uploadMaster()"]').style.display = 'none'; // Hide Upload Btn
+
+        // Show Fetch Button
+        document.getElementById('omFetchBtn').style.display = 'inline-flex';
+        document.getElementById('omHistoryBtn').style.display = JPSMS.auth.isAdminLike() ? 'inline-flex' : 'none';
+        document.getElementById('omLastFetch').style.display = 'inline-block';
+      } else {
+        document.getElementById('omFetchBtn').style.display = 'none';
+        document.getElementById('omHistoryBtn').style.display = 'none';
+        document.getElementById('omLastFetch').style.display = 'none';
+      }
+
+      // User Master Specific UI
+      if (type === 'users') {
+        document.getElementById('uploadSection').innerHTML = `
+            <div style="font-weight:700; font-size:0.8rem; width:120px">User Master</div>
+            <button class="btn-action" onclick="openUserModal()" style="background:#16a34a"><i class="bi bi-person-plus-fill"></i> Add User</button>
+          `;
+        document.getElementById('uploadSection').style.display = 'flex';
+      }
+
+      // OR-JR Toggle Button
+      if (type === 'orjr') {
+        const box = document.querySelector('.upload-box > div');
+        const toggleBtn = document.createElement('button');
+        toggleBtn.className = 'btn-action';
+        toggleBtn.style.marginLeft = '10px';
+        toggleBtn.style.background = currentView === 'closed' ? '#64748b' : '#334155'; // Gray for toggle
+
+        toggleBtn.innerHTML = currentView === 'closed'
+          ? '<i class="bi bi-arrow-left"></i> Back to Active'
+          : '<i class="bi bi-archive"></i> Closed OR-JR';
+
+        toggleBtn.onclick = toggleOrJrView;
+        box.appendChild(toggleBtn);
+      }
+
+      // MOULD Master Specific UI
+      if (type === 'moulds' && JPSMS.auth.can('masters', 'edit')) {
+        const box = document.querySelector('.upload-box > div');
+        const addBtn = document.createElement('button');
+        addBtn.className = 'btn-action';
+        addBtn.onclick = () => openMouldModal('add');
+        addBtn.style.background = '#16a34a';
+        addBtn.style.marginLeft = '10px';
+        addBtn.innerHTML = '<i class="bi bi-plus-lg"></i> Add Mould';
+        box.appendChild(addBtn);
+      }
+
+      // Clear Data Button (Superadmin Only)
+      const user = JPSMS.auth.getUser();
+      let clearBtn = document.getElementById('clearDataBtn');
+      if (!clearBtn) {
+        // Create it if missing
+        clearBtn = document.createElement('button');
+        clearBtn.id = 'clearDataBtn';
+        clearBtn.className = 'btn-action';
+        clearBtn.style.backgroundColor = '#dc2626'; // Red
+        clearBtn.style.marginLeft = '10px';
+        clearBtn.innerHTML = '<i class="bi bi-trash"></i> Clear All Data';
+        clearBtn.onclick = clearMasterData;
+        document.querySelector('.upload-box > div').appendChild(clearBtn);
+      }
+
+      // Show/Hide based on role (Case Insensitive)
+      const role = (user && (user.role || user.role_code || '')).toLowerCase();
+      if (['superadmin', 'admin'].includes(role)) {
+        clearBtn.style.display = 'inline-block';
+      } else {
+        clearBtn.style.display = 'none';
+      }
+    }
+
+    async function clearMasterData() {
+      if (!confirm('DANGER: This will delete ALL data for the current view.\n\nAre you sure you want to proceed?')) return;
+      const second = prompt('Type "DELETE" to confirm:');
+      if (second !== 'DELETE') return alert('Cancelled');
+
+      try {
+        let endpoint = `/admin/clear-data`;
+        // Map currentType to server type if needed, or pass currentType
+        // Server needs to know table name
+        const user = JPSMS.auth.getUser() || {};
+        const res = await JPSMS.api.post(endpoint, { type: currentType, username: user.username });
+        if (!res.ok) throw new Error(res.error || 'Failed to clear data');
+        alert(res.message || 'Data cleared successfully.');
+        loadMasterData();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function loadMasterData() {
+      const from = document.getElementById('filterFrom').value;
+      const to = document.getElementById('filterTo').value;
+      const search = (document.getElementById('filterSearch') ? document.getElementById('filterSearch').value : '').trim();
+      const machineProcess = currentType === 'machines' ? getSelectedMachineProcessFilter() : '';
+
+      if ($.fn.DataTable.isDataTable('#masterTable')) {
+        $('#masterTable').DataTable().destroy();
+      }
+      masterTable = null;
+      document.querySelector('#masterTable tbody').innerHTML = '<tr><td colspan="5" class="text-center p-3">Loading...</td></tr>';
+      document.querySelector('#masterTable thead').innerHTML = '';
+
+      try {
+        let endpoint = `/masters/${currentType}`;
+        const query = new URLSearchParams({ from, to, search });
+        if (currentType === 'machines' && machineProcess) query.set('process', machineProcess);
+        const qParams = query.toString();
+
+        if (currentType === 'orjr') {
+          endpoint = `/reports/or-jr-full?${qParams}`;
+        } else if (currentType === 'orjrwise') {
+          endpoint = `/reports/orjr-wise-summary?${qParams}`;
+        } else if (currentType === 'orjrwisedetail') {
+          endpoint = `/reports/orjr-wise-detail?${qParams}`;
+        } else if (currentType === 'boplanningdetail') {
+          endpoint = `/reports/bo-planning-detail?${qParams}`;
+        } else if (currentType === 'users') {
+          endpoint = `/users`; // GET /api/users
+        } else if (currentType === 'machines') {
+          endpoint = `/masters/machines?${qParams}`;
+        }
+
+        console.log('[Masters] Loading data for type:', currentType);
+        console.log('[Masters] Endpoint:', endpoint);
+
+        const res = await JPSMS.api.get(endpoint);
+        let rows = res.data || [];
+
+        // CLIENT-SIDE FILTERING for OR-JR View (Active vs Closed)
+        // CRITICAL FIX: If Searching, DO NOT FILTER. Show everything found.
+        if (currentType === 'orjr' && !search) {
+          if (currentView === 'closed') {
+            rows = rows.filter(r => r.is_closed === true);
+          } else {
+            // Default Active: Not closed (false or null)
+            rows = rows.filter(r => !r.is_closed);
+          }
+        }
+
+        if (!rows.length) {
+          document.querySelector('#masterTable tbody').innerHTML = '<tr><td colspan="5" class="text-center p-3">No records found.</td></tr>';
+          return;
+        }
+
+        // Columns (Exclude technical)
+        let cols = Object.keys(rows[0]).filter(c => !['created_date', 'edited_date', 'remarks_all', 'id', 'search_vector', 'created_at', 'updated_at', 'password'].includes(c));
+
+        // If users OR moulds, explicitly order columns
+        if (currentType === 'users') {
+          cols = ['username', 'role_code', 'line', 'permissions', 'is_active', 'actions'];
+        } else if (currentType === 'machines') {
+          const printingView = isPrintingMachineView();
+          cols = cols.filter(c => !['machine_icon', 'machine_process', 'actions'].includes(c));
+          if (JPSMS.auth.can('masters', 'edit')) {
+            cols.unshift('actions');
+          }
+          if (printingView) {
+            cols = cols.filter(c => !['building', 'line', 'tonnage', 'is_active'].includes(c));
+            const orderedPrintingCols = ['machine', 'machine_icon', 'vendor_name', 'model_no', 'machine_type'];
+            cols = [
+              ...cols.filter(c => c === 'actions'),
+              ...cols.filter(c => c === 'factory_name'),
+              ...orderedPrintingCols.filter(c => Object.prototype.hasOwnProperty.call(rows[0], c))
+            ];
+          } else {
+            cols = cols.filter(c => !['vendor_name', 'model_no', 'machine_type'].includes(c));
+            const machineIdx = cols.indexOf('machine');
+            if (machineIdx !== -1) {
+              cols.splice(machineIdx + 1, 0, 'machine_process', 'machine_icon');
+            } else {
+              cols.push('machine_process');
+              cols.push('machine_icon');
+            }
+          }
+        } else if (currentType === 'moulds') {
+          cols = mouldFields.filter(c => cols.includes(c));
+          if (JPSMS.auth.can('masters', 'edit')) {
+            cols = ['actions', ...cols];
+          }
+        } else if (currentType === 'orjrwise') {
+          cols = ['factory_name', ...orjrWiseSummaryColumns].filter(c => cols.includes(c));
+        } else if (currentType === 'orjrwisedetail') {
+          cols = ['factory_name', ...orjrWiseDetailColumns].filter(c => cols.includes(c));
+        } else if (currentType === 'boplanningdetail') {
+          cols = ['factory_name', ...boPlanningDetailColumns].filter(c => cols.includes(c));
+        } else if (currentType === 'wipstock') {
+          cols = wipStockColumns.filter(c => cols.includes(c));
+        } else if (currentType === 'orjr') {
+          // Use STRICT column list to match Excel/Order view exact structure
+          const orJrCols = [
+            "or_jr_no", "or_jr_date", "or_qty", "jr_qty", "plan_qty", "plan_date",
+            "job_card_no", "job_card_date", "item_code", "product_name", "client_name",
+            "prod_plan_qty", "std_pack", "uom", "planned_comp_date",
+            "mld_start_date", "mld_end_date", "actual_mld_start_date",
+            "prt_tuf_end_date", "pack_end_date",
+            "mld_status", "shift_status", "prt_tuf_status", "pack_status", "wh_status",
+            "rev_mld_end_date", "shift_comp_date", "rev_ptd_tuf_end_date", "rev_pak_end_date", "wh_rec_date",
+            "remarks_all", "jr_close", "or_remarks", "jr_remarks",
+            "created_by", "created_date", "edited_by", "edited_date"
+          ];
+          cols = ['actions', 'factory_name', ...orJrCols.filter(c => c !== 'factory_name')];
+        } else if (currentType === 'orders') {
+          // STRICT User Request: "Get All data Same in Or-JR status Dont Change Or dont ADD"
+          // We use the exact schema order from DB, plus Action/Status at start.
+          const orJrCols = [
+            "or_jr_no", "or_jr_date", "or_qty", "jr_qty", "plan_qty", "plan_date",
+            "job_card_no", "job_card_date", "item_code", "product_name", "client_name",
+            "prod_plan_qty", "std_pack", "uom", "planned_comp_date",
+            "mld_start_date", "mld_end_date", "actual_mld_start_date",
+            "prt_tuf_end_date", "pack_end_date",
+            "mld_status", "shift_status", "prt_tuf_status", "pack_status", "wh_status",
+            "rev_mld_end_date", "shift_comp_date", "rev_ptd_tuf_end_date", "rev_pak_end_date", "wh_rec_date",
+            "remarks_all", "jr_close", "or_remarks", "jr_remarks",
+            "created_by", "created_date", "edited_by", "edited_date"
+          ];
+
+          // Action & Plan Status are UI helpers, we keep them but then follow strict data order.
+          // Added confirmation workflow columns so completed OR/JR changes stay visible until confirmed.
+          cols = ['action', 'priority', 'plan_status', 'status_change', 'confirmation_action', 'factory_name', 'mould_progress', ...orJrCols.filter(c => c !== 'factory_name')];
+        } else if ((currentType === 'machines' || currentType === 'moulds') && JPSMS.auth.can('masters', 'edit')) {
+          if (!cols.includes('actions')) cols.unshift('actions');
+        }
+
+        if (cols.includes('factory_name') && !['orders', 'orjr', 'users'].includes(currentType)) {
+          cols = cols.filter(c => c !== 'factory_name' && c !== 'factory_code');
+          const actionKey = cols.includes('actions') ? 'actions' : (cols.includes('action') ? 'action' : null);
+          if (actionKey) {
+            cols.splice(cols.indexOf(actionKey) + 1, 0, 'factory_name');
+          } else {
+            cols.unshift('factory_name');
+          }
+        } else {
+          cols = cols.filter(c => c !== 'factory_code');
+        }
+
+        // Body
+        // Initialize DataTable with Direct Data Injection (FASTEST)
+
+        // 1. Build Dynamic Column Configurations
+        // We need to map `cols` to { data: 'key', title: 'Key' }
+        // And handle special columns like 'actions' or 'plan_status' via renderters.
+
+        const dtColumns = cols.map(c => {
+          const base = { data: c, title: c.replace(/_/g, ' ').toUpperCase() };
+          const isFactoryExportOnlyColumn = currentType !== 'users' && ['factory_name', 'factory_code'].includes(c);
+          const isUiOnlyColumn = ['actions', 'action', 'confirmation_action', 'status_change', 'mould_progress', 'plan_status'].includes(c);
+
+          if (c === 'factory_name') {
+            base.title = 'Factory';
+          } else if (boPlanningDetailTitles[c]) {
+            base.title = boPlanningDetailTitles[c];
+          } else if (c === 'factory_code') {
+            base.title = 'Factory Code';
+          } else if (currentType === 'machines' && isPrintingMachineView() && c === 'machine') {
+            base.title = 'Machine Number';
+          } else if (c === 'vendor_name') {
+            base.title = 'Vendor Name';
+          } else if (c === 'model_no') {
+            base.title = 'Model No';
+          } else if (c === 'machine_type') {
+            base.title = 'Machine Type';
+          } else if (c === 'machine_process') {
+            base.title = 'Process';
+          } else if (c === 'status_change') {
+            base.title = 'Status Change';
+          } else if (c === 'confirmation_action') {
+            base.title = 'Confirmation';
+          } else if (c === 'priority' && currentType === 'orders') {
+            base.title = 'Priority';
+          }
+
+          if (currentType === 'moulds' && mouldColumnTitles[c]) {
+            base.title = mouldColumnTitles[c];
+          } else if (currentType === 'orjrwise' && orjrWiseSummaryTitles[c]) {
+            base.title = orjrWiseSummaryTitles[c];
+          } else if (currentType === 'orjrwisedetail' && orjrWiseDetailTitles[c]) {
+            base.title = orjrWiseDetailTitles[c];
+          } else if (currentType === 'wipstock' && wipStockTitles[c]) {
+            base.title = wipStockTitles[c];
+          }
+
+          if (isFactoryExportOnlyColumn) {
+            base.visible = false;
+            base._exportOnly = true;
+            base._excludeFromColvis = true;
+          }
+
+          if (isUiOnlyColumn) {
+            base.defaultContent = '';
+          }
+
+          if (['actions', 'action', 'machine_icon', 'confirmation_action'].includes(c)) {
+            base._excludeFromExport = true;
+            if (c === 'machine_icon') {
+              base._excludeFromColvis = true;
+            }
+          }
+
+          // Custom Renderers based on Column Name
+            if (c === 'actions') {
+              base.render = function (data, type, row) {
+                const safeData = encodeURIComponent(JSON.stringify(row));
+                if (currentType === 'moulds') {
+                  if (!canWriteCurrentFactoryScope()) {
+                    return `<span style="color:#94a3b8; font-size:0.74rem; white-space:nowrap;">${getWriteLockShortHint()}</span>`;
+                  }
+                  return `<div style="white-space:nowrap">
+                            <button onclick="openMouldModal('edit', JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon" title="Edit"><i class="bi bi-pencil-square text-blue-600"></i></button>
+                            <button onclick="viewMouldHistory('${row.mould_number}')" class="btn-action-icon" title="History"><i class="bi bi-clock-history text-gray-600"></i></button>
+                        </div>`;
+              } else if (currentType === 'users') {
+                const perms = row.permissions || {};
+                const permBadges = Object.keys(perms).map(k => perms[k] ? `<span style="background:#e0e7ff; color:#3730a3; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px">${k}</span>` : '').join('');
+
+                // This render is for the 'actions' column, not permissions.
+                // The permissions column itself should be handled separately if it's part of `cols`.
+                // For 'users', the `cols` array already includes 'permissions' and 'actions' as separate columns.
+                // So, this 'actions' render is correct.
+                return `<div style="white-space:nowrap">
+                            <button onclick="openUserModal(JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon" style="color:blue"><i class="bi bi-pencil"></i></button>
+                            <button onclick="deleteUser('${row.id}')" class="btn-action-icon" style="color:red"><i class="bi bi-trash"></i></button>
+                        </div>`;
+              } else if (currentType === 'machines') {
+                if (!canWriteCurrentFactoryScope()) {
+                  return `<span style="color:#94a3b8; font-size:0.74rem; white-space:nowrap;">${getWriteLockShortHint()}</span>`;
+                }
+                const machineId = encodeURIComponent(String(row.machine || ''));
+                return `<div style="white-space:nowrap">
+                            <button onclick="openMachineModal('edit', JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon"><i class="bi bi-pencil-square text-blue-600"></i></button>
+                            <button onclick="viewMachineHistory('${machineId}')" class="btn-action-icon" title="History"><i class="bi bi-clock-history text-gray-600"></i></button>
+                        </div>`;
+              } else if (currentType === 'orjr') {
+                const safeNo = row.or_jr_no;
+                if (!canWriteCurrentFactoryScope()) {
+                  return `<span style="color:#94a3b8; font-size:0.74rem; white-space:nowrap;">${getWriteLockShortHint()}</span>`;
+                }
+                if (currentView === 'closed') {
+                  return `<button onclick="reopenOrJr('${safeNo}', '${row.job_card_no || ''}')" class="btn-action" style="padding:2px 8px; font-size:0.7rem; background:#16a34a">Reopen</button>`;
+                } else {
+                  return `<button onclick="closeOrJr('${safeNo}', '${row.job_card_no || ''}')" class="btn-action" style="padding:2px 8px; font-size:0.7rem; background:#dc2626">Close</button>`;
+                }
+              }
+              return '';
+            };
+          }
+
+          // Permissions column for users
+          if (c === 'permissions' && currentType === 'users') {
+            base.render = function (data, type, row) {
+              const perms = data || {};
+              const permBadges = Object.keys(perms).map(k => perms[k] ? `<span style="background:#e0e7ff; color:#3730a3; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px">${k}</span>` : '').join('');
+              return permBadges || '<span style="color:#94a3b8">None</span>';
+            };
+          }
+
+          // is_active column for users
+          if (c === 'is_active' && currentType === 'users') {
+            base.render = function (data) {
+              return data ? '<span style="color:green">Active</span>' : '<span style="color:red">Inactive</span>';
+            };
+          }
+
+          if (c === 'machine_icon' && currentType === 'machines') {
+            base.title = 'MACHINE ICON';
+            base.render = function (data) {
+              const src = String(data || '').trim();
+              if (!src) return '<span style="color:#94a3b8">No icon</span>';
+              const safeSrc = src.replace(/"/g, '&quot;');
+              return `<div style="display:flex; align-items:center; gap:8px; min-width:120px">
+                        <img src="${safeSrc}" alt="Machine Icon" style="width:48px; height:28px; object-fit:contain; border:1px solid #e2e8f0; border-radius:6px; background:#fff; padding:2px">
+                        <span style="font-size:0.72rem; color:#475569; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${safeSrc}</span>
+                      </div>`;
+            };
+          }
+
+          if (c === 'machine_process' && currentType === 'machines') {
+            base.render = function (data) {
+              const process = normalizeMachineProcessValue(data, 'Moulding');
+              const styles = {
+                Moulding: 'background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;',
+                Tuffting: 'background:#fef3c7; color:#92400e; border:1px solid #fcd34d;',
+                Printing: 'background:#ecfccb; color:#3f6212; border:1px solid #bef264;'
+              };
+              return `<span style="display:inline-flex; align-items:center; justify-content:center; min-width:92px; padding:3px 10px; border-radius:999px; font-weight:700; font-size:0.74rem; ${styles[process] || styles.Moulding}">${process}</span>`;
+            };
+          }
+
+          // Plan Status Badge (Orders) - Enhanced Logic
+          if (c === 'plan_status') {
+            base.render = function (data) {
+              let color = '#94a3b8'; // Pending (Gray)
+              let text = data || 'Pending';
+
+              if (text === 'Fully Planned') color = '#16a34a'; // Green
+              else if (text === 'Partially Planned') color = '#f59e0b'; // Orange
+
+              return `<span style="background:${color}; color:white; padding:2px 8px; border-radius:12px; font-size:0.75rem; white-space:nowrap; font-weight:600">${text}</span>`;
+            };
+          }
+
+          if (c === 'mould_progress') {
+            base.title = 'MOULDS';
+            base.render = function (data, type, row) {
+              const p = row.planned_count || 0;
+              const r = row.required_count || 0;
+              return `<span style="font-weight:bold; font-size:0.85rem; color:#334155">${p} / ${r}</span>`;
+            };
+          }
+
+          if (c === 'row_status' && currentType === 'wipstock') {
+            base.render = function (data) {
+              const value = String(data || '').trim() || 'Existing';
+              const normalized = value.toLowerCase();
+              const palette = normalized === 'new'
+                ? { bg: '#dcfce7', color: '#166534' }
+                : normalized === 'nil'
+                  ? { bg: '#fee2e2', color: '#b91c1c' }
+                  : { bg: '#dbeafe', color: '#1d4ed8' };
+              return `<span style="display:inline-flex; align-items:center; justify-content:center; min-width:84px; padding:4px 10px; border-radius:999px; background:${palette.bg}; color:${palette.color}; font-size:0.74rem; font-weight:800;">${value}</span>`;
+            };
+          }
+
+          if (currentType === 'wipstock' && ['previous_stock_qty', 'current_stock_available_qty', 'current_live_qty', 'total_qty'].includes(c)) {
+            base.render = function (data) {
+              if (data === null || data === undefined || data === '') return '';
+              const numeric = Number(data);
+              const displayValue = Number.isFinite(numeric)
+                ? numeric.toLocaleString('en-IN', { maximumFractionDigits: 2 })
+                : data;
+              return `<div style="text-align:right; font-weight:700; color:#0f172a">${displayValue}</div>`;
+            };
+          }
+
+          if (c === 'priority' && currentType === 'orders') {
+            base.render = function (data, type, row) {
+              const currentPriority = String(data || 'Normal').trim() || 'Normal';
+              const isHigh = currentPriority.toLowerCase() === 'high';
+              const nextPriority = isHigh ? 'Normal' : 'High';
+              const badgeLabel = isHigh ? 'High Priority' : 'Normal';
+              const buttonBg = isHigh
+                ? 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)'
+                : 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)';
+              const buttonColor = isHigh ? '#ffffff' : '#475569';
+              const buttonBorder = isHigh ? '#f59e0b' : '#cbd5e1';
+              const buttonShadow = isHigh
+                ? '0 6px 14px rgba(245, 158, 11, 0.2)'
+                : '0 5px 12px rgba(148, 163, 184, 0.14)';
+              const icon = isHigh ? 'bi bi-star-fill' : 'bi bi-star';
+              const pillMinWidth = '118px';
+              const pillMinHeight = '30px';
+              const pillPadding = '0 10px';
+              const pillRadius = '10px';
+              const pillFontSize = '0.71rem';
+              const pillGap = '5px';
+
+              if (!canWriteCurrentFactoryScope()) {
+                return `
+                  <div style="display:flex; flex-direction:column; align-items:center; gap:5px; min-width:${pillMinWidth};">
+                    <span style="display:inline-flex; align-items:center; justify-content:center; gap:${pillGap}; width:100%; min-height:${pillMinHeight}; padding:${pillPadding}; border-radius:${pillRadius}; font-size:${pillFontSize}; font-weight:800; letter-spacing:0.01em; background:${buttonBg}; color:${buttonColor}; border:1px solid ${buttonBorder}; box-shadow:${buttonShadow};">
+                      <i class="${icon}"></i>
+                      ${badgeLabel}
+                    </span>
+                    <span style="color:#94a3b8; font-size:0.66rem; text-align:center;">${getWriteLockShortHint()}</span>
+                  </div>
+                `;
+              }
+
+              const orderNo = row.or_jr_no || row.order_no || '';
+              const factoryId = row.factory_id || '';
+              const canEditPriority = JPSMS.auth.can('masters', 'edit');
+
+              if (!canEditPriority) {
+                return `
+                  <div style="display:flex; justify-content:center; min-width:${pillMinWidth};">
+                    <span style="display:inline-flex; align-items:center; justify-content:center; gap:${pillGap}; width:100%; min-height:${pillMinHeight}; padding:${pillPadding}; border-radius:${pillRadius}; font-size:${pillFontSize}; font-weight:800; letter-spacing:0.01em; background:${buttonBg}; color:${buttonColor}; border:1px solid ${buttonBorder}; box-shadow:${buttonShadow};">
+                      <i class="${icon}"></i>
+                      ${badgeLabel}
+                    </span>
+                  </div>
+                `;
+              }
+
+              return `
+                <div style="display:flex; justify-content:center; min-width:${pillMinWidth};">
+                  <button onclick="setOrderPriority('${orderNo}', '${factoryId}', '${nextPriority}')" class="btn-action" title="${isHigh ? 'Remove high priority' : 'Mark as high priority'}" style="display:inline-flex; align-items:center; justify-content:center; gap:${pillGap}; width:100%; min-height:${pillMinHeight}; padding:${pillPadding}; border-radius:${pillRadius}; background:${buttonBg}; color:${buttonColor}; border:1px solid ${buttonBorder}; font-size:${pillFontSize}; font-weight:800; letter-spacing:0.01em; box-shadow:${buttonShadow};">
+                    <i class="${icon}"></i>
+                    ${badgeLabel}
+                  </button>
+                </div>
+              `;
+            };
+          }
+
+          if (c === 'status_change' && currentType === 'orders') {
+            base.render = function (data, type, row) {
+              if (!row.completion_confirmation_required) return '<span style="color:#94a3b8;">-</span>';
+              const detectedAt = row.completion_detected_at
+                ? `<div style="font-size:0.72rem; color:#64748b; margin-top:4px;">${moment(row.completion_detected_at).format('DD-MMM-YYYY hh:mm A')}</div>`
+                : '';
+              return `
+                <div style="min-width:180px;">
+                  <span style="display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; background:#fff7ed; color:#c2410c; font-weight:700; font-size:0.75rem;">
+                    <i class="bi bi-arrow-repeat"></i>
+                    ${data || 'MLD Status changed'}
+                  </span>
+                  ${detectedAt}
+                </div>
+              `;
+            };
+          }
+
+          if (c === 'confirmation_action' && currentType === 'orders') {
+            base.render = function (data, type, row) {
+              const orderNo = row.or_jr_no || row.order_no || '';
+              const factoryId = row.factory_id || '';
+              const isAdmin = JPSMS.auth.isAdminLike();
+
+              if (!row.completion_confirmation_required) {
+                if (!isAdmin) return '<span style="color:#94a3b8;">-</span>';
+                return `<button onclick="openOrderCompletionHistory('${orderNo}', '${factoryId}')" class="btn-action" style="padding:4px 10px; background:#f8fafc; color:#334155; border:1px solid #cbd5e1;"><i class="bi bi-clock-history"></i> History</button>`;
+              }
+
+              const confirmButton = !canWriteCurrentFactoryScope()
+                ? `<span style="color:#94a3b8; font-size:0.74rem; white-space:nowrap;">${getWriteLockShortHint()}</span>`
+                : (JPSMS.auth.can('masters', 'edit')
+                  ? `<button onclick="confirmOrderCompletion('${orderNo}', '${factoryId}')" class="btn-action" style="padding:4px 10px; background:#16a34a;"><i class="bi bi-check2-circle"></i> Confirm</button>`
+                  : `<span style="display:inline-flex; padding:4px 10px; border-radius:999px; background:#eff6ff; color:#1d4ed8; font-size:0.74rem; font-weight:700;">Pending</span>`);
+
+              const historyButton = isAdmin
+                ? `<button onclick="openOrderCompletionHistory('${orderNo}', '${factoryId}')" class="btn-action" style="padding:4px 10px; background:#f8fafc; color:#334155; border:1px solid #cbd5e1;"><i class="bi bi-clock-history"></i> History</button>`
+                : '';
+
+              return `<div style="display:flex; flex-wrap:wrap; gap:6px; min-width:170px;">${confirmButton}${historyButton}</div>`;
+            };
+          }
+
+          // Date Formatting
+          if ((c.includes('date') || c.includes('dob') || c.includes('time')) && c !== 'cycle_time' && !['actions', 'plan_status'].includes(c)) {
+            base.render = function (data, type) {
+              if (type === 'sort' || type === 'type') {
+                // For sorting, return numeric timestamp if possible, or ISO string
+                if (!data) return -Infinity; // Push nulls to bottom/top
+                return new Date(data).getTime();
+              }
+              // Display/Filter
+              if (!data) return '';
+              const d = new Date(data);
+              return isNaN(d.getTime()) ? data : moment(d).format('DD-MMM-YYYY');
+            };
+          }
+
+          // Default render for null values
+          if (!base.render) {
+            base.render = function (data) {
+              return data !== null ? data : '';
+            };
+          }
+
+          // Force Natural Sort via Suffix Key (Line + LastNumber Priority)
+          if (c === 'machine' || c === 'mould_name' || c === 'mould_no' || c === 'mould_number') {
+            base.render = function (data, type) {
+              if (type === 'sort') {
+                // 1. Split Line and Suffix
+                const s = String(data || '');
+                const parts = s.split('>');
+                const line = parts.length > 1 ? parts[0] : 'AAAA'; // Default line
+                const rest = parts.length > 1 ? parts[1] : parts[0];
+
+                // 2. Extract Last Number (Index)
+                const match = rest.match(/(\d+)$/);
+                const idx = match ? match[1] : '999999';
+
+                // 3. Construct Sort Key: [Line] [ZeroPaddedIndex] [OriginalString]
+                // This ensures Line grouping -> Index ordering -> Middle content is secondary
+                return line + ' ' + idx.padStart(10, '0') + ' ' + s;
+              }
+              return data || '';
+            };
+          }
+
+          return base;
+        });
+
+        // Special Case: Orders Actions (Plan + View)
+        if (currentType === 'orders') {
+          const actionColIndex = dtColumns.findIndex(col => col.data === 'action');
+          if (actionColIndex !== -1) {
+            dtColumns[actionColIndex].render = function (data, type, row) {
+              if (!canWriteCurrentFactoryScope()) {
+                return `<span style="color:#94a3b8; font-size:0.74rem; white-space:nowrap;">${getWriteLockShortHint()}</span>`;
+              }
+              const orderNo = row.or_jr_no || row.order_no || '';
+              const awaitingConfirmation = row.completion_confirmation_required === true;
+              // Safe Encode
+              let detailsSafe = '[]';
+              try { detailsSafe = encodeURIComponent(JSON.stringify(row.planned_details || [])); } catch (e) { }
+
+              return `<div style="display:flex; gap:4px">
+                     ${awaitingConfirmation
+                  ? `<span style="display:inline-flex; align-items:center; justify-content:center; min-width:34px; padding:4px 8px; border-radius:10px; background:#fff7ed; color:#c2410c; border:1px solid #fed7aa;" title="Awaiting completion confirmation">
+                              <i class="bi bi-hourglass-split"></i>
+                            </span>`
+                  : `<a href="planning.html?order=${orderNo}" class="btn-action" style="padding:4px 8px; background:#2563eb; color:white; text-decoration:none;" title="Create Plan">
+                              <i class="bi bi-calendar-plus"></i>
+                            </a>`}
+                     <button onclick="viewOrderPlan('${orderNo}', '${detailsSafe}')" class="btn-action" style="padding:4px 8px; background:#f8fafc; color:#475569; border:1px solid #cbd5e1" title="View Detail">
+                        <i class="bi bi-eye"></i>
+                     </button>
+                 </div>`;
+            };
+          }
+        }
+
+        // 2. Clear HTML (Important!)
+        document.querySelector('#masterTable tbody').innerHTML = '';
+        document.querySelector('#masterTable thead').innerHTML = `<tr>${dtColumns.map(c => `<th>${c.title}</th>`).join('')}</tr>`;
+
+        const exportScopeLabel = getFactoryScopeLabel();
+        const exportMasterLabel = getExportMasterLabel();
+        const exportTitle = `${exportMasterLabel} - ${exportScopeLabel}`;
+        const exportFileName = `${exportMasterLabel}-${getExportScopeFileLabel()}`;
+        const getColvisColumnIndexes = () => dtColumns
+          .map((column, index) => ({ column, index }))
+          .filter(({ column }) => !column._excludeFromColvis)
+          .map(({ index }) => index);
+        const shouldExportColumn = (idx) => {
+          const column = dtColumns[idx];
+          if (!column || column._excludeFromExport) return false;
+          if (column._exportOnly) return true;
+          if (masterTable) {
+            return masterTable.column(idx).visible();
+          }
+          return column.visible !== false;
+        };
+
+        // 3. Initialize DataTable with 'data'
+        masterTable = $('#masterTable').DataTable({
+          data: rows,
+          columns: dtColumns,
+          dom: 'Bfrtip',
+          // Performance Tuning
+          deferRender: true,
+          scroller: true,
+          scrollY: '65vh',
+          scrollCollapse: true,
+          processing: true,
+          orderClasses: false,
+          createdRow: function (row, data, dataIndex) {
+            if (currentType === 'orders') {
+              const priority = String(data && data.priority || 'Normal').toLowerCase();
+              if (priority === 'high') {
+                row.style.background = 'linear-gradient(90deg, rgba(255,247,237,0.95) 0%, rgba(255,255,255,1) 22%)';
+                row.style.boxShadow = 'inset 4px 0 0 #f59e0b';
+              } else if (priority === 'urgent') {
+                row.style.background = 'linear-gradient(90deg, rgba(254,226,226,0.98) 0%, rgba(255,255,255,1) 24%)';
+                row.style.boxShadow = 'inset 4px 0 0 #dc2626';
+              }
+            } else if (currentType === 'wipstock') {
+              const status = String(data && data.row_status || '').toLowerCase();
+              if (status === 'new') {
+                row.style.background = 'linear-gradient(90deg, rgba(240,253,244,1) 0%, rgba(255,255,255,1) 22%)';
+                row.style.boxShadow = 'inset 4px 0 0 #16a34a';
+              } else if (status === 'nil') {
+                row.style.background = 'linear-gradient(90deg, rgba(254,242,242,1) 0%, rgba(255,255,255,1) 22%)';
+                row.style.boxShadow = 'inset 4px 0 0 #dc2626';
+              } else if (status === 'existing') {
+                row.style.background = 'linear-gradient(90deg, rgba(239,246,255,0.85) 0%, rgba(255,255,255,1) 18%)';
+                row.style.boxShadow = 'inset 4px 0 0 #38bdf8';
+              }
+            }
+            return row;
+          },
+
+          buttons: [
+            {
+              extend: 'colvis',
+              text: 'Cols',
+              columns: getColvisColumnIndexes()
+            },
+            {
+              extend: 'copy',
+              title: exportTitle,
+              exportOptions: {
+                columns: shouldExportColumn
+              }
+            },
+            {
+              extend: 'excel',
+              title: exportTitle,
+              filename: exportFileName,
+              exportOptions: {
+                columns: shouldExportColumn
+              }
+            },
+            {
+              extend: 'print',
+              title: exportTitle,
+              exportOptions: {
+                columns: shouldExportColumn
+              }
+            }
+          ],
+          scrollX: true,
+          paging: true, // Scroller needs paging enabled theoretically, but it overrides it visually
+          pageLength: 50, // Ignored by Scroller usually
+
+          order: [[1, 'asc']],
+          language: { search: "", searchPlaceholder: "Search..." },
+          autoWidth: false
+        });
+
+        // Enable Row Selection
+        $('#masterTable tbody').on('click', 'tr', function () {
+          if ($(this).hasClass('selected')) {
+            $(this).removeClass('selected');
+          } else {
+            masterTable.$('tr.selected').removeClass('selected');
+            $(this).addClass('selected');
+          }
+        });
+
+        $('#masterTable tbody').on('dblclick', 'tr', function () {
+          masterTable.$('tr.selected').removeClass('selected');
+          $(this).addClass('selected');
+        });
+
+      } catch (e) {
+        console.error(e);
+        document.querySelector('#masterTable tbody').innerHTML = `<tr><td style="color:red" colspan="5">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    async function uploadMaster() {
+      if (!ensureSingleFactoryScope('upload master data')) return;
+      const fileInput = document.getElementById('uploadFile');
+      if (!fileInput.files.length) return alert('Select file first');
+      const selectedFile = fileInput.files[0];
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      const btn = document.querySelector('button[onclick="uploadMaster()"]');
+      const oldTxt = btn.textContent;
+      btn.textContent = '...'; btn.disabled = true;
+
+      try {
+        if (currentType === 'orjr') {
+          const res = await JPSMS.api.upload('/upload/or-jr-preview', formData);
+          if (!res.ok) throw new Error(res.error || 'Preview failed');
+          pendingUploadMode = 'server-orjr';
+          showReviewModal(res.data, {
+            mode: 'server',
+            title: 'Review OR-JR Changes',
+            confirmLabel: 'Confirm Update'
+          });
+          return;
+        }
+
+        if (currentType === 'machines') {
+          formData.append('process', getSelectedMachineProcessFilter() || 'Moulding');
+          const res = await JPSMS.api.upload('/upload/machines-preview', formData);
+          if (!res.ok) throw new Error(res.error || 'Preview failed');
+          pendingUploadMode = 'server-machines';
+          showReviewModal(res.data, {
+            mode: 'server',
+            title: 'Review Machine Changes',
+            confirmLabel: 'Confirm Update'
+          });
+          return;
+        }
+
+        if (currentType === 'wipstock') {
+          const res = await JPSMS.api.upload('/upload/wipstock-preview', formData);
+          if (!res.ok) throw new Error(res.error || 'Preview failed');
+          pendingUploadMode = 'server-wipstock';
+          showReviewModal(res.data.rows || [], {
+            mode: 'file',
+            keys: res.data.keys || [],
+            totalRows: res.data.totalRows || 0,
+            title: res.data.stock_date
+              ? `WIP Stock Preview - ${res.data.stock_date}`
+              : 'WIP Stock Preview',
+            confirmLabel: 'Confirm Upload',
+            stockDate: res.data.stock_date || '',
+            headerDateText: res.data.header_date_text || '',
+            sourceFileName: res.data.source_file_name || selectedFile.name
+          });
+          return;
+        }
+
+        const preview = await buildClientUploadPreview(selectedFile, currentType);
+        pendingUploadMode = 'file-upload';
+        pendingUploadFile = selectedFile;
+        showReviewModal(preview.rows, {
+          mode: 'file',
+          keys: preview.keys,
+          totalRows: preview.totalRows,
+          title: preview.title,
+          confirmLabel: 'Confirm Upload'
+        });
+
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        btn.textContent = oldTxt; btn.disabled = false;
+      }
+    }
+
+    async function downloadTemplate() {
+      if (!templateSupportedTypes.includes(currentType)) {
+        JPSMS.toast('Template is not available for this master.', 'error');
+        return;
+      }
+
+      const buttons = [
+        document.getElementById('templateBtn'),
+        document.getElementById('allFactoryTemplateBtn')
+      ].filter(Boolean);
+      const originalHtml = buttons.map(btn => btn.innerHTML);
+      buttons.forEach(btn => {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Downloading...';
+      });
+
+      try {
+        const headers = {};
+        const user = JPSMS.auth.getUser();
+        if (user?.username) headers['X-User-Name'] = user.username;
+
+        const factoryId = localStorage.getItem('jpsms_factory_id');
+        if (factoryId) headers['X-Factory-ID'] = factoryId;
+
+        const templateUrl = new URL(`/api/templates/${currentType}`, window.location.origin);
+        if (currentType === 'machines') {
+          templateUrl.searchParams.set('process', getSelectedMachineProcessFilter() || 'Moulding');
+        }
+
+        const response = await fetch(templateUrl.toString(), { headers });
+        if (!response.ok) {
+          let message = 'Template download failed';
+          try {
+            const errJson = await response.json();
+            message = errJson.error || message;
+          } catch (_err) { }
+          throw new Error(message);
+        }
+
+        const blob = await response.blob();
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="?([^"]+)"?/i);
+        const fileName = (match && match[1]) ? match[1] : `jms-ocean-${currentType}-template.xlsx`;
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+        JPSMS.toast('Template downloaded', 'success');
+      } catch (error) {
+        alert(error.message || 'Template download failed');
+      } finally {
+        buttons.forEach((btn, idx) => {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml[idx];
+        });
+      }
+    }
+
+    function showReviewModal(data, options = {}) {
+      if (!data || !Array.isArray(data)) {
+        console.error('showReviewModal received invalid data:', data);
+        alert('Internal Error: No data received from server.');
+        return;
+      }
+      pendingUploadData = data;
+      pendingUploadPreviewMeta = options || {};
+      const modal = document.getElementById('reviewModal');
+      const table = modal.querySelector('table');
+      const thead = table.querySelector('thead');
+      const tbody = document.getElementById('reviewTableBody');
+      const countSpan = document.getElementById('reviewCount');
+      const titleEl = document.getElementById('reviewModalTitle');
+      const confirmBtn = document.getElementById('confirmBtn');
+      const mode = options.mode || 'server';
+
+      const toProcess = mode === 'server' ? data.filter(d => d._status !== 'SKIP') : data;
+      titleEl.textContent = options.title || (mode === 'file' ? 'Upload Preview' : 'Review Changes');
+      confirmBtn.textContent = options.confirmLabel || (mode === 'file' ? 'Confirm Upload' : 'Confirm Update');
+      countSpan.textContent = mode === 'file'
+        ? (options.totalRows > toProcess.length
+          ? `Previewing first ${toProcess.length} of ${options.totalRows} rows before upload.`
+          : `Previewing ${toProcess.length} rows before upload.`)
+        : `Found ${toProcess.length} changes`;
+
+      if (toProcess.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:15px">${mode === 'file' ? 'No rows found in the selected file.' : 'No changes detected.'}</td></tr>`;
+        confirmBtn.disabled = true;
+      } else {
+        confirmBtn.disabled = false;
+
+        // Dynamic Columns with Explicit Titles
+        const headerMap = {
+          'order_no': 'Order No',
+          'item_name': 'Item Name',
+          'mould_code': 'Mould Code',
+          'qty': 'Qty',
+          'priority': 'Priority',
+          'mould_number': 'Mould Number',
+          'mould_name': 'Mould Name',
+          'std_wt_kg': 'STD WT (KG)',
+          'runner_weight': 'Runner Weight',
+          'primary_machine': 'Primary Machine',
+          'secondary_machine': 'Secondary Machine',
+          'moulding_sqn': 'Moulding SQN.',
+          'no_of_cav': 'No Of Cav',
+          'pcs_per_hour': 'PCS/HOUR',
+          'target_pcs_day': 'Target PCS/Day',
+          'material': 'Material',
+          'manpower': 'Manpower',
+          'operator_activities': 'Operator Activities',
+          'sfg_std_packing': 'SFG STD Packing',
+          'std_volume_cap': 'STD Volume Cap.',
+          'building': 'Building',
+          'line': 'Line',
+          'machine': (currentType === 'machines' && isPrintingMachineView()) ? 'Machine Number' : 'Machine',
+          'vendor_name': 'Vendor Name',
+          'model_no': 'Model No',
+          'machine_type': 'Machine Type',
+          'machine_name': 'Machine',
+          'tonnage': 'Tonnage',
+          'factory_id': 'Factory ID',
+          'or_jr_no': 'OR/JR No',
+          'or_jr_date': 'OR/JR Date',
+          'jr_date': 'JR Date',
+          'our_code': 'Our Code',
+          'bom_type': 'BomType',
+          'jr_item_name': 'JR Item Name',
+          'or_qty': 'OR Qty',
+          'jr_qty': 'JR Qty',
+          'plan_qty': 'Plan Qty',
+          'plan_date': 'Plan Date',
+          'job_card_no': 'Job Card No',
+          'job_card_date': 'Job Card Date',
+          'item_code': 'Item Code',
+          'product_name': 'Product Name',
+          'client_name': 'Client Name',
+          'prod_plan_qty': 'Production Plan Qty',
+          'std_pack': 'STD Pack',
+          'uom': 'UOM',
+          'planned_comp_date': 'Planned Comp Date',
+          'mld_start_date': 'MLD Start Date',
+          'mld_end_date': 'MLD End Date',
+          'actual_mld_start_date': 'Actual Mld Start Date',
+          'prt_tuf_end_date': 'Prt/Tuf End Date',
+          'pack_end_date': 'Pack End Date',
+          'mld_status': 'MLD Status',
+          'shift_status': 'Shift Status',
+          'prt_tuf_status': 'Prt/Tuf Status',
+          'pack_status': 'Pack Status',
+          'wh_status': 'WH Status',
+          'rev_mld_end_date': 'Rev MLD End Date',
+          'shift_comp_date': 'Shift Comp. Date',
+          'rev_ptd_tuf_end_date': 'Rev Ptd/Tuf End Date',
+          'rev_pak_end_date': 'Rev Pak End Date',
+          'wh_rec_date': 'WH Rec Date',
+          'remarks_all': 'JC-Mld-Shift-Pur-Ptd/Tuft-Pkg-WH Remarks',
+          'jr_close': 'JR Close',
+          'or_remarks': 'OR Remarks',
+          'jr_remarks': 'JR Remarks',
+          'mould_item_code': 'Mold Item Code',
+          'mould_item_name': 'Mold Item Name',
+          'mould_no': 'Mould No',
+          'mould': 'Mould',
+          'mould_item_qty': 'Mould Item Qty',
+          'cavity': 'Cavity',
+          'sr_no': 'Sr.No.',
+          'stock_date': 'Stock Date',
+          'row_status': 'Row Status',
+          'factory_unit': 'Factory Unit',
+          'party_group': 'Party Group',
+          'location_floor_dept': 'Location/Floor/Dept',
+          'job_no': 'Job No.',
+          'job_date': 'Job Date',
+          'ageing_period': 'Ageing Period',
+          'previous_stock_qty': 'Previous Stock',
+          'current_stock_available_qty': 'Current Stock Available',
+          'current_live_qty': 'Current Live Qty',
+          'total_qty': 'Total Qty',
+          'remark_from_factory_unit': 'Remark From Factory Unit',
+          'remark_from_ho_sales_team': 'Remark From HO/Sales Team',
+          'created_by': 'Created By',
+          'created_date': 'Created Date',
+          'edited_by': 'Edited By',
+          'edited_date': 'Edited Date'
+        };
+
+        const first = toProcess[0];
+        // Get keys that exist in data
+        let keys = (options.keys && options.keys.length
+          ? options.keys
+          : Object.keys(first).filter(k => !k.startsWith('_') && k !== 'id' && k !== 'created_at' && k !== 'updated_at'));
+
+        const isPrintingMachinePreview = currentType === 'machines' && (
+          isPrintingMachineView()
+          || toProcess.every(row => normalizeMachineProcessValue(row.machine_process, '') === 'Printing')
+        );
+
+        if (isPrintingMachinePreview) {
+          keys = ['machine', 'vendor_name', 'model_no', 'machine_type'].filter(k => keys.includes(k));
+        }
+
+        // Sort keys based on the User's A-AL order
+        const priority = [
+          'order_no', 'item_code', 'item_name', 'mould_code', 'qty', 'priority', 'client_name',
+          'mould_number', 'mould_name', 'std_wt_kg', 'runner_weight', 'primary_machine', 'secondary_machine',
+          'moulding_sqn', 'tonnage', 'no_of_cav', 'cycle_time', 'pcs_per_hour', 'target_pcs_day',
+          'material', 'manpower', 'operator_activities', 'sfg_std_packing', 'std_volume_cap',
+          'building', 'line', 'machine', 'vendor_name', 'model_no', 'machine_type', 'factory_id',
+          'or_jr_no', 'or_jr_date', 'or_qty', 'jr_qty', 'plan_qty', 'plan_date',
+          'jr_date', 'our_code', 'bom_type', 'jr_item_name',
+          'mould_item_code', 'mould_item_name', 'mould_no', 'mould', 'mould_item_qty', 'machine_name', 'cavity',
+          'job_card_no', 'job_card_date', 'item_code', 'product_name', 'client_name',
+          'prod_plan_qty', 'std_pack', 'uom', 'planned_comp_date', 'mld_start_date',
+          'mld_end_date', 'actual_mld_start_date', 'prt_tuf_end_date', 'pack_end_date',
+          'mld_status', 'shift_status', 'prt_tuf_status', 'pack_status', 'wh_status',
+          'rev_mld_end_date', 'shift_comp_date', 'rev_ptd_tuf_end_date', 'rev_pak_end_date', 'wh_rec_date',
+          'sr_no', 'stock_date', 'row_status', 'factory_unit', 'party_group', 'location_floor_dept',
+          'job_no', 'job_date', 'ageing_period', 'previous_stock_qty', 'current_stock_available_qty', 'current_live_qty',
+          'total_qty', 'remark_from_factory_unit', 'remark_from_ho_sales_team',
+          'remarks_all', 'jr_close', 'or_remarks', 'jr_remarks',
+          'created_by', 'created_date', 'edited_by', 'edited_date'
+        ];
+
+        keys.sort((a, b) => {
+          const idxA = priority.indexOf(a);
+          const idxB = priority.indexOf(b);
+          if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+          if (idxA !== -1) return -1;
+          if (idxB !== -1) return 1;
+          return 0;
+        });
+
+        // Render Header
+        thead.innerHTML = `
+            <tr>
+                <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0; font-size:0.75rem; background:#f1f5f9; position:sticky; top:0">${mode === 'file' ? 'ROW' : 'STATUS'}</th>
+                ${keys.map(k => `<th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0; font-size:0.75rem; background:#f1f5f9; position:sticky; top:0; white-space:nowrap">${headerMap[k] || k.toUpperCase().replace(/_/g, ' ')}</th>`).join('')}
+            </tr>
+        `;
+
+        // Render Body
+        tbody.innerHTML = toProcess.map((r, idx) => {
+          const color = r._status === 'NEW' ? '#166534' : (r._status === 'DELETE' ? '#b91c1c' : '#ea580c');
+          const bg = r._status === 'NEW' ? '#dcfce7' : (r._status === 'DELETE' ? '#fee2e2' : '#ffedd5');
+          const statusCell = mode === 'file'
+            ? `<td style="padding:8px; color:#0f172a; font-weight:700">${idx + 1}</td>`
+            : `<td style="padding:8px"><span style="background:${bg}; color:${color}; padding:2px 6px; border-radius:4px; font-weight:700; font-size:0.7rem; white-space:nowrap">${r._status}</span></td>`;
+          return `
+            <tr style="border-bottom:1px solid #eee">
+                ${statusCell}
+                ${keys.map(k => {
+            let val = r[k] ?? '';
+            return `<td style="padding:8px; color:#334155; white-space:nowrap">${String(val)}</td>`;
+          }).join('')}
+            </tr>
+         `;
+        }).join('');
+      }
+      modal.style.display = 'flex';
+    }
+
+    function closeReviewModal() {
+      document.getElementById('reviewModal').style.display = 'none';
+      resetPendingUploadState();
+    }
+
+    async function confirmUpload() {
+      const btn = document.getElementById('confirmBtn');
+      const defaultLabel = ['file-upload', 'server-wipstock'].includes(pendingUploadMode) ? 'Confirm Upload' : 'Confirm Update';
+      if (!pendingUploadMode) return alert('No preview is waiting for confirmation.');
+
+      btn.textContent = '...'; btn.disabled = true;
+      try {
+        let res;
+        if (pendingUploadMode === 'server-orjr' || pendingUploadMode === 'server-machines') {
+          if (!pendingUploadData || !pendingUploadData.length) throw new Error('No preview data found.');
+          const endpoint = pendingUploadMode === 'server-machines'
+            ? '/upload/machines-confirm'
+            : '/upload/or-jr-confirm';
+          res = await JPSMS.api.post(endpoint, {
+            rows: pendingUploadData,
+            user: JPSMS.auth.getUser().username
+          });
+        } else if (pendingUploadMode === 'server-wipstock') {
+          if (!pendingUploadData || !pendingUploadData.length) throw new Error('No WIP Stock preview data found.');
+          res = await JPSMS.api.post('/upload/wipstock-confirm', {
+            rows: pendingUploadData,
+            stock_date: pendingUploadPreviewMeta.stockDate || '',
+            header_date_text: pendingUploadPreviewMeta.headerDateText || '',
+            source_file_name: pendingUploadPreviewMeta.sourceFileName || '',
+            user: JPSMS.auth.getUser().username
+          });
+        } else if (pendingUploadMode === 'file-upload') {
+          if (!pendingUploadFile) throw new Error('No file selected for upload.');
+          const formData = new FormData();
+          formData.append('file', pendingUploadFile);
+          res = await JPSMS.api.upload(`/upload/${currentType}`, formData);
+        } else {
+          throw new Error('Unsupported upload confirmation mode.');
+        }
+        const successMessage = res.counts
+          ? `New: ${res.counts.new}, Updated: ${res.counts.update}, Deleted: ${res.counts.delete}`
+          : (res.message || (res.count ? `Saved: ${res.count}` : 'Upload completed'));
+        alert(successMessage);
+        document.getElementById('uploadFile').value = '';
+        closeReviewModal();
+        loadMasterData();
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        btn.textContent = defaultLabel; btn.disabled = false;
+      }
+    }
+
+    // --- Machine CRUD ---
+    function setMachineIconPreview(src) {
+      const preview = document.getElementById('m_machine_icon_preview');
+      const empty = document.getElementById('m_machine_icon_empty');
+      const cleanSrc = String(src || '').trim();
+      if (!preview || !empty) return;
+
+      if (cleanSrc) {
+        preview.src = cleanSrc;
+        preview.style.display = 'block';
+        empty.style.display = 'none';
+      } else {
+        preview.removeAttribute('src');
+        preview.style.display = 'none';
+        empty.style.display = 'flex';
+      }
+    }
+
+    function resizeMachineIconFile(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('Failed to read icon file'));
+        reader.onload = function (event) {
+          const img = new Image();
+          img.onerror = () => reject(new Error('Selected file is not a valid image'));
+          img.onload = function () {
+            const maxWidth = 320;
+            const maxHeight = 180;
+            const ratio = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
+            const width = Math.max(1, Math.round(img.width * ratio));
+            const height = Math.max(1, Math.round(img.height * ratio));
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              reject(new Error('Image resize is not supported in this browser'));
+              return;
+            }
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0, width, height);
+            const preferredType = String(file.type || '').toLowerCase() === 'image/png' ? 'image/png' : 'image/jpeg';
+            resolve(canvas.toDataURL(preferredType, 0.85));
+          };
+          img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function previewMachineIconFile(input) {
+      const file = input?.files?.[0];
+      if (!file) {
+        currentMachineIconBase64 = null;
+        setMachineIconPreview(document.getElementById('m_machine_icon').value);
+        return;
+      }
+
+      try {
+        currentMachineIconBase64 = await resizeMachineIconFile(file);
+        document.getElementById('m_machine_icon').value = '';
+        setMachineIconPreview(currentMachineIconBase64);
+      } catch (e) {
+        currentMachineIconBase64 = null;
+        input.value = '';
+        alert(e.message || 'Failed to process machine icon');
+        setMachineIconPreview(document.getElementById('m_machine_icon').value);
+      }
+    }
+
+    function handleMachineIconTextInput(input) {
+      currentMachineIconBase64 = null;
+      const fileInput = document.getElementById('m_machine_icon_file');
+      if (fileInput) fileInput.value = '';
+      setMachineIconPreview(input?.value || '');
+    }
+
+    function openMachineModal(mode, data = {}) {
+      if (!ensureSingleFactoryScope(mode === 'add' ? 'add machines' : 'edit machines')) return;
+      const modal = document.getElementById('machineModal');
+      document.getElementById('machineModalTitle').textContent = mode === 'add' ? 'Add Machine' : 'Edit Machine';
+      document.getElementById('machineId').value = data.machine || ''; // Original ID if editing
+      document.getElementById('m_machine').value = data.machine || '';
+      document.getElementById('m_machine').readOnly = false; // Allow renaming
+      document.getElementById('m_building').value = data.building || '';
+      document.getElementById('m_line').value = data.line || '';
+      const machineProcess = normalizeMachineProcessValue(
+        data.machine_process || getSelectedMachineProcessFilter(),
+        'Moulding'
+      );
+      document.getElementById('m_machine_process').value = machineProcess;
+      document.getElementById('m_tonnage').value = data.tonnage || '';
+      document.getElementById('m_vendor_name').value = data.vendor_name || '';
+      document.getElementById('m_model_no').value = data.model_no || '';
+      document.getElementById('m_machine_type').value = data.machine_type || '';
+      document.getElementById('m_machine_icon').value = data.machine_icon || '';
+      document.getElementById('m_machine_icon_file').value = '';
+      currentMachineIconBase64 = null;
+      setMachineIconPreview(data.machine_icon || '');
+      updateMachineModalProcessView(machineProcess);
+      modal.setAttribute('data-mode', mode);
+      modal.style.display = 'flex';
+    }
+
+    function closeMachineModal() {
+      document.getElementById('machineModal').style.display = 'none';
+    }
+
+    async function saveMachine() {
+      if (!ensureSingleFactoryScope('save machine changes')) return;
+      const mode = document.getElementById('machineModal').getAttribute('data-mode');
+      const id = document.getElementById('machineId').value;
+      const process = document.getElementById('m_machine_process').value;
+      const isPrinting = normalizeMachineProcessValue(process, 'Moulding') === 'Printing';
+      const body = {
+        machine: document.getElementById('m_machine').value,
+        building: isPrinting ? '' : document.getElementById('m_building').value,
+        line: isPrinting ? '' : document.getElementById('m_line').value,
+        machine_process: process,
+        tonnage: isPrinting ? '' : document.getElementById('m_tonnage').value,
+        vendor_name: isPrinting ? document.getElementById('m_vendor_name').value : '',
+        model_no: isPrinting ? document.getElementById('m_model_no').value : '',
+        machine_type: isPrinting ? document.getElementById('m_machine_type').value : '',
+        machine_icon: document.getElementById('m_machine_icon').value,
+        machine_icon_base64: currentMachineIconBase64
+      };
+
+      try {
+        if (mode === 'add') {
+          await JPSMS.api.post('/machines', body);
+        } else {
+          await JPSMS.api.request(`/machines/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) });
+        }
+        alert('Saved');
+        closeMachineModal();
+        loadMasterData();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function deleteMachine(id) {
+      if (!ensureSingleFactoryScope('delete machines')) return;
+      if (!confirm('Are you sure you want to delete ' + id + '?')) return;
+      try {
+        await JPSMS.api.request(`/machines/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        loadMasterData();
+      } catch (e) { alert(e.message); }
+    }
+
+    async function fetchOrdersFromORJR() {
+      if (!ensureSingleFactoryScope('fetch orders into one factory')) return;
+      const btn = document.getElementById('omFetchBtn');
+      const label = document.getElementById('omLastFetch');
+
+      try {
+        btn.disabled = true;
+        // Store original icon/text if needed, or just hardcode reset
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Fetching...';
+
+        const res = await JPSMS.api.post('/orders/fetch-from-orjr');
+
+        JPSMS.toast(res.message, res.ok ? 'success' : 'error');
+        if (res.ok) {
+          loadMasterData();
+          if (label) {
+            label.style.display = 'inline-block';
+            label.textContent = 'Last: ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          }
+        }
+
+      } catch (e) {
+        alert('Fetch Failed: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-cloud-arrow-down"></i> Auto-Fetch Orders';
+      }
+    }
+
+    // --- OR-JR Actions ---
+    function toggleOrJrView() {
+      const newView = currentView === 'closed' ? 'active' : 'closed';
+      const url = new URL(window.location);
+      url.searchParams.set('view', newView);
+      window.history.pushState({}, '', url);
+      // Reload page to reset UI clearly or just reload data
+      window.location.reload();
+    }
+
+    async function closeOrJr(id, jcNo) {
+      if (!ensureSingleFactoryScope('close OR-JR records')) return;
+      if (!confirm('Are you sure you want to CLOSE this OR-JR?\nIt will be locked from future updates.')) return;
+      try {
+        const user = JPSMS.auth.getUser();
+        const res = await JPSMS.api.post('/orjr/close', {
+          or_jr_no: id,
+          job_card_no: jcNo,
+          user_id: user.username,
+          user_name: user.username
+        });
+        if (res.ok) {
+          JPSMS.toast('OR-JR Closed', 'success');
+          loadMasterData();
+        } else {
+          alert(res.error);
+        }
+      } catch (e) { alert(e.message); }
+    }
+
+    async function reopenOrJr(id, jcNo) {
+      if (!ensureSingleFactoryScope('reopen OR-JR records')) return;
+      if (!confirm('Reopen this OR-JR?\nIt will act as an Active record again.')) return;
+      try {
+        const user = JPSMS.auth.getUser();
+        const res = await JPSMS.api.post('/orjr/reopen', {
+          or_jr_no: id,
+          job_card_no: jcNo,
+          user_id: user.username,
+          user_name: user.username
+        });
+        if (res.ok) {
+          JPSMS.toast('OR-JR Reopened', 'success');
+          loadMasterData();
+        } else {
+          alert(res.error);
+        }
+      } catch (e) { alert(e.message); }
+    }
+    /* =========================================
+       ADMIN DATABASE TOOLS
+       ========================================= */
+    function checkAdminTools() {
+      const user = JPSMS.auth.getUser();
+      // Show if admin OR if specifically allowed
+      if (user && ((window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isAdminLike && window.JPSMS.auth.isAdminLike(user)) || user.username === 'admin')) {
+        const card = document.getElementById('adminToolsCard');
+        if (card) card.style.display = 'flex';
+      }
+    }
+    document.addEventListener('DOMContentLoaded', checkAdminTools);
+
+    function downloadBackup() {
+      JPSMS.toast('Starting Download...', 'info');
+      window.location.href = '/api/admin/backup';
+    }
+
+    function openRestoreModal() {
+      document.getElementById('restoreModal').style.display = 'flex';
+    }
+    function closeRestoreModal() {
+      document.getElementById('restoreModal').style.display = 'none';
+      document.getElementById('restoreFile').value = '';
+    }
+
+    async function performRestore() {
+      const fileInput = document.getElementById('restoreFile');
+      if (!fileInput.files.length) return alert('Please select a .sql or .backup file first.');
+
+      const confirmMsg = "WARNING: This will DESTRUCTIVELY OVERWRITE the database with the selected backup.\n\nAre you absolutely sure?";
+      if (!confirm(confirmMsg)) return;
+
+      const btn = document.getElementById('btnRestoreConfirm');
+      const originalText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = 'Restoring... (Do not close)';
+
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+
+      try {
+        const token = localStorage.getItem('jpsms_token');
+        const res = await fetch('/api/admin/restore', {
+          method: 'POST',
+          headers: { 'Authorization': token ? 'Bearer ' + token : '' },
+          body: formData
+        });
+        const json = await res.json();
+
+        if (json.ok) {
+          alert('Restore Completed Successfully!\nThe page will now reload.');
+          window.location.reload();
+        } else {
+          alert('Restore Failed:\n' + json.error);
+        }
+      } catch (e) {
+        alert('Network Error during Restore: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+      }
+    }
+  </script>
+
+  <!-- Machine CRUD Modal -->
+  <div id="machineModal" class="modal"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); justify-content:center; align-items:center; z-index:1000;">
+    <div style="background:white; padding:20px; border-radius:8px; width:460px; max-width:92%;">
+      <h3 id="machineModalTitle" style="margin-top:0">Add Machine</h3>
+      <input type="hidden" id="machineId">
+
+      <div style="margin-bottom:10px;">
+        <label id="m_machine_label">Machine Name</label>
+        <input type="text" id="m_machine" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;" placeholder="Enter machine name">
+      </div>
+      <div style="margin-bottom:10px;">
+        <label>Process</label>
+        <select id="m_machine_process" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+          <option value="Moulding">Moulding</option>
+          <option value="Tuffting">Tuffting</option>
+          <option value="Printing">Printing</option>
+        </select>
+      </div>
+      <div id="machinePrintingFields" style="display:none;">
+        <div style="margin-bottom:10px;">
+          <label>Vendor Name</label>
+          <input type="text" id="m_vendor_name" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+        </div>
+        <div style="margin-bottom:10px;">
+          <label>Model No</label>
+          <input type="text" id="m_model_no" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+        </div>
+        <div style="margin-bottom:15px;">
+          <label>Machine Type</label>
+          <input type="text" id="m_machine_type" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+        </div>
+      </div>
+      <div id="machineStandardFields">
+        <div style="margin-bottom:10px;">
+          <label>Building</label>
+          <input type="text" id="m_building" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+        </div>
+        <div style="margin-bottom:10px;">
+          <label>Line</label>
+          <input type="text" id="m_line" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+        </div>
+        <div style="margin-bottom:15px;">
+          <label>Tonnage</label>
+          <input type="number" id="m_tonnage" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+        </div>
+      </div>
+      <div id="machineIconFields">
+        <div style="margin-bottom:10px;">
+          <label>Machine Icon Path / URL</label>
+          <input type="text" id="m_machine_icon" oninput="handleMachineIconTextInput(this)" placeholder="/uploads/machines/example.png or https://..."
+            style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+        </div>
+        <div style="margin-bottom:10px;">
+          <label>Upload Machine Icon</label>
+          <input type="file" id="m_machine_icon_file" accept="image/*" onchange="previewMachineIconFile(this)"
+            style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+          <div style="font-size:0.72rem; color:#64748b; margin-top:4px;">Use a small PNG/JPG/WebP image so the Machine Grid stays clean.</div>
+        </div>
+        <div style="margin-bottom:15px;">
+          <label>Preview</label>
+          <div style="margin-top:6px; min-height:72px; border:1px dashed #cbd5e1; border-radius:10px; background:#f8fafc; display:flex; align-items:center; justify-content:center; padding:8px;">
+            <img id="m_machine_icon_preview" alt="Machine Icon Preview" style="display:none; max-width:100%; max-height:56px; object-fit:contain;">
+            <div id="m_machine_icon_empty" style="display:flex; align-items:center; gap:8px; color:#94a3b8; font-size:0.8rem;">
+              <i class="bi bi-image"></i>
+              <span>No icon selected</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:right;">
+        <button onclick="closeMachineModal()"
+          style="padding:8px 16px; border:none; background:#ccc; border-radius:4px; cursor:pointer; margin-right:8px;">Cancel</button>
+        <button onclick="saveMachine()"
+          style="padding:8px 16px; border:none; background:#2563eb; color:white; border-radius:4px; cursor:pointer;">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Restore DB Modal -->
+  <div id="restoreModal" class="modal"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); justify-content:center; align-items:center; z-index:2000;">
+    <div
+      style="background:white; padding:25px; border-radius:8px; width:450px; max-width:90%; border-top:5px solid #dc2626">
+      <h3 style="margin-top:0; color:#dc2626"><i class="bi bi-exclamation-triangle-fill"></i> Restore Database</h3>
+      <p style="font-size:0.9rem; color:#64748b">
+        Upload a <b>.sql</b> or <b>postgres dump</b> file to restore.
+        <br><br>
+        <strong style="color:#dc2626">WARNING:</strong> All current data will be overwritten/merged depending on the
+        backup type. proceed with caution.
+      </p>
+
+      <div style="margin-bottom:20px; padding:15px; background:#f1f5f9; border-radius:6px; border:1px dashed #cbd5e1">
+        <input type="file" id="restoreFile" style="width:100%" accept=".sql,.dump,.backup">
+      </div>
+
+      <div style="text-align:right;">
+        <button onclick="closeRestoreModal()"
+          style="padding:8px 16px; border:none; background:#ccc; border-radius:4px; cursor:pointer; margin-right:8px;">Cancel</button>
+        <button id="btnRestoreConfirm" onclick="performRestore()"
+          style="padding:8px 16px; border:none; background:#dc2626; color:white; border-radius:4px; cursor:pointer; font-weight:bold">
+          <i class="bi bi-upload"></i> Restore Now
+        </button>
+      </div>
+    </div>
+  </div>
+  <!-- AI Chat Extension -->
+  <script src="assets/ai-chat.js"></script>
+</body>
+
+</html>

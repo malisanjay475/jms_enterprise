@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - HR</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="assets/app.css">
+    <!-- QR Code Lib -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        .op-card {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 15px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            margin-bottom: 12px;
+            background: white;
+            transition: box-shadow 0.2s;
+        }
+
+        .op-card:hover {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .op-photo {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            object-fit: cover;
+            background: #f1f5f9;
+            border: 2px solid #e2e8f0;
+        }
+
+        .op-info {
+            flex: 1;
+        }
+
+        .btn-icon {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #64748b;
+            padding: 8px;
+            border-radius: 50%;
+            transition: background 0.2s;
+        }
+
+        .btn-icon:hover {
+            color: #3b82f6;
+            background: #f1f5f9;
+        }
+
+        .m-badge {
+            display: inline-block;
+            background: #f1f5f9;
+            color: #475569;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-right: 4px;
+            margin-bottom: 4px;
+        }
+
+        /* Modal Styles */
+        .modal-body {
+            display: flex;
+            gap: 30px;
+        }
+
+        .photo-section {
+            flex: 0 0 160px;
+            text-align: center;
+        }
+
+        .form-section {
+            flex: 1;
+        }
+
+        .photo-preview-lg {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            object-fit: cover;
+            background: #f1f5f9;
+            border: 4px solid white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 15px;
+        }
+
+        .cam-btn {
+            display: block;
+            width: 100%;
+            border: 1px solid #e2e8f0;
+            background: white;
+            padding: 8px;
+            border-radius: 6px;
+            margin-bottom: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            font-weight: 500;
+            color: #475569;
+        }
+
+        .cam-btn:hover {
+            background: #f8fafc;
+            border-color: #cbd5e1;
+        }
+
+        /* Camera View */
+        #camera-feed {
+            width: 100%;
+            border-radius: 12px;
+            background: black;
+            transform: scaleX(-1);
+            display: none;
+        }
+
+        /* Print Style */
+        #print-area {
+            position: fixed;
+            top: -10000px;
+            left: -10000px;
+        }
+
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+
+            #print-area,
+            #print-area * {
+                visibility: visible;
+            }
+
+            #print-area {
+                position: absolute;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100%;
+                height: 100%;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 20px;
+                padding: 20px;
+            }
+
+            .print-card {
+                border: 2px solid black;
+                width: 300px;
+                height: 180px;
+                padding: 10px;
+                display: flex;
+                gap: 10px;
+                border-radius: 10px;
+                page-break-inside: avoid;
+            }
+
+            .print-qr-target {
+                width: 25mm !important;
+                height: 25mm !important;
+            }
+            .print-qr-target img {
+                width: 25mm !important;
+                height: 25mm !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <header class="header">
+            <div>
+                <h2 class="page-title" id="page-title">Machine Operators</h2>
+                <div style="color:#64748b; font-size:0.9rem">Manage your workforce, assign machines, and track attendance.</div>
+            </div>
+        </header>
+
+        <div id="view-operators" style="display:none">
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; padding-bottom:15px; border-bottom:1px solid #f1f5f9; margin-bottom:15px; flex-wrap:wrap; gap:10px">
+                    <div style="font-weight:600; color:#334155">Operator List</div>
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+                        <!-- Filters -->
+                        <select id="f-filter-factory" class="form-control" style="width:140px" onchange="loadOperators()">
+                            <option value="">All Factories</option>
+                            <option value="1">Factory 1</option>
+                            <option value="2">Factory 2</option>
+                        </select>
+                        <select id="f-filter-process" class="form-control" style="width:140px" onchange="loadOperators()">
+                            <option value="">All Processes</option>
+                            <option value="Injection">Injection</option>
+                            <option value="Blowing">Blowing</option>
+                            <option value="IBM">IBM</option>
+                            <option value="Printing">Printing</option>
+                        </select>
+
+                        <div style="width:1px; height:24px; background:#e2e8f0; margin:0 5px"></div>
+
+                        <!-- Bulk Ops -->
+                        <button class="btn btn-outline" onclick="exportOperators()" title="Export to Excel"><i class="bi bi-download"></i></button>
+                        <button class="btn btn-outline" onclick="document.getElementById('excel-upload').click()" title="Upload Excel"><i class="bi bi-upload"></i></button>
+                        <input type="file" id="excel-upload" style="display:none" accept=".xlsx, .xls" onchange="uploadOperators(this)">
+
+                        <button class="btn btn-outline" onclick="printSelected()"><i class="bi bi-printer"></i> Print ID Cards</button>
+                        <button class="btn btn-primary" onclick="openOpModal()"><i class="bi bi-person-plus"></i> Add Operator</button>
+                    </div>
+                </div>
+                <div id="op-list"></div>
+            </div>
+        </div>
+
+        <div id="view-scan" style="display:none">
+            <div class="card" style="max-width:600px; margin:40px auto; padding:50px; text-align:center">
+                <div style="font-size:3rem; color:#3b82f6; margin-bottom:20px"><i class="bi bi-qr-code-scan"></i></div>
+                <h3 style="font-size:1.5rem; font-weight:700; color:#1e293b; margin-bottom:10px">Engineer Check-in</h3>
+                <p style="color:#64748b; margin-bottom:30px">Scan Operator QR Code or Enter ID to log attendance.</p>
+                <input type="text" id="scan-input" placeholder="Scan QR or Type ID..." style="width:100%; padding:20px; font-size:1.5rem; text-align:center; border:2px solid #e2e8f0; border-radius:12px; outline:none; transition:border 0.2s" autofocus>
+                <div id="scan-result" style="margin-top:30px; display:none"></div>
+            </div>
+        </div>
+
+        <div id="view-history" style="display:none">
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; padding-bottom:15px; border-bottom:1px solid #f1f5f9; margin-bottom:15px; flex-wrap:wrap; gap:10px">
+                    <div style="font-weight:600; color:#334155">Scan History</div>
+                    <div style="display:flex; gap:10px">
+                        <input type="date" id="h-date" class="form-control" style="width:auto">
+                        <select id="h-shift" class="form-control" style="width:auto">
+                            <option value="">All Shifts</option>
+                            <option value="A">Shift A (06-14)</option>
+                            <option value="B">Shift B (14-22)</option>
+                            <option value="C">Shift C (22-06)</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="loadHistory()">Load</button>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table style="width:100%; border-collapse:collapse">
+                        <thead>
+                            <tr style="background:#f8fafc; border-bottom:1px solid #e2e8f0">
+                                <th style="padding:10px; text-align:left">Status</th>
+                                <th style="padding:10px; text-align:left">Time</th>
+                                <th style="padding:10px; text-align:left">Operator</th>
+                                <th style="padding:10px; text-align:left">ID</th>
+                                <th style="padding:10px; text-align:left">Machine</th>
+                                <th style="padding:10px; text-align:left">Scanned By</th>
+                            </tr>
+                        </thead>
+                        <tbody id="hist-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Modal -->
+    <div class="modal-overlay" id="op-modal">
+        <div class="modal-content" style="width:800px">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:25px">
+                <h3 style="font-size:1.4rem; font-weight:700; color:#1e293b; margin:0" id="modal-title">New Operator</h3>
+                <button onclick="closeOpModal()" style="background:none; border:none; font-size:1.5rem; cursor:pointer; color:#94a3b8">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="photo-section">
+                    <img id="f-preview" src="assets/user.png" class="photo-preview-lg">
+                    <input type="file" id="f-photo" accept="image/*" style="display:none" onchange="previewPhoto(this)">
+                    <button class="cam-btn" onclick="document.getElementById('f-photo').click()"><i class="bi bi-upload"></i> Upload Photo</button>
+                    <button class="cam-btn" onclick="startCamera()"><i class="bi bi-camera"></i> Take Photo</button>
+                    <div id="cam-container" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background:black; padding:10px; border-radius:10px; z-index:1001; width:320px; box-shadow:0 10px 25px rgba(0,0,0,0.5)">
+                        <video id="camera-feed" autoplay playsinline style="width:100%; transform:scaleX(-1)"></video>
+                        <canvas id="camera-canvas" style="display:none"></canvas>
+                        <div style="display:flex; justify-content:center; gap:10px; margin-top:10px">
+                            <button class="btn btn-primary" onclick="capturePhoto()" style="padding:6px 15px">Snap</button>
+                            <button class="btn btn-danger" onclick="stopCamera()" style="padding:6px 15px">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-section">
+                    <input type="hidden" id="f-id">
+                    <div class="form-group">
+                        <label class="form-label">Operator ID</label>
+                        <input type="text" id="f-op-id" class="form-control" placeholder="Leave blank for auto-generated FY ID">
+                        <div style="font-size:0.75rem; color:#94a3b8; margin-top:4px">New operators get a unique FY ID like <span id="op-id-example">OP-2627-0001</span>.</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Full Name <span style="color:#ef4444">*</span></label>
+                        <input type="text" id="f-name" class="form-control" placeholder="Jane Doe">
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px">
+                        <div class="form-group">
+                            <label class="form-label">DOJ</label>
+                            <input type="date" id="f-doj" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Age</label>
+                            <input type="number" id="f-age" class="form-control" placeholder="25">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Aadhar Number</label>
+                        <input type="text" id="f-aadhar" class="form-control" placeholder="1234 5678 9012">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Process</label>
+                        <select id="f-process" class="form-control">
+                            <option value="">-- Select Process --</option>
+                            <option value="Injection">Injection</option>
+                            <option value="Blowing">Blowing</option>
+                            <option value="IBM">IBM</option>
+                            <option value="Printing">Printing</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Factory</label>
+                        <select id="f-factory" class="form-control">
+                            <option value="">-- Select Factory --</option>
+                            <option value="1">Factory 1</option>
+                            <option value="2">Factory 2</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Primary Machine</label>
+                        <select id="f-machine" class="form-control">
+                            <option value="">-- Select Machine --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Assigned Machines (Multi-select)</label>
+                        <select id="f-machines-multi" class="form-control" multiple style="height:100px">
+                        </select>
+                        <div style="font-size:0.75rem; color:#94a3b8; margin-top:4px">Hold Ctrl/Cmd to select multiple machines.</div>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:30px; padding-top:20px; border-top:1px solid #f1f5f9">
+                <button class="btn btn-outline" onclick="closeOpModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveOp()" style="padding:10px 30px">Save Operator</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="print-area"></div>
+
+    <script src="assets/app.js"></script>
+    <script>
+        const J = window.JPSMS;
+        const params = new URLSearchParams(window.location.search);
+        const view = params.get('view') || 'operators';
+
+        let currentPhotoBase64 = null;
+        let stream = null;
+
+        function getFinancialYearCode(date = new Date()) {
+            const current = date instanceof Date ? date : new Date(date);
+            const year = current.getFullYear();
+            const startYear = current.getMonth() >= 3 ? year : year - 1;
+            const endYear = startYear + 1;
+            return `${String(startYear).slice(-2)}${String(endYear).slice(-2)}`;
+        }
+
+        function refreshOperatorIdHint(isEdit = false) {
+            const input = document.getElementById('f-op-id');
+            const example = document.getElementById('op-id-example');
+            const placeholder = `OP-${getFinancialYearCode()}-0001`;
+            input.placeholder = isEdit ? 'Operator ID' : `Auto-generated as ${placeholder}`;
+            example.textContent = placeholder;
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            J.renderShell('hr');
+            refreshOperatorIdHint();
+            
+            // Fetch Machines for dropdowns
+            const mRes = await J.api.get('/machines');
+            const mData = Array.isArray(mRes.data) ? mRes.data : [];
+            const mList = mData.map(m => typeof m === 'string' ? m : (m.machine || m.machine_name));
+            
+            const mSelect = document.getElementById('f-machine');
+            const mMulti = document.getElementById('f-machines-multi');
+            mList.forEach(m => {
+                const opt1 = document.createElement('option');
+                opt1.value = m; opt1.textContent = m;
+                mSelect.appendChild(opt1);
+                const opt2 = document.createElement('option');
+                opt2.value = m; opt2.textContent = m;
+                mMulti.appendChild(opt2);
+            });
+
+            if (view === 'operators') {
+                document.getElementById('view-operators').style.display = 'block';
+                loadOperators();
+            } else if (view === 'scan') {
+                document.getElementById('view-scan').style.display = 'block';
+                document.getElementById('page-title').textContent = 'Engineer Scan';
+                initScan();
+            } else if (view === 'history') {
+                document.getElementById('view-history').style.display = 'block';
+                document.getElementById('page-title').textContent = 'Scan History';
+                document.getElementById('h-date').valueAsDate = new Date();
+                loadHistory();
+            }
+        });
+
+        async function loadOperators() {
+            const list = document.getElementById('op-list');
+            const factory = document.getElementById('f-filter-factory').value;
+            const process = document.getElementById('f-filter-process').value;
+
+            list.innerHTML = '<div style="text-align:center; padding:20px; color:#64748b"><i class="bi bi-arrow-repeat spin"></i> Loading workforce...</div>';
+            try {
+                const res = await J.api.get(`/hr/operators?factory_id=${factory}&process=${process}`);
+                if (!res.ok) throw new Error(res.error);
+                list.innerHTML = '';
+                if (res.data.length === 0) {
+                    list.innerHTML = '<div style="text-align:center; padding:40px; border:2px dashed #e2e8f0; border-radius:12px; color:#94a3b8">No operators found.</div>';
+                    return;
+                }
+                res.data.forEach(op => {
+                    const div = document.createElement('div');
+                    div.className = 'op-card';
+                    const photoUrl = op.photo_path || 'assets/user.png';
+                    const machines = JSON.parse(op.assigned_machines || '[]');
+                    const mTags = machines.map(m => `<span class="m-badge">${m}</span>`).join('');
+
+                    div.innerHTML = `
+                        <input type="checkbox" class="op-select" value="${op.id}" data-op='${JSON.stringify(op)}' style="transform:scale(1.2); cursor:pointer">
+                        <img src="${photoUrl}" class="op-photo" onerror="this.src='assets/user.png'">
+                        <div class="op-info">
+                            <div style="font-weight:700; font-size:1.1rem; color:#1e293b">${op.name}</div>
+                            <div style="font-size:0.85rem; color:#64748b; margin-top:2px">
+                                <span style="background:#f1f5f9; padding:2px 6px; border-radius:4px; font-family:monospace; font-weight:600">${op.operator_id}</span>
+                                <span style="margin:0 6px; color:#cbd5e1">|</span>
+                                ${op.process || 'General'}
+                            </div>
+                            <div style="margin-top:6px; display:flex; flex-wrap:wrap">${mTags}</div>
+                        </div>
+                        <div style="display:flex; gap:5px">
+                            <button class="btn-icon" onclick='printSingle(${JSON.stringify(op)})' title="Print ID Card"><i class="bi bi-printer-fill"></i></button>
+                            <button class="btn-icon" onclick='editOp(${JSON.stringify(op)})' title="Edit"><i class="bi bi-pencil-fill"></i></button>
+                            <button class="btn-icon" onclick="deleteOp(${op.id})" title="Delete" style="color:#ef4444"><i class="bi bi-trash-fill"></i></button>
+                        </div>
+                    `;
+                    list.appendChild(div);
+                });
+            } catch (e) { list.innerHTML = `<div style="color:red; text-align:center; padding:20px">${e.message}</div>`; }
+        }
+
+        window.openOpModal = () => {
+            document.getElementById('f-id').value = '';
+            document.getElementById('f-op-id').value = '';
+            document.getElementById('f-name').value = '';
+            document.getElementById('f-doj').value = '';
+            document.getElementById('f-age').value = '';
+            document.getElementById('f-aadhar').value = '';
+            document.getElementById('f-factory').value = '';
+            document.getElementById('f-process').value = '';
+            document.getElementById('f-machine').value = '';
+            Array.from(document.getElementById('f-machines-multi').options).forEach(o => o.selected = false);
+            document.getElementById('f-preview').src = 'assets/user.png';
+            currentPhotoBase64 = null;
+            document.getElementById('modal-title').textContent = 'New Operator';
+            refreshOperatorIdHint(false);
+            document.getElementById('op-modal').classList.add('active');
+        };
+
+        window.editOp = (op) => {
+            document.getElementById('f-id').value = op.id;
+            document.getElementById('f-op-id').value = op.operator_id;
+            document.getElementById('f-name').value = op.name;
+            document.getElementById('f-doj').value = (op.doj || '').split('T')[0];
+            document.getElementById('f-age').value = op.age || '';
+            document.getElementById('f-aadhar').value = op.aadhar_number || '';
+            document.getElementById('f-factory').value = op.factory_id || '';
+            document.getElementById('f-process').value = op.process || '';
+            document.getElementById('f-machine').value = op.assigned_machine || '';
+            const mArr = JSON.parse(op.assigned_machines || '[]');
+            Array.from(document.getElementById('f-machines-multi').options).forEach(o => o.selected = mArr.includes(o.value));
+            document.getElementById('f-preview').src = op.photo_path || 'assets/user.png';
+            currentPhotoBase64 = null;
+            document.getElementById('modal-title').textContent = 'Edit Operator';
+            refreshOperatorIdHint(true);
+            document.getElementById('op-modal').classList.add('active');
+        };
+
+        window.saveOp = async () => {
+            const name = document.getElementById('f-name').value.trim();
+            if (!name) return J.toast('Name is required', 'error');
+            const mMulti = document.getElementById('f-machines-multi');
+            const selectedMachines = Array.from(mMulti.selectedOptions).map(o => o.value);
+            const payload = {
+                id: document.getElementById('f-id').value || null,
+                operator_id: document.getElementById('f-op-id').value.trim(),
+                name: name,
+                doj: document.getElementById('f-doj').value,
+                age: document.getElementById('f-age').value,
+                aadhar_number: document.getElementById('f-aadhar').value,
+                factory_id: document.getElementById('f-factory').value,
+                process: document.getElementById('f-process').value,
+                assigned_machine: document.getElementById('f-machine').value,
+                assigned_machines: selectedMachines,
+                photo_base64: currentPhotoBase64
+            };
+            const res = await J.api.post('/hr/operators', payload);
+            if (res.ok) {
+                J.toast('Saved successfully', 'success');
+                document.getElementById('op-modal').classList.remove('active');
+                loadOperators();
+            } else { alert('Error: ' + res.error); }
+        };
+
+        window.deleteOp = async (id) => {
+            if (!confirm('Delete this operator?')) return;
+            await J.api.post('/hr/operators/delete', { id });
+            loadOperators();
+        };
+
+        window.exportOperators = () => {
+            const f = document.getElementById('f-filter-factory').value;
+            const p = document.getElementById('f-filter-process').value;
+            window.open(`/api/hr/download-operators?factory_id=${f}&process=${p}`);
+        };
+
+        window.uploadOperators = async (input) => {
+            if (!input.files.length) return;
+            const formData = new FormData();
+            formData.append('file', input.files[0]);
+            const res = await fetch('/api/hr/upload-operators', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + J.auth.getToken() },
+                body: formData
+            });
+            const data = await res.json();
+            if (data.ok) { J.toast(data.message, 'success'); loadOperators(); }
+            else { alert('Upload failed: ' + data.error); }
+            input.value = '';
+        };
+
+        window.printSingle = (op) => {
+            const area = document.getElementById('print-area');
+            area.innerHTML = '';
+            const card = document.createElement('div');
+            card.className = 'print-card';
+            const photoUrl = op.photo_path || 'assets/user.png';
+            const qrId = 'qr_' + op.id;
+            card.innerHTML = `
+                <div style="width:80px">
+                    <img src="${photoUrl}" style="width:80px; height:80px; border-radius:10px; object-fit:cover; border:1px solid #ccc" onerror="this.src='assets/user.png'">
+                </div>
+                <div style="flex:1; padding-left:10px">
+                    <h2 style="margin:0; font-size:1.1rem">${op.name}</h2>
+                    <div style="font-size:0.9rem; font-weight:bold">${op.operator_id}</div>
+                    <div style="font-size:0.85rem; margin-top:5px; color:#64748b">${op.process || 'Operator'}</div>
+                </div>
+                <div id="${qrId}" class="print-qr-target"></div>
+            `;
+            area.appendChild(card);
+            new QRCode(document.getElementById(qrId), { text: op.operator_id, width: 95, height: 95 });
+            setTimeout(() => window.print(), 500);
+        };
+
+        window.printSelected = () => {
+            const area = document.getElementById('print-area');
+            area.innerHTML = '';
+            const checks = document.querySelectorAll('.op-select:checked');
+            if (!checks.length) return J.toast('Select operators to print', 'info');
+            checks.forEach(chk => {
+                const op = JSON.parse(chk.dataset.op);
+                const card = document.createElement('div');
+                card.className = 'print-card';
+                const photoUrl = op.photo_path || 'assets/user.png';
+                const qrId = 'qr_' + op.id;
+                card.innerHTML = `
+                    <div style="width:80px">
+                        <img src="${photoUrl}" style="width:80px; height:80px; border-radius:10px; object-fit:cover; border:1px solid #ccc" onerror="this.src='assets/user.png'">
+                    </div>
+                    <div style="flex:1; padding-left:10px">
+                        <h2 style="margin:0; font-size:1.1rem">${op.name}</h2>
+                        <div style="font-size:0.9rem; font-weight:bold">${op.operator_id}</div>
+                        <div style="font-size:0.85rem; margin-top:5px; color:#64748b">${op.process || 'Operator'}</div>
+                    </div>
+                    <div id="${qrId}" class="print-qr-target"></div>
+                `;
+                area.appendChild(card);
+                new QRCode(document.getElementById(qrId), { text: op.operator_id, width: 95, height: 95 });
+            });
+            setTimeout(() => window.print(), 500);
+        };
+
+        function previewPhoto(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    document.getElementById('f-preview').src = e.target.result;
+                    currentPhotoBase64 = e.target.result;
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        async function startCamera() {
+            try {
+                const video = document.getElementById('camera-feed');
+                const container = document.getElementById('cam-container');
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                container.style.display = 'block';
+                video.style.display = 'block';
+            } catch (err) { alert('Camera Error: ' + err.message); }
+        }
+
+        function stopCamera() {
+            if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+            document.getElementById('cam-container').style.display = 'none';
+        }
+
+        function capturePhoto() {
+            const video = document.getElementById('camera-feed');
+            const canvas = document.getElementById('camera-canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.translate(canvas.width, 0);
+            context.scale(-1, 1);
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            currentPhotoBase64 = canvas.toDataURL('image/jpeg');
+            document.getElementById('f-preview').src = currentPhotoBase64;
+            stopCamera();
+        }
+
+        function closeOpModal() {
+            document.getElementById('op-modal').classList.remove('active');
+            stopCamera();
+        }
+
+        async function loadHistory() {
+            const date = document.getElementById('h-date').value;
+            const shift = document.getElementById('h-shift').value;
+            const tbody = document.getElementById('hist-body');
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px"><i class="bi bi-arrow-repeat spin"></i> Loading...</td></tr>';
+            try {
+                const res = await J.api.get(`/hr/history?date=${date}&shift=${shift}`);
+                if (!res.ok) throw new Error(res.error);
+                tbody.innerHTML = '';
+                if (res.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#64748b">No records found.</td></tr>';
+                    return;
+                }
+                res.data.forEach(r => {
+                    const row = document.createElement('tr');
+                    row.style.borderBottom = '1px solid #e2e8f0';
+                    const timeStr = new Date(r.scanned_at).toLocaleTimeString();
+                    const photoUrl = r.photo_path || 'assets/user.png';
+                    row.innerHTML = `
+                        <td style="padding:10px"><span style="color:#16a34a; font-weight:600"><i class="bi bi-check-circle-fill"></i> OK</span></td>
+                        <td style="padding:10px">${timeStr}</td>
+                        <td style="padding:10px">
+                            <div style="display:flex; gap:10px; align-items:center">
+                                <img src="${photoUrl}" style="width:30px; height:30px; border-radius:50%; object-fit:cover" onerror="this.src='assets/user.png'">
+                                <span style="font-weight:600">${r.operator_name || 'Unknown'}</span>
+                            </div>
+                        </td>
+                        <td style="padding:10px; color:#64748b">${r.operator_id || '-'}</td>
+                        <td style="padding:10px">${r.machine_at_time || '-'}</td>
+                        <td style="padding:10px; color:#64748b">${r.scanned_by || '-'}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (e) { tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:red; padding:20px">Error: ${e.message}</td></tr>`; }
+        }
+
+        function initScan() {
+            const input = document.getElementById('scan-input');
+            input.focus();
+            document.body.addEventListener('click', () => input.focus());
+            input.addEventListener('keypress', async (e) => {
+                if (e.key === 'Enter') {
+                    const id = input.value.trim();
+                    if (!id) return;
+                    input.value = '';
+                    try {
+                        const res = await J.api.post('/hr/scan', { operator_id: id, scanned_by: J.auth.getUser().username });
+                        if (res.ok) { showScanSuccess(res.operator); }
+                        else { showScanError(res.error); }
+                    } catch (err) { showScanError(err.message); }
+                }
+            });
+        }
+
+        function showScanSuccess(op) {
+            const div = document.getElementById('scan-result');
+            const photoUrl = op.photo_path || 'assets/user.png';
+            div.style.display = 'block';
+            div.innerHTML = `
+                <div style="background:#dcfce7; border:2px solid #22c55e; padding:30px; border-radius:16px; box-shadow:0 10px 20px rgba(21, 128, 61, 0.1)">
+                    <h2 style="color:#15803d; margin:0 0 20px 0; font-size:1.8rem"><i class="bi bi-check-circle-fill"></i> Check-in Successful</h2>
+                    <div style="display:flex; gap:25px; align-items:center; text-align:left; background:white; padding:20px; border-radius:12px; border:1px solid #bbf7d0">
+                        <img src="${photoUrl}" style="width:120px; height:120px; border-radius:50%; object-fit:cover; border:4px solid #dcfce7" onerror="this.src='assets/user.png'">
+                        <div>
+                            <div style="font-size:2rem; font-weight:800; color:#1e293b">${op.name}</div>
+                            <div style="font-size:1.2rem; color:#64748b; margin-top:5px">ID: ${op.operator_id}</div>
+                            <div style="margin-top:15px; padding:6px 14px; background:#166534; color:white; font-weight:700; border-radius:50px; display:inline-block; font-size:1.1rem">
+                                <i class="bi bi-hdd-network"></i> ${op.assigned_machine || 'NO MACHINE'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            setTimeout(() => div.style.display = 'none', 4000);
+        }
+
+        function showScanError(msg) {
+            const div = document.getElementById('scan-result');
+            div.style.display = 'block';
+            div.innerHTML = `
+                <div style="background:#fee2e2; border:2px solid #ef4444; padding:20px; border-radius:12px">
+                    <h2 style="color:#b91c1c; margin:0"><i class="bi bi-x-circle-fill"></i> Error</h2>
+                    <div style="font-size:1.2rem; margin-top:10px; color:#7f1d1d">${msg}</div>
+                </div>
+            `;
+            setTimeout(() => div.style.display = 'none', 3000);
+        }
+    </script>
+</body>
+</html>

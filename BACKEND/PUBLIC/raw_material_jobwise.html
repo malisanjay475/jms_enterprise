@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raw Material Management - JMS OCEAN</title>
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/assets/app.css">
+    <style>
+        /* Specific Tab styling keeping standard pattern */
+        .tab-nav-premium {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            background: rgba(255, 255, 255, 0.4);
+            backdrop-filter: blur(8px);
+            padding: 8px;
+            border-radius: 16px;
+            border: 1px solid rgba(188, 213, 227, 0.5);
+            width: fit-content;
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            font-weight: 700;
+            border-radius: 12px;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            color: #5c788a;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tab-btn.active {
+            background: #fff;
+            color: var(--primary);
+            box-shadow: 0 4px 12px rgba(8, 38, 58, 0.08);
+            transform: translateY(-1px);
+        }
+
+        .tab-btn:hover:not(.active) {
+            background: rgba(255, 255, 255, 0.6);
+            color: var(--primary);
+        }
+
+        /* Status colors */
+        .badge-pending { background: #fffbeb; color: #92400e; border: 1px solid #fef3c7; }
+        .badge-accepted { background: #ecfdf5; color: #065f46; border: 1px solid #d1fae5; }
+        
+        .modal {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(7, 36, 80, 0.45);
+            backdrop-filter: blur(6px);
+            display: none;
+            align-items: center; justify-content: center;
+            z-index: 1000;
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .modal-content {
+            background: #fff;
+            padding: 32px;
+            border-radius: 24px;
+            width: 520px;
+            max-width: 92%;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(188, 213, 227, 0.4);
+        }
+    </style>
+</head>
+<body class="viewport-compact">
+
+<div class="dashboard-shell">
+    <div class="dashboard-inner">
+        <!-- Dashboard Header -->
+        <div class="dashboard-header">
+            <div class="header-lead">
+                <h1 class="page-title">Raw Material Management</h1>
+                <p class="page-subtitle" style="margin: 4px 0 0 0; color: #5c788a; font-weight:500;">Track bag issuance and production line receipts</p>
+            </div>
+            
+            <div class="header-actions">
+                <div class="card" style="padding: 12px 20px; margin-bottom: 0; display: flex; align-items: center; gap: 14px; background: rgba(255,255,255,0.8);">
+                    <div style="width: 42px; height: 42px; background: var(--primary-light); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+                        <i class="bi bi-box-fill" style="color: var(--primary); font-size: 1.4rem;"></i>
+                    </div>
+                    <div>
+                        <div id="total-issued-today" style="font-size: 1.2rem; font-weight: 800; line-height: 1;">0 KG</div>
+                        <div style="font-size: 0.65rem; color: #5c788a; font-weight: 800; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px;">Issued Today</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="tab-nav-premium">
+            <button class="tab-btn active" onclick="switchTab('plans')">
+                <i class="bi bi-activity"></i> Active Plans
+            </button>
+            <button class="tab-btn" onclick="switchTab('pending')">
+                <i class="bi bi-clock-history"></i> Pending Approval <span id="pending-count-badge" class="badge" style="background: var(--danger); color: white; margin-left:6px; font-size:0.7rem;">0</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('history')">
+                <i class="bi bi-journals"></i> Issue Audit
+            </button>
+        </div>
+
+        <!-- Plans Content -->
+        <div id="tab-plans" class="tab-content">
+            <div class="card" style="padding: 0; overflow: hidden;">
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Machine / Line</th>
+                                <th>Order No</th>
+                                <th>Material Details</th>
+                                <th style="text-align: right;">Issued (KG)</th>
+                                <th style="text-align: right;">Accepted (KG)</th>
+                                <th style="text-align: center;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="plans-body">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pending Approvals -->
+        <div id="tab-pending" class="tab-content" style="display: none;">
+             <div class="card" style="padding: 0; overflow: hidden;">
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Sender</th>
+                                <th>Plan / Line</th>
+                                <th style="text-align: right;">Quantity</th>
+                                <th style="text-align: right;">Total Weight</th>
+                                <th style="text-align: center;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pending-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- History Audit -->
+        <div id="tab-history" class="tab-content" style="display: none;">
+             <div class="card" style="padding: 0; overflow: hidden;">
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date & Time</th>
+                                <th>Sender</th>
+                                <th>Line</th>
+                                <th>Mould/Item</th>
+                                <th style="text-align: right;">Issued</th>
+                                <th>Receiver</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modals remain mostly same but match styles -->
+<div id="modal-issue" class="modal">
+    <div class="modal-content">
+        <h2 style="font-family: 'Outfit'; margin-top: 0; display: flex; align-items: center; gap: 12px; font-weight: 800; letter-spacing: -0.5px;">
+            <i class="bi bi-plus-circle-fill" style="color: var(--primary);"></i> Issue Raw Material
+        </h2>
+        <form id="issue-form">
+            <input type="hidden" id="issue-plan-id">
+            <input type="hidden" id="issue-order-no">
+            <input type="hidden" id="issue-item-code">
+            
+            <div class="form-group">
+                <label class="form-label">Production Line Source / Target</label>
+                <input type="text" id="issue-line" class="form-control" placeholder="Line 1">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label class="form-label">Bag Quantity</label>
+                    <input type="number" id="issue-bag-qty" class="form-control" value="1" min="1" step="any">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Weight Per Bag (KG)</label>
+                    <input type="number" id="issue-weight-per-bag" class="form-control" value="25" step="any">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Active Shift</label>
+                <select id="issue-shift" class="form-control">
+                    <option value="Shift A">Shift A (08-20)</option>
+                    <option value="Shift B">Shift B (20-08)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Authorized Sender</label>
+                <input type="text" id="issue-sender-name" class="form-control" placeholder="Your Name">
+            </div>
+
+            <div style="display: flex; gap: 12px; margin-top: 24px;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('modal-issue')" style="flex: 1;">Cancel</button>
+                <button type="submit" class="btn btn-primary" style="flex: 2; font-weight: 700;">Confirm Issuance</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="modal-accept" class="modal">
+    <div class="modal-content">
+        <h2 style="font-family: 'Outfit'; margin-top: 0; color: var(--success); font-weight: 800; display: flex; align-items: center; gap: 12px;">
+            <i class="bi bi-check-circle-fill"></i> Accept Receipt
+        </h2>
+        <div id="accept-details" style="background: var(--bg-body); padding: 18px; border-radius: 16px; margin-bottom: 24px; border: 1px solid var(--border); font-size:0.9rem;"></div>
+        
+        <form id="accept-form">
+            <input type="hidden" id="accept-id">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label class="form-label">Actual Bags Received</label>
+                    <input type="number" id="accept-qty" class="form-control" step="any">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Actual Weight Receipt (KG)</label>
+                    <input type="number" id="accept-weight" class="form-control" step="any">
+                </div>
+            </div>
+             <button type="submit" class="btn btn-primary" style="width: 100%; font-weight: 800; background: var(--success); border-color: var(--success); margin-top: 10px;">Confirm Receipt</button>
+             <button type="button" class="btn" onclick="closeModal('modal-accept')" style="width: 100%; margin-top: 12px; color: var(--text-muted); font-weight: 600;">Cancel</button>
+        </form>
+    </div>
+</div>
+
+<script src="/assets/app.js"></script>
+<script>
+    const api = JPSMS.api;
+    let activePlans = [];
+
+    async function init() {
+        const user = JPSMS.auth.getUser();
+        if (!user) return window.location.href = '/login.html';
+        
+        // Correct Shell Initialization
+        JPSMS.renderShell('raw_material');
+        
+        document.getElementById('issue-sender-name').value = user.username;
+        await loadPlans();
+        await loadPending();
+        
+        document.getElementById('issue-form').addEventListener('submit', handleIssueSubmit);
+        document.getElementById('accept-form').addEventListener('submit', handleAcceptSubmit);
+    }
+
+    async function loadPlans() {
+        const res = await api.request('/api/rm/plans', { method: 'GET' });
+        if (res.ok) {
+            activePlans = res.data;
+            const body = document.getElementById('plans-body');
+            body.innerHTML = activePlans.map(p => `
+                <tr>
+                    <td>
+                        <div style="font-weight: 800; color: var(--text-main);">${p.machine}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">${p.line || 'NOT ASSIGNED'}</div>
+                    </td>
+                    <td><code style="font-weight:700; color:var(--primary);">${p.order_no}</code></td>
+                    <td>
+                        <div style="font-weight: 700; font-size: 0.9rem;">${p.item_name}</div>
+                        <div style="font-size: 0.7rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Material: ${p.material}</div>
+                    </td>
+                    <td style="text-align: right; font-weight: 800;">${Number(p.total_weight_issued).toLocaleString()} KG</td>
+                    <td style="text-align: right; font-weight: 800; color: var(--success);">${Number(p.total_weight_accepted).toLocaleString()} KG</td>
+                    <td style="text-align: center;">
+                        <button class="btn btn-primary" style="padding: 6px 14px; font-size: 0.8rem;" onclick="openIssueModal('${p.plan_id}')">
+                            <i class="bi bi-plus-lg"></i> Issue
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            const totalKg = activePlans.reduce((sum, p) => sum + Number(p.total_weight_issued), 0);
+            document.getElementById('total-issued-today').innerText = totalKg.toLocaleString() + ' KG';
+        }
+    }
+
+    async function loadPending() {
+        const user = JPSMS.auth.getUser();
+        const res = await api.request('/api/rm/pending?line=' + (user.line || ''), { method: 'GET' });
+        if (res.ok) {
+            const body = document.getElementById('pending-body');
+            document.getElementById('pending-count-badge').innerText = res.data.length;
+            
+            body.innerHTML = res.data.map(r => `
+                <tr>
+                    <td><div style="font-family:'JetBrains Mono'; font-size:0.85rem; font-weight:600;">${new Date(r.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div></td>
+                    <td><div style="font-weight:700;">${r.sender_name}</div></td>
+                    <td>
+                        <div style="font-weight:700; color:var(--primary);">${r.order_no}</div>
+                        <div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">LINE: ${r.line}</div>
+                    </td>
+                    <td style="text-align: right; font-weight:800;">${r.bag_qty} Bags</td>
+                    <td style="text-align: right; font-weight:800; color:var(--accent-cyan);">${r.total_weight} KG</td>
+                    <td style="text-align: center;">
+                        <button class="btn btn-primary" style="background:var(--success); border-color:var(--success); padding:6px 14px; font-size:0.8rem;" onclick='openAcceptModal(${JSON.stringify(r)})'>
+                            Accept
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+    }
+
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('tab-' + tab).style.display = 'block';
+        event.currentTarget.classList.add('active');
+        if (tab === 'history') loadHistory();
+    }
+
+    async function loadHistory() {
+         const res = await api.request('/api/rm/pending', { method: 'GET' });
+         if (res.ok) {
+             const body = document.getElementById('history-body');
+             body.innerHTML = res.data.map(r => `
+                <tr>
+                    <td style="font-size:0.8rem;">${new Date(r.created_at).toLocaleString()}</td>
+                    <td style="font-weight:600;">${r.sender_name}</td>
+                    <td style="font-weight:600;">${r.line}</td>
+                    <td><div style="font-size:0.85rem; font-weight:600;">${r.order_no}</div></td>
+                    <td style="text-align: right; font-weight:800;">${r.total_weight} KG</td>
+                    <td style="font-weight:600;">${r.accepted_by || '-'}</td>
+                    <td><span class="badge ${r.status === 'PENDING' ? 'badge-pending' : 'badge-accepted'}" style="font-size:0.7rem; font-weight:800;">${r.status}</span></td>
+                </tr>
+             `).join('');
+         }
+    }
+
+    function openIssueModal(planId) {
+        const p = activePlans.find(x => x.plan_id === planId);
+        if (!p) return;
+        document.getElementById('issue-plan-id').value = p.plan_id;
+        document.getElementById('issue-order-no').value = p.order_no;
+        document.getElementById('issue-item-code').value = p.item_code;
+        document.getElementById('issue-line').value = p.line || '';
+        const hour = new Date().getHours();
+        document.getElementById('issue-shift').value = (hour >= 8 && hour < 20) ? 'Shift A' : 'Shift B';
+        document.getElementById('modal-issue').style.display = 'flex';
+    }
+
+    function openAcceptModal(record) {
+        document.getElementById('accept-id').value = record.id;
+        document.getElementById('accept-qty').value = record.bag_qty;
+        document.getElementById('accept-weight').value = record.total_weight;
+        document.getElementById('accept-details').innerHTML = `
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;"><strong>Plan/Order:</strong> <span>${record.order_no}</span></div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;"><strong>Sender:</strong> <span>${record.sender_name}</span></div>
+            <div style="display:flex; justify-content:space-between;"><strong>Initial Issue:</strong> <span>${record.bag_qty} Bags / ${record.total_weight} KG</span></div>
+        `;
+        document.getElementById('modal-accept').style.display = 'flex';
+    }
+
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    async function handleIssueSubmit(e) {
+        e.preventDefault();
+        const data = {
+            plan_id: document.getElementById('issue-plan-id').value,
+            order_no: document.getElementById('issue-order-no').value,
+            item_code: document.getElementById('issue-item-code').value,
+            line: document.getElementById('issue-line').value,
+            shift: document.getElementById('issue-shift').value,
+            sender_name: document.getElementById('issue-sender-name').value,
+            bag_qty: document.getElementById('issue-bag-qty').value,
+            weight_per_bag: document.getElementById('issue-weight-per-bag').value
+        };
+        const res = await api.request('/api/rm/issue', { method: 'POST', body: JSON.stringify(data) });
+        if (res.ok) {
+            closeModal('modal-issue');
+            loadPlans();
+            loadPending();
+        } else {
+            alert('Error: ' + res.error);
+        }
+    }
+
+    async function handleAcceptSubmit(e) {
+        e.preventDefault();
+        const user = JPSMS.auth.getUser();
+        const data = {
+            id: document.getElementById('accept-id').value,
+            accepted_qty: document.getElementById('accept-qty').value,
+            accepted_weight: document.getElementById('accept-weight').value,
+            accepted_by: user.username
+        };
+        const res = await api.request('/api/rm/accept', { method: 'POST', body: JSON.stringify(data) });
+        if (res.ok) {
+            closeModal('modal-accept');
+            loadPlans();
+            loadPending();
+        }
+    }
+
+    window.onload = init;
+</script>
+</body>
+</html>

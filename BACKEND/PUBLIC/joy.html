@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JMS OCEAN – Joy Learning</title>
+
+    <!-- Icons + App CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/assets/app.css">
+
+    <!-- Google Fonts for Premium Feel -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Plus+Jakarta+Sans:wght@400;600;700&display=swap"
+        rel="stylesheet">
+
+    <!-- Early boot: theme + auth -->
+    <script>
+        (function bootThemeAndAuth() {
+            try {
+                // Force dark theme for this premium page or respect user preference but default to dark if not set
+                var theme = localStorage.getItem('theme') || 'dark';
+                document.documentElement.setAttribute('data-bs-theme', theme);
+                var t = localStorage.getItem('token');
+                if (!t) location.replace('/login.html');
+            } catch (e) { }
+        })();
+    </script>
+
+    <style>
+        :root {
+            /* Premium Palette */
+            --joy-primary: #8b5cf6;
+            --joy-secondary: #d946ef;
+            --joy-accent: #06b6d4;
+            --joy-dark: #0f172a;
+            --joy-card: rgba(30, 41, 59, 0.7);
+            --joy-glass: rgba(15, 23, 42, 0.6);
+            --joy-border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background: radial-gradient(circle at 15% 50%, #1e1b4b 0%, #0f172a 40%, #020617 100%);
+            color: #e2e8f0;
+            overflow-x: hidden;
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 60px 20px;
+            text-align: center;
+            position: relative;
+        }
+
+        .hero h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 3.5rem;
+            font-weight: 800;
+            background: linear-gradient(to right, #c084fc, #e879f9, #22d3ee);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 16px;
+            letter-spacing: -0.02em;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: #94a3b8;
+            max-width: 600px;
+            margin: 0 auto 40px;
+            line-height: 1.6;
+        }
+
+        /* Cards Grid */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: var(--joy-card);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--joy-border);
+            border-radius: 24px;
+            padding: 32px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px -10px rgba(139, 92, 246, 0.15);
+            border-color: rgba(139, 92, 246, 0.3);
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, var(--joy-primary), var(--joy-secondary));
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.05);
+            display: grid;
+            place-items: center;
+            margin-bottom: 24px;
+            font-size: 24px;
+            color: var(--joy-accent);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .card h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: #f8fafc;
+        }
+
+        .card p {
+            color: #94a3b8;
+            line-height: 1.5;
+            font-size: 0.95rem;
+        }
+
+        /* Content Area */
+        .content-area {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            /* Explicitly managed by inline styles for robustness */
+            display: none;
+            animation: fadeIn 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--joy-border);
+            padding-bottom: 16px;
+        }
+
+        .section-title {
+            font-size: 1.8rem;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            color: white;
+        }
+
+        .btn-back {
+            background: transparent;
+            border: 1px solid var(--joy-border);
+            color: #cbd5e1;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-back:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: white;
+        }
+
+        /* Placeholder States */
+        .empty-state {
+            text-align: center;
+            padding: 60px;
+            color: #64748b;
+        }
+
+        .empty-state i {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Main Entry Point -->
+    <div id="homeView">
+        <div class="hero">
+            <h1>Joy Learning</h1>
+            <p>Unlock your potential with the world's best AI-powered learning platform. <br> Explore tutorials, share
+                knowledge, and grow together.</p>
+        </div>
+
+        <div class="grid">
+            <div class="card" onclick="setView('train')">
+                <div class="card-icon" style="color: #ef4444"><i class="bi bi-cpu-fill"></i></div>
+                <h3>Training Center</h3>
+                <p>Teach the AI new skills, upload documents, and refine its behavior.</p>
+            </div>
+
+            <div class="card" onclick="setView('brain')">
+                <div class="card-icon" style="color: #22c55e"><i class="bi bi-memory"></i></div>
+                <h3>Brain / My Learning</h3>
+                <p>Explore what logical connections and data points the AI currently holds.</p>
+            </div>
+
+            <div class="card" onclick="setView('tutorials')">
+                <div class="card-icon"><i class="bi bi-book-half"></i></div>
+                <h3>Tutorials</h3>
+                <p>Step-by-step guides and interactive lessons to master new skills effortlessly.</p>
+            </div>
+
+            <div class="card" onclick="setView('teach')">
+                <div class="card-icon" style="color: var(--joy-secondary)"><i class="bi bi-easel2-fill"></i></div>
+                <h3>Teach & Share</h3>
+                <p>Create your own courses and share your expertise with the community.</p>
+            </div>
+
+            <div class="card" onclick="setView('resources')">
+                <div class="card-icon" style="color: var(--joy-primary)"><i class="bi bi-box-seam-fill"></i></div>
+                <h3>Resources</h3>
+                <p>Downloadable assets, cheat sheets, and tools to accelerate your workflow.</p>
+            </div>
+
+            <div class="card" onclick="setView('community')">
+                <div class="card-icon" style="color: #fbbf24"><i class="bi bi-people-fill"></i></div>
+                <h3>Community</h3>
+                <p>Connect with other learners, ask questions, and collaborate on projects.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Content Sections (All Hidden by Default) -->
+
+    <!-- TRAINING -->
+    <div id="trainView" class="content-area" style="display:none;">
+        <div class="section-header">
+            <div class="section-title">Training Center</div>
+            <button class="btn-back" onclick="setView('home')"><i class="bi bi-arrow-left"></i> Back</button>
+        </div>
+        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:20px;">
+            <div
+                style="background:var(--joy-card); padding:20px; border-radius:16px; border:1px solid var(--joy-border);">
+                <h4 style="margin-bottom:16px; color:white;">Input Data</h4>
+                <textarea placeholder="Paste text, code, or context here to train..."
+                    style="width:100%; height:150px; background: rgba(0,0,0,0.3); border:1px solid var(--joy-border); color:white; padding:12px; border-radius:8px; resize:vertical;"></textarea>
+                <div style="display:flex; justify-content:space-between; margin-top:10px;">
+                    <button class="btn-back"><i class="bi bi-paperclip"></i> Upload File</button>
+                    <button onclick="startTraining()"
+                        style="padding: 8px 20px; background: var(--joy-primary); border:none; border-radius:6px; color:white; font-weight:600; cursor:pointer; transition: opacity 0.2s;">
+                        <i class="bi bi-lightning-fill"></i> Train Model
+                    </button>
+                </div>
+            </div>
+            <div
+                style="background:var(--joy-card); padding:20px; border-radius:16px; border:1px solid var(--joy-border);">
+                <h4 style="margin-bottom:16px; color:#94a3b8;">Training Status</h4>
+                <div style="margin-bottom:12px;">
+                    <div style="font-size:0.8rem; color:#cbd5e1; margin-bottom:4px;">Accuracy</div>
+                    <div style="height:6px; background:#334155; border-radius:99px; overflow:hidden;">
+                        <div id="accBar" style="width:92%; height:100%; background:#22c55e; transition: width 0.2s;">
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <div style="font-size:0.8rem; color:#cbd5e1; margin-bottom:4px;">Loss Rate</div>
+                    <div style="height:6px; background:#334155; border-radius:99px; overflow:hidden;">
+                        <div id="lossBar" style="width:4%; height:100%; background:#ef4444; transition: width 0.2s;">
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top:20px; text-align:center; color:#64748b; font-size:0.8rem;">
+                    <i class="bi bi-activity" style="display:block; font-size:24px; margin-bottom:4px;"></i>
+                    Model is online
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BRAIN / LEARNING -->
+    <div id="brainView" class="content-area" style="display:none;">
+        <div class="section-header">
+            <div class="section-title">Brain / My Learning</div>
+            <button class="btn-back" onclick="setView('home')"><i class="bi bi-arrow-left"></i> Back</button>
+        </div>
+
+        <!-- Brain Header Stats -->
+        <div style="display:flex; gap:20px; margin-bottom:24px;">
+            <div
+                style="flex:1; background:var(--joy-glass); padding:16px; border-radius:12px; border:1px solid var(--joy-border); border-left:4px solid #8b5cf6;">
+                <div style="font-size:0.85rem; text-transform:uppercase; color:#94a3b8; font-weight:700;">Learned Nodes
+                </div>
+                <div id="learnedNodesCount" style="font-size:1.8rem; font-weight:800; color:white;">1,284</div>
+            </div>
+            <div
+                style="flex:1; background:var(--joy-glass); padding:16px; border-radius:12px; border:1px solid var(--joy-border); border-left:4px solid #06b6d4;">
+                <div style="font-size:0.85rem; text-transform:uppercase; color:#94a3b8; font-weight:700;">Context Window
+                </div>
+                <div style="font-size:1.8rem; font-weight:800; color:white;">128k</div>
+            </div>
+            <div
+                style="flex:1; background:var(--joy-glass); padding:16px; border-radius:12px; border:1px solid var(--joy-border); border-left:4px solid #22c55e;">
+                <div style="font-size:0.85rem; text-transform:uppercase; color:#94a3b8; font-weight:700;">Last Updated
+                </div>
+                <div style="font-size:1.8rem; font-weight:800; color:white;">Just now</div>
+            </div>
+        </div>
+
+        <div style="display:flex; gap:10px; margin-bottom:20px; overflow-x:auto; padding-bottom:8px;">
+            <button
+                style="background:rgba(139, 92, 246, 0.2); border:1px solid var(--joy-primary); padding:6px 16px; border-radius:99px; color:white; white-space:nowrap; font-size:0.9rem; cursor:pointer;">All
+                Data</button>
+            <button
+                style="background:rgba(255,255,255,0.05); border:1px solid var(--joy-border); padding:6px 16px; border-radius:99px; color:#cbd5e1; white-space:nowrap; font-size:0.9rem; cursor:pointer;">Production</button>
+            <button
+                style="background:rgba(255,255,255,0.05); border:1px solid var(--joy-border); padding:6px 16px; border-radius:99px; color:#cbd5e1; white-space:nowrap; font-size:0.9rem; cursor:pointer;">Codebase</button>
+            <button
+                style="background:rgba(255,255,255,0.05); border:1px solid var(--joy-border); padding:6px 16px; border-radius:99px; color:#cbd5e1; white-space:nowrap; font-size:0.9rem; cursor:pointer;">Settings</button>
+        </div>
+
+        <div class="grid" style="padding:0; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
+            <!-- Simulated Neural Nodes -->
+            <div
+                style="background:var(--joy-glass); padding:16px; border-radius:12px; border:1px solid var(--joy-border);">
+                <div style="color:var(--joy-accent); font-size:1.2rem; margin-bottom:4px;"><i class="bi bi-bezier2"></i>
+                </div>
+                <div style="color:white; font-weight:600;">System Logic</div>
+                <div style="color:#64748b; font-size:0.8rem;">Integrated</div>
+            </div>
+            <div
+                style="background:var(--joy-glass); padding:16px; border-radius:12px; border:1px solid var(--joy-border);">
+                <div style="color:var(--joy-secondary); font-size:1.2rem; margin-bottom:4px;"><i
+                        class="bi bi-database"></i></div>
+                <div style="color:white; font-weight:600;">JMS OCEAN Schema</div>
+                <div style="color:#64748b; font-size:0.8rem;">Mapped 98%</div>
+            </div>
+            <div
+                style="background:var(--joy-glass); padding:16px; border-radius:12px; border:1px solid var(--joy-border);">
+                <div style="color:#fbbf24; font-size:1.2rem; margin-bottom:4px;"><i class="bi bi-translate"></i></div>
+                <div style="color:white; font-weight:600;">Language Model</div>
+                <div style="color:#64748b; font-size:0.8rem;">Multi-lingual</div>
+            </div>
+            <div
+                style="background:var(--joy-glass); padding:16px; border-radius:12px; border:1px solid var(--joy-border);">
+                <div style="color:#22c55e; font-size:1.2rem; margin-bottom:4px;"><i class="bi bi-check-circle"></i>
+                </div>
+                <div style="color:white; font-weight:600;">Validation Rules</div>
+                <div style="color:#64748b; font-size:0.8rem;">Active</div>
+            </div>
+            <div
+                style="background:var(--joy-glass); padding:16px; border-radius:12px; border:1px solid var(--joy-border); border-style:dashed; opacity:0.6; display:flex; align-items:center; justify-content:center; flex-direction:column; cursor:pointer;">
+                <i class="bi bi-plus-lg" style="font-size:1.5rem; color:#64748b;"></i>
+                <div style="color:#64748b; font-size:0.8rem; margin-top:4px;">Learn New</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TUTORIALS -->
+    <div id="tutorialsView" class="content-area" style="display:none;">
+        <div class="section-header">
+            <div class="section-title">Tutorials</div>
+            <button class="btn-back" onclick="setView('home')"><i class="bi bi-arrow-left"></i> Back</button>
+        </div>
+        <div class="empty-state">
+            <i class="bi bi-collection-play"></i>
+            <h3>No tutorials yet</h3>
+            <p>Check back soon for amazing content!</p>
+        </div>
+    </div>
+
+    <!-- TEACH -->
+    <div id="teachView" class="content-area" style="display:none;">
+        <div class="section-header">
+            <div class="section-title">Teach & Share</div>
+            <button class="btn-back" onclick="setView('home')"><i class="bi bi-arrow-left"></i> Back</button>
+        </div>
+        <div class="hero" style="padding: 40px 0;">
+            <h3>Start Your Teaching Journey</h3>
+            <p style="font-size: 1rem;">Create content that inspires.</p>
+            <button
+                style="padding: 10px 24px; border-radius: 99px; background: var(--joy-secondary); border:none; color:white; font-weight:600; margin-top:10px; cursor:pointer">Create
+                New Guide</button>
+        </div>
+    </div>
+
+    <!-- RESOURCES -->
+    <div id="resourcesView" class="content-area" style="display:none;">
+        <div class="section-header">
+            <div class="section-title">Resources</div>
+            <button class="btn-back" onclick="setView('home')"><i class="bi bi-arrow-left"></i> Back</button>
+        </div>
+        <div class="empty-state">
+            <i class="bi bi-hdd-rack"></i>
+            <h3>Resource Library</h3>
+            <p>Access premium templates and tools.</p>
+        </div>
+    </div>
+
+    <!-- COMMUNITY -->
+    <div id="communityView" class="content-area" style="display:none;">
+        <div class="section-header">
+            <div class="section-title">Community</div>
+            <button class="btn-back" onclick="setView('home')"><i class="bi bi-arrow-left"></i> Back</button>
+        </div>
+        <div class="empty-state">
+            <i class="bi bi-chat-heart"></i>
+            <h3>Join the conversation</h3>
+            <p>Connect with peers worldwide.</p>
+        </div>
+    </div>
+
+
+    <!-- Core Scripts -->
+    <script src="/assets/app.js"></script>
+    <script>
+        // Init Sidebar
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.renderShell('joy');
+
+            // Handle URL params
+            const params = new URLSearchParams(window.location.search);
+            const view = params.get('view');
+            if (view) {
+                setView(view);
+            } else {
+                // Ensure home is shown if no view is set
+                setView('home');
+            }
+
+            // Load Memory
+            loadBrain();
+        });
+
+        function setView(viewName) {
+            // SAFE HIDE: Explicitly hide all views first
+            const allViews = ['homeView', 'trainView', 'brainView', 'tutorialsView', 'teachView', 'resourcesView', 'communityView'];
+            allViews.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+
+            // Show selected view
+            if (viewName === 'home' || !viewName) {
+                const el = document.getElementById('homeView');
+                if (el) el.style.display = 'block';
+
+                // Clean URL
+                if (history.pushState) {
+                    var newurl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+                    window.history.pushState({ path: newurl }, '', newurl);
+                }
+            } else {
+                const targetId = viewName + 'View';
+                const target = document.getElementById(targetId);
+                if (target) {
+                    target.style.display = 'block';
+                    // Update URL
+                    const newUrl = new URL(window.location);
+                    newUrl.searchParams.set('view', viewName);
+                    window.history.pushState({}, '', newUrl);
+                } else {
+                    // Fallback to home if target not found
+                    console.warn('View not found:', viewName);
+                    document.getElementById('homeView').style.display = 'block';
+                }
+            }
+        }
+
+        // Brain / Knowledge Management
+        function loadBrain() {
+            const brainGrid = document.querySelector('#brainView .grid');
+            if (!brainGrid) return;
+
+            // 1. Clear non-static nodes (keep the "Add New" button which is last, or keep structure)
+            // Actually, let's keep the static ones and prepend user ones, or just append.
+            // Let's identify dynamic nodes with a class or just clear and re-render all including static defaults?
+            // Safer: Insert user nodes after the "System Logic" static nodes, or just at the top.
+
+            // Let's remove any previously added dynamic nodes to avoid duplicates if called multiple times
+            document.querySelectorAll('.dynamic-node').forEach(el => el.remove());
+
+            // 2. Load from LocalStorage
+            let learned = [];
+            try {
+                learned = JSON.parse(localStorage.getItem('joy_brain_data') || '[]');
+            } catch (e) { console.error('Brain load error', e); }
+
+            // 3. Render
+            // We want them to appear BEFORE the 'Learn New' button (which is logically last)
+            // But we have static nodes. Let's place them after "Validation Rules" (4th item)
+            // Or simpler: Prepend to the grid!
+
+            learned.forEach(item => {
+                const node = document.createElement('div');
+                node.className = 'dynamic-node'; // Mark for cleanup
+                node.style.cssText = 'background:var(--joy-glass); padding:16px; border-radius:12px; border:1px solid var(--joy-primary); animation: fadeIn 0.5s ease; box-shadow: 0 0 15px rgba(139, 92, 246, 0.2); position:relative; overflow:hidden;';
+                node.innerHTML = `
+                    <div style="position:absolute; top:0; left:0; width:4px; height:100%; background:${item.color || '#d946ef'}"></div>
+                    <div style="color:${item.color || '#d946ef'}; font-size:1.2rem; margin-bottom:4px;"><i class="bi ${item.icon || 'bi-stars'}"></i></div>
+                    <div style="color:white; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${item.title}">${item.title}</div>
+                    <div style="color:#94a3b8; font-size:0.8rem;">${item.time || 'Just now'}</div>
+                `;
+
+                // Insert after the first static node or at 2nd position
+                if (brainGrid.children.length > 0) {
+                    brainGrid.insertBefore(node, brainGrid.children[1]);
+                } else {
+                    brainGrid.appendChild(node);
+                }
+            });
+
+            // Update Stats
+            const countEl = document.querySelector('#learnedNodesCount');
+            if (countEl) countEl.innerText = (1284 + learned.length).toLocaleString();
+        }
+
+        function startTraining() {
+            const btn = document.querySelector('button[onclick="startTraining()"]');
+            const originalText = btn.innerHTML;
+            const inputEl = document.querySelector('#trainView textarea');
+            const content = inputEl ? inputEl.value.trim() : '';
+
+            if (!content) {
+                if (window.JPSMS && JPSMS.toast) JPSMS.toast('Please enter some data to train!', 'warning');
+                return;
+            }
+
+            // 1. UI Feedback
+            if (window.JPSMS && JPSMS.toast) JPSMS.toast('Training started...', 'info');
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Training...';
+            btn.disabled = true;
+            btn.style.opacity = '0.7';
+
+            // 2. Simulate Progress
+            const accBar = document.getElementById('accBar');
+            const lossBar = document.getElementById('lossBar');
+
+            // Reset
+            if (accBar) accBar.style.width = '20%';
+            if (lossBar) lossBar.style.width = '100%';
+
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 5;
+
+                // Simulate metric shifts
+                if (accBar) accBar.style.width = Math.min(20 + progress * 0.75, 96) + '%';
+                if (lossBar) lossBar.style.width = Math.max(100 - progress, 2) + '%';
+
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    // Finish
+                    if (window.JPSMS && JPSMS.toast) JPSMS.toast('Training Complete! Knowledge updated.', 'success');
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+
+                    // 3. SAVE TO MEMORY (Persistence)
+                    // Generate a title from content (first 3 words or 20 chars)
+                    const title = content.length > 25 ? content.substring(0, 25) + '...' : content;
+
+                    const newItem = {
+                        title: title,
+                        icon: 'bi-database-add',
+                        color: '#22c55e',
+                        time: 'Just now'
+                    };
+
+                    let learned = [];
+                    try {
+                        learned = JSON.parse(localStorage.getItem('joy_brain_data') || '[]');
+                    } catch (e) { }
+                    learned.unshift(newItem); // Add to top
+                    localStorage.setItem('joy_brain_data', JSON.stringify(learned));
+
+                    // Clear Input
+                    if (inputEl) inputEl.value = '';
+
+                    // 4. Update Brain View
+                    loadBrain();
+
+                    // 5. Redirect user to see it
+                    setTimeout(() => {
+                        setView('brain');
+                    }, 800);
+                }
+            }, 50);
+        }
+    </script>
+</body>
+
+</html>

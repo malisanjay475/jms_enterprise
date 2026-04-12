@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Hidden Data Test</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .test-case {
+            display: inline-block;
+            margin: 20px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            width: 200px;
+        }
+
+        h3 {
+            font-size: 16px;
+            margin: 5px 0;
+        }
+
+        .qr {
+            margin: 10px auto;
+        }
+
+        small {
+            color: #666;
+            display: block;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>"Hidden" Unique ID Test</h1>
+    <p>Scan these with your <b>Other System / Mobile Camera</b>.</p>
+    <p>Tell me which one (if any) shows <b>ONLY "890123"</b>.</p>
+
+    <div class="test-case">
+        <h3>1. Null Byte (\0)</h3>
+        <div id="qr1" class="qr"></div>
+        <small>Format: EAN + \0 + ID</small>
+    </div>
+
+    <div class="test-case">
+        <h3>2. Group Separator (GS)</h3>
+        <div id="qr2" class="qr"></div>
+        <small>Format: EAN + \x1D + ID</small>
+    </div>
+
+    <div class="test-case">
+        <h3>3. New Line (\n)</h3>
+        <div id="qr3" class="qr"></div>
+        <small>Format: EAN + \n + ID</small>
+    </div>
+
+    <script>
+        const ean = "890123";
+        const id = "UNIQUE";
+
+        // 1. Null Byte
+        new QRCode(document.getElementById("qr1"), {
+            text: ean + "\0" + id,
+            width: 150, height: 150
+        });
+
+        // 2. Group Separator (ASCII 29)
+        new QRCode(document.getElementById("qr2"), {
+            text: ean + String.fromCharCode(29) + id,
+            width: 150, height: 150
+        });
+
+        // 3. Newline
+        new QRCode(document.getElementById("qr3"), {
+            text: ean + "\n" + id,
+            width: 150, height: 150
+        });
+    </script>
+</body>
+
+</html>

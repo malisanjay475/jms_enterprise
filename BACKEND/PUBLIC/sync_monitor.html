@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN Sync Monitor</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f4f6f9;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            margin-top: 0;
+            color: #1a1a1a;
+            font-size: 24px;
+        }
+
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 15px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .status-row:last-child {
+            border-bottom: none;
+        }
+
+        .label {
+            color: #666;
+            font-weight: 600;
+        }
+
+        .value {
+            color: #333;
+            font-weight: 700;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            color: white;
+        }
+
+        .bg-green {
+            background: #10b981;
+        }
+
+        .bg-blue {
+            background: #3b82f6;
+        }
+
+        .bg-gray {
+            background: #6b7280;
+        }
+
+        .refresh-btn {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 20px;
+            font-weight: 600;
+        }
+
+        .refresh-btn:hover {
+            background: #1d4ed8;
+        }
+
+        #last-auto-refresh {
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="card">
+        <h1>☁️ System Sync Monitor</h1>
+
+        <div class="status-row">
+            <span class="label">Server Type</span>
+            <span class="value" id="serverType">Loading...</span>
+        </div>
+        <div class="status-row">
+            <span class="label">Factory ID</span>
+            <span class="value" id="factoryId">...</span>
+        </div>
+        <div class="status-row">
+            <span class="label">Main Server URL</span>
+            <span class="value" id="mainUrl"
+                style="font-size:12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis;">...</span>
+        </div>
+
+        <hr style="border: 0; border-top: 1px dashed #ddd; margin: 15px 0;">
+
+        <div class="status-row">
+            <span class="label">Last Full Sync</span>
+            <span class="value" id="lastSync">...</span>
+        </div>
+        <div class="status-row">
+            <span class="label">Last Data Push (Upload)</span>
+            <span class="value" id="lastPush">...</span>
+        </div>
+        <div class="status-row">
+            <span class="label">Last Data Pull (Download)</span>
+            <span class="value" id="lastPull">...</span>
+        </div>
+
+        <button class="refresh-btn" onclick="checkStatus()">Refresh Status</button>
+        <div id="last-auto-refresh">Auto-refreshing in 10s...</div>
+    </div>
+
+    <script>
+        async function checkStatus() {
+            try {
+                const res = await fetch('/api/sync/status');
+                const data = await res.json();
+
+                if (data.ok) {
+                    document.getElementById('serverType').innerHTML = `<span class="badge ${data.type === 'MAIN' ? 'bg-blue' : 'bg-green'}">${data.type}</span>`;
+                    document.getElementById('factoryId').innerText = data.factory_id || 'N/A';
+                    document.getElementById('mainUrl').innerText = data.main_url || 'N/A';
+
+                    document.getElementById('lastSync').innerText = formatTime(data.last_sync);
+                    document.getElementById('lastPush').innerText = formatTime(data.last_push);
+                    document.getElementById('lastPull').innerText = formatTime(data.last_pull);
+                }
+
+                document.getElementById('last-auto-refresh').innerText = 'Last updated: ' + new Date().toLocaleTimeString();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function formatTime(isoString) {
+            if (!isoString || isoString === 'Never') return 'Never';
+            const date = new Date(isoString);
+            return date.toLocaleString(); // Local time format
+        }
+
+        // Init
+        checkStatus();
+        setInterval(checkStatus, 30000); // Auto refresh every 30s
+    </script>
+
+</body>
+
+</html>

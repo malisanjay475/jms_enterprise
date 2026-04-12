@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>JMS OCEAN - Reports</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#1e293b">
+  <link rel="stylesheet" href="/assets/app.css?v=5">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+
+  <!-- DataTables CSS -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.3.6/css/buttons.dataTables.min.css">
+
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --bg-soft: #f8fafc;
+      --text-main: #1e293b;
+      --text-light: #64748b;
+      --border: #e2e8f0;
+    }
+
+    body {
+      background-color: var(--bg-soft);
+      font-family: 'Inter', system-ui, sans-serif;
+      color: var(--text-main);
+      font-size: 0.85rem;
+    }
+
+    .main-content {
+      padding: 20px;
+      max-width: 100%;
+      margin: 0 auto;
+    }
+
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .page-title {
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.03em;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+      padding: 20px;
+      margin-bottom: 20px;
+      border: 1px solid var(--border);
+    }
+
+    .filter-bar {
+      display: flex;
+      gap: 15px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .control-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--text-light);
+      letter-spacing: 0.05em;
+    }
+
+    .form-input {
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+      min-width: 160px;
+      background: #ffffff;
+      transition: border-color 0.2s;
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .btn-action {
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      padding: 9px 20px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-action:hover {
+      background-color: var(--primary-dark);
+      transform: translateY(-1px);
+    }
+
+    .btn-action:active {
+      transform: translateY(0);
+    }
+
+    /* DataTable Overrides */
+    table.dataTable.display tbody tr td {
+      padding: 10px 12px;
+      font-size: 0.8rem;
+    }
+
+    table.dataTable thead th {
+      background: #f8fafc !important;
+      color: #475569 !important;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+      padding: 12px !important;
+      border-bottom: 2px solid var(--border) !important;
+    }
+
+    .dataTables_wrapper .dataTables_filter input {
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 6px 12px;
+    }
+
+    .dt-buttons .dt-button {
+      background: white !important;
+      border: 1px solid #e2e8f0 !important;
+      border-radius: 8px !important;
+      padding: 6px 16px !important;
+      font-size: 0.8rem !important;
+      font-weight: 600 !important;
+      color: var(--text-main) !important;
+      transition: all 0.2s !important;
+    }
+
+    .dt-buttons .dt-button:hover {
+      background: #f8fafc !important;
+      border-color: #cbd5e1 !important;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .badge-summary { background: #eff6ff; color: #2563eb; }
+    .badge-detail { background: #fdf2f8; color: #db2777; }
+
+    @media (max-width: 768px) {
+      .filter-bar {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .control-group {
+        width: 100%;
+      }
+      .form-input {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="main-content">
+    <div class="header-row">
+      <div>
+        <div class="page-title" id="pageTitle">Reports</div>
+        <div style="font-size:0.85rem; color:var(--text-light); margin-top:4px">
+          Generate production, stock, and factory-wise reports.
+        </div>
+      </div>
+      <div style="font-size:0.85rem; color:var(--text-light)">
+        <a href="/index.html" style="text-decoration:none; color:var(--primary)">Dashboard</a> / Reports
+      </div>
+    </div>
+
+    <!-- Filter Card -->
+    <div class="card">
+      <div class="filter-bar">
+        <div class="control-group">
+          <label class="control-label">Factory</label>
+          <select id="factorySelector" class="form-input">
+            <option value="">Loading...</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label class="control-label">Report Type</label>
+          <select id="reportType" class="form-input">
+            <option value="summary">Summary View</option>
+            <option value="detail">Detailed View</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label class="control-label">From Date</label>
+          <input type="date" id="dateFrom" class="form-input">
+        </div>
+
+        <div class="control-group">
+          <label class="control-label">To Date</label>
+          <input type="date" id="dateTo" class="form-input">
+        </div>
+
+        <button class="btn-action" onclick="generateReport()">
+          <i class="bi bi-play-fill"></i> Generate Report
+        </button>
+      </div>
+    </div>
+
+    <!-- Data Table Card -->
+    <div class="card" id="tableCard" style="display:none">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
+        <h3 style="margin:0; font-size:1.1rem; font-weight:700">WIP Report Results</h3>
+        <span id="reportStatusBadge" class="status-badge"></span>
+      </div>
+      <div style="width:100%; overflow-x:auto;">
+        <table id="reportTable" class="display nowrap compact" style="width:100%">
+          <thead>
+            <tr id="tableHeader"></tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" style="text-align:center; padding:100px 20px; color:var(--text-light)">
+      <i class="bi bi-file-earmark-bar-graph" style="font-size:3rem; opacity:0.3"></i>
+      <h3 style="margin-top:10px">No Report Generated</h3>
+      <p>Select your filters above and click "Generate Report" to view data.</p>
+    </div>
+  </div>
+
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.3.6/js/dataTables.buttons.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.3/jszip.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.3.6/js/buttons.html5.min.js"></script>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    let reportTable = null;
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      JPSMS.auth.requireAuth();
+      JPSMS.renderShell('reports');
+
+      initFilters();
+      
+      // Auto-set current month dates
+      const now = new Date();
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      const today = now.toISOString().split('T')[0];
+      document.getElementById('dateFrom').value = firstDay;
+      document.getElementById('dateTo').value = today;
+    });
+
+    async function initFilters() {
+      const selector = document.getElementById('factorySelector');
+      const factories = JPSMS.factories.getAllowed();
+      const canAll = JPSMS.factories.canSelectAll();
+      
+      let html = canAll ? '<option value="">All Factories</option>' : '';
+      factories.forEach(f => {
+        html += `<option value="${f.id}">${f.name}</option>`;
+      });
+      selector.innerHTML = html;
+
+      // Default to current scope if available
+      const scope = JPSMS.factories.getCurrentScope();
+      if (scope.id) selector.value = scope.id;
+    }
+
+    async function generateReport() {
+      const type = document.getElementById('reportType').value;
+      const factoryId = document.getElementById('factorySelector').value;
+      const from = document.getElementById('dateFrom').value;
+      const to = document.getElementById('dateTo').value;
+
+      try {
+        const res = await JPSMS.api.get(`/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`);
+        
+        if (res.ok) {
+          renderReport(res.data, type);
+        } else {
+          JPSMS.toast(res.error || 'Failed to fetch report', 'error');
+        }
+      } catch (err) {
+        console.error(err);
+        JPSMS.toast('Error generating report', 'error');
+      }
+    }
+
+    function renderReport(data, type) {
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('tableCard').style.display = 'block';
+
+      const badge = document.getElementById('reportStatusBadge');
+      badge.textContent = type === 'summary' ? 'Summary View' : 'Detailed View';
+      badge.className = 'status-badge ' + (type === 'summary' ? 'badge-summary' : 'badge-detail');
+
+      if (reportTable) {
+        reportTable.destroy();
+        document.getElementById('tableHeader').innerHTML = '';
+        document.getElementById('tableBody').innerHTML = '';
+      }
+
+      let columns = [];
+      if (type === 'summary') {
+        columns = [
+          { title: "Unit", data: "factory_unit" },
+          { title: "Item Code", data: "item_code" },
+          { title: "Item Name", data: "item_name" },
+          { title: "UOM", data: "uom" },
+          { title: "Prev Stock", data: "previous_stock_qty" },
+          { title: "Current Stock", data: "current_stock_available_qty" },
+          { title: "Total Qty", data: "total_qty" },
+          { title: "Entries", data: "entries_count" }
+        ];
+      } else {
+        columns = [
+          { title: "Date", data: "stock_date", render: v => v ? v.split('T')[0] : '' },
+          { title: "Unit", data: "factory_unit" },
+          { title: "Item Code", data: "item_code" },
+          { title: "Item Name", data: "item_name" },
+          { title: "Job No", data: "job_no" },
+          { title: "Job Date", data: "job_date", render: v => v ? v.split('T')[0] : '' },
+          { title: "Total Qty", data: "total_qty" },
+          { title: "UOM", data: "uom" },
+          { title: "Status", data: "row_status" },
+          { title: "Remarks", data: "remark_from_factory_unit" }
+        ];
+      }
+
+      reportTable = $('#reportTable').DataTable({
+        data: data,
+        columns: columns,
+        pageLength: 25,
+        dom: 'Bfrtip',
+        buttons: [
+          {
+            extend: 'excelHtml5',
+            title: 'WIP Report - ' + new Date().toLocaleDateString(),
+            className: 'btn-dt'
+          },
+          {
+            extend: 'csvHtml5',
+            title: 'WIP Report - ' + new Date().toLocaleDateString(),
+             className: 'btn-dt'
+          }
+        ],
+        order: [[0, 'desc']],
+        responsive: true
+      });
+    }
+  </script>
+</body>
+
+</html>

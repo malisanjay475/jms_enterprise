@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Voice Tester</title>
+    <style>
+        body {
+            background: #222;
+            color: #fff;
+            font-family: sans-serif;
+            padding: 20px;
+        }
+
+        select,
+        button {
+            padding: 10px;
+            margin: 5px;
+            font-size: 1rem;
+        }
+
+        .row {
+            margin-bottom: 20px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Browser Voice Tester</h1>
+
+    <div class="row">
+        <h3>1. Available Voices</h3>
+        <p>If you don't see "Hindi" or "Gujarati" here, you need to install them in Windows Settings > Time & Language >
+            Speech.</p>
+        <button onclick="loadVoices()">Refresh List</button>
+        <ul id="voice-list" style="max-height: 200px; overflow-y: auto; background: #000; padding: 10px;"></ul>
+    </div>
+
+    <div class="row">
+        <h3>2. Test Logic (Simulated)</h3>
+        <button onclick="testSequence()">Test Full Sequence</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        const synth = window.speechSynthesis;
+        let voices = [];
+
+        function loadVoices() {
+            voices = synth.getVoices();
+            const list = document.getElementById('voice-list');
+            list.innerHTML = '';
+
+            // Sort by lang
+            voices.sort((a, b) => a.lang.localeCompare(b.lang));
+
+            voices.forEach(v => {
+                const li = document.createElement('li');
+                li.textContent = `${v.name} (${v.lang}) ${v.default ? ' -- DEFAULT' : ''}`;
+                if (v.lang.includes('hi') || v.lang.includes('gu')) {
+                    li.style.color = '#4ade80'; // Highlight target langs
+                    li.style.fontWeight = 'bold';
+                }
+                list.appendChild(li);
+            });
+        }
+
+        // Wait via polling because onvoiceschanged is flaky
+        if (synth.onvoiceschanged !== undefined) {
+            synth.onvoiceschanged = loadVoices;
+        }
+        setTimeout(loadVoices, 500);
+
+        function testSequence() {
+            const msgs = [
+                { text: "Wrong Barcode Scan on Table 1", lang: 'en-US' },
+                { text: "Table Number 1 par, Galat Barcode Scan hua hai", lang: 'hi-IN' },
+                { text: "Table Number 1 par, Khoto Barcode Scan thayo chhe", lang: 'gu-IN' }
+            ];
+
+            speakSequence(msgs);
+        }
+
+        function speakSequence(messages) {
+            if (synth.speaking) synth.cancel();
+            const stat = document.getElementById('status');
+            stat.innerHTML = '';
+
+            messages.forEach((msg) => {
+                const utter = new SpeechSynthesisUtterance(msg.text);
+                utter.rate = 0.9;
+
+                let voice = null;
+                // STRICTER LOGIC
+                if (msg.lang === 'hi-IN') {
+                    // Try Google, then Microsoft, then any HI
+                    voice = voices.find(v => v.name.includes('Google') && v.lang.includes('hi')) ||
+                        voices.find(v => v.name.includes('Microsoft') && v.lang.includes('hi')) ||
+                        voices.find(v => v.lang.includes('hi'));
+                } else if (msg.lang === 'gu-IN') {
+                    voice = voices.find(v => v.name.includes('Google') && v.lang.includes('gu')) ||
+                        voices.find(v => v.name.includes('Microsoft') && v.lang.includes('gu')) ||
+                        voices.find(v => v.lang.includes('gu'));
+                } else {
+                    voice = voices.find(v => v.name.includes('Google US')) ||
+                        voices.find(v => v.name.includes('Zira'));
+                }
+
+                if (voice) {
+                    utter.voice = voice;
+                    stat.innerHTML += `<div style="color:#4ade80">Playing ${msg.lang} using <b>${voice.name}</b></div>`;
+                } else {
+                    stat.innerHTML += `<div style="color:#f87171">MISSING voice for ${msg.lang} - Using Default</div>`;
+                }
+
+                synth.speak(utter);
+            });
+        }
+    </script>
+</body>
+
+</html>

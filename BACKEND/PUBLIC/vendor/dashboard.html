@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JMS OCEAN Vendor Dashboard</title>
+    <link rel="stylesheet" href="/assets/app.css?v=5">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        /* Vendor specific tweaks */
+        .sidebar {
+            display: none !important;
+        }
+
+        /* Hide main sidebar if it leaks */
+        .vendor-nav {
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            height: 60px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .nav-brand {
+            font-weight: 700;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1.1rem;
+        }
+
+        .nav-brand img {
+            width: 34px;
+            height: 34px;
+            object-fit: contain;
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 4px 10px rgba(30, 41, 59, 0.08);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 20px;
+            margin-left: 40px;
+        }
+
+        .nav-link {
+            color: #64748b;
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.95rem;
+            padding: 18px 0;
+            border-bottom: 2px solid transparent;
+        }
+
+        .nav-link.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .nav-link:hover {
+            color: var(--primary);
+        }
+
+        .main-container {
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .stat-val {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #0f172a;
+            margin: 5px 0;
+        }
+
+        .stat-lbl {
+            color: #64748b;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+
+            /* Add mobile menu later */
+            .vendor-nav {
+                justify-content: space-between;
+            }
+        }
+    </style>
+</head>
+
+<body style="background: #f8fafc">
+
+    <nav class="vendor-nav">
+        <div class="nav-brand">
+            <img src="/assets/jms-logo.png" alt="JMS logo"> <span id="v_name">JMS OCEAN Vendor Portal</span>
+        </div>
+        <div class="nav-links">
+            <a href="dashboard.html" class="nav-link active">Dashboard</a>
+            <a href="my_orders.html" class="nav-link">My Orders</a>
+            <a href="dispatch.html" class="nav-link">Create Dispatch</a>
+            <a href="profile.html" class="nav-link">Profile</a>
+        </div>
+        <button onclick="logout()" class="btn btn-sm btn-outline">Logout</button>
+    </nav>
+
+    <div class="main-container">
+
+        <div class="stat-grid">
+            <div class="stat-card">
+                <div class="stat-lbl">Open Orders</div>
+                <div class="stat-val" id="s_open_count">0</div>
+                <div style="font-size:0.8rem; color:var(--primary)">Value: ₹ <span id="s_open_val">0</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-lbl">Pending Dispatch</div>
+                <div class="stat-val" id="s_disp_qty">0</div>
+                <div style="font-size:0.8rem; color:#64748b">Qty</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-lbl">Pending Payment</div>
+                <div class="stat-val" style="color:#d97706">₹ <span id="s_pay">0</span></div>
+            </div>
+        </div>
+
+        <h3 style="margin-bottom:15px; display:flex; justify-content:space-between; align-items:center">
+            Recent Orders
+            <a href="my_orders.html" style="font-size:0.9rem; text-decoration:none">View All</a>
+        </h3>
+
+        <div class="card">
+            <table id="recentTable">
+                <thead>
+                    <tr>
+                        <th>PO No / Date</th>
+                        <th>Factory</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="5" style="text-align:center">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+
+    <script>
+        // Inline Vendor Auth Helper
+        const TOKEN = localStorage.getItem('vendor_token');
+        if (!TOKEN) window.location.href = 'login.html';
+
+        const USER = JSON.parse(localStorage.getItem('vendor_info') || '{}');
+        document.getElementById('v_name').textContent = USER.name || 'JMS OCEAN Vendor Portal';
+
+        function logout() {
+            localStorage.removeItem('vendor_token');
+            localStorage.removeItem('vendor_info');
+            window.location.href = 'login.html';
+        }
+
+        async function api(endpoint, method = 'GET', body = null) {
+            const opts = {
+                method,
+                headers: {
+                    'Authorization': 'Bearer ' + TOKEN,
+                    'Content-Type': 'application/json'
+                }
+            };
+            if (body) opts.body = JSON.stringify(body);
+            const res = await fetch('/api/vendor' + endpoint, opts);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'API Error');
+            return data;
+        }
+
+        // Load Data
+        (async () => {
+            try {
+                const res = await api('/data/dashboard');
+
+                // Stats
+                document.getElementById('s_open_count').textContent = res.stats.open_po_count;
+                document.getElementById('s_open_val').textContent = Number(res.stats.open_po_value).toLocaleString();
+                document.getElementById('s_disp_qty').textContent = res.stats.pending_dispatch_qty;
+                document.getElementById('s_pay').textContent = Number(res.stats.pending_payment).toLocaleString();
+
+                // Recent
+                const tbody = document.querySelector('#recentTable tbody');
+                if (res.recent_pos.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px; color:#aaa">No Recent Orders</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = res.recent_pos.map(po => `
+                    <tr>
+                        <td>
+                            <div style="font-weight:600">${po.po_number}</div>
+                            <div style="font-size:0.8rem; color:#64748b">${new Date(po.po_date).toLocaleDateString()}</div>
+                        </td>
+                        <td>Factory #${po.factory_id}</td> <!-- TODO: Join Name -->
+                        <td style="font-weight:600">₹ ${Number(po.total_amount).toLocaleString()}</td>
+                         <td>
+                            <span class="badge" style="background:${po.status === 'Open' ? '#dbeafe' : '#ecfccb'}; color:${po.status === 'Open' ? '#1e40af' : '#166534'}">
+                                ${po.status}
+                            </span>
+                        </td>
+                        <td>
+                            <a href="dispatch.html?po=${po.id}" class="btn btn-sm btn-primary">Dispatch</a>
+                        </td>
+                    </tr>
+                `).join('');
+
+            } catch (e) {
+                console.error(e);
+                if (e.message.includes('Unauthorized')) logout();
+            }
+        })();
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JMS OCEAN - Shifting Entry</title>
+    <link rel="stylesheet" href="/assets/app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        .shifting-container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 16px;
+        }
+
+        .form-card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
+        }
+
+        .machine-badge {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            background: rgba(37, 99, 235, 0.1);
+            padding: 8px 16px;
+            border-radius: 8px;
+            display: inline-block;
+            margin-bottom: 16px;
+        }
+
+        .plan-info {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 20px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .history-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title">Shifting Entry</div>
+        </div>
+
+        <div class="shifting-container">
+            <div class="form-card">
+                <div class="mb-4">
+                    <label class="form-label">Select Machine</label>
+                    <select id="machineSelect" class="form-select" onchange="loadMachinePlan()">
+                        <option value="">Choose Machine...</option>
+                    </select>
+                </div>
+
+                <div id="queueSection" style="display:none; margin-bottom:20px">
+                    <h6 class="text-muted mb-2">Upcoming Queue</h6>
+                    <div id="queueList" class="d-flex gap-2" style="overflow-x:auto; padding-bottom:10px">
+                        <!-- Queue items -->
+                    </div>
+                </div>
+
+                <div id="entrySection" style="display:none">
+                    <div class="text-center">
+                        <div class="machine-badge" id="dispMachine"></div>
+                    </div>
+
+                    <div class="plan-info">
+                        <div class="row">
+                            <div class="col-6">
+                                <small class="text-muted">Running Order</small>
+                                <div id="dispOrder" class="fw-bold">-</div>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted">Item Name</small>
+                                <div id="dispItem" class="fw-bold">-</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Good Qty to Shift</label>
+                        <input type="number" id="shiftQty" class="form-control form-control-lg" placeholder="Enter Qty"
+                            style="font-weight:bold; color:var(--primary)">
+                        <div class="form-text">Enter the quantity being moved physically.</div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label">To Location</label>
+                        <select id="toLocation" class="form-select form-select-lg">
+                            <option value="">Select Destination...</option>
+                            <!-- Locations will be loaded here -->
+                        </select>
+                    </div>
+
+                    <button class="btn btn-primary w-100 py-3" onclick="submitShifting()">
+                        <i class="bi bi-box-seam me-2"></i> CONFIRM SHIFT
+                    </button>
+                </div>
+
+                <div id="noPlanMsg" class="text-center text-muted p-4" style="display:none">
+                    <i class="bi bi-exclamation-circle mb-2" style="font-size:2rem"></i>
+                    <div>No running plan found for this machine.</div>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <h5 class="mb-3 text-muted">Recent Shifts</h5>
+                <div class="card" id="historyList">
+                    <div class="p-3 text-muted text-center">Loading history...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('shifting');
+            loadMachines();
+            loadLocations();
+            loadHistory();
+        });
+
+        let currentPlanId = null;
+
+        async function loadMachines() {
+            try {
+                const res = await JPSMS.api.get('/machines/status');
+                const machines = res.data || [];
+                // Only show machines that are potentially active 
+                const opts = machines.map(m => `<option value="${m.code}">${m.code} (${m.status})</option>`).join('');
+                document.getElementById('machineSelect').innerHTML = '<option value="">Choose Machine...</option>' + opts;
+            } catch (e) {
+                console.error(e);
+                JPSMS.toast('Failed to load machines', 'error');
+            }
+        }
+
+        async function loadLocations() {
+            try {
+                const res = await JPSMS.api.get('/shifting/locations');
+                const locs = res.data || [];
+                document.getElementById('toLocation').innerHTML =
+                    '<option value="">Select Destination...</option>' +
+                    locs.map(l => `<option value="${l}">${l}</option>`).join('');
+            } catch (e) {
+                // Fallback if API fails or not ready
+                const fallback = ['WIP Store', 'FG Store', 'Assembly Area', 'Quality Hold', 'Dispatch', 'Scrap Yard'];
+                document.getElementById('toLocation').innerHTML =
+                    '<option value="">Select Destination...</option>' +
+                    fallback.map(l => `<option value="${l}">${l}</option>`).join('');
+            }
+        }
+
+        async function loadMachinePlan() {
+            const mCode = document.getElementById('machineSelect').value;
+            if (!mCode) {
+                document.getElementById('entrySection').style.display = 'none';
+                document.getElementById('noPlanMsg').style.display = 'none';
+                return;
+            }
+
+            try {
+                // Get fresh status to find running plan
+                // We can reuse /machines/status logic or fetch plan board
+                // Let's use /machines/status?machine=... if available, or just filter client side for now since we fetched all statuses?
+                // Actually loadMachines only fetched list. Let's fetch details? 
+                // Wait, use /api/std-actual/status?machine=... to get active plan details quickly?
+                // Or just /api/planning/board ?
+
+                // Let's rely on /api/machines/status which returns 'running_order'.
+                // But we need Plan ID and Item Name. 
+                // Let's fetch /api/planning/board and find the running plan for this machine.
+
+                JPSMS.toggleLoader(true);
+                const res = await JPSMS.api.get('/planning/board');
+                const plans = res.data?.plans || [];
+
+                // Find running plan for machine
+                const plan = plans.find(p => p.machine === mCode && (p.status === 'RUNNING' || p.status === 'active'));
+
+                if (plan) {
+                    currentPlanId = plan.id;
+                    document.getElementById('dispMachine').textContent = mCode;
+                    document.getElementById('dispOrder').textContent = plan.orderNo || '-';
+                    document.getElementById('dispItem').textContent = plan.itemName || '-';
+
+                    document.getElementById('entrySection').style.display = 'block';
+                    document.getElementById('noPlanMsg').style.display = 'none';
+                    // Focus qty
+                    setTimeout(() => document.getElementById('shiftQty').focus(), 100);
+                } else {
+                    currentPlanId = null;
+                    document.getElementById('entrySection').style.display = 'none';
+                    document.getElementById('noPlanMsg').style.display = 'block';
+                }
+
+                loadMachineQueue(mCode, plans);
+
+            } catch (e) {
+                console.error(e);
+                JPSMS.toast('Error checking plan', 'error');
+            } finally {
+                JPSMS.toggleLoader(false);
+            }
+        }
+
+        function loadMachineQueue(machine, allPlans) {
+            const queue = allPlans
+                .filter(p => p.machine === machine && p.status === 'PLANNED')
+                .sort((a, b) => a.priority - b.priority);
+
+            const qSection = document.getElementById('queueSection');
+            const qList = document.getElementById('queueList');
+
+            if (queue.length === 0) {
+                qSection.style.display = 'none';
+                return;
+            }
+
+            qSection.style.display = 'block';
+            qList.innerHTML = queue.map(p => `
+                <div class="card p-2" style="min-width:150px; border:1px solid #e2e8f0; font-size:0.85rem">
+                    <div class="fw-bold text-truncate">${p.orderNo}</div>
+                    <div class="text-truncate text-muted">${p.itemName}</div>
+                    <div class="badge bg-secondary mt-1">Qty: ${p.planQty}</div>
+                </div>
+            `).join('');
+        }
+
+        async function submitShifting() {
+            if (!currentPlanId) return JPSMS.toast('No active plan selected', 'warning');
+
+            const mCode = document.getElementById('machineSelect').value;
+            const qty = document.getElementById('shiftQty').value;
+            const loc = document.getElementById('toLocation').value;
+
+            if (!qty || qty <= 0) return JPSMS.toast('Please enter a valid quantity', 'warning');
+            if (!loc) return JPSMS.toast('Please select a destination', 'warning');
+
+            try {
+                JPSMS.toggleLoader(true);
+                await JPSMS.api.post('/shifting/entry', {
+                    machine: mCode,
+                    planId: currentPlanId,
+                    quantity: qty,
+                    toLocation: loc
+                });
+
+                JPSMS.toast('Shifting Recorded!', 'success');
+
+                // Reset form
+                document.getElementById('shiftQty').value = '';
+                document.getElementById('toLocation').value = '';
+                document.getElementById('machineSelect').value = '';
+                document.getElementById('entrySection').style.display = 'none';
+
+                loadHistory();
+
+            } catch (e) {
+                console.error(e);
+                JPSMS.toast(e.message || 'Failed to submit', 'error');
+            } finally {
+                JPSMS.toggleLoader(false);
+            }
+        }
+
+        async function loadHistory() {
+            try {
+                const res = await JPSMS.api.get('/shifting/history');
+                const list = res.data || [];
+
+                if (list.length === 0) {
+                    document.getElementById('historyList').innerHTML = '<div class="p-3 text-center text-muted">No recent shifts</div>';
+                    return;
+                }
+
+                const html = list.map(item => `
+                    <div class="history-item">
+                        <div>
+                            <div class="fw-bold">${item.machine_code} <i class="bi bi-arrow-right-short text-muted"></i> ${item.to_location}</div>
+                            <small class="text-muted">${new Date(item.created_at).toLocaleTimeString()} - By ${item.shifted_by}</small>
+                        </div>
+                        <div class="text-end">
+                            <div class="fw-bold text-primary" style="font-size:1.1rem">${item.quantity}</div>
+                            <small class="text-muted">Pcs</small>
+                        </div>
+                    </div>
+                `).join('');
+
+                document.getElementById('historyList').innerHTML = html;
+
+            } catch (e) {
+                console.error(e);
+            }
+        }
+    </script>
+</body>
+
+</html>

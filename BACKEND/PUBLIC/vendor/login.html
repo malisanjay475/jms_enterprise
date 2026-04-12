@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN Vendor Portal - Login</title>
+    <link rel="stylesheet" href="/assets/app.css?v=5">
+    <style>
+        body {
+            background: #f1f5f9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .login-card {
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        .brand {
+            color: var(--primary);
+            margin-bottom: 30px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 12px;
+        }
+
+        .brand img {
+            width: 78px;
+            height: 78px;
+            object-fit: contain;
+            border-radius: 18px;
+            box-shadow: 0 10px 25px rgba(30, 41, 59, 0.12);
+            background: #fff;
+        }
+
+        .brand span {
+            font-size: 1.5rem;
+            font-weight: 800;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="login-card">
+        <div class="brand">
+            <img src="/assets/jms-logo.png" alt="JMS logo">
+            <span>JMS OCEAN Vendor Portal</span>
+        </div>
+
+        <form onsubmit="handleLogin(event)">
+            <div class="form-group" style="text-align:left">
+                <label class="form-label">Vendor Code</label>
+                <input id="username" class="form-control" placeholder="e.g. V0012" required autofocus>
+            </div>
+
+            <div class="form-group" style="text-align:left">
+                <label class="form-label">Password</label>
+                <input type="password" id="password" class="form-control" required>
+            </div>
+
+            <button type="submit" class="btn btn-primary"
+                style="width:100%; padding:12px; font-size:1rem; margin-top:10px">
+                Secure Login
+            </button>
+        </form>
+
+        <div style="margin-top:20px; font-size:0.9rem; color:#64748b">
+            Need help? Contact Admin
+        </div>
+        <div id="error-msg" style="color:#ef4444; margin-top:10px; font-size:0.9rem; display:none"></div>
+    </div>
+
+    <script>
+        async function handleLogin(e) {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            const err = document.getElementById('error-msg');
+
+            btn.textContent = 'Verifying...';
+            btn.disabled = true;
+            err.style.display = 'none';
+
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                const res = await fetch('/api/vendor/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await res.json();
+
+                if (data.ok) {
+                    localStorage.setItem('vendor_token', data.token);
+                    localStorage.setItem('vendor_info', JSON.stringify(data.vendor));
+                    window.location.href = 'dashboard.html';
+                } else {
+                    throw new Error(data.error || 'Login Failed');
+                }
+
+            } catch (error) {
+                err.textContent = error.message;
+                err.style.display = 'block';
+                btn.textContent = 'Secure Login';
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+
+</html>

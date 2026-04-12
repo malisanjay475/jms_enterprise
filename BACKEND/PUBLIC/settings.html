@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JMS OCEAN - Settings</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#10223a">
+    <link rel="stylesheet" href="/assets/app.css?v=5">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --settings-bg: #f4f7fb;
+            --settings-surface: #ffffff;
+            --settings-ink: #0f172a;
+            --settings-muted: #5b6b83;
+            --settings-border: #d9e2ec;
+            --settings-accent: #0f766e;
+            --settings-accent-soft: rgba(15, 118, 110, 0.12);
+            --settings-danger: #b91c1c;
+            --settings-warm: #8b5e34;
+        }
+
+        body {
+            background:
+                radial-gradient(circle at top right, rgba(15, 118, 110, 0.16), transparent 28%),
+                radial-gradient(circle at left bottom, rgba(37, 99, 235, 0.12), transparent 24%),
+                var(--settings-bg);
+            color: var(--settings-ink);
+        }
+
+        .main-content {
+            max-width: 1240px;
+            padding: 24px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .page-title {
+            margin-bottom: 6px;
+        }
+
+        .page-subtitle {
+            color: var(--settings-muted);
+            font-size: 0.95rem;
+            max-width: 720px;
+            line-height: 1.5;
+        }
+
+        .role-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, 0.92);
+            color: #fff;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+        }
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+            gap: 20px;
+        }
+
+        .card {
+            border: 1px solid var(--settings-border);
+            border-radius: 22px;
+            background: var(--settings-surface);
+            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.07);
+        }
+
+        .hero-card {
+            padding: 28px;
+            background:
+                linear-gradient(135deg, rgba(15, 118, 110, 0.95), rgba(15, 23, 42, 0.96)),
+                #0f172a;
+            color: #f8fafc;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .hero-card::after {
+            content: "";
+            position: absolute;
+            inset: auto -50px -70px auto;
+            width: 220px;
+            height: 220px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .section-eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.12);
+            color: inherit;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .hero-title {
+            margin: 18px 0 10px;
+            font-size: 2rem;
+            line-height: 1.1;
+        }
+
+        .hero-copy {
+            max-width: 640px;
+            font-size: 1rem;
+            line-height: 1.6;
+            color: rgba(248, 250, 252, 0.86);
+        }
+
+        .hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 22px;
+        }
+
+        .btn-ghost {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+        }
+
+        .hero-metrics {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .metric-box {
+            padding: 14px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.09);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .metric-label {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: rgba(255, 255, 255, 0.68);
+            margin-bottom: 6px;
+        }
+
+        .metric-value {
+            font-size: 1.15rem;
+            font-weight: 700;
+        }
+
+        .settings-card {
+            padding: 24px;
+        }
+
+        .section-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+
+        .section-title {
+            margin: 10px 0 6px;
+            font-size: 1.35rem;
+            line-height: 1.2;
+        }
+
+        .section-copy {
+            color: var(--settings-muted);
+            line-height: 1.55;
+            font-size: 0.95rem;
+            max-width: 580px;
+        }
+
+        .role-note {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 18px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: var(--settings-accent-soft);
+            border: 1px solid rgba(15, 118, 110, 0.16);
+            color: #0f4f49;
+        }
+
+        .role-note.restricted {
+            background: rgba(217, 119, 6, 0.12);
+            border-color: rgba(217, 119, 6, 0.18);
+            color: var(--settings-warm);
+        }
+
+        .settings-form {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .field-block {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .field-block.full {
+            grid-column: 1 / -1;
+        }
+
+        .field-label {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--settings-muted);
+        }
+
+        .field-control {
+            min-height: 48px;
+            border: 1px solid var(--settings-border);
+            border-radius: 14px;
+            padding: 12px 14px;
+            font-size: 0.95rem;
+            background: #fff;
+            color: var(--settings-ink);
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .field-control:focus {
+            outline: none;
+            border-color: rgba(15, 118, 110, 0.65);
+            box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
+        }
+
+        .toggle-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 48px;
+            padding: 12px 14px;
+            border: 1px dashed var(--settings-border);
+            border-radius: 14px;
+            background: #fbfdff;
+            color: var(--settings-muted);
+            font-weight: 600;
+        }
+
+        .toggle-row input {
+            width: 18px;
+            height: 18px;
+        }
+
+        .submit-row {
+            display: flex;
+            justify-content: flex-start;
+            align-items: center;
+            gap: 12px;
+            margin-top: 4px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #0f766e, #115e59);
+            border: none;
+            color: #fff;
+            padding: 12px 18px;
+            border-radius: 14px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .btn-primary:hover {
+            filter: brightness(1.03);
+        }
+
+        .btn-outline {
+            border: 1px solid var(--settings-border);
+            background: #fff;
+            color: var(--settings-ink);
+            padding: 11px 16px;
+            border-radius: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .btn-outline:hover {
+            border-color: rgba(15, 118, 110, 0.28);
+            color: var(--settings-accent);
+        }
+
+        .helper-text {
+            color: var(--settings-muted);
+            font-size: 0.85rem;
+        }
+
+        .factory-directory {
+            margin-top: 22px;
+            padding-top: 20px;
+            border-top: 1px solid var(--settings-border);
+        }
+
+        .directory-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .directory-title {
+            font-size: 1rem;
+            font-weight: 700;
+        }
+
+        .directory-state {
+            color: var(--settings-muted);
+            font-size: 0.88rem;
+        }
+
+        .factory-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .factory-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+        }
+
+        .factory-name {
+            font-size: 0.98rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .factory-meta {
+            color: var(--settings-muted);
+            font-size: 0.86rem;
+            line-height: 1.45;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 86px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+
+        .status-pill.active {
+            background: rgba(22, 163, 74, 0.14);
+            color: #166534;
+        }
+
+        .status-pill.inactive {
+            background: rgba(185, 28, 28, 0.12);
+            color: var(--settings-danger);
+        }
+
+        .placeholder-card {
+            padding: 24px;
+        }
+
+        .admin-tools-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 18px;
+        }
+
+        .admin-tool-card {
+            padding: 18px;
+            border-radius: 18px;
+            border: 1px solid #e2e8f0;
+            background: linear-gradient(180deg, #ffffff, #f8fafc);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .admin-tool-title {
+            font-size: 1rem;
+            font-weight: 700;
+        }
+
+        .admin-tool-copy {
+            color: var(--settings-muted);
+            font-size: 0.88rem;
+            line-height: 1.5;
+            flex: 1;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #dc2626, #b91c1c);
+            border: none;
+            color: #fff;
+            padding: 12px 18px;
+            border-radius: 14px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .btn-danger:hover {
+            filter: brightness(1.03);
+        }
+
+        .btn-warm {
+            background: linear-gradient(135deg, #be185d, #9d174d);
+            border: none;
+            color: #fff;
+            padding: 12px 18px;
+            border-radius: 14px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .btn-warm:hover {
+            filter: brightness(1.03);
+        }
+
+        .settings-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.46);
+            justify-content: center;
+            align-items: center;
+            z-index: 2100;
+            padding: 16px;
+        }
+
+        .settings-modal-card {
+            background: white;
+            border-radius: 18px;
+            width: 800px;
+            max-width: 95%;
+            max-height: 90vh;
+            overflow: auto;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+        }
+
+        .settings-modal-card.compact {
+            width: 460px;
+        }
+
+        .placeholder-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 18px;
+        }
+
+        .placeholder-tile {
+            min-height: 112px;
+            padding: 16px;
+            border-radius: 18px;
+            border: 1px dashed #cbd5e1;
+            background: linear-gradient(180deg, #ffffff, #f8fafc);
+        }
+
+        .placeholder-tile strong {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.95rem;
+        }
+
+        .placeholder-tile span {
+            color: var(--settings-muted);
+            font-size: 0.86rem;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 980px) {
+            .settings-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .hero-metrics,
+            .placeholder-grid,
+            .admin-tools-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .main-content {
+                padding: 16px;
+            }
+
+            .header,
+            .section-head,
+            .directory-head,
+            .factory-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .settings-form {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div>
+                <div class="page-title">Settings</div>
+                <div class="page-subtitle">Central place for system configuration. Factory setup starts here, and you can keep adding more settings cards on this screen later.</div>
+            </div>
+            <div class="role-chip" id="roleChip"><i class="bi bi-shield-lock"></i><span>Checking access...</span></div>
+        </div>
+
+        <div class="settings-grid">
+            <section class="card hero-card">
+                <div class="section-eyebrow"><i class="bi bi-sliders"></i><span>Settings Hub</span></div>
+                <h1 class="hero-title">One menu for every setting we add next.</h1>
+                <p class="hero-copy">This page is built as the shared home for admin settings. Today it includes factory creation. Later you can add more setting cards here without changing the navigation structure again.</p>
+                <div class="hero-actions">
+                    <a href="/settings.html?view=factory" class="btn-outline btn-ghost"><i class="bi bi-building"></i> Factory Settings</a>
+                    <a href="/settings.html?view=admin-tools" class="btn-outline btn-ghost"><i class="bi bi-tools"></i> Admin Tools</a>
+                    <a href="/index.html" class="btn-outline btn-ghost"><i class="bi bi-grid"></i> Dashboard</a>
+                </div>
+                <div class="hero-metrics">
+                    <div class="metric-box">
+                        <div class="metric-label">Current Scope</div>
+                        <div class="metric-value">Factory Setup</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Access Rule</div>
+                        <div class="metric-value">Create by SUPERADMIN</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Ready For</div>
+                        <div class="metric-value">More Settings Later</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card settings-card" id="factoryCard">
+                <div class="section-head">
+                    <div>
+                        <div class="section-eyebrow" style="background: rgba(15, 118, 110, 0.12); color: var(--settings-accent);"><i class="bi bi-building"></i><span>Factory Settings</span></div>
+                        <div class="section-title">Create Factory</div>
+                        <div class="section-copy">Register a factory name, short code, and location. This card stays here as the first block in your settings area, and you can keep expanding the screen with more settings later.</div>
+                    </div>
+                    <button class="btn-outline" id="refreshFactoriesBtn" type="button"><i class="bi bi-arrow-repeat"></i> Refresh</button>
+                </div>
+
+                <div class="role-note" id="factoryAccessNote">
+                    <i class="bi bi-info-circle"></i>
+                    <div>Loading access rules...</div>
+                </div>
+
+                <form id="factoryForm" class="settings-form">
+                    <div class="field-block">
+                        <label class="field-label" for="factoryName">Factory Name</label>
+                        <input id="factoryName" class="field-control" type="text" placeholder="e.g. Shivani Unit" maxlength="120">
+                    </div>
+                    <div class="field-block">
+                        <label class="field-label" for="factoryCode">Factory Code</label>
+                        <input id="factoryCode" class="field-control" type="text" placeholder="e.g. SHV01" maxlength="30">
+                    </div>
+                    <div class="field-block full">
+                        <label class="field-label" for="factoryLocation">Location</label>
+                        <input id="factoryLocation" class="field-control" type="text" placeholder="e.g. Vapi, Gujarat" maxlength="180">
+                    </div>
+                    <div class="field-block full">
+                        <label class="field-label">Factory Status</label>
+                        <label class="toggle-row" for="factoryActive">
+                            <input id="factoryActive" type="checkbox" checked>
+                            <span>Keep this factory active immediately after creation</span>
+                        </label>
+                    </div>
+                    <div class="field-block full">
+                        <div class="submit-row">
+                            <button class="btn-primary" id="createFactoryBtn" type="submit"><i class="bi bi-plus-circle"></i> Create Factory</button>
+                            <span class="helper-text">Only SUPERADMIN can submit this setting.</span>
+                        </div>
+                    </div>
+                </form>
+
+                <div class="factory-directory">
+                    <div class="directory-head">
+                        <div class="directory-title">Available Factories</div>
+                        <div class="directory-state" id="factoryListState">Loading factories...</div>
+                    </div>
+                    <div class="factory-list" id="factoryList"></div>
+                </div>
+            </section>
+
+            <section class="card placeholder-card" id="adminToolsCard">
+                <div class="section-head">
+                    <div>
+                        <div class="section-eyebrow" style="background: rgba(217, 119, 6, 0.12); color: #b45309;"><i class="bi bi-tools"></i><span>Admin Tools</span></div>
+                        <div class="section-title">Backup, restore, and plant shutdown tools live here now.</div>
+                        <div class="section-copy">This is now the single place for admin-level database tools. They are removed from Masters so all critical controls stay under Settings only.</div>
+                    </div>
+                </div>
+
+                <div class="role-note" id="adminToolsNote">
+                    <i class="bi bi-info-circle"></i>
+                    <div>Loading admin tool access...</div>
+                </div>
+
+                <div class="admin-tools-grid">
+                    <div class="admin-tool-card">
+                        <div class="admin-tool-title">Backup Database</div>
+                        <div class="admin-tool-copy">Download the current system backup from one safe location under Settings.</div>
+                        <button class="btn-outline" type="button" onclick="downloadBackup()"><i class="bi bi-download"></i> Backup DB</button>
+                    </div>
+                    <div class="admin-tool-card">
+                        <div class="admin-tool-title">Restore Database</div>
+                        <div class="admin-tool-copy">Upload a SQL or Postgres backup and restore the system from Settings only.</div>
+                        <button class="btn-danger" type="button" onclick="openRestoreModal()"><i class="bi bi-upload"></i> Restore DB</button>
+                    </div>
+                    <div class="admin-tool-card">
+                        <div class="admin-tool-title">Plant Closure</div>
+                        <div class="admin-tool-copy">Open or close plant and line entry windows without going to Masters.</div>
+                        <button class="btn-warm" type="button" onclick="openPlantClosureModal()"><i class="bi bi-lock"></i> Plant Closure</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <div id="restoreModal" class="settings-modal">
+        <div class="settings-modal-card compact" style="border-top:5px solid #dc2626; padding: 24px;">
+            <h3 style="margin-top:0; color:#dc2626"><i class="bi bi-exclamation-triangle-fill"></i> Restore Database</h3>
+            <p style="font-size:0.92rem; color:#64748b; line-height:1.6;">
+                Upload a <b>.sql</b> or <b>postgres dump</b> file to restore.
+                <br><br>
+                <strong style="color:#dc2626">Warning:</strong> current data may be overwritten or merged depending on the backup type.
+            </p>
+
+            <div style="margin: 18px 0 22px; padding: 16px; background:#f8fafc; border-radius:16px; border:1px dashed #cbd5e1;">
+                <input type="file" id="restoreFile" style="width:100%" accept=".sql,.dump,.backup">
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn-outline" type="button" onclick="closeRestoreModal()">Cancel</button>
+                <button class="btn-danger" id="btnRestoreConfirm" type="button" onclick="performRestore()"><i class="bi bi-upload"></i> Restore Now</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="plantClosureModal" class="settings-modal">
+        <div class="settings-modal-card" style="padding: 24px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px;">
+                <h3 style="margin:0; color:#be185d"><i class="bi bi-lock"></i> Plant Closure Management</h3>
+                <button onclick="closePlantClosureModal()" style="border:none; background:none; font-size:1.5rem; cursor:pointer">&times;</button>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:10px; margin-bottom:20px; background:#fff1f2; padding:15px; border-radius:16px; border:1px solid #fecaca;">
+                <div class="field-block">
+                    <label class="field-label">Close Date</label>
+                    <input type="date" id="pc-date" class="field-control" style="min-height:44px;">
+                </div>
+                <div class="field-block">
+                    <label class="field-label">Plant / Line</label>
+                    <select id="pc-plant" class="field-control" style="min-height:44px;"></select>
+                </div>
+                <div class="field-block">
+                    <label class="field-label">Shift</label>
+                    <select id="pc-shift" class="field-control" style="min-height:44px;">
+                        <option value="Day">Day Shift</option>
+                        <option value="Night">Night Shift</option>
+                        <option value="Both">Both Shifts</option>
+                    </select>
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                    <button class="btn-warm" type="button" onclick="savePlantClosure()" style="width:100%;">Add Closure</button>
+                </div>
+                <div class="field-block" style="grid-column:1 / -1;">
+                    <label class="field-label">Remarks</label>
+                    <input type="text" id="pc-remarks" class="field-control" placeholder="Mention reason for closure...">
+                </div>
+            </div>
+
+            <div style="overflow-y:auto;">
+                <h4 style="margin:10px 0; font-size:0.9rem; color:#64748b; text-transform:uppercase; letter-spacing:0.5px">Active Closures</h4>
+                <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+                    <thead style="background:#f8fafc; position:sticky; top:0;">
+                        <tr>
+                            <th style="padding:10px; text-align:left; border-bottom:2px solid #e2e8f0">Date</th>
+                            <th style="padding:10px; text-align:left; border-bottom:2px solid #e2e8f0">Plant</th>
+                            <th style="padding:10px; text-align:left; border-bottom:2px solid #e2e8f0">Shift</th>
+                            <th style="padding:10px; text-align:left; border-bottom:2px solid #e2e8f0">Remarks</th>
+                            <th style="padding:10px; text-align:right; border-bottom:2px solid #e2e8f0">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="plantClosureBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        (function () {
+            let currentUser = null;
+
+            function escapeHtml(value) {
+                return String(value || '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            function isAdminLike(user) {
+                if (window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isAdminLike) {
+                    return window.JPSMS.auth.isAdminLike(user);
+                }
+                return ['admin', 'superadmin'].includes(String(user && user.role_code || '').toLowerCase());
+            }
+
+            function isSuperadmin(user) {
+                if (window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isSuperadmin) {
+                    return window.JPSMS.auth.isSuperadmin(user);
+                }
+                return String(user && user.role_code || '').toLowerCase() === 'superadmin';
+            }
+
+            function renderRoleChip() {
+                const roleLabel = (currentUser && (currentUser.role || currentUser.role_code)) || 'User';
+                document.getElementById('roleChip').innerHTML = `<i class="bi bi-shield-lock"></i><span>${escapeHtml(roleLabel)}</span>`;
+            }
+
+            function renderFactoryList(items) {
+                const listEl = document.getElementById('factoryList');
+                const stateEl = document.getElementById('factoryListState');
+
+                if (!Array.isArray(items) || !items.length) {
+                    stateEl.textContent = 'No factories available yet.';
+                    listEl.innerHTML = '';
+                    return;
+                }
+
+                stateEl.textContent = `${items.length} ${items.length === 1 ? 'factory' : 'factories'} loaded`;
+                listEl.innerHTML = items.map(factory => {
+                    const name = escapeHtml(factory.name || ('Factory ' + factory.id));
+                    const code = escapeHtml(factory.code || 'No Code');
+                    const location = factory.location ? ' | ' + escapeHtml(factory.location) : '';
+                    const statusActive = factory.is_active !== false;
+                    return `
+                        <div class="factory-row">
+                            <div>
+                                <div class="factory-name">${name}</div>
+                                <div class="factory-meta">Code: ${code}${location}</div>
+                            </div>
+                            <div class="status-pill ${statusActive ? 'active' : 'inactive'}">${statusActive ? 'Active' : 'Inactive'}</div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            function applyFactoryAccessState() {
+                const noteEl = document.getElementById('factoryAccessNote');
+                const formEl = document.getElementById('factoryForm');
+
+                if (isSuperadmin(currentUser)) {
+                    noteEl.className = 'role-note';
+                    noteEl.innerHTML = '<i class="bi bi-check-circle"></i><div>Create Factory is enabled for your SUPERADMIN role.</div>';
+                    formEl.style.display = 'grid';
+                    return;
+                }
+
+                noteEl.className = 'role-note restricted';
+                noteEl.innerHTML = '<i class="bi bi-lock"></i><div>Create Factory is available only for SUPERADMIN. You can keep using this page for other settings as they are added later.</div>';
+                formEl.style.display = 'none';
+            }
+
+            function applyAdminToolsState() {
+                const noteEl = document.getElementById('adminToolsNote');
+                if (!noteEl) return;
+
+                if (isAdminLike(currentUser)) {
+                    noteEl.className = 'role-note';
+                    noteEl.innerHTML = '<i class="bi bi-check-circle"></i><div>Backup, restore, and plant closure tools are available here under Settings only.</div>';
+                    return;
+                }
+
+                noteEl.className = 'role-note restricted';
+                noteEl.innerHTML = '<i class="bi bi-lock"></i><div>Admin Tools are available only for Admin and Superadmin users.</div>';
+            }
+
+            function downloadBackup() {
+                window.JPSMS.toast('Starting download...', 'info');
+                window.location.href = '/api/admin/backup';
+            }
+
+            function openRestoreModal() {
+                document.getElementById('restoreModal').style.display = 'flex';
+            }
+
+            function closeRestoreModal() {
+                document.getElementById('restoreModal').style.display = 'none';
+                document.getElementById('restoreFile').value = '';
+            }
+
+            async function performRestore() {
+                const fileInput = document.getElementById('restoreFile');
+                if (!fileInput.files.length) {
+                    alert('Please select a .sql or .backup file first.');
+                    return;
+                }
+
+                const confirmMsg = 'WARNING: This will DESTRUCTIVELY OVERWRITE the database with the selected backup.\n\nAre you absolutely sure?';
+                if (!confirm(confirmMsg)) return;
+
+                const btn = document.getElementById('btnRestoreConfirm');
+                const originalText = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = 'Restoring... (Do not close)';
+
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+
+                try {
+                    const token = localStorage.getItem('jpsms_token');
+                    const res = await fetch('/api/admin/restore', {
+                        method: 'POST',
+                        headers: { 'Authorization': token ? 'Bearer ' + token : '' },
+                        body: formData
+                    });
+                    const json = await res.json();
+
+                    if (json.ok) {
+                        alert('Restore completed successfully.\nThe page will now reload.');
+                        window.location.reload();
+                    } else {
+                        alert('Restore failed:\n' + json.error);
+                    }
+                } catch (error) {
+                    alert('Network error during restore: ' + error.message);
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            }
+
+            function closePlantClosureModal() {
+                document.getElementById('plantClosureModal').style.display = 'none';
+            }
+
+            function formatDateLabel(value) {
+                if (!value) return '-';
+                const date = new Date(value);
+                if (Number.isNaN(date.getTime())) return String(value);
+                return new Intl.DateTimeFormat('en-IN', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric'
+                }).format(date);
+            }
+
+            async function openPlantClosureModal() {
+                document.getElementById('pc-date').valueAsDate = new Date();
+                document.getElementById('plantClosureModal').style.display = 'flex';
+
+                try {
+                    const res = await window.JPSMS.api.get('/machines');
+                    const sel = document.getElementById('pc-plant');
+                    sel.innerHTML = '<option value="All">All Plants (Factory Shutdown)</option>';
+
+                    const plantsGroup = document.createElement('optgroup');
+                    plantsGroup.label = 'Plants';
+                    ['B', 'C', 'E', 'F'].forEach(plant => plantsGroup.appendChild(new Option('Plant ' + plant, plant)));
+                    sel.appendChild(plantsGroup);
+
+                    if (res.ok && Array.isArray(res.data) && res.data.length) {
+                        const lines = [...new Set(res.data.map(machine => machine.line).filter(Boolean))].sort();
+                        if (lines.length) {
+                            const linesGroup = document.createElement('optgroup');
+                            linesGroup.label = 'Specific Lines';
+                            lines.forEach(line => linesGroup.appendChild(new Option('Line ' + line, line)));
+                            sel.appendChild(linesGroup);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error loading lines for closure modal', error);
+                }
+
+                await loadPlantClosures();
+            }
+
+            async function loadPlantClosures() {
+                try {
+                    const res = await window.JPSMS.api.get('/admin/closed-plants');
+                    if (!res.ok) throw new Error(res.error);
+
+                    const body = document.getElementById('plantClosureBody');
+                    body.innerHTML = (res.data || []).map(row => `
+                        <tr style="border-bottom:1px solid #f1f5f9">
+                            <td style="padding:10px">${formatDateLabel(row.dpr_date_str || row.dpr_date)}</td>
+                            <td style="padding:10px"><span style="font-weight:700; color:#be185d">${row.plant === 'All' ? 'All Plants' : String(row.plant || '').includes('-') ? 'Line ' + row.plant : 'Plant ' + row.plant}</span></td>
+                            <td style="padding:10px">
+                                <span style="background:${row.shift === 'Both' ? '#fdf2f8' : '#eff6ff'}; color:${row.shift === 'Both' ? '#be185d' : '#2563eb'}; padding:2px 8px; border-radius:999px; font-weight:600">
+                                    ${row.shift}
+                                </span>
+                            </td>
+                            <td style="padding:10px; color:#64748b">${row.remarks || '-'}</td>
+                            <td style="padding:10px; text-align:right">
+                                <button onclick="deletePlantClosure(${row.id})" style="border:none; background:none; color:#ef4444; cursor:pointer" title="Re-open Plant">
+                                    <i class="bi bi-unlock"></i> Open
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('');
+
+                    if (!res.data || !res.data.length) {
+                        body.innerHTML = '<tr><td colspan="5" style="padding:40px; text-align:center; color:#94a3b8">No active closures found.</td></tr>';
+                    }
+                } catch (error) {
+                    alert(error.message);
+                }
+            }
+
+            async function savePlantClosure() {
+                const payload = {
+                    dpr_date: document.getElementById('pc-date').value,
+                    plant: document.getElementById('pc-plant').value,
+                    shift: document.getElementById('pc-shift').value,
+                    remarks: document.getElementById('pc-remarks').value,
+                    closed_by: window.JPSMS.auth.getUser().username
+                };
+
+                if (!payload.dpr_date) {
+                    alert('Please select a date');
+                    return;
+                }
+
+                try {
+                    const res = await window.JPSMS.api.post('/admin/close-plant', payload);
+                    if (res.ok) {
+                        document.getElementById('pc-remarks').value = '';
+                        await loadPlantClosures();
+                    } else {
+                        alert(res.error);
+                    }
+                } catch (error) {
+                    alert(error.message);
+                }
+            }
+
+            async function deletePlantClosure(id) {
+                if (!confirm('Re-open this plant for entries?')) return;
+                try {
+                    const res = await window.JPSMS.api.delete('/admin/close-plant/' + id);
+                    if (res.ok) {
+                        await loadPlantClosures();
+                    } else {
+                        alert(res.error);
+                    }
+                } catch (error) {
+                    alert(error.message);
+                }
+            }
+
+            async function loadFactories() {
+                const stateEl = document.getElementById('factoryListState');
+                const listEl = document.getElementById('factoryList');
+                stateEl.textContent = 'Loading factories...';
+                listEl.innerHTML = '';
+
+                try {
+                    const res = await window.JPSMS.api.get('/factories');
+                    renderFactoryList(res.data || []);
+                } catch (error) {
+                    console.error('Failed to load factories', error);
+                    stateEl.textContent = 'Unable to load factories right now.';
+                }
+            }
+
+            async function handleCreateFactory(event) {
+                event.preventDefault();
+
+                if (!isSuperadmin(currentUser)) {
+                    window.JPSMS.toast('Create Factory is allowed only for SUPERADMIN.', 'error');
+                    return;
+                }
+
+                const name = document.getElementById('factoryName').value.trim();
+                const code = document.getElementById('factoryCode').value.trim().toUpperCase();
+                const location = document.getElementById('factoryLocation').value.trim();
+                const isActive = document.getElementById('factoryActive').checked;
+
+                if (!name || !code) {
+                    window.JPSMS.toast('Factory Name and Factory Code are required.', 'error');
+                    return;
+                }
+
+                const submitBtn = document.getElementById('createFactoryBtn');
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Creating...';
+
+                try {
+                    const res = await window.JPSMS.api.post('/factories/save', {
+                        name,
+                        code,
+                        location,
+                        is_active: isActive
+                    });
+
+                    if (!res.ok) {
+                        throw new Error(res.error || 'Failed to create factory');
+                    }
+
+                    window.JPSMS.toast('Factory created successfully.', 'success');
+                    document.getElementById('factoryForm').reset();
+                    document.getElementById('factoryActive').checked = true;
+                    await loadFactories();
+                } catch (error) {
+                    console.error('Create factory failed', error);
+                    window.JPSMS.toast(error.message || 'Unable to create factory.', 'error');
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="bi bi-plus-circle"></i> Create Factory';
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', async () => {
+                currentUser = window.JPSMS.auth.requireAuth();
+
+                if (!isAdminLike(currentUser)) {
+                    window.JPSMS.toast('Access Denied: Admin or Superadmin only.', 'error');
+                    window.location.href = '/index.html';
+                    return;
+                }
+
+                window.JPSMS.renderShell('settings');
+                renderRoleChip();
+                applyFactoryAccessState();
+                applyAdminToolsState();
+
+                document.getElementById('factoryForm').addEventListener('submit', handleCreateFactory);
+                document.getElementById('refreshFactoriesBtn').addEventListener('click', loadFactories);
+
+                const params = new URLSearchParams(window.location.search);
+                if (params.get('view') === 'factory') {
+                    document.getElementById('factoryCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else if (params.get('view') === 'admin-tools') {
+                    document.getElementById('adminToolsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+
+                await loadFactories();
+            });
+
+            window.downloadBackup = downloadBackup;
+            window.openRestoreModal = openRestoreModal;
+            window.closeRestoreModal = closeRestoreModal;
+            window.performRestore = performRestore;
+            window.openPlantClosureModal = openPlantClosureModal;
+            window.closePlantClosureModal = closePlantClosureModal;
+            window.savePlantClosure = savePlantClosure;
+            window.deletePlantClosure = deletePlantClosure;
+        })();
+    </script>
+</body>
+
+</html>

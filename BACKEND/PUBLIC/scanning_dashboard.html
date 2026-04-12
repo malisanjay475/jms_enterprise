@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Scanning Dashboard</title>
+    <link rel="stylesheet" href="/assets/app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        /* DASHBOARD OVERRIDES */
+        body {
+            background-color: #0f172a;
+            /* Dark Slate */
+            color: #f1f5f9;
+            overflow: hidden;
+            /* No scroll for TV if possible */
+        }
+
+        .main-content {
+            height: 100vh;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: #1e293b;
+            color: #fff;
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            border: 1px solid #334155;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            flex: 1;
+            /* Allow scrolling if absolutely needed, but try to fit */
+            overflow-y: auto;
+            align-content: start;
+        }
+
+        /* CARD DESIGN */
+        .dash-card {
+            background: #1e293b;
+            border: 2px solid #334155;
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+            min-height: 220px;
+        }
+
+        /* ANIMATIONS */
+        @keyframes pulse-green {
+            0% {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+                border-color: #10b981;
+            }
+
+            70% {
+                box-shadow: 0 0 0 20px rgba(16, 185, 129, 0);
+                border-color: #10b981;
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+                border-color: #334155;
+            }
+        }
+
+        .scan-flash {
+            animation: pulse-green 1s ease-out;
+        }
+
+        /* STATUS BORDERS */
+        .status-active {
+            border-color: #10b981;
+        }
+
+        /* < 5 mins */
+        .status-slow {
+            border-color: #f59e0b;
+        }
+
+        /* > 5 mins */
+        .status-idle {
+            border-color: #ef4444;
+            opacity: 0.8;
+        }
+
+        /* > 15 mins */
+
+        .card-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 15px;
+        }
+
+        .table-name {
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: #fff;
+            line-height: 1;
+        }
+
+        .item-name {
+            font-size: 1rem;
+            color: #94a3b8;
+            font-weight: 500;
+            margin-top: 5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .stats-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 15px;
+        }
+
+        .stat-block {
+            text-align: left;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-val {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: #fff;
+            line-height: 1;
+        }
+
+        .stat-val-small {
+            font-size: 1.5rem;
+            color: #cbd5e1;
+        }
+
+        /* PROGRESS BAR */
+        .progress-bg {
+            height: 12px;
+            background: #334155;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #60a5fa);
+            border-radius: 6px;
+            transition: width 0.5s ease;
+        }
+
+        .progress-fill.complete {
+            background: #10b981;
+        }
+
+        .status-pill {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .bg-active {
+            background: #064e3b;
+            color: #34d399;
+        }
+
+        .bg-slow {
+            background: #451a03;
+            color: #fbbf24;
+        }
+
+        .bg-idle {
+            background: #450a0a;
+            color: #f87171;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div style="font-size:1.5rem; font-weight:700">
+                <i class="bi bi-speedometer2 me-2"></i>Live Scanning Dashboard
+            </div>
+            <div id="clock" style="font-size:1.5rem; font-family:monospace; color:#38bdf8">--:--:--</div>
+        </div>
+
+        <div class="dashboard-grid" id="grid">
+            <!-- Cards Injected Here -->
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        // State
+        let PREVIOUS_DATA = {}; // { plan_id: qty }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            updateClock();
+            setInterval(updateClock, 1000);
+
+            fetchData();
+            // setInterval(fetchData, 3000); // Remove Polling, use SSE
+            initSSE();
+        });
+
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').textContent = now.toLocaleTimeString();
+        }
+
+        async function fetchData() {
+            try {
+                // Use generic request to pass skipLoader option
+                const res = await JPSMS.api.request('/assembly/active', { skipLoader: true });
+
+                // REMOVED: await checkAlerts(); // Handled by SSE now
+
+                if (!res.data) return;
+
+                // Group by Table (Take first active plan per table)
+                const plans = Object.values(res.data.reduce((acc, p) => {
+                    if (!acc[p.table_id]) acc[p.table_id] = p;
+                    return acc;
+                }, {}));
+
+                // Sort by Table ID properly
+                plans.sort((a, b) => a.table_id.localeCompare(b.table_id, undefined, { numeric: true }));
+
+                renderGrid(plans);
+            } catch (e) { console.error('Poll Error:', e); }
+        }
+
+        // --- SSE & ALERT SYSTEM ---
+        let LAST_ALERT_ID = 0;
+        const synth = window.speechSynthesis;
+
+        function initSSE() {
+            const evtSource = new EventSource('/api/assembly/events');
+
+            evtSource.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                if (msg.type === 'scan') {
+                    // Refresh Grid on any scan
+                    fetchData();
+                } else if (msg.type === 'alert') {
+                    // Immediate Alert
+                    triggerAlert(msg.data);
+                }
+            };
+
+            evtSource.onerror = (e) => {
+                console.log('SSE Error, reconnecting...', e);
+                evtSource.close();
+                setTimeout(initSSE, 5000);
+            };
+        }
+
+        function triggerAlert(alert) {
+            // 1. Visual
+            const alertBox = document.createElement('div');
+            alertBox.style.position = 'fixed';
+            alertBox.style.top = '0';
+            alertBox.style.left = '0';
+            alertBox.style.width = '100vw';
+            alertBox.style.height = '100vh';
+            alertBox.style.backgroundColor = 'rgba(220, 38, 38, 0.9)';
+            alertBox.style.zIndex = '9999';
+            alertBox.style.display = 'flex';
+            alertBox.style.flexDirection = 'column';
+            alertBox.style.alignItems = 'center';
+            alertBox.style.justifyContent = 'center';
+            alertBox.style.color = '#fff';
+            alertBox.innerHTML = `
+                <i class="bi bi-exclamation-octagon-fill" style="font-size:10rem; animation: pulse 0.5s infinite"></i>
+                <h1 style="font-weight:900; font-size:5rem; margin:0">WRONG BARCODE!</h1>
+                <h2 style="font-size:3rem">Table: ${alert.table_id}</h2>
+            `;
+            document.body.appendChild(alertBox);
+
+            // Remove visual after 4s (User Request)
+            setTimeout(() => alertBox.remove(), 4000);
+
+            // 2. Audio (Siren + Multilingual Voice)
+            playSiren();
+
+            const tblNum = alert.table_id.replace(/[^0-9]/g, '') || alert.table_id;
+
+            // Sequence: English -> Hindi -> Gujarati
+            const enText = `Wrong Barcode Scan on Table ${tblNum}`;
+            const hiText = `Table Number ${tblNum} par, Galat Barcode Scan hua hai`; // Hindi
+            const guText = `Table Number ${tblNum} par, Khoto Barcode Scan thayo chhe`; // Gujarati
+
+            speakSequence([
+                { text: enText, lang: 'en-US' },
+                { text: hiText, lang: 'hi-IN' },
+            ]);
+        }
+
+        function playSiren() {
+            // Web Audio API Oscillator Siren (No MP3 needed)
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (!AudioContext) return;
+
+                const ctx = new AudioContext();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(600, ctx.currentTime);
+                osc.frequency.linearRampToValueAtTime(1200, ctx.currentTime + 0.5);
+                osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 1.0);
+                osc.frequency.linearRampToValueAtTime(1200, ctx.currentTime + 1.5);
+                osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 2.0);
+
+                gain.gain.setValueAtTime(0.5, ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 2.0);
+
+                osc.start();
+                osc.stop(ctx.currentTime + 2.0);
+            } catch (e) { console.error('Audio Context Error:', e); }
+        }
+
+        function speakSequence(messages) {
+            if (synth.speaking) synth.cancel();
+
+            messages.forEach((msg) => {
+                const utter = new SpeechSynthesisUtterance(msg.text);
+                utter.rate = 0.9;
+                utter.pitch = 1.0;
+                utter.volume = 1.0;
+
+                // Get fresh list (sometimes fails if called too early)
+                const voices = synth.getVoices();
+                let voice = null;
+
+                if (msg.lang === 'hi-IN') {
+                    // Priority: Google Hindi -> Microsoft Hindi -> Any Hindi
+                    voice = voices.find(v => v.name.includes('Google') && v.lang.includes('hi')) ||
+                        voices.find(v => v.name.includes('Microsoft') && v.lang.includes('hi')) ||
+                        voices.find(v => v.lang.includes('hi'));
+                } else if (msg.lang === 'gu-IN') {
+                    // Priority: Google Gujarati -> Any Gujarati
+                    voice = voices.find(v => v.name.includes('Google') && v.lang.includes('gu')) ||
+                        voices.find(v => v.lang.includes('gu'));
+                } else {
+                    // English: Google US -> Zira -> Any English
+                    voice = voices.find(v => v.name.includes('Google US')) ||
+                        voices.find(v => v.name.includes('Zira')) ||
+                        voices.find(v => v.lang.includes('en'));
+                }
+
+                if (voice) {
+                    utter.voice = voice;
+                    // console.log(`Selected ${voice.name} for ${msg.lang}`);
+                }
+                // If no voice found, browser uses default (which is usually English), 
+                // but setting lang might help it switch if underlying OS supports it.
+                utter.lang = msg.lang;
+
+                synth.speak(utter);
+            });
+        }
+
+        function renderGrid(plans) {
+            const grid = document.getElementById('grid');
+
+            // 1. Mark existing
+            const existingIds = new Set(Array.from(grid.children).map(c => c.id));
+
+            plans.forEach(p => {
+                const cardId = `card-${p.id}`;
+                existingIds.delete(cardId);
+
+                const prevQty = PREVIOUS_DATA[p.id] || 0;
+                const currQty = p.scanned_qty || 0;
+                const isFlash = (currQty > prevQty);
+                PREVIOUS_DATA[p.id] = currQty;
+
+                // Status Logic
+                // Use Server-Side Idle Time (Fixed Timezone Issue)
+                let idleSec = (p.idle_seconds !== undefined && p.idle_seconds !== null) ? Number(p.idle_seconds) : 99999;
+
+                // Local Override: If we see it incrementing now, mark active
+                if (currQty > prevQty) idleSec = 0;
+
+                const diffMins = idleSec / 60;
+
+                let statusClass = 'status-active';
+                let pillClass = 'bg-active';
+                let statusText = 'RUNNING';
+
+                if (diffMins > 15) { statusClass = 'status-idle'; pillClass = 'bg-idle'; statusText = 'STOPPED'; }
+                else if (diffMins > 5) { statusClass = 'status-slow'; pillClass = 'bg-slow'; statusText = 'SLOW'; }
+
+                // Time Display
+                let timeStr = '--:--';
+                if (p.updated_at) {
+                    try { timeStr = new Date(p.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch (e) { }
+                }
+
+                const pct = Math.min(100, Math.round((currQty / p.plan_qty) * 100));
+
+                let card = document.getElementById(cardId);
+
+                if (!card) {
+                    card = document.createElement('div');
+                    card.id = cardId;
+                    card.className = `dash-card ${statusClass}`;
+                    card.innerHTML = `
+                        <div class="card-header-row">
+                            <div>
+                                <div class="table-name">${p.table_id}</div>
+                                <div class="item-name">${p.item_name}</div>
+                            </div>
+                            <div class="status-pill ${pillClass}">
+                                <span class="lbl-status">${statusText}</span> <br>
+                                <span class="lbl-time" style="font-size:0.6rem; opacity:0.8">${timeStr}</span>
+                            </div>
+                        </div>
+                        <div class="stats-row">
+                            <div class="stat-block">
+                                <div class="stat-label">Scanned</div>
+                                <div class="stat-val qty-val">${currQty}</div>
+                            </div>
+                            <div class="stat-block" style="text-align:right">
+                                <div class="stat-label">Target</div>
+                                <div class="stat-val-small">${p.plan_qty}</div>
+                            </div>
+                        </div>
+                        <div class="progress-bg">
+                            <div class="progress-fill ${pct >= 100 ? 'complete' : ''}" style="width: ${pct}%"></div>
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                } else {
+                    // DIFF UPDATE
+                    card.className = `dash-card ${statusClass} ${isFlash ? 'scan-flash' : ''}`;
+
+                    const qtyEl = card.querySelector('.qty-val');
+                    if (qtyEl.textContent != currQty) {
+                        qtyEl.textContent = currQty;
+                        qtyEl.style.color = isFlash ? '#22d3ee' : '#fff';
+                    } else {
+                        qtyEl.style.color = '#fff';
+                    }
+
+                    const pill = card.querySelector('.status-pill');
+                    pill.className = `status-pill ${pillClass}`;
+                    pill.querySelector('.lbl-status').textContent = statusText;
+                    pill.querySelector('.lbl-time').textContent = timeStr;
+
+                    const fill = card.querySelector('.progress-fill');
+                    fill.style.width = `${pct}%`;
+                    if (pct >= 100) fill.classList.add('complete');
+                    else fill.classList.remove('complete'); // Ensure removed if backlog
+
+                    const itemEl = card.querySelector('.item-name');
+                    if (itemEl.textContent !== p.item_name) itemEl.textContent = p.item_name;
+                }
+            });
+
+            // Remove Stale
+            existingIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.remove();
+            });
+        }
+    </script>
+</body>
+
+</html>

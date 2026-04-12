@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JMS OCEAN - GRN & Payments</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#1e293b">
+    <link rel="stylesheet" href="/assets/app.css?v=5">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title">GRN & Payments</div>
+            <div>
+                <!-- Tabs or Actions -->
+            </div>
+        </div>
+
+        <!-- Layout: 2 Columns (Dispatch vs Payments? Or just tabs) -->
+        <div class="card">
+            <h3 style="margin-top:0">Pending Dispatches (Vendor)</h3>
+            <table id="dispatchTable">
+                <thead>
+                    <tr>
+                        <th>Dispatch Date</th>
+                        <th>Vendor</th>
+                        <th>PO No</th>
+                        <th>Invoice</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="6" style="text-align:center">No pending dispatches</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card" style="margin-top:20px">
+            <h3 style="margin-top:0">Payment Status</h3>
+            <table id="paymentTable">
+                <thead>
+                    <tr>
+                        <th>Vendor</th>
+                        <th>Invoice No</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="5" style="text-align:center">No pending payments</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- GRN Modal -->
+    <div class="modal-overlay" id="grnModal">
+        <div class="modal-content">
+            <h3 style="margin-top:0">Approve GRN</h3>
+            <input type="hidden" id="g_dispatch_id">
+            <p>Are you sure you want to approve this dispatch? This will update stock and PO balance.</p>
+            <div class="form-group">
+                <label class="form-label">Remarks</label>
+                <textarea id="g_remarks" class="form-control"></textarea>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:10px">
+                <button class="btn btn-outline" onclick="closeGRNModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="submitGRN()">Approve & Create GRN</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('purch_grn');
+            loadDispatches();
+        });
+
+        async function loadDispatches() {
+            // Need API for Admin to list Dispatches
+            // For now, placeholder structure
+        }
+
+        function openGRNModal(id) {
+            document.getElementById('grnModal').style.display = 'flex';
+            document.getElementById('g_dispatch_id').value = id;
+        }
+
+        function closeGRNModal() {
+            document.getElementById('grnModal').style.display = 'none';
+        }
+
+        async function submitGRN() {
+            // Need API endpoint /vendor/admin/grn/approve
+            JPSMS.toast('Feature coming soon', 'info');
+            closeGRNModal();
+        }
+
+    </script>
+</body>
+
+</html>

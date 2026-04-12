@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JMS OCEAN Vendor Portal - My Orders</title>
+    <link rel="stylesheet" href="/assets/app.css?v=5">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        .vendor-nav {
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            height: 60px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .nav-brand {
+            font-weight: 700;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1.1rem;
+        }
+
+        .nav-brand img {
+            width: 34px;
+            height: 34px;
+            object-fit: contain;
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 4px 10px rgba(30, 41, 59, 0.08);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 20px;
+            margin-left: 40px;
+        }
+
+        .nav-link {
+            color: #64748b;
+            text-decoration: none;
+            font-weight: 500;
+            padding: 18px 0;
+            border-bottom: 2px solid transparent;
+        }
+
+        .nav-link:hover,
+        .nav-link.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .main-container {
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+
+<body style="background: #f8fafc">
+
+    <nav class="vendor-nav">
+        <div class="nav-brand"><img src="/assets/jms-logo.png" alt="JMS logo"> JMS OCEAN Vendor Portal</div>
+        <div class="nav-links">
+            <a href="dashboard.html" class="nav-link">Dashboard</a>
+            <a href="my_orders.html" class="nav-link active">My Orders</a>
+            <a href="dispatch.html" class="nav-link">Create Dispatch</a>
+            <a href="profile.html" class="nav-link">Profile</a>
+        </div>
+        <button onclick="logout()" class="btn btn-sm btn-outline" style="margin-left:auto">Logout</button>
+    </nav>
+
+    <div class="main-container">
+
+        <div class="card">
+            <h3 style="margin-top:0">My Purchase Orders</h3>
+            <div style="margin-bottom:15px; display:flex; gap:10px">
+                <button class="btn btn-sm btn-outline active" onclick="loadOrders('All', this)">All</button>
+                <button class="btn btn-sm btn-outline" onclick="loadOrders('Open', this)">Open</button>
+                <button class="btn btn-sm btn-outline" onclick="loadOrders('Closed', this)">Closed</button>
+            </div>
+            <table id="poTable">
+                <thead>
+                    <tr>
+                        <th>PO No / Date</th>
+                        <th>Factory</th>
+                        <th>Total Amount</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const TOKEN = localStorage.getItem('vendor_token');
+        if (!TOKEN) window.location.href = 'login.html';
+
+        function logout() {
+            localStorage.removeItem('vendor_token');
+            localStorage.removeItem('vendor_info');
+            window.location.href = 'login.html';
+        }
+
+        async function api(endpoint) {
+            const res = await fetch('/api/vendor' + endpoint, {
+                headers: { 'Authorization': 'Bearer ' + TOKEN }
+            });
+            return await res.json();
+        }
+
+        async function loadOrders(status, btn) {
+            if (btn) {
+                document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            }
+
+            const tbody = document.querySelector('#poTable tbody');
+            tbody.innerHTML = '<tr><td colspan="5">Loading...</td></tr>';
+
+            try {
+                const res = await api('/data/orders?status=' + status);
+                if (res.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px; color:#aaa">No Orders Found</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = res.data.map(po => `
+                     <tr>
+                        <td>
+                            <div style="font-weight:600">${po.po_number}</div>
+                            <div style="font-size:0.8rem; color:#64748b">${new Date(po.po_date).toLocaleDateString()}</div>
+                        </td>
+                        <td>Factory #${po.factory_id}</td>
+                        <td style="font-weight:600">₹ ${Number(po.total_amount).toLocaleString()}</td>
+                         <td>
+                            <span class="badge" style="background:${po.status === 'Open' ? '#dbeafe' : '#ecfccb'}; color:${po.status === 'Open' ? '#1e40af' : '#166534'}">
+                                ${po.status}
+                            </span>
+                        </td>
+                        <td>
+                            <a href="dispatch.html?po=${po.id}" class="btn btn-sm btn-primary">Dispatch</a>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) { console.error(e); }
+        }
+
+        loadOrders('All');
+    </script>
+</body>
+
+</html>

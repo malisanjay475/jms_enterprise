@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>JMS OCEAN - WIP Supervisor</title>
+    <link rel="stylesheet" href="/assets/app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --phone: 600px;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --primary: #8b5cf6;
+            /* Distinct Color for WIP */
+            --accent: #a78bfa;
+        }
+
+        body {
+            background: var(--bg);
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #1e293b;
+            padding-bottom: 60px;
+        }
+
+        .shell {
+            width: min(100%, var(--phone));
+            margin: 0 auto;
+            padding: 16px;
+        }
+
+        .card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
+            margin-bottom: 12px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+            border-radius: 6px;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid #cbd5e1;
+            padding: 6px 12px;
+            border-radius: 6px;
+            color: #64748b;
+        }
+
+        .nav-tabs {
+            display: flex;
+            background: #e2e8f0;
+            padding: 4px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+        }
+
+        .nav-tab {
+            flex: 1;
+            text-align: center;
+            padding: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #64748b;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .nav-tab.active {
+            background: white;
+            color: var(--primary);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .list-item:last-child {
+            border-bottom: none;
+        }
+
+        .tag {
+            background: #f1f5f9;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: #64748b;
+            font-weight: 600;
+        }
+
+        /* Modals */
+        .modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+
+        .modal.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background: white;
+            width: 90%;
+            max-width: 400px;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            color: #64748b;
+            margin-bottom: 6px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+
+        .stat-val {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        .stat-lbl {
+            font-size: 0.8rem;
+            color: #64748b;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- LOGIN -->
+    <div id="view-login" class="shell"
+        style="height:100vh; display:flex; flex-direction:column; justify-content:center;">
+        <div class="card">
+            <h2 style="margin-top:0">WIP Supervisor Portal</h2>
+            <div style="color:#64748b; font-size:0.9rem; margin-bottom:20px">Manage Inward & Outward Stock</div>
+            <div class="form-group">
+                <label>Username</label>
+                <input id="loginUser" class="form-control" placeholder="wip_super">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="loginPass" class="form-control" placeholder="••••••">
+            </div>
+            <button onclick="doLogin()" class="btn-primary">Login</button>
+        </div>
+    </div>
+
+    <!-- APP -->
+    <div id="view-app" class="shell" style="display:none">
+        <div class="header">
+            <div>
+                <div style="font-weight:700; font-size:1.1rem">WIP Inventory</div>
+                <div style="font-size:0.8rem; color:#64748b">User: <span id="userName">-</span></div>
+            </div>
+            <button onclick="JPSMS.auth.logout()" class="btn-outline"><i class="bi bi-box-arrow-right"></i></button>
+        </div>
+
+        <div class="nav-tabs">
+            <div onclick="switchTab('tab-approvals')" id="nav-tab-approvals" class="nav-tab active">Approvals <span
+                    id="badge-pending"
+                    style="background:red; color:white; padding:1px 5px; border-radius:99px; font-size:0.7rem; display:none">0</span>
+            </div>
+            <div onclick="switchTab('tab-stock')" id="nav-tab-stock" class="nav-tab">Stock</div>
+            <div onclick="switchTab('tab-logs')" id="nav-tab-logs" class="nav-tab">Logs</div>
+        </div>
+
+        <!-- TAB: APPROVALS -->
+        <div id="tab-approvals">
+            <div id="approvalsList"></div>
+        </div>
+
+        <!-- TAB: STOCK -->
+        <div id="tab-stock" style="display:none">
+            <div style="margin-bottom:12px">
+                <input id="searchStock" oninput="filterStock()" class="form-control"
+                    placeholder="Search Item, Rack, Mould...">
+            </div>
+            <div id="stockList"></div>
+        </div>
+
+        <!-- TAB: LOGS -->
+        <div id="tab-logs" style="display:none">
+            <div id="logsList"></div>
+        </div>
+    </div>
+
+    <!-- MODAL: APPROVE -->
+    <div id="approveModal" class="modal">
+        <div class="modal-content">
+            <h3>Approve Inward</h3>
+            <div id="apprDetails"
+                style="background:#f1f5f9; padding:10px; border-radius:8px; font-size:0.9rem; margin-bottom:15px"></div>
+
+            <div class="form-group">
+                <label>Assign Rack No</label>
+                <input id="inRack" class="form-control" placeholder="e.g. R1-A">
+            </div>
+
+            <button onclick="submitApprove()" class="btn-primary">Confirm & Save</button>
+            <div onclick="document.getElementById('approveModal').classList.remove('active')"
+                style="text-align:center; margin-top:15px; color:#64748b; cursor:pointer">Cancel</div>
+        </div>
+    </div>
+
+    <!-- MODAL: OUTWARD -->
+    <div id="outwardModal" class="modal">
+        <div class="modal-content">
+            <h3>Outward Stock</h3>
+            <div id="outDetails"
+                style="background:#f1f5f9; padding:10px; border-radius:8px; font-size:0.9rem; margin-bottom:15px"></div>
+
+            <div class="form-group">
+                <label>Outward Quantity (Max: <span id="outMax">0</span>)</label>
+                <input type="number" id="outQty" class="form-control" style="font-weight:bold; font-size:1.2rem">
+            </div>
+
+            <div class="form-group">
+                <label>To Location / Department</label>
+                <select id="outLoc" class="form-control">
+                    <option value="Assembly">Assembly</option>
+                    <option value="Packing">Packing</option>
+                    <option value="Quality">Quality</option>
+                    <option value="Dispatch">Dispatch</option>
+                    <option value="Scrap">Scrap</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Receiver Name</label>
+                <input id="outReceiver" class="form-control" placeholder="Who collected it?">
+            </div>
+
+            <button onclick="submitOutward()" class="btn-primary">Confirm Outward</button>
+            <div onclick="document.getElementById('outwardModal').classList.remove('active')"
+                style="text-align:center; margin-top:15px; color:#64748b; cursor:pointer">Cancel</div>
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        // GLOBAL STATE
+        let PENDING_DATA = [];
+        let STOCK_DATA = [];
+        let LOGS_DATA = [];
+        let CURRENT_APPR = null;
+        let CURRENT_OUT = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const user = JPSMS.auth.getUser();
+            if (user && user.username) showApp(user);
+        });
+
+        async function doLogin() {
+            const u = document.getElementById('loginUser').value;
+            const p = document.getElementById('loginPass').value;
+            if (!u || !p) return JPSMS.toast('Enter credentials', 'error');
+
+            try {
+                const user = await JPSMS.auth.login(u, p);
+                if (user) showApp(user);
+            } catch (e) {
+                JPSMS.toast(e.message, 'error');
+            }
+        }
+
+        function showApp(user) {
+            document.getElementById('view-login').style.display = 'none';
+            document.getElementById('view-app').style.display = 'block';
+            document.getElementById('userName').textContent = user.username;
+            loadAll();
+        }
+
+        function switchTab(id) {
+            ['tab-approvals', 'tab-stock', 'tab-logs'].forEach(t => document.getElementById(t).style.display = 'none');
+            ['nav-tab-approvals', 'nav-tab-stock', 'nav-tab-logs'].forEach(t => document.getElementById(t).classList.remove('active'));
+
+            document.getElementById(id).style.display = 'block';
+            document.getElementById('nav-' + id).classList.add('active');
+        }
+
+        async function loadAll() {
+            try {
+                JPSMS.toggleLoader(true);
+                console.log('Fetching WIP data...');
+
+                // Parallel fetch
+                const [pRes, sRes, lRes] = await Promise.all([
+                    JPSMS.api.get('/wip/pending'),
+                    JPSMS.api.get('/wip/stock'),
+                    JPSMS.api.get('/wip/logs')
+                ]);
+
+                console.log('Pending Res:', pRes);
+                console.log('Stock Res:', sRes);
+                console.log('Logs Res:', lRes);
+
+                // Handle both { data: ... } and direct array (just in case)
+                PENDING_DATA = (pRes.data || (Array.isArray(pRes) ? pRes : [])) || [];
+                STOCK_DATA = (sRes.data || (Array.isArray(sRes) ? sRes : [])) || [];
+                LOGS_DATA = (lRes.data || (Array.isArray(lRes) ? lRes : [])) || [];
+
+                console.log('Processed Pending:', PENDING_DATA);
+                console.log('Processed Stock:', STOCK_DATA);
+
+                if (PENDING_DATA.length === 0 && STOCK_DATA.length === 0 && LOGS_DATA.length === 0) {
+                    JPSMS.toast('No Data Found. Check Console.', 'info');
+                }
+
+                renderApprovals();
+                renderStock();
+                renderLogs();
+
+            } catch (e) {
+                console.error('Load Error:', e);
+                JPSMS.toast('Failed to load data: ' + e.message, 'error');
+            } finally {
+                JPSMS.toggleLoader(false);
+            }
+        }
+
+        // --- APPROVALS ---
+        function renderApprovals() {
+            const el = document.getElementById('approvalsList');
+            const badge = document.getElementById('badge-pending');
+
+            if (PENDING_DATA.length > 0) {
+                badge.style.display = 'inline-block';
+                badge.textContent = PENDING_DATA.length;
+            } else {
+                badge.style.display = 'none';
+            }
+
+            if (PENDING_DATA.length === 0) {
+                el.innerHTML = '<div style="text-align:center; padding:30px; color:#cbd5e1">No Pending Approvals</div>';
+                return;
+            }
+
+            el.innerHTML = PENDING_DATA.map(item => `
+                <div class="card">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:6px">
+                        <div style="font-weight:700">${item.item_name || 'Unknown Item'}</div>
+                        <div class="tag" style="background:#fef3c7; color:#b45309">Pending</div>
+                    </div>
+                    <div style="font-size:0.85rem; color:#64748b; margin-bottom:8px">
+                        Order: ${item.order_no || '-'} <br>
+                        Mould: ${item.mould_name || '-'} <br>
+                        Shifted By: ${item.shifted_by} (${new Date(item.created_at).toLocaleString()})
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center">
+                        <div style="font-size:1.1rem; font-weight:700">Qty: ${item.quantity}</div>
+                        <button onclick='openApprove(${JSON.stringify(item)})' class="btn-primary btn-sm" style="width:auto">Approve</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function openApprove(item) {
+            CURRENT_APPR = item;
+            document.getElementById('apprDetails').innerHTML = `
+                <b>${item.item_name}</b><br>
+                Qty: ${item.quantity}<br>
+                From: ${item.shifted_by}
+            `;
+            document.getElementById('inRack').value = '';
+            document.getElementById('approveModal').classList.add('active');
+            setTimeout(() => document.getElementById('inRack').focus(), 100);
+        }
+
+        async function submitApprove() {
+            const rack = document.getElementById('inRack').value;
+            if (!rack) return JPSMS.toast('Rack No is required', 'error');
+
+            try {
+                const user = JPSMS.auth.getUser();
+                await JPSMS.api.post('/wip/approve', {
+                    id: CURRENT_APPR.id,
+                    rackNo: rack,
+                    user: user.username
+                });
+
+                JPSMS.toast('Approved!', 'success');
+                document.getElementById('approveModal').classList.remove('active');
+                loadAll();
+            } catch (e) {
+                JPSMS.toast(e.message, 'error');
+            }
+        }
+
+        // --- STOCK ---
+        function renderStock(list = STOCK_DATA) {
+            const el = document.getElementById('stockList');
+            if (list.length === 0) {
+                el.innerHTML = '<div style="text-align:center; padding:30px; color:#cbd5e1">No Stock Items</div>';
+                return;
+            }
+
+            el.innerHTML = list.map(item => `
+                <div class="card">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:6px">
+                        <div style="font-weight:700">${item.item_name}</div>
+                        <div style="background:#e0e7ff; color:#4338ca; padding:2px 8px; border-radius:6px; font-weight:700; font-size:0.8rem">Rack: ${item.rack_no}</div>
+                    </div>
+                    <div style="font-size:0.85rem; color:#64748b; margin-bottom:8px">
+                        Order: ${item.order_no} | Mould: ${item.mould_name} <br>
+                        <span style="font-family:monospace; color:#475569; font-weight:600">#${item.mould_no || '-'}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center">
+                        <div style="font-size:1.2rem; font-weight:700">Bal: ${item.qty}</div>
+                        <button onclick='openOutward(${JSON.stringify(item)})' class="btn-outline btn-sm" style="color:var(--primary); border-color:var(--primary)">Outward</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function filterStock() {
+            const q = document.getElementById('searchStock').value.toLowerCase();
+            const filtered = STOCK_DATA.filter(i =>
+                (i.item_name || '').toLowerCase().includes(q) ||
+                (i.rack_no || '').toLowerCase().includes(q) ||
+                (i.mould_name || '').toLowerCase().includes(q) ||
+                (i.order_no || '').toLowerCase().includes(q)
+            );
+            renderStock(filtered);
+        }
+
+        function openOutward(item) {
+            CURRENT_OUT = item;
+            document.getElementById('outDetails').innerHTML = `
+                Item: <b>${item.item_name}</b><br>
+                Rack: <b>${item.rack_no}</b><br>
+                Current Balance: <b>${item.qty}</b>
+            `;
+            document.getElementById('outMax').textContent = item.qty;
+            document.getElementById('outQty').max = item.qty;
+            document.getElementById('outQty').value = '';
+            document.getElementById('outReceiver').value = '';
+
+            document.getElementById('outwardModal').classList.add('active');
+            setTimeout(() => document.getElementById('outQty').focus(), 100);
+        }
+
+        async function submitOutward() {
+            const qty = parseInt(document.getElementById('outQty').value);
+            const loc = document.getElementById('outLoc').value;
+            const recv = document.getElementById('outReceiver').value;
+
+            if (!qty || qty <= 0) return JPSMS.toast('Invalid Quantity', 'error');
+            if (qty > CURRENT_OUT.qty) return JPSMS.toast('Insufficient Balance', 'error');
+            if (!recv) return JPSMS.toast('Receiver Name Required', 'error');
+
+            try {
+                const user = JPSMS.auth.getUser();
+                await JPSMS.api.post('/wip/outward', {
+                    inventoryId: CURRENT_OUT.id,
+                    qty: qty,
+                    toLocation: loc,
+                    receiver: recv,
+                    user: user.username
+                });
+
+                JPSMS.toast('Outward Successful', 'success');
+                document.getElementById('outwardModal').classList.remove('active');
+                loadAll();
+            } catch (e) {
+                JPSMS.toast(e.message, 'error');
+            }
+        }
+
+        // --- LOGS ---
+        function renderLogs() {
+            const el = document.getElementById('logsList');
+            if (LOGS_DATA.length === 0) {
+                el.innerHTML = '<div style="text-align:center; padding:30px; color:#cbd5e1">No Logs Found</div>';
+                return;
+            }
+
+            el.innerHTML = LOGS_DATA.map(l => `
+                <div class="list-item">
+                    <div>
+                        <div style="font-weight:600; font-size:0.9rem">${l.item_name}</div>
+                        <div style="font-size:0.8rem; color:#64748b">
+                            To: <b style="color:#1e293b">${l.to_location}</b> | Recv: ${l.receiver_name}
+                        </div>
+                        <div style="font-size:0.75rem; color:#94a3b8">Rack: ${l.rack_no} | ${new Date(l.created_at).toLocaleString()}</div>
+                    </div>
+                    <div style="text-align:right">
+                        <div style="font-weight:700; color:#ef4444; font-size:1.1rem">-${l.qty}</div>
+                        <div style="font-size:0.75rem; color:#64748b">by ${l.created_by}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+    </script>
+</body>
+
+</html>

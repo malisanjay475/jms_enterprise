@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>JMS OCEAN - Shifting Supervisor</title>
+    <link rel="stylesheet" href="/assets/app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --phone: 480px;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --primary: #2563eb;
+        }
+
+        body {
+            background: var(--bg);
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #1e293b;
+            padding-bottom: 40px;
+        }
+
+        .shell {
+            width: min(100%, var(--phone));
+            margin: 0 auto;
+            padding: 16px;
+        }
+
+        .card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
+            margin-bottom: 12px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid #cbd5e1;
+            padding: 6px 12px;
+            border-radius: 6px;
+            color: #64748b;
+        }
+
+        /* Machine Card */
+        .m-card {
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        .m-card:active {
+            transform: scale(0.98);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ccc;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        .status-running {
+            background: #22c55e;
+            box-shadow: 0 0 4px #22c55e;
+        }
+
+        .bal-badge {
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 4px 8px;
+            border-radius: 99px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        /* Modal for Shift */
+        .modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+
+        .modal.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background: white;
+            width: 90%;
+            max-width: 400px;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            color: #64748b;
+            margin-bottom: 6px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- LOGIN VIEW -->
+    <div id="view-login" class="shell"
+        style="height:100vh; display:flex; flex-direction:column; justify-content:center;">
+        <div class="card">
+            <h2 style="margin-top:0">Shifting Supervisor</h2>
+            <div style="color:#64748b; font-size:0.9rem; margin-bottom:20px">Login to manage floor stock</div>
+
+            <div class="form-group">
+                <label>Username</label>
+                <input id="loginUser" class="form-control" placeholder="e.g. shifta">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="loginPass" class="form-control" placeholder="••••••">
+            </div>
+            <button onclick="doLogin()" class="btn-primary">Login</button>
+        </div>
+    </div>
+
+    <!-- APP VIEW -->
+    <div id="view-app" class="shell" style="display:none">
+        <div class="header">
+            <div>
+                <div style="font-weight:700; font-size:1.1rem">Shifting Portal</div>
+                <div style="font-size:0.8rem; color:#64748b">Line: <span id="userLine">-</span> | <span
+                        id="userName">-</span></div>
+            </div>
+            <button onclick="JPSMS.auth.logout()" class="btn-outline"><i class="bi bi-box-arrow-right"></i></button>
+        </div>
+
+        <!-- Sticky Machine Select/Search -->
+        <div style="position:sticky; top:10px; z-index:10; margin-bottom:16px">
+            <input id="searchMachine" oninput="filterMachines()" class="form-control" placeholder="Search Machine..."
+                style="box-shadow:0 4px 6px -1px rgba(0,0,0,0.1)">
+        </div>
+
+        <div id="machineList">
+            <!-- Cards injected here -->
+
+        </div>
+    </div>
+
+    <!-- SHIFT MODAL -->
+    <div id="shiftModal" class="modal">
+        <div class="modal-content">
+            <div style="display:flex; justify-content:space-between; margin-bottom:16px">
+                <h3 style="margin:0" id="mTitle">Machine</h3>
+                <div onclick="closeModal()" style="font-size:1.5rem; line-height:1; cursor:pointer">&times;</div>
+            </div>
+
+            <div style="background:#f1f5f9; padding:12px; border-radius:8px; margin-bottom:16px">
+                <div id="mItem" style="font-weight:600; font-size:0.9rem; margin-bottom:4px"></div>
+                <div style="display:flex; justify-content:space-between; font-size:0.85rem">
+                    <span>Produced: <b id="mProd">0</b></span>
+                    <span style="color:#ef4444">Available: <b id="mBal">0</b></span>
+                </div>
+            </div>
+
+            <input type="hidden" id="mPlanId">
+
+            <div class="form-group">
+                <label>Shift Quantity</label>
+                <input type="number" id="mQty" class="form-control"
+                    style="font-size:1.5rem; text-align:center; font-weight:bold">
+            </div>
+
+            <div class="form-group">
+                <label>To Location</label>
+                <select id="mLoc" class="form-control">
+                    <!-- Loaded via JS -->
+                </select>
+            </div>
+
+            <button onclick="submitShift()" class="btn-primary">Confirm Shift</button>
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        let MACHINES = [];
+        let LOCATIONS = [];
+
+        // --- Init ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const user = JPSMS.auth.getUser();
+            if (user && user.username) {
+                showApp(user);
+            }
+        });
+
+        async function doLogin() {
+            const u = document.getElementById('loginUser').value;
+            const p = document.getElementById('loginPass').value;
+            if (!u || !p) return JPSMS.toast('Enter credentials', 'error');
+
+
+            try {
+                const user = await JPSMS.auth.login(u, p);
+                if (user) showApp(user);
+            } catch (e) {
+                JPSMS.toast(e.message, 'error');
+            } finally {
+
+            }
+        }
+
+        function showApp(user) {
+            document.getElementById('view-login').style.display = 'none';
+            document.getElementById('view-app').style.display = 'block';
+            document.getElementById('userName').textContent = user.username;
+            document.getElementById('userLine').textContent = user.line || 'All';
+
+            loadData();
+        }
+
+        // --- Data Loading ---
+        async function loadData() {
+            try {
+
+
+                const d = new Date().toISOString().split('T')[0];
+                const h = new Date().getHours();
+                const s = (h >= 8 && h < 20) ? 'Day' : 'Night';
+                const user = JPSMS.auth.getUser();
+
+                const params = `date=${d}&shift=${s}` +
+                    ((user.line && user.line.trim() !== '') ? `&line=${encodeURIComponent(user.line.trim())}` : '');
+
+                // Parallel Execution: Fetch Locations (if empty) + Dashboard
+                const promises = [];
+
+                // 1. Locations (Cache check)
+                if (LOCATIONS.length === 0) {
+                    promises.push(JPSMS.api.get('/shifting/locations').then(res => {
+                        LOCATIONS = res.data || ['WIP Store'];
+                        const sel = document.getElementById('mLoc');
+                        sel.innerHTML = '';
+                        LOCATIONS.forEach(l => {
+                            const opt = document.createElement('option');
+                            opt.value = l; opt.textContent = l;
+                            sel.appendChild(opt);
+                        });
+                        sel.value = 'WIP Store';
+                    }));
+                } else {
+                    promises.push(Promise.resolve());
+                }
+
+                // 2. Dashboard
+                promises.push(JPSMS.api.get(`/shifting/dashboard?${params}`));
+
+                const [_, dashRes] = await Promise.all(promises);
+
+                if (dashRes) {
+                    MACHINES = dashRes.data || [];
+                    renderMachines(MACHINES);
+                }
+
+
+            } catch (e) {
+                JPSMS.toast(e.message, 'error');
+            } finally {
+
+            }
+        }
+
+        function renderMachines(list) {
+            const container = document.getElementById('machineList');
+            if (list.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding:20px;">No Active Jobs Found</div>';
+                return;
+            }
+
+            let html = '';
+            list.forEach(item => {
+                const prod = parseInt(item.total_produced) || 0;
+                const shift = parseInt(item.total_shifted) || 0;
+                const bal = prod - shift;
+                const isRun = (item.status || '').toUpperCase() === 'RUNNING';
+
+                // Only show relevant items? No, show all assigned.
+
+                html += `
+                <div class="card m-card" onclick='openModal(${JSON.stringify(item)})'>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:8px">
+                        <div style="font-weight:700; color:#1e293b">
+                             <span class="status-dot ${isRun ? 'status-running' : ''}"></span>
+                             ${item.machine}
+                        </div>
+                        <div class="bal-badge">${bal}</div>
+                    </div>
+                    <div style="font-size:0.9rem; font-weight:600; margin-bottom:2px">${item.item_name}</div>
+                    <div style="font-size:0.8rem; color:#64748b">${item.mould_name || '-'}</div>
+                    
+                    <div style="margin-top:8px; display:flex; gap:12px; font-size:0.8rem; color:#64748b">
+                        <span>Produced: <b>${prod}</b></span>
+                        <span>Shifted: <b>${shift}</b></span>
+                    </div>
+                </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        function filterMachines() {
+            const q = document.getElementById('searchMachine').value.toLowerCase();
+            const filtered = MACHINES.filter(m =>
+                m.machine.toLowerCase().includes(q) ||
+                (m.item_name || '').toLowerCase().includes(q)
+            );
+            renderMachines(filtered);
+        }
+
+        // --- Interaction ---
+        let currentItem = null;
+        function openModal(item) {
+            currentItem = item;
+            const bal = (parseInt(item.total_produced) || 0) - (parseInt(item.total_shifted) || 0);
+
+            document.getElementById('mTitle').textContent = item.machine;
+            document.getElementById('mItem').textContent = item.item_name;
+            document.getElementById('mProd').textContent = parseInt(item.total_produced) || 0;
+            document.getElementById('mBal').textContent = bal;
+            document.getElementById('mPlanId').value = item.plan_id;
+
+            // Auto fill
+            document.getElementById('mQty').value = bal > 0 ? bal : '';
+
+            document.getElementById('shiftModal').classList.add('active');
+            setTimeout(() => document.getElementById('mQty').focus(), 100);
+        }
+
+        function closeModal() {
+            document.getElementById('shiftModal').classList.remove('active');
+        }
+
+        async function submitShift() {
+            const qty = parseInt(document.getElementById('mQty').value);
+            const loc = document.getElementById('mLoc').value;
+            const bal = parseInt(document.getElementById('mBal').textContent);
+
+            if (!qty || qty <= 0) return JPSMS.toast('Invalid Qty', 'error');
+            if (qty > bal) return JPSMS.toast('Cannot shift more than balance', 'error');
+
+            try {
+
+                const d = new Date().toISOString().split('T')[0];
+                const h = new Date().getHours();
+                const s = (h >= 8 && h < 20) ? 'Day' : 'Night';
+                const user = JPSMS.auth.getUser();
+
+                const res = await JPSMS.api.post('/shifting/entry', {
+                    planId: currentItem.plan_id,
+                    quantity: qty,
+                    toLocation: loc,
+                    date: d,
+                    shift: s,
+                    supervisor: user.username // IMPORTANT: Logged in supervisor
+                });
+
+                if (res.ok) {
+                    JPSMS.toast('Entry Success', 'success');
+                    closeModal();
+                    loadData(); // Refresh list to update balance
+                } else {
+                    JPSMS.toast(res.error, 'error');
+                }
+            } catch (e) {
+                JPSMS.toast(e.message, 'error');
+            } finally {
+
+            }
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JMS OCEAN - Purchase Orders</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#1e293b">
+    <link rel="stylesheet" href="/assets/app.css?v=5">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        /* PO Grid Styles */
+        .po-grid-header,
+        .po-grid-row {
+            display: grid;
+            grid-template-columns: 2fr 3fr 1fr 1fr 1fr 30px;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .po-grid-header {
+            font-weight: 600;
+            background: #f8fafc;
+            padding: 8px;
+            border-bottom: 2px solid #e2e8f0;
+            font-size: 0.9rem;
+        }
+
+        .po-grid-row {
+            padding: 8px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .po-grid-row input {
+            padding: 4px 8px;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            width: 100%;
+        }
+
+        .btn-icon {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #ef4444;
+            font-size: 1.1rem;
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .status-Open {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .status-Partial {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-Closed {
+            background: #dcfce7;
+            color: #166534;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title">Purchase Orders</div>
+            <button class="btn btn-primary" onclick="openPOModal()">+ Create PO</button>
+        </div>
+
+        <div class="card">
+            <div style="display:flex; gap:10px; margin-bottom:15px; border-bottom:1px solid #eee; padding-bottom:10px">
+                <button class="btn btn-sm btn-outline active" onclick="filterPO('Open', this)">Open</button>
+                <button class="btn btn-sm btn-outline" onclick="filterPO('Partial', this)">Partial</button>
+                <button class="btn btn-sm btn-outline" onclick="filterPO('Closed', this)">Closed</button>
+                <button class="btn btn-sm btn-outline" onclick="filterPO('All', this)">All</button>
+            </div>
+            <table id="poTable">
+                <thead>
+                    <tr>
+                        <th>PO No. / Date</th>
+                        <th>Vendor</th>
+                        <th>Factory</th>
+                        <th>Items</th>
+                        <th>Total Amt</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- PO Modal -->
+    <div class="modal-overlay" id="poModal">
+        <div class="modal-content" style="max-width:900px; width:95%">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
+                <h3 style="margin:0">Create Purchase Order</h3>
+                <span id="poTotalDisplay" style="font-size:1.2rem; font-weight:bold; color:var(--primary)">₹ 0.00</span>
+            </div>
+
+            <!-- Header -->
+            <div
+                style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:15px; background:#f8fafc; padding:15px; border-radius:8px; margin-bottom:15px">
+                <div class="form-group">
+                    <label class="form-label">PO Number</label>
+                    <input id="po_no" class="form-control" placeholder="Auto-generated if empty">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">PO Date</label>
+                    <input type="date" id="po_date" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Factory</label>
+                    <select id="po_factory" class="form-control"></select>
+                </div>
+                <div class="form-group" style="grid-column: span 3">
+                    <label class="form-label">Vendor</label>
+                    <select id="po_vendor" class="form-control"></select>
+                </div>
+            </div>
+
+            <!-- Items -->
+            <div class="form-group">
+                <label class="form-label">Items</label>
+                <div id="itemGrid" style="border:1px solid #e2e8f0; border-radius:8px; overflow:hidden">
+                    <div class="po-grid-header">
+                        <div>Item Code</div>
+                        <div>Item Name</div>
+                        <div>Qty</div>
+                        <div>Rate</div>
+                        <div>Due Date</div>
+                        <div></div>
+                    </div>
+                    <div id="poRows">
+                        <!-- Rows -->
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-outline" style="margin-top:10px; width:100%" onclick="addPORow()">+ Add
+                    Item</button>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px">
+                <button class="btn btn-outline" onclick="closePOModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="savePO()">Save Purchase Order</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        let vendors = [];
+
+        function getFinancialYearCode(date = new Date()) {
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Kolkata',
+                year: 'numeric',
+                month: '2-digit'
+            }).formatToParts(date);
+            const map = {};
+            parts.forEach(part => {
+                if (part.type !== 'literal') map[part.type] = part.value;
+            });
+            const year = Number(map.year);
+            const month = Number(map.month);
+            const startYear = month >= 4 ? year : year - 1;
+            const endYear = startYear + 1;
+            return `${String(startYear).slice(-2)}${String(endYear).slice(-2)}`;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('purch_orders');
+
+            loadFactories();
+            loadVendors();
+            loadPOs('Open');
+
+            // Set Today
+            document.getElementById('po_date').valueAsDate = new Date();
+        });
+
+        async function loadFactories() {
+            try {
+                const res = await JPSMS.api.get('/factories');
+                const sel = document.getElementById('po_factory');
+                sel.innerHTML = res.data.map(f => `<option value="${f.id}">${f.name}</option>`).join('');
+            } catch (e) { }
+        }
+
+        async function loadVendors() {
+            try {
+                // Should have a lightweight list api, but admin list works
+                const res = await JPSMS.api.get('/vendor/admin/list');
+                vendors = res.data || [];
+                const sel = document.getElementById('po_vendor');
+                sel.innerHTML = '<option value="">Select Vendor...</option>' +
+                    vendors.map(v => `<option value="${v.id}">${v.vendor_name} (${v.vendor_name})</option>`).join('');
+            } catch (e) { }
+        }
+
+        // --- List ---
+        async function loadPOs(status) {
+            const tbody = document.querySelector('#poTable tbody');
+            tbody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
+
+            // In a real app we'd have a specific endpoint or reuse vendor's endpoint but adapted for admin
+            // Wait, we didn't make a generic Admin PO List endpoint! 
+            // We made `/vendor/data/orders` which filters by CURRENT VENDOR.
+            // We need an Admin endpoint to list ALL POs.
+            // I'll assume I'll add `/vendor/admin/po/list` to vendor.routes.js in a moment.
+            // For now, let's mock the call or fallback.
+
+            try {
+                const res = await JPSMS.api.get(`/vendor/admin/po/list?status=${status}`);
+                const rows = res.data || [];
+
+                if (rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:#aaa">No Orders Found</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = rows.map(po => `
+                    <tr>
+                        <td>
+                            <div style="font-weight:600">${po.po_number}</div>
+                            <div style="font-size:0.8rem; color:#64748b">${new Date(po.po_date).toLocaleDateString()}</div>
+                        </td>
+                        <td>${po.vendor_name || 'N/A'}</td>
+                        <td>${po.factory_name || 'N/A'}</td>
+                        <td>${po.item_count || 0}</td>
+                        <td style="font-weight:600">₹ ${Number(po.total_amount).toLocaleString()}</td>
+                        <td><span class="status-badge status-${po.status}">${po.status}</span></td>
+                         <td>
+                            <button class="btn btn-sm btn-outline">View</button>
+                        </td>
+                    </tr>
+                `).join('');
+
+            } catch (e) {
+                // Try to implement the endpoint on the fly or just show error
+                tbody.innerHTML = '<tr><td colspan="7">Error loading POs. Endpoint missing?</td></tr>';
+            }
+        }
+
+        function filterPO(status, btn) {
+            document.querySelectorAll('.card button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            loadPOs(status);
+        }
+
+        // --- Modal & Grid ---
+        function openPOModal() {
+            document.getElementById('poModal').style.display = 'flex';
+            document.getElementById('poRows').innerHTML = '';
+            const poNoInput = document.getElementById('po_no');
+            poNoInput.value = '';
+            poNoInput.placeholder = `Auto-generated as PO-${getFinancialYearCode()}-0001`;
+            addPORow();
+            addPORow(); // Start with 2 rows
+            updateTotal();
+        }
+
+        function closePOModal() {
+            document.getElementById('poModal').style.display = 'none';
+        }
+
+        function addPORow() {
+            const div = document.createElement('div');
+            div.className = 'po-grid-row';
+            div.innerHTML = `
+                <input class="itm-code" placeholder="Code">
+                <input class="itm-name" placeholder="Item Name">
+                <input type="number" class="itm-qty" placeholder="Qty" oninput="updateTotal()">
+                <input type="number" class="itm-rate" placeholder="Rate" oninput="updateTotal()">
+                <input type="date" class="itm-date">
+                <button class="btn-icon" onclick="this.parentElement.remove(); updateTotal()"><i class="bi bi-trash"></i></button>
+            `;
+            document.getElementById('poRows').appendChild(div);
+            // Default date to PO date + 7 days
+            const poDate = document.getElementById('po_date').valueAsDate || new Date();
+            const dueDate = new Date(poDate);
+            dueDate.setDate(dueDate.getDate() + 7);
+            div.querySelector('.itm-date').valueAsDate = dueDate;
+        }
+
+        function updateTotal() {
+            let total = 0;
+            document.querySelectorAll('.po-grid-row').forEach(row => {
+                const q = parseFloat(row.querySelector('.itm-qty').value) || 0;
+                const r = parseFloat(row.querySelector('.itm-rate').value) || 0;
+                total += (q * r);
+            });
+            document.getElementById('poTotalDisplay').textContent = '₹ ' + total.toLocaleString(undefined, { minimumFractionDigits: 2 });
+        }
+
+        async function savePO() {
+            const vendorId = document.getElementById('po_vendor').value;
+            if (!vendorId) return JPSMS.toast('Select Vendor', 'error');
+
+            const items = [];
+            let isValid = true;
+            document.querySelectorAll('.po-grid-row').forEach(row => {
+                const code = row.querySelector('.itm-code').value;
+                const name = row.querySelector('.itm-name').value;
+                const qty = row.querySelector('.itm-qty').value;
+                const rate = row.querySelector('.itm-rate').value;
+                const date = row.querySelector('.itm-date').value;
+
+                if (code && name && qty && rate) {
+                    items.push({
+                        item_code: code,
+                        item_name: name,
+                        qty: Number(qty),
+                        rate: Number(rate),
+                        delivery_date: date
+                    });
+                }
+            });
+
+            if (items.length === 0) return JPSMS.toast('Add at least one item', 'error');
+
+            const payload = {
+                po_number: document.getElementById('po_no').value,
+                po_date: document.getElementById('po_date').value,
+                vendor_id: vendorId,
+                factory_id: document.getElementById('po_factory').value,
+                items: items,
+                created_by: JPSMS.auth.getUser().id
+            };
+
+            try {
+                await JPSMS.api.post('/vendor/admin/po/save', payload);
+                JPSMS.toast('PO Created Successfully');
+                closePOModal();
+                loadPOs('Open');
+            } catch (e) {
+                JPSMS.toast(e.message, 'error');
+            }
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN Vendor Portal - Create Dispatch</title>
+    <link rel="stylesheet" href="/assets/app.css?v=5">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        .vendor-nav {
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            height: 60px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .nav-brand {
+            font-weight: 700;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1.1rem;
+        }
+
+        .nav-brand img {
+            width: 34px;
+            height: 34px;
+            object-fit: contain;
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 4px 10px rgba(30, 41, 59, 0.08);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 20px;
+            margin-left: 40px;
+        }
+
+        .nav-link {
+            color: #64748b;
+            text-decoration: none;
+            font-weight: 500;
+            padding: 18px 0;
+            border-bottom: 2px solid transparent;
+        }
+
+        .nav-link:hover,
+        .nav-link.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .main-container {
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .item-row {
+            display: grid;
+            grid-template-columns: 3fr 1fr 1fr 1fr;
+            gap: 10px;
+            padding: 10px 0;
+            border-bottom: 1px solid #f1f5f9;
+            align-items: center;
+        }
+
+        .item-row.head {
+            font-weight: 600;
+            background: #f8fafc;
+            padding: 10px;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+
+<body style="background: #f8fafc">
+
+    <nav class="vendor-nav">
+        <div class="nav-brand"><img src="/assets/jms-logo.png" alt="JMS logo"> JMS OCEAN Vendor Portal</div>
+        <div class="nav-links">
+            <a href="dashboard.html" class="nav-link">Dashboard</a>
+            <a href="my_orders.html" class="nav-link">My Orders</a>
+            <a href="dispatch.html" class="nav-link active">Create Dispatch</a>
+            <a href="profile.html" class="nav-link">Profile</a>
+        </div>
+        <button onclick="logout()" class="btn btn-sm btn-outline" style="margin-left:auto">Logout</button>
+    </nav>
+
+    <div class="main-container">
+        <div class="card">
+            <h3 style="margin-top:0">Create New Dispatch</h3>
+
+            <!-- Step 1: Select PO -->
+            <div class="form-group">
+                <label class="form-label">Select Purchase Order</label>
+                <select id="poSelect" class="form-control" onchange="loadPOItems()">
+                    <option value="">-- Choose Open PO --</option>
+                </select>
+            </div>
+
+            <div id="dispatchForm" style="display:none; margin-top:20px; border-top:1px solid #eee; padding-top:20px">
+
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-bottom:20px">
+                    <div class="form-group">
+                        <label class="form-label">Dispatch Date *</label>
+                        <input type="date" id="d_date" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Invoice Number *</label>
+                        <input id="d_invoice" class="form-control" placeholder="e.g. INV-2024-001">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Invoice PDF * (Max 5MB)</label>
+                    <input type="file" id="d_file" class="form-control" accept="application/pdf">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Items to Dispatch</label>
+                    <div style="border:1px solid #e2e8f0; border-radius:8px; padding:10px">
+                        <div class="item-row head">
+                            <div>Item</div>
+                            <div>Ord Qty</div>
+                            <div>Bal Qty</div>
+                            <div>Disp Qty</div>
+                        </div>
+                        <div id="itemsContainer"></div>
+                    </div>
+                </div>
+
+                <div style="text-align:right; margin-top:20px">
+                    <button class="btn btn-primary" onclick="submitDispatch()" id="btnSubmit">Submit Dispatch</button>
+                    <div id="msg" style="margin-top:10px; font-weight:600"></div>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const TOKEN = localStorage.getItem('vendor_token');
+        if (!TOKEN) window.location.href = 'login.html';
+
+        function logout() {
+            localStorage.removeItem('vendor_token');
+            localStorage.removeItem('vendor_info');
+            window.location.href = 'login.html';
+        }
+
+        async function api(endpoint, method = 'GET', body = null) {
+            const opts = {
+                method,
+                headers: { 'Authorization': 'Bearer ' + TOKEN }
+            };
+            if (body && !(body instanceof FormData)) {
+                opts.headers['Content-Type'] = 'application/json';
+                opts.body = JSON.stringify(body);
+            } else if (body instanceof FormData) {
+                opts.body = body;
+            }
+
+            const res = await fetch('/api/vendor' + endpoint, opts);
+            const data = await res.json();
+            return data;
+        }
+
+        // Init
+        (async () => {
+            // Load POs
+            const res = await api('/data/orders?status=Open');
+            const sel = document.getElementById('poSelect');
+            (res.data || []).forEach(po => {
+                const opt = new Option(`${po.po_number} (Dt: ${new Date(po.po_date).toLocaleDateString()})`, po.id);
+                sel.add(opt);
+            });
+
+            // Pre-select if param
+            const urlParams = new URLSearchParams(window.location.search);
+            const poId = urlParams.get('po');
+            if (poId) {
+                sel.value = poId;
+                loadPOItems();
+            }
+
+            // Set today
+            document.getElementById('d_date').valueAsDate = new Date();
+        })();
+
+        async function loadPOItems() {
+            const poId = document.getElementById('poSelect').value;
+            const container = document.getElementById('itemsContainer');
+            const form = document.getElementById('dispatchForm');
+
+            if (!poId) {
+                form.style.display = 'none';
+                return;
+            }
+
+            container.innerHTML = 'Loading...';
+            form.style.display = 'block';
+
+            try {
+                const res = await api('/data/order-items/' + poId);
+                const items = res.data || [];
+
+                container.innerHTML = items.map(item => `
+                    <div class="item-row" data-id="${item.id}" data-bal="${item.balance_qty}">
+                        <div>
+                            <div style="font-weight:600">${item.item_name}</div>
+                            <div style="font-size:0.8rem; color:#64748b">${item.item_code}</div>
+                        </div>
+                        <div>${item.qty}</div>
+                        <div style="color:${item.balance_qty > 0 ? '#166534' : '#aaa'}">${item.balance_qty}</div>
+                        <div>
+                            <input type="number" 
+                                   class="form-control disp-qty" 
+                                   style="padding:4px" 
+                                   max="${item.balance_qty}" 
+                                   min="0"
+                                   placeholder="0"
+                                   ${item.balance_qty <= 0 ? 'disabled' : ''}>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error(e);
+                container.innerHTML = 'Error loading items';
+            }
+        }
+
+        async function submitDispatch() {
+            const poId = document.getElementById('poSelect').value;
+            const date = document.getElementById('d_date').value;
+            const invoice = document.getElementById('d_invoice').value;
+            const fileInput = document.getElementById('d_file');
+
+            if (!poId || !date || !invoice) return alert('Please fill all required fields');
+            if (fileInput.files.length === 0) return alert('Please upload Invoice PDF');
+
+            const items = [];
+            let hasError = false;
+
+            document.querySelectorAll('.item-row').forEach(row => {
+                const id = row.dataset.id;
+                const bal = parseFloat(row.dataset.bal);
+                const val = parseFloat(row.querySelector('.disp-qty').value) || 0;
+
+                if (val > bal) {
+                    hasError = true;
+                    row.querySelector('.disp-qty').style.borderColor = 'red';
+                }
+
+                if (val > 0) {
+                    items.push({ itemId: id, qty: val });
+                }
+            });
+
+            if (hasError) return alert('Dispatch Qty cannot exceed Balance Qty');
+            if (items.length === 0) return alert('Please enter dispatch quantity for at least one item');
+
+            // Build FormData
+            const formData = new FormData();
+            formData.append('po_id', poId);
+            formData.append('dispatch_date', date);
+            formData.append('invoice_no', invoice);
+            formData.append('invoice_file', fileInput.files[0]);
+            formData.append('items', JSON.stringify(items));
+
+            const btn = document.getElementById('btnSubmit');
+            const msg = document.getElementById('msg');
+            btn.disabled = true;
+            btn.textContent = 'Submitting...';
+            msg.textContent = '';
+
+            try {
+                const res = await api('/action/dispatch', 'POST', formData);
+                if (res.ok) {
+                    msg.style.color = 'green';
+                    msg.textContent = 'Dispatch Created Successfully!';
+                    setTimeout(() => window.location.href = 'dashboard.html', 2000);
+                } else {
+                    throw new Error(res.error || 'Failed');
+                }
+            } catch (e) {
+                msg.style.color = 'red';
+                msg.textContent = e.message;
+                btn.disabled = false;
+                btn.textContent = 'Submit Dispatch';
+            }
+        }
+    </script>
+</body>
+
+</html>

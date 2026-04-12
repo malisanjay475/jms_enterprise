@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Shifting Module</title>
+    <link rel="stylesheet" href="/assets/app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        .filter-bar {
+            display: flex;
+            gap: 12px;
+            background: white;
+            padding: 16px;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            margin-bottom: 20px;
+            align-items: flex-end;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+
+        .form-control {
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            min-width: 150px;
+        }
+
+        .line-group {
+            margin-bottom: 24px;
+            background: white;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+
+        .line-header {
+            background: #f8fafc;
+            padding: 12px 20px;
+            border-bottom: 1px solid #e2e8f0;
+            font-weight: 700;
+            color: #0f172a;
+            font-size: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .status-running {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-planned {
+            background: #e0f2fe;
+            color: #075985;
+        }
+
+        .bal-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: 700;
+        }
+
+        .bal-high {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        /* Need to shift */
+        .bal-ok {
+            background: #f1f5f9;
+            color: #64748b;
+        }
+
+        .btn-sm {
+            padding: 4px 10px;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title">Shifting Module</div>
+            <div style="font-size:0.9rem; color:#64748b">Manage Floor Stock & Shifting</div>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+            <div class="form-group">
+                <label>Date</label>
+                <input type="date" id="filterDate" class="form-control" onchange="loadDashboard()">
+            </div>
+            <div class="form-group">
+                <label>Shift</label>
+                <select id="filterShift" class="form-control" onchange="loadDashboard()">
+                    <option value="Day">Day Shift</option>
+                    <option value="Night">Night Shift</option>
+                </select>
+            </div>
+            <div class="form-group" style="flex:1; display:flex; justify-content:flex-end">
+                <button onclick="loadDashboard()" class="btn btn-primary">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh Status
+                </button>
+            </div>
+        </div>
+
+        <!-- Content Area -->
+        <div id="dashboardContent">
+            <!-- Line Groups will be injected here -->
+            <div style="text-align:center; padding:40px; color:#94a3b8">Loading...</div>
+        </div>
+
+    </div>
+
+    <!-- Shifting Modal -->
+    <div class="modal-overlay" id="shiftModal">
+        <div class="modal-content" style="width:450px">
+            <div class="modal-header">
+                <h3>Shift Material</h3>
+                <button class="modal-close" onclick="closeShiftModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="shiftPlanId">
+                <div style="background:#f1f5f9; padding:12px; border-radius:8px; margin-bottom:16px">
+                    <div style="font-weight:700; color:#334155" id="shiftMachine">B-L1-M01</div>
+                    <div style="font-size:0.9rem; margin-top:4px" id="shiftItem">Body - White</div>
+                    <div style="display:flex; justify-content:space-between; margin-top:8px; font-size:0.85rem">
+                        <span style="color:#64748b">Produced: <b id="shiftProd">0</b></span>
+                        <span style="color:#64748b">Available: <b id="shiftBal" style="color:#2563eb">0</b></span>
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom:12px">
+                    <label>Quantity to Shift</label>
+                    <input type="number" id="shiftQty" class="form-control"
+                        style="width:100%; font-size:1.2rem; font-weight:bold">
+                </div>
+
+                <div class="form-group" style="margin-bottom:12px">
+                    <label>To Location</label>
+                    <select id="shiftLoc" class="form-control" style="width:100%">
+                        <option value="">Select Location...</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="margin-bottom:12px">
+                    <label>Supervisor</label>
+                    <input type="text" id="shiftSupervisor" class="form-control" style="width:100%"
+                        placeholder="Enter Name">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeShiftModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="submitShift()">Confirm Shift</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('shifting');
+
+            // Set Today
+            document.getElementById('filterDate').valueAsDate = new Date();
+            // Auto-detect Shift (Day=08-20, Night=20-08)
+            const h = new Date().getHours();
+            const isDay = h >= 8 && h < 20;
+            document.getElementById('filterShift').value = isDay ? 'Day' : 'Night';
+
+            loadLocations();
+            loadDashboard();
+        });
+
+        async function loadLocations() {
+            try {
+                const res = await JPSMS.api.get('/shifting/locations');
+                if (res.ok && Array.isArray(res.data)) {
+                    const sel = document.getElementById('shiftLoc');
+                    res.data.forEach(l => {
+                        const opt = document.createElement('option');
+                        opt.value = l;
+                        opt.textContent = l;
+                        sel.appendChild(opt);
+                    });
+                    // Set Default
+                    sel.value = 'WIP Store';
+                }
+            } catch (e) { }
+        }
+
+        async function loadDashboard() {
+            try {
+                const date = document.getElementById('filterDate').value;
+                const shift = document.getElementById('filterShift').value;
+
+                JPSMS.toggleLoader(true);
+                const res = await JPSMS.api.get(`/shifting/dashboard?date=${date}&shift=${shift}`);
+                const rows = res.data || [];
+                renderDashboard(rows);
+            } catch (e) {
+                console.error(e);
+                JPSMS.toast(e.message, 'error');
+            } finally {
+                JPSMS.toggleLoader(false);
+            }
+        }
+
+        function renderDashboard(rows) {
+            const container = document.getElementById('dashboardContent');
+            if (rows.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8">No Active Jobs Found</div>';
+                return;
+            }
+
+            // Group by Line
+            const groups = {};
+            rows.forEach(r => {
+                const line = r.line || 'Unassigned Line';
+                if (!groups[line]) groups[line] = [];
+                groups[line].push(r);
+            });
+
+            // Sort Lines
+            const sortedLines = Object.keys(groups).sort();
+
+            let html = '';
+
+            sortedLines.forEach(line => {
+                const items = groups[line];
+                let rowsHtml = items.map(r => {
+                    const produced = parseInt(r.total_produced) || 0;
+                    const shifted = parseInt(r.total_shifted) || 0;
+                    const balance = produced - shifted;
+                    const isRunning = r.status.toUpperCase() === 'RUNNING';
+
+                    // Badge Logic
+                    let balClass = 'bal-ok';
+                    if (balance > 0) balClass = 'bal-high';
+
+                    // Disable Shift if 0 balance? No, maybe they want to shift 0 for record? No usually balance > 0.
+                    const btnDisabled = balance <= 0 ? 'opacity:0.5' : '';
+
+                    return `
+                        <tr>
+                             <td style="font-weight:600">${r.machine}</td>
+                             <td>
+                                 <div style="font-weight:600">${r.item_name}</div>
+                                 <div style="font-size:0.75rem; color:#64748b">${r.order_no} | ${r.mould_name || '-'}</div>
+                             </td>
+                             <td><span class="status-badge ${isRunning ? 'status-running' : 'status-planned'}">${r.status}</span></td>
+                             <td class="text-end" style="color:#64748b">${r.plan_qty}</td>
+                             <td class="text-end" style="font-weight:bold">${produced}</td>
+                             <td class="text-end" style="color:#2563eb; font-weight:600">${shifted}</td>
+                             <td class="text-end"><span class="bal-badge ${balClass}">${balance}</span></td>
+                             <td class="text-end">
+                                 <button onclick="openShiftModal(${JSON.stringify(r).replace(/"/g, '&quot;')})" 
+                                    class="btn btn-primary btn-sm" style="${btnDisabled}">
+                                    Shift
+                                 </button>
+                             </td>
+                        </tr>
+                     `;
+                }).join('');
+
+                html += `
+                    <div class="line-group">
+                        <div class="line-header">
+                            <div><i class="bi bi-diagram-3-fill" style="margin-right:8px; color:#64748b"></i> ${line}</div>
+                            <div style="font-size:0.8rem; font-weight:normal; color:#64748b">${items.length} Jobs</div>
+                        </div>
+                        <table class="table" style="margin:0">
+                            <thead>
+                                <tr style="background:white; border-bottom:1px solid #f1f5f9; font-size:0.75rem; text-transform:uppercase; color:#94a3b8">
+                                    <th style="padding-left:20px">Machine</th>
+                                    <th>Job Details</th>
+                                    <th>Status</th>
+                                    <th class="text-end">Plan Qty</th>
+                                    <th class="text-end">Produced</th>
+                                    <th class="text-end">Shifted</th>
+                                    <th class="text-end">Bal (Floor)</th>
+                                    <th class="text-end" style="padding-right:20px">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rowsHtml}</tbody>
+                        </table>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        // --- Modal Logic ---
+        let currentPlan = null;
+
+        function openShiftModal(plan) {
+            // Recalculate balance fresh from passed object (which is from fresh reload)
+            const p = parseInt(plan.total_produced) || 0;
+            const s = parseInt(plan.total_shifted) || 0;
+            const bal = p - s;
+
+            if (bal <= 0) {
+                // Optional: Block opening if balance 0? User might want to correct data?
+                // Let's allow but warn or just allow.
+            }
+
+            currentPlan = plan;
+
+            document.getElementById('shiftPlanId').value = plan.plan_id;
+            document.getElementById('shiftMachine').textContent = plan.machine;
+            document.getElementById('shiftItem').textContent = plan.item_name;
+            document.getElementById('shiftProd').textContent = p;
+            document.getElementById('shiftBal').textContent = bal;
+
+            // Auto-fill quantity with balance (convenience)
+            document.getElementById('shiftQty').value = bal > 0 ? bal : '';
+
+            // Auto fill supervisor from Auth if available
+            const user = JPSMS.auth.getUser();
+            if (user && user.username) document.getElementById('shiftSupervisor').value = user.username;
+
+            document.getElementById('shiftModal').classList.add('active');
+            setTimeout(() => document.getElementById('shiftQty').focus(), 100);
+        }
+
+        function closeShiftModal() {
+            document.getElementById('shiftModal').classList.remove('active');
+            currentPlan = null;
+        }
+
+        async function submitShift() {
+            const planId = document.getElementById('shiftPlanId').value;
+            const qty = parseInt(document.getElementById('shiftQty').value);
+            const loc = document.getElementById('shiftLoc').value;
+            const sup = document.getElementById('shiftSupervisor').value;
+
+            if (!qty || qty <= 0) return JPSMS.toast('Invalid Quantity', 'error');
+            if (!loc) return JPSMS.toast('Select Locations', 'error');
+
+            // Check max balance?
+            const prod = parseInt(document.getElementById('shiftProd').textContent);
+            const bal = parseInt(document.getElementById('shiftBal').textContent);
+
+            // Soft Warning or hard block?
+            // "And Show Bal Qty" -> usually creates a constraint.
+            // I'll assume Hard Block for now to prevent negative stock
+            if (qty > bal) {
+                return JPSMS.toast(`Cannot shift more than Balance (${bal})`, 'error');
+            }
+
+            try {
+                JPSMS.toggleLoader(true);
+                const date = document.getElementById('filterDate').value;
+                const shift = document.getElementById('filterShift').value;
+
+                const res = await JPSMS.api.post('/shifting/entry', {
+                    planId,
+                    quantity: qty,
+                    toLocation: loc,
+                    supervisor: sup,
+                    date,
+                    shift
+                });
+
+                if (res.ok) {
+                    JPSMS.toast('Shifted Successfully', 'success');
+                    closeShiftModal();
+                    loadDashboard(); // Refresh data
+                } else {
+                    throw new Error(res.error);
+                }
+            } catch (e) {
+                console.error(e);
+                JPSMS.toast(e.message, 'error');
+            } finally {
+                JPSMS.toggleLoader(false);
+            }
+        }
+    </script>
+</body>
+
+</html>

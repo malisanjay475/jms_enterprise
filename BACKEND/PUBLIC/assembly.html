@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Assembly Gantt</title>
+    <link rel="stylesheet" href="/assets/app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        /* Gantt Layout */
+        .gantt-wrapper {
+            display: flex;
+            flex-direction: column;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            overflow: hidden;
+            height: calc(100vh - 100px);
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+
+        .gantt-header {
+            display: flex;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f8fafc;
+            height: 50px;
+        }
+
+        .gantt-sidebar-header {
+            width: 150px;
+            flex-shrink: 0;
+            border-right: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: #475569;
+        }
+
+        .gantt-timeline-header {
+            flex: 1;
+            overflow: hidden;
+            /* Sync with body scroll */
+            position: relative;
+        }
+
+        .timeline-ticks {
+            display: flex;
+            height: 100%;
+        }
+
+        .tick-hour {
+            flex-shrink: 0;
+            width: 120px;
+            /* 2px per minute */
+            border-right: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            color: #64748b;
+            font-weight: 600;
+        }
+
+        .gantt-body {
+            display: flex;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .gantt-sidebar {
+            width: 150px;
+            flex-shrink: 0;
+            background: #fff;
+            border-right: 1px solid #e2e8f0;
+        }
+
+        .gantt-row-label {
+            height: 60px;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            align-items: center;
+            padding-left: 16px;
+            font-weight: 600;
+            color: #334155;
+            font-size: 0.9rem;
+        }
+
+        .gantt-timeline-body {
+            flex: 1;
+            overflow-x: auto;
+            position: relative;
+            background: repeating-linear-gradient(90deg,
+                    transparent,
+                    transparent 119px,
+                    #f1f5f9 120px);
+            /* Match tick width (120px) */
+        }
+
+        .gantt-row {
+            height: 60px;
+            border-bottom: 1px solid #f1f5f9;
+            position: relative;
+            width: 2880px;
+            /* 24 hours * 60 mins * 2px/min */
+        }
+
+        /* Bars */
+        .gantt-bar {
+            position: absolute;
+            height: 40px;
+            top: 10px;
+            background: #3b82f6;
+            border-radius: 6px;
+            color: white;
+            font-size: 0.75rem;
+            padding: 4px 8px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+
+        .gantt-bar:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(59, 130, 246, 0.4);
+            z-index: 10;
+        }
+
+        .gantt-bar.status-completed {
+            background: #10b981;
+        }
+
+        .gantt-bar.status-delayed {
+            background: #ef4444;
+        }
+
+        /* Modal Tweaks */
+        .modal-body {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title">Assembly Planning Gantt</div>
+            <div style="display:flex; gap:10px">
+                <input type="date" id="viewDate" class="form-control"
+                    style="width:auto; padding:6px 10px; min-height:36px" onchange="loadPlans()">
+                <button class="btn btn-sm btn-outline" onclick="loadPlans()"><i class="bi bi-arrow-clockwise"></i>
+                    Refresh</button>
+            </div>
+        </div>
+
+        <div class="gantt-wrapper">
+            <div class="gantt-header">
+                <div class="gantt-sidebar-header">Table</div>
+                <div class="gantt-timeline-header" id="timelineHeader">
+                    <div class="timeline-ticks" id="ticksContainer">
+                        <!-- Generated JS -->
+                    </div>
+                </div>
+            </div>
+            <div class="gantt-body" id="ganttBodyScroll">
+                <div class="gantt-sidebar" id="sidebarContainer">
+                    <!-- Labels B1..B14 -->
+                </div>
+                <div class="gantt-timeline-body" id="timelineBody">
+                    <div class="gantt-rows-container" id="rowsContainer">
+                        <!-- Rows -->
+                    </div>
+                    <!-- Current Time Line -->
+                    <div id="nowMarker"
+                        style="position:absolute; top:0; bottom:0; width:2px; background:red; z-index:5; pointer-events:none; display:none">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Plan Modal -->
+    <div class="modal-overlay" id="planModal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
+                <h3 style="margin:0">Add Packing Plan</h3>
+                <button onclick="closePlanModal()"
+                    style="background:none; border:none; font-size:1.5rem; cursor:pointer">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <!-- Hidden ID for Edit -->
+                <input type="hidden" id="p_id">
+
+                <div class="form-group">
+                    <label class="form-label">Table</label>
+                    <input id="p_table_id" class="form-control" readonly style="background:#f1f5f9; font-weight:bold">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Item / Component</label>
+                    <input id="p_item" class="form-control" placeholder="Search Item...">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">No of Pieces</label>
+                    <input id="p_qty" type="number" class="form-control">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">EAN Number</label>
+                    <input id="p_ean" class="form-control" placeholder="Enter EAN Number">
+                </div>
+
+                <div class="form-group">
+                    <!-- Reusing 'Machine' field effectively as a 'Line' or 'Packer' ref if needed, or just descriptive -->
+                    <label class="form-label">Machine / Resource (Optional)</label>
+                    <input id="p_machine" class="form-control" placeholder="e.g. Packer A">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Start Time</label>
+                    <input id="p_start" type="datetime-local" class="form-control" onchange="calcEndTime()">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Duration (Mins)</label>
+                    <input id="p_duration" type="number" class="form-control" oninput="calcEndTime()">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Delay Time (Mins)</label>
+                    <input id="p_delay" type="number" class="form-control" value="0" oninput="calcEndTime()">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">End Time (Calc)</label>
+                    <input id="p_end" class="form-control" readonly style="background:#f1f5f9">
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px">
+                <button class="btn btn-outline" onclick="closePlanModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="savePlan()">Save Plan</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        const PX_PER_MIN = 2; // Scale
+        const TABLES = Array.from({ length: 14 }, (_, i) => `Table B${i + 1}`);
+
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('packing');
+
+            // Set Date to Today
+            document.getElementById('viewDate').valueAsDate = new Date();
+
+            initGanttStructure();
+            loadPlans();
+
+            // Sync Header Scroll
+            const bodyScroll = document.getElementById('timelineBody');
+            const headerScroll = document.getElementById('timelineHeader');
+            bodyScroll.addEventListener('scroll', () => {
+                headerScroll.scrollLeft = bodyScroll.scrollLeft;
+            });
+
+            // Scroll to 8 AM initially (8 * 60 * 2 = 960px)
+            setTimeout(() => {
+                bodyScroll.scrollLeft = 900;
+                updateNowMarker();
+            }, 100);
+
+            // Live Marker
+            setInterval(updateNowMarker, 60000);
+        });
+
+        function initGanttStructure() {
+            // 1. Ticks (00:00 to 23:00)
+            const ticksCon = document.getElementById('ticksContainer');
+            let ticksHtml = '';
+            for (let i = 0; i < 24; i++) {
+                const hour = i.toString().padStart(2, '0') + ':00';
+                ticksHtml += `<div class="tick-hour">${hour}</div>`;
+            }
+            ticksCon.innerHTML = ticksHtml;
+            // Width setting: 24 * 120px = 2880px
+            ticksCon.style.width = (24 * 120) + 'px';
+
+            // 2. Sidebar Labels
+            const sbCon = document.getElementById('sidebarContainer');
+            sbCon.innerHTML = TABLES.map(t => `
+                <div class="gantt-row-label" onclick="openPlanModal('${t}')" style="cursor:pointer" title="Click to Add Plan">
+                    <i class="bi bi-plus-circle" style="color:var(--accent); margin-right:6px; font-size:0.8rem"></i> ${t}
+                </div>
+            `).join('');
+
+            // 3. Rows
+            const rowsCon = document.getElementById('rowsContainer');
+            rowsCon.innerHTML = TABLES.map((t, idx) => `
+                <div class="gantt-row" id="row-${t.replace(' ', '-')}"></div>
+            `).join('');
+        }
+
+        function updateNowMarker() {
+            const now = new Date();
+            const viewDate = new Date(document.getElementById('viewDate').value);
+
+            // Only show if today
+            if (now.toDateString() !== viewDate.toDateString()) {
+                document.getElementById('nowMarker').style.display = 'none';
+                return;
+            }
+
+            const mm = (now.getHours() * 60) + now.getMinutes();
+            const left = mm * PX_PER_MIN;
+
+            const marker = document.getElementById('nowMarker');
+            marker.style.display = 'block';
+            marker.style.left = left + 'px';
+        }
+
+        async function loadPlans() {
+            const dateStr = document.getElementById('viewDate').value;
+            try {
+                // Ideally backend filters by date, but we can filter here for now
+                // Or update API to accept ?date=YYYY-MM-DD
+                const res = await JPSMS.api.get(`/assembly/grid?date=${dateStr}`);
+                const plans = res.data || [];
+                console.log('[Assembly] Loaded Plans:', plans);
+
+                // Clear
+                document.querySelectorAll('.gantt-row').forEach(row => row.innerHTML = '');
+
+                const viewStart = new Date(dateStr + 'T00:00:00');
+                const viewEnd = new Date(dateStr + 'T23:59:59');
+
+                plans.forEach(p => {
+                    const start = new Date(p.start_time);
+                    const end = new Date(p.end_time);
+
+                    // Basic Date Filter (Client Side if API returns all)
+                    // If range overlaps with today
+                    if (end < viewStart || start > viewEnd) return;
+
+                    // Calculate Position relative to 00:00 of View Date
+                    // (Handle multi-day crossover simply by clamping or raw calc)
+                    let startMins = (start - viewStart) / 60000;
+                    if (startMins < 0) startMins = 0; // Starts previous day
+
+                    let durationMins = (end - start) / 60000;
+
+                    // If start was clamped, duration reduces
+                    if ((start - viewStart) < 0) {
+                        const diff = (viewStart - start) / 60000;
+                        durationMins -= diff;
+                    }
+
+                    // Handles Negative Duration (Data Error)
+                    let isError = false;
+                    if (durationMins <= 0) {
+                        durationMins = 30; // Force 30 mins to make it visible
+                        isError = true;
+                    }
+
+                    const left = startMins * PX_PER_MIN;
+                    const width = durationMins * PX_PER_MIN;
+
+                    if (width < 5 && !isError) return; // Too small
+
+                    const rowId = `row-${p.table_id.replace(' ', '-')}`;
+                    const row = document.getElementById(rowId);
+
+                    if (row) {
+                        const bar = document.createElement('div');
+                        bar.className = 'gantt-bar';
+                        if (isError) {
+                            bar.classList.add('status-delayed');
+                            bar.style.border = '2px solid yellow';
+                        }
+
+                        bar.style.left = left + 'px';
+                        bar.style.width = width + 'px';
+
+                        bar.innerHTML = `
+                            <div style="font-weight:600">${p.item_name}</div>
+                            <div style="opacity:0.9">${p.plan_qty} Pcs</div>
+                            ${isError ? '<div style="font-size:0.6rem; color:white"><i class="bi bi-exclamation-triangle-fill"></i> Duration Error</div>' : ''}
+                        `;
+                        // Bind Full Object for Edit
+                        const planData = JSON.stringify(p).replace(/"/g, '&quot;');
+                        bar.onclick = (e) => { e.stopPropagation(); editPlan(p); };
+                        bar.title = `${p.item_name} (${p.plan_qty})\n${start.toLocaleTimeString()} - ${end.toLocaleTimeString()}`;
+                        row.appendChild(bar);
+                    }
+                });
+
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function openPlanModal(tableId) {
+            document.getElementById('planModal').style.display = 'flex';
+            document.getElementById('p_table_id').value = tableId;
+            document.querySelector('#planModal h3').textContent = 'Add Packing Plan';
+
+            // Reset
+            document.getElementById('p_id').value = '';
+            document.getElementById('p_item').value = '';
+            document.getElementById('p_qty').value = '';
+            document.getElementById('p_ean').value = '';
+            document.getElementById('p_machine').value = '';
+            document.getElementById('p_duration').value = '';
+            document.getElementById('p_delay').value = 0;
+
+            // Set start based on current time or scroll position? Default to Now for simplicity
+            const dateStr = document.getElementById('viewDate').value;
+            const now = new Date();
+            // If view date is today, use now. Else 08:00
+            let defaultTime = '08:00';
+            if (dateStr === new Date().toISOString().slice(0, 10)) {
+                defaultTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+            }
+
+            document.getElementById('p_start').value = `${dateStr}T${defaultTime}`;
+
+            calcEndTime();
+        }
+
+        function editPlan(p) {
+            document.getElementById('planModal').style.display = 'flex';
+            document.getElementById('p_table_id').value = p.table_id;
+            document.querySelector('#planModal h3').textContent = 'Edit Packing Plan';
+
+            document.getElementById('p_id').value = p.id;
+            document.getElementById('p_item').value = p.item_name;
+            document.getElementById('p_qty').value = p.plan_qty;
+            document.getElementById('p_ean').value = p.ean_number || '';
+            document.getElementById('p_machine').value = p.machine || '';
+            document.getElementById('p_duration').value = p.duration_min;
+            document.getElementById('p_delay').value = p.delay_min || 0;
+
+            // Format format for datetime-local: YYYY-MM-DDTHH:MM
+            // p.start_time is likely ISO string: 2026-01-09T07:28:00.000Z
+            // We need local time for input
+            const d = new Date(p.start_time);
+            // shift to local
+            const localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+            document.getElementById('p_start').value = localIso;
+
+            calcEndTime();
+        }
+
+        function closePlanModal() {
+            document.getElementById('planModal').style.display = 'none';
+        }
+
+        function calcEndTime() {
+            const startStr = document.getElementById('p_start').value;
+            const dur = parseInt(document.getElementById('p_duration').value) || 0;
+            const delay = parseInt(document.getElementById('p_delay').value) || 0;
+
+            if (!startStr) return;
+
+            const d = new Date(startStr);
+            d.setMinutes(d.getMinutes() + dur + delay);
+            document.getElementById('p_end').value = d.toLocaleString();
+        }
+
+        async function savePlan() {
+            const plan = {
+                id: document.getElementById('p_id').value || null,
+                table_id: document.getElementById('p_table_id').value,
+                item_name: document.getElementById('p_item').value,
+                plan_qty: parseInt(document.getElementById('p_qty').value),
+                ean_number: document.getElementById('p_ean').value,
+                machine: document.getElementById('p_machine').value, // Optional text
+                start_time: document.getElementById('p_start').value,
+                duration_min: parseInt(document.getElementById('p_duration').value),
+                delay_min: parseInt(document.getElementById('p_delay').value),
+                end_time: new Date(new Date(document.getElementById('p_start').value).getTime() +
+                    ((parseInt(document.getElementById('p_duration').value) || 0) +
+                        (parseInt(document.getElementById('p_delay').value) || 0)) * 60000),
+                created_by: JPSMS.auth.getUser().username
+            };
+
+            if (!plan.item_name || !plan.plan_qty || !plan.start_time) {
+                return JPSMS.toast('Review required fields', 'error');
+            }
+
+            try {
+                await JPSMS.api.post('/assembly/plan', plan);
+                JPSMS.toast('Plan Saved');
+                closePlanModal();
+                loadPlans();
+            } catch (e) {
+                JPSMS.toast(e.message, 'error');
+            }
+        }
+    </script>
+</body>
+
+</html>

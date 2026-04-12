@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Shifting Logs</title>
+    <link rel="stylesheet" href="/assets/app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        .log-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            background: white;
+        }
+
+        .log-table th,
+        .log-table td {
+            border: 1px solid #e2e8f0;
+            padding: 8px 12px;
+        }
+
+        .log-table th {
+            background: #f8fafc;
+            color: #64748b;
+            font-weight: 600;
+            text-align: left;
+        }
+
+        .text-time {
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+
+        .badge-shift {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 12px;
+            background: #e0f2fe;
+            color: #0369a1;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div>
+                <div class="page-title">Shifting Logs</div>
+                <div style="font-size:0.9rem; color:#64748b">Detailed history of all shifting actions</div>
+            </div>
+            <button id="btnDeleteAll" onclick="deleteAll()" class="btn btn-danger"
+                style="display:none; background:#ef4444; color:white;">
+                <i class="bi bi-trash"></i> DELETE ALL (Reset)
+            </button>
+        </div>
+
+        <div class="card" style="padding:0; overflow:auto">
+            <table class="log-table">
+                <thead>
+                    <tr>
+                        <th style="width:140px">Time</th>
+                        <th>Machine</th>
+                        <th>Job Details</th>
+                        <th>Location</th>
+                        <th>Shifted By</th>
+                        <th style="text-align:right">Qty</th>
+                    </tr>
+                </thead>
+                <tbody id="logBody">
+                    <tr>
+                        <td colspan="6" style="text-align:center; padding:20px">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('shifting');
+
+            const user = JPSMS.auth.getUser();
+            if ((window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isAdminLike && window.JPSMS.auth.isAdminLike(user)) || user.role_code === 'admin') {
+                document.getElementById('btnDeleteAll').style.display = 'block';
+            }
+
+            loadLogs();
+        });
+
+        async function loadLogs() {
+            try {
+                JPSMS.toggleLoader(true);
+                const res = await JPSMS.api.get('/shifting/logs?limit=500');
+                renderLogs(res.data || []);
+            } catch (e) {
+                document.getElementById('logBody').innerHTML = `<tr><td colspan="6" style="padding:20px; color:red">Error: ${e.message}</td></tr>`;
+            } finally {
+                JPSMS.toggleLoader(false);
+            }
+        }
+
+        function renderLogs(rows) {
+            const tbody = document.getElementById('logBody');
+            if (rows.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px">No Records Found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = rows.map(r => {
+                const date = new Date(r.created_at).toLocaleString();
+                const shiftInfo = r.shift_date ?
+                    `<span class="badge-shift">${new Date(r.shift_date).toLocaleDateString()} (${r.shift_type})</span>` : '-';
+
+                return `
+                <tr>
+                    <td>
+                        <div style="font-weight:600">${date}</div>
+                        ${shiftInfo}
+                    </td>
+                    <td>${r.machine_code || r.machine || '-'}</td>
+                    <td>
+                        <div style="font-weight:600">${r.item_name || '-'}</div>
+                        <div style="font-size:0.75rem; color:#64748b">${r.order_no} | ${r.mould_name || '-'}</div>
+                    </td>
+                    <td>
+                        ${r.from_location} <i class="bi bi-arrow-right" style="font-size:0.7rem; color:#94a3b8"></i> <b>${r.to_location}</b>
+                    </td>
+                    <td>${r.shifted_by || '-'}</td>
+                    <td style="text-align:right; font-weight:bold; color:#2563eb">${r.quantity}</td>
+                </tr>
+                `;
+            }).join('');
+        }
+
+        async function deleteAll() {
+            if (!confirm('DANGER: This will permanently delete ALL shifting records. This cannot be undone.\n\nAre you sure?')) return;
+
+            if (!confirm('DANGER: This will permanently delete ALL shifting records. This cannot be undone.\n\nAre you sure?')) return;
+
+            const user = JPSMS.auth.getUser();
+            if (!(window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isAdminLike && window.JPSMS.auth.isAdminLike(user))) {
+                JPSMS.toast('Access Denied: Admin or Superadmin only', 'error');
+                return;
+            }
+            try {
+                JPSMS.toggleLoader(true);
+                const res = await JPSMS.api.post('/shifting/delete-all', { username: user.username });
+                if (res.ok) {
+                    JPSMS.toast('All records deleted!', 'success');
+                    loadLogs();
+                } else {
+                    JPSMS.toast(res.error, 'error');
+                }
+            } catch (e) {
+                JPSMS.toast(e.message, 'error');
+            } finally {
+                JPSMS.toggleLoader(false);
+            }
+        }
+    </script>
+</body>
+
+</html>

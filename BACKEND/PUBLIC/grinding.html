@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grinding Module - JMS OCEAN</title>
+    <link rel="stylesheet" href="assets/app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        /* Modern Enhancements */
+        body {
+            background-color: #f8fafc;
+        }
+
+        .modern-search-bar {
+            background: white;
+            padding: 15px 25px;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .modern-input {
+            border: 1px solid #e2e8f0;
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 10px 16px;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+        }
+
+        .modern-input:focus {
+            background: white;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+            outline: none;
+        }
+
+        /* Floating Row Cards */
+        .job-card-row {
+            background: white;
+            border-radius: 16px;
+            padding: 16px 24px;
+            margin-bottom: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            border: 1px solid transparent;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: grid;
+            grid-template-columns: 140px 160px 2fr 120px 1.5fr 100px 100px 100px;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .job-card-row:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
+            border-color: #e2e8f0;
+            z-index: 10;
+            position: relative;
+        }
+
+        .lbl {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .val {
+            font-weight: 600;
+            color: #334155;
+            font-size: 0.95rem;
+        }
+
+        .val-mono {
+            font-family: 'SF Mono', 'Roboto Mono', monospace;
+            color: #475569;
+        }
+
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 30px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        /* Column Headers */
+        .grid-header {
+            display: grid;
+            grid-template-columns: 140px 160px 2fr 120px 1.5fr 100px 100px 100px;
+            padding: 0 24px 15px 24px;
+            gap: 15px;
+            color: #94a3b8;
+            font-weight: 700;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-modern {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 8px 16px;
+            font-weight: 600;
+            box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
+            transition: all 0.2s;
+        }
+
+        .btn-modern:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 12px rgba(37, 99, 235, 0.3);
+            filter: brightness(110%);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="main-content" id="pageContent" style="max-width: 1600px; margin: 0 auto;">
+
+        <div style="margin-bottom: 30px;">
+            <h2 style="font-size: 2rem; font-weight: 800; color: #1e293b; letter-spacing: -1px; margin-bottom: 5px;">
+                Job Wise Rejection
+            </h2>
+            <div style="color: #64748b; font-size: 1rem;">Track and manage grinding data for active commands</div>
+        </div>
+
+        <div class="modern-search-bar">
+            <div style="flex:1; display:flex; align-items:center; gap:10px; position:relative;">
+                <i class="bi bi-search" style="position:absolute; left:14px; color:#94a3b8;"></i>
+                <input type="text" id="searchInput" class="modern-input" style="width:100%; padding-left:42px;"
+                    placeholder="Search by Order No, Job Card, Mould, or Client..." onkeyup="filterTable()">
+            </div>
+            <select id="statusFilter" class="modern-input" style="width:180px;" onchange="filterTable()">
+                <option value="ALL">Show All Status</option>
+                <option value="RUNNING">Running Only</option>
+                <option value="COMPLETED">Completed Only</option>
+                <option value="STOPPED">Stopped Only</option>
+                <option value="PENDING">Pending Only</option>
+            </select>
+            <button class="btn" style="background:white; border:1px solid #e2e8f0; color:#475569;" onclick="loadJobs()">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+        </div>
+
+        <!-- Custom Header -->
+        <div class="grid-header">
+            <div>Order No</div>
+            <div>Job Card</div>
+            <div>Mould Name</div>
+            <div>Mould No</div>
+            <div>Client</div>
+            <div>Status</div>
+            <div>Rej (Kg)</div>
+            <div style="text-align:center">Action</div>
+        </div>
+
+        <div id="jobListBody" style="padding-bottom:50px;">
+            <!-- Rows injected here -->
+            <div style="text-align:center; padding: 60px;">
+                <div class="spinner"></div>
+                <div style="margin-top:20px; color:#94a3b8;">Loading Jobs...</div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Rejection Modal -->
+    <div id="rejectionModal" class="modal-overlay" style="display:none">
+        <div class="modal-content">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h3 style="margin:0; font-size:1.5rem; font-weight:700;">Add Rejection Entry</h3>
+                <button class="btn icon" onclick="closeModal()" style="font-size:1.2rem;"><i
+                        class="bi bi-x"></i></button>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:20px">
+                <input type="hidden" id="rejPlanId">
+                <input type="hidden" id="rejOrderNo">
+                <input type="hidden" id="rejJobCard">
+
+                <div class="info-box" id="rejInfoBox"
+                    style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0;">
+                    <!-- Dynamic Info -->
+                </div>
+
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
+                    <div>
+                        <label class="form-label">Weight (Kg) <span style="color:var(--danger)">*</span></label>
+                        <input type="number" id="rejWeight" class="form-control" placeholder="0.000" step="0.001">
+                    </div>
+                    <div>
+                        <label class="form-label">Qty (Pcs)</label>
+                        <input type="number" id="rejQty" class="form-control" placeholder="0">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="form-label">Reason / Remarks</label>
+                    <textarea id="rejReason" class="form-control" rows="3"
+                        placeholder="Describe the defect or reason..."></textarea>
+                </div>
+            </div>
+
+            <div style="margin-top:30px; display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn" style="background:#f1f5f9; color:#475569;" onclick="closeModal()">Cancel</button>
+                <button class="btn primary" onclick="submitRejection()">Save Entry</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="assets/app.js"></script>
+    <script>
+        const JPSMS = window.JPSMS;
+        const api = JPSMS.api;
+        const toast = JPSMS.toast;
+
+        let allJobs = [];
+
+        async function init() {
+            JPSMS.renderShell('grinding');
+            loadJobs();
+        }
+
+        async function loadJobs() {
+            const tbody = document.getElementById('jobListBody');
+            try {
+                // tbody.innerHTML = '...loading...'; 
+                const res = await api.get('/grinding/jobs');
+                if (!res.ok) throw new Error(res.error || 'Failed to fetch jobs');
+
+                allJobs = res.data || [];
+                renderList(allJobs);
+                toast('Jobs Refreshed');
+            } catch (e) {
+                console.error(e);
+                tbody.innerHTML = `
+                    <div style="text-align:center; padding:60px; color:#ef4444;">
+                        <i class="bi bi-exclamation-triangle-fill" style="font-size:2rem; margin-bottom:15px; display:block;"></i>
+                        <strong>Error loading data</strong><br>
+                        ${e.message}
+                    </div>
+                `;
+            }
+        }
+
+        function renderList(data) {
+            const container = document.getElementById('jobListBody');
+            container.innerHTML = '';
+
+            if (!data.length) {
+                container.innerHTML = `
+                    <div style="text-align:center; padding:80px 20px; background:white; border-radius:16px; border:1px dashed #e2e8f0;">
+                         <i class="bi bi-inbox" style="font-size:3rem; color:#cbd5e1; margin-bottom:15px; display:block;"></i>
+                         <h3 style="color:#64748b; margin:0;">No Jobs Found</h3>
+                         <p style="color:#94a3b8;">Try adjusting your filters or search terms.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            data.forEach(job => {
+                // Status Styles
+                const s = (job.status || '').toUpperCase();
+                let badgeClass = 'bg-gray-100 text-gray-600';
+                let bg = '#eff6ff'; let col = '#1d4ed8'; // Default blueish
+
+                if (s === 'RUNNING') { bg = '#dcfce7'; col = '#15803d'; }
+                else if (s === 'COMPLETED') { bg = '#f1f5f9'; col = '#475569'; } // Gray for completed
+                else if (s === 'STOPPED') { bg = '#fee2e2'; col = '#b91c1c'; }
+                else if (s === 'PENDING') { bg = '#fef3c7'; col = '#b45309'; }
+
+                const el = document.createElement('div');
+                el.className = 'job-card-row';
+
+                el.innerHTML = `
+                    <div class="val-mono">${job.order_no}</div>
+                    <div class="val-mono" style="font-size:0.85rem;" title="${job.job_card_no}">${job.job_card_no || '-'}</div>
+                    
+                    <div style="overflow:hidden;">
+                        <div class="val" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${job.mould_name}">${job.mould_name || '-'}</div>
+                    </div>
+                    
+                    <div class="val" style="color:#64748b;">${job.mould_no || '-'}</div>
+                    
+                    <div style="overflow:hidden;">
+                        <div class="val" style="font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${job.client_name}">${job.client_name || '-'}</div>
+                    </div>
+
+                    <div>
+                        <span class="status-badge" style="background:${bg}; color:${col}; border:1px solid ${col}20">${job.status}</span>
+                    </div>
+
+                    <div>
+                        <span style="font-size:1.1rem; font-weight:700; color:#0f172a;">${(Number(job.total_rej_weight) || 0).toFixed(2)}</span>
+                        <span style="font-size:0.75rem; color:#94a3b8;">kg</span>
+                    </div>
+
+                    <div style="text-align:center;">
+                        <button class="btn-modern" onclick='openRejModal(${JSON.stringify(job)})'>
+                            <i class="bi bi-plus-lg"></i> Add
+                        </button>
+                    </div>
+                `;
+                container.appendChild(el);
+            });
+        }
+
+        function filterTable() {
+            const q = document.getElementById('searchInput').value.toLowerCase();
+            const status = document.getElementById('statusFilter').value;
+
+            const filtered = allJobs.filter(j => {
+                const s = (j.status || 'PENDING').toUpperCase();
+                if (status !== 'ALL' && s !== status) return false;
+
+                const text = (j.order_no + ' ' + j.mould_name + ' ' + j.client_name + ' ' + (j.job_card_no || '')).toLowerCase();
+                return text.includes(q);
+            });
+            renderList(filtered);
+        }
+
+        // --- Modal Logic ---
+        function openRejModal(job) {
+            document.getElementById('rejPlanId').value = job.plan_id;
+            document.getElementById('rejOrderNo').value = job.order_no;
+            document.getElementById('rejJobCard').value = job.job_card_no || '';
+
+            document.getElementById('rejInfoBox').innerHTML = `
+                <div style="display:grid; grid-template-columns:auto 1fr; gap:8px 15px; align-items:center;">
+                    <span class="lbl">Order No:</span> <span class="val-mono">${job.order_no}</span>
+                    <span class="lbl">Mould:</span> <span class="val">${job.mould_name} <span style="color:#94a3b8">(${job.mould_no})</span></span>
+                    <span class="lbl">Client:</span> <span class="val">${job.client_name}</span>
+                </div>
+            `;
+
+            document.getElementById('rejWeight').value = '';
+            document.getElementById('rejQty').value = '';
+            document.getElementById('rejReason').value = '';
+
+            document.getElementById('rejectionModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('rejectionModal').style.display = 'none';
+        }
+
+        async function submitRejection() {
+            const planId = document.getElementById('rejPlanId').value;
+            const orderNo = document.getElementById('rejOrderNo').value;
+            const jobCard = document.getElementById('rejJobCard').value;
+            const weight = document.getElementById('rejWeight').value;
+            const qty = document.getElementById('rejQty').value;
+            const reason = document.getElementById('rejReason').value;
+
+            if (!weight || Number(weight) <= 0) {
+                return toast('Please enter valid Weight', 'error');
+            }
+
+            try {
+                await api.post('/grinding/entry', {
+                    planId, orderNo, jobCardNo: jobCard,
+                    weight, qty, reason
+                });
+                toast('Entry Saved Successfully');
+                closeModal();
+                loadJobs();
+            } catch (e) {
+                toast(e.message, 'error');
+            }
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Barcode Printer - JMS OCEAN</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <!-- JsBarcode -->
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    <!-- QRCode.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <style>
+        body {
+            background: #f1f5f9;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        .sidebar {
+            width: 250px;
+            background: #fff;
+            border-right: 1px solid #e2e8f0;
+            height: 100vh;
+            position: fixed;
+            padding: 20px;
+        }
+
+        .main {
+            margin-left: auto;
+            margin-right: auto;
+            max-width: 1200px;
+            padding: 20px;
+        }
+
+        .card {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            background: #fff;
+            margin-bottom: 20px;
+        }
+
+        .preview-area {
+            background: #cbd5e1;
+            padding: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 500px;
+            border-radius: 8px;
+            overflow: auto;
+        }
+
+        /* LABEL STYLES - "Perfect" Polish */
+        .label-container {
+            background: #fff;
+            color: #000;
+            box-sizing: border-box;
+            border: 1px dashed #94a3b8;
+            /* Guide border */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            overflow: hidden;
+            position: relative;
+            font-family: 'Arial Narrow', Arial, sans-serif;
+            /* Standard Label Font */
+            padding: 2mm;
+        }
+
+        /* Sizes */
+        .l-50-50 {
+            width: 50mm;
+            height: 50mm;
+            font-size: 8px;
+        }
+
+        .l-75-50 {
+            width: 75mm;
+            height: 50mm;
+            font-size: 10px;
+        }
+
+        .l-85-60 {
+            width: 85mm;
+            height: 60mm;
+            font-size: 11px;
+        }
+
+        /* Typography */
+        .l-header {
+            font-size: 1.1em;
+            font-weight: 800;
+            text-transform: uppercase;
+            margin-bottom: 1px;
+            letter-spacing: 0.5px;
+        }
+
+        .l-address {
+            font-size: 0.75em;
+            margin-bottom: 4px;
+            line-height: 1.1;
+            font-weight: 500;
+            padding: 0 4mm;
+        }
+
+        /* Standard Barcode Area */
+        .code-area {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            margin: 4px 0 6px 0;
+            padding: 0;
+        }
+
+        .bc-wrap {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+
+        .bc-bars {
+            height: 16mm;
+            width: 80%;
+            max-width: 42mm;
+        }
+
+        /* Product Name */
+        .l-product {
+            font-size: 1.3em;
+            font-weight: 900;
+            margin: 2px 0 4px 0;
+            text-transform: uppercase;
+            line-height: 1.1;
+            width: 100%;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 2px;
+        }
+
+        /* Details Grid */
+        .l-details {
+            font-size: 0.95em;
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            padding: 0 2mm;
+            flex: 1;
+        }
+
+        .l-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 2px;
+            align-items: baseline;
+        }
+
+        .l-lbl {
+            font-weight: 700;
+            color: #333;
+        }
+
+        .l-val {
+            font-weight: 800;
+            text-align: right;
+        }
+
+        /* Footer */
+        .l-footer {
+            font-size: 0.65em;
+            margin-top: auto;
+            border-top: 2px solid #000;
+            padding-top: 2px;
+            line-height: 1.1;
+            text-align: center;
+            width: 100%;
+            font-weight: 600;
+        }
+
+        /* Print Media */
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+
+            #printable-area,
+            #printable-area * {
+                visibility: visible;
+            }
+
+            #printable-area {
+                position: absolute;
+                left: 0;
+                top: 0;
+                margin: 0;
+                padding: 0;
+                background: none;
+                border: none;
+            }
+
+            .label-container {
+                border: none !important;
+            }
+
+            @page {
+                margin: 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="main">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h3 class="fw-bold m-0"><i class="bi bi-printer me-2"></i>Barcode Printer</h3>
+                <div class="text-muted">Generate & Print Hybrid Labels</div>
+            </div>
+            <div>
+                <a href="/planning.html" class="btn btn-outline-secondary">Back to Dashboard</a>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <!-- Controls -->
+            <div class="col-md-4">
+                <div class="card p-4 h-100">
+                    <h5 class="fw-bold mb-3 border-bottom pb-2">Label Details</h5>
+
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold text-muted">EAN Code (Standard)</label>
+                        <input id="in-ean" class="form-control font-monospace" value="8904098945828" oninput="render()">
+
+                        <div class="mt-2">
+                            <label class="form-label small fw-bold text-muted d-block">Format</label>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="pformat" id="fmt-qr" value="qr"
+                                    checked onchange="setFormat('qr')">
+                                <label class="form-check-label small" for="fmt-qr">QR Code</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="pformat" id="fmt-bar" value="barcode"
+                                    onchange="setFormat('barcode')">
+                                <label class="form-check-label small" for="fmt-bar">Barcode</label>
+                            </div>
+                        </div>
+
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="chk-unique" onchange="toggleMode()">
+                            <label class="form-check-label small" for="chk-unique">
+                                Unique Mode (Add Hidden ID)
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold text-muted">Product Name</label>
+                        <input id="in-name" class="form-control fw-bold" value="BETTER HOME CONTAINER"
+                            oninput="render()">
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <label class="form-label small fw-bold text-muted">Capacity</label>
+                            <input id="in-cap" class="form-control" value="250ml each" oninput="render()">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold text-muted">Net Qty</label>
+                            <input id="in-qty" class="form-control" value="1U (4 PCS)" oninput="render()">
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <label class="form-label small fw-bold text-muted">MRP (Rs)</label>
+                            <input id="in-mrp" class="form-control" value="119.00" oninput="render()">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-bold text-muted">MFG Date</label>
+                            <input id="in-mfg" class="form-control" value="DEC-2024" oninput="render()">
+                        </div>
+                    </div>
+
+                    <div class="mb-4 mt-3">
+                        <label class="form-label small fw-bold text-muted">Print Quantity (Series)</label>
+                        <input type="number" id="in-print-qty" class="form-control fw-bold" value="1" min="1">
+                    </div>
+
+                    <div class="mb-4 mt-3">
+                        <label class="form-label small fw-bold text-muted">Paper Size</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="bpsize" id="s50" autocomplete="off" checked
+                                onclick="setSize('50-50')">
+                            <label class="btn btn-outline-primary" for="s50">50x50</label>
+
+                            <input type="radio" class="btn-check" name="bpsize" id="s75" autocomplete="off"
+                                onclick="setSize('75-50')">
+                            <label class="btn btn-outline-primary" for="s75">75x50</label>
+
+                            <input type="radio" class="btn-check" name="bpsize" id="s85" autocomplete="off"
+                                onclick="setSize('85-60')">
+                            <label class="btn btn-outline-primary" for="s85">85x60</label>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-dark btn-lg w-100 mt-auto shadow" onclick="printSeries()">
+                        <i class="bi bi-printer-fill me-2"></i> Print Labels
+                    </button>
+                </div>
+            </div>
+
+            <!-- Preview -->
+            <div class="col-md-8">
+                <div class="card p-0 h-100 overflow-hidden">
+                    <div class="card-header bg-white border-bottom p-3">
+                        <h5 class="fw-bold m-0">Live Preview</h5>
+                    </div>
+                    <div class="preview-area">
+                        <div id="printable-area">
+                            <!-- Label Structure -->
+                            <div id="label-box" class="label-container l-50-50">
+                                <div class="l-header">JOYO PLASTICS</div>
+                                <div class="l-address">Survey No- 79/1/A, 82 & 83, Village Dungra<br>Vapi -
+                                    Gujarat-396193</div>
+
+                                <div class="code-area">
+                                    <div class="bc-wrap">
+                                        <svg id="barcode" class="bc-bars"></svg>
+                                    </div>
+                                </div>
+
+                                <div class="l-product" id="out-name">BETTER HOME CONTAINER</div>
+
+                                <div class="l-details">
+                                    <div class="l-row"><span class="l-lbl">Capacity:</span> <span class="l-val"
+                                            id="out-cap">250ml each</span></div>
+                                    <div class="l-row"><span class="l-lbl">MRP:</span> <span class="l-val"
+                                            id="out-mrp">Rs. 119 (incl taxes)</span></div>
+                                    <div class="l-row"><span class="l-lbl">Net Qty:</span> <span class="l-val"
+                                            id="out-qty">1U (4 PCS)</span></div>
+                                    <div class="l-row"><span class="l-lbl">MFG:</span> <span class="l-val"
+                                            id="out-mfg">DEC-2024</span></div>
+                                </div>
+
+                                <div class="l-footer">
+                                    In case of consumer complaints, contact Customer Care Executive at above address or
+                                    call +91-22-6154 2200 or email feedback@joyo.in
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentSize = 'l-50-50';
+
+        let isUniqueMode = false;
+        let printFormat = 'qr'; // 'qr' or 'barcode'
+
+        function setSize(size) {
+            currentSize = 'l-' + size;
+            render();
+        }
+
+        function toggleMode() {
+            isUniqueMode = document.getElementById('chk-unique').checked;
+            render();
+        }
+
+        function setFormat(fmt) {
+            printFormat = fmt;
+            render();
+        }
+
+        function render() {
+            const container = document.getElementById('printable-area');
+            container.innerHTML = '';
+            container.appendChild(createLabelElement(1, 1));
+        }
+
+        function printSeries() {
+            const qty = parseInt(document.getElementById('in-print-qty').value) || 1;
+            const container = document.getElementById('printable-area');
+            container.innerHTML = '';
+
+            const baseTime = Date.now().toString().slice(-8);
+
+            for (let i = 0; i < qty; i++) {
+                const suffix = `${baseTime}${String(i + 1).padStart(3, '0')}`;
+                container.appendChild(createLabelElement(i + 1, qty, suffix));
+            }
+
+            setTimeout(() => {
+                window.print();
+                setTimeout(render, 1000);
+            }, 500);
+        }
+
+        function createLabelElement(index, total, uniqueSuffix) {
+            // DATA
+            const ean = document.getElementById('in-ean').value;
+            const name = document.getElementById('in-name').value;
+            const cap = document.getElementById('in-cap').value;
+            const mrpRaw = document.getElementById('in-mrp').value;
+            const qty = document.getElementById('in-qty').value;
+            const mfg = document.getElementById('in-mfg').value;
+
+            const mrpTxt = mrpRaw.toLowerCase().includes('tax') ? mrpRaw : `Rs. ${mrpRaw} (incl all taxes)`;
+
+            // CREATE CONTAINER
+            const box = document.createElement('div');
+            box.className = `label-container ${currentSize}`;
+            if (total > 1) box.style.pageBreakAfter = 'always';
+
+            // HTML CONTENT
+            box.innerHTML = `
+                <div class="l-header">JOYO PLASTICS</div>
+                <div class="l-address">Survey No- 79/1/A, 82 & 83, Village Dungra<br>Vapi - Gujarat-396193</div>
+                
+                <div class="code-area">
+                    <div class="bc-wrap" id="bc-wrap-${index}"></div>
+                </div>
+
+                <div class="l-product">${name}</div>
+
+                <div class="l-details">
+                    <div class="l-row"><span class="l-lbl">Capacity:</span> <span class="l-val">${cap}</span></div>
+                    <div class="l-row"><span class="l-lbl">MRP:</span> <span class="l-val">${mrpTxt}</span></div>
+                    <div class="l-row"><span class="l-lbl">Net Qty:</span> <span class="l-val">${qty}</span></div>
+                    <div class="l-row"><span class="l-lbl">MFG:</span> <span class="l-val">${mfg}</span></div>
+                </div>
+
+                <div class="l-footer">
+                     In case of consumer complaints, contact Customer Care Executive at above address or call +91-22-6154 2200 or email feedback@joyo.in
+                </div>
+            `;
+
+            // BARCODE / QR GENERATION
+            const wrap = box.querySelector(`#bc-wrap-${index}`);
+            const suffix = uniqueSuffix || Date.now().toString().slice(-9);
+
+            // LOGIC: 
+            let codeText = ean;
+
+            // If Unique Mode -> Add Hidden Suffix
+            if (isUniqueMode) {
+                codeText = `${ean}\0${suffix}`;
+            }
+
+            if (printFormat === 'qr') {
+                const qrDiv = document.createElement("div");
+                wrap.appendChild(qrDiv);
+                new QRCode(qrDiv, {
+                    text: codeText,
+                    width: 128,
+                    height: 128,
+                    colorDark: "#000000",
+                    colorLight: "#ffffff",
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+            } else {
+                // BARCODE
+                const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                svg.classList.add("bc-bars");
+                wrap.appendChild(svg);
+
+                try {
+                    // Logic: EAN13 only works for 13 digits numeric.
+                    // If Unique Mode (has \0), we MUST use CODE128.
+                    let fmt = "CODE128";
+                    if (!isUniqueMode && ean.length === 13 && !isNaN(ean)) {
+                        fmt = "EAN13";
+                    }
+
+                    JsBarcode(svg, codeText, {
+                        format: fmt,
+                        width: (fmt === "EAN13") ? 2.0 : 1.7,
+                        height: 45,
+                        displayValue: true,
+                        fontSize: 11,
+                        fontOptions: "bold",
+                        margin: 0
+                    });
+                } catch (e) {
+                    console.error(e);
+                    wrap.innerHTML = '<span class="text-danger small">Error</span>';
+                }
+            }
+
+            return box;
+        }
+
+        // Init
+        window.addEventListener('DOMContentLoaded', () => {
+            render();
+        });
+    </script>
+
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+</body>
+
+</html>

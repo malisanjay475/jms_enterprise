@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JMS OCEAN - Login</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#024c81">
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" type="image/png">
+    <link rel="stylesheet" href="/assets/app.css?v=8">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --logo-blue: #024c81;
+            --logo-deep: #072450;
+            --logo-teal: #00929e;
+            --logo-cyan: #01a8dd;
+            --logo-gold: #faac24;
+            --surface: rgba(255, 255, 255, 0.96);
+            --surface-soft: rgba(245, 251, 253, 0.96);
+            --text-main: #17384c;
+            --text-soft: #5d778a;
+            --line-soft: rgba(176, 205, 221, 0.76);
+            --panel-shadow: 0 34px 80px rgba(8, 38, 58, 0.24);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            min-height: 100%;
+        }
+
+        body.login-page {
+            margin: 0;
+            min-height: 100dvh;
+            display: grid;
+            place-items: center;
+            overflow-x: hidden;
+            overflow-y: auto;
+            padding: 26px 18px;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background:
+                radial-gradient(circle at 14% 18%, rgba(1, 168, 221, 0.2), transparent 22%),
+                radial-gradient(circle at 86% 14%, rgba(0, 146, 158, 0.18), transparent 24%),
+                radial-gradient(circle at 50% 88%, rgba(250, 172, 36, 0.12), transparent 18%),
+                linear-gradient(145deg, #051d38 0%, #024c81 56%, #0b5d76 100%);
+            position: relative;
+        }
+
+        body.login-page::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+            background-size: 28px 28px;
+            mask-image: radial-gradient(circle at center, black 32%, transparent 88%);
+            opacity: 0.42;
+        }
+
+        body.login-page::after {
+            content: '';
+            position: fixed;
+            width: 360px;
+            height: 360px;
+            right: -120px;
+            top: -120px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.14), transparent 70%);
+            filter: blur(12px);
+            pointer-events: none;
+        }
+
+        .login-layout {
+            width: min(100%, 580px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .auth-panel {
+            width: 100%;
+        }
+
+        .auth-shell {
+            position: relative;
+            padding: 16px;
+        }
+
+        .auth-shell::before {
+            content: '';
+            position: absolute;
+            inset: 28px 18px 0;
+            border-radius: 34px;
+            background: linear-gradient(135deg, rgba(1, 168, 221, 0.22), rgba(250, 172, 36, 0.14));
+            filter: blur(32px);
+            opacity: 0.7;
+        }
+
+        .auth-card {
+            position: relative;
+            overflow: hidden;
+            width: 100%;
+            padding: 36px 34px 32px;
+            border-radius: 34px;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 251, 253, 0.98));
+            border: 1px solid var(--line-soft);
+            box-shadow: var(--panel-shadow);
+            backdrop-filter: blur(14px);
+        }
+
+        .auth-card::before {
+            content: '';
+            position: absolute;
+            inset: 0 auto auto 0;
+            width: 100%;
+            height: 7px;
+            background: linear-gradient(90deg, var(--logo-blue), var(--logo-cyan), var(--logo-gold));
+        }
+
+        .auth-card::after {
+            content: '';
+            position: absolute;
+            width: 160px;
+            height: 160px;
+            right: -40px;
+            top: 48px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(1, 168, 221, 0.12), transparent 70%);
+            pointer-events: none;
+        }
+
+        .auth-brand {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 16px;
+            margin-bottom: 22px;
+        }
+
+        .brand-mark {
+            position: relative;
+            width: 168px;
+            height: 168px;
+            display: grid;
+            place-items: center;
+            border-radius: 38px;
+            overflow: hidden;
+        }
+
+        .brand-ring {
+            position: absolute;
+            inset: 0;
+            border-radius: 38px;
+            background: linear-gradient(145deg, rgba(2, 76, 129, 0.16), rgba(1, 168, 221, 0.14));
+            box-shadow:
+                0 24px 46px rgba(2, 76, 129, 0.16),
+                inset 0 1px 0 rgba(255, 255, 255, 0.38);
+            overflow: hidden;
+        }
+
+        .brand-ring::after {
+            content: '';
+            position: absolute;
+            inset: 12px;
+            border-radius: 30px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(241, 249, 252, 0.96));
+        }
+
+        .auth-brand img {
+            position: relative;
+            z-index: 1;
+            width: 126px;
+            height: 126px;
+            object-fit: contain;
+            border-radius: 28px;
+            background: #ffffff;
+            padding: 6px;
+            filter: drop-shadow(0 14px 24px rgba(2, 76, 129, 0.16));
+        }
+
+        .brand-name {
+            display: block;
+            color: var(--text-main);
+            font-size: 1.72rem;
+            font-weight: 800;
+            letter-spacing: -0.04em;
+        }
+
+        .auth-heading {
+            position: relative;
+            z-index: 1;
+            margin: 0 0 2px;
+            text-align: center;
+            color: var(--text-main);
+            font-size: 2.3rem;
+            line-height: 1.02;
+            letter-spacing: -0.05em;
+            font-weight: 800;
+        }
+
+        .auth-subtitle {
+            position: relative;
+            z-index: 1;
+            margin: 10px auto 24px;
+            max-width: 320px;
+            text-align: center;
+            color: var(--text-soft);
+            font-size: 0.94rem;
+            line-height: 1.65;
+        }
+
+        .form-group {
+            position: relative;
+            z-index: 1;
+            margin-bottom: 18px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-main);
+            font-weight: 700;
+        }
+
+        .input-shell {
+            position: relative;
+        }
+
+        .input-shell i {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #658093;
+            font-size: 1rem;
+            z-index: 2;
+        }
+
+        .input-shell input {
+            width: 100%;
+            height: 56px;
+            padding: 0 46px 0 44px;
+            border-radius: 17px;
+            border: 1px solid #d3e4ec;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fcfd 100%);
+            color: var(--text-main);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+        }
+
+        .input-shell input:focus {
+            outline: none;
+            border-color: rgba(1, 168, 221, 0.7);
+            box-shadow: 0 0 0 4px rgba(1, 168, 221, 0.14);
+        }
+
+        .input-shell .toggle-btn {
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #6b8496;
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            min-height: auto;
+            padding: 0;
+            font-size: 1rem;
+        }
+
+        .login-actions {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            margin: 6px 0 16px;
+        }
+
+        .remember-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            color: var(--text-soft);
+        }
+
+        .remember-row input {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: var(--logo-blue);
+        }
+
+        .sign-in-btn {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            height: 56px;
+            border-radius: 17px;
+            border: none;
+            background: linear-gradient(135deg, var(--logo-blue), var(--logo-cyan));
+            box-shadow: 0 18px 36px rgba(2, 76, 129, 0.2);
+            overflow: hidden;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .sign-in-btn::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.14) 42%, transparent 72%);
+            transform: translateX(-100%);
+            transition: transform 0.45s ease;
+        }
+
+        .sign-in-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 22px 40px rgba(2, 76, 129, 0.24);
+        }
+
+        .sign-in-btn:hover::after {
+            transform: translateX(100%);
+        }
+
+        .login-error {
+            position: relative;
+            z-index: 1;
+            min-height: 22px;
+            text-align: center;
+            margin-top: 14px;
+            font-size: 0.9rem;
+            color: #dc2626;
+        }
+
+        .factory-modal {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: rgba(3, 20, 32, 0.58);
+            backdrop-filter: blur(8px);
+            z-index: 9999;
+        }
+
+        .factory-modal.active {
+            display: flex;
+        }
+
+        .factory-card {
+            width: min(460px, 100%);
+            background: #fff;
+            border-radius: 24px;
+            padding: 24px;
+            border: 1px solid #d7e5ed;
+            box-shadow: 0 24px 60px rgba(8, 38, 58, 0.22);
+        }
+
+        .factory-card h3 {
+            margin: 0 0 6px;
+            color: var(--logo-blue);
+        }
+
+        .factory-card p {
+            margin: 0 0 18px;
+            color: #617b8d;
+            line-height: 1.6;
+        }
+
+        .factory-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .factory-option {
+            width: 100%;
+            text-align: left;
+            border: 1px solid #d5e4ec;
+            background: #fbfdfe;
+            border-radius: 16px;
+            padding: 14px 16px;
+            box-shadow: none;
+        }
+
+        .factory-option:hover {
+            border-color: rgba(1, 168, 221, 0.4);
+            background: #f1fbfe;
+        }
+
+        .factory-option strong {
+            display: block;
+            color: var(--logo-blue);
+            font-size: 0.96rem;
+        }
+
+        .factory-option span {
+            display: block;
+            color: #678092;
+            font-size: 0.82rem;
+            margin-top: 4px;
+        }
+
+        @media (max-width: 560px) {
+            body.login-page {
+                padding: 14px;
+            }
+
+            body.login-page::before {
+                background-size: 22px 22px;
+            }
+
+            .auth-shell {
+                padding: 0;
+            }
+
+            .auth-card {
+                padding: 30px 18px 24px;
+                border-radius: 26px;
+            }
+
+            .brand-mark {
+                width: 136px;
+                height: 136px;
+            }
+
+            .auth-brand img {
+                width: 98px;
+                height: 98px;
+            }
+
+            .auth-heading {
+                font-size: 1.95rem;
+            }
+
+            .auth-subtitle {
+                font-size: 0.9rem;
+                margin-bottom: 22px;
+            }
+
+            .factory-modal {
+                padding: 16px;
+            }
+
+            .factory-card {
+                padding: 20px;
+                border-radius: 20px;
+            }
+        }
+    </style>
+</head>
+
+<body class="login-page">
+    <main class="login-layout">
+        <aside class="auth-panel">
+            <div class="auth-shell">
+                <div class="auth-card">
+                    <div class="auth-brand">
+                        <div class="brand-mark">
+                            <span class="brand-ring"></span>
+                            <img src="/assets/jms-logo.png" alt="JMS OCEAN logo">
+                        </div>
+                        <div>
+                            <strong class="brand-name">JMS OCEAN</strong>
+                        </div>
+                    </div>
+
+                    <h2 class="auth-heading">Sign In</h2>
+                    <p class="auth-subtitle">Enter your username and password to continue.</p>
+
+                    <div class="form-group">
+                        <label class="form-label" for="u_name">Username</label>
+                        <div class="input-shell">
+                            <i class="bi bi-person-circle"></i>
+                            <input id="u_name" class="form-control" placeholder="Enter username"
+                                onkeydown="if(event.key==='Enter') document.getElementById('u_pass').focus()">
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label class="form-label" for="u_pass">Password</label>
+                        <div class="input-shell">
+                            <i class="bi bi-shield-lock"></i>
+                            <input id="u_pass" type="password" class="form-control" placeholder="Enter password"
+                                onkeydown="if(event.key==='Enter') login()">
+                            <button class="toggle-btn" type="button" onclick="togglePassword()" aria-label="Show password">
+                                <i class="bi bi-eye-slash" id="togglePassIcon"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="login-actions">
+                        <label class="remember-row" for="rememberMe">
+                            <input type="checkbox" id="rememberMe">
+                            <span>Remember me</span>
+                        </label>
+                    </div>
+
+                    <button id="signInBtn" class="btn btn-primary sign-in-btn" onclick="login()">
+                        <i class="bi bi-box-arrow-in-right"></i>
+                        <span>Sign In</span>
+                    </button>
+
+                    <div id="login-error" class="login-error"></div>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <div id="factory-modal" class="factory-modal">
+        <div class="factory-card">
+            <h3>Select factory</h3>
+            <p>Your login has access to multiple locations. Choose the factory you want to enter for this session.</p>
+            <div id="factory-list" class="factory-list"></div>
+            <button onclick="logoutInModal()" class="btn btn-outline" style="width:100%; margin-top:16px;">Cancel</button>
+        </div>
+    </div>
+
+    <script src="/assets/app.js?v=8"></script>
+    <script>
+        let pendingUser = null;
+
+        function showErr(msg) {
+            document.getElementById('login-error').textContent = msg || '';
+        }
+
+        function setLoading(loading) {
+            const btn = document.getElementById('signInBtn');
+            btn.disabled = loading;
+            btn.innerHTML = loading
+                ? '<i class="bi bi-arrow-repeat"></i><span>Authenticating...</span>'
+                : '<i class="bi bi-box-arrow-in-right"></i><span>Sign In</span>';
+        }
+
+        function togglePassword() {
+            const input = document.getElementById('u_pass');
+            const icon = document.getElementById('togglePassIcon');
+            const reveal = input.type === 'password';
+            input.type = reveal ? 'text' : 'password';
+            icon.className = reveal ? 'bi bi-eye' : 'bi bi-eye-slash';
+        }
+
+        function redirectByRole(user) {
+            const role = String(user.role_code || user.role || '').toLowerCase();
+            if (role === 'supervisor') window.location.href = 'supervisor.html';
+            else if (role === 'qc_supervisor') window.location.href = 'QCSupervisor.html';
+            else if (role === 'quality') window.location.href = 'Quality.html';
+            else if (role === 'planning' || role === 'planner') window.location.href = 'planning.html';
+            else if (role === 'shifting_supervisor') window.location.href = 'shifting_supervisor.html';
+            else window.location.href = 'index.html';
+        }
+
+        function completeLogin(factoryId, factoryName) {
+            JPSMS.factories.setCurrentScope(factoryId, factoryName);
+            JPSMS.factories.setWriteScope(factoryId, factoryName);
+
+            redirectByRole(pendingUser || JPSMS.auth.getUser());
+        }
+
+        function showFactoryModal(factories) {
+            const modal = document.getElementById('factory-modal');
+            const list = document.getElementById('factory-list');
+            list.innerHTML = '';
+
+            const canSelectAll = JPSMS.factories.canSelectAll(pendingUser || JPSMS.auth.getUser());
+
+            if (canSelectAll && factories.length > 0) {
+                const allBtn = document.createElement('button');
+                allBtn.className = 'factory-option';
+                allBtn.innerHTML = `
+                    <strong>All Factories</strong>
+                    <span>Combined view across every allowed factory</span>
+                `;
+                allBtn.onclick = () => completeLogin('all', 'All Factories');
+                list.appendChild(allBtn);
+            }
+
+            factories.forEach(factory => {
+                const btn = document.createElement('button');
+                btn.className = 'factory-option';
+                btn.innerHTML = `
+                    <strong>${factory.name}</strong>
+                    <span>${factory.code || ''}${factory.location ? ' - ' + factory.location : ''}</span>
+                `;
+                btn.onclick = () => completeLogin(factory.id, factory.name);
+                list.appendChild(btn);
+            });
+
+            modal.classList.add('active');
+        }
+
+        function logoutInModal() {
+            document.getElementById('factory-modal').classList.remove('active');
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            localStorage.removeItem('jpsms_allowed_factories');
+            localStorage.removeItem('jpsms_can_all_factories');
+            localStorage.removeItem('jpsms_factory_id');
+            localStorage.removeItem('jpsms_factory_name');
+            localStorage.removeItem('jpsms_write_factory_id');
+            localStorage.removeItem('jpsms_write_factory_name');
+            setLoading(false);
+        }
+
+        async function login() {
+            const username = document.getElementById('u_name').value.trim();
+            const password = document.getElementById('u_pass').value;
+            const remember = document.getElementById('rememberMe').checked;
+
+            if (!username || !password) {
+                showErr('Please enter username and password.');
+                return;
+            }
+
+            showErr('');
+            setLoading(true);
+
+            try {
+                const result = await JPSMS.auth.login(username, password);
+                pendingUser = result.user || result;
+                const factories = result.factories || [];
+
+                if (remember) {
+                    localStorage.setItem('jpsms_remember_user', username);
+                } else {
+                    localStorage.removeItem('jpsms_remember_user');
+                }
+
+                if (factories.length > 1) {
+                    setLoading(false);
+                    showFactoryModal(factories);
+                    return;
+                }
+
+                if (factories.length === 1) {
+                    completeLogin(factories[0].id, factories[0].name);
+                    return;
+                }
+
+                completeLogin(null, null);
+            } catch (error) {
+                showErr(error.message || 'Login failed.');
+                setLoading(false);
+            }
+        }
+
+        function initRememberedUser() {
+            const savedUser = localStorage.getItem('jpsms_remember_user');
+            if (!savedUser) return;
+            document.getElementById('u_name').value = savedUser;
+            document.getElementById('rememberMe').checked = true;
+        }
+
+        function initAutoRedirect() {
+            const storedUser = localStorage.getItem('user') || localStorage.getItem('jpsms_user');
+            if (!storedUser) return;
+
+            try {
+                const user = JSON.parse(storedUser);
+                if (user && user.username) redirectByRole(user);
+            } catch (_err) {
+                localStorage.removeItem('user');
+                localStorage.removeItem('jpsms_user');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initRememberedUser();
+            initAutoRedirect();
+        });
+    </script>
+</body>
+
+</html>

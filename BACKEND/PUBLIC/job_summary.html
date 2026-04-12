@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Job Summary Dashboard - JMS OCEAN</title>
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/assets/app.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-light: #818cf8;
+            --primary-dark: #4f46e5;
+            --accent: #f59e0b;
+            --success: #10b981;
+            --danger: #ef4444;
+            --surface: #ffffff;
+            --background: #f8fafc;
+            --glass: rgba(255, 255, 255, 0.8);
+            --card-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --border: #e2e8f0;
+        }
+
+        body {
+            background-color: var(--background);
+            font-family: 'Inter', sans-serif;
+            color: #1e293b;
+            overflow-x: hidden;
+        }
+
+        .dashboard-container {
+            padding: 24px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        /* Glassmorphism Headers */
+        .premium-header {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 24px;
+            margin-bottom: 30px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        .premium-header::after {
+            content: '';
+            position: absolute;
+            top: -50%; right: -10%;
+            width: 400px; height: 400px;
+            background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
+            z-index: 1;
+        }
+
+        .search-bar-modern {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            gap: 16px;
+            align-items: flex-end;
+            margin-top: 20px;
+            z-index: 2;
+            position: relative;
+        }
+
+        .glass-input {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1.5px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 12px 16px;
+            border-radius: 12px;
+            width: 100%;
+            transition: all 0.3s;
+        }
+
+        .glass-input:focus {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: var(--primary-light);
+            outline: none;
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
+        }
+
+        .glass-input::placeholder { color: rgba(255, 255, 255, 0.5); }
+        .glass-input option { color: #1e293b; background: white; }
+
+        .btn-premium {
+            background: var(--primary);
+            color: white;
+            font-weight: 700;
+            padding: 12px 24px;
+            border-radius: 12px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 0.9rem;
+        }
+
+        .btn-premium:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
+        }
+
+        /* Stats & Meta Cards */
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .premium-card {
+            background: var(--surface);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: var(--card-shadow);
+            border: 1px solid var(--border);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .premium-card:hover { transform: scale(1.02); }
+
+        .stat-badge {
+            width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 8px;
+        }
+
+        /* Tables */
+        .table-container {
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: var(--card-shadow);
+            margin-top: 30px;
+            border: 1px solid var(--border);
+        }
+
+        .modern-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .modern-table th {
+            background: #f8fafc;
+            padding: 16px;
+            text-align: left;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .modern-table td {
+            padding: 16px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .modern-table tr:last-child td { border: none; }
+        .modern-table tr:hover { background: #f8fafc; }
+
+        .audit-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .audit-user { font-weight: 600; color: #1e293b; }
+        .audit-time { font-size: 0.75rem; color: #94a3b8; font-family: 'JetBrains Mono', monospace; }
+
+        .chip {
+            padding: 4px 12px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .chip-day { background: #fee2e2; color: #991b1b; } /* Day shift warm */
+        .chip-night { background: #e0e7ff; color: #3730a3; } /* Night shift cool */
+
+        /* Chart Wrappers */
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .chart-grid > :first-child {
+            grid-column: span 2;
+        }
+
+        @media (max-width: 1400px) {
+            .chart-grid > :first-child { grid-column: span 1; }
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .chart-title { font-family: 'Outfit'; font-weight: 700; font-size: 1.1rem; }
+
+        @media (max-width: 1200px) {
+            .chart-grid { grid-template-columns: 1fr; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="dashboard-container">
+        
+        <!-- Header & Search -->
+        <div class="premium-header">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h1 style="font-family: 'Outfit'; font-weight: 800; font-size: 2.25rem; margin: 0; letter-spacing: -0.5px;">Job Success Summary</h1>
+                    <p style="opacity: 0.7; margin: 5px 0 0 0;">Unified Production, Quality & Efficiency Audit</p>
+                </div>
+                <div id="factory-tag" style="background: rgba(255,255,255,0.1); padding: 8px 16px; border-radius: 12px; font-weight: 600;">
+                    <i class="bi bi-building"></i> Loading Factory...
+                </div>
+            </div>
+
+            <div class="search-bar-modern">
+                <div style="flex: 1;">
+                    <label style="display: block; font-size: 0.75rem; font-weight: 700; color: rgba(255,255,255,0.6); margin-bottom: 8px; text-transform: uppercase;">Job Card / Order Number</label>
+                    <div style="position: relative;">
+                        <i class="bi bi-search" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: rgba(255,255,255,0.4);"></i>
+                        <input type="text" id="order-search" class="glass-input" style="padding-left: 42px;" placeholder="Search e.g. JR/JG/..." list="order-datalist">
+                        <datalist id="order-datalist"></datalist>
+                    </div>
+                </div>
+                <div style="flex: 1; max-width: 300px;">
+                    <label style="display: block; font-size: 0.75rem; font-weight: 700; color: rgba(255,255,255,0.6); margin-bottom: 8px; text-transform: uppercase;">Select Mould Variant</label>
+                    <select id="mould-select" class="glass-input">
+                        <option value="">-- All Active Moulds --</option>
+                    </select>
+                </div>
+                <div style="flex: 1; max-width: 200px;">
+                    <label style="display: block; font-size: 0.75rem; font-weight: 700; color: rgba(255,255,255,0.6); margin-bottom: 8px; text-transform: uppercase;">Select Date (Optional)</label>
+                    <input type="date" id="date-filter" class="glass-input">
+                </div>
+                <button class="btn-premium" onclick="fetchSummary()" style="height: 48px; min-width: 150px;">
+                    <i class="bi bi-lightning-charge-fill"></i> Analyze Job
+                </button>
+            </div>
+        </div>
+
+        <!-- Meta Grid -->
+        <div id="job-info" class="meta-grid" style="display: none;">
+            <div class="premium-card">
+                <div style="display:flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <div style="font-size: 0.8rem; color: #64748b; font-weight: 600; text-transform: uppercase;">Primary Details</div>
+                        <div id="meta-client" style="font-family: 'Outfit'; font-size: 1.4rem; font-weight: 800; margin-top: 5px;">-</div>
+                        <div id="meta-or" style="color: #94a3b8; font-weight: 500; font-size: 0.9rem;">-</div>
+                    </div>
+                    <div id="meta-status" class="chip chip-day">ACTIVE</div>
+                </div>
+                <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #f1f5f9; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div>
+                        <div style="font-size: 0.7rem; color: #94a3b8;">JC NO</div>
+                        <div id="meta-jc" style="font-weight: 700; font-size: 0.85rem;">-</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.7rem; color: #94a3b8;">PLAN DATE</div>
+                        <div id="meta-date" style="font-weight: 700; font-size: 0.85rem;">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Mini Cards -->
+            <div class="premium-card" style="display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 5px solid var(--success);">
+                <div style="font-size: 0.9rem; font-weight: 600; color: #64748b;">Good Production</div>
+                <div id="stat-good" style="font-family: 'Outfit'; font-size: 2.2rem; font-weight: 800;">0</div>
+                <div id="stat-eff" style="font-weight: 700; color: var(--success); font-size: 1rem;">0% Efficiency</div>
+            </div>
+
+            <div class="premium-card" style="display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 5px solid var(--danger);">
+                <div style="font-size: 0.9rem; font-weight: 600; color: #64748b;">Total Rejections</div>
+                <div id="stat-rej" style="font-family: 'Outfit'; font-size: 2.2rem; font-weight: 800;">0</div>
+                <div id="rej-pct" style="color: var(--danger); font-weight: 700; font-size: 0.9rem;">0% Rejection Rate</div>
+            </div>
+
+            <div class="premium-card" style="display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 5px solid var(--accent);">
+                <div style="font-size: 0.9rem; font-weight: 600; color: #64748b;">Total Downtime</div>
+                <div id="stat-down" style="font-family: 'Outfit'; font-size: 2.2rem; font-weight: 800;">0m</div>
+                <div id="stat-dt-pct" style="color: var(--accent); font-weight: 700; font-size: 0.9rem;">0m Today</div>
+            </div>
+
+            <div class="premium-card" style="display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 5px solid var(--warning);">
+                <div style="font-size: 0.9rem; font-weight: 600; color: #64748b;">RM Issued (Accepted)</div>
+                <div id="stat-rm" style="font-family: 'Outfit'; font-size: 2.2rem; font-weight: 800;">0 KG</div>
+                <div id="stat-rm-acc" style="color: var(--warning); font-weight: 700; font-size: 0.9rem;">Accepted: 0 KG</div>
+            </div>
+        </div>
+
+        <!-- Charts Grid -->
+        <div id="charts-area" class="chart-grid" style="display: none;">
+            <div class="premium-card">
+                <div class="chart-header">
+                    <div class="chart-title"><i class="bi bi-graph-up-arrow" style="color: var(--primary);"></i> Hourly Production Trend</div>
+                    <div style="font-size: 0.8rem; font-weight: 700; color: var(--primary); background: #eef2ff; padding: 4px 12px; border-radius: 8px;">LIVE PERFORMANCE</div>
+                </div>
+                <div style="height: 350px;">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+
+            <div class="premium-card">
+                <div class="chart-header">
+                    <div class="chart-title"><i class="bi bi-gear-fill" style="color: var(--accent);"></i> Downtime Audit (Min)</div>
+                </div>
+                <div style="height: 350px;">
+                    <canvas id="downtimeChart"></canvas>
+                </div>
+            </div>
+
+            <div class="premium-card">
+                <div class="chart-header">
+                    <div class="chart-title"><i class="bi bi-exclamation-triangle-fill" style="color: var(--danger);"></i> Rejection Analysis (Qty)</div>
+                </div>
+                <div style="height: 350px;">
+                    <canvas id="rejectionChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div id="shift-bar-row" style="display: none; margin-bottom: 24px;">
+             <div class="premium-card">
+                <div class="chart-header">
+                    <div class="chart-title"><i class="bi bi-calendar-range" style="color: var(--success);"></i> Daily Performance (Day vs Night)</div>
+                </div>
+                <div style="height: 350px;">
+                    <canvas id="shiftChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Raw Material Audit Log -->
+        <div id="rm-section" style="display: none; margin-bottom: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="font-family: 'Outfit'; font-weight: 700; margin: 0;"><i class="bi bi-box-seam" style="color: var(--warning);"></i> Raw Material Issuance Log</h3>
+            </div>
+            <div class="table-container">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 180px;">Timestamp</th>
+                            <th>Sender</th>
+                            <th>Line / Shift</th>
+                            <th style="text-align: right;">Weight Issued</th>
+                            <th style="text-align: right;">Accepted Weight</th>
+                            <th>Supervisor</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rm-logs-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Detailed Log Table -->
+        <div id="log-section" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="font-family: 'Outfit'; font-weight: 700; margin: 0;">Detailed Production Audit Logs</h3>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn-premium" style="padding: 8px 16px; font-size: 0.8rem;" onclick="exportLogs()">
+                        <i class="bi bi-file-earmark-spreadsheet"></i> Export CSV
+                    </button>
+                </div>
+            </div>
+            
+            <div class="table-container">
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 120px;">Date</th>
+                            <th style="width: 90px;">Shift</th>
+                            <th style="width: 100px;">Hour Slot</th>
+                            <th>Machine</th>
+                            <th>Colour</th>
+                            <th style="text-align: right;">Good Qty</th>
+                            <th style="text-align: right;">Reject</th>
+                            <th style="text-align: right;">Downtime</th>
+                            <th>Entry Audit (Who & When)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logs-body">
+                        <!-- Dynamic content -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Details Modal -->
+        <div id="info-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 9999; padding: 20px;">
+            <div style="background: white; border-radius: 20px; padding: 24px; width: 100%; max-width: 500px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h3 id="modal-title" style="margin: 0; font-family: 'Outfit'; font-weight: 700;">Breakdown Details</h3>
+                    <button onclick="document.getElementById('info-modal').style.display='none'" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #94a3b8;">&times;</button>
+                </div>
+                <div id="modal-content" style="max-height: 300px; overflow-y: auto;">
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- UI Overlay -->
+    <div id="loading" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 9999;">
+        <div style="text-align: center; color: white;">
+            <div class="spinner" style="width: 60px; height: 60px; border: 6px solid rgba(255,255,255,0.1); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+            <p style="margin-top: 20px; font-family: 'Outfit'; font-weight: 600; font-size: 1.2rem; letter-spacing: 1px;">Synchronizing Data...</p>
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        let charts = {};
+        let currentLogs = [];
+        let globalReasonMap = { DOWNTIME: {}, REJECTION: {} };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.renderShell();
+            initSearch();
+            const fname = localStorage.getItem('jpsms_factory_name') || 'Main Factory';
+            document.getElementById('factory-tag').innerHTML = `<i class="bi bi-building"></i> ${fname}`;
+        });
+
+        async function initSearch() {
+            try {
+                const res = await JPSMS.api.get('/planning/element-view');
+                if (res.ok && res.data) {
+                    const list = document.getElementById('order-datalist');
+                    res.data.forEach(item => {
+                        let op = document.createElement('option');
+                        op.value = item.or_jr_no;
+                        list.appendChild(op);
+                    });
+                }
+            } catch (err) { console.error('Search init failed', err); }
+
+            document.getElementById('order-search').addEventListener('change', async (e) => {
+                const val = e.target.value.trim();
+                if (val) populateMoulds(val);
+            });
+        }
+
+        async function populateMoulds(orderNo) {
+            const select = document.getElementById('mould-select');
+            select.innerHTML = '<option value="">-- All Active Moulds --</option>';
+            try {
+                const res = await JPSMS.api.get(`/planning/element-view/details?or_jr_no=${encodeURIComponent(orderNo)}`);
+                if (res.ok && res.moulds) {
+                    res.moulds.forEach(m => {
+                        let op = document.createElement('option');
+                        // Prioritize mould_name to distinguish between variants with same mould_no
+                        op.value = m.mould_name || m.mould_no;
+                        op.textContent = m.mould_no ? `${m.mould_no} - ${m.mould_name}` : m.mould_name;
+                        select.appendChild(op);
+                    });
+                }
+            } catch (err) { }
+        }
+
+        function toggleLoader(show) {
+            document.getElementById('loading').style.display = show ? 'flex' : 'none';
+        }
+
+        async function fetchSummary() {
+            const orderNo = document.getElementById('order-search').value.trim();
+            const mouldNo = document.getElementById('mould-select').value;
+            const dateFilter = document.getElementById('date-filter').value;
+            if (!orderNo) return JPSMS.toast('Order No is required', 'warning');
+
+            toggleLoader(true);
+            try {
+                let url = `/dpr/job-summary?orderNo=${encodeURIComponent(orderNo)}`;
+                if (mouldNo) url += `&mouldNo=${encodeURIComponent(mouldNo)}`;
+                if (dateFilter) url += `&date=${encodeURIComponent(dateFilter)}`;
+                const res = await JPSMS.api.get(url);
+                if (res.ok) {
+                    renderDashboard(res.data);
+                } else {
+                    JPSMS.toast(res.error || 'Failed to fetch', 'error');
+                }
+            } catch (err) {
+                console.error(err);
+                JPSMS.toast('Error communicating with server', 'error');
+            } finally {
+                toggleLoader(false);
+            }
+        }
+
+        function renderDashboard(data) {
+            // Show UI Elements
+            ['job-info', 'charts-area', 'shift-bar-row', 'rm-section', 'log-section'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                if (id === 'job-info') el.style.display = 'grid';
+                else if (id === 'log-section' || id === 'rm-section') el.style.display = 'block';
+                else el.style.display = 'grid';
+            });
+
+            // Metadata
+            const m = data.metadata;
+            document.getElementById('meta-client').innerText = m.clientName || 'N/A';
+            document.getElementById('meta-or').innerText = m.orderNo;
+            document.getElementById('meta-jc').innerText = m.jcNo;
+            document.getElementById('meta-date').innerText = m.planDate ? new Date(m.planDate).toLocaleDateString('en-GB') : 'N/A';
+            
+            const status = document.getElementById('meta-status');
+            status.innerText = m.isClosed === 'Yes' ? 'CLOSED' : 'ACTIVE';
+            status.className = 'chip ' + (m.isClosed === 'Yes' ? 'chip-day' : 'chip-night');
+
+            // Store reason map globally
+            if (data.reasonMap) globalReasonMap = data.reasonMap;
+
+            // Stats
+            document.getElementById('stat-good').innerText = data.stats.totalGood.toLocaleString();
+            document.getElementById('stat-rej').innerText = data.stats.totalReject.toLocaleString();
+            document.getElementById('stat-down').innerText = data.stats.totalDowntime + 'm';
+            document.getElementById('stat-eff').innerText = data.stats.efficiency + '% Efficiency';
+            
+            const rejRate = (data.stats.totalGood + data.stats.totalReject) > 0 
+                ? ((data.stats.totalReject / (data.stats.totalGood + data.stats.totalReject)) * 100).toFixed(1) 
+                : 0;
+            document.getElementById('rej-pct').innerText = `${rejRate}% Rejection Rate`;
+
+            // RM Stats
+            if (data.rawMaterials) {
+                document.getElementById('stat-rm').innerText = `${data.rawMaterials.totalIssued.toLocaleString()} KG`;
+                document.getElementById('stat-rm-acc').innerText = `Accepted: ${data.rawMaterials.totalAccepted.toLocaleString()} KG`;
+                renderRMLogs(data.rawMaterials.logs);
+            }
+
+            // Charts
+            const selectedDate = document.getElementById('date-filter').value;
+            renderTrendChart(data.trends.hourly, m.isClosed, selectedDate);
+            renderDowntimeChart(data.downtimeBreakdown);
+            renderRejectionChart(data.rejectionBreakdown);
+            renderShiftChart(data.trends.daily);
+
+            // Table Logs
+            currentLogs = data.logs;
+            renderLogsTable(data.logs);
+        }
+
+        function renderRMLogs(logs) {
+            const body = document.getElementById('rm-logs-body');
+            if (!logs || logs.length === 0) {
+                body.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #94a3b8; padding: 30px;">No raw material records found for this order</td></tr>';
+                return;
+            }
+            body.innerHTML = logs.map(l => `
+                <tr>
+                    <td><div class="audit-time">${new Date(l.created_at).toLocaleString()}</div></td>
+                    <td><div class="audit-user">${l.sender_name}</div></td>
+                    <td><div class="chip ${l.shift === 'Shift A' ? 'chip-day' : 'chip-night'}">${l.shift}</div> ${l.line || ''}</td>
+                    <td style="text-align: right; font-weight: 700;">${l.bag_qty} Bags / ${l.total_weight} KG</td>
+                    <td style="text-align: right; font-weight: 700; color: var(--success);">${l.accepted_weight || 0} KG</td>
+                    <td><div class="audit-user">${l.accepted_by || '-'}</div></td>
+                </tr>
+            `).join('');
+        }
+
+        function getHourStart(dateStr, shift, slot) {
+            let hr = parseInt(slot.split('-')[0], 10);
+            let d = new Date(dateStr);
+            if (shift === 'Night' && hr < 8) d.setDate(d.getDate() + 1);
+            d.setHours(hr, 0, 0, 0);
+            return d.getTime();
+        }
+
+        function renderTrendChart(hourlyData, isClosed, selectedDate) {
+            if (charts.trend) charts.trend.destroy();
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            
+            // Reconstruct continuous 'Till Now' hourly array
+            let labels = [];
+            let dataPoints = [];
+
+             if (hourlyData && hourlyData.length > 0) {
+                // Determine true timestamps
+                let entries = hourlyData.map(h => {
+                    return { ...h, time: getHourStart(h.rawDate, h.shift, h.rawSlot) };
+                }).sort((a,b) => a.time - b.time);
+
+                let minTime, maxTime;
+
+                if (selectedDate) {
+                    // For single day view, show the full day (or until now if today)
+                    minTime = new Date(selectedDate).setHours(8, 0, 0, 0); // Day shift start
+                    maxTime = new Date(selectedDate);
+                    maxTime.setDate(maxTime.getDate() + 1);
+                    maxTime.setHours(7, 0, 0, 0); // Next day morning 7 AM (End of Night shift)
+
+                    // If selected date is today, cap at current hour
+                    let today = new Date().toISOString().split('T')[0];
+                    if (selectedDate === today) {
+                        let now = new Date();
+                        now.setMinutes(0,0,0);
+                        if (now.getTime() < maxTime) maxTime = now.getTime();
+                    }
+                } else {
+                    minTime = entries[0].time;
+                    maxTime = entries[entries.length - 1].time;
+                    
+                    // Show "Till Now" if job is active
+                    if (isClosed !== 'Yes') {
+                        let now = new Date();
+                        now.setMinutes(0,0,0);
+                        if (now.getTime() > maxTime) maxTime = now.getTime();
+                    }
+
+                    // Prevent browser freeze for extraordinarily old zombie jobs (cap at 60 days)
+                    if (maxTime - minTime > 60 * 24 * 3600000) {
+                        minTime = maxTime - 60 * 24 * 3600000;
+                    }
+                }
+
+                let entryMap = {};
+                entries.forEach(e => { entryMap[e.time] = e.qty; });
+
+                for(let t = minTime; t <= maxTime; t += 3600000) {
+                    let d = new Date(t);
+                    let label;
+                    let hh24 = d.getHours();
+                    let hhNext24 = (hh24 + 1) % 24;
+                    
+                    let hh12 = hh24 % 12;
+                    if (hh12 === 0) hh12 = 12;
+                    let hhNext12 = hhNext24 % 12;
+                    if (hhNext12 === 0) hhNext12 = 12;
+                    
+                    let slotStr = `${hh12.toString().padStart(2,'0')}-${hhNext12.toString().padStart(2,'0')}`;
+
+                    if (selectedDate) {
+                        label = slotStr;
+                    } else {
+                        label = `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')} ${slotStr}`;
+                    }
+                    labels.push(label);
+                    dataPoints.push(entryMap[t] || 0);
+                }
+            }
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, 'rgba(16, 185, 129, 0.3)'); // Changed to Green for Good Qty
+            gradient.addColorStop(1, 'rgba(16, 185, 129, 0)');
+
+            charts.trend = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Good Quantity',
+                        data: dataPoints,
+                        borderColor: '#10b981', // Green
+                        borderWidth: 4,
+                        fill: true,
+                        backgroundColor: gradient,
+                        tension: 0.2, // Smoother perfect look
+                        pointRadius: 4,
+                        pointBackgroundColor: '#fff',
+                        pointBorderColor: '#10b981',
+                        pointBorderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+                        x: { 
+                            grid: { display: false }, 
+                            ticks: { 
+                                font: { size: 10 },
+                                maxTicksLimit: 20 // Prevents unreadable overlap if many hours
+                            } 
+                        }
+                    },
+                    interaction: { intersect: false, mode: 'index' }
+                }
+            });
+        }
+
+        function renderDowntimeChart(breakdown) {
+            if (charts.downtime) charts.downtime.destroy();
+            const ctx = document.getElementById('downtimeChart').getContext('2d');
+            
+            const entries = Object.entries(breakdown || {}).sort((a,b) => b[1] - a[1]);
+            const labels = entries.slice(0, 10).map(e => e[0]);
+            const values = entries.slice(0, 10).map(e => e[1]);
+
+            if (entries.length > 10) {
+                labels.push('Others');
+                values.push(entries.slice(10).reduce((acc, e) => acc + e[1], 0));
+            }
+
+            if(labels.length === 0) {
+                labels.push("No Downtime");
+                values.push(0);
+            }
+
+            charts.downtime = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: ['#6366f1', '#f59e0b', '#ef4444', '#10b981', '#ec4899', '#8b5cf6', '#3b82f6', '#06b6d4', '#475569', '#94a3b8'],
+                        borderWidth: 4,
+                        borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10, weight: 'bold' } } }
+                    },
+                    cutout: '70%'
+                }
+            });
+        }
+
+        function renderRejectionChart(breakdown) {
+            if (charts.rejection) charts.rejection.destroy();
+            const ctx = document.getElementById('rejectionChart').getContext('2d');
+            
+            const entries = Object.entries(breakdown || {}).sort((a,b) => b[1] - a[1]);
+            const labels = entries.slice(0, 10).map(e => e[0]);
+            const values = entries.slice(0, 10).map(e => e[1]);
+
+            if (entries.length > 10) {
+                labels.push('Others');
+                values.push(entries.slice(10).reduce((acc, e) => acc + e[1], 0));
+            }
+
+            if(labels.length === 0) {
+                labels.push("No Rejection");
+                values.push(0);
+            }
+
+            charts.rejection = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: ['#ef4444', '#f97316', '#f59e0b', '#10b981', '#06b6d4', '#6366f1', '#8b5cf6', '#ec4899', '#475569', '#94a3b8'],
+                        borderWidth: 4,
+                        borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10, weight: 'bold' } } }
+                    }
+                }
+            });
+        }
+
+        function renderShiftChart(dailyTrend) {
+            if (charts.shift) charts.shift.destroy();
+            const labels = Object.keys(dailyTrend);
+            const ctx = document.getElementById('shiftChart').getContext('2d');
+            
+            charts.shift = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Good Qty', data: labels.map(l => dailyTrend[l].good), backgroundColor: '#10b981', borderRadius: 4 }, // Green
+                        { label: 'Rejects', data: labels.map(l => dailyTrend[l].reject), backgroundColor: '#ef4444', borderRadius: 4 }  // Red
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { stacked: false, grid: { display: false } }, // Unstacked Side By Side
+                        y: { stacked: false, grid: { color: '#f1f5f9' }, beginAtZero: true }
+                    }
+                }
+            });
+        }
+
+        window.showBreakdown = function(title, jsonStr, type) {
+            document.getElementById('modal-title').innerText = title;
+            const content = document.getElementById('modal-content');
+            content.innerHTML = '';
+            
+            try {
+                let data = JSON.parse(decodeURIComponent(jsonStr));
+                if (!data || Object.keys(data).length === 0) {
+                    content.innerHTML = '<div style="color: #64748b; padding: 10px;">No details provided.</div>';
+                } else {
+                    let html = '<table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">';
+                    html += '<tr style="border-bottom: 1px solid #e2e8f0;"><th style="text-align:left; padding: 10px; color:#64748b;">Reason</th><th style="text-align:right; padding: 10px; color:#64748b;">Value</th></tr>';
+                    Object.entries(data).forEach(([code, val]) => {
+                        const name = (type && globalReasonMap[type]) ? (globalReasonMap[type][code] || `Other (${code})`) : code;
+                        html += `<tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 10px;">${name}</td><td style="text-align:right; padding: 10px; font-weight: bold;">${val}</td></tr>`;
+                    });
+                    html += '</table>';
+                    content.innerHTML = html;
+                }
+            } catch(e) {
+                content.innerHTML = '<div style="color: #ef4444; padding: 10px;">Error parsing details.</div>';
+            }
+            document.getElementById('info-modal').style.display = 'flex';
+        }
+
+        function renderLogsTable(logs) {
+            const body = document.getElementById('logs-body');
+            body.innerHTML = '';
+            
+            let tGood = 0, tRej = 0, tDown = 0;
+
+            // Latest first for table
+            [...logs].reverse().forEach(row => {
+                const dt = new Date(row.dpr_date);
+                const entryTime = row.created_at ? new Date(row.created_at).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
+                
+                tGood += Number(row.good_qty || 0);
+                tRej += Number(row.reject_qty || 0);
+                tDown += Number(row.downtime_min || 0);
+
+                const rejStr = row.reject_breakup ? encodeURIComponent(JSON.stringify(row.reject_breakup)) : '%7B%7D';
+                const downStr = row.downtime_breakup ? encodeURIComponent(JSON.stringify(row.downtime_breakup)) : '%7B%7D';
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-weight: 700;">${dt.toLocaleDateString('en-GB')}</td>
+                    <td><span class="chip ${row.shift === 'Day' ? 'chip-day' : 'chip-night'}">${row.shift}</span></td>
+                    <td style="font-family: 'JetBrains Mono'; font-size: 0.8rem;">${row.hour_slot}</td>
+                    <td style="font-size: 0.85rem; font-weight: 600; color: #475569;">${row.machine || '-'}</td>
+                    <td>${row.colour || '-'}</td>
+                    <td style="text-align: right; font-weight: 700; color: #10b981;">${row.good_qty.toLocaleString()}</td>
+                    <td style="text-align: right; color: var(--danger); cursor: pointer; text-decoration: underline;" onclick="showBreakdown('Rejection Breakdown', '${rejStr}', 'REJECTION')" title="Click for reason">${row.reject_qty.toLocaleString()}</td>
+                    <td style="text-align: right; font-weight: 600; cursor: pointer; text-decoration: underline;" onclick="showBreakdown('Downtime Breakdown', '${downStr}', 'DOWNTIME')" title="Click for reason">${row.downtime_min}m</td>
+                    <td>
+                        <div class="audit-info">
+                            <span class="audit-user"><i class="bi bi-person-fill"></i> ${row.created_by || 'Auto-Sync'}</span>
+                            <span class="audit-time"><i class="bi bi-clock"></i> Captured at ${entryTime}</span>
+                        </div>
+                    </td>
+                `;
+                body.appendChild(tr);
+            });
+
+            // Add total footer
+            if (logs.length > 0) {
+                const trFoot = document.createElement('tr');
+                trFoot.style.backgroundColor = '#f8fafc';
+                trFoot.innerHTML = `
+                    <td colspan="5" style="text-align: right; font-weight: 800; text-transform: uppercase;">Total Of All Entries</td>
+                    <td style="text-align: right; font-weight: 800; color: #10b981; font-size: 1.1rem;">${tGood.toLocaleString()}</td>
+                    <td style="text-align: right; font-weight: 800; color: #ef4444; font-size: 1.1rem;">${tRej.toLocaleString()}</td>
+                    <td style="text-align: right; font-weight: 800; font-size: 1.1rem;">${tDown}m</td>
+                    <td></td>
+                `;
+                body.appendChild(trFoot);
+            }
+        }
+
+        function exportLogs() {
+            if(!currentLogs.length) return;
+            const headers = ['Date', 'Shift', 'Hour', 'Machine', 'Colour', 'Good', 'Reject', 'Downtime', 'User', 'Timestamp'];
+            const rows = currentLogs.map(r => [
+                new Date(r.dpr_date).toLocaleDateString('en-GB'),
+                r.shift,
+                r.hour_slot,
+                r.machine ? `"${r.machine}"` : '-',
+                r.colour,
+                r.good_qty,
+                r.reject_qty,
+                r.downtime_min,
+                r.created_by,
+                r.created_at
+            ]);
+            
+            let csvContent = "data:text/csv;charset=utf-8," 
+                + headers.join(",") + "\n"
+                + rows.map(e => e.join(",")).join("\n");
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `Job_Audit_${new Date().getTime()}.csv`);
+            document.body.appendChild(link);
+            link.click();
+        }
+
+    </script>
+</body>
+</html>

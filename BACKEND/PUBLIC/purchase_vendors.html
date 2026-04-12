@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JMS OCEAN - Vendor Master</title>
+    <!-- PWA Meta -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1e293b">
+    <link rel="stylesheet" href="/assets/app.css?v=5">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title">Vendor Master</div>
+            <button class="btn btn-primary" id="btnAddUser" onclick="openModal()">+ Add Vendor</button>
+        </div>
+
+        <div class="card">
+            <table id="vendorTable">
+                <thead>
+                    <tr>
+                        <th>Vendor Name</th>
+                        <th>Contact / Mobile</th>
+                        <th>GST / PAN</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Vendor Modal -->
+    <div class="modal-overlay" id="vendorModal">
+        <div class="modal-content" style="max-width:600px">
+            <h3 style="margin-top:0">Add/Edit Vendor</h3>
+            <input type="hidden" id="v_id">
+
+            <div class="form-group">
+                <label class="form-label">Vendor Name *</label>
+                <input id="v_name" class="form-control">
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px">
+                <div class="form-group">
+                    <label class="form-label">GST No</label>
+                    <input id="v_gst" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">PAN No</label>
+                    <input id="v_pan" class="form-control">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Address</label>
+                <textarea id="v_addr" class="form-control" rows="2"></textarea>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px">
+                <div class="form-group">
+                    <label class="form-label">Contact Person</label>
+                    <input id="v_contact" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Mobile</label>
+                    <input id="v_mobile" class="form-control">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input id="v_email" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Factory Access</label>
+                <div id="factoryChecks"
+                    style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; max-height:100px; overflow-y:auto; border:1px solid #e5e7eb; padding:8px; border-radius:6px">
+                    <!-- Dynamic -->
+                </div>
+            </div>
+
+            <div class="form-group" style="display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="v_active" checked style="width:18px; height:18px">
+                <label for="v_active" style="font-weight:600; cursor:pointer">Active</label>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px">
+                <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveVendor()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('purch_vendors');
+            loadVendors();
+            loadFactories();
+        });
+
+        async function loadVendors() {
+            const tbody = document.querySelector('#vendorTable tbody');
+            tbody.innerHTML = '<tr><td>Loading...</td></tr>';
+            try {
+                const res = await JPSMS.api.get('/vendor/admin/list');
+                const rows = res.data || [];
+                tbody.innerHTML = rows.map(v => `
+                  <tr>
+                    <td>
+                        <div style="font-weight:600">${v.vendor_name}</div>
+                        <div style="font-size:0.8rem; opacity:0.7">${v.address || ''}</div>
+                    </td>
+                    <td>
+                        <div>${v.contact_person || '-'}</div>
+                        <div style="font-size:0.8rem">${v.mobile || '-'}</div>
+                    </td>
+                    <td>
+                         <div>${v.gst_no || '-'}</div>
+                         <div style="font-size:0.8rem">${v.pan_no || '-'}</div>
+                    </td>
+                    <td>
+                        <span class="badge" style="background:${v.is_active ? '#22c55e' : '#ef4444'}">
+                            ${v.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-outline" onclick='editVendor(${JSON.stringify(v).replace(/'/g, "&#39;")})'>Edit</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteVendor(${v.id})" style="background:#ef4444; color:white; border:none">Del</button>
+                    </td>
+                  </tr>
+                `).join('');
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="5">Error loading vendors</td></tr>';
+                console.error(e);
+            }
+        }
+
+        async function loadFactories() {
+            const div = document.getElementById('factoryChecks');
+            div.innerHTML = 'Loading...';
+            try {
+                const res = await JPSMS.api.get('/factories');
+                const list = res.data || [];
+                div.innerHTML = list.map(f => `
+                    <div style="display:flex; align-items:center; gap:5px">
+                        <input type="checkbox" value="${f.id}" class="factory-chk" id="fc_${f.id}">
+                        <label for="fc_${f.id}" style="font-size:0.9rem; cursor:pointer">${f.name}</label>
+                    </div>
+                `).join('');
+            } catch (e) {
+                div.innerHTML = 'Error loading factories';
+            }
+        }
+
+        function openModal() {
+            document.getElementById('vendorModal').style.display = 'flex';
+            document.getElementById('v_id').value = '';
+            document.getElementById('v_name').value = '';
+            document.getElementById('v_gst').value = '';
+            document.getElementById('v_pan').value = '';
+            document.getElementById('v_addr').value = '';
+            document.getElementById('v_contact').value = '';
+            document.getElementById('v_mobile').value = '';
+            document.getElementById('v_email').value = '';
+            document.getElementById('v_active').checked = true;
+            document.querySelectorAll('.factory-chk').forEach(c => c.checked = false);
+        }
+
+        function editVendor(v) {
+            document.getElementById('vendorModal').style.display = 'flex';
+            document.getElementById('v_id').value = v.id;
+            document.getElementById('v_name').value = v.vendor_name;
+            document.getElementById('v_gst').value = v.gst_no || '';
+            document.getElementById('v_pan').value = v.pan_no || '';
+            document.getElementById('v_addr').value = v.address || '';
+            document.getElementById('v_contact').value = v.contact_person || '';
+            document.getElementById('v_mobile').value = v.mobile || '';
+            document.getElementById('v_email').value = v.email || '';
+            document.getElementById('v_active').checked = v.is_active;
+
+            // Factories
+            const access = v.factory_access || [];
+            document.querySelectorAll('.factory-chk').forEach(c => {
+                c.checked = access.includes(parseInt(c.value));
+            });
+        }
+
+        function closeModal() {
+            document.getElementById('vendorModal').style.display = 'none';
+        }
+
+        async function saveVendor() {
+            const v = {
+                id: document.getElementById('v_id').value || null,
+                vendor_name: document.getElementById('v_name').value,
+                gst_no: document.getElementById('v_gst').value,
+                pan_no: document.getElementById('v_pan').value,
+                address: document.getElementById('v_addr').value,
+                contact_person: document.getElementById('v_contact').value,
+                mobile: document.getElementById('v_mobile').value,
+                email: document.getElementById('v_email').value,
+                is_active: document.getElementById('v_active').checked,
+                factory_access: Array.from(document.querySelectorAll('.factory-chk:checked')).map(c => parseInt(c.value))
+            };
+
+            if (!v.vendor_name) return JPSMS.toast('Vendor Name required', 'error');
+
+            try {
+                await JPSMS.api.post('/vendor/admin/save', v);
+                JPSMS.toast('Vendor saved');
+                closeModal();
+                loadVendors();
+            } catch (e) {
+                JPSMS.toast(e.message, 'error');
+            }
+        }
+
+        async function deleteVendor(id) {
+            if (!confirm('Delete this vendor?')) return;
+            try {
+                await JPSMS.api.post('/vendor/admin/delete', { id });
+                JPSMS.toast('Vendor deleted');
+                loadVendors();
+            } catch (e) {
+                JPSMS.toast(e.message, 'error');
+            }
+        }
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>JMS OCEAN – Approvals</title>
+    <style>
+        :root {
+            --bg: #f3f6ff;
+            --ink: #0b2a55;
+            --muted: #6b7f9e;
+            --card: #ffffff;
+            --line: #dfe7fb;
+            --accent: #1f5eff;
+            --ok: #2e7d32;
+            --err: #c62828;
+            --warn: #b26a00;
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        body {
+            margin: 0;
+            background: radial-gradient(circle at top, #e6eeff 0, #f6f9ff 40%, #eef2ff 100%);
+            color: var(--ink);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 15px;
+            line-height: 1.4;
+        }
+
+        .shell {
+            width: min(100vw, 520px);
+            margin: 0 auto;
+            padding: 12px;
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 14px;
+            margin-bottom: 12px;
+            box-shadow: 0 8px 26px rgba(15, 40, 112, 0.15);
+        }
+
+        .hidden {
+            display: none !important
+        }
+
+        /* Inputs & Buttons */
+        button {
+            cursor: pointer;
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--ink);
+            border-radius: 12px;
+            padding: 10px;
+            font-weight: 600;
+            width: 100%;
+            touch-action: manipulation;
+            font-size: 14px;
+            box-shadow: 0 4px 10px rgba(10, 33, 95, 0.08);
+        }
+
+        button.primary {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+
+        button.small {
+            padding: 6px 12px;
+            font-size: 13px;
+            width: auto;
+            box-shadow: none;
+        }
+
+        button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        select,
+        input,
+        textarea {
+            width: 100%;
+            padding: 9px 10px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: #fff;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        textarea {
+            resize: vertical;
+        }
+
+        /* Lists */
+        .job {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px;
+            margin-bottom: 8px;
+            transition: background .15s ease, box-shadow .15s ease, transform .1s ease;
+        }
+
+        .job:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 18px rgba(12, 38, 110, 0.16);
+        }
+
+        .kv {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px dashed var(--line);
+            padding: 6px 0;
+            font-size: 13px;
+        }
+
+        .kv:last-child {
+            border-bottom: none;
+        }
+
+        .muted {
+            color: var(--muted);
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: #ecf1ff;
+            border: 1px solid #d3defc;
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        /* Modal Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            margin-top: 8px;
+            border: 1px solid var(--line);
+        }
+
+        th {
+            text-align: left;
+            background: #f4f7ff;
+            color: var(--ink);
+            padding: 6px;
+            font-weight: 600;
+        }
+
+        td {
+            padding: 6px;
+            border-top: 1px solid var(--line);
+        }
+
+        tr:last-child td {
+            font-weight: bold;
+            background: #fafafa;
+        }
+
+        /* REVIEW MODAL */
+        #modal-review {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%;
+            max-width: 420px;
+            z-index: 120;
+            max-height: 90vh;
+            overflow: auto;
+            box-shadow: 0 0 35px rgba(0, 0, 0, 0.5);
+            background: var(--card);
+        }
+
+        /* GLOBAL LOADING OVERLAY */
+        #loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(5, 14, 40, 0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 110;
+            -webkit-backdrop-filter: blur(2px);
+            backdrop-filter: blur(2px);
+        }
+
+        #loading-overlay.hidden {
+            display: none !important;
+        }
+
+        .loading-box {
+            background: var(--card);
+            border-radius: 14px;
+            padding: 12px 16px;
+            border: 1px solid var(--line);
+            box-shadow: 0 8px 24px rgba(9, 27, 82, 0.35);
+            min-width: 220px;
+        }
+
+        .loading-label {
+            font-size: 13px;
+            margin-bottom: 8px;
+            color: var(--muted);
+        }
+
+        .loading-bar {
+            width: 100%;
+            height: 6px;
+            border-radius: 999px;
+            background: #d7e4ff33;
+            overflow: hidden;
+        }
+
+        .loading-bar-inner {
+            height: 100%;
+            width: 40%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #1f5eff, #66a1ff);
+            animation: loadingSlide 1.2s infinite;
+        }
+
+        @keyframes loadingSlide {
+            0% {
+                transform: translateX(-100%);
+            }
+
+            50% {
+                transform: translateX(20%);
+            }
+
+            100% {
+                transform: translateX(120%);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- GLOBAL LOADING OVERLAY -->
+    <div id="loading-overlay" class="hidden" aria-hidden="true">
+        <div class="loading-box">
+            <div class="loading-label">Processing…</div>
+            <div class="loading-bar">
+                <div class="loading-bar-inner"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOGIN -->
+    <div id="view-login" class="shell">
+        <div class="card" style="text-align:center;margin-top:40px">
+            <h2 style="margin:0 0 6px">Approvals</h2>
+            <div class="muted" style="margin-bottom:12px">Manager Dashboard</div>
+            <input id="u" placeholder="Username" autocomplete="username">
+            <input id="p" type="password" placeholder="Password" autocomplete="current-password">
+            <button class="primary" onclick="doLogin()">Login</button>
+            <div id="msg" style="margin-top:10px;color:#c62828;font-size:13px"></div>
+        </div>
+    </div>
+
+    <!-- APP -->
+    <div id="view-app" class="hidden shell">
+        <div class="card">
+            <div
+                style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px">
+                <div class="pill">User: <span id="user-display" style="font-weight:600"></span></div>
+                <a href="#" onclick="logout();return false;"
+                    style="color:#c62828;text-decoration:none;font-size:12px">Logout</a>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <h3 style="margin:0">Pending Approvals</h3>
+                <button class="small" onclick="loadData()">Refresh</button>
+            </div>
+
+            <div id="filter-container" style="display:grid;gap:8px;margin-bottom:10px;grid-template-columns:1fr">
+                <select id="f-line" onchange="loadData()">
+                    <option value="">All Lines</option>
+                    <option>B- L1</option>
+                    <option>B- L2</option>
+                    <option>B- L3</option>
+                    <option>B- L4</option>
+                    <option>C- L1</option>
+                    <option>C- L2</option>
+                    <option>C- L3</option>
+                    <option>C- L4</option>
+                    <option>E- L1</option>
+                    <option>F- L1</option>
+                    <option>E- L2</option>
+                </select>
+            </div>
+
+            <div id="list-container"></div>
+        </div>
+    </div>
+
+    <!-- REVIEW MODAL -->
+    <div id="modal-review" class="card hidden">
+        <h3 style="margin-top:0">Review Job</h3>
+        <div id="rev-content"></div>
+        <div style="margin-top:12px">
+            <label style="font-size:12px;font-weight:600">Action Remarks</label>
+            <textarea id="rev-notes" placeholder="Approval/Rejection Remarks..." rows="2"></textarea>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:5px">
+            <button class="primary" style="background:var(--ok);border-color:var(--ok)"
+                onclick="submitReview('APPROVE')">Approve & Close</button>
+            <button class="primary" style="background:var(--err);border-color:var(--err)"
+                onclick="submitReview('REJECT')">Reject (Re-Run)</button>
+        </div>
+        <button style="margin-top:10px;background:#f1f1f5;color:#333;border-color:#ddd"
+            onclick="el('modal-review').classList.add('hidden')">Cancel</button>
+    </div>
+
+    <script>
+        'use strict';
+        const el = id => document.getElementById(id);
+        let session = null;
+        let reviewId = null;
+
+        /* LOADING */
+        function showLoading() { el('loading-overlay').classList.remove('hidden'); }
+        function hideLoading() { el('loading-overlay').classList.add('hidden'); }
+
+        /* AUTH */
+        async function doLogin() {
+            const username = el('u').value.trim();
+            const password = el('p').value;
+            if (!username || !password) return;
+
+            el('msg').textContent = 'Verifying...';
+            showLoading();
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const d = await res.json();
+                hideLoading();
+
+                if (d.ok) {
+                    session = d.data;
+                    // Verify permissions? For now assume valid login is enough to view
+                    localStorage.setItem('adm_sess', JSON.stringify(session));
+                    initApp();
+                } else {
+                    el('msg').textContent = d.error || 'Login failed';
+                }
+            } catch (e) {
+                hideLoading();
+                el('msg').textContent = 'Network error';
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('adm_sess');
+            location.reload();
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            let s = null;
+            try { s = localStorage.getItem('adm_sess'); } catch (_) { }
+            if (s) {
+                try { session = JSON.parse(s); } catch (_) { }
+            }
+            if (session) initApp();
+        });
+
+        function initApp() {
+            el('view-login').classList.add('hidden');
+            el('view-app').classList.remove('hidden');
+            el('user-display').textContent = session.username || '';
+            loadData();
+        }
+
+        /* DATA */
+        async function loadData() {
+            const ln = el('f-line').value;
+            const div = el('list-container');
+            div.innerHTML = '<div style="text-align:center;padding:20px;color:grey">Loading...</div>';
+
+            try {
+                const res = await fetch(`/api/approvals/pending?line=${encodeURIComponent(ln)}`);
+                const d = await res.json();
+
+                if (d.ok) {
+                    const list = d.items || [];
+                    if (!list.length) {
+                        div.innerHTML = '<div style="text-align:center;padding:20px;color:grey">No pending approvals.</div>';
+                        return;
+                    }
+
+                    let html = '';
+                    list.forEach(it => {
+                        html += `
+               <div class="job">
+                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                   <b style="font-size:15px">${it.OrderNo}</b> 
+                   <button class="small" onclick="openReview('${it.ApprovalID}')">Review</button>
+                 </div>
+                 <div class="kv"><span class="muted">Machine</span><span>${it.Machine}</span></div>
+                 <div class="kv"><span class="muted">Line</span><span>${it.Line}</span></div>
+                 <div class="kv"><span class="muted">Submitted By</span><span>${it.SubmittedBy}</span></div>
+                 <div class="kv"><span class="muted">At</span><span>${it.SubmittedAt}</span></div>
+               </div>
+              `;
+                    });
+                    div.innerHTML = html;
+                } else {
+                    div.innerHTML = `<span style="color:red">${d.error}</span>`;
+                }
+            } catch (e) {
+                div.innerHTML = `<span style="color:red">Error loading data</span>`;
+                console.error(e);
+            }
+        }
+
+        /* REVIEW */
+        async function openReview(id) {
+            reviewId = id;
+            el('modal-review').classList.remove('hidden');
+            el('rev-content').innerHTML = 'Loading details...';
+            el('rev-notes').value = '';
+
+            try {
+                const res = await fetch(`/api/approvals/item/${id}`);
+                const d = await res.json();
+
+                if (d.ok) {
+                    const it = d.item;
+                    const cols = d.colours || [];
+
+                    let tableHtml = '';
+                    if (cols.length > 0) {
+                        const rows = cols.map(c => `<tr><td>${c.name}</td><td>${c.plan}</td><td>${c.bal}</td></tr>`).join('');
+                        tableHtml = `<table><tr><th>Colour</th><th>Plan (JC)</th><th>Produced</th></tr>${rows}
+                    <tr><td><b>Total</b></td><td>0</td><td><b>${d.totals.bal}</b></td></tr>
+                </table>`;
+                    } else {
+                        tableHtml = '<div style="font-style:italic;color:grey;margin-top:10px;font-size:13px">No colour details.</div>';
+                    }
+
+                    el('rev-content').innerHTML = `
+                <div class="kv"><span class="muted">Order No</span><span>${it.OrderNo}</span></div>
+                <div class="kv"><span class="muted">Job Card</span><span>${it.JobCardNo}</span></div>
+                <div class="kv"><span class="muted">Mould</span><span>${it.MouldName}</span></div>
+                <div class="kv"><span class="muted">Client</span><span>${it.Client}</span></div>
+                <div class="kv"><span class="muted">Line/Mach</span><span>${it.Line} / ${it.Machine}</span></div>
+                ${tableHtml}
+            `;
+                } else {
+                    el('rev-content').textContent = d.error || 'Error';
+                }
+            } catch (e) { el('rev-content').textContent = String(e); }
+        }
+
+        async function submitReview(action) {
+            if (!reviewId) return;
+            const notes = el('rev-notes').value;
+
+            if (!confirm(`Confirm ${action}?`)) return;
+
+            showLoading();
+            try {
+                const res = await fetch('/api/approvals/review', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: reviewId, action, notes, username: session.username })
+                });
+                const d = await res.json();
+                hideLoading();
+
+                if (d.ok) {
+                    el('modal-review').classList.add('hidden');
+                    loadData(); // Refresh list
+                } else {
+                    alert('Error: ' + d.error);
+                }
+            } catch (e) {
+                hideLoading();
+                alert('Network Error');
+            }
+        }
+    </script>
+</body>
+
+</html>

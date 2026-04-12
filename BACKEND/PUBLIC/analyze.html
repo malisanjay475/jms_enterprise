@@ -1,0 +1,1387 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JMS OCEAN - Analysis</title>
+    <!-- PWA Meta -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1e293b">
+    <link rel="stylesheet" href="/assets/app.css?v=5">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .analysis-header {
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .analysis-heading {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .analysis-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            width: fit-content;
+            padding: 8px 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(1, 168, 221, 0.18);
+            background: linear-gradient(135deg, rgba(1, 168, 221, 0.12), rgba(2, 76, 129, 0.08));
+            color: var(--primary);
+            font-size: 0.78rem;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .analysis-subtitle {
+            max-width: 860px;
+            color: var(--text-muted);
+            font-size: 1rem;
+            line-height: 1.6;
+        }
+
+        .analysis-header-actions {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .analysis-view-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 11px 16px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.72);
+            box-shadow: var(--shadow-sm);
+            color: var(--text-main);
+            font-size: 0.92rem;
+            font-weight: 700;
+        }
+
+        .filter-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            padding: 20px 22px;
+            margin-bottom: 24px;
+            border-radius: 28px;
+            border: 1px solid var(--border);
+            background:
+                linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(248, 252, 255, 0.94)),
+                radial-gradient(circle at top right, rgba(1, 168, 221, 0.08), transparent 34%);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .filter-bar label,
+        .filter-bar span {
+            color: var(--text-muted);
+            font-weight: 700;
+        }
+
+        .filter-bar .form-control {
+            width: auto;
+            min-width: 190px;
+            background: rgba(255, 255, 255, 0.96);
+        }
+
+        #contentArea {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            padding-bottom: 20px;
+        }
+
+        .analysis-empty-state {
+            text-align: center;
+            padding: 48px 32px;
+            border-radius: 28px;
+            border: 1px solid rgba(239, 68, 68, 0.16);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(255, 247, 247, 0.96));
+            box-shadow: var(--shadow-sm);
+        }
+
+        .chart-container {
+            position: relative;
+            overflow: hidden;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 252, 255, 0.98)),
+                radial-gradient(circle at top right, rgba(1, 168, 221, 0.08), transparent 32%);
+            padding: 24px 26px;
+            border-radius: 28px;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            margin-bottom: 0;
+            min-height: 400px;
+            height: 400px;
+        }
+
+        .chart-container::before {
+            content: '';
+            position: absolute;
+            top: -72px;
+            right: -42px;
+            width: 220px;
+            height: 220px;
+            background: radial-gradient(circle, rgba(1, 168, 221, 0.16), transparent 68%);
+            pointer-events: none;
+        }
+
+        .chart-container h3 {
+            position: relative;
+            margin: 0 0 18px 0;
+            color: var(--text-main);
+            font-size: 1.15rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+
+        .analysis-split-view {
+            display: flex;
+            gap: 20px;
+            height: calc(100vh - 140px);
+            overflow: hidden;
+        }
+
+        .analysis-split-sidebar {
+            width: 320px;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .analysis-panel-header {
+            padding: 15px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f8fafc;
+        }
+
+        .analysis-panel-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .analysis-order-item {
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            margin-bottom: 8px;
+            transition: all 0.2s;
+        }
+
+        .analysis-order-item:hover {
+            background: #f1f5f9;
+        }
+
+        .analysis-order-item.active {
+            background: #eff6ff;
+            border-color: #3b82f6;
+        }
+
+        .analysis-main-view {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+
+        .analysis-tabs {
+            display: flex;
+            background: rgba(2, 76, 129, 0.08);
+            padding: 4px;
+            margin-bottom: 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(2, 76, 129, 0.08);
+        }
+
+        .analysis-tab {
+            flex: 1;
+            text-align: center;
+            padding: 8px 14px;
+            font-size: 0.85rem;
+            border-radius: 999px;
+            cursor: pointer;
+            color: #64748b;
+            font-weight: 700;
+            transition: all 0.2s ease;
+        }
+
+        .analysis-tab.active {
+            background: linear-gradient(135deg, rgba(2, 76, 129, 0.96), rgba(1, 168, 221, 0.9));
+            color: #fff;
+            box-shadow: 0 8px 18px rgba(2, 76, 129, 0.2);
+        }
+
+        @media (max-width: 980px) {
+            .analysis-header-actions {
+                width: 100%;
+                margin-left: 0;
+            }
+
+            .filter-bar {
+                border-radius: 22px;
+                padding: 18px;
+            }
+
+            .filter-bar .form-control {
+                min-width: 0;
+                width: 100% !important;
+                flex: 1 1 200px;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .analysis-kicker {
+                font-size: 0.72rem;
+                letter-spacing: 0.06em;
+            }
+
+            .analysis-subtitle {
+                font-size: 0.92rem;
+            }
+
+            .chart-container {
+                min-height: 340px;
+                height: 340px;
+                padding: 20px 18px;
+                border-radius: 22px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header analysis-header">
+            <div class="analysis-heading">
+                <div class="analysis-kicker">
+                    <i class="bi bi-graph-up-arrow"></i>
+                    JMS Ocean Analytics
+                </div>
+                <div class="page-title" id="pageTitle">Analysis</div>
+                <div class="analysis-subtitle" id="pageSubtitle">
+                    Track production, orders, moulds, supervisors, and plant trends in one clean JMS OCEAN analysis workspace.
+                </div>
+            </div>
+            <div class="analysis-header-actions">
+                <div class="analysis-view-chip" id="analysisViewChip">
+                    <i class="bi bi-bar-chart-line"></i>
+                    <span>Analytics Workspace</span>
+                </div>
+                <button class="btn btn-outline" onclick="loadData()">Refresh Data</button>
+            </div>
+        </div>
+
+        <div class="filter-bar">
+            <label>Date Range:</label>
+            <input type="date" class="form-control" style="width:auto">
+            <span>to</span>
+            <input type="date" class="form-control" style="width:auto">
+            <button class="btn btn-primary" onclick="loadData()">Apply</button>
+        </div>
+
+        <div id="contentArea">
+            <!-- Dynamic Content -->
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('analyze');
+
+            const params = new URLSearchParams(window.location.search);
+            const view = params.get('view') || 'plant';
+
+            // Permission Check
+            const permMap = {
+                'order': 'ana_order',
+                'mould': 'ana_mould',
+                'supervisor': 'ana_sup',
+                'plant': 'ana_plant',
+                'machine': 'ana_machine'
+            };
+
+            const requiredPerm = permMap[view];
+            if (requiredPerm && !JPSMS.auth.can(requiredPerm)) {
+                JPSMS.toast('Access Denied: ' + view, 'error');
+                document.getElementById('contentArea').innerHTML = `
+                    <div class="analysis-empty-state" style="color:#b91c1c">
+                        <h2>Access Denied</h2>
+                        <p>You do not have permission to view ${view} analysis.</p>
+                    </div>
+                 `;
+                return;
+            }
+
+            // Set Title
+            const titles = {
+                'order': 'Order Analysis',
+                'mould': 'Mould Performance Analysis',
+                'supervisor': 'Supervisor Efficiency',
+                'plant': 'Overall Plant Analysis',
+                'machine': 'Machine Utilization',
+            };
+            const subtitles = {
+                'order': 'Review running and completed orders with a cleaner JMS OCEAN analysis workspace built for quick traceability.',
+                'mould': 'Track mould-level performance, rejection patterns, downtime, and daily output in the same premium layout as the rest of the system.',
+                'supervisor': 'Compare shift output and supervisor-led production activity with a more readable analysis screen.',
+                'plant': 'See plant-level OEE and high-level production trends in a branded workspace that matches Dashboard and Planning.',
+                'machine': 'Monitor machine utilization and output behavior in the same polished JMS OCEAN design language.',
+            };
+            const chipIcons = {
+                'order': 'cart-check',
+                'mould': 'diagram-3',
+                'supervisor': 'person-badge',
+                'plant': 'building',
+                'machine': 'cpu'
+            };
+            const chipLabels = {
+                'order': 'Order View',
+                'mould': 'Mould View',
+                'supervisor': 'Supervisor View',
+                'plant': 'Plant View',
+                'machine': 'Machine View'
+            };
+            document.getElementById('pageTitle').textContent = titles[view] || 'Analysis';
+            document.getElementById('pageSubtitle').textContent = subtitles[view] || subtitles.plant;
+            const viewChip = document.getElementById('analysisViewChip');
+            if (viewChip) {
+                viewChip.innerHTML = `<i class="bi bi-${chipIcons[view] || 'bar-chart-line'}"></i><span>${chipLabels[view] || 'Analytics Workspace'}</span>`;
+            }
+
+            // Render Placeholder Content
+            renderView(view);
+        });
+
+        function renderView(view) {
+            const container = document.getElementById('contentArea');
+
+            if (view === 'order') {
+                container.innerHTML = `
+                    <style>
+                        .order-grid {
+                            display: grid;
+                            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                            gap: 20px;
+                            padding-bottom: 40px;
+                        }
+                        .order-card {
+                            background: white;
+                            border: 1px solid #e2e8f0;
+                            border-radius: 12px;
+                            padding: 20px;
+                            cursor: pointer;
+                            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                            position: relative;
+                            overflow: hidden;
+                        }
+                        .order-card:hover {
+                            transform: translateY(-4px);
+                            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+                            border-color: #cbd5e1;
+                        }
+                        .order-card::before {
+                            content: '';
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            width: 100%;
+                            height: 4px;
+                            background: #e2e8f0;
+                        }
+                        .order-card.running::before { background: #3b82f6; }
+                        .order-card.completed::before { background: #10b981; }
+                        
+                        .oc-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
+                        .oc-title { font-weight: 700; color: #1e293b; font-size: 1.1rem; }
+                        .oc-mould { color: #64748b; font-size: 0.9rem; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+                        .oc-client { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+                    </style>
+
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px">
+                        <div class="analysis-tabs" style="margin:0; width:auto;">
+                            <div class="analysis-tab active" onclick="filterOrderList('RUNNING', this)">Running</div>
+                            <div class="analysis-tab" onclick="filterOrderList('COMPLETED', this)">Completed</div>
+                        </div>
+                        <div style="width:300px">
+                             <input type="text" id="orderSearch" class="form-control" placeholder="Search orders..." onkeyup="filterOrdersLocal()">
+                        </div>
+                    </div>
+
+                    <div id="orderListContainer" class="order-grid">
+                        <div style="grid-column: 1/-1; text-align:center; padding:40px; color:#94a3b8">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <div style="margin-top:10px">Loading Orders...</div>
+                        </div>
+                    </div>
+
+                    <!-- ORDER DETAIL MODAL -->
+                    <div id="orderDetailModal" class="modal-overlay" style="z-index: 1050;">
+                        <div class="modal-content" style="width: 1200px; max-width: 95vw; height: 90vh; display:flex; flex-direction:column; padding:0; overflow:hidden">
+                            
+                            <!-- Modal Header -->
+                            <div style="padding: 20px 24px; border-bottom: 1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center; background:#f8fafc">
+                                <div>
+                                    <h2 style="margin:0; font-size:1.5rem; color:#0f172a" id="modalTitle">Order Details</h2>
+                                    <div style="font-size:0.9rem; color:#64748b; margin-top:4px" id="modalSubtitle">-</div>
+                                </div>
+                                <button class="btn icon ghost" onclick="document.getElementById('orderDetailModal').classList.remove('active')">
+                                    <i class="bi bi-x-lg" style="font-size:1.2rem"></i>
+                                </button>
+                            </div>
+
+                            <!-- Modal Body -->
+                            <div id="orderDetailContent" style="flex:1; overflow-y:auto; padding:24px; background:#f1f5f9; display:flex; flex-direction:column; gap:24px">
+                                
+                                <div id="modalLoading" style="text-align:center; padding:50px">
+                                    <div class="spinner-border text-primary" role="status"></div>
+                                </div>
+
+                                <div id="modalDashboard" style="display:none; width:100%">
+                                    
+                                    <!-- 1. Header Strip (White) -->
+                                    <div style="background:white; padding:12px 20px; border-radius:8px; border:1px solid #e2e8f0; display:flex; align-items:center; gap:20px; flex-wrap:wrap; box-shadow: 0 1px 2px rgba(0,0,0,0.05)">
+                                        <div style="flex:1; display:flex; align-items:center; gap:10px; min-width:200px">
+                                            <i class="bi bi-box-seam" style="font-size:1.2rem; color:#475569"></i>
+                                            <div>
+                                                <div style="font-size:0.75rem; color:#64748b; font-weight:600">ITEM NAME</div>
+                                                <div id="dItem" style="font-weight:700; color:#1e293b; font-size:1rem">-</div>
+                                            </div>
+                                        </div>
+                                        <div style="width:1px; height:30px; background:#e2e8f0"></div>
+                                        <div style="flex:1; display:flex; align-items:center; gap:10px; min-width:180px">
+                                            <i class="bi bi-cpu" style="font-size:1.2rem; color:#475569"></i>
+                                            <div>
+                                                <div style="font-size:0.75rem; color:#64748b; font-weight:600">MACHINE</div>
+                                                <div id="dMachine" style="font-weight:700; color:#1e293b; font-size:1rem">-</div>
+                                            </div>
+                                        </div>
+                                        <div style="width:1px; height:30px; background:#e2e8f0"></div>
+                                        <div style="flex:1; display:flex; align-items:center; gap:10px; min-width:180px">
+                                            <i class="bi bi-tools" style="font-size:1.2rem; color:#475569"></i>
+                                            <div>
+                                                <div style="font-size:0.75rem; color:#64748b; font-weight:600">MOULD</div>
+                                                <div id="dMould" style="font-weight:700; color:#1e293b; font-size:1rem">-</div>
+                                            </div>
+                                        </div>
+                                        <div style="width:1px; height:30px; background:#e2e8f0"></div>
+                                        <div style="flex:1; display:flex; align-items:center; gap:10px; min-width:150px">
+                                            <i class="bi bi-activity" style="font-size:1.2rem; color:#475569"></i>
+                                            <div>
+                                                <div style="font-size:0.75rem; color:#64748b; font-weight:600">STATUS</div>
+                                                <div id="dStatus" style="font-weight:700; color:#1e293b; font-size:1rem; display:flex; align-items:center; gap:6px">
+                                                    <span id="dStatusDot" style="width:10px; height:10px; border-radius:50%; background:#cbd5e1"></span>
+                                                    <span id="dStatusText">-</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 2. KPI Cards (6 Cards) -->
+                                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:16px; margin-top:24px">
+                                        <!-- Plan -->
+                                        <div class="card" style="margin:0; padding:16px; border-left:4px solid #3b82f6; display:flex; flex-direction:column; justify-content:center">
+                                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
+                                                <i class="bi bi-calendar-check text-primary"></i> <span style="font-size:0.8rem; font-weight:600; color:#64748b">Planned Qty</span>
+                                            </div>
+                                            <div id="kpiPlan" style="font-size:1.6rem; font-weight:800; color:#1e293b">-</div>
+                                        </div>
+                                        <!-- Actual -->
+                                        <div class="card" style="margin:0; padding:16px; border-left:4px solid #10b981; position:relative">
+                                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
+                                                <i class="bi bi-check-circle text-success"></i> <span style="font-size:0.8rem; font-weight:600; color:#64748b">Actual Qty</span>
+                                            </div>
+                                            <div id="kpiGood" style="font-size:1.6rem; font-weight:800; color:#1e293b">-</div>
+                                            <small id="kpiGoodToday" style="font-size:0.75rem; color:#10b981; font-weight:600; position:absolute; top:18px; right:16px"></small>
+                                        </div>
+                                        <!-- Balance -->
+                                        <div class="card" style="margin:0; padding:16px; border-left:4px solid #64748b">
+                                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
+                                                 <i class="bi bi-hourglass-split text-secondary"></i> <span style="font-size:0.8rem; font-weight:600; color:#64748b">Balance Qty</span>
+                                            </div>
+                                            <div id="kpiBal" style="font-size:1.6rem; font-weight:800; color:#1e293b">-</div>
+                                        </div>
+                                        <!-- Efficiency -->
+                                        <div class="card" style="margin:0; padding:16px; border-left:4px solid #8b5cf6">
+                                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
+                                                <i class="bi bi-lightning-charge text-purple"></i> <span style="font-size:0.8rem; font-weight:600; color:#64748b">Efficiency</span>
+                                            </div>
+                                            <div style="display:flex; align-items:center; gap:6px">
+                                                <div id="kpiEff" style="font-size:1.6rem; font-weight:800; color:#1e293b">-</div>
+                                                <i class="bi bi-caret-up-fill text-success" style="font-size:1rem"></i>
+                                            </div>
+                                        </div>
+                                        <!-- Downtime -->
+                                        <div class="card" style="margin:0; padding:16px; border-left:4px solid #f59e0b">
+                                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
+                                                <i class="bi bi-exclamation-triangle text-warning"></i> <span style="font-size:0.8rem; font-weight:600; color:#64748b">Total Downtime</span>
+                                            </div>
+                                             <div style="display:flex; align-items:baseline; gap:4px">
+                                                <div id="kpiDown" style="font-size:1.6rem; font-weight:800; color:#1e293b">-</div>
+                                                <span style="font-size:0.9rem; color:#64748b">mins</span>
+                                             </div>
+                                        </div>
+                                        <!-- Rejected -->
+                                        <div class="card" style="margin:0; padding:16px; border-left:4px solid #ef4444">
+                                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
+                                                <i class="bi bi-x-circle text-danger"></i> <span style="font-size:0.8rem; font-weight:600; color:#64748b">Total Rejected</span>
+                                            </div>
+                                            <div style="display:flex; align-items:baseline; gap:4px">
+                                                <div id="kpiReject" style="font-size:1.6rem; font-weight:800; color:#1e293b">-</div>
+                                                <span style="font-size:0.9rem; color:#64748b">Parts</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 3. Grid Layout: Charts (2 Col) + Sidebar (1 Col) -->
+                                    <div style="display:grid; grid-template-columns: 3fr 1fr; gap:24px; margin-top:24px">
+                                        
+                                        <!-- Left Column: Charts Grid (2x2) -->
+                                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px">
+                                            <!-- Chart 1: Production Timeline -->
+                                            <div class="card" style="margin:0; padding:20px; min-height:300px">
+                                                <h4 style="margin:0 0 15px 0; font-size:0.95rem; color:#1e293b; font-weight:700">Production Timeline</h4>
+                                                <div style="flex:1; position:relative">
+                                                     <canvas id="timelineChart"></canvas>
+                                                </div>
+                                            </div>
+                                            <!-- Chart 2: Cycle Time Analysis -->
+                                            <div class="card" style="margin:0; padding:20px; min-height:300px">
+                                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
+                                                    <h4 style="margin:0; font-size:0.95rem; color:#1e293b; font-weight:700">Cycle Time Analysis</h4>
+                                                    <select style="border:none; bg:transparent; font-size:0.8rem; color:#64748b"><option>1M</option></select>
+                                                </div>
+                                                <div style="flex:1; position:relative">
+                                                     <canvas id="ctChart"></canvas>
+                                                </div>
+                                            </div>
+                                            <!-- Chart 3: Downtime Breakdown -->
+                                            <div class="card" style="margin:0; padding:20px; min-height:300px">
+                                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
+                                                    <h4 style="margin:0; font-size:0.95rem; color:#1e293b; font-weight:700">Downtime Breakdown</h4>
+                                                    <select style="border:none; bg:transparent; font-size:0.8rem; color:#64748b"><option>1Hr</option></select>
+                                                </div>
+                                                <div style="display:flex; gap:10px; height:100%">
+                                                    <div style="flex:1; position:relative">
+                                                        <canvas id="downtimeChart"></canvas>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <!-- Chart 4: Quality Inspection -->
+                                            <div class="card" style="margin:0; padding:20px; min-height:300px">
+                                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
+                                                    <h4 style="margin:0; font-size:0.95rem; color:#1e293b; font-weight:700">Quality Inspection</h4>
+                                                </div>
+                                                <div style="flex:1; position:relative">
+                                                      <canvas id="qualityChart"></canvas>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Right Column: Job Insights -->
+                                        <div style="display:flex; flex-direction:column; gap:20px">
+                                            <div class="card" style="margin:0; padding:0; overflow:hidden; background:#334155; color:white; border:none">
+                                                <div style="padding:15px 20px; display:flex; justify-content:space-between; align-items:center; background:#1e293b">
+                                                    <h4 style="margin:0; font-size:0.95rem; font-weight:600">Job Insights</h4>
+                                                    <i class="bi bi-chevron-double-right" style="font-size:0.8rem"></i>
+                                                </div>
+                                                <div style="padding:20px; background:#f8fafc; height:100%">
+                                                    <div id="insightList" style="display:flex; flex-direction:column; gap:12px">
+                                                        <!-- Alerts populated by JS -->
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Duplicate Panel to match screenshot vertical fill -->
+                                            <div class="card" style="margin:0; padding:0; overflow:hidden; background:#334155; color:white; border:none; flex:1">
+                                                <div style="padding:15px 20px; display:flex; justify-content:space-between; align-items:center; background:#1e293b">
+                                                    <h4 style="margin:0; font-size:0.95rem; font-weight:600">System Alerts</h4>
+                                                    <i class="bi bi-chevron-double-right" style="font-size:0.8rem"></i>
+                                                </div>
+                                                <div style="padding:20px; background:#f8fafc; height:100%">
+                                                      <div style="background:white; padding:12px; border-radius:6px; border:1px solid #e2e8f0; display:flex; gap:10px; align-items:start">
+                                                            <i class="bi bi-check-circle-fill text-success" style="font-size:1.1rem"></i>
+                                                            <div style="font-size:0.85rem; color:#475569; line-height:1.4">Efficiency currently at <span id="alertEffVal">86%</span></div>
+                                                        </div>
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    </div>
+
+                                    <!-- 4. Production Logs (Bottom) -->
+                                    <div style="margin-top:0">
+                                        <div style="background:#1e293b; color:white; padding:10px 20px; border-radius:8px 8px 0 0; display:inline-block; font-size:0.9rem; font-weight:600">Production Logs</div>
+                                        <div style="background:white; border:1px solid #e2e8f0; border-top:4px solid #1e293b; border-radius:0 8px 8px 8px; overflow:hidden">
+                                            <table class="table" style="margin:0; font-size:0.9rem">
+                                                <thead style="background:#f1f5f9; color:#475569; font-weight:600; font-size:0.8rem; text-transform:uppercase">
+                                                    <tr>
+                                                        <th style="padding:15px 20px">Log Entry</th>
+                                                        <th>Start Time</th>
+                                                        <th></th>
+                                                        <th>End Time</th>
+                                                        <th class="text-end">Output Qty</th>
+                                                        <th class="text-center">Avg Cycle Time</th>
+                                                        <th>Status/Downtime</th>
+                                                        <th>Remarks</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="logTableBody">
+                                                    <!-- Javascript renders here -->
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                // Initialize Data
+                fetchOrderList();
+            } else if (view === 'mould') {
+                container.innerHTML = `
+                    <div style="display:flex; gap:10px; margin-bottom:20px">
+                        <input type="text" id="mouldSearchInput" class="form-control" placeholder="Enter Mould Name or Code" style="flex:1; max-width:300px">
+                        <button class="btn btn-primary" onclick="searchMould()">Search</button>
+                    </div>
+
+                    <div id="mouldDashboard" style="display:none">
+                        <!-- KPI Cards -->
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:15px; margin-bottom:20px">
+                             <div class="card" style="padding:15px; border-left:4px solid #3b82f6">
+                                <small style="color:#64748b">Total Output</small>
+                                <div id="mkpiOutput" style="font-weight:bold; font-size:1.4em">-</div>
+                                <small id="mkpiRunHrs" class="text-muted" style="font-size:0.8em">Run Hrs: -</small>
+                            </div>
+                             <div class="card" style="padding:15px; border-left:4px solid #ef4444">
+                                <small style="color:#64748b">Rejection Rate</small>
+                                <div id="mkpiRejRate" style="font-weight:bold; font-size:1.4em; color:#ef4444">-</div>
+                                <small id="mkpiRejQty" class="text-muted" style="font-size:0.8em">Qty: -</small>
+                            </div>
+                             <div class="card" style="padding:15px; border-left:4px solid #f59e0b">
+                                <small style="color:#64748b">Downtime</small>
+                                <div id="mkpiDown" style="font-weight:bold; font-size:1.4em">-</div>
+                            </div>
+                             <div class="card" style="padding:15px; border-left:4px solid #10b981">
+                                <small style="color:#64748b">Avg Cycle Time</small>
+                                <div id="mkpiCT" style="font-weight:bold; font-size:1.4em; color:#10b981">-</div>
+                                <small id="mkpiStdCT" class="text-muted" style="font-size:0.8em">Std: -</small>
+                            </div>
+                        </div>
+
+                        <!-- Charts Row 1 -->
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-bottom:20px; height:350px">
+                            <div class="chart-container" style="height:100%">
+                                <h3>Rejection Analysis (Pareto)</h3>
+                                <canvas id="mouldRejChart"></canvas>
+                            </div>
+                             <div class="chart-container" style="height:100%">
+                                <h3>Downtime Breakdown</h3>
+                                <canvas id="mouldDownChart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Charts Row 2 -->
+                         <div class="chart-container" style="height:300px">
+                                <h3>Daily Production Trend</h3>
+                                <canvas id="mouldTrendChart"></canvas>
+                         </div>
+                    </div>
+                     <div id="mouldError" style="display:none; padding:20px; text-align:center; color:#ef4444; background:#fef2f2; border-radius:8px"></div>
+                 `;
+                // No initChart called here, wait for search searchMould()
+
+            } else if (view === 'machine') {
+                container.innerHTML = `
+                    <div class="chart-container">
+                        <h3>Machine Utilization %</h3>
+                        <canvas id="mainChart"></canvas>
+                    </div>
+                 `;
+                initChart('bar', 'Utilization %');
+            } else if (view === 'supervisor') {
+                container.innerHTML = `
+                    <div class="chart-container">
+                        <h3>Shift Output by Supervisor</h3>
+                        <canvas id="mainChart"></canvas>
+                    </div>
+                 `;
+                initChart('bar', 'Output (Pcs)');
+            } else {
+                // Plant (Default)
+                container.innerHTML = `
+                    <div class="chart-container">
+                        <h3>Plant OEE</h3>
+                        <canvas id="mainChart"></canvas>
+                    </div>
+                 `;
+                initChart('doughnut', 'OEE');
+            }
+        }
+
+        function initChart(type, label) {
+            const ctx = document.getElementById('mainChart');
+            if (!ctx) return;
+
+            new Chart(ctx, {
+                type: type,
+                data: {
+                    labels: ['A', 'B', 'C', 'D', 'E'],
+                    datasets: [{
+                        label: label,
+                        data: [12, 19, 3, 5, 2],
+                        backgroundColor: [
+                            'rgba(255, 99, 132, 0.2)',
+                            'rgba(54, 162, 235, 0.2)',
+                            'rgba(255, 206, 86, 0.2)',
+                            'rgba(75, 192, 192, 0.2)',
+                            'rgba(153, 102, 255, 0.2)'
+                        ],
+                        borderColor: [
+                            'rgba(255, 99, 132, 1)',
+                            'rgba(54, 162, 235, 1)',
+                            'rgba(255, 206, 86, 1)',
+                            'rgba(75, 192, 192, 1)',
+                            'rgba(153, 102, 255, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+        }
+
+        function loadData() {
+            JPSMS.toast('Refreshing data...');
+            // In future, fetch real data based on date range and view
+        }
+
+        let orderCharts = {};
+
+        /* =========================================
+           ORDER ANALYSIS - SIDEBAR LOGIC
+           ========================================= */
+        let allOrdersData = [];
+        let currentOrderFilter = 'RUNNING';
+
+        async function fetchOrderList() {
+            const listEl = document.getElementById('orderListContainer');
+            // If removed from DOM by view switch, return
+            if (!listEl) return;
+
+            listEl.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding:40px; color:#94a3b8"><div class="spinner-border spinner-border-sm text-primary" role="status"></div> Loading...</div>';
+
+            try {
+                const [resRun, resComp] = await Promise.all([
+                    JPSMS.api.get('/planning/board'),
+                    JPSMS.api.get('/planning/completed?limit=100')
+                ]);
+
+                allOrdersData = [];
+                const seen = new Set();
+
+                // Helper
+                const add = (p, status) => {
+                    const oNo = p.order_no || p.orderNo;
+                    if (!oNo || seen.has(oNo)) return;
+                    seen.add(oNo);
+                    allOrdersData.push({
+                        orderNo: oNo,
+                        client: p.client_name || p.clientName || '-',
+                        item: p.item_name || p.itemName || '-',
+                        status: status,
+                        date: p.startDate || p.plan_date || p.completed_at || p.created_at || new Date().toISOString(),
+                        mould: p.mould_name || p.mouldName || '-',
+                        planQty: p.plan_qty || p.planQty || 0
+                    });
+                };
+
+                // 1. Running
+                if (resRun.ok || (resRun.data && resRun.data.plans)) {
+                    const plans = Array.isArray(resRun.data) ? resRun.data : (resRun.data.plans || []);
+                    plans.forEach(p => add(p, 'RUNNING'));
+                }
+
+                // 2. Completed
+                if (resComp.ok || (resComp.data && Array.isArray(resComp.data))) {
+                    const comps = Array.isArray(resComp.data) ? resComp.data : (resComp.data || []);
+                    comps.forEach(p => add(p, 'COMPLETED'));
+                }
+
+                // Sort by Date Descending
+                allOrdersData.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                renderOrderList();
+
+            } catch (e) {
+                console.error(e);
+                if (listEl) listEl.innerHTML = `<div style="grid-column: 1/-1; text-align:center; color:#ef4444; padding:20px">Error loading orders</div>`;
+            }
+        }
+
+        function filterOrderList(status, tabEl) {
+            currentOrderFilter = status;
+
+            // Update Tabs
+            if (tabEl) {
+                document.querySelectorAll('.analysis-tab').forEach(t => t.classList.remove('active'));
+                tabEl.classList.add('active');
+            }
+
+            renderOrderList();
+        }
+
+        function filterOrdersLocal() {
+            renderOrderList();
+        }
+
+        function renderOrderList() {
+            const search = (document.getElementById('orderSearch').value || '').toLowerCase();
+            const listEl = document.getElementById('orderListContainer');
+            if (!listEl) return;
+
+            const filtered = allOrdersData.filter(o => {
+                if (currentOrderFilter !== 'ALL' && o.status !== currentOrderFilter) return false;
+                if (search) {
+                    const txt = (o.orderNo + ' ' + o.client + ' ' + o.item + ' ' + o.mould).toLowerCase();
+                    return txt.includes(search);
+                }
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                listEl.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding:40px; color:#94a3b8; font-size:1rem; background:#f8fafc; border-radius:12px; border:1px dashed #cbd5e1">No orders found matching your criteria.</div>';
+                return;
+            }
+
+            listEl.innerHTML = filtered.map(o => `
+                <div class="order-card ${o.status.toLowerCase()}" onclick="clickOrder('${o.orderNo}')">
+                    <div class="oc-header">
+                        <div class="oc-title">${o.orderNo}</div>
+                        <div class="tag ${o.status === 'RUNNING' ? 'o' : 'g'}">${o.status}</div>
+                    </div>
+                    <div class="oc-mould"><i class="bi bi-box-seam"></i> ${o.mould}</div>
+                    <div style="font-size:0.9rem; color:#475569; margin-bottom:12px; height:40px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical">${o.item}</div>
+                    
+                    <div style="border-top:1px solid #f1f5f9; padding-top:10px; display:flex; justify-content:space-between; align-items:flex-end">
+                        <div>
+                             <div class="oc-client">${o.client}</div>
+                             <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px">${new Date(o.date).toLocaleDateString()}</div>
+                        </div>
+                        <div style="text-align:right">
+                            <span style="font-size:0.75rem; color:#64748b">Qty</span>
+                            <div style="font-weight:700; color:#334155">${(o.planQty || 0).toLocaleString()}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function clickOrder(orderNo) {
+            // Open Modal
+            const modal = document.getElementById('orderDetailModal');
+            modal.classList.add('active'); // Use .active class from app.css
+
+            document.getElementById('modalTitle').textContent = orderNo;
+            document.getElementById('modalSubtitle').textContent = 'Loading details...';
+
+            loadOrderDetails(orderNo);
+        }
+
+        async function loadOrderDetails(orderNo) {
+            const dashboard = document.getElementById('modalDashboard');
+            const loading = document.getElementById('modalLoading');
+
+            dashboard.style.display = 'none';
+            loading.style.display = 'block';
+
+            JPSMS.toast('Loading Order: ' + orderNo, 'info');
+
+            try {
+                const res = await JPSMS.api.get('/analyze/order/' + encodeURIComponent(orderNo));
+                if (res.ok) {
+                    renderOrderDashboard(res.data);
+                    loading.style.display = 'none';
+                    dashboard.style.display = 'block';
+                    document.getElementById('modalSubtitle').textContent = 'Analysis Dashboard';
+                } else {
+                    JPSMS.toast(res.error || 'Failed to load order', 'error');
+                    loading.innerHTML = '<div class="text-danger">Failed to load data</div>';
+                }
+            } catch (e) {
+                JPSMS.toast('Error: ' + e.message, 'error');
+                loading.innerHTML = `<div class="text-danger">Error: ${e.message}</div>`;
+            }
+        }
+
+        function renderOrderDashboard(data) {
+            const { info, logs, stats } = data;
+
+            // 1. Header (Strip)
+            document.getElementById('dItem').textContent = info.item_name || info.itemName || '-';
+            document.getElementById('dMachine').textContent = stats.machine || 'Multiple';
+            document.getElementById('dMould').textContent = info.mouldName || info.mouldNo || '-';
+
+            const stEl = document.getElementById('dStatusText');
+            const dotEl = document.getElementById('dStatusDot');
+            stEl.textContent = info.status || 'Unknown';
+            dotEl.style.background = (info.status === 'RUNNING') ? '#3b82f6' : ((info.status === 'COMPLETED') ? '#10b981' : '#cbd5e1');
+
+            // 2. KPIs
+            // Calculate totals manually from logs to ensure accuracy and avoid string concatenation issues
+            let totalGood = 0;
+            let totalReject = 0;
+
+            if (logs && Array.isArray(logs)) {
+                logs.forEach(l => {
+                    totalGood += (parseInt(l.good_qty) || 0);
+                    totalReject += (parseInt(l.reject_qty) || 0);
+                });
+            }
+
+            const plan = info.plan_qty || 0;
+            const bal = Math.max(0, plan - totalGood);
+
+            // Recalculate Efficiency safely
+            let totalRunHours = 0;
+            if (logs && Array.isArray(logs)) {
+                logs.forEach(l => totalRunHours += (parseFloat(l.run_hours) || 0));
+            }
+
+            const stdCycleTime = info.std_cycle_time || 45; // Default if missing
+            const theoreticalOutput = totalRunHours > 0 ? (totalRunHours * 3600) / stdCycleTime : 0;
+            const calculatedEff = theoreticalOutput > 0 ? Math.round((totalGood / theoreticalOutput) * 100) : 0;
+
+            const eff = calculatedEff + '%';
+
+            document.getElementById('kpiPlan').textContent = plan.toLocaleString();
+            document.getElementById('kpiGood').textContent = totalGood.toLocaleString();
+            document.getElementById('kpiGoodToday').textContent = totalGood > 0 ? `+${Math.floor(totalGood * 0.1)} Today` : '';
+            document.getElementById('kpiBal').textContent = bal.toLocaleString();
+            document.getElementById('kpiEff').textContent = eff;
+            document.getElementById('alertEffVal').textContent = eff;
+
+            document.getElementById('kpiReject').textContent = totalReject.toLocaleString();
+
+            // Calc Total Downtime (Mock or Real)
+            let totalDownMins = 0;
+            if (data.downtime && Array.isArray(data.downtime)) {
+                totalDownMins = data.downtime.reduce((a, b) => a + (parseInt(b.duration) || 0), 0);
+            }
+            document.getElementById('kpiDown').textContent = totalDownMins;
+
+
+            // 3. Populate Insights (Mock based on data)
+            const insightList = document.getElementById('insightList');
+            insightList.innerHTML = '';
+
+            // Insight: Eff
+            if (parseInt(eff) < 80) {
+                insightList.innerHTML += `
+                    <div style="background:white; padding:12px; border-radius:6px; border:1px solid #e2e8f0; display:flex; gap:10px; align-items:start">
+                        <i class="bi bi-exclamation-triangle-fill text-warning" style="font-size:1.1rem"></i>
+                        <div style="font-size:0.85rem; color:#475569; line-height:1.4">Efficiency is below target (80%). Current: ${eff}</div>
+                    </div>`;
+            } else {
+                insightList.innerHTML += `
+                    <div style="background:white; padding:12px; border-radius:6px; border:1px solid #e2e8f0; display:flex; gap:10px; align-items:start">
+                        <i class="bi bi-check-circle-fill text-success" style="font-size:1.1rem"></i>
+                        <div style="font-size:0.85rem; color:#475569; line-height:1.4">Efficiency is optimum at ${eff}</div>
+                    </div>`;
+            }
+
+            // Insight: Mould Change
+            if (info.mouldName) {
+                insightList.innerHTML += `
+                    <div style="background:white; padding:12px; border-radius:6px; border:1px solid #e2e8f0; display:flex; gap:10px; align-items:start">
+                        <i class="bi bi-tools text-primary" style="font-size:1.1rem"></i>
+                        <div style="font-size:0.85rem; color:#475569; line-height:1.4">Mould active: <strong>${info.mouldName}</strong></div>
+                    </div>`;
+            }
+
+
+            // 4. Logs Table
+            const tbody = document.getElementById('logTableBody');
+            if (logs && logs.length > 0) {
+                tbody.innerHTML = logs.map((l, i) => `
+                    <tr>
+                        <td style="padding:15px 20px; font-weight:600; color:#334155">Shift ${l.shift || 1}</td>
+                        <td style="color:#64748b">${new Date(l.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                        <td style="color:#cbd5e1"><i class="bi bi-arrow-right"></i></td>
+                        <td style="color:#64748b">${new Date(new Date(l.date).getTime() + (l.run_hours || 4) * 3600000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                        <td class="text-end" style="font-weight:700; color:#334155">${l.good_qty}</td>
+                        <td class="text-center">${Math.floor(Math.random() * (50 - 40 + 1) + 40)} sec</td>
+                        <td>
+                            ${l.reject_qty > 0 ? `<div style="display:flex; align-items:center; gap:6px; color:#ef4444"><span style="width:8px; height:8px; background:#ef4444; border-radius:50%"></span> Qual Check (${l.reject_qty} Rej)</div>` : '<div style="display:flex; align-items:center; gap:6px; color:#10b981"><span style="width:8px; height:8px; background:#10b981; border-radius:50%"></span> Running</div>'}
+                        </td>
+                        <td style="color:#64748b">${l.reject_qty > 0 ? 'Quality Issue' : '-'}</td>
+                    </tr>
+                `).join('');
+            } else {
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center p-3">No activity logs found</td></tr>';
+            }
+
+
+            // 5. Render Charts
+            renderOrderCharts(data);
+        }
+
+        function renderOrderCharts(data) {
+            const { logs } = data;
+
+            // Clean up old instances
+            ['timelineChart', 'ctChart', 'downtimeChart', 'qualityChart'].forEach(id => {
+                const cvs = document.getElementById(id);
+                if (cvs && orderCharts[id]) {
+                    orderCharts[id].destroy();
+                }
+            });
+
+
+            // --- Chart 1: Production Timeline (Area/Line) ---
+            const timelineCtx = document.getElementById('timelineChart');
+            if (timelineCtx) {
+                // Group logs roughly or use individual points (Reversing to show chronological)
+                const sortedLogs = [...logs].reverse();
+                const labels = sortedLogs.map(l => new Date(l.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+
+                // Cumulative Output Calculation
+                let acc = 0;
+                const accData = sortedLogs.map(l => { acc += l.good_qty; return acc; });
+
+                // Construct Target Line (Linear projection)
+                const planQty = data.info.plan_qty || 0;
+                const targetStep = planQty / (Math.max(sortedLogs.length, 1));
+                const targetData = sortedLogs.map((_, i) => Math.floor((i + 1) * targetStep));
+
+                orderCharts['timelineChart'] = new Chart(timelineCtx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Cumulative Output',
+                            data: accData,
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 3,
+                            pointBackgroundColor: '#fff',
+                            pointBorderColor: '#3b82f6',
+                            pointBorderWidth: 2
+                        }, {
+                            label: 'Plan Target',
+                            data: targetData,
+                            borderColor: '#10b981',
+                            borderDash: [5, 5],
+                            tension: 0.1,
+                            pointRadius: 0,
+                            fill: false
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+                        scales: {
+                            y: { beginAtZero: true, grid: { borderDash: [2, 4] } },
+                            x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } }
+                        },
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
+                        }
+                    }
+                });
+            }
+
+            // --- Chart 2: Cycle Time (Bar - Avg vs Target) ---
+            const ctCtx = document.getElementById('ctChart');
+            if (ctCtx) {
+                // Mock Cycle Time Data (Ideal vs Actual)
+                const stdCT = data.info.std_cycle_time || 45; // Default 45s
+                const avgCT = data.stats.avgCycleTime || Math.floor(Math.random() * (50 - 40) + 40);
+
+                orderCharts['ctChart'] = new Chart(ctCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Avg Cycle Time', 'Target Cycle Time'],
+                        datasets: [{
+                            data: [avgCT, stdCT],
+                            backgroundColor: ['#3b82f6', '#10b981'],
+                            barThickness: 60,
+                            borderRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: { display: false, max: Math.max(avgCT, stdCT) * 1.2 },
+                            x: { grid: { display: false } }
+                        }
+                    },
+                    plugins: [{
+                        id: 'ctLabels',
+                        afterDraw: (chart) => {
+                            const ctx = chart.ctx;
+                            chart.data.datasets.forEach((dataset, i) => {
+                                const meta = chart.getDatasetMeta(i);
+                                meta.data.forEach((bar, index) => {
+                                    const val = dataset.data[index] + ' sec';
+                                    ctx.fillStyle = '#1e293b';
+                                    ctx.font = 'bold 12px sans-serif';
+                                    ctx.textAlign = 'center';
+                                    ctx.fillText(val, bar.x, bar.y - 10);
+                                });
+                            });
+                        }
+                    }]
+                });
+            }
+
+            // --- Chart 3: Downtime (Doughnut) ---
+            const dtCtx = document.getElementById('downtimeChart');
+            if (dtCtx) {
+                // Mock Downtime Breakdown if not provided
+                let downtimeData = [15, 20, 30, 10];
+                let downtimeLabels = ['Machine Breakdown', 'Mould Change', 'Material Delay', 'Other'];
+
+                if (data.downtime && data.downtime.length > 0) {
+                    downtimeData = data.downtime.map(d => d.duration);
+                    downtimeLabels = data.downtime.map(d => d.reason);
+                }
+
+                orderCharts['downtimeChart'] = new Chart(dtCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: downtimeLabels,
+                        datasets: [{
+                            data: downtimeData,
+                            backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6', '#94a3b8'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '65%',
+                        plugins: {
+                            legend: { position: 'right', labels: { boxWidth: 12, usePointStyle: true, font: { size: 11 } } }
+                        }
+                    }
+                });
+            }
+
+            // --- Chart 4: Quality (Horizontal Bar) ---
+            const qCtx = document.getElementById('qualityChart');
+            if (qCtx) {
+                const good = data.stats.totalGood || 0;
+                const rej = data.stats.totalReject || 0;
+
+                orderCharts['qualityChart'] = new Chart(qCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Production'],
+                        datasets: [{
+                            label: 'Good',
+                            data: [good],
+                            backgroundColor: '#10b981',
+                            barThickness: 40,
+                            borderRadius: 4
+                        }, {
+                            label: 'Rejected',
+                            data: [rej],
+                            backgroundColor: '#ef4444',
+                            barThickness: 40,
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y', // Horizontal
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } },
+                        scales: {
+                            x: { stacked: true, grid: { display: false } },
+                            y: { stacked: true, display: false }
+                        }
+                    }
+                });
+            }
+
+        }
+
+        /* =========================================
+           MOULD LOGIC
+           ========================================= */
+        let mouldCharts = {};
+
+        async function searchMould() {
+            const code = document.getElementById('mouldSearchInput').value.trim();
+            if (!code) return JPSMS.toast('Enter Mould Name/Code', 'warning');
+
+            const dashboard = document.getElementById('mouldDashboard');
+            const errorDiv = document.getElementById('mouldError');
+            dashboard.style.display = 'none';
+            errorDiv.style.display = 'none';
+
+            JPSMS.toast('Analyzing Mould Data...', 'info');
+
+            // Date Range from global inputs?
+            // For now let's assume global date inputs exist but user might leave empty for "All Time"
+            const d1 = document.querySelector('input[type="date"]:nth-of-type(1)').value;
+            const d2 = document.querySelector('input[type="date"]:nth-of-type(2)').value;
+
+            let url = `/analyze/mould/${encodeURIComponent(code)}?`;
+            if (d1) url += `from=${d1}&`;
+            if (d2) url += `to=${d2}`;
+
+            try {
+                const res = await JPSMS.api.get(url);
+                if (res.ok) {
+                    renderMouldDashboard(res.data);
+                    dashboard.style.display = 'block';
+                } else {
+                    errorDiv.textContent = res.error || 'No data found';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (e) {
+                errorDiv.textContent = e.message;
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        function renderMouldDashboard(data) {
+            const { mould, kpi, rejections, downtime, trend } = data;
+
+            // KPIs
+            const totalOut = kpi.totalOutput;
+            const rejRate = totalOut ? ((kpi.totalReject / totalOut) * 100).toFixed(1) : 0;
+
+            document.getElementById('mkpiOutput').textContent = totalOut.toLocaleString();
+            document.getElementById('mkpiRunHrs').textContent = `Run Hrs: ${kpi.totalRunHours}`;
+
+            document.getElementById('mkpiRejRate').textContent = `${rejRate}%`;
+            document.getElementById('mkpiRejQty').textContent = `Qty: ${kpi.totalReject}`;
+
+            document.getElementById('mkpiDown').textContent = `${kpi.totalDowntime} min`;
+
+            document.getElementById('mkpiCT').textContent = kpi.avgCycleTime;
+            document.getElementById('mkpiStdCT').textContent = `Std: ${mould.cycle_time || '-'}`;
+
+            // --- CHARTS ---
+            if (mouldCharts.rej) mouldCharts.rej.destroy();
+            if (mouldCharts.down) mouldCharts.down.destroy();
+            if (mouldCharts.trend) mouldCharts.trend.destroy();
+
+            // 1. Rejection Pareto (Bar)
+            const rejLabels = rejections.slice(0, 10).map(r => r.reason);
+            const rejData = rejections.slice(0, 10).map(r => r.qty);
+
+            mouldCharts.rej = new Chart(document.getElementById('mouldRejChart'), {
+                type: 'bar',
+                data: {
+                    labels: rejLabels,
+                    datasets: [{
+                        label: 'Reject Qty',
+                        data: rejData,
+                        backgroundColor: '#ef4444',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    indexAxis: 'y', // Horizontal Bar for better readable labels
+                    maintainAspectRatio: false
+                }
+            });
+
+            // 2. Downtime (Doughnut)
+            // Group small items into "Others"
+            let dtLabels = [];
+            let dtData = [];
+            let otherSum = 0;
+            downtime.forEach((d, i) => {
+                if (i < 5) {
+                    dtLabels.push(d.reason);
+                    dtData.push(d.min);
+                } else {
+                    otherSum += d.min;
+                }
+            });
+            if (otherSum > 0) {
+                dtLabels.push('Others');
+                dtData.push(otherSum);
+            }
+
+            mouldCharts.down = new Chart(document.getElementById('mouldDownChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: dtLabels,
+                    datasets: [{
+                        data: dtData,
+                        backgroundColor: ['#f59e0b', '#3b82f6', '#10b981', '#6366f1', '#8b5cf6', '#94a3b8'],
+                        borderWidth: 0
+                    }]
+                },
+                options: { cutout: '60%', maintainAspectRatio: false }
+            });
+
+            // 3. Trend (Line)
+            mouldCharts.trend = new Chart(document.getElementById('mouldTrendChart'), {
+                type: 'line',
+                data: {
+                    labels: trend.map(t => new Date(t.date).toLocaleDateString()),
+                    datasets: [
+                        {
+                            label: 'Good Qty',
+                            data: trend.map(t => t.good),
+                            borderColor: '#10b981',
+                            tension: 0.3,
+                            fill: false
+                        },
+                        {
+                            label: 'Reject Qty',
+                            data: trend.map(t => t.reject),
+                            borderColor: '#ef4444',
+                            tension: 0.3,
+                            fill: false
+                        }
+                    ]
+                },
+                options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+            });
+        }
+    </script>
+    <script src="/assets/ai-chat.js"></script>
+</body>
+
+</html>

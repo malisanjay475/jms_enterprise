@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notification Center - JMS OCEAN</title>
+    <link rel="stylesheet" href="assets/app.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        .notif-card {
+            background: white;
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 12px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .notif-card.unread {
+            border-left: 4px solid var(--primary);
+            background: #f8fafc;
+        }
+
+        .notif-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .notif-meta {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .notif-title {
+            font-weight: 700;
+            color: #1e293b;
+            font-size: 1.05rem;
+            margin-bottom: 4px;
+        }
+
+        .notif-msg {
+            color: #475569;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 10px 20px;
+            color: #64748b;
+            font-weight: 600;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+        }
+
+        .tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .badge-type {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .bg-info {
+            background: #e0f2fe;
+            color: #0284c7;
+        }
+
+        .bg-warn {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        .bg-alert {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .bg-success {
+            background: #dcfce7;
+            color: #16a34a;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="main-content" id="pageContent">
+        <div class="header">
+            <div>
+                <h2 style="margin:0; font-size:1.8rem;">Notification Center</h2>
+                <div style="color:#64748b; margin-top:5px;">Manage alerts and system messages</div>
+            </div>
+            <div class="user-info">
+                <span>System</span>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div style="margin-bottom: 20px; border-bottom: 1px solid #e2e8f0;">
+            <button class="tab-btn active" onclick="switchTab('inbox')" id="tabInbox">
+                <i class="bi bi-inbox"></i> My Inbox
+            </button>
+            <button class="tab-btn" onclick="switchTab('admin')" id="tabAdmin" style="display:none">
+                <i class="bi bi-send"></i> Send / Broadcast
+            </button>
+        </div>
+
+        <!-- VIEW: INBOX -->
+        <div id="viewInbox">
+            <div style="display:flex; justify-content:space-between; margin-bottom:15px; align-items:center;">
+                <h3 style="margin:0; font-size:1.2rem;">Recent Messages</h3>
+                <button class="btn sm" onclick="markAllRead()"><i class="bi bi-check-all"></i> Mark All Read</button>
+            </div>
+            <div id="inboxList" style="min-height:200px">
+                <!-- Injected via JS -->
+            </div>
+        </div>
+
+        <!-- VIEW: ADMIN SEND -->
+        <div id="viewAdmin" style="display:none; max-width:600px;">
+            <div class="card">
+                <h3 style="margin-top:0">Send Notification</h3>
+                <div class="form-group">
+                    <label class="form-label">Target Recipient</label>
+                    <select id="sendTarget" class="form-control">
+                        <option value="ALL">📢 All Users (Broadcast)</option>
+                        <!-- Dynamic users loaded here -->
+                        <option value="admin">admin</option>
+                        <option value="manager">manager</option>
+                        <option value="operator">operator</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Type</label>
+                    <select id="sendType" class="form-control">
+                        <option value="INFO">Info (Blue)</option>
+                        <option value="WARNING">Warning (Yellow)</option>
+                        <option value="ALERT">Alert (Red)</option>
+                        <option value="SUCCESS">Success (Green)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Title</label>
+                    <input type="text" id="sendTitle" class="form-control" placeholder="Short subject..."
+                        maxlength="50">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Message</label>
+                    <textarea id="sendMessage" class="form-control" rows="4"
+                        placeholder="Enter full details..."></textarea>
+                </div>
+
+                <div style="text-align:right">
+                    <button class="btn primary" onclick="sendNotification()">
+                        <i class="bi bi-send-fill"></i> Send Message
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="assets/app.js"></script>
+    <script>
+        const JPSMS = window.JPSMS;
+        const api = JPSMS.api;
+        const toast = JPSMS.toast;
+        const auth = JPSMS.auth;
+
+        async function init() {
+            JPSMS.renderShell('notifications');
+
+            // Check permissions for Admin Tab
+            const user = auth.getUser();
+            if ((window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isAdminLike && window.JPSMS.auth.isAdminLike(user)) || user.role_code === 'admin') {
+                document.getElementById('tabAdmin').style.display = 'inline-block';
+            }
+
+            // Load Users for Dropdown (Optional improvement: fetch from API)
+            // For now hardcoded + we can add more if needed
+
+            loadInbox();
+        }
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tab === 'inbox' ? 'tabInbox' : 'tabAdmin').classList.add('active');
+
+            if (tab === 'inbox') {
+                document.getElementById('viewInbox').style.display = 'block';
+                document.getElementById('viewAdmin').style.display = 'none';
+                loadInbox();
+            } else {
+                document.getElementById('viewInbox').style.display = 'none';
+                document.getElementById('viewAdmin').style.display = 'block';
+            }
+        }
+
+        async function loadInbox() {
+            const container = document.getElementById('inboxList');
+            try {
+                const user = auth.getUser();
+                const res = await api.get('/notifications?user=' + user.username);
+                if (!res.ok) throw new Error(res.error);
+
+                const list = res.data || [];
+                container.innerHTML = '';
+
+                if (list.length === 0) {
+                    container.innerHTML = `<div style="text-align:center; padding:50px; color:#94a3b8">
+                        <i class="bi bi-check-circle" style="font-size:2rem"></i><br>All caught up! No notifications.
+                    </div>`;
+                    return;
+                }
+
+                list.forEach(n => {
+                    let typeClass = 'bg-info';
+                    if (n.type === 'WARNING') typeClass = 'bg-warn';
+                    if (n.type === 'ALERT') typeClass = 'bg-alert';
+                    if (n.type === 'SUCCESS') typeClass = 'bg-success';
+
+                    const date = new Date(n.created_at).toLocaleString();
+                    const readClass = n.is_read ? '' : 'unread';
+                    const icon = n.is_read ? '<i class="bi bi-envelope-open"></i>' : '<i class="bi bi-envelope-fill" style="color:var(--primary)"></i>';
+
+                    const div = document.createElement('div');
+                    div.className = `notif-card ${readClass}`;
+                    div.innerHTML = `
+                        <div class="notif-meta">
+                            <span><span class="badge-type ${typeClass}">${n.type}</span> &nbsp; ${date}</span>
+                            <span>${n.created_by || 'System'}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:start;">
+                            <div>
+                                <div class="notif-title">${n.title}</div>
+                                <div class="notif-msg">${n.message}</div>
+                            </div>
+                            <button class="btn icon sm" onclick="markRead(${n.id})" title="Mark Read" ${n.is_read ? 'disabled' : ''}>
+                                ${icon}
+                            </button>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                });
+
+            } catch (e) {
+                console.error(e);
+                container.innerHTML = 'Error loading notifications.';
+            }
+        }
+
+        async function markRead(id) {
+            try {
+                await api.post('/notifications/mark-read', { id });
+                // Check if specific row, update UI instantly without reload
+                loadInbox(); // Reload to refresh sorting and bell count
+
+                // Trigger bell update immediately
+                if (window.checkUnread) window.checkUnread(); // Global Helper
+            } catch (e) { console.error(e); }
+        }
+
+        async function markAllRead() {
+            try {
+                const user = auth.getUser();
+                await api.post('/notifications/mark-all-read', { user: user.username });
+                loadInbox();
+                if (window.checkUnread) window.checkUnread();
+            } catch (e) { toast('Error: ' + e, 'error'); }
+        }
+
+        async function sendNotification() {
+            const target = document.getElementById('sendTarget').value;
+            const type = document.getElementById('sendType').value;
+            const title = document.getElementById('sendTitle').value;
+            const msg = document.getElementById('sendMessage').value;
+
+            if (!title || !msg) return toast('Please enter title and message', 'error');
+
+            try {
+                const user = auth.getUser();
+                const res = await api.post('/notifications/send', {
+                    targetUser: target,
+                    type, title, message: msg,
+                    sender: user.username
+                });
+
+                if (res.ok) {
+                    toast(`Sent to ${res.count} user(s)`);
+                    document.getElementById('sendTitle').value = '';
+                    document.getElementById('sendMessage').value = '';
+                } else {
+                    toast(res.error, 'error');
+                }
+            } catch (e) {
+                toast(e.message, 'error');
+            }
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

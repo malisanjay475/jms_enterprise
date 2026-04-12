@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JMS OCEAN - Users</title>
+    <!-- PWA Meta -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1e293b">
+    <link rel="stylesheet" href="/assets/app.css?v=5">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        #userModal {
+            padding: 16px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #userModal .modal-content {
+            width: min(1520px, calc(100vw - 32px));
+            max-width: none;
+            height: calc(100vh - 32px);
+            max-height: none;
+            padding: 0;
+            border-radius: 24px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 253, 0.98));
+        }
+
+        .user-modal-header {
+            padding: 24px 28px 18px;
+            border-bottom: 1px solid #dbe7ef;
+            background:
+                radial-gradient(circle at top right, rgba(1, 168, 221, 0.12), transparent 28%),
+                linear-gradient(180deg, #ffffff, #f8fbfd);
+        }
+
+        .user-modal-title {
+            margin: 0;
+            font-size: 1.8rem;
+            color: #12344d;
+            letter-spacing: -0.03em;
+        }
+
+        .user-modal-copy {
+            margin: 8px 0 0;
+            color: #688095;
+            font-size: 0.95rem;
+        }
+
+        .user-modal-body {
+            flex: 1;
+            min-height: 0;
+            padding: 24px 28px;
+            display: grid;
+            grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
+            gap: 24px;
+            overflow: hidden;
+        }
+
+        .user-modal-left {
+            min-width: 0;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+
+        .user-modal-right {
+            min-width: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .user-panel {
+            background: #fff;
+            border: 1px solid #dce8ef;
+            border-radius: 20px;
+            box-shadow: 0 10px 24px rgba(6, 45, 70, 0.06);
+        }
+
+        .user-panel.form-panel {
+            padding: 22px;
+        }
+
+        .user-panel.perm-panel {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            padding: 20px 20px 16px;
+        }
+
+        .user-section-label {
+            margin: 0 0 16px;
+            font-size: 0.82rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #587289;
+        }
+
+        .user-grid-two {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 14px;
+        }
+
+        .user-grid-two .form-group {
+            margin-bottom: 0;
+        }
+
+        .user-stack {
+            display: grid;
+            gap: 14px;
+        }
+
+        #factoryChecks {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            max-height: 180px !important;
+            border-radius: 12px !important;
+            padding: 12px !important;
+            background: #fbfdff;
+        }
+
+        .user-perm-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .user-perm-note {
+            color: #6a8296;
+            font-size: 0.88rem;
+        }
+
+        .user-perm-table-wrap {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+            border: 1px solid #dce8ef;
+            border-radius: 14px;
+            background: #fff;
+        }
+
+        #permTable thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #eef5f9;
+        }
+
+        .user-modal-footer {
+            padding: 16px 28px 20px;
+            border-top: 1px solid #dbe7ef;
+            background: linear-gradient(180deg, #fbfdff, #f3f8fb);
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        @media (max-width: 1120px) {
+            .user-modal-body {
+                grid-template-columns: 1fr;
+                overflow-y: auto;
+            }
+
+            .user-modal-left,
+            .user-modal-right {
+                overflow: visible;
+            }
+
+            .user-panel.perm-panel {
+                min-height: 420px;
+            }
+        }
+
+        @media (max-width: 720px) {
+            #userModal {
+                padding: 8px;
+            }
+
+            #userModal .modal-content {
+                width: calc(100vw - 16px);
+                height: calc(100vh - 16px);
+                border-radius: 18px;
+            }
+
+            .user-modal-header,
+            .user-modal-body,
+            .user-modal-footer {
+                padding-left: 16px;
+                padding-right: 16px;
+            }
+
+            .user-grid-two {
+                grid-template-columns: 1fr;
+            }
+
+            #factoryChecks {
+                grid-template-columns: 1fr !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="header">
+            <div class="page-title">User Management</div>
+            <button class="btn btn-primary" id="btnAddUser" onclick="openUserModal()">+ Add User</button>
+        </div>
+
+        <div class="card">
+            <table id="usersTable">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Line / Scope</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Create User Modal -->
+    <div class="modal-overlay" id="userModal">
+        <div class="modal-content">
+            <div class="user-modal-header">
+                <h3 class="user-modal-title">Add/Edit User</h3>
+                <div class="user-modal-copy">Manage login details, role, factory access, and permissions in one full-screen view.</div>
+            </div>
+
+            <div class="user-modal-body">
+                <div class="user-modal-left">
+                    <div class="user-panel form-panel">
+                        <div class="user-section-label">User Details</div>
+
+                        <div class="user-stack">
+                            <div class="form-group">
+                                <label class="form-label">Username</label>
+                                <input id="u_username" class="form-control">
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label">Password</label>
+                                <input id="u_password" class="form-control">
+                            </div>
+
+                            <div class="user-grid-two">
+                                <div class="form-group">
+                                    <label class="form-label">Role</label>
+                                    <div style="display:flex; gap:5px">
+                                        <select id="u_role" class="form-control" style="flex:1">
+                                            <!-- Dynamic -->
+                                        </select>
+                                        <button class="btn btn-outline" onclick="createRole()" title="Create New Role"
+                                            style="padding:0 10px; font-weight:bold">+</button>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">Line (Optional)</label>
+                                    <input id="u_line" class="form-control" placeholder="e.g. 1">
+                                </div>
+                            </div>
+
+                            <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:0">
+                                <input type="checkbox" id="u_global" style="width:18px; height:18px">
+                                <label for="u_global" style="font-weight:600; cursor:pointer">Global Access (Remote Login)</label>
+                            </div>
+
+                            <div class="form-group" style="margin-bottom:0">
+                                <label class="form-label">Assigned Factories</label>
+                                <div id="factoryChecks"
+                                    style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; max-height:100px; overflow-y:auto; border:1px solid #e5e7eb; padding:8px; border-radius:6px">
+                                    <!-- Dynamic -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="user-modal-right">
+                    <div class="user-panel perm-panel">
+                        <div class="user-perm-toolbar">
+                            <div>
+                                <div class="user-section-label" style="margin-bottom:6px">Permissions</div>
+                                <div class="user-perm-note">Control which modules this user can view, add, edit, print, or delete.</div>
+                            </div>
+                        </div>
+
+                        <div class="user-perm-table-wrap">
+                            <table class="table-sm" id="permTable" style="width:100%; border-collapse:collapse; font-size:0.9rem">
+                                <thead style="background:#f3f4f6">
+                                    <tr>
+                                        <th style="text-align:left; padding:8px">Feature</th>
+                                        <th style="text-align:center; padding:8px">View</th>
+                                        <th style="text-align:center; padding:8px">Add</th>
+                                        <th style="text-align:center; padding:8px">Edit</th>
+                                        <th style="text-align:center; padding:8px">Print</th>
+                                        <th style="text-align:center; padding:8px">Delete</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Generated by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="user-modal-footer">
+                <button class="btn btn-outline" onclick="closeUserModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveUser()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div class="modal-overlay" id="pwdModal">
+        <div class="modal-content">
+            <h3 style="margin-top:0">Change Password</h3>
+            <div class="form-group">
+                <label class="form-label">New Password</label>
+                <input id="p_password" class="form-control">
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:10px">
+                <button class="btn btn-outline" onclick="closePwdModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="savePassword()">Update</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('users');
+            if (!JPSMS.auth.can('users', 'add')) {
+                document.getElementById('btnAddUser').style.display = 'none';
+            }
+            loadUsers();
+            loadRoles();
+            loadFactories();
+
+            // Auto-check for admin
+            document.getElementById('u_role').addEventListener('change', (e) => {
+                const val = e.target.value;
+                if (val === 'admin' || val === 'superadmin') {
+                    toggleAllPerms(true);
+                    document.getElementById('u_global').checked = true;
+                    // Check all factories? Maybe not automatically
+                }
+            });
+        });
+
+        let userRowsCache = [];
+        let isEditMode = false;
+        let editUserId = null;
+        const PERMISSION_ACTIONS = ['view', 'add', 'edit', 'print', 'delete'];
+
+        function normalizePermissionMap(perms = {}) {
+            if (JPSMS.auth && JPSMS.auth.normalizePermissions) {
+                return JPSMS.auth.normalizePermissions(perms);
+            }
+            return perms || {};
+        }
+
+        function getCachedUser(userId) {
+            return userRowsCache.find(u => Number(u.id) === Number(userId)) || null;
+        }
+
+        async function refreshCurrentSessionAccess(updatedUser) {
+            const currentUser = JPSMS.auth.getUser();
+            if (!currentUser?.username) return false;
+            if (String(currentUser.username).toLowerCase() !== String(updatedUser.username || '').toLowerCase()) return false;
+
+            const nextUser = {
+                ...currentUser,
+                username: updatedUser.username,
+                role_code: updatedUser.role_code,
+                line: updatedUser.line,
+                global_access: updatedUser.global_access
+            };
+            localStorage.setItem('user', JSON.stringify(nextUser));
+
+            try {
+                const res = await JPSMS.api.get('/factories');
+                const factories = Array.isArray(res.data) ? res.data : [];
+                const canSelectAll = res.can_select_all_factories === true;
+                const currentFactoryId = localStorage.getItem('jpsms_factory_id');
+                const matchedFactory = factories.find(f => String(f.id) === String(currentFactoryId));
+
+                localStorage.setItem('jpsms_allowed_factories', JSON.stringify(factories));
+                localStorage.setItem('jpsms_can_all_factories', canSelectAll ? 'true' : 'false');
+
+                if (currentFactoryId === 'all' && canSelectAll) {
+                    localStorage.setItem('jpsms_factory_name', 'All Factories');
+                    return true;
+                }
+
+                if (matchedFactory) {
+                    localStorage.setItem('jpsms_factory_id', String(matchedFactory.id));
+                    localStorage.setItem('jpsms_factory_name', matchedFactory.name || '');
+                    return true;
+                }
+
+                if (factories.length === 1) {
+                    localStorage.setItem('jpsms_factory_id', String(factories[0].id));
+                    localStorage.setItem('jpsms_factory_name', factories[0].name || '');
+                    return true;
+                }
+
+                if (canSelectAll) {
+                    localStorage.setItem('jpsms_factory_id', 'all');
+                    localStorage.setItem('jpsms_factory_name', 'All Factories');
+                    return true;
+                }
+
+                if (factories.length > 0) {
+                    localStorage.setItem('jpsms_factory_id', String(factories[0].id));
+                    localStorage.setItem('jpsms_factory_name', factories[0].name || '');
+                    return true;
+                }
+
+                localStorage.removeItem('jpsms_factory_id');
+                localStorage.removeItem('jpsms_factory_name');
+                return true;
+            } catch (err) {
+                console.warn('Failed to refresh current user factory access', err);
+                return false;
+            }
+        }
+
+        async function loadUsers() {
+            const tbody = document.querySelector('#usersTable tbody');
+            tbody.innerHTML = '<tr><td>Loading...</td></tr>';
+            try {
+                const res = await JPSMS.api.get('/users');
+                const rows = res.data || [];
+                const canEditUsers = JPSMS.auth.can('users', 'edit');
+                const canDeleteUsers = JPSMS.auth.can('users', 'delete');
+                userRowsCache = rows;
+                tbody.innerHTML = rows.map(u => `
+          <tr>
+            <td>
+                ${u.username} 
+                ${u.global_access ? '<i class="bi bi-globe" title="Global Access" style="color:#2563eb; margin-left:4px"></i>' : ''}
+            </td>
+            <td><span class="badge">${u.role_code || 'operator'}</span></td>
+            <td>${u.line || '-'}</td>
+            <td>
+                <div>${u.is_active !== false ? 'Active' : 'Inactive'}</div>
+                <div style="font-size:0.75rem; opacity:0.7">${(u.assigned_factories?.length || 0)} Factories</div>
+            </td>
+            <td style="display:flex; gap:5px;">
+                ${(canEditUsers || canDeleteUsers) ? `
+                    ${canEditUsers ? `<button class="btn btn-sm btn-outline" onclick="editUserById(${u.id})">Edit</button>` : ''}
+                    ${canEditUsers ? `<button class="btn btn-sm btn-outline" onclick="openPwdModalById(${u.id})">Pwd</button>` : ''}
+                    ${canDeleteUsers ? `<button class="btn btn-sm btn-danger" onclick="deleteUserById(${u.id})" style="background:#ef4444; color:white; border:none">Del</button>` : ''}
+                ` : '<span style="color:#999;font-size:0.8rem">Read Only</span>'}
+            </td>
+          </tr>
+        `).join('');
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="5">Error loading users</td></tr>';
+            }
+        }
+
+        function renderPermTable(perms = {}) {
+            const tbody = document.querySelector('#permTable tbody');
+
+            // 1. Build Full Menu (System Menu + Critical Ops)
+            const systemMenu = JPSMS.MENU || [];
+            // Clone to avoid mutating original if needed, though concat returns new array
+            const fullMenu = systemMenu.concat([
+                { id: 'approvals', label: 'Approvals & Reviews', icon: 'bi-check-all' },
+                {
+                    id: 'critical_ops', label: 'Critical Operations', icon: 'bi-shield-lock', items: [
+                        { id: 'data_wipe', label: 'Wipe / Reset Data' },
+                        { id: 'log_clear', label: 'Clear Logs' }
+                    ]
+                }
+            ]);
+
+            let html = '';
+
+            fullMenu.forEach(m => {
+                // Parent Row (Bold)
+                const p = perms[m.id] || {};
+                const parentId = m.id;
+
+                // Helper for Checkboxes
+                // We add class `group-${parentId}` to ALL checkboxes in this tree (Parent + Children)
+                // This allows the "Select All" toggle to find them easily.
+                const mkChk = (id, type, isChecked) => `
+                    <input type="checkbox" 
+                           class="perm-chk group-${parentId}" 
+                           data-f="${id}" 
+                           data-t="${type}" 
+                           ${isChecked ? 'checked' : ''}>
+                `;
+
+                html += `
+                    <tr style="border-bottom:1px solid #eee; background:#f8fafc;">
+                        <td style="padding:8px; font-weight:700; color:#0f172a; display:flex; align-items:center; gap:8px">
+                            <input type="checkbox" title="Select All for ${m.label}" onchange="toggleGroup('${parentId}', this.checked)">
+                            <i class="bi ${m.icon || 'bi-circle'}" style="opacity:0.6"></i> ${m.label}
+                        </td>
+                        <td style="text-align:center">${mkChk(m.id, 'view', p.view)}</td>
+                        <td style="text-align:center">${mkChk(m.id, 'edit', p.edit)}</td>
+                        <td style="text-align:center">${mkChk(m.id, 'print', p.print)}</td>
+                        <td style="text-align:center">${mkChk(m.id, 'other', p.other)}</td>
+                    </tr>
+                `;
+
+                // Sub-items (Indented)
+                if (m.items && m.items.length > 0) {
+                    m.items.forEach(sub => {
+                        const sp = perms[sub.id] || {};
+                        html += `
+                        <tr style="border-bottom:1px solid #fcfcfc">
+                            <td style="padding:4px 4px 4px 32px; font-size:0.9rem; color:#64748b; display:flex; align-items:center; gap:6px">
+                                └ ${sub.label}
+                            </td>
+                            <td style="text-align:center">${mkChk(sub.id, 'view', sp.view)}</td>
+                            <td style="text-align:center">${mkChk(sub.id, 'edit', sp.edit)}</td>
+                            <td style="text-align:center">${mkChk(sub.id, 'print', sp.print)}</td>
+                            <td style="text-align:center">${mkChk(sub.id, 'other', sp.other)}</td>
+                        </tr>
+                        `;
+                    });
+                }
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        function renderPermTable(perms = {}) {
+            const tbody = document.querySelector('#permTable tbody');
+            const normalizedPerms = normalizePermissionMap(perms);
+            const systemMenu = JPSMS.MENU || [];
+            const fullMenu = systemMenu.concat([
+                { id: 'approvals', label: 'Approvals & Reviews', icon: 'bi-check-all' },
+                {
+                    id: 'critical_ops', label: 'Critical Operations', icon: 'bi-shield-lock', items: [
+                        { id: 'data_wipe', label: 'Wipe / Reset Data' },
+                        { id: 'log_clear', label: 'Clear Logs' }
+                    ]
+                }
+            ]);
+
+            let html = '';
+
+            fullMenu.forEach(m => {
+                const p = normalizedPerms[m.id] || {};
+                const parentId = m.id;
+                const mkChk = (id, type, isChecked) => `
+                    <input type="checkbox"
+                           class="perm-chk group-${parentId}"
+                           data-f="${id}"
+                           data-t="${type}"
+                           ${isChecked ? 'checked' : ''}>
+                `;
+
+                html += `
+                    <tr style="border-bottom:1px solid #eee; background:#f8fafc;">
+                        <td style="padding:8px; font-weight:700; color:#0f172a; display:flex; align-items:center; gap:8px">
+                            <input type="checkbox" title="Select All for ${m.label}" onchange="toggleGroup('${parentId}', this.checked)">
+                            <i class="bi ${m.icon || 'bi-circle'}" style="opacity:0.6"></i> ${m.label}
+                        </td>
+                        ${PERMISSION_ACTIONS.map(action => `<td style="text-align:center">${mkChk(m.id, action, p[action])}</td>`).join('')}
+                    </tr>
+                `;
+
+                if (m.items && m.items.length > 0) {
+                    m.items.forEach(sub => {
+                        const sp = normalizedPerms[sub.id] || {};
+                        html += `
+                        <tr style="border-bottom:1px solid #fcfcfc">
+                            <td style="padding:4px 4px 4px 32px; font-size:0.9rem; color:#64748b; display:flex; align-items:center; gap:6px">
+                                - ${sub.label}
+                            </td>
+                            ${PERMISSION_ACTIONS.map(action => `<td style="text-align:center">${mkChk(sub.id, action, sp[action])}</td>`).join('')}
+                        </tr>
+                        `;
+                    });
+                }
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        function toggleGroup(groupId, state) {
+            // Select ALL checkboxes that belong to this group (Parent + Children)
+            document.querySelectorAll(`.group-${groupId}`).forEach(box => {
+                box.checked = state;
+            });
+        }
+
+        function getPermsFromTable() {
+            const perms = {};
+            document.querySelectorAll('#permTable input[type="checkbox"]').forEach(box => {
+                // Skip the "Select All" checkboxes which don't have data attributes suitable for perms
+                if (!box.dataset.f) return;
+
+                const f = box.dataset.f;
+                const t = box.dataset.t;
+                if (!perms[f]) perms[f] = {};
+                if (box.checked) perms[f][t] = true;
+            });
+            return perms;
+        }
+
+        function toggleAllPerms(state) {
+            document.querySelectorAll('#permTable input[type="checkbox"]').forEach(box => {
+                box.checked = state;
+            });
+        }
+
+        function openUserModal() {
+            isEditMode = false;
+            editUserId = null;
+            document.getElementById('userModal').style.display = 'flex';
+            document.querySelector('#userModal h3').textContent = 'Add User';
+
+            document.getElementById('u_username').value = '';
+            document.getElementById('u_username').disabled = false;
+
+            document.getElementById('u_password').parentElement.style.display = 'block';
+            document.getElementById('u_password').value = '';
+
+            document.getElementById('u_line').value = '';
+
+            renderPermTable({}); // Empty perms
+
+            // Checks
+            document.getElementById('u_global').checked = false;
+            document.querySelectorAll('.factory-chk').forEach(c => c.checked = false);
+        }
+
+        function editUserById(userId) {
+            const user = getCachedUser(userId);
+            if (!user) {
+                JPSMS.toast('User record not found', 'error');
+                return;
+            }
+
+            editUserId = Number(user.id) || null;
+            isEditMode = true;
+            document.getElementById('userModal').style.display = 'flex';
+            document.querySelector('#userModal h3').textContent = 'Edit User';
+
+            document.getElementById('u_username').value = user.username || '';
+            document.getElementById('u_username').disabled = true;
+
+            document.getElementById('u_password').parentElement.style.display = 'none';
+
+            document.getElementById('u_role').value = user.role_code || 'operator';
+            document.getElementById('u_line').value = user.line !== 'null' ? (user.line || '') : '';
+
+            // Global
+            document.getElementById('u_global').checked = !!user.global_access;
+
+            // Factories
+            const fList = user.assigned_factories || [];
+            document.querySelectorAll('.factory-chk').forEach(c => {
+                c.checked = fList.includes(parseInt(c.value));
+            });
+
+            const perms = typeof user.permissions === 'object' && user.permissions
+                ? user.permissions
+                : {};
+
+            // If admin-like, force show all checked visually
+            if (user.role_code === 'admin' || user.role_code === 'superadmin') {
+                renderPermTable({}); // Render empty first
+                toggleAllPerms(true);
+            } else {
+                renderPermTable(perms);
+            }
+        }
+
+        function closeUserModal() {
+            document.getElementById('userModal').style.display = 'none';
+        }
+
+        async function saveUser() {
+            const u = {
+                id: isEditMode ? editUserId : null,
+                username: document.getElementById('u_username').value,
+                role_code: document.getElementById('u_role').value,
+                line: document.getElementById('u_line').value,
+                permissions: getPermsFromTable(),
+                global_access: document.getElementById('u_global').checked,
+                factories: Array.from(document.querySelectorAll('.factory-chk:checked')).map(c => parseInt(c.value))
+            };
+
+            if (!isEditMode) {
+                u.password = document.getElementById('u_password').value;
+                if (!u.username || !u.password) return JPSMS.toast('Username & Password required', 'error');
+
+                try {
+                    await JPSMS.api.post('/users/save', u);
+                    JPSMS.toast('User saved');
+                    closeUserModal();
+                    loadUsers();
+                } catch (e) { /* handled */ }
+            } else {
+                try {
+                    await JPSMS.api.post('/users/save', u);
+                    JPSMS.toast('User updated');
+                    closeUserModal();
+                    const refreshedCurrentUser = await refreshCurrentSessionAccess(u);
+                    loadUsers();
+                    if (refreshedCurrentUser) {
+                        setTimeout(() => window.location.reload(), 150);
+                    }
+                } catch (e) { /* handled */ }
+            }
+        }
+
+        async function deleteUserById(userId) {
+            const user = getCachedUser(userId);
+            const username = user?.username || 'this user';
+            if (!confirm('Delete user ' + username + '?')) return;
+            try {
+                await JPSMS.api.post('/users/delete', { id: userId, username });
+                JPSMS.toast('User deleted');
+                loadUsers();
+            } catch (e) { /* handled */ }
+        }
+
+        // Password Modal
+        let pwdTargetUser = null;
+        function openPwdModalById(userId) {
+            const user = getCachedUser(userId);
+            pwdTargetUser = user?.username || null;
+            if (!pwdTargetUser) {
+                JPSMS.toast('User record not found', 'error');
+                return;
+            }
+            document.getElementById('pwdModal').style.display = 'flex';
+            document.getElementById('p_password').value = '';
+        }
+        function closePwdModal() {
+            document.getElementById('pwdModal').style.display = 'none';
+            pwdTargetUser = null;
+        }
+        async function savePassword() {
+            const pwd = document.getElementById('p_password').value;
+            if (!pwd) return JPSMS.toast('Enter password', 'error');
+            try {
+                await JPSMS.api.post('/users/password', { username: pwdTargetUser, password: pwd });
+                JPSMS.toast('Password updated');
+                closePwdModal();
+            } catch (e) { /* handled */ }
+        }
+
+        /* ==================== ROLES ==================== */
+        async function loadRoles(selected = null) {
+            const sel = document.getElementById('u_role');
+            sel.innerHTML = '<option>Loading...</option>';
+            try {
+                const res = await JPSMS.api.get('/roles');
+                const priority = { superadmin: 0, admin: 1 };
+                const list = (res.data || []).slice().sort((a, b) => {
+                    const aRank = Object.prototype.hasOwnProperty.call(priority, a.code) ? priority[a.code] : 10;
+                    const bRank = Object.prototype.hasOwnProperty.call(priority, b.code) ? priority[b.code] : 10;
+                    if (aRank !== bRank) return aRank - bRank;
+                    return String(a.label || '').localeCompare(String(b.label || ''));
+                });
+                sel.innerHTML = '';
+                list.forEach(r => {
+                    const opt = new Option(r.label, r.code);
+                    sel.add(opt);
+                });
+                if (selected) sel.value = selected;
+            } catch (e) {
+                sel.innerHTML = '<option value="">Error loading roles</option>';
+            }
+        }
+
+        async function createRole() {
+            const label = prompt('Enter Name for New Role (e.g. "Line Manager"):');
+            if (!label) return;
+
+            // Auto-generate code
+            const code = label.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+            if (!confirm(`Create new role "${label}" (Internal Code: ${code})?`)) return;
+
+            try {
+                const res = await JPSMS.api.post('/roles/create', { code, label });
+                if (res.ok) {
+                    JPSMS.toast('Role created');
+                    await loadRoles(res.code); // Reload and select new
+                } else {
+                    alert('Error: ' + (res.error || 'Failed'));
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        async function loadFactories() {
+            const div = document.getElementById('factoryChecks');
+            div.innerHTML = 'Loading...';
+            try {
+                const res = await JPSMS.api.get('/factories');
+                const list = res.data || [];
+                div.innerHTML = list.map(f => `
+                    <div style="display:flex; align-items:center; gap:5px">
+                        <input type="checkbox" value="${f.id}" class="factory-chk" id="fc_${f.id}">
+                        <label for="fc_${f.id}" style="font-size:0.9rem; cursor:pointer">${f.name}</label>
+                    </div>
+                `).join('');
+            } catch (e) {
+                div.innerHTML = 'Error loading factories';
+            }
+        }
+    </script>
+    <script src="/assets/ai-chat.js"></script>
+</body>
+
+</html>
