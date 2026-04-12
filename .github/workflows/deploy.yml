@@ -1,0 +1,67 @@
+name: Deploy to Hostinger VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies & Build Backend
+        run: |
+          cd v2-backend
+          npm install
+          npm run build
+          cd ..
+
+      - name: Install Dependencies & Build Frontend
+        run: |
+          cd v2-frontend
+          npm install
+          npm run build
+          cd ..
+
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          script: |
+            cd /var/www/jms_enterprise || (mkdir -p /var/www/jms_enterprise && cd /var/www/jms_enterprise)
+            
+            # Update Code
+            if [ -d ".git" ]; then
+              git pull origin main
+            else
+              git clone https://github.com/malisanjay475/jms_enterprise.git .
+            fi
+            
+            # Build & Setup Backend
+            cd v2-backend
+            npm install
+            npm run build
+            # Run migrations if needed (Uncomment after setting DATABASE_URL on server)
+            # npx prisma migrate deploy
+            cd ..
+            
+            # Build Frontend
+            cd v2-frontend
+            npm install
+            npm run build
+            cd ..
+            
+            # Restart with PM2
+            pm2 reload ecosystem.config.js || pm2 start ecosystem.config.js
+            pm2 save

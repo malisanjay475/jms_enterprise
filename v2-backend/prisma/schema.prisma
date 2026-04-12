@@ -117,3 +117,43 @@ model JobCard {
   @@index([factory_id])
   @@map("job_cards")
 }
+
+// -----------------------------------------------------
+// 4. WIP Stock Reports & Snapshots
+// -----------------------------------------------------
+
+model WipStockSnapshot {
+  id           String    @id @default(uuid()) @db.Uuid
+  factory_id   Int
+  stock_date   DateTime @default(now())
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  
+  lines        WipStockSnapshotLine[]
+
+  @@index([factory_id, stock_date])
+  @@map("wip_stock_snapshots")
+}
+
+model WipStockSnapshotLine {
+  id                        String   @id @default(uuid()) @db.Uuid
+  snapshot_id               String   @db.Uuid
+  factory_id                Int
+  stock_date                DateTime
+  factory_unit              String?
+  item_code                 String?
+  item_name                 String?
+  job_no                    String?
+  job_date                  DateTime?
+  total_qty                 Decimal? @db.Decimal(18, 4)
+  uom                       String?
+  row_status                String?
+  remark_from_factory_unit  String?
+  created_at                DateTime @default(now())
+
+  snapshot                  WipStockSnapshot @relation(fields: [snapshot_id], references: [id])
+
+  @@index([factory_id, item_code])
+  @@index([stock_date])
+  @@map("wip_stock_snapshot_lines")
+}

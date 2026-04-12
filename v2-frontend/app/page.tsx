@@ -11,17 +11,14 @@ export default function SuperadminDashboard() {
           </div>
           <h1 className="text-xl font-semibold tracking-tight text-white">Master Control</h1>
         </div>
-        <div className="flex items-center space-x-6">
-          <div className="flex items-center space-x-2 text-sm text-slate-400">
-            <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-            </span>
-            <span>Live Socket Connected</span>
+          <div className="flex items-center space-x-2">
+            <a href="/reports/wip" className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors">
+              Reports
+            </a>
+            <button className="px-4 py-2 text-sm font-medium text-white transition-all bg-indigo-600 rounded-md hover:bg-indigo-500 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 shadow-lg shadow-indigo-600/20">
+              Superadmin
+            </button>
           </div>
-          <button className="px-4 py-2 text-sm font-medium text-white transition-all bg-indigo-600 rounded-md hover:bg-indigo-500 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 shadow-lg shadow-indigo-600/20">
-            Superadmin
-          </button>
         </div>
       </nav>
 

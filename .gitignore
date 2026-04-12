@@ -1,0 +1,104 @@
+# Dependency Directories
+node_modules/
+**/node_modules/
+jspm_packages/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Build Artifacts
+dist/
+build/
+.next/
+out/
+.vercel
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Database / Storage
+*.sql
+*.db
+*.db-journal
+uploads/
+BACKUPS/
+restore/
+
+# Environment Variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env.example
+! .env.example
+
+# Backup Files
+*.zip
+*.tar.gz
+*.7z
+*.rar
+
+# IDEs
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# Project Specific
+v11.zip
+JPSMS_COMPLETE_BACKUP_*.zip
+
+# Scratch & Debug Scripts
+BACKEND/debug_*.js
+BACKEND/debug_*.txt
+BACKEND/test_*.js
+BACKEND/verify_*.js
+BACKEND/fix_*.js
+BACKEND/migrate_*.js
+BACKEND/temp_verify*/
+BACKEND/scratch_*.js
+BACKEND/repro_*.js
+BACKEND/find_*.js
+BACKEND/check_*.js
+BACKEND/sample_*.js
+BACKEND/seed_*.js
+BACKEND/list_*.js
+BACKEND/get_*.js
+BACKEND/query_*.js
+BACKEND/ensure_*.js
+BACKEND/final_*.js
+BACKEND/force_*.js
+BACKEND/investigate_*.js
+BACKEND/reopen_*.js
+BACKEND/response.json
+BACKEND/restore_*.js
+BACKEND/schema_*.json
+BACKEND/update_db_*.js
+BACKEND/wip_migration.js
+BACKEND/response.json
+BACKEND/prepare_*.js
+BACKEND/recreate_*.js
+BACKEND/remove_*.js
+BACKEND/v5_verify/
+BACKEND/runtime/
+BACKEND/job_card_api_snippet.js

@@ -4,6 +4,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from './prisma/prisma.module';
 import { HealthAndMetricsModule } from './modules/health/health.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import * as Joi from 'joi'; // We must run npm install joi for this
 
 @Module({
@@ -62,6 +63,7 @@ import * as Joi from 'joi'; // We must run npm install joi for this
     // -----------------------------------------------------------------
     HealthAndMetricsModule,
     RealtimeModule,
+    ReportsModule,
   ],
   controllers: [],
   providers: [],
