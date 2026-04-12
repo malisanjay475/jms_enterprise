@@ -2,8 +2,20 @@
 
 import React, { useState, useEffect } from 'react';
 
+interface WipRow {
+  factory_unit?: string;
+  item_code?: string;
+  item_name?: string;
+  total_qty?: number;
+  uom?: string;
+  entries_count?: number;
+  stock_date?: string;
+  job_no?: string;
+  row_status?: string;
+}
+
 export default function WipReportPage() {
-  const [data, setData] = useState([]);
+  const [data, setData] = useState<WipRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({
     factory_id: '',
