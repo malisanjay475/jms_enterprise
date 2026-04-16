@@ -1,11 +1,72 @@
-# Hostinger VPS Docker (MCP VPS_createNewProjectV1): clone repo, then compose from repo root.
+# JMS Enterprise v2 — one stack, separate containers (Postgres, Redis, API, web, nginx).
+# Copy env.docker.example to .env, set secrets, then from repo root:
+#   docker compose up -d --build
+# App URL: http://<VPS-IP>/  (nginx :80 → Next.js; /api/* → Nest)
+
 services:
-  graphify-view:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jms
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: jms
+    volumes:
+      - jms_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jms -d jms"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - jms_redis_data:/data
+
+  api:
     build:
-      context: ./BACKEND
-      dockerfile: graphify-view/Dockerfile
-    image: jms-graphify-view:latest
-    container_name: jms-graphify-view
+      context: ./v2-backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: postgresql://jms:${POSTGRES_PASSWORD}@db:5432/jms
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (min 32 characters)}
+
+  web:
+    build:
+      context: ./v2-frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+
+  nginx:
+    image: nginx:alpine
     restart: unless-stopped
     ports:
-      - "8088:80"
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./deploy/docker/v2-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - web
+
+volumes:
+  jms_pg_data:
+  jms_redis_data:

@@ -32,8 +32,7 @@ export default function WipReportPage() {
         ...filters,
         factory_id: filters.factory_id || '',
       });
-      // Replace with your actual V2 Backend URL if running on a specific port
-      const res = await fetch(`http://localhost:3000/reports/wip?${queryParams}`);
+      const res = await fetch(`/api/v1/reports/wip?${queryParams}`);
       const result = await res.json();
       setData(result);
     } catch (err) {

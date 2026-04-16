@@ -27,5 +27,6 @@ COPY --from=builder /app/.next ./.next
 EXPOSE 3000
 
 ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
 
-CMD ["npm", "run", "start"]
+CMD ["npx", "next", "start", "-H", "0.0.0.0", "-p", "3000"]
