@@ -1,0 +1,1954 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JMS Graph View</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --ink: #17212f;
+      --muted: #64748b;
+      --line: #d7e0ea;
+      --accent: #0f9f8f;
+      --accent-2: #2f7dd3;
+      --warn: #d78b18;
+      --bad: #d94848;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(15, 159, 143, 0.05) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(47, 125, 211, 0.05) 1px, transparent 1px),
+        var(--bg);
+      background-size: 26px 26px;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr) 300px;
+      height: 100%;
+      min-width: 0;
+    }
+
+    .panel {
+      min-width: 0;
+      background: rgba(255, 255, 255, 0.94);
+      border-color: var(--line);
+      border-style: solid;
+      border-width: 0 1px 0 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel.right {
+      border-width: 0 0 0 1px;
+    }
+
+    .panel-head {
+      padding: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 13px;
+      color: var(--muted);
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .sub {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .controls {
+      padding: 14px 18px;
+      display: grid;
+      gap: 12px;
+      overflow-y: auto;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      color: #334155;
+      margin-bottom: 6px;
+    }
+
+    input,
+    select,
+    button {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+    }
+
+    input,
+    select {
+      height: 38px;
+      padding: 0 10px;
+    }
+
+    input[type="range"] {
+      padding: 0;
+      height: 28px;
+    }
+
+    button {
+      height: 38px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      border-color: #9db4c9;
+      background: #f8fafc;
+    }
+
+    .primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border-color: transparent;
+      color: #fff;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .stat {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #f8fafc;
+    }
+
+    .stat b {
+      display: block;
+      font-size: 18px;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 12px;
+      color: #334155;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+
+    .stage {
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+    }
+
+    canvas.dragging {
+      cursor: grabbing;
+    }
+
+    .hud {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      top: 16px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      pointer-events: none;
+    }
+
+    .badge {
+      border: 1px solid rgba(215, 224, 234, 0.9);
+      background: rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(10px);
+      border-radius: 8px;
+      padding: 8px 10px;
+      color: #334155;
+      font-size: 12px;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    }
+
+    .details {
+      padding: 16px 18px;
+      overflow-y: auto;
+      min-height: 0;
+      display: grid;
+      gap: 12px;
+    }
+
+    .kv {
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 10px;
+    }
+
+    .kv:last-child {
+      border-bottom: 0;
+    }
+
+    .kv .k {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+
+    .kv .v {
+      font-size: 13px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .list {
+      display: grid;
+      gap: 6px;
+      max-height: 250px;
+      overflow-y: auto;
+    }
+
+    .list button {
+      height: auto;
+      min-height: 34px;
+      text-align: left;
+      padding: 7px 9px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .status {
+      color: #334155;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .explain-box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .explain-title {
+      font-weight: 800;
+      font-size: 13px;
+      color: #17212f;
+    }
+
+    .explain-row {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr);
+      gap: 8px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #475569;
+    }
+
+    .explain-row b {
+      color: #17212f;
+    }
+
+    .data-box {
+      border-left: 4px solid var(--accent);
+      background: #eefbf8;
+      border-radius: 8px;
+      padding: 10px 11px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #234155;
+    }
+
+    .api-summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .api-stat {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+      padding: 9px;
+    }
+
+    .api-stat b {
+      display: block;
+      font-size: 17px;
+      color: #17212f;
+    }
+
+    .api-stat span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .api-summary-grid .logic-card {
+      grid-column: 1 / -1;
+    }
+
+    .api-list {
+      display: grid;
+      gap: 8px;
+      max-height: 310px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+
+    .api-list.compact {
+      max-height: none;
+      overflow: visible;
+      padding-right: 0;
+    }
+
+    .api-card {
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: linear-gradient(180deg, #ffffff, #f8fafc);
+      padding: 9px;
+      display: grid;
+      gap: 5px;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .api-card strong {
+      color: #17212f;
+      overflow-wrap: anywhere;
+    }
+
+    .api-meta {
+      color: var(--muted);
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+
+    .method-pill {
+      display: inline-flex;
+      width: fit-content;
+      border-radius: 999px;
+      padding: 2px 7px;
+      background: #e8f7f4;
+      color: #0f766e;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.03em;
+    }
+
+    .method-pill.post {
+      background: #eaf2ff;
+      color: #1d5fa8;
+    }
+
+    .method-pill.put,
+    .method-pill.patch {
+      background: #fff7e8;
+      color: #a15f0b;
+    }
+
+    .method-pill.delete {
+      background: #fff0f0;
+      color: #bd2f2f;
+    }
+
+    .relation-guide {
+      display: grid;
+      gap: 6px;
+    }
+
+    .relation-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 8px;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .relation-item b {
+      display: block;
+      color: #17212f;
+      margin-bottom: 2px;
+    }
+
+    .summary-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .connection-group {
+      display: grid;
+      gap: 8px;
+    }
+
+    .connection-card {
+      width: 100%;
+      height: auto;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 5px;
+      text-align: left;
+      padding: 9px;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .connection-card strong {
+      color: #17212f;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .connection-meta {
+      color: #64748b;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .connection-badge {
+      display: inline-flex;
+      width: fit-content;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 7px;
+      background: #edf6ff;
+      color: #245b94;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .confidence {
+      color: #356b44;
+      font-weight: 800;
+    }
+
+    .confidence.inferred {
+      color: #9a6115;
+    }
+
+    .empty-state {
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .logic-map,
+    .hub-list,
+    .type-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .logic-card,
+    .hub-card,
+    .type-card {
+      width: 100%;
+      height: auto;
+      min-height: 0;
+      text-align: left;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 10px;
+      display: grid;
+      gap: 5px;
+    }
+
+    .logic-card:hover,
+    .hub-card:hover {
+      background: #f8fafc;
+    }
+
+    .logic-card strong,
+    .hub-card strong,
+    .type-card strong {
+      font-size: 13px;
+      color: #17212f;
+      overflow-wrap: anywhere;
+    }
+
+    .logic-card span,
+    .hub-card span,
+    .type-card span {
+      font-size: 12px;
+      color: #64748b;
+      line-height: 1.4;
+    }
+
+    .logic-counts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .mini-chip {
+      display: inline-flex;
+      width: fit-content;
+      border-radius: 999px;
+      border: 1px solid #d7e0ea;
+      background: #f8fafc;
+      padding: 2px 7px;
+      color: #334155;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .plain-list {
+      margin: 0;
+      padding-left: 17px;
+      color: #475569;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .plain-list li {
+      margin-bottom: 4px;
+    }
+
+    @media (max-width: 1100px) {
+      .shell {
+        grid-template-columns: 260px minmax(0, 1fr);
+      }
+
+      .panel.right {
+        display: none;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(0, 1fr);
+      }
+
+      .panel.left {
+        max-height: 45vh;
+        border-width: 0 0 1px;
+      }
+
+      .hud {
+        top: 10px;
+        left: 10px;
+        right: 10px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="shell">
+    <aside class="panel left">
+      <div class="panel-head">
+        <h1>JMS Code Graph</h1>
+        <div class="sub">Explore files, functions, inferred calls, and Graphify communities.</div>
+      </div>
+
+      <div class="controls">
+        <div class="stat-grid">
+          <div class="stat"><b id="nodeCount">0</b><span>nodes</span></div>
+          <div class="stat"><b id="linkCount">0</b><span>links</span></div>
+          <div class="stat"><b id="visibleCount">0</b><span>visible</span></div>
+          <div class="stat"><b id="communityCount">0</b><span>communities</span></div>
+        </div>
+
+        <div class="explain-box">
+          <div class="explain-title">How to read this graph</div>
+          <div class="explain-row"><b>Dot</b><span>A code file, function, route, page script, or extracted item.</span></div>
+          <div class="explain-row"><b>Line</b><span>A connection Graphify found, like contains, calls, imports, or defines.</span></div>
+          <div class="explain-row"><b>Color</b><span>A community, meaning Graphify grouped those items as related.</span></div>
+          <div class="explain-row"><b>Size</b><span>Bigger dots connect to more things, so they are usually important hubs.</span></div>
+        </div>
+
+        <div class="data-box" id="dataSource">
+          Fetching graph data from <b>graphify-graph.json</b>. This is a code-structure graph, not live production database data.
+        </div>
+
+        <div class="explain-box">
+          <div class="explain-title">API calls in this graph</div>
+          <div class="api-summary-grid" id="apiSummary">
+            <div class="empty-state">Loading API inventory...</div>
+          </div>
+          <div class="hint">Backend routes are server endpoints. Frontend calls are pages/buttons that call those endpoints.</div>
+        </div>
+
+        <div class="explain-box">
+          <div class="explain-title" id="apiModuleTitle">API calls for selected module</div>
+          <div class="api-list" id="apiModulePanel">
+            <div class="empty-state">Click any JMS logic area or graph node to see related APIs here.</div>
+          </div>
+        </div>
+
+        <div class="explain-box">
+          <div class="explain-title">What JMS logic is included?</div>
+          <ul class="plain-list">
+            <li>Frontend pages and browser scripts, like Planning, Masters, DPR, WIP, HR, and dashboards.</li>
+            <li>Backend API routes, service functions, database helpers, and upload/fetch logic.</li>
+            <li>Database and migration scripts that create, verify, repair, or seed data.</li>
+            <li>Graphify connections showing what contains, calls, imports, defines, or belongs to what.</li>
+          </ul>
+        </div>
+
+        <div class="explain-box">
+          <div class="explain-title">Main JMS logic areas</div>
+          <div class="logic-map" id="logicAreas">
+            <div class="empty-state">Loading logic areas...</div>
+          </div>
+        </div>
+
+        <div class="explain-box">
+          <div class="explain-title">Most connected logic</div>
+          <div class="hub-list" id="topHubs">
+            <div class="empty-state">Loading connected hubs...</div>
+          </div>
+        </div>
+
+        <div class="explain-box">
+          <div class="explain-title">All node types</div>
+          <div class="type-list" id="allTypeGuide">
+            <div class="empty-state">Loading node types...</div>
+          </div>
+        </div>
+
+        <div class="explain-box">
+          <div class="explain-title">All connection types</div>
+          <div class="relation-guide" id="allRelationGuide">
+            <div class="empty-state">Loading relation types...</div>
+          </div>
+        </div>
+
+        <div>
+          <label for="searchInput">Search node</label>
+          <input id="searchInput" placeholder="server.js, planning, machine..." autocomplete="off">
+        </div>
+
+        <div>
+          <label for="relationFilter">Relation</label>
+          <select id="relationFilter">
+            <option value="">All relations</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="typeFilter">Node type</label>
+          <select id="typeFilter">
+            <option value="">All types</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="nodeLimit">Max visible nodes: <span id="limitLabel">350</span></label>
+          <input id="nodeLimit" type="range" min="80" max="1294" value="350">
+        </div>
+
+        <button class="primary" id="fitBtn">Fit Graph</button>
+        <button id="restartBtn">Restart Layout</button>
+
+        <div class="legend" id="legend"></div>
+        <div class="relation-guide" id="relationGuide"></div>
+        <div class="hint">Mouse wheel zooms. Drag the background to pan. Click a node to inspect it. Search or raise the node limit to explore more.</div>
+        <div class="status" id="status">Loading graph...</div>
+      </div>
+    </aside>
+
+    <section class="stage">
+      <canvas id="graphCanvas"></canvas>
+      <div class="hud">
+        <div class="badge" id="hoverBadge">Hover a node</div>
+        <div class="badge">Graphify view</div>
+      </div>
+    </section>
+
+    <aside class="panel right">
+      <div class="panel-head">
+        <h2>Selected Node</h2>
+        <div class="sub" id="selectedTitle">Click a node to inspect neighbors.</div>
+      </div>
+      <div class="details" id="details">
+        <div class="empty-state">
+          Click any dot to see what it represents, what it connects to, and whether the connection was extracted directly from code or inferred by Graphify.
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('graphCanvas');
+    const ctx = canvas.getContext('2d');
+    const state = {
+      raw: null,
+      apiInventory: null,
+      activeApiArea: '',
+      loadedAt: null,
+      graphLastModified: '',
+      graphBytes: 0,
+      nodes: [],
+      links: [],
+      visibleNodes: [],
+      visibleLinks: [],
+      nodeById: new Map(),
+      selected: null,
+      hovered: null,
+      search: '',
+      relation: '',
+      type: '',
+      limit: 350,
+      scale: 1,
+      offsetX: 0,
+      offsetY: 0,
+      dragging: false,
+      dragMoved: false,
+      lastX: 0,
+      lastY: 0,
+      temperature: 1,
+      animation: null
+    };
+
+    const palette = [
+      '#0f9f8f', '#2f7dd3', '#d78b18', '#d94848', '#62748e', '#2aa876',
+      '#3b8a7a', '#c4741c', '#4d8fb8', '#8a6f39', '#bd5d5d', '#567d46'
+    ];
+
+    const relationDescriptions = {
+      contains: 'A file or larger code block contains this route, function, class, or extracted item.',
+      calls: 'One item calls, references, or depends on another item during execution.',
+      method: 'A method or handler belongs to a larger object, class, route group, or module.',
+      defines: 'One item defines another name, helper, route, schema, or behavior.',
+      imports: 'One file imports or loads another file, package, or module.',
+      inherits: 'One class or structure extends another.',
+      rationale_for: 'A note or rationale explains why that item exists or behaves that way.',
+      related: 'Graphify found a general relationship between these two items.'
+    };
+
+    const nodeTypeDescriptions = {
+      code: 'Code items include files, functions, route handlers, frontend scripts, services, utilities, and extracted logic blocks.',
+      rationale: 'Rationale items are explanation notes generated by Graphify to describe why a code item or relationship matters.',
+      unknown: 'Unknown items did not provide a specific type in the graph file.'
+    };
+
+    const featureRules = [
+      {
+        name: 'Planning and Production Plans',
+        search: 'planning',
+        terms: ['planning', 'plan_board', 'production_completion', 'prod_complete', 'timeline', 'machinegrid', 'machine_grid', 'autoassign', 'createplan'],
+        meaning: 'Create Plan, Machine Grid, timeline, plan board, load balance, production completion, and planning workflows.'
+      },
+      {
+        name: 'Masters and Uploads',
+        search: 'masters',
+        terms: ['master', 'masters', 'upload', 'template', 'moulds', 'machines', 'orders', 'users', 'orjrwise'],
+        meaning: 'Master Data screens, upload templates, table rendering, machine/mould/order/user masters, and report upload logic.'
+      },
+      {
+        name: 'OR/JR and Orders',
+        search: 'or_jr',
+        terms: ['or_jr', 'orjr', 'order', 'job_card', 'jr_', 'jc_', 'fetch_from_orjr', 'completion_confirmation'],
+        meaning: 'OR/JR status report, job card fields, pending orders, order sync, completion confirmation, and order display logic.'
+      },
+      {
+        name: 'Machines',
+        search: 'machine',
+        terms: ['machine', 'machine_icon', 'machine_process', 'machines/status', 'compatible'],
+        meaning: 'Machine master, machine status, machine icon/image handling, moulding/printing/tuffting process filters, and compatible machine lookup.'
+      },
+      {
+        name: 'Moulds',
+        search: 'mould',
+        terms: ['mould', 'mold', 'cavity', 'cycle_time', 'tonnage', 'mould_planning_summary'],
+        meaning: 'Mould master, mould number/name fields, cycle time, cavity, tonnage, ORJR-wise mould summary, and alternatives.'
+      },
+      {
+        name: 'DPR and Shopfloor',
+        search: 'dpr',
+        terms: ['dpr', 'shift', 'supervisor', 'operator_activities', 'production_scanning', 'scanning', 'scan'],
+        meaning: 'Daily production report, shifts, supervisors, operators, scanning, shopfloor entries, and production quantities.'
+      },
+      {
+        name: 'WIP and Reports',
+        search: 'wip',
+        terms: ['wip', 'report', 'summary', 'snapshot', 'stock', 'analyze', 'dashboard'],
+        meaning: 'WIP snapshots, stock reports, analysis pages, dashboards, summaries, and reporting APIs.'
+      },
+      {
+        name: 'HR and Operators',
+        search: 'operator',
+        terms: ['hr', 'operator', 'manpower', 'photo', 'team'],
+        meaning: 'Operator creation, HR screens, manpower fields, operator photos, and team assignments.'
+      },
+      {
+        name: 'Purchase and Vendors',
+        search: 'vendor',
+        terms: ['vendor', 'purchase', 'grn', 'po_', 'purchase_order', 'supplier'],
+        meaning: 'Purchase orders, vendor routes, GRN pages, supplier data, and vendor portal logic.'
+      },
+      {
+        name: 'Backend API and Services',
+        search: 'server.js',
+        terms: ['server.js', 'routes', 'service', 'middleware', 'api', 'express', 'auth', 'sync.service', 'erp.service', 'ai.service'],
+        meaning: 'Express routes, services, middleware, authentication, ERP sync, AI service, and shared backend helpers.'
+      },
+      {
+        name: 'Database and Migration Scripts',
+        search: 'migrate',
+        terms: ['migrate', 'schema', 'table', 'db', 'postgres', 'query_db', 'create_', 'seed_', 'verify_', 'check_'],
+        meaning: 'Database setup, migrations, schema checks, repair scripts, seed scripts, and verification utilities.'
+      },
+      {
+        name: 'Frontend Pages and UI',
+        search: 'html',
+        terms: ['public', '.html', 'assets', 'app.js', 'app.css', 'frontend', 'page.tsx', 'layout.tsx'],
+        meaning: 'Browser pages, shared UI shell, CSS, JavaScript assets, mobile shell, and the v2 frontend.'
+      }
+    ];
+
+    const el = {
+      nodeCount: document.getElementById('nodeCount'),
+      linkCount: document.getElementById('linkCount'),
+      visibleCount: document.getElementById('visibleCount'),
+      communityCount: document.getElementById('communityCount'),
+      searchInput: document.getElementById('searchInput'),
+      relationFilter: document.getElementById('relationFilter'),
+      typeFilter: document.getElementById('typeFilter'),
+      nodeLimit: document.getElementById('nodeLimit'),
+      limitLabel: document.getElementById('limitLabel'),
+      status: document.getElementById('status'),
+      dataSource: document.getElementById('dataSource'),
+      apiSummary: document.getElementById('apiSummary'),
+      apiModuleTitle: document.getElementById('apiModuleTitle'),
+      apiModulePanel: document.getElementById('apiModulePanel'),
+      hoverBadge: document.getElementById('hoverBadge'),
+      selectedTitle: document.getElementById('selectedTitle'),
+      details: document.getElementById('details'),
+      legend: document.getElementById('legend'),
+      relationGuide: document.getElementById('relationGuide'),
+      logicAreas: document.getElementById('logicAreas'),
+      topHubs: document.getElementById('topHubs'),
+      allTypeGuide: document.getElementById('allTypeGuide'),
+      allRelationGuide: document.getElementById('allRelationGuide')
+    };
+
+    function colorFor(node) {
+      const community = Number(node.community || 0);
+      return palette[Math.abs(community) % palette.length];
+    }
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
+    }
+
+    function normalizeGraph(graph) {
+      const links = (graph.links || graph.edges || []).map(link => ({
+        ...link,
+        sourceId: String(link.source || link._src || ''),
+        targetId: String(link.target || link._tgt || '')
+      })).filter(link => link.sourceId && link.targetId);
+
+      const nodes = (graph.nodes || []).map((node, index) => ({
+        ...node,
+        id: String(node.id || node.label || `node-${index}`),
+        label: String(node.label || node.id || `Node ${index + 1}`),
+        degree: 0,
+        radius: 4,
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0
+      }));
+
+      const byId = new Map(nodes.map(node => [node.id, node]));
+      links.forEach(link => {
+        const source = byId.get(link.sourceId);
+        const target = byId.get(link.targetId);
+        if (source) source.degree += 1;
+        if (target) target.degree += 1;
+      });
+
+      nodes.forEach(node => {
+        node.radius = Math.min(12, 3.5 + Math.sqrt(node.degree || 1) * 1.35);
+      });
+
+      return { nodes, links, byId };
+    }
+
+    function populateFilters(nodes, links) {
+      const types = [...new Set(nodes.map(n => n.file_type || n.kind || 'unknown'))].sort();
+      const relations = [...new Set(links.map(l => l.relation || 'related'))].sort();
+
+      types.forEach(type => {
+        const option = document.createElement('option');
+        option.value = type;
+        option.textContent = type;
+        el.typeFilter.appendChild(option);
+      });
+
+      relations.forEach(relation => {
+        const option = document.createElement('option');
+        option.value = relation;
+        option.textContent = relation;
+        el.relationFilter.appendChild(option);
+      });
+    }
+
+    function updateStats() {
+      const communities = new Set(state.nodes.map(node => node.community));
+      el.nodeCount.textContent = state.nodes.length.toLocaleString();
+      el.linkCount.textContent = state.links.length.toLocaleString();
+      el.visibleCount.textContent = state.visibleNodes.length.toLocaleString();
+      el.communityCount.textContent = communities.size.toLocaleString();
+      el.limitLabel.textContent = state.limit.toLocaleString();
+    }
+
+    function updateDataSourceBox() {
+      const loaded = state.loadedAt ? state.loadedAt.toLocaleString() : 'loading now';
+      const size = state.graphBytes ? `${Math.round(state.graphBytes / 1024).toLocaleString()} KB` : 'unknown size';
+      const modified = state.graphLastModified ? `Last graph file update: ${state.graphLastModified}.` : 'Last graph file update was not provided by the server.';
+      const apiInfo = state.apiInventory
+        ? `API inventory: ${Number(state.apiInventory.totals?.backend_routes || 0).toLocaleString()} backend routes and ${Number(state.apiInventory.totals?.frontend_calls || 0).toLocaleString()} frontend calls from <b>/api-inventory.json</b>.`
+        : 'API inventory is not loaded.';
+      el.dataSource.innerHTML = `
+        <b>What data is showing?</b><br>
+        This page fetches <b>/graphify-graph.json</b>, which was generated by Graphify from JMS code files.
+        It shows code structure, pages, functions, route handlers, imports, and inferred calls. It also fetches API counts so every module can show backend routes and frontend calls. It does not show live order, machine, or factory database rows.
+        <br><br><b>Loaded:</b> ${escapeHtml(loaded)}<br>
+        <b>File size:</b> ${escapeHtml(size)}<br>
+        ${apiInfo}<br>
+        ${escapeHtml(modified)}
+      `;
+    }
+
+    function nodeTypeText(node) {
+      const type = node.file_type || node.kind || 'unknown';
+      if (type === 'code') return 'code item';
+      if (type === 'rationale') return 'explanation note';
+      return type;
+    }
+
+    function nodeSearchText(node) {
+      return [
+        node.id,
+        node.label,
+        node.norm_label,
+        node.source_file,
+        node.source_location,
+        node.file_type,
+        node.kind
+      ].filter(Boolean).join(' ').toLowerCase();
+    }
+
+    function featureArea(node) {
+      const text = nodeSearchText(node);
+      const match = featureRules.find(rule => rule.terms.some(term => text.includes(term.toLowerCase())));
+      return match || {
+        name: 'General Code',
+        search: node.label,
+        terms: [],
+        meaning: 'General project code or helper logic that is not tied to one main JMS business area.'
+      };
+    }
+
+    function featureRuleByName(name) {
+      return featureRules.find(rule => rule.name === name) || {
+        name,
+        search: '',
+        terms: [],
+        meaning: 'Related JMS logic detected from API path, source file, or code text.'
+      };
+    }
+
+    function normalizeText(value) {
+      return String(value || '').replace(/\\/g, '/').toLowerCase();
+    }
+
+    function featureRuleFromText(value) {
+      const text = normalizeText(value);
+      if (!text) return null;
+      return featureRules.find(rule =>
+        text.includes(rule.search.toLowerCase())
+        || rule.terms.some(term => text.includes(term.toLowerCase()))
+      ) || null;
+    }
+
+    function dominantVisibleFeature() {
+      const counts = new Map();
+      state.visibleNodes.forEach(node => {
+        const name = featureArea(node).name;
+        counts.set(name, (counts.get(name) || 0) + 1);
+      });
+      const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+      if (!top || top[0] === 'General Code') return null;
+      return { rule: featureRuleByName(top[0]), count: top[1] };
+    }
+
+    function apiItemText(item) {
+      return [
+        item.path,
+        item.source_file,
+        item.source_location,
+        item.raw,
+        item.method,
+        item.kind
+      ].filter(Boolean).join(' ').toLowerCase();
+    }
+
+    function apiFeatureArea(item) {
+      const text = normalizeText(apiItemText(item));
+      const focusedRules = [
+        { name: 'Planning and Production Plans', terms: ['/api/planning', 'plan', 'timeline', 'machinegrid', 'create production plan'] },
+        { name: 'Machines', terms: ['/api/machines', '/api/masters/machines', 'machine', 'machine_icon', 'compatible'] },
+        { name: 'Moulds', terms: ['/api/moulds', '/api/masters/moulds', 'mould', 'mold', 'cavity', 'cycle'] },
+        { name: 'OR/JR and Orders', terms: ['/api/orders', '/api/orjr', 'or_jr', 'orjr', 'job_card', 'pending order'] },
+        { name: 'DPR and Shopfloor', terms: ['/api/dpr', '/api/shift', 'supervisor', 'scan', 'shopfloor'] },
+        { name: 'Purchase and Vendors', terms: ['/api/vendor', 'purchase', 'vendor', 'supplier', 'grn'] },
+        { name: 'HR and Operators', terms: ['/api/hr', 'operator', 'manpower', 'team'] },
+        { name: 'WIP and Reports', terms: ['/api/reports', '/api/analyze', '/api/dashboard', 'wip', 'report', 'summary', 'stock'] },
+        { name: 'Masters and Uploads', terms: ['/api/upload', '/api/settings', '/api/factories', 'masters', 'template', 'upload'] },
+        { name: 'Backend API and Services', terms: ['/api/sync', '/api/update', '/api/erp', '/api/login', '/api/health', 'server.js'] }
+      ];
+      const focused = focusedRules.find(rule => rule.terms.some(term => text.includes(term)));
+      if (focused) return featureRuleByName(focused.name);
+      const graphRule = featureRules.find(rule => rule.terms.some(term => text.includes(term.toLowerCase())));
+      return graphRule || featureRuleByName('Backend API and Services');
+    }
+
+    function apiItems() {
+      if (!state.apiInventory) return [];
+      return [
+        ...(state.apiInventory.backend_routes || []),
+        ...(state.apiInventory.frontend_calls || [])
+      ];
+    }
+
+    function apiStatsForFeature(featureName) {
+      const backend = [];
+      const frontend = [];
+      apiItems().forEach(item => {
+        if (apiFeatureArea(item).name !== featureName) return;
+        if (item.kind === 'backend_route') backend.push(item);
+        if (item.kind === 'frontend_call') frontend.push(item);
+      });
+      return { backend, frontend, total: backend.length + frontend.length };
+    }
+
+    function uniqueApiItems(items) {
+      const seen = new Set();
+      return items.filter(item => {
+        const key = `${item.kind}|${item.method}|${item.path}|${item.source_file}|${item.source_location}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
+    function apiItemsForNode(node) {
+      if (!node) return [];
+      const featureName = featureArea(node).name;
+      const source = normalizeText(node.source_file);
+      const sourceBase = source.split('/').pop();
+      const label = normalizeText(node.label);
+      const id = normalizeText(node.id);
+      const all = apiItems();
+      const direct = all.filter(item => {
+        const text = normalizeText(apiItemText(item));
+        return (source && text.includes(source))
+          || (sourceBase && text.includes(sourceBase))
+          || (label && label.length > 3 && text.includes(label))
+          || (id && id.length > 3 && text.includes(id));
+      });
+      const sameArea = all.filter(item => apiFeatureArea(item).name === featureName);
+      return uniqueApiItems([...direct, ...sameArea]);
+    }
+
+    function methodClass(method) {
+      return String(method || '').toLowerCase();
+    }
+
+    function apiKindText(item) {
+      return item.kind === 'backend_route' ? 'Backend route' : 'Frontend call';
+    }
+
+    function apiCard(item) {
+      const method = String(item.method || 'GET').toUpperCase();
+      return `
+        <div class="api-card">
+          <span class="method-pill ${escapeAttr(methodClass(method))}">${escapeHtml(method)}</span>
+          <strong>${escapeHtml(item.path || 'dynamic API path')}</strong>
+          <div class="api-meta">${escapeHtml(apiKindText(item))} | ${escapeHtml(item.source_file || '-')} ${escapeHtml(item.source_location || '')}</div>
+          <div class="api-meta">${escapeHtml(item.raw || '')}</div>
+        </div>
+      `;
+    }
+
+    function renderApiCards(items, limit = 28) {
+      if (!state.apiInventory) {
+        return '<div class="empty-state">API inventory is not loaded yet.</div>';
+      }
+      if (!items.length) {
+        return '<div class="empty-state">No API route or frontend call was matched for this module yet.</div>';
+      }
+      const shown = items.slice(0, limit);
+      const more = items.length > shown.length
+        ? `<div class="hint">Showing ${shown.length.toLocaleString()} of ${items.length.toLocaleString()} matched API items. Narrow with search or click a more specific node.</div>`
+        : '';
+      return `${shown.map(apiCard).join('')}${more}`;
+    }
+
+    function renderApiSummary() {
+      if (!el.apiSummary) return;
+      if (!state.apiInventory) {
+        el.apiSummary.innerHTML = '<div class="empty-state">API inventory was not available.</div>';
+        return;
+      }
+      const totals = state.apiInventory.totals || {};
+      const moduleStats = featureRules
+        .map(rule => ({ rule, stats: apiStatsForFeature(rule.name) }))
+        .filter(item => item.stats.total > 0)
+        .sort((a, b) => b.stats.total - a.stats.total)
+        .slice(0, 5);
+      el.apiSummary.innerHTML = `
+        <div class="api-stat"><b>${Number(totals.backend_routes || 0).toLocaleString()}</b><span>backend routes</span></div>
+        <div class="api-stat"><b>${Number(totals.frontend_calls || 0).toLocaleString()}</b><span>frontend calls</span></div>
+        ${moduleStats.map(item => `
+          <button type="button" class="logic-card" data-api-feature="${escapeAttr(item.rule.name)}">
+            <strong>${escapeHtml(item.rule.name)}</strong>
+            <span class="logic-counts">
+              <span class="mini-chip">${item.stats.backend.length.toLocaleString()} routes</span>
+              <span class="mini-chip">${item.stats.frontend.length.toLocaleString()} calls</span>
+            </span>
+          </button>
+        `).join('')}
+      `;
+      el.apiSummary.querySelectorAll('[data-api-feature]').forEach(button => {
+        button.addEventListener('click', () => renderApiModule(button.dataset.apiFeature || ''));
+      });
+    }
+
+    function renderApiModule(featureName) {
+      if (!el.apiModulePanel) return;
+      state.activeApiArea = featureName || state.activeApiArea || '';
+      if (!state.apiInventory) {
+        el.apiModuleTitle.textContent = 'API calls for selected module';
+        el.apiModulePanel.innerHTML = '<div class="empty-state">API inventory is not loaded yet.</div>';
+        return;
+      }
+      if (!state.activeApiArea) {
+        el.apiModuleTitle.textContent = 'API calls for selected module';
+        el.apiModulePanel.innerHTML = '<div class="empty-state">Click a JMS logic area or graph node to see matching backend routes and frontend calls.</div>';
+        return;
+      }
+      const stats = apiStatsForFeature(state.activeApiArea);
+      const items = uniqueApiItems([...stats.backend, ...stats.frontend])
+        .sort((a, b) => `${a.kind} ${a.path}`.localeCompare(`${b.kind} ${b.path}`));
+      el.apiModuleTitle.textContent = `${state.activeApiArea} APIs`;
+      el.apiModulePanel.innerHTML = `
+        <div class="logic-counts">
+          <span class="mini-chip">${stats.backend.length.toLocaleString()} backend routes</span>
+          <span class="mini-chip">${stats.frontend.length.toLocaleString()} frontend calls</span>
+        </div>
+        ${renderApiCards(items, 35)}
+      `;
+    }
+
+    function technicalLayer(node) {
+      const source = String(node.source_file || '').toLowerCase();
+      const label = String(node.label || '').toLowerCase();
+      if (source.includes('public') || source.endsWith('.html') || source.includes('assets') || source.includes('v2-frontend')) return 'Frontend screen or browser UI';
+      if (source.includes('routes') || source.includes('server.js') || label.includes('/api/')) return 'Backend API route or server logic';
+      if (source.includes('services')) return 'Backend service logic';
+      if (source.includes('middleware')) return 'Middleware and request security logic';
+      if (source.includes('migrate') || source.includes('schema') || source.includes('create_') || source.includes('check_') || source.includes('verify_')) return 'Database, migration, or verification script';
+      if (source.includes('utils')) return 'Shared utility logic';
+      if (source.includes('v2-backend')) return 'V2 backend module';
+      if (source.includes('ios_app_demo')) return 'Mobile app demo code';
+      return 'Project code or support script';
+    }
+
+    function relationMeaning(relation) {
+      return relationDescriptions[relation || 'related'] || relationDescriptions.related;
+    }
+
+    function confidenceClass(confidence) {
+      return String(confidence || '').toLowerCase() === 'inferred' ? 'inferred' : '';
+    }
+
+    function confidenceText(link) {
+      const confidence = String(link.confidence || 'EXTRACTED').toUpperCase();
+      if (confidence === 'INFERRED') {
+        return `Inferred by Graphify${link.confidence_score ? `, confidence ${Math.round(Number(link.confidence_score) * 100)}%` : ''}`;
+      }
+      return 'Extracted directly from code';
+    }
+
+    function sourceText(linkOrNode) {
+      const file = linkOrNode.source_file || '-';
+      const location = linkOrNode.source_location || '';
+      return `${file}${location ? ` ${location}` : ''}`;
+    }
+
+    function describeNode(node, incomingCount, outgoingCount) {
+      const type = nodeTypeText(node);
+      const source = sourceText(node);
+      const degree = incomingCount + outgoingCount;
+      const community = node.community ?? '-';
+      const feature = featureArea(node);
+      const layer = technicalLayer(node);
+      return `This dot represents ${type} "${node.label}". It is part of ${feature.name}. In simple terms, this area handles: ${feature.meaning} Graphify found it in ${source}. Its technical role is ${layer}. It belongs to community ${community}, which means it is grouped with nearby related code. It has ${degree} total connection${degree === 1 ? '' : 's'}: ${outgoingCount} going out and ${incomingCount} coming in.`;
+    }
+
+    function connectionSentence(item, direction) {
+      const relation = item.link.relation || 'related';
+      const relationText = relationMeaning(relation);
+      if (direction === 'out') {
+        return `This node ${relation} "${item.node.label}". ${relationText}`;
+      }
+      return `"${item.node.label}" ${relation} this node. ${relationText}`;
+    }
+
+    function connectionButton(item, direction) {
+      const relation = item.link.relation || 'related';
+      const confidence = confidenceText(item.link);
+      const directionText = direction === 'out' ? 'This node to' : 'Comes from';
+      return `
+        <button type="button" class="connection-card" data-node-id="${escapeAttr(item.node.id)}">
+          <span class="connection-badge">${escapeHtml(directionText)} ${escapeHtml(relation)}</span>
+          <strong>${escapeHtml(item.node.label)}</strong>
+          <span class="connection-meta">${escapeHtml(connectionSentence(item, direction))}</span>
+          <span class="connection-meta"><span class="confidence ${confidenceClass(item.link.confidence)}">${escapeHtml(confidence)}</span> from ${escapeHtml(sourceText(item.link))}</span>
+        </button>
+      `;
+    }
+
+    function rankNodes(nodes, search) {
+      const q = search.trim().toLowerCase();
+      return [...nodes].sort((a, b) => {
+        const aLabel = a.label.toLowerCase();
+        const bLabel = b.label.toLowerCase();
+        const aScore = (q && aLabel.includes(q) ? 10000 : 0) + (a.degree || 0);
+        const bScore = (q && bLabel.includes(q) ? 10000 : 0) + (b.degree || 0);
+        return bScore - aScore || a.label.localeCompare(b.label);
+      });
+    }
+
+    function applyFilters(resetLayout = true) {
+      let candidates = state.nodes;
+      const q = state.search.trim().toLowerCase();
+      if (state.type) candidates = candidates.filter(node => (node.file_type || node.kind || 'unknown') === state.type);
+      if (q) {
+        candidates = candidates.filter(node =>
+          node.label.toLowerCase().includes(q) ||
+          String(node.source_file || '').toLowerCase().includes(q) ||
+          String(node.id || '').toLowerCase().includes(q)
+        );
+      }
+
+      const ranked = rankNodes(candidates, state.search).slice(0, state.limit);
+      const ids = new Set(ranked.map(node => node.id));
+      let links = state.links.filter(link => ids.has(link.sourceId) && ids.has(link.targetId));
+      if (state.relation) links = links.filter(link => (link.relation || 'related') === state.relation);
+
+      if (state.relation && !q) {
+        const linkedIds = new Set();
+        links.forEach(link => {
+          linkedIds.add(link.sourceId);
+          linkedIds.add(link.targetId);
+        });
+        state.visibleNodes = ranked.filter(node => linkedIds.has(node.id));
+      } else {
+        state.visibleNodes = ranked;
+      }
+      state.visibleLinks = links;
+
+      if (resetLayout) initializePositions();
+      updateStats();
+      renderLegend();
+      renderRelationGuide();
+      const searchedFeature = featureRuleFromText(q);
+      const visibleFeature = dominantVisibleFeature();
+      const apiFeature = searchedFeature || visibleFeature?.rule || null;
+      if (apiFeature && q) renderApiModule(apiFeature.name);
+      const apiNote = visibleFeature
+        ? ` Main visible module: ${visibleFeature.rule.name} (${visibleFeature.count.toLocaleString()} visible nodes, ${apiStatsForFeature(visibleFeature.rule.name).total.toLocaleString()} API items).`
+        : '';
+      el.status.textContent = `${state.visibleNodes.length.toLocaleString()} nodes and ${state.visibleLinks.length.toLocaleString()} links are visible after filters.${apiNote}`;
+      draw();
+    }
+
+    function initializePositions() {
+      const rect = canvas.getBoundingClientRect();
+      const width = Math.max(300, rect.width);
+      const height = Math.max(300, rect.height);
+      const radius = Math.min(width, height) * 0.34;
+
+      state.visibleNodes.forEach((node, index) => {
+        const angle = (Math.PI * 2 * index) / Math.max(1, state.visibleNodes.length);
+        const ring = radius * (0.45 + (index % 7) / 10);
+        node.x = Math.cos(angle) * ring;
+        node.y = Math.sin(angle) * ring;
+        node.vx = 0;
+        node.vy = 0;
+      });
+
+      state.temperature = 1;
+      fitGraph(false);
+      startSimulation();
+    }
+
+    function startSimulation() {
+      if (state.animation) cancelAnimationFrame(state.animation);
+      const byId = state.nodeById;
+
+      function tick() {
+        const nodes = state.visibleNodes;
+        const links = state.visibleLinks;
+        const repulsion = 1800;
+        const attraction = 0.018;
+
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const a = nodes[i];
+            const b = nodes[j];
+            let dx = a.x - b.x;
+            let dy = a.y - b.y;
+            let dist2 = dx * dx + dy * dy + 0.01;
+            const force = Math.min(6, repulsion / dist2) * state.temperature;
+            const dist = Math.sqrt(dist2);
+            dx /= dist;
+            dy /= dist;
+            a.vx += dx * force;
+            a.vy += dy * force;
+            b.vx -= dx * force;
+            b.vy -= dy * force;
+          }
+        }
+
+        links.forEach(link => {
+          const a = byId.get(link.sourceId);
+          const b = byId.get(link.targetId);
+          if (!a || !b) return;
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const target = 76 + Math.min(80, (a.radius + b.radius) * 5);
+          const force = (dist - target) * attraction * state.temperature;
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          a.vx += fx;
+          a.vy += fy;
+          b.vx -= fx;
+          b.vy -= fy;
+        });
+
+        nodes.forEach(node => {
+          node.vx += -node.x * 0.004 * state.temperature;
+          node.vy += -node.y * 0.004 * state.temperature;
+          node.vx *= 0.82;
+          node.vy *= 0.82;
+          node.x += node.vx;
+          node.y += node.vy;
+        });
+
+        state.temperature *= 0.985;
+        draw();
+
+        if (state.temperature > 0.025) {
+          state.animation = requestAnimationFrame(tick);
+        } else {
+          state.animation = null;
+        }
+      }
+
+      state.animation = requestAnimationFrame(tick);
+    }
+
+    function worldToScreen(x, y) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: rect.width / 2 + state.offsetX + x * state.scale,
+        y: rect.height / 2 + state.offsetY + y * state.scale
+      };
+    }
+
+    function screenToWorld(x, y) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (x - rect.width / 2 - state.offsetX) / state.scale,
+        y: (y - rect.height / 2 - state.offsetY) / state.scale
+      };
+    }
+
+    function fitGraph(redraw = true) {
+      if (!state.visibleNodes.length) return;
+      const rect = canvas.getBoundingClientRect();
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+
+      state.visibleNodes.forEach(node => {
+        minX = Math.min(minX, node.x);
+        maxX = Math.max(maxX, node.x);
+        minY = Math.min(minY, node.y);
+        maxY = Math.max(maxY, node.y);
+      });
+
+      const graphWidth = Math.max(1, maxX - minX);
+      const graphHeight = Math.max(1, maxY - minY);
+      state.scale = Math.max(0.18, Math.min(2.2, Math.min(rect.width / graphWidth, rect.height / graphHeight) * 0.72));
+      state.offsetX = -((minX + maxX) / 2) * state.scale;
+      state.offsetY = -((minY + maxY) / 2) * state.scale;
+      if (redraw) draw();
+    }
+
+    function roundedRectPath(context, x, y, width, height, radius) {
+      const r = Math.min(radius, width / 2, height / 2);
+      context.moveTo(x + r, y);
+      context.lineTo(x + width - r, y);
+      context.quadraticCurveTo(x + width, y, x + width, y + r);
+      context.lineTo(x + width, y + height - r);
+      context.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+      context.lineTo(x + r, y + height);
+      context.quadraticCurveTo(x, y + height, x, y + height - r);
+      context.lineTo(x, y + r);
+      context.quadraticCurveTo(x, y, x + r, y);
+    }
+
+    function draw() {
+      const rect = canvas.getBoundingClientRect();
+      ctx.clearRect(0, 0, rect.width, rect.height);
+
+      const selectedId = state.selected && state.selected.id;
+      const neighborIds = new Set();
+      if (selectedId) {
+        state.visibleLinks.forEach(link => {
+          if (link.sourceId === selectedId) neighborIds.add(link.targetId);
+          if (link.targetId === selectedId) neighborIds.add(link.sourceId);
+        });
+      }
+
+      ctx.save();
+      ctx.lineCap = 'round';
+      state.visibleLinks.forEach(link => {
+        const source = state.nodeById.get(link.sourceId);
+        const target = state.nodeById.get(link.targetId);
+        if (!source || !target) return;
+        const a = worldToScreen(source.x, source.y);
+        const b = worldToScreen(target.x, target.y);
+        const active = selectedId && (link.sourceId === selectedId || link.targetId === selectedId);
+        ctx.strokeStyle = active ? 'rgba(15, 159, 143, 0.7)' : 'rgba(100, 116, 139, 0.18)';
+        ctx.lineWidth = active ? 1.8 : 0.75;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+
+        if (active && state.scale > 0.28) {
+          const mx = (a.x + b.x) / 2;
+          const my = (a.y + b.y) / 2;
+          const label = link.relation || 'related';
+          ctx.save();
+          ctx.globalAlpha = 0.92;
+          ctx.font = '11px Segoe UI, sans-serif';
+          const width = ctx.measureText(label).width + 12;
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+          ctx.strokeStyle = 'rgba(215, 224, 234, 0.9)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          roundedRectPath(ctx, mx - width / 2, my - 10, width, 18, 7);
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = '#334155';
+          ctx.textAlign = 'center';
+          ctx.fillText(label, mx, my + 3);
+          ctx.restore();
+        }
+      });
+      ctx.restore();
+
+      state.visibleNodes.forEach(node => {
+        const pos = worldToScreen(node.x, node.y);
+        const isSelected = state.selected === node;
+        const isHover = state.hovered === node;
+        const isNeighbor = neighborIds.has(node.id);
+        const dim = selectedId && !isSelected && !isNeighbor;
+
+        ctx.beginPath();
+        ctx.fillStyle = colorFor(node);
+        ctx.globalAlpha = dim ? 0.28 : 0.92;
+        ctx.arc(pos.x, pos.y, Math.max(2.4, node.radius * state.scale), 0, Math.PI * 2);
+        ctx.fill();
+
+        if (isSelected || isHover) {
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = isSelected ? '#17212f' : '#0f9f8f';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+
+        if (state.scale > 0.55 && (node.degree > 5 || isSelected || isHover)) {
+          ctx.globalAlpha = dim ? 0.35 : 0.95;
+          ctx.font = '12px Segoe UI, sans-serif';
+          ctx.fillStyle = '#17212f';
+          ctx.fillText(node.label.slice(0, 42), pos.x + 8, pos.y - 8);
+        }
+      });
+
+      ctx.globalAlpha = 1;
+    }
+
+    function nodeAt(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      let best = null;
+      let bestDist = Infinity;
+
+      state.visibleNodes.forEach(node => {
+        const pos = worldToScreen(node.x, node.y);
+        const dx = x - pos.x;
+        const dy = y - pos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const hit = Math.max(8, node.radius * state.scale + 5);
+        if (dist <= hit && dist < bestDist) {
+          best = node;
+          bestDist = dist;
+        }
+      });
+
+      return best;
+    }
+
+    function selectNode(node) {
+      state.selected = node;
+      if (!node) {
+        el.selectedTitle.textContent = 'Click a node to inspect neighbors.';
+        el.details.innerHTML = `
+          <div class="empty-state">
+            Click any dot to see what it represents, what it connects to, and whether the connection was extracted directly from code or inferred by Graphify.
+          </div>
+        `;
+        draw();
+        return;
+      }
+
+      const incoming = [];
+      const outgoing = [];
+      state.links.forEach(link => {
+        if (link.sourceId === node.id) {
+          const neighbor = state.nodeById.get(link.targetId);
+          if (neighbor) outgoing.push({ node: neighbor, link });
+        } else if (link.targetId === node.id) {
+          const neighbor = state.nodeById.get(link.sourceId);
+          if (neighbor) incoming.push({ node: neighbor, link });
+        }
+      });
+      const sortByNeighborImportance = (a, b) => (b.node.degree || 0) - (a.node.degree || 0) || a.node.label.localeCompare(b.node.label);
+      incoming.sort(sortByNeighborImportance);
+      outgoing.sort(sortByNeighborImportance);
+      const allNeighbors = [...outgoing, ...incoming];
+      const nodeFeature = featureArea(node);
+      const relatedApis = apiItemsForNode(node);
+      const relatedRoutes = relatedApis.filter(item => item.kind === 'backend_route').length;
+      const relatedCalls = relatedApis.filter(item => item.kind === 'frontend_call').length;
+
+      el.selectedTitle.textContent = node.label;
+      el.details.innerHTML = `
+        <div class="summary-card">${escapeHtml(describeNode(node, incoming.length, outgoing.length))}</div>
+        <div class="kv"><div class="k">Id</div><div class="v">${escapeHtml(node.id)}</div></div>
+        <div class="kv"><div class="k">Type</div><div class="v">${escapeHtml(nodeTypeText(node))}</div></div>
+        <div class="kv"><div class="k">JMS Logic Area</div><div class="v">${escapeHtml(nodeFeature.name)}<br>${escapeHtml(nodeFeature.meaning)}</div></div>
+        <div class="kv"><div class="k">Technical Role</div><div class="v">${escapeHtml(technicalLayer(node))}</div></div>
+        <div class="kv"><div class="k">Community</div><div class="v">${escapeHtml(String(node.community ?? '-'))}</div></div>
+        <div class="kv"><div class="k">Source</div><div class="v">${escapeHtml(sourceText(node))}</div></div>
+        <div class="kv"><div class="k">Connection Count</div><div class="v">${allNeighbors.length} total, ${outgoing.length} outgoing, ${incoming.length} incoming</div></div>
+        <div class="kv">
+          <div class="k">API calls for this module</div>
+          <div class="v">
+            <div class="logic-counts">
+              <span class="mini-chip">${relatedRoutes.toLocaleString()} backend routes</span>
+              <span class="mini-chip">${relatedCalls.toLocaleString()} frontend calls</span>
+            </div>
+            <div class="api-list compact" style="margin-top:8px">${renderApiCards(relatedApis, 18)}</div>
+          </div>
+        </div>
+        <div class="kv">
+          <div class="k">Outgoing Connections</div>
+          <div class="connection-group">
+            ${outgoing.slice(0, 40).map(item => connectionButton(item, 'out')).join('') || '<div class="empty-state">No outgoing connections found for this node.</div>'}
+          </div>
+        </div>
+        <div class="kv">
+          <div class="k">Incoming Connections</div>
+          <div class="connection-group">
+            ${incoming.slice(0, 40).map(item => connectionButton(item, 'in')).join('') || '<div class="empty-state">No incoming connections found for this node.</div>'}
+          </div>
+        </div>
+      `;
+      renderApiModule(nodeFeature.name);
+
+      el.details.querySelectorAll('button[data-node-id]').forEach(button => {
+        button.addEventListener('click', () => {
+          const target = state.nodeById.get(button.dataset.nodeId);
+          if (!target) return;
+          if (!state.visibleNodes.includes(target)) {
+            state.search = target.label;
+            el.searchInput.value = target.label;
+            applyFilters(true);
+          }
+          selectNode(target);
+        });
+      });
+
+      draw();
+    }
+
+    function renderLegend() {
+      const communities = [...new Set(state.visibleNodes.map(node => node.community))]
+        .filter(value => value !== undefined && value !== null)
+        .slice(0, 12);
+      el.legend.innerHTML = communities.map(value => {
+        const fakeNode = { community: value };
+        return `<span class="pill"><span class="dot" style="background:${colorFor(fakeNode)}"></span>Community ${escapeHtml(String(value))}</span>`;
+      }).join('');
+    }
+
+    function renderSystemOverview() {
+      const stats = featureRules.map(rule => {
+        const nodes = state.nodes.filter(node => featureArea(node).name === rule.name);
+        const nodeIds = new Set(nodes.map(node => node.id));
+        const links = state.links.filter(link => nodeIds.has(link.sourceId) || nodeIds.has(link.targetId));
+        const topNode = [...nodes].sort((a, b) => (b.degree || 0) - (a.degree || 0))[0];
+        const apiStats = apiStatsForFeature(rule.name);
+        return { rule, nodes, links, topNode, apiStats };
+      }).filter(item => item.nodes.length > 0)
+        .sort((a, b) => b.nodes.length - a.nodes.length);
+
+      el.logicAreas.innerHTML = stats.map(item => `
+        <button type="button" class="logic-card" data-search-term="${escapeAttr(item.rule.search)}" data-feature-name="${escapeAttr(item.rule.name)}">
+          <strong>${escapeHtml(item.rule.name)}</strong>
+          <span>${escapeHtml(item.rule.meaning)}</span>
+          <span class="logic-counts">
+            <span class="mini-chip">${item.nodes.length.toLocaleString()} nodes</span>
+            <span class="mini-chip">${item.links.length.toLocaleString()} links</span>
+            <span class="mini-chip">${item.apiStats.backend.length.toLocaleString()} routes</span>
+            <span class="mini-chip">${item.apiStats.frontend.length.toLocaleString()} calls</span>
+            ${item.topNode ? `<span class="mini-chip">hub: ${escapeHtml(item.topNode.label.slice(0, 28))}</span>` : ''}
+          </span>
+        </button>
+      `).join('') || '<div class="empty-state">No logic areas detected.</div>';
+
+      el.logicAreas.querySelectorAll('[data-search-term]').forEach(button => {
+        button.addEventListener('click', () => {
+          state.search = button.dataset.searchTerm || '';
+          el.searchInput.value = state.search;
+          renderApiModule(button.dataset.featureName || '');
+          applyFilters(true);
+        });
+      });
+    }
+
+    function renderTopHubs() {
+      const top = [...state.nodes]
+        .sort((a, b) => (b.degree || 0) - (a.degree || 0))
+        .slice(0, 12);
+
+      el.topHubs.innerHTML = top.map(node => {
+        const feature = featureArea(node);
+        return `
+          <button type="button" class="hub-card" data-node-id="${escapeAttr(node.id)}">
+            <strong>${escapeHtml(node.label)}</strong>
+            <span>${escapeHtml(feature.name)} | ${escapeHtml(technicalLayer(node))}</span>
+            <span class="logic-counts">
+              <span class="mini-chip">${Number(node.degree || 0).toLocaleString()} links</span>
+              <span class="mini-chip">community ${escapeHtml(String(node.community ?? '-'))}</span>
+            </span>
+          </button>
+        `;
+      }).join('');
+
+      el.topHubs.querySelectorAll('[data-node-id]').forEach(button => {
+        button.addEventListener('click', () => {
+          const node = state.nodeById.get(button.dataset.nodeId);
+          if (!node) return;
+          state.search = node.label;
+          el.searchInput.value = node.label;
+          applyFilters(true);
+          selectNode(node);
+          renderApiModule(featureArea(node).name);
+        });
+      });
+    }
+
+    function renderAllTypeGuide() {
+      const counts = new Map();
+      state.nodes.forEach(node => {
+        const type = node.file_type || node.kind || 'unknown';
+        counts.set(type, (counts.get(type) || 0) + 1);
+      });
+
+      el.allTypeGuide.innerHTML = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([type, count]) => `
+          <div class="type-card">
+            <strong>${escapeHtml(type)} (${count.toLocaleString()})</strong>
+            <span>${escapeHtml(nodeTypeDescriptions[type] || nodeTypeDescriptions.unknown)}</span>
+          </div>
+        `).join('');
+    }
+
+    function renderAllRelationGuide() {
+      const counts = new Map();
+      state.links.forEach(link => {
+        const relation = link.relation || 'related';
+        counts.set(relation, (counts.get(relation) || 0) + 1);
+      });
+
+      el.allRelationGuide.innerHTML = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([relation, count]) => `
+          <div class="relation-item">
+            <b>${escapeHtml(relation)} (${count.toLocaleString()})</b>
+            ${escapeHtml(relationMeaning(relation))}
+          </div>
+        `).join('');
+    }
+
+    function renderRelationGuide() {
+      const counts = new Map();
+      state.visibleLinks.forEach(link => {
+        const relation = link.relation || 'related';
+        counts.set(relation, (counts.get(relation) || 0) + 1);
+      });
+      const relations = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 7);
+      if (!relations.length) {
+        el.relationGuide.innerHTML = '<div class="empty-state">No visible relations. Try clearing filters or increasing visible nodes.</div>';
+        return;
+      }
+      el.relationGuide.innerHTML = `
+        <div class="explain-title">Connection meanings</div>
+        ${relations.map(([relation, count]) => `
+          <div class="relation-item">
+            <b>${escapeHtml(relation)} (${count.toLocaleString()})</b>
+            ${escapeHtml(relationMeaning(relation))}
+          </div>
+        `).join('')}
+      `;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[char]));
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replace(/`/g, '&#96;');
+    }
+
+    async function loadApiInventory() {
+      try {
+        const response = await fetch('/api-inventory.json', { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        state.apiInventory = await response.json();
+      } catch (error) {
+        state.apiInventory = null;
+        if (el.apiSummary) {
+          el.apiSummary.innerHTML = `<div class="empty-state">Failed to load api-inventory.json: ${escapeHtml(error.message)}</div>`;
+        }
+      }
+    }
+
+    async function loadGraph() {
+      try {
+        await loadApiInventory();
+        const response = await fetch('/graphify-graph.json', { cache: 'no-store' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        state.graphLastModified = response.headers.get('Last-Modified') || '';
+        state.graphBytes = Number(response.headers.get('Content-Length') || 0);
+        const graph = await response.json();
+        state.loadedAt = new Date();
+        const normalized = normalizeGraph(graph);
+        state.raw = graph;
+        state.nodes = normalized.nodes;
+        state.links = normalized.links;
+        state.nodeById = normalized.byId;
+        el.nodeLimit.max = String(state.nodes.length);
+        populateFilters(state.nodes, state.links);
+        renderApiSummary();
+        renderApiModule('');
+        renderSystemOverview();
+        renderTopHubs();
+        renderAllTypeGuide();
+        renderAllRelationGuide();
+        applyFilters(true);
+        updateDataSourceBox();
+        el.status.textContent = `Loaded graphify-graph.json with ${state.nodes.length.toLocaleString()} nodes and ${state.links.length.toLocaleString()} links.`;
+      } catch (error) {
+        el.status.textContent = `Failed to load graphify-graph.json: ${error.message}`;
+      }
+    }
+
+    el.searchInput.addEventListener('input', event => {
+      state.search = event.target.value;
+      applyFilters(true);
+    });
+
+    el.relationFilter.addEventListener('change', event => {
+      state.relation = event.target.value;
+      applyFilters(true);
+    });
+
+    el.typeFilter.addEventListener('change', event => {
+      state.type = event.target.value;
+      applyFilters(true);
+    });
+
+    el.nodeLimit.addEventListener('input', event => {
+      state.limit = Number(event.target.value);
+      applyFilters(true);
+    });
+
+    document.getElementById('fitBtn').addEventListener('click', () => fitGraph(true));
+    document.getElementById('restartBtn').addEventListener('click', () => initializePositions());
+
+    canvas.addEventListener('mousedown', event => {
+      state.dragging = true;
+      state.dragMoved = false;
+      state.lastX = event.clientX;
+      state.lastY = event.clientY;
+      canvas.classList.add('dragging');
+    });
+
+    window.addEventListener('mouseup', event => {
+      if (!state.dragging) return;
+      state.dragging = false;
+      canvas.classList.remove('dragging');
+      if (!state.dragMoved) {
+        const node = nodeAt(event.clientX, event.clientY);
+        if (node) selectNode(node);
+      }
+    });
+
+    window.addEventListener('mousemove', event => {
+      if (state.dragging) {
+        const dx = event.clientX - state.lastX;
+        const dy = event.clientY - state.lastY;
+        if (Math.abs(dx) + Math.abs(dy) > 2) state.dragMoved = true;
+        state.offsetX += dx;
+        state.offsetY += dy;
+        state.lastX = event.clientX;
+        state.lastY = event.clientY;
+        draw();
+        return;
+      }
+
+      const node = nodeAt(event.clientX, event.clientY);
+      if (node !== state.hovered) {
+        state.hovered = node;
+        el.hoverBadge.textContent = node ? `${node.label} | ${nodeTypeText(node)} | ${node.degree} links` : 'Hover a node';
+        draw();
+      }
+    });
+
+    canvas.addEventListener('wheel', event => {
+      event.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const before = screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+      const factor = event.deltaY < 0 ? 1.12 : 0.89;
+      state.scale = Math.max(0.08, Math.min(5, state.scale * factor));
+      const after = screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+      state.offsetX += (after.x - before.x) * state.scale;
+      state.offsetY += (after.y - before.y) * state.scale;
+      draw();
+    }, { passive: false });
+
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+    loadGraph();
+  </script>
+</body>
+
+</html>

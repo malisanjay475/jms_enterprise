@@ -1,0 +1,13 @@
+# Standalone stack: API/graph static viewer only (separate from jpsms-app).
+# On the VPS: cd to this folder and run: docker compose -f docker-compose.graphify.yml up -d --build
+
+services:
+  graphify-view:
+    build:
+      context: .
+      dockerfile: graphify-view/Dockerfile
+    image: jms-graphify-view:latest
+    container_name: jms-graphify-view
+    restart: unless-stopped
+    ports:
+      - "${GRAPHIFY_VIEW_PORT:-8088}:80"

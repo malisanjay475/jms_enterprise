@@ -1,0 +1,3540 @@
+{
+  "source_root": "S:/JMS_Enterprise",
+  "totals": {
+    "backend_routes": 203,
+    "frontend_calls": 238,
+    "total_items": 441
+  },
+  "backend_routes": [
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13001",
+      "raw": "app.get('/', (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/admin/backup",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13720",
+      "raw": "app.get('/api/admin/backup', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/admin/clear-data",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L10859",
+      "raw": "app.post('/api/admin/clear-data', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/admin/clear-std-actual",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7003",
+      "raw": "app.post('/api/admin/clear-std-actual', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/admin/close-plant",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L1090",
+      "raw": "app.post('/api/admin/close-plant', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "DELETE",
+      "path": "/api/admin/close-plant/:id",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L1114",
+      "raw": "app.delete('/api/admin/close-plant/:id', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/admin/closed-plants",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L1080",
+      "raw": "app.get('/api/admin/closed-plants', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/admin/fix-sync-schema",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9752",
+      "raw": "app.get('/api/admin/fix-sync-schema', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/admin/restore",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13746",
+      "raw": "app.post('/api/admin/restore', upload.single('file'), async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/admin/restore-closed-orders",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L8140",
+      "raw": "app.post('/api/admin/restore-closed-orders', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/admin/users",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7851",
+      "raw": "app.get('/api/admin/users', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/admin/users/create",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7860",
+      "raw": "app.post('/api/admin/users/create', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/admin/users/delete",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7917",
+      "raw": "app.post('/api/admin/users/delete', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/admin/users/password",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7943",
+      "raw": "app.post('/api/admin/users/password', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/admin/users/update",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7887",
+      "raw": "app.post('/api/admin/users/update', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/ai/ask",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11335",
+      "raw": "app.post('/api/ai/ask', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/ai/plan",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11319",
+      "raw": "app.post('/api/ai/plan', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/analyze/mould/:mouldCode",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13509",
+      "raw": "app.get('/api/analyze/mould/:mouldCode', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/analyze/order/:orderNo",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5401",
+      "raw": "app.get('/api/analyze/order/:orderNo', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/approvals/item/:id",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13952",
+      "raw": "app.get('/api/approvals/item/:id', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/approvals/pending",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13903",
+      "raw": "app.get('/api/approvals/pending', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/approvals/review",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L14017",
+      "raw": "app.post('/api/approvals/review', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/assembly/active",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13367",
+      "raw": "app.get('/api/assembly/active', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/assembly/alerts",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13420",
+      "raw": "app.get('/api/assembly/alerts', (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/assembly/events",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13399",
+      "raw": "app.get('/api/assembly/events', (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/assembly/grid",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4786",
+      "raw": "app.get('/api/assembly/grid', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/assembly/lines",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13328",
+      "raw": "app.get('/api/assembly/lines', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/assembly/lines",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13338",
+      "raw": "app.post('/api/assembly/lines', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "DELETE",
+      "path": "/api/assembly/lines/:id",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13356",
+      "raw": "app.delete('/api/assembly/lines/:id', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/assembly/plan",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13294",
+      "raw": "app.post('/api/assembly/plan', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/assembly/scan",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13428",
+      "raw": "app.post('/api/assembly/scan', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/dashboard/kpis",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9174",
+      "raw": "app.get('/api/dashboard/kpis', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/debug/ids",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4634",
+      "raw": "app.get('/api/debug/ids', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/debug/jc-keys",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11869",
+      "raw": "app.get('/api/debug/jc-keys', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/dpr/dashboard-matrix",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L926",
+      "raw": "app.get('/api/dpr/dashboard-matrix', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/dpr/debug",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L14222",
+      "raw": "app.get('/api/dpr/debug', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/dpr/delete",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4281",
+      "raw": "app.post('/api/dpr/delete', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/dpr/delete-entry",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9601",
+      "raw": "app.post('/api/dpr/delete-entry', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/dpr/delete-setup",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9622",
+      "raw": "app.post('/api/dpr/delete-setup', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/dpr/edit",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4852",
+      "raw": "app.post('/api/dpr/edit', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/dpr/hourly",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9295",
+      "raw": "app.get('/api/dpr/hourly', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/dpr/hourly/clear",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6994",
+      "raw": "app.post('/api/dpr/hourly/clear', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/dpr/hourly/recent",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L10914",
+      "raw": "app.get('/api/dpr/hourly/recent', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/dpr/job-summary",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4382",
+      "raw": "app.get('/api/dpr/job-summary', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/dpr/reasons",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9734",
+      "raw": "app.get('/api/dpr/reasons', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/dpr/reasons",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9742",
+      "raw": "app.post('/api/dpr/reasons', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "DELETE",
+      "path": "/api/dpr/reasons/:id",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9797",
+      "raw": "app.delete('/api/dpr/reasons/:id', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/dpr/recent",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4300",
+      "raw": "app.get('/api/dpr/recent', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/dpr/setup",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9221",
+      "raw": "app.get('/api/dpr/setup', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/dpr/setup/clear",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9694",
+      "raw": "app.post('/api/dpr/setup/clear', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/dpr/submit",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4135",
+      "raw": "app.post('/api/dpr/submit', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/dpr/summary-matrix",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9355",
+      "raw": "app.get('/api/dpr/summary-matrix', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/dpr/used-slots",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4107",
+      "raw": "app.get('/api/dpr/used-slots', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/erp/bom-master",
+      "source_file": "BACKEND/routes/erp.routes.js",
+      "source_location": "L105",
+      "raw": "router.post('/bom-master', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/erp/jc-details",
+      "source_file": "BACKEND/routes/erp.routes.js",
+      "source_location": "L73",
+      "raw": "router.post('/jc-details', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/erp/mould-plan-summary",
+      "source_file": "BACKEND/routes/erp.routes.js",
+      "source_location": "L57",
+      "raw": "router.post('/mould-plan-summary', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/erp/or-jr-status",
+      "source_file": "BACKEND/routes/erp.routes.js",
+      "source_location": "L89",
+      "raw": "router.post('/or-jr-status', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/factories",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L3505",
+      "raw": "app.get('/api/factories', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/factories/save",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L3518",
+      "raw": "app.post('/api/factories/save', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/grinding/entry",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5276",
+      "raw": "app.post('/api/grinding/entry', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/grinding/jobs",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5216",
+      "raw": "app.get('/api/grinding/jobs', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/health",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L2909",
+      "raw": "app.get('/api/health', async (_req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/hr/download-operators",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11967",
+      "raw": "app.get('/api/hr/download-operators', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/hr/history",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12005",
+      "raw": "app.get('/api/hr/history', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/hr/operators",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11881",
+      "raw": "app.get('/api/hr/operators', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/hr/operators",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11897",
+      "raw": "app.post('/api/hr/operators', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/hr/operators/delete",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11987",
+      "raw": "app.post('/api/hr/operators/delete', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/hr/scan",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11992",
+      "raw": "app.post('/api/hr/scan', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/hr/upload-operators",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11942",
+      "raw": "app.post('/api/hr/upload-operators', upload.single('file'), async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/job/colors",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11592",
+      "raw": "app.get('/api/job/colors', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/job/complete",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4899",
+      "raw": "app.post('/api/job/complete', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/log-client-error",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13012",
+      "raw": "app.post('/api/log-client-error', (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/login",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L3420",
+      "raw": "app.post('/api/login', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/machine/maintenance/active",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9683",
+      "raw": "app.get('/api/machine/maintenance/active', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/machine/maintenance/start",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9660",
+      "raw": "app.post('/api/machine/maintenance/start', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/machines",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L3790",
+      "raw": "app.get('/api/machines', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/machines",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L10389",
+      "raw": "app.post('/api/machines', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "DELETE",
+      "path": "/api/machines/:id",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L10542",
+      "raw": "app.delete('/api/machines/:id', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "PUT",
+      "path": "/api/machines/:id",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L10443",
+      "raw": "app.put('/api/machines/:id', async (req, res) => { // ID is machine name"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/machines/history/:id",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L10586",
+      "raw": "app.get('/api/machines/history/:id', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/machines/status",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L3839",
+      "raw": "app.get('/api/machines/status', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/machines/supervisor",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6951",
+      "raw": "app.get('/api/machines/supervisor', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/masters/:type",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L10978",
+      "raw": "app.get('/api/masters/:type', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/masters/machines",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7012",
+      "raw": "app.get('/api/masters/machines', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/masters/moulds",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L3926",
+      "raw": "app.get('/api/masters/moulds', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/moulds",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L10609",
+      "raw": "app.post('/api/moulds', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "PUT",
+      "path": "/api/moulds/:id",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L10656",
+      "raw": "app.put('/api/moulds/:id', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/moulds/history/:id",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L10743",
+      "raw": "app.get('/api/moulds/history/:id', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/notifications",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5320",
+      "raw": "app.get('/api/notifications', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/notifications/mark-all-read",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5387",
+      "raw": "app.post('/api/notifications/mark-all-read', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/notifications/mark-read",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5376",
+      "raw": "app.post('/api/notifications/mark-read', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/notifications/send",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5344",
+      "raw": "app.post('/api/notifications/send', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/notifications/unread-count",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5305",
+      "raw": "app.get('/api/notifications/unread-count', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/orders",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9923",
+      "raw": "app.get('/api/orders', async (req, res) => { // Alias"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/orders/completion-history",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L8293",
+      "raw": "app.get('/api/orders/completion-history', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/orders/confirm-completion",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L8164",
+      "raw": "app.post('/api/orders/confirm-completion', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/orders/fetch-from-orjr",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7967",
+      "raw": "app.post('/api/orders/fetch-from-orjr', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/orders/pending",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9876",
+      "raw": "app.get('/api/orders/pending', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/orders/priority",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L8244",
+      "raw": "app.post('/api/orders/priority', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/orders/restore-completion",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L8341",
+      "raw": "app.post('/api/orders/restore-completion', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/orjr/close",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L8491",
+      "raw": "app.post('/api/orjr/close', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/orjr/reopen",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L8536",
+      "raw": "app.post('/api/orjr/reopen', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/planning/audit",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5794",
+      "raw": "app.get('/api/planning/audit', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/auto-assign-p1",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9969",
+      "raw": "app.post('/api/planning/auto-assign-p1', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/balance",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9964",
+      "raw": "app.post('/api/planning/balance', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/planning/board",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5026",
+      "raw": "app.get('/api/planning/board', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/complete",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5154",
+      "raw": "app.post('/api/planning/complete', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/planning/completed",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6473",
+      "raw": "app.get('/api/planning/completed', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/create",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5526",
+      "raw": "app.post('/api/planning/create', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/delete",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5737",
+      "raw": "app.post('/api/planning/delete', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/delete-all",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5769",
+      "raw": "app.post('/api/planning/delete-all', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/drop",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6354",
+      "raw": "app.post('/api/planning/drop', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/planning/job-card-print",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6803",
+      "raw": "app.get('/api/planning/job-card-print', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/planning/job-cards",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6739",
+      "raw": "app.get('/api/planning/job-cards', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/planning/kpis",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9805",
+      "raw": "app.get('/api/planning/kpis', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/planning/machines/compatible",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5977",
+      "raw": "app.get('/api/planning/machines/compatible', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/planning/moulds/alternatives",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6084",
+      "raw": "app.get('/api/planning/moulds/alternatives', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/move",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6642",
+      "raw": "app.post('/api/planning/move', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/planning/orders/:orderNo/details",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5873",
+      "raw": "app.get('/api/planning/orders/:orderNo/details', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/planning/orders/matching",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6189",
+      "raw": "app.get('/api/planning/orders/matching', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/planning/orders/pending",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5812",
+      "raw": "app.get('/api/planning/orders/pending', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/queue",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9946",
+      "raw": "app.post('/api/planning/queue', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/restore",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6611",
+      "raw": "app.post('/api/planning/restore', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/restore-plan",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5179",
+      "raw": "app.post('/api/planning/restore-plan', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/run",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5655",
+      "raw": "app.post('/api/planning/run', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/planning/schedule",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9863",
+      "raw": "app.get('/api/planning/schedule', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/set-jc",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5141",
+      "raw": "app.post('/api/planning/set-jc', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/start",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6376",
+      "raw": "app.post('/api/planning/start', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/stop",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6422",
+      "raw": "app.post('/api/planning/stop', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/planning/suggestions",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6454",
+      "raw": "app.get('/api/planning/suggestions', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/planning/update",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L5626",
+      "raw": "app.post('/api/planning/update', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/qc/compliance",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12548",
+      "raw": "app.get('/api/qc/compliance', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/qc/dashboard",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12495",
+      "raw": "app.get('/api/qc/dashboard', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/qc/dashboard/analysis",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12808",
+      "raw": "app.get('/api/qc/dashboard/analysis', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/qc/dashboard/kpis",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12710",
+      "raw": "app.get('/api/qc/dashboard/kpis', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/qc/deviation",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12481",
+      "raw": "app.post('/api/qc/deviation', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/qc/issue",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12453",
+      "raw": "app.post('/api/qc/issue', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/qc/online",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12435",
+      "raw": "app.post('/api/qc/online', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/qc/recent",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12511",
+      "raw": "app.get('/api/qc/recent', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/qc/reports",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L1138",
+      "raw": "app.get('/api/qc/reports', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/qc/training",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12467",
+      "raw": "app.post('/api/qc/training', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/queue",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11462",
+      "raw": "app.get('/api/queue', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/reports/bo-planning-detail",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7714",
+      "raw": "app.get('/api/reports/bo-planning-detail', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/reports/moulding",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6936",
+      "raw": "app.get('/api/reports/moulding', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/reports/or-jr",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6885",
+      "raw": "app.get('/api/reports/or-jr', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/reports/or-jr-full",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7532",
+      "raw": "app.get('/api/reports/or-jr-full', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/reports/orjr-wise-detail",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7645",
+      "raw": "app.get('/api/reports/orjr-wise-detail', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/reports/orjr-wise-summary",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7580",
+      "raw": "app.get('/api/reports/orjr-wise-summary', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/reports/wip",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7780",
+      "raw": "app.get('/api/reports/wip', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/rm/accept",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11446",
+      "raw": "app.post('/api/rm/accept', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/rm/issue",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11401",
+      "raw": "app.post('/api/rm/issue', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/rm/pending",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11420",
+      "raw": "app.get('/api/rm/pending', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/rm/plans",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L11375",
+      "raw": "app.get('/api/rm/plans', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/roles",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L3749",
+      "raw": "app.get('/api/roles', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/roles/create",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L3769",
+      "raw": "app.post('/api/roles/create', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/settings",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9715",
+      "raw": "app.get('/api/settings', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/settings",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9725",
+      "raw": "app.post('/api/settings', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/shift/team",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13031",
+      "raw": "app.get('/api/shift/team', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/shift/team",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13102",
+      "raw": "app.post('/api/shift/team', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/shift/team-range",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L13074",
+      "raw": "app.get('/api/shift/team-range', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/shifting/dashboard",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4661",
+      "raw": "app.get('/api/shifting/dashboard', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/shifting/delete-all",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4822",
+      "raw": "app.post('/api/shifting/delete-all', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/shifting/entry",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4760",
+      "raw": "app.post('/api/shifting/entry', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/shifting/locations",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4649",
+      "raw": "app.get('/api/shifting/locations', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/shifting/logs",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4805",
+      "raw": "app.get('/api/shifting/logs', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/shifting/matrix",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4719",
+      "raw": "app.get('/api/shifting/matrix', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/std-actual/save",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L3953",
+      "raw": "app.post('/api/std-actual/save', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/std-actual/status",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L4013",
+      "raw": "app.get('/api/std-actual/status', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/sync/pull",
+      "source_file": "BACKEND/services/sync.service.js",
+      "source_location": "L97",
+      "raw": "router.get('/pull', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/sync/push",
+      "source_file": "BACKEND/services/sync.service.js",
+      "source_location": "L73",
+      "raw": "router.post('/push', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/sync/status",
+      "source_file": "BACKEND/services/sync.service.js",
+      "source_location": "L118",
+      "raw": "router.get('/status', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/templates/:type",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7076",
+      "raw": "app.get('/api/templates/:type', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/update/check",
+      "source_file": "BACKEND/services/updater.service.js",
+      "source_location": "L13",
+      "raw": "router.get('/check', (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/update/download",
+      "source_file": "BACKEND/services/updater.service.js",
+      "source_location": "L18",
+      "raw": "router.get('/download', (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/upload/:type",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L8582",
+      "raw": "app.post('/api/upload/:type', async (req, res, next) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/upload/excel",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L6905",
+      "raw": "app.post('/api/upload/excel', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/upload/machines-confirm",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L10163",
+      "raw": "app.post('/api/upload/machines-confirm', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/upload/machines-preview",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L9979",
+      "raw": "app.post('/api/upload/machines-preview', upload.single('file'), async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/upload/or-jr-confirm",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7285",
+      "raw": "app.post('/api/upload/or-jr-confirm', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/upload/or-jr-preview",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L7164",
+      "raw": "app.post('/api/upload/or-jr-preview', upload.single('file'), async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/upload/wipstock-confirm",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L10344",
+      "raw": "app.post('/api/upload/wipstock-confirm', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/upload/wipstock-preview",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L10296",
+      "raw": "app.post('/api/upload/wipstock-preview', upload.single('file'), async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/users",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L3558",
+      "raw": "app.get('/api/users', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/users/delete",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L3696",
+      "raw": "app.post('/api/users/delete', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/users/password",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L3727",
+      "raw": "app.post('/api/users/password', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/users/save",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L3583",
+      "raw": "app.post('/api/users/save', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/vendor/action/dispatch",
+      "source_file": "BACKEND/routes/vendor.routes.js",
+      "source_location": "L192",
+      "raw": "router.post('/action/dispatch', requireVendorAuth, upload.single('invoice_file'), async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/vendor/admin/delete",
+      "source_file": "BACKEND/routes/vendor.routes.js",
+      "source_location": "L338",
+      "raw": "router.post('/admin/delete', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/vendor/admin/list",
+      "source_file": "BACKEND/routes/vendor.routes.js",
+      "source_location": "L264",
+      "raw": "router.get('/admin/list', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/vendor/admin/po/list",
+      "source_file": "BACKEND/routes/vendor.routes.js",
+      "source_location": "L311",
+      "raw": "router.get('/admin/po/list', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/vendor/admin/po/save",
+      "source_file": "BACKEND/routes/vendor.routes.js",
+      "source_location": "L350",
+      "raw": "router.post('/admin/po/save', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/vendor/admin/save",
+      "source_file": "BACKEND/routes/vendor.routes.js",
+      "source_location": "L274",
+      "raw": "router.post('/admin/save', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/vendor/auth/login",
+      "source_file": "BACKEND/routes/vendor.routes.js",
+      "source_location": "L69",
+      "raw": "router.post('/auth/login', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/vendor/data/dashboard",
+      "source_file": "BACKEND/routes/vendor.routes.js",
+      "source_location": "L112",
+      "raw": "router.get('/data/dashboard', requireVendorAuth, async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/vendor/data/order-items/:poId",
+      "source_file": "BACKEND/routes/vendor.routes.js",
+      "source_location": "L175",
+      "raw": "router.get('/data/order-items/:poId', requireVendorAuth, async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/vendor/data/orders",
+      "source_file": "BACKEND/routes/vendor.routes.js",
+      "source_location": "L152",
+      "raw": "router.get('/data/orders', requireVendorAuth, async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/wip/adjust",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12240",
+      "raw": "app.post('/api/wip/adjust', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/wip/approve",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12057",
+      "raw": "app.post('/api/wip/approve', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/wip/logs",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12321",
+      "raw": "app.get('/api/wip/logs', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/wip/outward",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12166",
+      "raw": "app.post('/api/wip/outward', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/wip/pending",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12028",
+      "raw": "app.get('/api/wip/pending', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "POST",
+      "path": "/api/wip/reset",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12357",
+      "raw": "app.post('/api/wip/reset', async (req, res) => {"
+    },
+    {
+      "kind": "backend_route",
+      "method": "GET",
+      "path": "/api/wip/stock",
+      "source_file": "BACKEND/server.js",
+      "source_location": "L12131",
+      "raw": "app.get('/api/wip/stock', async (req, res) => {"
+    }
+  ],
+  "frontend_calls": [
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/delete-setup",
+      "source_file": "BACKEND/PUBLIC/admin-delete.js",
+      "source_location": "L25",
+      "raw": "const res = await window.JPSMS.api.post('/dpr/delete-setup', { id, session: window.JPSMS.auth.getUser() });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/delete-entry",
+      "source_file": "BACKEND/PUBLIC/admin-delete.js",
+      "source_location": "L6",
+      "raw": "const res = await window.JPSMS.api.post('/dpr/delete-entry', { id, session: window.JPSMS.auth.getUser() });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "dynamic:url",
+      "source_file": "BACKEND/PUBLIC/analyze.html",
+      "source_location": "L1269",
+      "raw": "const res = await JPSMS.api.get(url);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/board",
+      "source_file": "BACKEND/PUBLIC/analyze.html",
+      "source_location": "L802",
+      "raw": "JPSMS.api.get('/planning/board'),"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/completed?limit=100",
+      "source_file": "BACKEND/PUBLIC/analyze.html",
+      "source_location": "L803",
+      "raw": "JPSMS.api.get('/planning/completed?limit=100')"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/analyze/order/${encodeURIComponent(orderNo)}",
+      "source_file": "BACKEND/PUBLIC/analyze.html",
+      "source_location": "L927",
+      "raw": "const res = await JPSMS.api.get('/analyze/order/' + encodeURIComponent(orderNo));"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/login",
+      "source_file": "BACKEND/PUBLIC/APPROVALS/approvals.html",
+      "source_location": "L349",
+      "raw": "const res = await fetch('/api/login', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/approvals/pending?line=${encodeURIComponent(ln)}",
+      "source_file": "BACKEND/PUBLIC/APPROVALS/approvals.html",
+      "source_location": "L398",
+      "raw": "const res = await fetch(`/api/approvals/pending?line=${encodeURIComponent(ln)}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/approvals/review",
+      "source_file": "BACKEND/PUBLIC/APPROVALS/approvals.html",
+      "source_location": "L480",
+      "raw": "const res = await fetch('/api/approvals/review', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/assembly/grid?date=${dateStr}",
+      "source_file": "BACKEND/PUBLIC/assembly.html",
+      "source_location": "L340",
+      "raw": "const res = await JPSMS.api.get(`/assembly/grid?date=${dateStr}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/ai/ask",
+      "source_file": "BACKEND/PUBLIC/assets/ai-chat.js",
+      "source_location": "L217",
+      "raw": "const res = await window.JPSMS.api.post('/ai/ask', { question: txt, username, context });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/ai/plan",
+      "source_file": "BACKEND/PUBLIC/assets/ai-planner.js",
+      "source_location": "L21",
+      "raw": "const res = await api.post('/ai/plan', {});"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/notifications/unread-count?user=${user.username}",
+      "source_file": "BACKEND/PUBLIC/assets/app.js",
+      "source_location": "L1305",
+      "raw": "const res = await exports.api.request('/notifications/unread-count?user=' + user.username, { method: 'GET', skipLoader: true });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "dynamic:API_BASEendpoint",
+      "source_file": "BACKEND/PUBLIC/assets/app.js",
+      "source_location": "L220",
+      "raw": "const res = await fetch(API_BASE + endpoint, {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/login",
+      "source_file": "BACKEND/PUBLIC/assets/app.js",
+      "source_location": "L263",
+      "raw": "const res = await exports.api.post('/login', { username, password });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/move",
+      "source_file": "BACKEND/PUBLIC/assets/dnd-planning.js",
+      "source_location": "L240",
+      "raw": "const res = await api.post('/planning/move', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/orders/${encodeURIComponent(orderNo)}/details",
+      "source_file": "BACKEND/PUBLIC/assets/timeline_patch.js",
+      "source_location": "L173",
+      "raw": "const res = await api.get('/planning/orders/' + encodeURIComponent(orderNo) + '/details');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/run",
+      "source_file": "BACKEND/PUBLIC/assets/timeline_patch.js",
+      "source_location": "L331",
+      "raw": "const res = await api.post('/planning/run', { rowId: id });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/masters/machines?${processQuery}",
+      "source_file": "BACKEND/PUBLIC/assets/timeline_patch.js",
+      "source_location": "L646",
+      "raw": "api.get(`/masters/machines?${processQuery}`),"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/board?${processQuery}",
+      "source_file": "BACKEND/PUBLIC/assets/timeline_patch.js",
+      "source_location": "L647",
+      "raw": "api.get(`/planning/board?${processQuery}`)"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/restore",
+      "source_file": "BACKEND/PUBLIC/debug_api.html",
+      "source_location": "L105",
+      "raw": "const res = await fetch('/api/planning/restore', { method: 'GET' });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/login",
+      "source_file": "BACKEND/PUBLIC/debug_api.html",
+      "source_location": "L78",
+      "raw": "const res = await fetch('/api/login', { method: 'POST', body: JSON.stringify({ username: 'test', password: '123' }), headers: { 'Content-Type': 'application/json' } });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/board?plant=DUNGRA",
+      "source_file": "BACKEND/PUBLIC/debug_api.html",
+      "source_location": "L89",
+      "raw": "const res = await fetch('/api/planning/board?plant=DUNGRA');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/assembly/active",
+      "source_file": "BACKEND/PUBLIC/debug_dashboard.html",
+      "source_location": "L82",
+      "raw": "const res = await JPSMS.api.request('/assembly/active', { skipLoader: true });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/summary-matrix?fromDate=${date}&toDate=${date}&shift=Day${processQuery}",
+      "source_file": "BACKEND/PUBLIC/dpr_daily_report.html",
+      "source_location": "L288",
+      "raw": "JPSMS.api.get(`/dpr/summary-matrix?fromDate=${date}&toDate=${date}&shift=Day${processQuery}`),"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/summary-matrix?fromDate=${date}&toDate=${date}&shift=Night${processQuery}",
+      "source_file": "BACKEND/PUBLIC/dpr_daily_report.html",
+      "source_location": "L289",
+      "raw": "JPSMS.api.get(`/dpr/summary-matrix?fromDate=${date}&toDate=${date}&shift=Night${processQuery}`),"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/reasons",
+      "source_file": "BACKEND/PUBLIC/dpr_daily_report.html",
+      "source_location": "L290",
+      "raw": "JPSMS.api.get('/dpr/reasons'),"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shift/team-range?fromDate=${date}&toDate=${date}&shift=Day",
+      "source_file": "BACKEND/PUBLIC/dpr_daily_report.html",
+      "source_location": "L291",
+      "raw": "JPSMS.api.get(`/shift/team-range?fromDate=${date}&toDate=${date}&shift=Day`),"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shift/team-range?fromDate=${date}&toDate=${date}&shift=Night",
+      "source_file": "BACKEND/PUBLIC/dpr_daily_report.html",
+      "source_location": "L292",
+      "raw": "JPSMS.api.get(`/shift/team-range?fromDate=${date}&toDate=${date}&shift=Night`),"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/masters/machines?process=${encodeURIComponent(dailyDprProcess)}",
+      "source_file": "BACKEND/PUBLIC/dpr_daily_report.html",
+      "source_location": "L293",
+      "raw": "JPSMS.api.get(`/masters/machines?process=${encodeURIComponent(dailyDprProcess)}`)"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/admin/clear-std-actual",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L1863",
+      "raw": "J.api.post('/admin/clear-std-actual', { user: user.username }).then(res => {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/setup",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L1871",
+      "raw": "J.api.get('/dpr/setup').then(res => {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/settings",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L1989",
+      "raw": "J.api.post('/settings', { key: 'geofence_enabled', value: e.target.checked });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/reasons",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L2009",
+      "raw": "window.JPSMS.api.post('/dpr/reasons', { type, code, reason }).then(res => {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "DELETE",
+      "path": "/api/dpr/reasons/${id}",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L2022",
+      "raw": "window.JPSMS.api.delete(`/dpr/reasons/${id}`).then(loadReasons);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/settings",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L2026",
+      "raw": "window.JPSMS.api.get('/settings').then(res => {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/reasons",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L2034",
+      "raw": "window.JPSMS.api.get('/dpr/reasons').then(res => {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/update",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L2116",
+      "raw": "const res = await window.JPSMS.api.post('/api/dpr/update', payload);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/delete-entry",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L2197",
+      "raw": "const res = await window.JPSMS.api.post('/dpr/delete-entry', { id, session: window.JPSMS.auth.getUser() });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/delete-setup",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L2216",
+      "raw": "const res = await window.JPSMS.api.post('/dpr/delete-setup', { id, session: window.JPSMS.auth.getUser() });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/analyze/order/${encodeURIComponent(orderNo)}",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L2333",
+      "raw": "const r2 = await fetch(`/api/analyze/order/${encodeURIComponent(orderNo)}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "dynamic:q",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L315",
+      "raw": "J.api.get(q).then(res => {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/hourly/clear",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L468",
+      "raw": "J.api.post('/dpr/hourly/clear', { session: J.auth.session }).then(res => {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/masters/machines?process=${encodeURIComponent(dprProcess)}",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L575",
+      "raw": "const scopedMachinesPromise = J.api.get(`/masters/machines?process=${encodeURIComponent(dprProcess)}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L577",
+      "raw": "promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}`));"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L578",
+      "raw": "promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}`));"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Day",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L579",
+      "raw": "promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Day`));"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L580",
+      "raw": "promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night`));"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L582",
+      "raw": "promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}`));"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Day",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L584",
+      "raw": "promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Day`));"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L588",
+      "raw": "promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}`));"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night",
+      "source_file": "BACKEND/PUBLIC/dpr.html",
+      "source_location": "L590",
+      "raw": "promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night`));"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/grinding/jobs",
+      "source_file": "BACKEND/PUBLIC/grinding.html",
+      "source_location": "L240",
+      "raw": "const res = await api.get('/grinding/jobs');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/grinding/entry",
+      "source_file": "BACKEND/PUBLIC/grinding.html",
+      "source_location": "L372",
+      "raw": "await api.post('/grinding/entry', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/machines",
+      "source_file": "BACKEND/PUBLIC/hr_new.html",
+      "source_location": "L363",
+      "raw": "const mRes = await J.api.get('/machines');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/hr/operators?factory_id=${factory}&process=${process}",
+      "source_file": "BACKEND/PUBLIC/hr_new.html",
+      "source_location": "L400",
+      "raw": "const res = await J.api.get(`/hr/operators?factory_id=${factory}&process=${process}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/hr/operators",
+      "source_file": "BACKEND/PUBLIC/hr_new.html",
+      "source_location": "L495",
+      "raw": "const res = await J.api.post('/hr/operators', payload);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/hr/operators/delete",
+      "source_file": "BACKEND/PUBLIC/hr_new.html",
+      "source_location": "L507",
+      "raw": "await J.api.post('/hr/operators/delete', { id });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/hr/upload-operators",
+      "source_file": "BACKEND/PUBLIC/hr_new.html",
+      "source_location": "L521",
+      "raw": "const res = await fetch('/api/hr/upload-operators', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/machines",
+      "source_file": "BACKEND/PUBLIC/hr.html",
+      "source_location": "L381",
+      "raw": "const mRes = await J.api.get('/machines');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/hr/operators?factory_id=${factory}&process=${process}",
+      "source_file": "BACKEND/PUBLIC/hr.html",
+      "source_location": "L418",
+      "raw": "const res = await J.api.get(`/hr/operators?factory_id=${factory}&process=${process}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/hr/operators",
+      "source_file": "BACKEND/PUBLIC/hr.html",
+      "source_location": "L510",
+      "raw": "const res = await J.api.post('/hr/operators', payload);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/hr/operators/delete",
+      "source_file": "BACKEND/PUBLIC/hr.html",
+      "source_location": "L520",
+      "raw": "await J.api.post('/hr/operators/delete', { id });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/hr/upload-operators",
+      "source_file": "BACKEND/PUBLIC/hr.html",
+      "source_location": "L534",
+      "raw": "const res = await fetch('/api/hr/upload-operators', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/hr/history?date=${date}&shift=${shift}",
+      "source_file": "BACKEND/PUBLIC/hr.html",
+      "source_location": "L648",
+      "raw": "const res = await J.api.get(`/hr/history?date=${date}&shift=${shift}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/hr/scan",
+      "source_file": "BACKEND/PUBLIC/hr.html",
+      "source_location": "L688",
+      "raw": "const res = await J.api.post('/hr/scan', { operator_id: id, scanned_by: J.auth.getUser().username });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/element-view",
+      "source_file": "BACKEND/PUBLIC/job_summary.html",
+      "source_location": "L452",
+      "raw": "const res = await JPSMS.api.get('/planning/element-view');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/element-view/details?or_jr_no=${encodeURIComponent(orderNo)}",
+      "source_file": "BACKEND/PUBLIC/job_summary.html",
+      "source_location": "L473",
+      "raw": "const res = await JPSMS.api.get(`/planning/element-view/details?or_jr_no=${encodeURIComponent(orderNo)}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "dynamic:url",
+      "source_file": "BACKEND/PUBLIC/job_summary.html",
+      "source_location": "L501",
+      "raw": "const res = await JPSMS.api.get(url);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/assembly/lines",
+      "source_file": "BACKEND/PUBLIC/js/production_scanning.js",
+      "source_location": "L28",
+      "raw": "const res = await JPSMS.api.get('/assembly/lines');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/assembly/scan",
+      "source_file": "BACKEND/PUBLIC/js/production_scanning.js",
+      "source_location": "L547",
+      "raw": "const res = await JPSMS.api.post('/assembly/scan', { plan_id: planId, ean });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/assembly/active",
+      "source_file": "BACKEND/PUBLIC/js/production_scanning.js",
+      "source_location": "L63",
+      "raw": "const res = await JPSMS.api.get('/assembly/active');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/orders/completion-history${qs.toString() ? `?${qs.toString()}` : ''}",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L1058",
+      "raw": "const res = await JPSMS.api.get('/orders/completion-history' + (qs.toString() ? `?${qs.toString()}` : ''));"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/orders/confirm-completion",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L1109",
+      "raw": "const res = await JPSMS.api.post('/orders/confirm-completion', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/orders/restore-completion",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L1126",
+      "raw": "const res = await JPSMS.api.post('/orders/restore-completion', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/orders/priority",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L1149",
+      "raw": "const res = await JPSMS.api.post('/orders/priority', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/machines",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L1223",
+      "raw": "const res = await JPSMS.api.get('/machines');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/admin/closed-plants",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L1248",
+      "raw": "const res = await JPSMS.api.get('/admin/closed-plants');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/admin/close-plant",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L1285",
+      "raw": "const res = await JPSMS.api.post('/admin/close-plant', payload);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/factories",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L1721",
+      "raw": "const res = await JPSMS.api.get('/factories');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "dynamic:endpoint",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L2172",
+      "raw": "const res = await JPSMS.api.post(endpoint, { type: currentType, username: user.username });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "dynamic:endpoint",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L2217",
+      "raw": "const res = await JPSMS.api.get(endpoint);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "dynamic:endpoint",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L3183",
+      "raw": "res = await JPSMS.api.post(endpoint, {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/upload/wipstock-confirm",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L3189",
+      "raw": "res = await JPSMS.api.post('/upload/wipstock-confirm', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/upload/${currentType}",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L3200",
+      "raw": "res = await JPSMS.api.upload(`/upload/${currentType}`, formData);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/machines",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L3347",
+      "raw": "await JPSMS.api.post('/machines', body);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "PUT",
+      "path": "/api/machines/${encodeURIComponent(id)}",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L3349",
+      "raw": "await JPSMS.api.request(`/machines/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "DELETE",
+      "path": "/api/machines/${encodeURIComponent(id)}",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L3361",
+      "raw": "await JPSMS.api.request(`/machines/${encodeURIComponent(id)}`, { method: 'DELETE' });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/orders/fetch-from-orjr",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L3376",
+      "raw": "const res = await JPSMS.api.post('/orders/fetch-from-orjr');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/orjr/close",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L3410",
+      "raw": "const res = await JPSMS.api.post('/orjr/close', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/orjr/reopen",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L3430",
+      "raw": "const res = await JPSMS.api.post('/orjr/reopen', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/admin/restore",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L3487",
+      "raw": "const res = await fetch('/api/admin/restore', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/masters/machines?process=Moulding",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L876",
+      "raw": "const res = await JPSMS.api.get('/masters/machines?process=Moulding');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/moulds",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L927",
+      "raw": "res = await JPSMS.api.post('/moulds', payload);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "PUT",
+      "path": "/api/moulds/${encodeURIComponent(originalId)}",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L930",
+      "raw": "res = await JPSMS.api.put('/moulds/' + encodeURIComponent(originalId), payload);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/moulds/history/${encodeURIComponent(id)}",
+      "source_file": "BACKEND/PUBLIC/masters.html",
+      "source_location": "L942",
+      "raw": "const res = await JPSMS.api.get('/moulds/history/' + encodeURIComponent(id));"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/notifications?user=${user.username}",
+      "source_file": "BACKEND/PUBLIC/notifications.html",
+      "source_location": "L219",
+      "raw": "const res = await api.get('/notifications?user=' + user.username);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/notifications/mark-read",
+      "source_file": "BACKEND/PUBLIC/notifications.html",
+      "source_location": "L270",
+      "raw": "await api.post('/notifications/mark-read', { id });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/notifications/mark-all-read",
+      "source_file": "BACKEND/PUBLIC/notifications.html",
+      "source_location": "L282",
+      "raw": "await api.post('/notifications/mark-all-read', { user: user.username });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/notifications/send",
+      "source_file": "BACKEND/PUBLIC/notifications.html",
+      "source_location": "L298",
+      "raw": "const res = await api.post('/notifications/send', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/assembly/lines",
+      "source_file": "BACKEND/PUBLIC/packing_settings.html",
+      "source_location": "L153",
+      "raw": "await JPSMS.api.post('/assembly/lines', data);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/assembly/lines",
+      "source_file": "BACKEND/PUBLIC/packing_settings.html",
+      "source_location": "L99",
+      "raw": "const res = await JPSMS.api.get('/assembly/lines');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/run",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L2437",
+      "raw": "const res = await j.api.post('/planning/run', { rowId: id, force });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/stop",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L2469",
+      "raw": "const res = await j.api.post('/planning/stop', { rowId: id });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/audit",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L2521",
+      "raw": "const logs = await j.api.get('/planning/audit');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/delete-all",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L2588",
+      "raw": "const res = await j.api.post('/planning/delete-all', { user: me.name });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/delete-all",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L2636",
+      "raw": "const res = await api.post('/planning/delete-all', { user: 'Admin' });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/restore-plan",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L3257",
+      "raw": "const res = await api.post('/planning/restore-plan', { id: planId });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/kpis",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L3467",
+      "raw": "api.get('/planning/kpis').then(res => {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/kpis",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L3622",
+      "raw": "const k = await api.get('/planning/kpis');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/delete-all",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L3684",
+      "raw": "await $api.post('/planning/delete-all', {});"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/run",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L3698",
+      "raw": "await $api.post('/planning/run', { rowId: id });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/stop",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L3710",
+      "raw": "await $api.post('/planning/stop', { rowId: id });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/move",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L4104",
+      "raw": "const res = await $api.post('/planning/move', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/masters/machines?process=${encodeURIComponent(getPlanningProcessFilter())}",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L4148",
+      "raw": "api.get(`/masters/machines?process=${encodeURIComponent(getPlanningProcessFilter())}`),"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/board?${getPlanningProcessQuerySuffix()}",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L4149",
+      "raw": "api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`)"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/board?${getPlanningProcessQuerySuffix()}",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L6095",
+      "raw": "const res = await api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/set-jc",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L6573",
+      "raw": "await client.post('/planning/set-jc', { planId: id, status: checked });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/moulds/alternatives?${params.toString()}",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L6659",
+      "raw": "const res = await $api.get(`/planning/moulds/alternatives?${params.toString()}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/masters/machines",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L6810",
+      "raw": "$api.get('/masters/machines'),"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/orders/matching?itemCode=${encodeURIComponent(itemCode)}",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L6811",
+      "raw": "$api.get(`/planning/orders/matching?itemCode=${encodeURIComponent(itemCode)}`)"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/create",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L6978",
+      "raw": "await $api.post('/planning/create', payload);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/drop",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L7004",
+      "raw": "const res = await api.post('/planning/drop', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/completed?mode=hierarchical",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L7047",
+      "raw": "const res = await api.get('/planning/completed?mode=hierarchical');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/planning/restore",
+      "source_file": "BACKEND/PUBLIC/planning.html",
+      "source_location": "L7148",
+      "raw": "const res = await api.post('/planning/restore', { orderNo });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/vendor/admin/po/list?status=Open",
+      "source_file": "BACKEND/PUBLIC/purchase_orders.html",
+      "source_location": "L189",
+      "raw": "loadPOs('Open');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/factories",
+      "source_file": "BACKEND/PUBLIC/purchase_orders.html",
+      "source_location": "L197",
+      "raw": "const res = await JPSMS.api.get('/factories');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/vendor/admin/list",
+      "source_file": "BACKEND/PUBLIC/purchase_orders.html",
+      "source_location": "L206",
+      "raw": "const res = await JPSMS.api.get('/vendor/admin/list');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/vendor/admin/po/list?status=${status}",
+      "source_file": "BACKEND/PUBLIC/purchase_orders.html",
+      "source_location": "L261",
+      "raw": "loadPOs(status);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/vendor/admin/po/save",
+      "source_file": "BACKEND/PUBLIC/purchase_orders.html",
+      "source_location": "L345",
+      "raw": "await JPSMS.api.post('/vendor/admin/po/save', payload);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/vendor/admin/po/list?status=Open",
+      "source_file": "BACKEND/PUBLIC/purchase_orders.html",
+      "source_location": "L348",
+      "raw": "loadPOs('Open');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/vendor/admin/list",
+      "source_file": "BACKEND/PUBLIC/purchase_vendors.html",
+      "source_location": "L116",
+      "raw": "const res = await JPSMS.api.get('/vendor/admin/list');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/factories",
+      "source_file": "BACKEND/PUBLIC/purchase_vendors.html",
+      "source_location": "L153",
+      "raw": "const res = await JPSMS.api.get('/factories');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/vendor/admin/save",
+      "source_file": "BACKEND/PUBLIC/purchase_vendors.html",
+      "source_location": "L220",
+      "raw": "await JPSMS.api.post('/vendor/admin/save', v);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/vendor/admin/delete",
+      "source_file": "BACKEND/PUBLIC/purchase_vendors.html",
+      "source_location": "L232",
+      "raw": "await JPSMS.api.post('/vendor/admin/delete', { id });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/std-actual/save",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L1326",
+      "raw": "fetch('/api/std-actual/save', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "dynamic:url",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L1391",
+      "raw": "fetch(url)"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/login",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L1611",
+      "raw": "const res = await fetch('/api/login', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/machines?line=${encodeURIComponent(line)}",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L1663",
+      "raw": "const res = await fetch('/api/machines?line=' + encodeURIComponent(line));"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/queue?line=${encodeURIComponent(line)}&machine=${encodeURIComponent(machine)}",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L1795",
+      "raw": "fetch(`/api/queue?line=${encodeURIComponent(line)}&machine=${encodeURIComponent(machine)}`)"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "dynamic:url",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L2107",
+      "raw": "fetch(url)"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/submit",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L2219",
+      "raw": "fetch('/api/dpr/submit', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/submit",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L2448",
+      "raw": "fetch('/api/dpr/submit', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/submit",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L2598",
+      "raw": "fetch('/api/dpr/submit', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "dynamic:url",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L2633",
+      "raw": "fetch(url)"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/edit",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L2705",
+      "raw": "fetch('/api/dpr/edit', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/qc/online",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L2787",
+      "raw": "fetch('/api/qc/online', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/qc/issue",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L2811",
+      "raw": "fetch('/api/qc/issue', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/qc/training",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L2835",
+      "raw": "fetch('/api/qc/training', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/qc/deviation",
+      "source_file": "BACKEND/PUBLIC/QCSupervisor.html",
+      "source_location": "L2859",
+      "raw": "fetch('/api/qc/deviation', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/machines",
+      "source_file": "BACKEND/PUBLIC/Quality.html",
+      "source_location": "L371",
+      "raw": "const res = await JPSMS.api.get('/machines');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/qc/compliance?date=${date}&shift=${shift}&machine=${encodeURIComponent(machine)}",
+      "source_file": "BACKEND/PUBLIC/Quality.html",
+      "source_location": "L438",
+      "raw": "const res = await JPSMS.api.get(`/qc/compliance?date=${date}&shift=${shift}&machine=${encodeURIComponent(machine)}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/qc/reports?date=${date}&shift=${shift}&machine=${encodeURIComponent(machine)}",
+      "source_file": "BACKEND/PUBLIC/Quality.html",
+      "source_location": "L534",
+      "raw": "const res = await JPSMS.api.get(`/qc/reports?date=${date}&shift=${shift}&machine=${encodeURIComponent(machine)}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/qc/dashboard/kpis${q}",
+      "source_file": "BACKEND/PUBLIC/Quality.html",
+      "source_location": "L635",
+      "raw": "JPSMS.api.get(`/qc/dashboard/kpis${q}`).then(res => {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/qc/dashboard/analysis${q}&type=machine",
+      "source_file": "BACKEND/PUBLIC/Quality.html",
+      "source_location": "L663",
+      "raw": "loadChart('chart-machine', 'bar', 'machine', 'Rejection %');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/qc/dashboard/analysis${q}&type=mould",
+      "source_file": "BACKEND/PUBLIC/Quality.html",
+      "source_location": "L664",
+      "raw": "loadChart('chart-mould', 'bar', 'mould', 'Rejection %');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/qc/dashboard/analysis${q}&type=product",
+      "source_file": "BACKEND/PUBLIC/Quality.html",
+      "source_location": "L665",
+      "raw": "loadChart('chart-product', 'bar', 'product', 'Rejection %');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/qc/dashboard/analysis${q}&type=shift",
+      "source_file": "BACKEND/PUBLIC/Quality.html",
+      "source_location": "L666",
+      "raw": "loadChart('chart-shift', 'bar', 'shift', 'Rejection %');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/qc/dashboard/analysis${q}&type=defect",
+      "source_file": "BACKEND/PUBLIC/Quality.html",
+      "source_location": "L667",
+      "raw": "loadChart('chart-defect', 'doughnut', 'defect', 'Qty');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/qc/dashboard/analysis${q}&type=trend",
+      "source_file": "BACKEND/PUBLIC/Quality.html",
+      "source_location": "L668",
+      "raw": "loadChart('chart-trend', 'line', 'trend', 'Rejection %');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/rm/plans",
+      "source_file": "BACKEND/PUBLIC/raw_material_jobwise.html",
+      "source_location": "L279",
+      "raw": "const res = await api.request('/api/rm/plans', { method: 'GET' });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/rm/pending?line=${user.line || ''}",
+      "source_file": "BACKEND/PUBLIC/raw_material_jobwise.html",
+      "source_location": "L311",
+      "raw": "const res = await api.request('/api/rm/pending?line=' + (user.line || ''), { method: 'GET' });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/rm/pending",
+      "source_file": "BACKEND/PUBLIC/raw_material_jobwise.html",
+      "source_location": "L345",
+      "raw": "const res = await api.request('/api/rm/pending', { method: 'GET' });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/rm/issue",
+      "source_file": "BACKEND/PUBLIC/raw_material_jobwise.html",
+      "source_location": "L400",
+      "raw": "const res = await api.request('/api/rm/issue', { method: 'POST', body: JSON.stringify(data) });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/rm/accept",
+      "source_file": "BACKEND/PUBLIC/raw_material_jobwise.html",
+      "source_location": "L419",
+      "raw": "const res = await api.request('/api/rm/accept', { method: 'POST', body: JSON.stringify(data) });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}",
+      "source_file": "BACKEND/PUBLIC/reports.html",
+      "source_location": "L312",
+      "raw": "const res = await JPSMS.api.get(`/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/assembly/active",
+      "source_file": "BACKEND/PUBLIC/scanning_dashboard.html",
+      "source_location": "L239",
+      "raw": "const res = await JPSMS.api.request('/assembly/active', { skipLoader: true });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/shifting/delete-all",
+      "source_file": "BACKEND/PUBLIC/shifting_logs.html",
+      "source_location": "L152",
+      "raw": "const res = await JPSMS.api.post('/shifting/delete-all', { username: user.username });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shifting/logs?limit=500",
+      "source_file": "BACKEND/PUBLIC/shifting_logs.html",
+      "source_location": "L98",
+      "raw": "const res = await JPSMS.api.get('/shifting/logs?limit=500');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shifting/locations",
+      "source_file": "BACKEND/PUBLIC/shifting_reports.html",
+      "source_location": "L200",
+      "raw": "const res = await JPSMS.api.get('/shifting/locations');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shifting/dashboard?date=${date}&shift=${shift}",
+      "source_file": "BACKEND/PUBLIC/shifting_reports.html",
+      "source_location": "L221",
+      "raw": "const res = await JPSMS.api.get(`/shifting/dashboard?date=${date}&shift=${shift}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/shifting/entry",
+      "source_file": "BACKEND/PUBLIC/shifting_reports.html",
+      "source_location": "L380",
+      "raw": "const res = await JPSMS.api.post('/shifting/entry', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shifting/matrix?date=${d}&shift=${s}",
+      "source_file": "BACKEND/PUBLIC/shifting_summary.html",
+      "source_location": "L115",
+      "raw": "const res = await JPSMS.api.get(`/shifting/matrix?date=${d}&shift=${s}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shifting/locations",
+      "source_file": "BACKEND/PUBLIC/shifting_supervisor.html",
+      "source_location": "L284",
+      "raw": "promises.push(JPSMS.api.get('/shifting/locations').then(res => {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shifting/dashboard?${params}",
+      "source_file": "BACKEND/PUBLIC/shifting_supervisor.html",
+      "source_location": "L300",
+      "raw": "promises.push(JPSMS.api.get(`/shifting/dashboard?${params}`));"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/shifting/entry",
+      "source_file": "BACKEND/PUBLIC/shifting_supervisor.html",
+      "source_location": "L402",
+      "raw": "const res = await JPSMS.api.post('/shifting/entry', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/machines/status",
+      "source_file": "BACKEND/PUBLIC/shifting.html",
+      "source_location": "L147",
+      "raw": "const res = await JPSMS.api.get('/machines/status');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shifting/locations",
+      "source_file": "BACKEND/PUBLIC/shifting.html",
+      "source_location": "L160",
+      "raw": "const res = await JPSMS.api.get('/shifting/locations');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/planning/board",
+      "source_file": "BACKEND/PUBLIC/shifting.html",
+      "source_location": "L195",
+      "raw": "const res = await JPSMS.api.get('/planning/board');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/shifting/entry",
+      "source_file": "BACKEND/PUBLIC/shifting.html",
+      "source_location": "L262",
+      "raw": "await JPSMS.api.post('/shifting/entry', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shifting/history",
+      "source_file": "BACKEND/PUBLIC/shifting.html",
+      "source_location": "L289",
+      "raw": "const res = await JPSMS.api.get('/shifting/history');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/hourly/recent?machine=${encodeURIComponent(session.machine)}&limit=50",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L1486",
+      "raw": "const res = await apiFetch(`/api/dpr/hourly/recent?machine=${encodeURIComponent(session.machine)}&limit=50`).then(r => r.json());"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/settings",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L2028",
+      "raw": "apiFetch('/api/settings').then(r => r.json()).then(res => { if (res.ok && res.data) appSettings = res.data; });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/reasons",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L2029",
+      "raw": "apiFetch('/api/dpr/reasons').then(r => r.json()).then(res => {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shift/team?line=${encodeURIComponent(l)}&date=${dateVal}&shift=${shiftVal}",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L2208",
+      "raw": "apiFetch(`/api/shift/team?line=${encodeURIComponent(l)}&date=${dateVal}&shift=${shiftVal}`).then(r => r.json())"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/shift/team",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L2304",
+      "raw": "return apiFetch('/api/shift/team', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shift/team",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L2304",
+      "raw": "return apiFetch('/api/shift/team', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/shift/team?line=${encodeURIComponent(line)}&date=${date}&shift=${shift}",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L2383",
+      "raw": "const r = await apiFetch(`/api/shift/team?line=${encodeURIComponent(line)}&date=${date}&shift=${shift}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/std-actual/save",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L2523",
+      "raw": "apiFetch('/api/std-actual/save', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/std-actual/save",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L2523",
+      "raw": "apiFetch('/api/std-actual/save', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "dynamic:url",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L2587",
+      "raw": "apiFetch(url)"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "dynamic:url",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L2798",
+      "raw": "const res = await apiFetch(url);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/login",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L3008",
+      "raw": "const res = await apiFetch('/api/login', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/login",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L3008",
+      "raw": "const res = await apiFetch('/api/login', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/machines/supervisor?line=${encodeURIComponent(line)}&date=${encodeURIComponent(dDate)}&shift=${encodeURIComponent(dShift)}",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L3055",
+      "raw": "const res = await apiFetch(`/api/machines/supervisor?line=${encodeURIComponent(line)}&date=${encodeURIComponent(dDate)}&shift=${encodeURIComponent(dShift)}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/queue?line=${encodeURIComponent(line)}&machine=${encodeURIComponent(machine)}",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L3209",
+      "raw": "apiFetch(`/api/queue?line=${encodeURIComponent(line)}&machine=${encodeURIComponent(machine)}`)"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/recent?limit=300&machine=${encodeURIComponent(session.machine)}",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L3463",
+      "raw": "const res = await apiFetch(`/api/dpr/recent?limit=300&machine=${encodeURIComponent(session.machine)}`);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "dynamic:url",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L3804",
+      "raw": "apiFetch(url)"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/submit",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L3998",
+      "raw": "apiFetch('/api/dpr/submit', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/submit",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L3998",
+      "raw": "apiFetch('/api/dpr/submit', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/submit",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L4325",
+      "raw": "apiFetch('/api/dpr/submit', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/submit",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L4325",
+      "raw": "apiFetch('/api/dpr/submit', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "dynamic:url",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L4437",
+      "raw": "const r = await apiFetch(url);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "dynamic:url",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L4635",
+      "raw": "const res = await apiFetch(url);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/delete",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L4722",
+      "raw": "const res = await apiFetch('/api/dpr/delete', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/delete",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L4722",
+      "raw": "const res = await apiFetch('/api/dpr/delete', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/dpr/edit",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L4859",
+      "raw": "apiFetch('/api/dpr/edit', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/dpr/edit",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L4859",
+      "raw": "apiFetch('/api/dpr/edit', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/job/complete",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L4933",
+      "raw": "apiFetch('/api/job/complete', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/job/complete",
+      "source_file": "BACKEND/PUBLIC/supervisor.html",
+      "source_location": "L4933",
+      "raw": "apiFetch('/api/job/complete', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/sync/status",
+      "source_file": "BACKEND/PUBLIC/sync_monitor.html",
+      "source_location": "L138",
+      "raw": "const res = await fetch('/api/sync/status');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/factories",
+      "source_file": "BACKEND/PUBLIC/users.html",
+      "source_location": "L400",
+      "raw": "const res = await JPSMS.api.get('/factories');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/users",
+      "source_file": "BACKEND/PUBLIC/users.html",
+      "source_location": "L451",
+      "raw": "const res = await JPSMS.api.get('/users');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/users/save",
+      "source_file": "BACKEND/PUBLIC/users.html",
+      "source_location": "L716",
+      "raw": "await JPSMS.api.post('/users/save', u);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/users/save",
+      "source_file": "BACKEND/PUBLIC/users.html",
+      "source_location": "L723",
+      "raw": "await JPSMS.api.post('/users/save', u);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/users/delete",
+      "source_file": "BACKEND/PUBLIC/users.html",
+      "source_location": "L740",
+      "raw": "await JPSMS.api.post('/users/delete', { id: userId, username });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/users/password",
+      "source_file": "BACKEND/PUBLIC/users.html",
+      "source_location": "L766",
+      "raw": "await JPSMS.api.post('/users/password', { username: pwdTargetUser, password: pwd });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/roles",
+      "source_file": "BACKEND/PUBLIC/users.html",
+      "source_location": "L777",
+      "raw": "const res = await JPSMS.api.get('/roles');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/roles/create",
+      "source_file": "BACKEND/PUBLIC/users.html",
+      "source_location": "L806",
+      "raw": "const res = await JPSMS.api.post('/roles/create', { code, label });"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/factories",
+      "source_file": "BACKEND/PUBLIC/users.html",
+      "source_location": "L822",
+      "raw": "const res = await JPSMS.api.get('/factories');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/vendor/data/dashboard",
+      "source_file": "BACKEND/PUBLIC/vendor/dashboard.html",
+      "source_location": "L210",
+      "raw": "const res = await api('/data/dashboard');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/vendor/data/orders?status=Open",
+      "source_file": "BACKEND/PUBLIC/vendor/dispatch.html",
+      "source_location": "L181",
+      "raw": "const res = await api('/data/orders?status=Open');"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/vendor/data/order-items/${poId}",
+      "source_file": "BACKEND/PUBLIC/vendor/dispatch.html",
+      "source_location": "L214",
+      "raw": "const res = await api('/data/order-items/' + poId);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/vendor/action/dispatch",
+      "source_file": "BACKEND/PUBLIC/vendor/dispatch.html",
+      "source_location": "L287",
+      "raw": "const res = await api('/action/dispatch', 'POST', formData);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/vendor/auth/login",
+      "source_file": "BACKEND/PUBLIC/vendor/login.html",
+      "source_location": "L100",
+      "raw": "const res = await fetch('/api/vendor/auth/login', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/vendor/data/orders?status=${status}",
+      "source_file": "BACKEND/PUBLIC/vendor/my_orders.html",
+      "source_location": "L133",
+      "raw": "const res = await api('/data/orders?status=' + status);"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/wip/pending",
+      "source_file": "BACKEND/PUBLIC/wip_supervisor.html",
+      "source_location": "L343",
+      "raw": "JPSMS.api.get('/wip/pending'),"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/wip/stock",
+      "source_file": "BACKEND/PUBLIC/wip_supervisor.html",
+      "source_location": "L344",
+      "raw": "JPSMS.api.get('/wip/stock'),"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/wip/logs",
+      "source_file": "BACKEND/PUBLIC/wip_supervisor.html",
+      "source_location": "L345",
+      "raw": "JPSMS.api.get('/wip/logs')"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/wip/approve",
+      "source_file": "BACKEND/PUBLIC/wip_supervisor.html",
+      "source_location": "L430",
+      "raw": "await JPSMS.api.post('/wip/approve', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/wip/outward",
+      "source_file": "BACKEND/PUBLIC/wip_supervisor.html",
+      "source_location": "L508",
+      "raw": "await JPSMS.api.post('/wip/outward', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/wip/pending",
+      "source_file": "BACKEND/PUBLIC/wip.html",
+      "source_location": "L399",
+      "raw": "JPSMS.api.get('/wip/pending'),"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/wip/stock",
+      "source_file": "BACKEND/PUBLIC/wip.html",
+      "source_location": "L400",
+      "raw": "JPSMS.api.get('/wip/stock'),"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "GET",
+      "path": "/api/wip/logs",
+      "source_file": "BACKEND/PUBLIC/wip.html",
+      "source_location": "L401",
+      "raw": "JPSMS.api.get('/wip/logs')"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/wip/approve",
+      "source_file": "BACKEND/PUBLIC/wip.html",
+      "source_location": "L567",
+      "raw": "await JPSMS.api.post('/wip/approve', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/wip/outward",
+      "source_file": "BACKEND/PUBLIC/wip.html",
+      "source_location": "L608",
+      "raw": "await JPSMS.api.post('/wip/outward', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/wip/adjust",
+      "source_file": "BACKEND/PUBLIC/wip.html",
+      "source_location": "L647",
+      "raw": "const res = await JPSMS.api.post('/wip/adjust', {"
+    },
+    {
+      "kind": "frontend_call",
+      "method": "POST",
+      "path": "/api/wip/reset",
+      "source_file": "BACKEND/PUBLIC/wip.html",
+      "source_location": "L669",
+      "raw": "await JPSMS.api.post('/wip/reset', { user: user.username });"
+    }
+  ]
+}

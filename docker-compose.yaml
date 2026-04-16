@@ -1,0 +1,11 @@
+# Hostinger VPS Docker (MCP VPS_createNewProjectV1): clone repo, then compose from repo root.
+services:
+  graphify-view:
+    build:
+      context: ./BACKEND
+      dockerfile: graphify-view/Dockerfile
+    image: jms-graphify-view:latest
+    container_name: jms-graphify-view
+    restart: unless-stopped
+    ports:
+      - "8088:80"
