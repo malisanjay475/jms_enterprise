@@ -1,0 +1,62 @@
+# Automated deploy: isolated Docker stack (port 9080) on your VPS.
+# Does not use PM2; does not touch Traefik/jpsms unless you point the same paths.
+#
+# One-time GitHub repo → Settings → Secrets and variables → Actions, add:
+#   HOSTINGER_SSH_HOST     (e.g. 72.62.228.195)
+#   HOSTINGER_SSH_USER     (e.g. root)
+#   HOSTINGER_SSH_KEY      (private key PEM, full contents)
+#   VPS_DEPLOY_PATH        (e.g. /opt/jms-enterprise)
+#   VPS_POSTGRES_PASSWORD  (strong DB password)
+#   VPS_JWT_SECRET         (32+ chars; matches Nest Joi)
+#
+# If .github/workflows/deploy.yml also runs on every push to main, disable one
+# workflow in GitHub Actions to avoid two deploys.
+
+name: Deploy VPS Docker (isolated)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "docker-compose.vps-isolated.yml"
+      - "env.vps-isolated.example"
+      - "v2-backend/**"
+      - "v2-frontend/**"
+      - "deploy/docker/**"
+
+concurrency:
+  group: deploy-vps-docker-isolated
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            DEPLOY_PATH='${{ secrets.VPS_DEPLOY_PATH }}'
+            mkdir -p "$DEPLOY_PATH"
+            cd "$DEPLOY_PATH"
+            if [ ! -d .git ]; then
+              git clone https://github.com/malisanjay475/jms_enterprise.git .
+            else
+              git fetch origin
+              git checkout main
+              git pull origin main
+            fi
+            umask 077
+            printf '%s\n' \
+              "POSTGRES_PASSWORD=${{ secrets.VPS_POSTGRES_PASSWORD }}" \
+              "JWT_SECRET=${{ secrets.VPS_JWT_SECRET }}" \
+              "REDIS_PASSWORD=" \
+              "HTTP_HOST_PORT=9080" > .env
+            docker compose -p jms-enterprise-vps -f docker-compose.vps-isolated.yml up -d --build
