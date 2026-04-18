@@ -102,3 +102,6 @@ BACKEND/remove_*.js
 BACKEND/v5_verify/
 BACKEND/runtime/
 BACKEND/job_card_api_snippet.js
+
+# Local deploy keys (never commit)
+.deploy-keys/

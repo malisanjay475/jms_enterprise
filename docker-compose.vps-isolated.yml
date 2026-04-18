@@ -13,7 +13,8 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: jms
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      # Defaults allow Hostinger/MCP deploy without a host .env; override in production.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-JmsVpsDbAuto9x4k2m7n1q5w8r}
       POSTGRES_DB: jms
     volumes:
       - jms_vps_pg_data:/var/lib/postgresql/data
@@ -45,11 +46,11 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
-      DATABASE_URL: postgresql://jms:${POSTGRES_PASSWORD}@db:5432/jms
+      DATABASE_URL: postgresql://jms:${POSTGRES_PASSWORD:-JmsVpsDbAuto9x4k2m7n1q5w8r}@db:5432/jms
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (min 32 characters)}
+      JWT_SECRET: ${JWT_SECRET:-JmsVpsJwtAutoSecretKey32charsMinimum!!}
     networks: [jms_vps]
 
   web:
