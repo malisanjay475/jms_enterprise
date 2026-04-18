@@ -1364,6 +1364,31 @@ async function migrateMouldMasterSchema() {
 }
 
 async function migrateOrjrWiseMasterSchema() {
+  await q(`
+    CREATE TABLE IF NOT EXISTS mould_planning_summary (
+      id SERIAL PRIMARY KEY,
+      or_jr_no TEXT,
+      or_jr_date DATE,
+      item_code TEXT,
+      bom_type TEXT,
+      product_name TEXT,
+      jr_qty INTEGER,
+      uom TEXT,
+      plan_date DATE,
+      plan_qty INTEGER,
+      mould_no TEXT,
+      mould_name TEXT,
+      mould_item_qty INTEGER,
+      tonnage INTEGER,
+      machine_name TEXT,
+      cycle_time NUMERIC,
+      cavity INTEGER,
+      created_by TEXT,
+      created_date TIMESTAMP DEFAULT NOW(),
+      edited_by TEXT,
+      edited_date TIMESTAMP
+    );
+  `);
   await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS mould_item_code TEXT`);
   await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS mould_item_name TEXT`);
 
@@ -1378,6 +1403,49 @@ async function migrateOrjrWiseMasterSchema() {
 }
 
 async function migrateOrJrReportNumericSchema() {
+  await q(`
+    CREATE TABLE IF NOT EXISTS or_jr_report (
+      id SERIAL PRIMARY KEY,
+      or_jr_no TEXT,
+      or_jr_date DATE,
+      or_qty INTEGER,
+      jr_qty INTEGER,
+      plan_qty INTEGER,
+      plan_date DATE,
+      job_card_no TEXT,
+      job_card_date DATE,
+      item_code TEXT,
+      product_name TEXT,
+      client_name TEXT,
+      prod_plan_qty INTEGER,
+      std_pack INTEGER,
+      uom TEXT,
+      planned_comp_date DATE,
+      mld_start_date DATE,
+      mld_end_date DATE,
+      actual_mld_start_date DATE,
+      prt_tuf_end_date DATE,
+      pack_end_date DATE,
+      mld_status TEXT,
+      shift_status TEXT,
+      prt_tuf_status TEXT,
+      pack_status TEXT,
+      wh_status TEXT,
+      rev_mld_end_date DATE,
+      shift_comp_date DATE,
+      rev_ptd_tuf_end_date DATE,
+      rev_pak_end_date DATE,
+      wh_rec_date DATE,
+      remarks_all TEXT,
+      jr_close TEXT,
+      or_remarks TEXT,
+      jr_remarks TEXT,
+      created_by TEXT,
+      created_date TIMESTAMP DEFAULT NOW(),
+      edited_by TEXT,
+      edited_date TIMESTAMP
+    );
+  `);
   const numericColumns = ['or_qty', 'jr_qty', 'plan_qty', 'prod_plan_qty', 'std_pack'];
   for (const column of numericColumns) {
     await q(`
@@ -1440,6 +1508,21 @@ async function migrateOrjrWiseDetailSchema() {
 }
 
 async function migrateOrderCompletionWorkflowSchema() {
+  await q(`
+    CREATE TABLE IF NOT EXISTS orders (
+      id SERIAL PRIMARY KEY,
+      order_no VARCHAR(255) UNIQUE NOT NULL,
+      item_code VARCHAR(255),
+      item_name VARCHAR(255),
+      mould_code VARCHAR(255),
+      qty NUMERIC DEFAULT 0,
+      balance NUMERIC DEFAULT 0,
+      status VARCHAR(50) DEFAULT 'Pending',
+      priority VARCHAR(50) DEFAULT 'Normal',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
   await q(`
     CREATE TABLE IF NOT EXISTS order_completion_history (
       id SERIAL PRIMARY KEY,
@@ -2924,6 +3007,327 @@ app.get('/api/health', async (_req, res) => {
    PERFORMANCE INDEXES (Auto-Run)
 ============================================================ */
 
+async function tableExistsPublic(tableName) {
+  const rows = await q(
+    `SELECT EXISTS (
+      SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = $1
+    ) AS ex`,
+    [tableName]
+  );
+  return !!rows[0]?.ex;
+}
+
+/**
+ * Fresh Docker / empty Postgres: migrations assume core tables exist (indexes on users,
+ * ALTER on orders, etc.). Create minimal aligned schema and optional first superadmin.
+ * Set SKIP_DB_BOOTSTRAP=1 to skip. Set SEED_DEFAULT_SUPERADMIN=0 to skip default user.
+ */
+async function bootstrapFreshCoreTables() {
+  if (process.env.SKIP_DB_BOOTSTRAP === '1') {
+    console.log('[DB] SKIP_DB_BOOTSTRAP=1 — core table bootstrap skipped.');
+    return;
+  }
+
+  await q(`CREATE EXTENSION IF NOT EXISTS "pgcrypto";`).catch(() => {});
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS factories (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      code TEXT NOT NULL,
+      location TEXT,
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      last_updated_at TIMESTAMPTZ
+    );
+  `);
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(255) NOT NULL UNIQUE,
+      password VARCHAR(255),
+      line VARCHAR(255) DEFAULT '',
+      role_code VARCHAR(50) DEFAULT 'operator',
+      permissions JSONB DEFAULT '{}'::jsonb,
+      is_active BOOLEAN DEFAULT TRUE,
+      global_access BOOLEAN DEFAULT FALSE,
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      status VARCHAR(50) DEFAULT 'active'
+    );
+  `);
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS user_factories (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      factory_id INTEGER NOT NULL REFERENCES factories(id) ON DELETE CASCADE,
+      PRIMARY KEY (user_id, factory_id)
+    );
+  `);
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS machines (
+      id SERIAL PRIMARY KEY,
+      machine TEXT NOT NULL,
+      line TEXT,
+      building TEXT,
+      tonnage NUMERIC,
+      capacity NUMERIC,
+      is_active BOOLEAN DEFAULT TRUE,
+      factory_id INTEGER,
+      machine_process TEXT DEFAULT 'Moulding',
+      vendor_name TEXT,
+      model_no TEXT,
+      machine_type TEXT,
+      machine_icon TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await q(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_machines_factory_machine_unique ON machines ((LOWER(machine)), (COALESCE(factory_id, 0)))`
+  );
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS plan_board (
+      id SERIAL PRIMARY KEY,
+      plan_id VARCHAR(255) UNIQUE,
+      plant VARCHAR(100),
+      building VARCHAR(100),
+      line VARCHAR(50),
+      machine VARCHAR(255),
+      seq INTEGER DEFAULT 0,
+      order_no VARCHAR(255),
+      item_code VARCHAR(255),
+      item_name VARCHAR(255),
+      mould_name VARCHAR(255),
+      plan_qty NUMERIC,
+      bal_qty NUMERIC,
+      start_date TIMESTAMP,
+      end_date TIMESTAMP,
+      status VARCHAR(50) DEFAULT 'PLANNED',
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS jobs_queue (
+      id SERIAL PRIMARY KEY,
+      plan_id VARCHAR(255),
+      machine VARCHAR(255),
+      line VARCHAR(50),
+      order_no VARCHAR(255),
+      mould_no VARCHAR(255),
+      jobcard_no VARCHAR(255),
+      status VARCHAR(50),
+      complete_img TEXT,
+      complete_img_name VARCHAR(255),
+      completed_by VARCHAR(255),
+      completed_at TIMESTAMPTZ,
+      complete_geo_lat NUMERIC,
+      complete_geo_lng NUMERIC,
+      complete_geo_acc NUMERIC
+    );
+  `);
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS std_actual (
+      id SERIAL PRIMARY KEY,
+      plan_id VARCHAR(255),
+      shift VARCHAR(50),
+      dpr_date DATE,
+      machine VARCHAR(255),
+      line VARCHAR(50),
+      order_no VARCHAR(255),
+      mould_name VARCHAR(255),
+      article_act NUMERIC,
+      runner_act NUMERIC,
+      cavity_act NUMERIC,
+      cycle_act NUMERIC,
+      pcshr_act NUMERIC,
+      man_act NUMERIC,
+      entered_by VARCHAR(255),
+      sfgqty_act NUMERIC,
+      operator_activities TEXT,
+      geo_lat NUMERIC,
+      geo_lng NUMERIC,
+      geo_acc NUMERIC,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS dpr_hourly (
+      id SERIAL PRIMARY KEY,
+      dpr_date DATE,
+      shift VARCHAR(50),
+      hour_slot VARCHAR(50),
+      shots NUMERIC,
+      good_qty NUMERIC,
+      reject_qty NUMERIC,
+      downtime_min NUMERIC,
+      remarks TEXT,
+      line VARCHAR(50),
+      machine VARCHAR(255),
+      plan_id VARCHAR(255),
+      order_no VARCHAR(255),
+      mould_no VARCHAR(255),
+      jobcard_no VARCHAR(255),
+      colour VARCHAR(100),
+      reject_breakup JSONB,
+      downtime_breakup JSONB,
+      entry_type VARCHAR(50) DEFAULT 'MAIN',
+      created_by VARCHAR(255),
+      updated_by VARCHAR(255),
+      geo_lat NUMERIC,
+      geo_lng NUMERIC,
+      geo_acc NUMERIC,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS or_jr_report (
+      id SERIAL PRIMARY KEY,
+      or_jr_no TEXT,
+      or_jr_date DATE,
+      or_qty INTEGER,
+      jr_qty INTEGER,
+      plan_qty INTEGER,
+      plan_date DATE,
+      job_card_no TEXT,
+      job_card_date DATE,
+      item_code TEXT,
+      product_name TEXT,
+      client_name TEXT,
+      prod_plan_qty INTEGER,
+      std_pack INTEGER,
+      uom TEXT,
+      planned_comp_date DATE,
+      mld_start_date DATE,
+      mld_end_date DATE,
+      actual_mld_start_date DATE,
+      prt_tuf_end_date DATE,
+      pack_end_date DATE,
+      mld_status TEXT,
+      shift_status TEXT,
+      prt_tuf_status TEXT,
+      pack_status TEXT,
+      wh_status TEXT,
+      rev_mld_end_date DATE,
+      shift_comp_date DATE,
+      rev_ptd_tuf_end_date DATE,
+      rev_pak_end_date DATE,
+      wh_rec_date DATE,
+      remarks_all TEXT,
+      jr_close TEXT,
+      or_remarks TEXT,
+      jr_remarks TEXT,
+      created_by TEXT,
+      created_date TIMESTAMP DEFAULT NOW(),
+      edited_by TEXT,
+      edited_date TIMESTAMP
+    );
+  `);
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS mould_planning_summary (
+      id SERIAL PRIMARY KEY,
+      or_jr_no TEXT,
+      or_jr_date DATE,
+      item_code TEXT,
+      bom_type TEXT,
+      product_name TEXT,
+      jr_qty INTEGER,
+      uom TEXT,
+      plan_date DATE,
+      plan_qty INTEGER,
+      mould_no TEXT,
+      mould_name TEXT,
+      mould_item_qty INTEGER,
+      tonnage INTEGER,
+      machine_name TEXT,
+      cycle_time NUMERIC,
+      cavity INTEGER,
+      created_by TEXT,
+      created_date TIMESTAMP DEFAULT NOW(),
+      edited_by TEXT,
+      edited_date TIMESTAMP
+    );
+  `);
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS orders (
+      id SERIAL PRIMARY KEY,
+      order_no VARCHAR(255) UNIQUE NOT NULL,
+      item_code VARCHAR(255),
+      item_name VARCHAR(255),
+      mould_code VARCHAR(255),
+      qty NUMERIC DEFAULT 0,
+      balance NUMERIC DEFAULT 0,
+      status VARCHAR(50) DEFAULT 'Pending',
+      priority VARCHAR(50) DEFAULT 'Normal',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  const startupFactoryId = normalizeFactoryId(process.env.LOCAL_FACTORY_ID) || 1;
+  const startupFactoryName = String(process.env.LOCAL_FACTORY_NAME || `Factory ${startupFactoryId}`).trim();
+  const startupFactoryCode = String(process.env.LOCAL_FACTORY_CODE || `F${startupFactoryId}`).trim();
+  const startupFactoryLocation = String(process.env.LOCAL_FACTORY_LOCATION || '').trim() || null;
+
+  try {
+    await q(
+      `INSERT INTO factories(id, name, code, location, is_active, created_at, updated_at, last_updated_at)
+       VALUES($1, $2, $3, $4, TRUE, NOW(), NOW(), NOW())
+       ON CONFLICT (id) DO NOTHING`,
+      [startupFactoryId, startupFactoryName, startupFactoryCode, startupFactoryLocation]
+    );
+    await q(
+      `SELECT setval('factories_id_seq', GREATEST(COALESCE((SELECT MAX(id) FROM factories), 0), $1), true)`,
+      [startupFactoryId]
+    );
+  } catch (factorySeedErr) {
+    console.warn('[DB] Bootstrap factory seed skipped:', factorySeedErr.message);
+  }
+
+  if (process.env.SEED_DEFAULT_SUPERADMIN === '0') {
+    return;
+  }
+
+  const userCountRows = await q(`SELECT COUNT(*)::int AS c FROM users`);
+  if ((userCountRows[0]?.c || 0) > 0) {
+    return;
+  }
+
+  try {
+    const uname = String(process.env.DEFAULT_SUPERADMIN_USERNAME || 'admin').trim() || 'admin';
+    const pw = String(process.env.DEFAULT_SUPERADMIN_PASSWORD || 'ChangeMeNow123!');
+    const hash = await bcrypt.hash(pw, 10);
+    const resUser = await pool.query(
+      `INSERT INTO users (username, password, line, role_code, permissions, is_active, global_access)
+       VALUES ($1, $2, '', 'superadmin', '{}'::jsonb, TRUE, TRUE)
+       RETURNING id`,
+      [uname, hash]
+    );
+    const newId = resUser.rows[0].id;
+    await q(
+      `INSERT INTO user_factories (user_id, factory_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [newId, startupFactoryId]
+    );
+    console.log(
+      `[DB] Seeded default superadmin "${uname}". Change the password after first login (DEFAULT_SUPERADMIN_PASSWORD / SEED_DEFAULT_SUPERADMIN=0 to disable).`
+    );
+  } catch (seedErr) {
+    console.warn('[DB] Default superadmin seed skipped:', seedErr.message);
+  }
+}
+
 /**
  * [FIX] Wait for DB Connection
  * Retries connection if DB is starting up (57P03) or unavailable.
@@ -2949,6 +3353,7 @@ async function waitForDb(pool, retries = 30, delay = 2000) {
   try {
     // [FIX] Wait for DB before anything else
     await waitForDb(pool);
+    await bootstrapFreshCoreTables();
     await migrateMouldMasterSchema();
     await migrateOrjrWiseMasterSchema();
     await migrateOrJrReportNumericSchema();
@@ -3241,6 +3646,10 @@ async function waitForDb(pool, retries = 30, delay = 2000) {
     const FID = process.env.LOCAL_FACTORY_ID || 1;
 
     for (const table of SYNC_TABLES) {
+      if (!(await tableExistsPublic(table))) {
+        console.warn(`[DB] Sync column bootstrap skipped (table not created yet): ${table}`);
+        continue;
+      }
       // 1. Ensure Columns
       await q(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid();`);
       await q(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS sync_status TEXT;`);
@@ -3402,11 +3811,30 @@ async function waitForDb(pool, retries = 30, delay = 2000) {
 
     console.log('[DB] Indexes ensured for performance.');
 
-
-
+    global.__JMS_DB_INIT_OK = true;
   } catch (e) {
     console.error('[DB] Indexing warning:', e.message);
   }
+
+  if (!global.__JMS_DB_INIT_OK) {
+    console.error('[DB] Database initialization did not complete — exiting without starting HTTP (fix DB errors above).');
+    process.exit(1);
+  }
+
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`JPSMS server running on http://localhost:${PORT}`);
+    getLanUrls(PORT).forEach(url => console.log(`JPSMS LAN access: ${url}`));
+    console.log('DB Config:', { user: process.env.DB_USER || 'postgres', database: process.env.DB_NAME || 'jpsms', port: process.env.DB_PORT || 5432 });
+  });
+
+  server.setTimeout(600000);
+  server.keepAliveTimeout = 60000;
+  server.headersTimeout = 61000;
+
+  server.on('clientError', (err, socket) => {
+    console.error('[HTTP CLIENT ERROR]', err.message, err.stack);
+    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+  });
 
   // [NEW] Init Sync Service (Moved outside try/catch to ensure it runs)
   setTimeout(() => {
@@ -14264,18 +14692,4 @@ function getLanUrls(port) {
   return [...new Set(urls)];
 }
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`JPSMS server running on http://localhost:${PORT}`);
-  getLanUrls(PORT).forEach(url => console.log(`JPSMS LAN access: ${url}`));
-  console.log('DB Config:', { user: process.env.DB_USER || 'postgres', database: process.env.DB_NAME || 'jpsms', port: process.env.DB_PORT || 5432 });
-});
-
-// Set Server Timeout to 10 minutes (600,000 ms)
-server.setTimeout(600000);
-server.keepAliveTimeout = 60000;
-server.headersTimeout = 61000;
-
-server.on('clientError', (err, socket) => {
-  console.error('[HTTP CLIENT ERROR]', err.message, err.stack);
-  socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
-});
+// HTTP server is started only after DB init completes (see async IIFE above).

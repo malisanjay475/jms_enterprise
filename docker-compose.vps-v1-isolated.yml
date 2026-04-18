@@ -5,8 +5,6 @@
 #
 # App: http://YOUR_VPS_IP:9091
 
-version: "3.8"
-
 services:
   db:
     image: postgres:14-alpine
@@ -32,9 +30,12 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "${V1_HTTP_PORT:-9091}:3000"
+    volumes:
+      - ./seed:/seed:ro
     environment:
       PORT: "3000"
       DB_HOST: db
@@ -42,6 +43,8 @@ services:
       DB_USER: ${DB_USER:-jms_v1}
       DB_PASSWORD: ${DB_PASSWORD:-JmsV1DbAuto9x4k2m7n1q5w8r}
       DB_NAME: ${DB_NAME:-jms_v1}
+      AUTO_IMPORT_DB_PATH: ${AUTO_IMPORT_DB_PATH:-}
+      AUTO_IMPORT_DB_FORCE: ${AUTO_IMPORT_DB_FORCE:-0}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       SERVER_TYPE: ${SERVER_TYPE:-MAIN}
       MAIN_SERVER_URL: ${MAIN_SERVER_URL:-}

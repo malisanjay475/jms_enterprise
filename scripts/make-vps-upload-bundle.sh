@@ -7,8 +7,9 @@ mkdir -p "$DIST"
 rm -f "$ZIP"
 (
   cd "$ROOT"
-  zip -r -q "$ZIP" docker-compose.vps-v1-upload-only.yml BACKEND
+  zip -r -q "$ZIP" docker-compose.vps-v1-upload-only.yml BACKEND seed
 )
 echo "Created: $ZIP"
-echo "Upload to VPS, unzip, cd to folder containing BACKEND and the yml, then:"
-echo "  docker compose -f docker-compose.vps-v1-upload-only.yml up -d --build"
+echo "Upload to VPS, unzip, cd to folder containing BACKEND, seed, and the yml, then:"
+echo "  docker compose -p jms-enterprise-v1 -f docker-compose.vps-v1-upload-only.yml up -d --build"
+echo "Optional: copy your PC pg_dump -Fc to seed/restore.dump before compose (auto-imports when DB has no users)."

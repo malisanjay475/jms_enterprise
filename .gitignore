@@ -38,6 +38,9 @@ out/
 uploads/
 BACKUPS/
 restore/
+# Docker auto-import (do not commit production dumps)
+seed/*.dump
+seed/*.backup
 
 # Environment Variables
 .env

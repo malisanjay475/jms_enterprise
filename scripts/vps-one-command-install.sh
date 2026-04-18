@@ -56,6 +56,7 @@ else
 fi
 
 cd "$INSTALL_DIR"
+mkdir -p seed
 
 if docker compose version >/dev/null 2>&1; then
   DC=(docker compose)
@@ -113,4 +114,8 @@ echo ""
 echo "=== JMS v1 stack started ==="
 echo "URL: http://${IP}:${HTTP_PORT}"
 echo "Open TCP ${HTTP_PORT} in the VPS firewall if the page does not load."
+echo ""
+echo "Database: empty DB auto-creates tables on first app start."
+echo "To load your PC backup automatically: put pg_dump -Fc as ${INSTALL_DIR}/seed/restore.dump (or any *.dump in seed/), then:"
+echo "  ${DC[*]} -p $COMPOSE_PROJECT -f $COMPOSE_FILE up -d --build"
 echo ""

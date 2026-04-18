@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Application Service
   app:
@@ -14,13 +12,18 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
+      - AUTO_IMPORT_DB_PATH=${AUTO_IMPORT_DB_PATH:-}
+      - AUTO_IMPORT_DB_FORCE=${AUTO_IMPORT_DB_FORCE:-0}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - SERVER_TYPE=${SERVER_TYPE} # MAIN or LOCAL
       - MAIN_SERVER_URL=${MAIN_SERVER_URL}
       - LOCAL_FACTORY_ID=${LOCAL_FACTORY_ID}
       - SYNC_API_KEY=${SYNC_API_KEY}
+    volumes:
+      - ../seed:/seed:ro
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - jpsms-net
 
@@ -36,6 +39,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # - ./init.sql:/docker-entrypoint-initdb.d/init.sql # Optional init script
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
     networks:
       - jpsms-net
 
