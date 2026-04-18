@@ -24,6 +24,8 @@ on:
     paths:
       - "docker-compose.vps-isolated.yml"
       - "docker-compose.vps-hostinger.yml"
+      - "docker-compose.vps-v1-hostinger.yml"
+      - "docker-compose.vps-v1-isolated.yml"
       - "env.vps-isolated.example"
       - "v2-backend/**"
       - "v2-frontend/**"

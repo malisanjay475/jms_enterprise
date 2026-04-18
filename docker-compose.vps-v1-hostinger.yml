@@ -1,0 +1,58 @@
+# JMS Enterprise VERSION 1 — Hostinger "Compose from URL" (YAML only on disk).
+# Node app in BACKEND/ + Postgres. No certbot/nginx from BACKEND/docker-compose.yml.
+#
+# URL for hPanel → Compose from URL:
+# https://raw.githubusercontent.com/malisanjay475/jms_enterprise/main/docker-compose.vps-v1-hostinger.yml
+#
+# After deploy: http://YOUR_VPS_IP:9091  (open TCP 9091 in firewall)
+# Set GEMINI_API_KEY (and other secrets) in hPanel env if the UI supports it.
+
+version: "3.8"
+
+services:
+  db:
+    image: postgres:14-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-jms_v1}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-JmsV1DbAuto9x4k2m7n1q5w8r}
+      POSTGRES_DB: ${DB_NAME:-jms_v1}
+    volumes:
+      - jms_v1_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [jms_v1_net]
+
+  app:
+    build:
+      context: "https://github.com/malisanjay475/jms_enterprise.git#main:BACKEND"
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "${V1_HTTP_PORT:-9091}:3000"
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:-jms_v1}
+      DB_PASSWORD: ${DB_PASSWORD:-JmsV1DbAuto9x4k2m7n1q5w8r}
+      DB_NAME: ${DB_NAME:-jms_v1}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      SERVER_TYPE: ${SERVER_TYPE:-MAIN}
+      MAIN_SERVER_URL: ${MAIN_SERVER_URL:-}
+      LOCAL_FACTORY_ID: ${LOCAL_FACTORY_ID:-}
+      SYNC_API_KEY: ${SYNC_API_KEY:-}
+      NODE_ENV: production
+    networks: [jms_v1_net]
+
+networks:
+  jms_v1_net:
+    name: jms_enterprise_v1_net
+
+volumes:
+  jms_v1_pg_data:
+    name: jms_enterprise_v1_pgdata
