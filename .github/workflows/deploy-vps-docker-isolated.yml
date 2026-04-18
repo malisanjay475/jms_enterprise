@@ -5,6 +5,7 @@
 #   HOSTINGER_SSH_HOST     (e.g. 72.62.228.195)
 #   HOSTINGER_SSH_USER     (e.g. root)
 #   HOSTINGER_SSH_KEY      (private key PEM, full contents)
+#   HOSTINGER_SSH_KEY_PASSPHRASE  (optional — only if your private key has a passphrase)
 #   VPS_DEPLOY_PATH        (e.g. /opt/jms-enterprise)
 #   VPS_POSTGRES_PASSWORD  (strong DB password)
 #   VPS_JWT_SECRET         (32+ chars; matches Nest Joi)
@@ -60,6 +61,7 @@ jobs:
           host: ${{ secrets.HOSTINGER_SSH_HOST }}
           username: ${{ secrets.HOSTINGER_SSH_USER }}
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
           port: 22
           command_timeout: 45m
           script_stop: true
