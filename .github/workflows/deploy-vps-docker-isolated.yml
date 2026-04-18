@@ -1,32 +1,13 @@
-# Automated deploy: JMS v1 Docker stack (BACKEND + Postgres, port 9091) on your VPS.
-#
-# GitHub → Settings → Secrets and variables → Actions:
-#   HOSTINGER_SSH_HOST
-#   HOSTINGER_SSH_USER
-#   VPS_DEPLOY_PATH          (e.g. /opt/jms-enterprise)
-#   VPS_POSTGRES_PASSWORD    (used as DB_PASSWORD for the v1 Postgres container)
-#
-# Optional:
-#   VPS_SSH_PASSWORD         (or use HOSTINGER_SSH_KEY instead of password)
-#   HOSTINGER_SSH_KEY
-#   HOSTINGER_SSH_KEY_PASSPHRASE
-#   VPS_GEMINI_API_KEY       (optional; Google AI for v1 features)
+# Manual-only: full automation lives in publish-v1-app.yml (push to main).
+# Use this workflow only if you want to redeploy the VPS without rebuilding the image.
 
-name: Deploy VPS Docker (v1)
+name: Deploy VPS Docker (v1) — manual
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "docker-compose.vps-v1-isolated.yml"
-      - "docker-compose.vps-v1-hostinger.yml"
-      - "env.vps-v1.example"
-      - "BACKEND/**"
 
 concurrency:
-  group: deploy-vps-docker-v1
+  group: deploy-vps-docker-v1-manual
   cancel-in-progress: true
 
 jobs:
@@ -93,6 +74,10 @@ jobs:
               echo "GEMINI_API_KEY=${GEMINI}"
               echo "SERVER_TYPE=MAIN"
             } > .env
+            GHCR_TOK='${{ secrets.GHCR_PULL_TOKEN }}'
+            if [ -n "$GHCR_TOK" ]; then
+              echo "$GHCR_TOK" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+            fi
             if docker compose version >/dev/null 2>&1; then
               DC="docker compose"
             elif docker-compose version >/dev/null 2>&1; then
@@ -141,6 +126,10 @@ jobs:
               echo "GEMINI_API_KEY=${GEMINI}"
               echo "SERVER_TYPE=MAIN"
             } > .env
+            GHCR_TOK='${{ secrets.GHCR_PULL_TOKEN }}'
+            if [ -n "$GHCR_TOK" ]; then
+              echo "$GHCR_TOK" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+            fi
             if docker compose version >/dev/null 2>&1; then
               DC="docker compose"
             elif docker-compose version >/dev/null 2>&1; then

@@ -1,14 +1,12 @@
 # JMS Enterprise VERSION 1 — Hostinger "Compose from URL" (YAML only on disk).
 #
-# Uses a pre-built image from GitHub Container Registry (no `docker build` on the VPS).
-# 1) Wait for Action "Publish JMS v1 app (GHCR)" to succeed on `main`.
-# 2) GitHub → Packages → `jms-v1-app` → Package settings → Change visibility to Public
-#    (one-time; private packages cannot be pulled by Hostinger without login).
-# 3) Paste this URL in hPanel → Compose from URL:
-#    https://raw.githubusercontent.com/malisanjay475/jms_enterprise/main/docker-compose.vps-v1-hostinger.yml
-# 4) Firewall: inbound TCP 9091 (or your V1_HTTP_PORT).
+# Image ghcr.io/malisanjay475/jms-v1-app:latest is built on every push to main (GitHub Action).
+# The same workflow tries to make the GHCR package public and can SSH-deploy if repo secrets are set.
 #
-# App URL: http://YOUR_VPS_IP:9091
+# URL for hPanel → Compose from URL:
+# https://raw.githubusercontent.com/malisanjay475/jms_enterprise/main/docker-compose.vps-v1-hostinger.yml
+#
+# Firewall: inbound TCP 9091 (or V1_HTTP_PORT). App: http://YOUR_VPS_IP:9091
 
 version: "3.8"
 
