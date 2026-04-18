@@ -1,45 +1,10 @@
 # VPS-only isolated stack: does not bind 80/443/3000/8080 by default.
-# Uses its own project name, network, and named volumes so it never shares
-# resources with jpsms, Traefik, or other compose projects on the same host.
+# Own network + named volumes so it does not share resources with jpsms/Traefik.
 #
-# On the VPS (from a clone of this repo), create .env from env.vps-isolated.example
-# then start with project name jms-enterprise-vps (any unique name is fine).
+# Compose 3.8 + list-only depends_on: Hostinger Docker Manager validates strictly.
+# Use: docker compose -p jms-enterprise-vps -f docker-compose.vps-isolated.yml up -d --build
 
-name: jms-enterprise-vps
-
-# Inline config avoids broken host bind-mounts on managed paths (e.g. Hostinger /docker/...).
-configs:
-  jms_vps_nginx:
-    content: |
-      server {
-          listen 80;
-          server_name _;
-
-          location /api/ {
-              proxy_pass http://api:3000/api/;
-              proxy_http_version 1.1;
-              proxy_set_header Host $host;
-              proxy_set_header X-Real-IP $remote_addr;
-              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto $scheme;
-          }
-
-          location /socket.io/ {
-              proxy_pass http://api:3000/socket.io/;
-              proxy_http_version 1.1;
-              proxy_set_header Upgrade $http_upgrade;
-              proxy_set_header Connection "upgrade";
-              proxy_set_header Host $host;
-          }
-
-          location / {
-              proxy_pass http://web:3000;
-              proxy_http_version 1.1;
-              proxy_set_header Host $host;
-              proxy_set_header Upgrade $http_upgrade;
-              proxy_set_header Connection "upgrade";
-          }
-      }
+version: "3.8"
 
 services:
   db:
@@ -47,7 +12,6 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: jms
-      # Defaults allow Hostinger/MCP deploy without a host .env; override in production.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-JmsVpsDbAuto9x4k2m7n1q5w8r}
       POSTGRES_DB: jms
     volumes:
@@ -73,10 +37,8 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
+      - db
+      - redis
     environment:
       NODE_ENV: production
       PORT: "3000"
@@ -84,7 +46,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      JWT_SECRET: ${JWT_SECRET:-JmsVpsJwtAutoSecretKey32charsMinimum!!}
+      JWT_SECRET: ${JWT_SECRET:-JmsVpsJwtAutoSecretKey32charsMinimumXx}
     networks: [jms_vps]
 
   web:
@@ -100,13 +62,12 @@ services:
     networks: [jms_vps]
 
   nginx:
-    image: nginx:alpine
+    build:
+      context: ./deploy/docker
+      dockerfile: Dockerfile.vps-nginx
     restart: unless-stopped
     ports:
       - "${HTTP_HOST_PORT:-9080}:80"
-    configs:
-      - source: jms_vps_nginx
-        target: /etc/nginx/conf.d/default.conf
     depends_on:
       - api
       - web
