@@ -1,12 +1,13 @@
 # Fully automated v1 pipeline on push to main:
 #  1) Build BACKEND and push ghcr.io/<owner>/jms-v1-app:latest
-#  2) Try to set that GHCR package to Public (API; may need org/user permissions)
-#  3) If VPS secrets are set, SSH: git pull, optional GHCR login, docker compose up
+#  2) Try to set that GHCR package to Public (API)
+#  3) If VPS secrets exist, SSH deploy (git pull, docker compose)
 #
-# One-time repo secrets (Settings → Secrets → Actions) for VPS auto-deploy:
-#   HOSTINGER_SSH_HOST, HOSTINGER_SSH_USER, VPS_DEPLOY_PATH, VPS_POSTGRES_PASSWORD
-#   plus either VPS_SSH_PASSWORD or HOSTINGER_SSH_KEY (+ optional HOSTINGER_SSH_KEY_PASSPHRASE)
-# Optional: VPS_GEMINI_API_KEY, GHCR_PULL_TOKEN (PAT with read:packages if image stays private)
+# One-time secrets upload (local machine, repo admin):
+#   Copy scripts/github-actions.secrets.env.example → scripts/github-actions.secrets.env
+#   Run:  pwsh -File scripts/bootstrap-github-actions.ps1
+#     or: bash scripts/bootstrap-github-actions.sh
+#   Requires: gh auth login   (https://cli.github.com/)
 
 name: JMS v1 — publish image and deploy
 

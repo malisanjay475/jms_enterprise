@@ -109,3 +109,6 @@ BACKEND/job_card_api_snippet.js
 # v2 removed from repo; ignore leftover folders on disk (delete manually if locked).
 /v2-backend/
 /v2-frontend/
+
+# Local GitHub Actions secret values (never commit)
+scripts/github-actions.secrets.env
