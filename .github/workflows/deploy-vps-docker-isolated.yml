@@ -101,6 +101,7 @@ jobs:
               echo "ERROR: Neither docker compose nor docker-compose is available on the VPS."
               exit 1
             fi
+            $DC -p jms-enterprise-v1 -f docker-compose.vps-v1-isolated.yml pull app || true
             $DC -p jms-enterprise-v1 -f docker-compose.vps-v1-isolated.yml up -d --build
 
       - name: Deploy over SSH (key)
@@ -148,4 +149,5 @@ jobs:
               echo "ERROR: Neither docker compose nor docker-compose is available on the VPS."
               exit 1
             fi
+            $DC -p jms-enterprise-v1 -f docker-compose.vps-v1-isolated.yml pull app || true
             $DC -p jms-enterprise-v1 -f docker-compose.vps-v1-isolated.yml up -d --build

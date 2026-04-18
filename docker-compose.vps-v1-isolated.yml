@@ -25,6 +25,8 @@ services:
     networks: [jms_v1_net]
 
   app:
+    image: ghcr.io/malisanjay475/jms-v1-app:latest
+    platform: linux/amd64
     build:
       context: ./BACKEND
       dockerfile: Dockerfile
