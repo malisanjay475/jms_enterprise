@@ -7,40 +7,6 @@
 
 name: jms-enterprise-vps
 
-# Inline config avoids broken host bind-mounts on managed paths (e.g. Hostinger /docker/...).
-configs:
-  jms_vps_nginx:
-    content: |
-      server {
-          listen 80;
-          server_name _;
-
-          location /api/ {
-              proxy_pass http://api:3000/api/;
-              proxy_http_version 1.1;
-              proxy_set_header Host $host;
-              proxy_set_header X-Real-IP $remote_addr;
-              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto $scheme;
-          }
-
-          location /socket.io/ {
-              proxy_pass http://api:3000/socket.io/;
-              proxy_http_version 1.1;
-              proxy_set_header Upgrade $http_upgrade;
-              proxy_set_header Connection "upgrade";
-              proxy_set_header Host $host;
-          }
-
-          location / {
-              proxy_pass http://web:3000;
-              proxy_http_version 1.1;
-              proxy_set_header Host $host;
-              proxy_set_header Upgrade $http_upgrade;
-              proxy_set_header Connection "upgrade";
-          }
-      }
-
 services:
   db:
     image: postgres:16-alpine
@@ -99,14 +65,14 @@ services:
       HOSTNAME: 0.0.0.0
     networks: [jms_vps]
 
+  # Bake config into image (no bind mount, no Compose `configs:` — works on older Hostinger stacks).
   nginx:
-    image: nginx:alpine
+    build:
+      context: ./deploy/docker
+      dockerfile: Dockerfile.vps-nginx
     restart: unless-stopped
     ports:
       - "${HTTP_HOST_PORT:-9080}:80"
-    configs:
-      - source: jms_vps_nginx
-        target: /etc/nginx/conf.d/default.conf
     depends_on:
       - api
       - web
