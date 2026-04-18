@@ -23,6 +23,7 @@ on:
       - main
     paths:
       - "docker-compose.vps-isolated.yml"
+      - "docker-compose.vps-hostinger.yml"
       - "env.vps-isolated.example"
       - "v2-backend/**"
       - "v2-frontend/**"

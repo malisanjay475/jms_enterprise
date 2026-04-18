@@ -1,11 +1,8 @@
-# VPS isolated stack — port 9080, own network/volumes (no clash with jpsms/Traefik).
+# Hostinger Docker Manager — "Compose from URL" (only this file exists on the VPS).
+# Builds pull source from GitHub; keep fragment URLs quoted (# is YAML comment otherwise).
 #
-# For full repo clone (GitHub Actions, manual SSH): use this file.
-# Compose 3.8 + list-only depends_on for strict validators (e.g. hPanel).
-#
-# For Hostinger "Compose from URL" (YAML only on disk, no clone): use instead:
-#   docker-compose.vps-hostinger.yml
-#   Raw: https://raw.githubusercontent.com/malisanjay475/jms_enterprise/main/docker-compose.vps-hostinger.yml
+# Paste this raw URL in hPanel:
+# https://raw.githubusercontent.com/malisanjay475/jms_enterprise/main/docker-compose.vps-hostinger.yml
 
 version: "3.8"
 
@@ -36,7 +33,7 @@ services:
 
   api:
     build:
-      context: ./v2-backend
+      context: "https://github.com/malisanjay475/jms_enterprise.git#main:v2-backend"
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
@@ -54,7 +51,7 @@ services:
 
   web:
     build:
-      context: ./v2-frontend
+      context: "https://github.com/malisanjay475/jms_enterprise.git#main:v2-frontend"
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
@@ -66,7 +63,7 @@ services:
 
   nginx:
     build:
-      context: ./deploy/docker
+      context: "https://github.com/malisanjay475/jms_enterprise.git#main:deploy/docker"
       dockerfile: Dockerfile.vps-nginx
     restart: unless-stopped
     ports:
