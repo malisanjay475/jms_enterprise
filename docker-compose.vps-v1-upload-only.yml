@@ -1,11 +1,8 @@
-# JMS v1 — NO GitHub Actions, NO GHCR, NO secrets in GitHub.
+# JMS v1 — build on VPS (no GHCR). Project-scoped network/volume names avoid clashes with old stacks.
 #
-# Use when you upload files directly to the VPS (SFTP / File Manager / scp):
-#   Put this file and the BACKEND folder in the SAME directory, then:
-#     docker compose -f docker-compose.vps-v1-upload-only.yml up -d --build
+#   docker compose -p jms-enterprise-v1 -f docker-compose.vps-v1-upload-only.yml up -d --build
 #
-# Or zip everything with:  pwsh scripts/make-vps-upload-bundle.ps1
-#   (creates dist/jms-v1-upload.zip — upload and unzip on the VPS, then run the command above from that folder.)
+# Host port: V1_HTTP_PORT (default 9091). See scripts/vps-one-command-install.sh for auto port pick.
 
 version: "3.8"
 
@@ -52,8 +49,6 @@ services:
 
 networks:
   jms_v1_net:
-    name: jms_enterprise_v1_net
 
 volumes:
   jms_v1_pg_data:
-    name: jms_enterprise_v1_pgdata

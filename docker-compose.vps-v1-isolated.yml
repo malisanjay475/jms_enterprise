@@ -52,8 +52,6 @@ services:
 
 networks:
   jms_v1_net:
-    name: jms_enterprise_v1_net
 
 volumes:
   jms_v1_pg_data:
-    name: jms_enterprise_v1_pgdata
