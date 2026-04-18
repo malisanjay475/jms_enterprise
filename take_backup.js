@@ -7,6 +7,8 @@ const AdmZip = require('./BACKEND/node_modules/adm-zip');
 const DB_USER = 'postgres';
 const DB_NAME = 'jpsms';
 const DB_PASS = 'Sanjay@541##';
+const DB_PORT = '5433';
+const DB_HOST = '127.0.0.1';
 const PG_DUMP_PATH = '"C:\\Program Files\\PostgreSQL\\18\\bin\\pg_dump.exe"';
 const ROOT_DIR = __dirname;
 const BACKUP_NAME = `JPSMS_COMPLETE_BACKUP_${new Date().toISOString().replace(/[:.]/g, '-')}`;
@@ -18,7 +20,7 @@ console.log('--- JPSMS COMPLETE SYSTEM BACKUP ---');
 try {
     // 1. Export Database
     console.log(`[1/3] Exporting Database '${DB_NAME}'...`);
-    execSync(`${PG_DUMP_PATH} -U ${DB_USER} ${DB_NAME} > "${DB_SQL_FILE}"`, {
+    execSync(`${PG_DUMP_PATH} -h ${DB_HOST} -p ${DB_PORT} -U ${DB_USER} ${DB_NAME} > "${DB_SQL_FILE}"`, {
         env: { ...process.env, PGPASSWORD: DB_PASS }
     });
     console.log('      Database exported successfully.');

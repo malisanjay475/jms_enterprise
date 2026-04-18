@@ -1,20 +1,18 @@
-# Automated deploy: isolated Docker stack (port 9080) on your VPS.
+# Automated deploy: JMS v1 Docker stack (BACKEND + Postgres, port 9091) on your VPS.
 #
 # GitHub → Settings → Secrets and variables → Actions:
-#   HOSTINGER_SSH_HOST       (e.g. 72.62.228.195)
-#   HOSTINGER_SSH_USER       (e.g. root)
-#   VPS_SSH_PASSWORD         root SSH password (full automation; rotate if leaked)
+#   HOSTINGER_SSH_HOST
+#   HOSTINGER_SSH_USER
 #   VPS_DEPLOY_PATH          (e.g. /opt/jms-enterprise)
-#   VPS_POSTGRES_PASSWORD    (DB password for isolated Postgres)
-#   VPS_JWT_SECRET           (32+ chars for Nest)
+#   VPS_POSTGRES_PASSWORD    (used as DB_PASSWORD for the v1 Postgres container)
 #
-# Optional (instead of password — do not set both at once for this workflow):
-#   HOSTINGER_SSH_KEY        private key PEM
-#   HOSTINGER_SSH_KEY_PASSPHRASE  if key is encrypted
-#
-# Security: prefer SSH keys long-term; password mode is for convenience only.
+# Optional:
+#   VPS_SSH_PASSWORD         (or use HOSTINGER_SSH_KEY instead of password)
+#   HOSTINGER_SSH_KEY
+#   HOSTINGER_SSH_KEY_PASSPHRASE
+#   VPS_GEMINI_API_KEY       (optional; Google AI for v1 features)
 
-name: Deploy VPS Docker (isolated)
+name: Deploy VPS Docker (v1)
 
 on:
   workflow_dispatch:
@@ -22,17 +20,13 @@ on:
     branches:
       - main
     paths:
-      - "docker-compose.vps-isolated.yml"
-      - "docker-compose.vps-hostinger.yml"
-      - "docker-compose.vps-v1-hostinger.yml"
       - "docker-compose.vps-v1-isolated.yml"
-      - "env.vps-isolated.example"
-      - "v2-backend/**"
-      - "v2-frontend/**"
-      - "deploy/docker/**"
+      - "docker-compose.vps-v1-hostinger.yml"
+      - "env.vps-v1.example"
+      - "BACKEND/**"
 
 concurrency:
-  group: deploy-vps-docker-isolated
+  group: deploy-vps-docker-v1
   cancel-in-progress: true
 
 jobs:
@@ -43,7 +37,7 @@ jobs:
         shell: bash
         run: |
           missing=0
-          for name in HOSTINGER_SSH_HOST HOSTINGER_SSH_USER VPS_DEPLOY_PATH VPS_POSTGRES_PASSWORD VPS_JWT_SECRET; do
+          for name in HOSTINGER_SSH_HOST HOSTINGER_SSH_USER VPS_DEPLOY_PATH VPS_POSTGRES_PASSWORD; do
             val="${!name}"
             if [ -z "$val" ]; then
               echo "::error::Missing or empty repository secret: $name"
@@ -62,7 +56,6 @@ jobs:
           VPS_SSH_PASSWORD: ${{ secrets.VPS_SSH_PASSWORD }}
           VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
           VPS_POSTGRES_PASSWORD: ${{ secrets.VPS_POSTGRES_PASSWORD }}
-          VPS_JWT_SECRET: ${{ secrets.VPS_JWT_SECRET }}
 
       - name: Deploy over SSH (password)
         if: ${{ secrets.VPS_SSH_PASSWORD != '' }}
@@ -91,11 +84,15 @@ jobs:
               git pull origin main
             fi
             umask 077
-            printf '%s\n' \
-              "POSTGRES_PASSWORD=${{ secrets.VPS_POSTGRES_PASSWORD }}" \
-              "JWT_SECRET=${{ secrets.VPS_JWT_SECRET }}" \
-              "REDIS_PASSWORD=" \
-              "HTTP_HOST_PORT=9080" > .env
+            GEMINI='${{ secrets.VPS_GEMINI_API_KEY }}'
+            {
+              echo "DB_USER=jms_v1"
+              echo "DB_PASSWORD=${{ secrets.VPS_POSTGRES_PASSWORD }}"
+              echo "DB_NAME=jms_v1"
+              echo "V1_HTTP_PORT=9091"
+              echo "GEMINI_API_KEY=${GEMINI}"
+              echo "SERVER_TYPE=MAIN"
+            } > .env
             if docker compose version >/dev/null 2>&1; then
               DC="docker compose"
             elif docker-compose version >/dev/null 2>&1; then
@@ -104,7 +101,7 @@ jobs:
               echo "ERROR: Neither docker compose nor docker-compose is available on the VPS."
               exit 1
             fi
-            $DC -p jms-enterprise-vps -f docker-compose.vps-isolated.yml up -d --build
+            $DC -p jms-enterprise-v1 -f docker-compose.vps-v1-isolated.yml up -d --build
 
       - name: Deploy over SSH (key)
         if: ${{ secrets.VPS_SSH_PASSWORD == '' }}
@@ -134,11 +131,15 @@ jobs:
               git pull origin main
             fi
             umask 077
-            printf '%s\n' \
-              "POSTGRES_PASSWORD=${{ secrets.VPS_POSTGRES_PASSWORD }}" \
-              "JWT_SECRET=${{ secrets.VPS_JWT_SECRET }}" \
-              "REDIS_PASSWORD=" \
-              "HTTP_HOST_PORT=9080" > .env
+            GEMINI='${{ secrets.VPS_GEMINI_API_KEY }}'
+            {
+              echo "DB_USER=jms_v1"
+              echo "DB_PASSWORD=${{ secrets.VPS_POSTGRES_PASSWORD }}"
+              echo "DB_NAME=jms_v1"
+              echo "V1_HTTP_PORT=9091"
+              echo "GEMINI_API_KEY=${GEMINI}"
+              echo "SERVER_TYPE=MAIN"
+            } > .env
             if docker compose version >/dev/null 2>&1; then
               DC="docker compose"
             elif docker-compose version >/dev/null 2>&1; then
@@ -147,4 +148,4 @@ jobs:
               echo "ERROR: Neither docker compose nor docker-compose is available on the VPS."
               exit 1
             fi
-            $DC -p jms-enterprise-vps -f docker-compose.vps-isolated.yml up -d --build
+            $DC -p jms-enterprise-v1 -f docker-compose.vps-v1-isolated.yml up -d --build

@@ -1,5 +1,5 @@
 # JMS Enterprise VERSION 1 — use after: git clone … && cd jms_enterprise
-# Same stack as docker-compose.vps-v1-hostinger.yml but local build context.
+# Copy env.vps-v1.example → .env and adjust secrets. Same services as vps-v1-hostinger (local build).
 #
 #   docker compose -p jms-enterprise-v1 -f docker-compose.vps-v1-isolated.yml up -d --build
 #

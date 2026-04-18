@@ -18,19 +18,10 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Dependencies & Build Backend
+      - name: Install BACKEND dependencies (production)
         run: |
-          cd v2-backend
-          npm install
-          npm run build
-          cd ..
-
-      - name: Install Dependencies & Build Frontend
-        run: |
-          cd v2-frontend
-          npm install
-          npm run build
-          cd ..
+          cd BACKEND
+          npm ci --omit=dev 2>/dev/null || npm install --production
 
       - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -40,28 +31,13 @@ jobs:
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
           script: |
             cd /var/www/jms_enterprise || (mkdir -p /var/www/jms_enterprise && cd /var/www/jms_enterprise)
-            
-            # Update Code
             if [ -d ".git" ]; then
               git pull origin main
             else
               git clone https://github.com/malisanjay475/jms_enterprise.git .
             fi
-            
-            # Build & Setup Backend
-            cd v2-backend
-            npm install
-            npm run build
-            # Run migrations if needed (Uncomment after setting DATABASE_URL on server)
-            # npx prisma migrate deploy
+            cd BACKEND
+            npm ci --omit=dev 2>/dev/null || npm install --production
             cd ..
-            
-            # Build Frontend
-            cd v2-frontend
-            npm install
-            npm run build
-            cd ..
-            
-            # Restart with PM2
             pm2 reload ecosystem.config.js || pm2 start ecosystem.config.js
             pm2 save
