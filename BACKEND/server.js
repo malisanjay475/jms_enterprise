@@ -915,8 +915,12 @@ function parseWipStockUploadSheet(filePath) {
 
 /* =========================
    STATIC FRONTEND
+   Repo uses PUBLIC/; Linux is case-sensitive (Docker). Support both names.
 ========================= */
-const PUBLIC_DIR = path.join(__dirname, 'public');
+const PUBLIC_DIR = path.join(
+  __dirname,
+  fs.existsSync(path.join(__dirname, 'PUBLIC', 'index.html')) ? 'PUBLIC' : 'public'
+);
 app.use(express.static(PUBLIC_DIR));
 
 /* ============================================================
