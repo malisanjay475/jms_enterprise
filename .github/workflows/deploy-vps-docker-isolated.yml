@@ -40,10 +40,16 @@ jobs:
           host: ${{ secrets.HOSTINGER_SSH_HOST }}
           username: ${{ secrets.HOSTINGER_SSH_USER }}
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          port: 22
+          command_timeout: 45m
           script_stop: true
           script: |
-            set -euo pipefail
+            set -eo pipefail
             DEPLOY_PATH='${{ secrets.VPS_DEPLOY_PATH }}'
+            if [ -z "$DEPLOY_PATH" ]; then
+              echo "ERROR: GitHub secret VPS_DEPLOY_PATH is missing or empty. Set it to e.g. /opt/jms-enterprise"
+              exit 1
+            fi
             mkdir -p "$DEPLOY_PATH"
             cd "$DEPLOY_PATH"
             if [ ! -d .git ]; then
@@ -59,4 +65,12 @@ jobs:
               "JWT_SECRET=${{ secrets.VPS_JWT_SECRET }}" \
               "REDIS_PASSWORD=" \
               "HTTP_HOST_PORT=9080" > .env
-            docker compose -p jms-enterprise-vps -f docker-compose.vps-isolated.yml up -d --build
+            if docker compose version >/dev/null 2>&1; then
+              DC="docker compose"
+            elif docker-compose version >/dev/null 2>&1; then
+              DC="docker-compose"
+            else
+              echo "ERROR: Neither docker compose nor docker-compose is available on the VPS."
+              exit 1
+            fi
+            $DC -p jms-enterprise-vps -f docker-compose.vps-isolated.yml up -d --build
