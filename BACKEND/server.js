@@ -3768,8 +3768,10 @@ async function waitForDb(pool, retries = 30, delay = 2000) {
     await q(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_plan_id ON dpr_hourly(plan_id);`);
     await q(`CREATE INDEX IF NOT EXISTS idx_plan_board_status ON plan_board(status);`);
 
-    // FIX: Ensure UNIQUE constraint for OR-JR Report Upsert
-    await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_report_unique_no ON or_jr_report(or_jr_no);`);
+    // Legacy unique on or_jr_no alone — skipped when duplicates exist (composite index is applied later).
+    await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_report_unique_no ON or_jr_report(or_jr_no);`).catch(err =>
+      console.warn('[DB] idx_or_jr_report_unique_no skipped (duplicate or_jr_no rows in data):', err.message)
+    );
     await migrateOrderCompletionWorkflowSchema();
 
     console.log('Database initialized');

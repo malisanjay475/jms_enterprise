@@ -156,9 +156,42 @@ async function main() {
     console.error('[auto-import] Failed to spawn psql/pg_restore:', result.error.message);
     process.exit(1);
   }
+
   if (result.status !== 0) {
-    console.error('[auto-import] Import exited with code', result.status);
-    process.exit(result.status || 1);
+    let recovered = false;
+    const probe = new Client(conn(dbName));
+    try {
+      await probe.connect();
+      const chk = await probe.query(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='users') AS ex`
+      );
+      if (chk.rows[0]?.ex) {
+        const cnt = await probe.query('SELECT COUNT(*)::int AS c FROM users');
+        const n = cnt.rows[0]?.c || 0;
+        if (n > 0) {
+          console.warn(
+            '[auto-import] pg_restore exited with code',
+            result.status,
+            '(common: PG16 dump → PG14 server hits unknown SET transaction_timeout; data may still be loaded). users rows:',
+            n,
+            '— continuing startup.'
+          );
+          recovered = true;
+        }
+      }
+    } catch (probeErr) {
+      console.warn('[auto-import] Post-restore probe failed:', probeErr.message);
+    } finally {
+      try {
+        await probe.end();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    if (!recovered) {
+      console.error('[auto-import] Import failed and database does not look populated. Re-dump with PG 14 client or upgrade the db container to match your dump major version.');
+      process.exit(result.status || 1);
+    }
   }
 
   console.log('[auto-import] Import finished successfully.');
