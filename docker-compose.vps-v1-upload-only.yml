@@ -1,13 +1,11 @@
-# JMS Enterprise VERSION 1 — Hostinger "Compose from URL" (YAML only on disk).
+# JMS v1 — NO GitHub Actions, NO GHCR, NO secrets in GitHub.
 #
-# Needs public GHCR image from GitHub Actions. To skip Actions entirely: run
-# scripts/make-vps-upload-bundle.ps1, upload dist/jms-v1-upload.zip to the VPS, unzip, then
-# docker compose -f docker-compose.vps-v1-upload-only.yml up -d --build
+# Use when you upload files directly to the VPS (SFTP / File Manager / scp):
+#   Put this file and the BACKEND folder in the SAME directory, then:
+#     docker compose -f docker-compose.vps-v1-upload-only.yml up -d --build
 #
-# URL for hPanel → Compose from URL:
-# https://raw.githubusercontent.com/malisanjay475/jms_enterprise/main/docker-compose.vps-v1-hostinger.yml
-#
-# Firewall: inbound TCP 9091 (or V1_HTTP_PORT). App: http://YOUR_VPS_IP:9091
+# Or zip everything with:  pwsh scripts/make-vps-upload-bundle.ps1
+#   (creates dist/jms-v1-upload.zip — upload and unzip on the VPS, then run the command above from that folder.)
 
 version: "3.8"
 
@@ -29,8 +27,9 @@ services:
     networks: [jms_v1_net]
 
   app:
-    image: ghcr.io/malisanjay475/jms-v1-app:latest
-    platform: linux/amd64
+    build:
+      context: ./BACKEND
+      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       - db
