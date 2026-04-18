@@ -1,0 +1,11 @@
+node_modules
+npm-debug.log*
+uploads
+BACKUPS
+runtime
+*.zip
+*.log
+.git
+.env
+.env.*
+*.md
