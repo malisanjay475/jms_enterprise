@@ -3,15 +3,6 @@ name: JMS PR validation
 on:
   pull_request:
     branches: [develop, main]
-    paths:
-      - "BACKEND/**"
-      - ".github/workflows/pr-backend-ci.yml"
-      - ".github/workflows/publish-v1-app.yml"
-      - ".github/workflows/deploy-v1-staging.yml"
-      - ".github/workflows/deploy-vps-docker-isolated.yml"
-      - "docker-compose.vps-v1-isolated.yml"
-      - "docker-compose.vps-v1-hostinger.yml"
-      - "scripts/vps-safe-deploy.sh"
 
 permissions:
   contents: read
