@@ -12,7 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate-backend:
+  pr_validate_backend:
+    name: pr-validate-backend
     runs-on: ubuntu-latest
     services:
       postgres:
