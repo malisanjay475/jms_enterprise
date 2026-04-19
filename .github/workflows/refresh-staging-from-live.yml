@@ -1,0 +1,121 @@
+name: JMS v1 - refresh staging from live production data
+
+on:
+  workflow_dispatch:
+    inputs:
+      live_db_container:
+        description: "Source live Postgres container name on the VPS"
+        required: false
+        default: "jpsms-db"
+      live_db_user:
+        description: "Source live Postgres user"
+        required: false
+        default: "postgres"
+      live_db_name:
+        description: "Source live database name"
+        required: false
+        default: "jpsms"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jms-v1-staging-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh-staging:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Check staging refresh secrets
+        id: gate
+        shell: bash
+        env:
+          HOST: ${{ secrets.STAGING_HOSTINGER_SSH_HOST }}
+          USER: ${{ secrets.STAGING_HOSTINGER_SSH_USER }}
+          DEPLOY_PATH: ${{ secrets.STAGING_VPS_DEPLOY_PATH }}
+          SSH_PASSWORD: ${{ secrets.STAGING_VPS_SSH_PASSWORD }}
+          SSH_KEY: ${{ secrets.STAGING_HOSTINGER_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$DEPLOY_PATH" ]; then
+            echo "Missing required staging host settings." >&2
+            exit 1
+          fi
+          if [ -n "$SSH_PASSWORD" ]; then
+            echo "run=password" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$SSH_KEY" ]; then
+            echo "run=key" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Missing staging SSH auth. Set STAGING_VPS_SSH_PASSWORD or STAGING_HOSTINGER_SSH_KEY." >&2
+          exit 1
+
+      - name: Refresh staging over SSH (password)
+        if: steps.gate.outputs.run == 'password'
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ secrets.STAGING_VPS_DEPLOY_PATH }}
+          DEPLOY_BRANCH: develop
+          DEPLOY_PROJECT: jms-enterprise-v1-staging
+          DEPLOY_COMPOSE_FILE: docker-compose.vps-v1-isolated.yml
+          STAGING_HTTP_PORT: ${{ secrets.STAGING_V1_HTTP_PORT || '9093' }}
+          LIVE_DB_CONTAINER: ${{ github.event.inputs.live_db_container || 'jpsms-db' }}
+          LIVE_DB_USER: ${{ github.event.inputs.live_db_user || 'postgres' }}
+          LIVE_DB_NAME: ${{ github.event.inputs.live_db_name || 'jpsms' }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        with:
+          host: ${{ secrets.STAGING_HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.STAGING_HOSTINGER_SSH_USER }}
+          password: ${{ secrets.STAGING_VPS_SSH_PASSWORD }}
+          port: 22
+          command_timeout: 60m
+          script_stop: true
+          envs: DEPLOY_PATH,DEPLOY_BRANCH,DEPLOY_PROJECT,DEPLOY_COMPOSE_FILE,STAGING_HTTP_PORT,LIVE_DB_CONTAINER,LIVE_DB_USER,LIVE_DB_NAME,GITHUB_REPOSITORY
+          script: |
+            set -eo pipefail
+            mkdir -p "$DEPLOY_PATH"
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              git clone "https://github.com/${GITHUB_REPOSITORY}.git" "$DEPLOY_PATH"
+            fi
+            cd "$DEPLOY_PATH"
+            git fetch --prune origin
+            git checkout "$DEPLOY_BRANCH"
+            git pull --ff-only origin "$DEPLOY_BRANCH"
+            bash scripts/vps-refresh-staging-from-live.sh
+
+      - name: Refresh staging over SSH (key)
+        if: steps.gate.outputs.run == 'key'
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ secrets.STAGING_VPS_DEPLOY_PATH }}
+          DEPLOY_BRANCH: develop
+          DEPLOY_PROJECT: jms-enterprise-v1-staging
+          DEPLOY_COMPOSE_FILE: docker-compose.vps-v1-isolated.yml
+          STAGING_HTTP_PORT: ${{ secrets.STAGING_V1_HTTP_PORT || '9093' }}
+          LIVE_DB_CONTAINER: ${{ github.event.inputs.live_db_container || 'jpsms-db' }}
+          LIVE_DB_USER: ${{ github.event.inputs.live_db_user || 'postgres' }}
+          LIVE_DB_NAME: ${{ github.event.inputs.live_db_name || 'jpsms' }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        with:
+          host: ${{ secrets.STAGING_HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.STAGING_HOSTINGER_SSH_USER }}
+          key: ${{ secrets.STAGING_HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.STAGING_HOSTINGER_SSH_KEY_PASSPHRASE }}
+          port: 22
+          command_timeout: 60m
+          script_stop: true
+          envs: DEPLOY_PATH,DEPLOY_BRANCH,DEPLOY_PROJECT,DEPLOY_COMPOSE_FILE,STAGING_HTTP_PORT,LIVE_DB_CONTAINER,LIVE_DB_USER,LIVE_DB_NAME,GITHUB_REPOSITORY
+          script: |
+            set -eo pipefail
+            mkdir -p "$DEPLOY_PATH"
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              git clone "https://github.com/${GITHUB_REPOSITORY}.git" "$DEPLOY_PATH"
+            fi
+            cd "$DEPLOY_PATH"
+            git fetch --prune origin
+            git checkout "$DEPLOY_BRANCH"
+            git pull --ff-only origin "$DEPLOY_BRANCH"
+            bash scripts/vps-refresh-staging-from-live.sh

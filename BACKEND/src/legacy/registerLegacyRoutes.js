@@ -1182,7 +1182,7 @@ async function migrateMouldMasterSchema() {
       WHERE table_name = 'moulds'`
   )).map(row => row.column_name));
 
-  const renameColumn = async (from, to) => {
+  const renameColumn = async (from, to, options = {}) => {
     if (!columns.has(from)) return;
     if (!columns.has(to)) {
       await q(`ALTER TABLE moulds RENAME COLUMN ${from} TO ${to}`);
@@ -1191,14 +1191,23 @@ async function migrateMouldMasterSchema() {
       return;
     }
 
-    await q(`UPDATE moulds SET ${to} = COALESCE(${to}, ${from}) WHERE ${from} IS NOT NULL`);
+    const sourceExpr = options.sourceExpr || from;
+    await q(`UPDATE moulds SET ${to} = COALESCE(${to}, ${sourceExpr}) WHERE ${from} IS NOT NULL AND ${to} IS NULL`);
     await q(`ALTER TABLE moulds DROP COLUMN IF EXISTS ${from}`);
     columns.delete(from);
   };
 
   await renameColumn('erp_item_code', 'mould_number');
   await renameColumn('product_name', 'mould_name');
-  await renameColumn('machine', 'tonnage');
+  await renameColumn(
+    'machine',
+    'tonnage',
+    {
+      // Legacy live databases often stored tonnage in the text "machine" column.
+      // Cast only the numeric portion so startup migrations stay compatible.
+      sourceExpr: `NULLIF(regexp_replace(machine::text, '[^0-9.+-]+', '', 'g'), '')::numeric`
+    }
+  );
   await renameColumn('output_per_day', 'target_pcs_day');
   await renameColumn('material_1', 'material');
   await renameColumn('sfg_qty', 'sfg_std_packing');
@@ -1272,7 +1281,8 @@ async function migrateMouldMasterSchema() {
   await q(`DROP INDEX IF EXISTS idx_moulds_erp_item_trim`);
   await q(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_name ON moulds(mould_name)`);
   await q(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_trim ON moulds(TRIM(mould_number))`);
-  await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_moulds_factory_mould_number_unique ON moulds ((LOWER(mould_number)), (COALESCE(factory_id, 0)))`);
+  await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_moulds_factory_mould_number_unique ON moulds ((LOWER(mould_number)), (COALESCE(factory_id, 0)))`)
+    .catch(err => console.warn('[DB] idx_moulds_factory_mould_number_unique skipped (duplicate mould numbers in data):', err.message));
 }
 
 async function migrateOrjrWiseMasterSchema() {
