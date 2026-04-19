@@ -126,9 +126,15 @@ backup_before_deploy() {
 
   echo "[deploy] creating database backup $backup_name"
   docker exec \
-    -e PGPASSWORD="$DB_PASSWORD" \
     "$db_container_id" \
-    pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc -f "$container_backup"
+    sh -eu -c '
+      export PGPASSWORD="$POSTGRES_PASSWORD"
+      exec pg_dump \
+        -U "$POSTGRES_USER" \
+        -d "${POSTGRES_DB:-$POSTGRES_USER}" \
+        -Fc \
+        -f "$1"
+    ' sh "$container_backup"
   docker cp "${db_container_id}:${container_backup}" "${backup_dir}/${backup_name}"
   docker exec "$db_container_id" rm -f "$container_backup"
 
