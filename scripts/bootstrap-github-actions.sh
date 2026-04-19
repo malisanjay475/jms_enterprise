@@ -55,8 +55,21 @@ if [[ -n "${key_file:-}" ]]; then
   set_secret HOSTINGER_SSH_KEY "$(cat "$p")"
 fi
 
+staging_key_file="$(read_value STAGING_HOSTINGER_SSH_KEY_FILE 2>/dev/null || true)"
+if [[ -n "${staging_key_file:-}" ]]; then
+  p="$staging_key_file"
+  [[ "$p" = /* ]] || p="$ROOT/$p"
+  [[ -f "$p" ]] || { echo "Staging key file not found: $p"; exit 1; }
+  set_secret STAGING_HOSTINGER_SSH_KEY "$(cat "$p")"
+fi
+
 for n in HOSTINGER_SSH_HOST HOSTINGER_SSH_USER VPS_DEPLOY_PATH VPS_POSTGRES_PASSWORD \
-         VPS_SSH_PASSWORD HOSTINGER_SSH_KEY_PASSPHRASE VPS_GEMINI_API_KEY GHCR_PULL_TOKEN; do
+         VPS_SSH_PASSWORD HOSTINGER_SSH_KEY_PASSPHRASE VPS_GEMINI_API_KEY GHCR_PULL_TOKEN \
+         V1_HTTP_PORT MAIN_SERVER_URL LOCAL_FACTORY_ID SYNC_API_KEY \
+         STAGING_HOSTINGER_SSH_HOST STAGING_HOSTINGER_SSH_USER STAGING_VPS_DEPLOY_PATH \
+         STAGING_VPS_POSTGRES_PASSWORD STAGING_VPS_SSH_PASSWORD STAGING_HOSTINGER_SSH_KEY_PASSPHRASE \
+         STAGING_VPS_GEMINI_API_KEY STAGING_V1_HTTP_PORT STAGING_MAIN_SERVER_URL \
+         STAGING_LOCAL_FACTORY_ID STAGING_SYNC_API_KEY; do
   v="$(read_value "$n" 2>/dev/null || true)"
   set_secret "$n" "${v:-}"
 done
@@ -64,6 +77,11 @@ done
 if [[ -z "${key_file:-}" ]]; then
   inline="$(read_value HOSTINGER_SSH_KEY 2>/dev/null || true)"
   set_secret HOSTINGER_SSH_KEY "${inline:-}"
+fi
+
+if [[ -z "${staging_key_file:-}" ]]; then
+  inline="$(read_value STAGING_HOSTINGER_SSH_KEY 2>/dev/null || true)"
+  set_secret STAGING_HOSTINGER_SSH_KEY "${inline:-}"
 fi
 
 echo "Done. Verify: gh secret list --repo $REPO"

@@ -1,46 +1,78 @@
-# Manual-only: full automation lives in publish-v1-app.yml (push to main).
-# Use this workflow only if you want to redeploy the VPS without rebuilding the image.
-
-name: Deploy VPS Docker (v1) — manual
+name: Deploy VPS Docker (manual or rollback)
 
 on:
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Docker image tag to deploy, for example latest or sha-abc123def456"
+        required: false
+        default: latest
+      deploy_branch:
+        description: "Git branch to deploy on the VPS"
+        required: false
+        default: main
 
 concurrency:
   group: deploy-vps-docker-v1-manual
   cancel-in-progress: true
 
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/jms-v1-app
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - name: Verify required secrets
+        id: gate
         shell: bash
-        run: |
-          missing=0
-          for name in HOSTINGER_SSH_HOST HOSTINGER_SSH_USER VPS_DEPLOY_PATH VPS_POSTGRES_PASSWORD; do
-            val="${!name}"
-            if [ -z "$val" ]; then
-              echo "::error::Missing or empty repository secret: $name"
-              missing=1
-            fi
-          done
-          if [ -z "$VPS_SSH_PASSWORD" ] && [ -z "$HOSTINGER_SSH_KEY" ]; then
-            echo "::error::Set VPS_SSH_PASSWORD (simplest) or HOSTINGER_SSH_KEY (key auth)."
-            missing=1
-          fi
-          exit "$missing"
         env:
-          HOSTINGER_SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
-          HOSTINGER_SSH_USER: ${{ secrets.HOSTINGER_SSH_USER }}
-          HOSTINGER_SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-          VPS_SSH_PASSWORD: ${{ secrets.VPS_SSH_PASSWORD }}
-          VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
-          VPS_POSTGRES_PASSWORD: ${{ secrets.VPS_POSTGRES_PASSWORD }}
+          HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          USER: ${{ secrets.HOSTINGER_SSH_USER }}
+          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+          DBPW: ${{ secrets.VPS_POSTGRES_PASSWORD }}
+          SSH_PASSWORD: ${{ secrets.VPS_SSH_PASSWORD }}
+          SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$DEPLOY_PATH" ] || [ -z "$DBPW" ]; then
+            echo "::error::Missing HOSTINGER_SSH_HOST, HOSTINGER_SSH_USER, VPS_DEPLOY_PATH, or VPS_POSTGRES_PASSWORD."
+            exit 1
+          fi
+          if [ -n "$SSH_PASSWORD" ]; then
+            echo "run=password" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$SSH_KEY" ]; then
+            echo "run=key" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error::Set VPS_SSH_PASSWORD or HOSTINGER_SSH_KEY."
+          exit 1
 
-      - name: Deploy over SSH (password)
-        if: ${{ secrets.VPS_SSH_PASSWORD != '' }}
+      - name: Manual deploy over SSH (password)
+        if: steps.gate.outputs.run == 'password'
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+          DEPLOY_BRANCH: ${{ github.event.inputs.deploy_branch || 'main' }}
+          DEPLOY_PROJECT: jms-enterprise-v1
+          DEPLOY_COMPOSE_FILE: docker-compose.vps-v1-isolated.yml
+          DEPLOY_ENVIRONMENT: production
+          DEPLOY_GIT_SHA: manual-${{ github.run_id }}
+          APP_IMAGE: ${{ env.IMAGE_NAME }}:${{ github.event.inputs.image_tag || 'latest' }}
+          DB_USER: jms_v1
+          DB_PASSWORD: ${{ secrets.VPS_POSTGRES_PASSWORD }}
+          DB_NAME: jms_v1
+          V1_HTTP_PORT: ${{ secrets.V1_HTTP_PORT || '9091' }}
+          GEMINI_API_KEY: ${{ secrets.VPS_GEMINI_API_KEY }}
+          SERVER_TYPE: MAIN
+          MAIN_SERVER_URL: ${{ secrets.MAIN_SERVER_URL }}
+          LOCAL_FACTORY_ID: ${{ secrets.LOCAL_FACTORY_ID }}
+          SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          GHCR_USERNAME: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         with:
           host: ${{ secrets.HOSTINGER_SSH_HOST }}
           username: ${{ secrets.HOSTINGER_SSH_USER }}
@@ -48,50 +80,42 @@ jobs:
           port: 22
           command_timeout: 45m
           script_stop: true
+          envs: DEPLOY_PATH,DEPLOY_BRANCH,DEPLOY_PROJECT,DEPLOY_COMPOSE_FILE,DEPLOY_ENVIRONMENT,DEPLOY_GIT_SHA,APP_IMAGE,DB_USER,DB_PASSWORD,DB_NAME,V1_HTTP_PORT,GEMINI_API_KEY,SERVER_TYPE,MAIN_SERVER_URL,LOCAL_FACTORY_ID,SYNC_API_KEY,GHCR_PULL_TOKEN,GHCR_USERNAME,GITHUB_REPOSITORY
           script: |
             set -eo pipefail
-            DEPLOY_PATH='${{ secrets.VPS_DEPLOY_PATH }}'
-            if [ -z "$DEPLOY_PATH" ]; then
-              echo "ERROR: VPS_DEPLOY_PATH is empty"
-              exit 1
-            fi
             mkdir -p "$DEPLOY_PATH"
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              git clone "https://github.com/${GITHUB_REPOSITORY}.git" "$DEPLOY_PATH"
+            fi
             cd "$DEPLOY_PATH"
-            if [ ! -d .git ]; then
-              git clone https://github.com/malisanjay475/jms_enterprise.git .
-            else
-              git fetch origin
-              git checkout main
-              git pull origin main
-            fi
-            umask 077
-            GEMINI='${{ secrets.VPS_GEMINI_API_KEY }}'
-            {
-              echo "DB_USER=jms_v1"
-              echo "DB_PASSWORD=${{ secrets.VPS_POSTGRES_PASSWORD }}"
-              echo "DB_NAME=jms_v1"
-              echo "V1_HTTP_PORT=9091"
-              echo "GEMINI_API_KEY=${GEMINI}"
-              echo "SERVER_TYPE=MAIN"
-            } > .env
-            GHCR_TOK='${{ secrets.GHCR_PULL_TOKEN }}'
-            if [ -n "$GHCR_TOK" ]; then
-              echo "$GHCR_TOK" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
-            fi
-            if docker compose version >/dev/null 2>&1; then
-              DC="docker compose"
-            elif docker-compose version >/dev/null 2>&1; then
-              DC="docker-compose"
-            else
-              echo "ERROR: Neither docker compose nor docker-compose is available on the VPS."
-              exit 1
-            fi
-            $DC -p jms-enterprise-v1 -f docker-compose.vps-v1-isolated.yml pull app || true
-            $DC -p jms-enterprise-v1 -f docker-compose.vps-v1-isolated.yml up -d --build
+            git fetch --prune origin
+            git checkout "$DEPLOY_BRANCH"
+            git pull --ff-only origin "$DEPLOY_BRANCH"
+            bash scripts/vps-safe-deploy.sh
 
-      - name: Deploy over SSH (key)
-        if: ${{ secrets.VPS_SSH_PASSWORD == '' }}
+      - name: Manual deploy over SSH (key)
+        if: steps.gate.outputs.run == 'key'
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+          DEPLOY_BRANCH: ${{ github.event.inputs.deploy_branch || 'main' }}
+          DEPLOY_PROJECT: jms-enterprise-v1
+          DEPLOY_COMPOSE_FILE: docker-compose.vps-v1-isolated.yml
+          DEPLOY_ENVIRONMENT: production
+          DEPLOY_GIT_SHA: manual-${{ github.run_id }}
+          APP_IMAGE: ${{ env.IMAGE_NAME }}:${{ github.event.inputs.image_tag || 'latest' }}
+          DB_USER: jms_v1
+          DB_PASSWORD: ${{ secrets.VPS_POSTGRES_PASSWORD }}
+          DB_NAME: jms_v1
+          V1_HTTP_PORT: ${{ secrets.V1_HTTP_PORT || '9091' }}
+          GEMINI_API_KEY: ${{ secrets.VPS_GEMINI_API_KEY }}
+          SERVER_TYPE: MAIN
+          MAIN_SERVER_URL: ${{ secrets.MAIN_SERVER_URL }}
+          LOCAL_FACTORY_ID: ${{ secrets.LOCAL_FACTORY_ID }}
+          SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          GHCR_USERNAME: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         with:
           host: ${{ secrets.HOSTINGER_SSH_HOST }}
           username: ${{ secrets.HOSTINGER_SSH_USER }}
@@ -100,43 +124,15 @@ jobs:
           port: 22
           command_timeout: 45m
           script_stop: true
+          envs: DEPLOY_PATH,DEPLOY_BRANCH,DEPLOY_PROJECT,DEPLOY_COMPOSE_FILE,DEPLOY_ENVIRONMENT,DEPLOY_GIT_SHA,APP_IMAGE,DB_USER,DB_PASSWORD,DB_NAME,V1_HTTP_PORT,GEMINI_API_KEY,SERVER_TYPE,MAIN_SERVER_URL,LOCAL_FACTORY_ID,SYNC_API_KEY,GHCR_PULL_TOKEN,GHCR_USERNAME,GITHUB_REPOSITORY
           script: |
             set -eo pipefail
-            DEPLOY_PATH='${{ secrets.VPS_DEPLOY_PATH }}'
-            if [ -z "$DEPLOY_PATH" ]; then
-              echo "ERROR: VPS_DEPLOY_PATH is empty"
-              exit 1
-            fi
             mkdir -p "$DEPLOY_PATH"
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              git clone "https://github.com/${GITHUB_REPOSITORY}.git" "$DEPLOY_PATH"
+            fi
             cd "$DEPLOY_PATH"
-            if [ ! -d .git ]; then
-              git clone https://github.com/malisanjay475/jms_enterprise.git .
-            else
-              git fetch origin
-              git checkout main
-              git pull origin main
-            fi
-            umask 077
-            GEMINI='${{ secrets.VPS_GEMINI_API_KEY }}'
-            {
-              echo "DB_USER=jms_v1"
-              echo "DB_PASSWORD=${{ secrets.VPS_POSTGRES_PASSWORD }}"
-              echo "DB_NAME=jms_v1"
-              echo "V1_HTTP_PORT=9091"
-              echo "GEMINI_API_KEY=${GEMINI}"
-              echo "SERVER_TYPE=MAIN"
-            } > .env
-            GHCR_TOK='${{ secrets.GHCR_PULL_TOKEN }}'
-            if [ -n "$GHCR_TOK" ]; then
-              echo "$GHCR_TOK" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
-            fi
-            if docker compose version >/dev/null 2>&1; then
-              DC="docker compose"
-            elif docker-compose version >/dev/null 2>&1; then
-              DC="docker-compose"
-            else
-              echo "ERROR: Neither docker compose nor docker-compose is available on the VPS."
-              exit 1
-            fi
-            $DC -p jms-enterprise-v1 -f docker-compose.vps-v1-isolated.yml pull app || true
-            $DC -p jms-enterprise-v1 -f docker-compose.vps-v1-isolated.yml up -d --build
+            git fetch --prune origin
+            git checkout "$DEPLOY_BRANCH"
+            git pull --ff-only origin "$DEPLOY_BRANCH"
+            bash scripts/vps-safe-deploy.sh

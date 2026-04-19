@@ -23,7 +23,7 @@ services:
     networks: [jms_v1_net]
 
   app:
-    image: ghcr.io/malisanjay475/jms-v1-app:latest
+    image: ${APP_IMAGE:-ghcr.io/malisanjay475/jms-v1-app:latest}
     platform: linux/amd64
     build:
       context: ./BACKEND
@@ -51,6 +51,18 @@ services:
       LOCAL_FACTORY_ID: ${LOCAL_FACTORY_ID:-}
       SYNC_API_KEY: ${SYNC_API_KEY:-}
       NODE_ENV: production
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:3000/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
     networks: [jms_v1_net]
 
 networks:
