@@ -64,6 +64,15 @@ if (-not [string]::IsNullOrWhiteSpace($vars["HOSTINGER_SSH_KEY_FILE"])) {
     $keyFromFile = $true
 }
 
+$stagingKeyFromFile = $false
+if (-not [string]::IsNullOrWhiteSpace($vars["STAGING_HOSTINGER_SSH_KEY_FILE"])) {
+    $rel = $vars["STAGING_HOSTINGER_SSH_KEY_FILE"]
+    $path = if ([System.IO.Path]::IsPathRooted($rel)) { $rel } else { Join-Path $root $rel }
+    if (-not (Test-Path $path)) { throw "Staging key file not found: $path" }
+    Set-OneSecret "STAGING_HOSTINGER_SSH_KEY" (Get-Content $path -Raw -Encoding UTF8)
+    $stagingKeyFromFile = $true
+}
+
 $secretNames = @(
     "HOSTINGER_SSH_HOST",
     "HOSTINGER_SSH_USER",
@@ -72,7 +81,22 @@ $secretNames = @(
     "VPS_SSH_PASSWORD",
     "HOSTINGER_SSH_KEY_PASSPHRASE",
     "VPS_GEMINI_API_KEY",
-    "GHCR_PULL_TOKEN"
+    "GHCR_PULL_TOKEN",
+    "V1_HTTP_PORT",
+    "MAIN_SERVER_URL",
+    "LOCAL_FACTORY_ID",
+    "SYNC_API_KEY",
+    "STAGING_HOSTINGER_SSH_HOST",
+    "STAGING_HOSTINGER_SSH_USER",
+    "STAGING_VPS_DEPLOY_PATH",
+    "STAGING_VPS_POSTGRES_PASSWORD",
+    "STAGING_VPS_SSH_PASSWORD",
+    "STAGING_HOSTINGER_SSH_KEY_PASSPHRASE",
+    "STAGING_VPS_GEMINI_API_KEY",
+    "STAGING_V1_HTTP_PORT",
+    "STAGING_MAIN_SERVER_URL",
+    "STAGING_LOCAL_FACTORY_ID",
+    "STAGING_SYNC_API_KEY"
 )
 foreach ($n in $secretNames) {
     if ($vars.ContainsKey($n)) { Set-OneSecret $n $vars[$n] }
@@ -80,6 +104,10 @@ foreach ($n in $secretNames) {
 
 if (-not $keyFromFile -and $vars.ContainsKey("HOSTINGER_SSH_KEY")) {
     Set-OneSecret "HOSTINGER_SSH_KEY" $vars["HOSTINGER_SSH_KEY"]
+}
+
+if (-not $stagingKeyFromFile -and $vars.ContainsKey("STAGING_HOSTINGER_SSH_KEY")) {
+    Set-OneSecret "STAGING_HOSTINGER_SSH_KEY" $vars["STAGING_HOSTINGER_SSH_KEY"]
 }
 
 Write-Host "Done. Verify: gh secret list --repo $repo"

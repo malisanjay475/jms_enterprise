@@ -1,14 +1,14 @@
-name: JMS v1 - validate, publish, and deploy production
+name: JMS v1 - validate, publish, and deploy staging
 
 on:
   push:
-    branches: [main]
+    branches: [develop]
     paths:
       - "BACKEND/**"
       - "docker-compose.vps-v1-isolated.yml"
       - "docker-compose.vps-v1-hostinger.yml"
       - "scripts/vps-safe-deploy.sh"
-      - ".github/workflows/publish-v1-app.yml"
+      - ".github/workflows/deploy-v1-staging.yml"
   workflow_dispatch:
 
 permissions:
@@ -16,7 +16,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: jms-v1-production
+  group: jms-v1-staging
   cancel-in-progress: true
 
 env:
@@ -65,7 +65,7 @@ jobs:
           DB_NAME=jpsms
           SERVER_TYPE=STANDALONE
           LOCAL_FACTORY_ID=1
-          SYNC_API_KEY=production-ci
+          SYNC_API_KEY=staging-ci
           EOF
 
           node scripts/wait-for-postgres.js
@@ -107,11 +107,11 @@ jobs:
         shell: bash
         run: |
           short_sha="${GITHUB_SHA::12}"
-          image_tag="sha-${short_sha}"
+          image_tag="staging-${short_sha}"
           echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
           echo "image_ref=${IMAGE_NAME}:${image_tag}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push production image
+      - name: Build and push staging image
         uses: docker/build-push-action@v6
         with:
           context: ./BACKEND
@@ -120,62 +120,32 @@ jobs:
           push: true
           tags: |
             ${{ steps.meta.outputs.image_ref }}
-            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:staging-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-  make-ghcr-public:
+  deploy-staging:
     runs-on: ubuntu-latest
     needs: publish-image
+    environment: staging
     steps:
-      - name: Set container package visibility to public
-        shell: bash
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OWNER: ${{ github.repository_owner }}
-        run: |
-          set +e
-          ok=0
-          for apiurl in \
-            "https://api.github.com/user/packages/container/jms-v1-app" \
-            "https://api.github.com/orgs/${OWNER}/packages/container/jms-v1-app"; do
-            resp=$(curl -sS -w "\n%{http_code}" -X PATCH \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer ${TOKEN}" \
-              "$apiurl" \
-              -d '{"visibility":"public"}')
-            code=$(echo "$resp" | tail -n1)
-            if [ "$code" = "204" ] || [ "$code" = "200" ]; then
-              ok=1
-              break
-            fi
-          done
-          if [ "$ok" != "1" ]; then
-            echo "::warning::Could not make GHCR public automatically. Set GHCR_PULL_TOKEN on the VPS deploy if needed."
-          fi
-
-  deploy-production:
-    runs-on: ubuntu-latest
-    needs: publish-image
-    environment: production
-    steps:
-      - name: Check production deploy secrets
+      - name: Check staging deploy secrets
         id: gate
         shell: bash
         env:
-          HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
-          USER: ${{ secrets.HOSTINGER_SSH_USER }}
-          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
-          DBPW: ${{ secrets.VPS_POSTGRES_PASSWORD }}
-          SSH_PASSWORD: ${{ secrets.VPS_SSH_PASSWORD }}
-          SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          HOST: ${{ secrets.STAGING_HOSTINGER_SSH_HOST }}
+          USER: ${{ secrets.STAGING_HOSTINGER_SSH_USER }}
+          DEPLOY_PATH: ${{ secrets.STAGING_VPS_DEPLOY_PATH }}
+          DBPW: ${{ secrets.STAGING_VPS_POSTGRES_PASSWORD }}
+          SSH_PASSWORD: ${{ secrets.STAGING_VPS_SSH_PASSWORD }}
+          SSH_KEY: ${{ secrets.STAGING_HOSTINGER_SSH_KEY }}
         run: |
           if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$DEPLOY_PATH" ] || [ -z "$DBPW" ]; then
             echo "run=0" >> "$GITHUB_OUTPUT"
-            echo "Skipping production deploy: set HOSTINGER_SSH_HOST, HOSTINGER_SSH_USER, VPS_DEPLOY_PATH, VPS_POSTGRES_PASSWORD."
+            echo "Skipping staging deploy: set STAGING_HOSTINGER_SSH_HOST, STAGING_HOSTINGER_SSH_USER, STAGING_VPS_DEPLOY_PATH, STAGING_VPS_POSTGRES_PASSWORD."
             exit 0
           fi
           if [ -n "$SSH_PASSWORD" ]; then
@@ -187,35 +157,35 @@ jobs:
             exit 0
           fi
           echo "run=0" >> "$GITHUB_OUTPUT"
-          echo "Skipping production deploy: set VPS_SSH_PASSWORD or HOSTINGER_SSH_KEY."
+          echo "Skipping staging deploy: set STAGING_VPS_SSH_PASSWORD or STAGING_HOSTINGER_SSH_KEY."
 
-      - name: Deploy production over SSH (password)
+      - name: Deploy staging over SSH (password)
         if: steps.gate.outputs.run == 'password'
         uses: appleboy/ssh-action@v1.0.3
         env:
-          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
-          DEPLOY_BRANCH: main
-          DEPLOY_PROJECT: jms-enterprise-v1
+          DEPLOY_PATH: ${{ secrets.STAGING_VPS_DEPLOY_PATH }}
+          DEPLOY_BRANCH: develop
+          DEPLOY_PROJECT: jms-enterprise-v1-staging
           DEPLOY_COMPOSE_FILE: docker-compose.vps-v1-isolated.yml
-          DEPLOY_ENVIRONMENT: production
+          DEPLOY_ENVIRONMENT: staging
           DEPLOY_GIT_SHA: ${{ github.sha }}
           APP_IMAGE: ${{ needs.publish-image.outputs.image_ref }}
           DB_USER: jms_v1
-          DB_PASSWORD: ${{ secrets.VPS_POSTGRES_PASSWORD }}
+          DB_PASSWORD: ${{ secrets.STAGING_VPS_POSTGRES_PASSWORD }}
           DB_NAME: jms_v1
-          V1_HTTP_PORT: ${{ secrets.V1_HTTP_PORT || '9091' }}
-          GEMINI_API_KEY: ${{ secrets.VPS_GEMINI_API_KEY }}
+          V1_HTTP_PORT: ${{ secrets.STAGING_V1_HTTP_PORT || '9092' }}
+          GEMINI_API_KEY: ${{ secrets.STAGING_VPS_GEMINI_API_KEY }}
           SERVER_TYPE: MAIN
-          MAIN_SERVER_URL: ${{ secrets.MAIN_SERVER_URL }}
-          LOCAL_FACTORY_ID: ${{ secrets.LOCAL_FACTORY_ID }}
-          SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
+          MAIN_SERVER_URL: ${{ secrets.STAGING_MAIN_SERVER_URL }}
+          LOCAL_FACTORY_ID: ${{ secrets.STAGING_LOCAL_FACTORY_ID }}
+          SYNC_API_KEY: ${{ secrets.STAGING_SYNC_API_KEY }}
           GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
           GHCR_USERNAME: ${{ github.repository_owner }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         with:
-          host: ${{ secrets.HOSTINGER_SSH_HOST }}
-          username: ${{ secrets.HOSTINGER_SSH_USER }}
-          password: ${{ secrets.VPS_SSH_PASSWORD }}
+          host: ${{ secrets.STAGING_HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.STAGING_HOSTINGER_SSH_USER }}
+          password: ${{ secrets.STAGING_VPS_SSH_PASSWORD }}
           port: 22
           command_timeout: 45m
           script_stop: true
@@ -232,34 +202,34 @@ jobs:
             git pull --ff-only origin "$DEPLOY_BRANCH"
             bash scripts/vps-safe-deploy.sh
 
-      - name: Deploy production over SSH (key)
+      - name: Deploy staging over SSH (key)
         if: steps.gate.outputs.run == 'key'
         uses: appleboy/ssh-action@v1.0.3
         env:
-          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
-          DEPLOY_BRANCH: main
-          DEPLOY_PROJECT: jms-enterprise-v1
+          DEPLOY_PATH: ${{ secrets.STAGING_VPS_DEPLOY_PATH }}
+          DEPLOY_BRANCH: develop
+          DEPLOY_PROJECT: jms-enterprise-v1-staging
           DEPLOY_COMPOSE_FILE: docker-compose.vps-v1-isolated.yml
-          DEPLOY_ENVIRONMENT: production
+          DEPLOY_ENVIRONMENT: staging
           DEPLOY_GIT_SHA: ${{ github.sha }}
           APP_IMAGE: ${{ needs.publish-image.outputs.image_ref }}
           DB_USER: jms_v1
-          DB_PASSWORD: ${{ secrets.VPS_POSTGRES_PASSWORD }}
+          DB_PASSWORD: ${{ secrets.STAGING_VPS_POSTGRES_PASSWORD }}
           DB_NAME: jms_v1
-          V1_HTTP_PORT: ${{ secrets.V1_HTTP_PORT || '9091' }}
-          GEMINI_API_KEY: ${{ secrets.VPS_GEMINI_API_KEY }}
+          V1_HTTP_PORT: ${{ secrets.STAGING_V1_HTTP_PORT || '9092' }}
+          GEMINI_API_KEY: ${{ secrets.STAGING_VPS_GEMINI_API_KEY }}
           SERVER_TYPE: MAIN
-          MAIN_SERVER_URL: ${{ secrets.MAIN_SERVER_URL }}
-          LOCAL_FACTORY_ID: ${{ secrets.LOCAL_FACTORY_ID }}
-          SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
+          MAIN_SERVER_URL: ${{ secrets.STAGING_MAIN_SERVER_URL }}
+          LOCAL_FACTORY_ID: ${{ secrets.STAGING_LOCAL_FACTORY_ID }}
+          SYNC_API_KEY: ${{ secrets.STAGING_SYNC_API_KEY }}
           GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
           GHCR_USERNAME: ${{ github.repository_owner }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         with:
-          host: ${{ secrets.HOSTINGER_SSH_HOST }}
-          username: ${{ secrets.HOSTINGER_SSH_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
+          host: ${{ secrets.STAGING_HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.STAGING_HOSTINGER_SSH_USER }}
+          key: ${{ secrets.STAGING_HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.STAGING_HOSTINGER_SSH_KEY_PASSPHRASE }}
           port: 22
           command_timeout: 45m
           script_stop: true
