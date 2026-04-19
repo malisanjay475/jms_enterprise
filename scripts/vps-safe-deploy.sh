@@ -97,11 +97,43 @@ elif [[ -f .env ]]; then
   PREVIOUS_IMAGE="$(sed -n 's/^APP_IMAGE=//p' .env | tail -n 1 | tr -d '\r')"
 fi
 
+backup_before_deploy() {
+  local backup_enabled="${DB_BACKUP_BEFORE_DEPLOY:-1}"
+  if [[ "$backup_enabled" != "1" ]]; then
+    echo "[deploy] database backup skipped because DB_BACKUP_BEFORE_DEPLOY=$backup_enabled"
+    return 0
+  fi
+
+  local db_container_id
+  db_container_id="$($DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" ps -q db 2>/dev/null || true)"
+  if [[ -z "$db_container_id" ]]; then
+    echo "[deploy] no running db container found yet; backup skipped"
+    return 0
+  fi
+
+  local backup_dir="$DEPLOY_META_DIR/backups"
+  local timestamp
+  timestamp="$(date +%Y%m%d-%H%M%S)"
+  local backup_name="${DEPLOY_ENVIRONMENT:-production}-${timestamp}-${DEPLOY_GIT_SHA:-manual}.dump"
+  local container_backup="/tmp/${backup_name}"
+  mkdir -p "$backup_dir"
+
+  echo "[deploy] creating database backup $backup_name"
+  docker exec "$db_container_id" sh -lc "PGPASSWORD=\"${DB_PASSWORD}\" pg_dump -U \"${DB_USER}\" -d \"${DB_NAME}\" -Fc -f \"${container_backup}\""
+  docker cp "${db_container_id}:${container_backup}" "${backup_dir}/${backup_name}"
+  docker exec "$db_container_id" rm -f "$container_backup"
+
+  printf '%s\n' "${backup_dir}/${backup_name}" > "$DEPLOY_META_DIR/last_database_backup"
+  echo "[deploy] database backup saved to ${backup_dir}/${backup_name}"
+}
+
 write_env_file "$APP_IMAGE"
 
 if [[ -n "${GHCR_PULL_TOKEN:-}" ]]; then
   echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u "${GHCR_USERNAME:-${GITHUB_REPOSITORY%%/*}}" --password-stdin
 fi
+
+backup_before_deploy
 
 $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" pull app || true
 $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" up -d db

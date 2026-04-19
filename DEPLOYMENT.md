@@ -17,7 +17,17 @@
 - Docker health checks on the app container
 - VPS deploy waits for health before considering the release successful
 - Automatic rollback to the previously successful image if the new image fails health checks
+- Automatic database backup before deploy by default
 - Separate compose project names can be used for staging and production
+
+## Pull request and branch workflow
+- All code changes should start on `feature/*` branches.
+- Open pull requests into `develop` first.
+- `develop` is the staging integration branch.
+- Only tested changes should be promoted from `develop` to `main`.
+- `main` should be protected in GitHub and require PR merge only.
+- PRs should require the `JMS PR validation` workflow before merge.
+- CODEOWNERS is configured so GitHub can auto-request review from the repo owner.
 
 ## Required GitHub secrets
 
@@ -30,6 +40,11 @@
 - `HOSTINGER_SSH_KEY_PASSPHRASE` if the key is encrypted
 - `VPS_GEMINI_API_KEY` optional
 - `GHCR_PULL_TOKEN` optional if the package is not public
+- `V1_HTTP_PORT` optional, defaults to `9091`
+- `MAIN_SERVER_URL` optional
+- `LOCAL_FACTORY_ID` optional
+- `SYNC_API_KEY` optional
+- `DB_BACKUP_BEFORE_DEPLOY` optional, defaults to `1`
 
 ### Staging
 - `STAGING_HOSTINGER_SSH_HOST`
@@ -43,6 +58,7 @@
 - `STAGING_MAIN_SERVER_URL` optional
 - `STAGING_LOCAL_FACTORY_ID` optional
 - `STAGING_SYNC_API_KEY` optional
+- `STAGING_DB_BACKUP_BEFORE_DEPLOY` optional, defaults to `1`
 
 ## Manual deploy and rollback
 - Use `.github/workflows/deploy-vps-docker-isolated.yml`
@@ -62,3 +78,16 @@
 ## Important note
 - This setup is much safer, but no single-container deployment can promise literal zero downtime in all cases.
 - What it does guarantee is controlled deploys, automatic health validation, and fast rollback to the previous good image.
+
+## GitHub settings to enable manually
+These are GitHub repository settings, so they must be turned on in GitHub UI:
+
+1. Protect `main`
+2. Protect `develop`
+3. Require pull request before merge
+4. Require status checks before merge
+5. Select `JMS PR validation` as a required check
+6. Require branches to be up to date before merge
+7. Restrict direct pushes to `main`
+8. Optionally require review from CODEOWNERS
+9. Add `staging` and `production` GitHub environments with approval rules if desired
