@@ -6,15 +6,15 @@ on:
       live_db_container:
         description: "Source live Postgres container name on the VPS"
         required: false
-        default: "jpsms-db"
+        default: "jms-enterprise-v1-db-1"
       live_db_user:
         description: "Source live Postgres user"
         required: false
-        default: "postgres"
+        default: "jms_v1"
       live_db_name:
         description: "Source live database name"
         required: false
-        default: "jpsms"
+        default: "jms_v1"
 
 permissions:
   contents: read
@@ -62,9 +62,9 @@ jobs:
           DEPLOY_PROJECT: jms-enterprise-v1-staging
           DEPLOY_COMPOSE_FILE: docker-compose.vps-v1-isolated.yml
           STAGING_HTTP_PORT: ${{ secrets.STAGING_V1_HTTP_PORT || '9093' }}
-          LIVE_DB_CONTAINER: ${{ github.event.inputs.live_db_container || 'jpsms-db' }}
-          LIVE_DB_USER: ${{ github.event.inputs.live_db_user || 'postgres' }}
-          LIVE_DB_NAME: ${{ github.event.inputs.live_db_name || 'jpsms' }}
+          LIVE_DB_CONTAINER: ${{ github.event.inputs.live_db_container || 'jms-enterprise-v1-db-1' }}
+          LIVE_DB_USER: ${{ github.event.inputs.live_db_user || 'jms_v1' }}
+          LIVE_DB_NAME: ${{ github.event.inputs.live_db_name || 'jms_v1' }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         with:
           host: ${{ secrets.STAGING_HOSTINGER_SSH_HOST }}
@@ -95,9 +95,9 @@ jobs:
           DEPLOY_PROJECT: jms-enterprise-v1-staging
           DEPLOY_COMPOSE_FILE: docker-compose.vps-v1-isolated.yml
           STAGING_HTTP_PORT: ${{ secrets.STAGING_V1_HTTP_PORT || '9093' }}
-          LIVE_DB_CONTAINER: ${{ github.event.inputs.live_db_container || 'jpsms-db' }}
-          LIVE_DB_USER: ${{ github.event.inputs.live_db_user || 'postgres' }}
-          LIVE_DB_NAME: ${{ github.event.inputs.live_db_name || 'jpsms' }}
+          LIVE_DB_CONTAINER: ${{ github.event.inputs.live_db_container || 'jms-enterprise-v1-db-1' }}
+          LIVE_DB_USER: ${{ github.event.inputs.live_db_user || 'jms_v1' }}
+          LIVE_DB_NAME: ${{ github.event.inputs.live_db_name || 'jms_v1' }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         with:
           host: ${{ secrets.STAGING_HOSTINGER_SSH_HOST }}

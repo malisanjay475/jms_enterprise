@@ -64,9 +64,9 @@ require_var DEPLOY_COMPOSE_FILE
 
 DC="$(choose_compose)"
 
-LIVE_DB_CONTAINER="${LIVE_DB_CONTAINER:-jpsms-db}"
-LIVE_DB_USER="${LIVE_DB_USER:-postgres}"
-LIVE_DB_NAME="${LIVE_DB_NAME:-jpsms}"
+LIVE_DB_CONTAINER="${LIVE_DB_CONTAINER:-jms-enterprise-v1-db-1}"
+LIVE_DB_USER="${LIVE_DB_USER:-jms_v1}"
+LIVE_DB_NAME="${LIVE_DB_NAME:-jms_v1}"
 STAGING_DB_USER="${STAGING_DB_USER:-${DB_USER:-jms_v1}}"
 STAGING_DB_NAME="${STAGING_DB_NAME:-${DB_NAME:-jms_v1}}"
 STAGING_HTTP_PORT="${STAGING_HTTP_PORT:-${V1_HTTP_PORT:-9093}}"
@@ -229,3 +229,4 @@ printf '%s\n' "${work_dir}" > "${refresh_root}/last_refresh_run"
 echo "[staging-refresh] completed successfully"
 echo "[staging-refresh] staging backup: ${work_dir}/staging-before-refresh.dump"
 echo "[staging-refresh] health snapshot: ${work_dir}/health.json"
+trap - EXIT
