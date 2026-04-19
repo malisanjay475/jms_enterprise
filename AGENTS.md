@@ -771,3 +771,305 @@ It is a multi-runtime operational repository with:
 Work inside the correct boundary.
 Protect existing contracts.
 Do not go out of context.
+
+---
+
+## Known commands and entrypoints
+
+These are the repo-aligned entrypoints agents should prefer when checking or running the changed surface.
+Do not invent alternate commands when the repo already has a direct runtime entrypoint.
+Do not assume a test suite exists unless it is defined in the relevant manifest.
+
+### Backend
+Use this surface for backend/API work.
+
+Common entrypoint:
+```bash
+cd BACKEND
+npm install
+node server.js
+```
+
+Backend command rules:
+- Prefer the existing `server.js` entrypoint for direct runtime checks.
+- Only run package scripts that actually exist in `BACKEND/package.json`.
+- Do not add dependencies unless the task truly requires them.
+- Do not replace entrypoint behavior with a new framework or loader unless explicitly required.
+
+### Scanner bridge
+Use this surface for scanner, serial, TCP, or WebSocket relay work.
+
+Common entrypoint:
+```bash
+cd CLIENT_BRIDGE
+npm install
+node bridge.js
+```
+
+Bridge command rules:
+- Preserve bridge startup behavior.
+- Do not introduce a new runtime wrapper unless the task explicitly requires it.
+- Do not change the bridge port contract casually.
+
+### Mobile app
+Use this surface for Flutter/mobile work.
+
+Common entrypoint:
+```bash
+cd ios_app_demo
+flutter pub get
+flutter run
+```
+
+Useful non-destructive check:
+```bash
+cd ios_app_demo
+flutter analyze
+```
+
+Mobile command rules:
+- Keep Flutter dependency changes minimal.
+- Do not add packages for convenience when existing project code can solve the task.
+- Do not edit platform/build files unless the task actually requires platform-level changes.
+
+### Startup and bootstrap
+When validating startup behavior, use the existing backend bootstrap flow rather than bypassing it.
+Relevant files:
+- `BACKEND/docker-entrypoint.sh`
+- `BACKEND/scripts/wait-for-postgres.js`
+- `BACKEND/scripts/auto-import-db-if-needed.js`
+
+Do not test bootstrap behavior by skipping the readiness/import path and then assume the system is correct.
+
+---
+
+## Folder ownership and responsibility map
+
+Agents must route work to the correct folder.
+If a task spans multiple folders, clearly explain why and keep the cross-folder diff minimal.
+
+### `BACKEND/`
+Owner scope:
+- API behavior
+- business rules
+- data access
+- validation
+- auth/session logic
+- imports/exports/uploads
+- server integrations
+- app startup after bootstrap completes
+
+Files here should not be changed for:
+- scanner transport fixes
+- Flutter UI-only work
+- deployment-only changes unless directly required
+
+### `CLIENT_BRIDGE/`
+Owner scope:
+- scanner/device connectivity
+- serial transport
+- TCP transport
+- WebSocket relay behavior
+- device status/data/error propagation
+- bridge lifecycle handling
+
+Files here should not be changed for:
+- API schema redesign
+- Flutter-only presentation bugs
+- DB bootstrap changes
+
+### `ios_app_demo/`
+Owner scope:
+- Flutter UI
+- mobile flows
+- mobile navigation
+- screen logic
+- app-side API usage
+- app-side device/scanner presentation
+
+Files here should not be changed for:
+- server-side business rules
+- scanner transport behavior
+- deployment/bootstrap logic
+
+### `BACKEND/scripts/` and `BACKEND/docker-entrypoint.sh`
+Owner scope:
+- DB readiness
+- bootstrap/import/restore behavior
+- startup ordering
+- first-run initialization
+- container startup flow
+
+Files here should not be changed for:
+- normal UI features
+- normal API bug fixes unless startup is directly involved
+- scanner behavior unrelated to startup
+
+### Manifest files
+Critical manifests include:
+- `BACKEND/package.json`
+- `CLIENT_BRIDGE/package.json`
+- `ios_app_demo/pubspec.yaml`
+
+Only change these when:
+- a dependency is truly required
+- a script must change for a valid repo-level reason
+- a version/config change is necessary for the requested work
+
+Do not churn manifests casually.
+
+---
+
+## Common task to file routing
+
+Use this section to keep agents from solving the right problem in the wrong place.
+
+### If the issue is about API response, validation, data save, auth, or business logic
+Primary area:
+- `BACKEND/`
+
+### If the issue is about scanner not connecting, serial/TCP issues, missing device data, or WebSocket relay behavior
+Primary area:
+- `CLIENT_BRIDGE/`
+
+### If the issue is about mobile layout, Flutter UX, navigation, or app-side display/state
+Primary area:
+- `ios_app_demo/`
+
+### If the issue is about startup hanging, DB not ready, restore/import behavior, or first-run initialization
+Primary area:
+- `BACKEND/docker-entrypoint.sh`
+- `BACKEND/scripts/`
+
+### If the issue is about backup, deploy, update, or operational scripts
+Primary area:
+- ops/deployment scripts only
+
+### If a task seems to require touching everything
+Stop and reduce scope first.
+Most tasks in this repo should be solved in one subsystem.
+Cross-subsystem edits require an explicit reason.
+
+---
+
+## Critical files: do not touch casually
+
+These files have outsized operational impact.
+Changes here must be intentional, minimal, and documented.
+
+### Highest-risk files
+- `AGENTS.md`
+- `BACKEND/server.js`
+- `BACKEND/docker-entrypoint.sh`
+- `BACKEND/scripts/wait-for-postgres.js`
+- `BACKEND/scripts/auto-import-db-if-needed.js`
+- `CLIENT_BRIDGE/bridge.js`
+
+### High-sensitivity manifests
+- `BACKEND/package.json`
+- `CLIENT_BRIDGE/package.json`
+- `ios_app_demo/pubspec.yaml`
+
+### Rules for critical files
+- Do not refactor these for style only.
+- Do not rename, move, or split them casually.
+- Do not change behavior without updating docs and summary notes.
+- Do not batch unrelated edits into these files.
+- For startup, bootstrap, or bridge protocol changes, include rollback notes.
+- For manifest changes, explain why the dependency or script change is required.
+
+---
+
+## Dependency and package change policy
+
+Dependency churn is a common source of out-of-context edits.
+Agents must be conservative.
+
+### Before adding a dependency
+Ask internally:
+- Is this already possible with existing dependencies?
+- Is this change required by the task, or just convenient?
+- Does this affect startup, package size, build stability, or deployment?
+
+### Allowed dependency changes
+- necessary bug fix dependency
+- required SDK/package update for the requested task
+- security or compatibility change directly relevant to the task
+
+### Disallowed dependency changes
+- convenience libraries for small tasks
+- broad modernization not requested by the task
+- multiple package upgrades unrelated to the requested work
+- package-manager churn for style reasons
+
+---
+
+## Required agent PR template
+
+Agents should use this template when proposing a PR, commit summary, or change summary.
+
+```md
+## Summary
+- What changed:
+- Why it changed:
+- Subsystem:
+
+## Files touched
+- `path/to/file`
+- `path/to/file`
+
+## Risk
+- Risk level: Low | Medium | High
+- Compatibility impact:
+- Operational impact:
+
+## Validation
+- Commands run:
+- What was verified:
+- What remains unverified:
+
+## Docs
+- Updated docs:
+- AGENTS.md updated: Yes/No
+
+## Rollback
+- Rollback approach:
+```
+
+### Additional requirements for risky changes
+If the PR touches any of the following:
+- startup ordering
+- DB restore/import logic
+- bridge event schema or port behavior
+- auth/security behavior
+- deployment scripts
+- manifest/dependency changes
+
+then the summary must also say:
+- who or what might break
+- whether the change is additive or breaking
+- whether rollback is simple, medium, or hard
+
+---
+
+## Documentation sync checklist
+
+When changing behavior, agents should check whether these also need updates:
+- `AGENTS.md`
+- README/setup notes
+- env var documentation
+- startup/bootstrap instructions
+- scanner or bridge usage notes
+- restore/import notes
+- mobile usage notes
+- deployment/operator instructions
+
+Do not leave operational behavior changes undocumented.
+
+---
+
+## Final guardrail for agents
+
+When in doubt, choose the narrowest valid change.
+In this repo, wrong-scope fixes are more dangerous than small incomplete fixes.
+It is better to clearly say a change belongs in another subsystem than to patch the wrong layer.
