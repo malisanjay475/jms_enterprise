@@ -34,14 +34,16 @@ If formal versioning is introduced later, this section should be updated to matc
 If you discover a suspected vulnerability, do **not** report it through a public issue, public pull request, or public discussion thread.
 
 ### Preferred reporting path
-Report the issue privately to the repository maintainer/owner through a private channel already used for this project.
+Report the issue privately to the repository maintainer/owner.
 
-Recommended private paths:
+Primary private contact:
+- Email: `sanjay.mali@joyo.in`
+
+Fallback private paths:
 1. direct message or internal company communication channel to the maintainer
-2. private email to the repository owner/maintainer
-3. private security report through GitHub, if enabled later
+2. private security report through GitHub, if enabled later
 
-If no dedicated security inbox exists yet, the repository owner should establish one and update this file.
+Please use the email above for the initial report whenever possible so the issue can be tracked consistently.
 
 ---
 
@@ -173,7 +175,7 @@ Do not use real customer data, real secrets, or live destructive restore actions
 ## Future improvements
 
 This policy should be updated later to include:
-- a dedicated security email address
+- a dedicated security alias or distribution list
 - formal severity levels
 - CVE/advisory process, if needed
 - exact supported release/version matrix
