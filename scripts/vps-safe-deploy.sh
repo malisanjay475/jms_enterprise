@@ -107,7 +107,13 @@ backup_before_deploy() {
   local db_container_id
   db_container_id="$($DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" ps -q db 2>/dev/null || true)"
   if [[ -z "$db_container_id" ]]; then
-    echo "[deploy] no running db container found yet; backup skipped"
+    if [[ -n "$PREVIOUS_IMAGE" ]]; then
+      echo "[deploy] no running db container found; refusing deploy without backup" >&2
+      echo "[deploy] set DB_BACKUP_BEFORE_DEPLOY=0 to bypass explicitly" >&2
+      return 1
+    fi
+
+    echo "[deploy] no existing db container found; treating this as first deploy and skipping backup"
     return 0
   fi
 
@@ -119,7 +125,10 @@ backup_before_deploy() {
   mkdir -p "$backup_dir"
 
   echo "[deploy] creating database backup $backup_name"
-  docker exec "$db_container_id" sh -lc "PGPASSWORD=\"${DB_PASSWORD}\" pg_dump -U \"${DB_USER}\" -d \"${DB_NAME}\" -Fc -f \"${container_backup}\""
+  docker exec \
+    -e PGPASSWORD="$DB_PASSWORD" \
+    "$db_container_id" \
+    pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc -f "$container_backup"
   docker cp "${db_container_id}:${container_backup}" "${backup_dir}/${backup_name}"
   docker exec "$db_container_id" rm -f "$container_backup"
 
