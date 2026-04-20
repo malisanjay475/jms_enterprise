@@ -19,6 +19,7 @@ const SYNC_ALL = [
     'assembly_scans',
     'bom_components',
     'bom_master',
+    'closed_plants',
     'dispatch_items',
     'dpr_hourly',
     'dpr_reasons',
@@ -29,6 +30,7 @@ const SYNC_ALL = [
     'jc_summaries',
     'job_cards',
     'jobs_queue',
+    'machine_audit_logs',
     'machine_operators',
     'machine_status_logs',
     'machines',
@@ -36,7 +38,9 @@ const SYNC_ALL = [
     'mould_planning_report',
     'mould_planning_summary',
     'moulds',
+    'notifications',
     'operator_history',
+    'order_completion_history',
     'or_jr_report',
     'orders',
     'plan_audit_logs',
@@ -49,6 +53,7 @@ const SYNC_ALL = [
     'qc_issue_memos',
     'qc_online_reports',
     'qc_training_sheets',
+    'raw_material_issues',
     'roles',
     'shift_teams',
     'shifting_records',
@@ -60,7 +65,10 @@ const SYNC_ALL = [
     'vendor_users',
     'vendors',
     'wip_inventory',
-    'wip_outward_logs'
+    'wip_outward_logs',
+    'wip_stock_movements',
+    'wip_stock_snapshot_lines',
+    'wip_stock_snapshots'
 ];
 
 const TABLES_TO_PUSH = [...SYNC_ALL];
@@ -103,7 +111,24 @@ const CONFLICT_KEYS = {
     app_settings: 'key',
     factories: 'id',
     grinding_logs: 'id',
-    shift_teams: 'line, shift_date, shift'
+    shift_teams: 'line, shift_date, shift',
+    closed_plants: 'factory_id, dpr_date, plant, shift',
+    machine_audit_logs: 'factory_id, machine_id, action_type, changed_at',
+    notifications: 'target_user, type, title, created_at',
+    order_completion_history: 'factory_id, order_no, action_type, changed_at',
+    raw_material_issues: 'factory_id, plan_id, created_at',
+    wip_stock_movements: 'factory_id, source_type, source_ref, movement_type, created_at',
+    wip_stock_snapshots: 'factory_id, stock_date, source_file_name',
+    wip_stock_snapshot_lines: 'factory_id, stock_date, comparison_key'
+};
+
+const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
+    closed_plants: 'created_at',
+    machine_audit_logs: 'changed_at',
+    notifications: 'created_at',
+    order_completion_history: 'changed_at',
+    raw_material_issues: 'created_at',
+    wip_stock_movements: 'created_at'
 };
 
 const TRANSFORMERS = {
@@ -273,6 +298,7 @@ router.get('/status', async (req, res) => {
 async function init(dbPool) {
     pool = dbPool;
     try {
+        await ensureSyncUpdatedAtSchema();
         await ensureDeleteTrackingSchema();
 
         const res = await pool.query('SELECT key, value FROM server_config');
@@ -374,12 +400,28 @@ async function pushChanges() {
     const lastPush = res.rows.length ? res.rows[0].value : '1970-01-01';
 
     for (const table of TABLES_TO_PUSH) {
-        const rows = await pool.query(`
-            SELECT * FROM ${table}
-            WHERE updated_at > $1
-              AND factory_id = $2
-            LIMIT 100
-        `, [lastPush, LOCAL_FACTORY_ID]);
+        let rows;
+        try {
+            const hasFactoryId = await tableHasColumn(table, 'factory_id');
+            const sql = hasFactoryId
+                ? `
+                    SELECT * FROM ${table}
+                    WHERE updated_at > $1
+                      AND factory_id = $2
+                    LIMIT 100
+                `
+                : `
+                    SELECT * FROM ${table}
+                    WHERE updated_at > $1
+                    LIMIT 100
+                `;
+            const params = hasFactoryId ? [lastPush, LOCAL_FACTORY_ID] : [lastPush];
+            rows = await pool.query(sql, params);
+        } catch (error) {
+            console.error(`[Sync] Push Query Failed ${table}:`, error.message);
+            stats.failed += 1;
+            continue;
+        }
 
         if (rows.rows.length > 0) {
             console.log(`[Sync] Pushing ${rows.rows.length} rows for ${table}...`);
@@ -823,6 +865,55 @@ async function ensureDeleteTrackingSchema() {
     }
 
     console.log('[Sync] Delete tracking ready');
+}
+
+async function ensureSyncUpdatedAtSchema() {
+    await pool.query(`
+        CREATE OR REPLACE FUNCTION touch_sync_updated_at_column() RETURNS trigger AS $$
+        BEGIN
+            NEW.updated_at = NOW();
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+    `);
+
+    for (const [table, sourceColumn] of Object.entries(SYNC_UPDATED_AT_SOURCE_COLUMNS)) {
+        try {
+            const hasUpdatedAt = await tableHasColumn(table, 'updated_at');
+            if (!hasUpdatedAt) {
+                await pool.query(`ALTER TABLE ${table} ADD COLUMN updated_at TIMESTAMPTZ`);
+            }
+
+            const hasSourceColumn = await tableHasColumn(table, sourceColumn);
+            if (hasSourceColumn) {
+                await pool.query(`
+                    UPDATE ${table}
+                       SET updated_at = COALESCE(updated_at, ${sourceColumn}::timestamptz, NOW())
+                     WHERE updated_at IS NULL
+                `);
+            } else {
+                await pool.query(`
+                    UPDATE ${table}
+                       SET updated_at = COALESCE(updated_at, NOW())
+                     WHERE updated_at IS NULL
+                `);
+            }
+
+            await pool.query(`ALTER TABLE ${table} ALTER COLUMN updated_at SET DEFAULT NOW()`);
+            await pool.query(`ALTER TABLE ${table} ALTER COLUMN updated_at SET NOT NULL`);
+            await pool.query(`DROP TRIGGER IF EXISTS trg_touch_sync_updated_at_${table} ON ${table}`);
+            await pool.query(`
+                CREATE TRIGGER trg_touch_sync_updated_at_${table}
+                BEFORE UPDATE ON ${table}
+                FOR EACH ROW
+                EXECUTE FUNCTION touch_sync_updated_at_column()
+            `);
+        } catch (e) {
+            console.warn(`[Sync] updated_at tracking skipped for ${table}:`, e.message);
+        }
+    }
+
+    console.log('[Sync] updated_at tracking ready');
 }
 
 async function tableHasColumn(table, column) {
