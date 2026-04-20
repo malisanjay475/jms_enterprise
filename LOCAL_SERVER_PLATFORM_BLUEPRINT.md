@@ -502,3 +502,17 @@ The first implemented backend surface for this repo is:
 - `POST /api/local-servers/:id/sync-status`
   - node-authenticated
   - updates last push, last pull, sync status, and last error
+
+### Local node runtime values
+
+To let a factory-local server report itself automatically, the local runtime should be provisioned with:
+
+- `SERVER_TYPE=LOCAL`
+- `MAIN_SERVER_URL`
+- `LOCAL_FACTORY_ID`
+- `LOCAL_SERVER_NODE_ID`
+- `LOCAL_SERVER_NODE_KEY`
+- `LOCAL_SERVER_AGENT_ENABLED=1`
+- optional `LOCAL_SERVER_PUBLIC_IP`
+- optional `LOCAL_SERVER_HEARTBEAT_INTERVAL_MS`
+- optional `APP_GIT_SHA`

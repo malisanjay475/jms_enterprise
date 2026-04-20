@@ -40,6 +40,9 @@ async function startServer() {
 
   if (legacyHooks.startupLog) legacyHooks.startupLog(server);
   if (legacyHooks.onServerStarted) legacyHooks.onServerStarted(server);
+  if (services.localNodeAgent?.init) {
+    await services.localNodeAgent.init({ pool, config });
+  }
 
   return { app, pool, server, config };
 }
