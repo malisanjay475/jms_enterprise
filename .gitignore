@@ -106,6 +106,7 @@ BACKEND/recreate_*.js
 BACKEND/remove_*.js
 BACKEND/v5_verify/
 BACKEND/runtime/
+BACKEND/updates/
 BACKEND/job_card_api_snippet.js
 
 # Local deploy keys (never commit)
