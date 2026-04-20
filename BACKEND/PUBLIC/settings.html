@@ -325,12 +325,19 @@
 
         .local-server-grid {
             display: grid;
-            grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+            grid-template-columns: 1fr;
             gap: 18px;
             align-items: start;
         }
 
         .local-server-form-card {
+            border: 1px solid #dce8ef;
+            border-radius: 18px;
+            padding: 18px;
+            background: linear-gradient(180deg, #ffffff, #f8fbfd);
+        }
+
+        .local-server-list-panel {
             border: 1px solid #dce8ef;
             border-radius: 18px;
             padding: 18px;
@@ -343,13 +350,55 @@
         }
 
         .local-server-row {
-            display: grid;
-            grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
-            gap: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
             padding: 16px 18px;
             border-radius: 18px;
             background: #f8fafc;
             border: 1px solid #e2e8f0;
+            overflow: hidden;
+        }
+
+        .local-server-header {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .local-server-heading {
+            min-width: 0;
+            flex: 1;
+        }
+
+        .local-server-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .local-server-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-start;
+            gap: 8px;
+            width: 100%;
+        }
+
+        .local-server-actions .btn-outline {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+
+        .local-server-body {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 14px;
         }
 
         .local-server-title {
@@ -365,10 +414,20 @@
             line-height: 1.45;
         }
 
+        .local-server-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
         .local-server-stats {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 10px;
+        }
+
+        .local-server-stats.main {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
         }
 
         .local-stat {
@@ -391,14 +450,6 @@
             color: var(--settings-ink);
             font-weight: 700;
             word-break: break-word;
-        }
-
-        .local-server-actions {
-            display: flex;
-            flex-direction: column;
-            align-items: stretch;
-            gap: 8px;
-            min-width: 150px;
         }
 
         .status-pill.online {
@@ -434,6 +485,7 @@
             align-items: center;
             gap: 12px;
             margin-bottom: 12px;
+            flex-wrap: wrap;
         }
 
         .directory-title {
@@ -615,9 +667,16 @@
 
             .hero-metrics,
             .placeholder-grid,
-            .admin-tools-grid,
-            .local-server-grid {
+            .admin-tools-grid {
                 grid-template-columns: 1fr;
+            }
+
+            .local-server-body {
+                grid-template-columns: 1fr;
+            }
+
+            .local-server-stats.main {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
         }
 
@@ -635,6 +694,21 @@
             }
 
             .settings-form {
+                grid-template-columns: 1fr;
+            }
+
+            .local-server-actions {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .local-server-actions .btn-outline {
+                flex: 1 1 160px;
+                white-space: normal;
+            }
+
+            .local-server-summary-grid,
+            .local-server-stats.main {
                 grid-template-columns: 1fr;
             }
         }
@@ -734,8 +808,8 @@
                 <div class="section-head">
                     <div>
                         <div class="section-eyebrow" style="background: rgba(37, 99, 235, 0.12); color: #1d4ed8;"><i class="bi bi-hdd-network"></i><span>Local Servers</span></div>
-                        <div class="section-title">Create and monitor factory local servers.</div>
-                        <div class="section-copy">Superadmin can create a node for each factory and provision it with a one-time key. Admin and Superadmin can monitor the connected IP, version, last heartbeat, last push, and last pull from this screen.</div>
+                        <div class="section-title">Create, download, and monitor factory local servers.</div>
+                        <div class="section-copy">Superadmin can create a node and download a ready-to-install setup package for each factory server. Admin and Superadmin can monitor the connected IP, version, last heartbeat, last push, and last pull from this screen.</div>
                     </div>
                     <button class="btn-outline" id="refreshLocalServersBtn" type="button"><i class="bi bi-arrow-repeat"></i> Refresh</button>
                 </div>
@@ -768,13 +842,13 @@
                             <div class="field-block full">
                                 <div class="submit-row">
                                     <button class="btn-primary" id="createLocalServerBtn" type="submit"><i class="bi bi-hdd-stack"></i> Create Local Server</button>
-                                    <span class="helper-text">One-time node key will be shown after creation.</span>
+                                    <span class="helper-text">A downloadable installer package will start after creation.</span>
                                 </div>
                             </div>
                         </form>
                     </div>
 
-                    <div class="factory-directory" style="margin-top:0; padding-top:0; border-top:none;">
+                    <div class="local-server-list-panel">
                         <div class="directory-head">
                             <div class="directory-title">Provisioned Local Servers</div>
                             <div class="directory-state" id="localServerListState">Loading local servers...</div>
@@ -1020,53 +1094,74 @@
                     const factoryLabel = escapeHtml(server.factoryName || ('Factory ' + server.factoryId));
                     const nodeName = escapeHtml(server.nodeName || server.nodeCode || ('Node ' + server.id));
                     const nodeCode = escapeHtml(server.nodeCode || 'node');
+                    const lastHeartbeat = formatDateTime(server.lastHeartbeatAt);
+                    const lastPush = formatDateTime(server.lastPushAt);
+                    const lastPull = formatDateTime(server.lastPullAt);
                     const canManage = isSuperadmin(currentUser);
 
                     return `
                         <div class="local-server-row">
-                            <div>
-                                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
-                                    <div class="local-server-title">${nodeName}</div>
-                                    <div class="code-chip"><i class="bi bi-upc-scan"></i>${nodeCode}</div>
-                                    <div class="status-pill ${statusClass}">${escapeHtml(statusLabel)}</div>
+                            <div class="local-server-header">
+                                <div class="local-server-heading">
+                                    <div class="local-server-badges">
+                                        <div class="local-server-title">${nodeName}</div>
+                                        <div class="code-chip"><i class="bi bi-upc-scan"></i>${nodeCode}</div>
+                                        <div class="status-pill ${statusClass}">${escapeHtml(statusLabel)}</div>
+                                    </div>
+                                    <div class="local-server-summary-grid">
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Factory</div>
+                                            <div class="local-stat-value">${factoryLabel}</div>
+                                        </div>
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Last Heartbeat</div>
+                                            <div class="local-stat-value">${lastHeartbeat}</div>
+                                        </div>
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Last Push</div>
+                                            <div class="local-stat-value">${lastPush}</div>
+                                        </div>
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Last Pull</div>
+                                            <div class="local-stat-value">${lastPull}</div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="local-server-subtitle">
-                                    Factory: <strong>${factoryLabel}</strong><br>
-                                    Last heartbeat: ${formatDateTime(server.lastHeartbeatAt)}<br>
-                                    Last push: ${formatDateTime(server.lastPushAt)} | Last pull: ${formatDateTime(server.lastPullAt)}
+                                <div class="local-server-actions">
+                                    ${canManage ? `
+                                        <button class="btn-outline" type="button" onclick="downloadLocalServerInstaller(${server.id})"><i class="bi bi-download"></i> Download Installer</button>
+                                        <button class="btn-outline" type="button" onclick="promptLocalServerTargetVersion(${server.id})"><i class="bi bi-box-seam"></i> Target Version</button>
+                                        <button class="btn-outline" type="button" onclick="rotateLocalServerKey(${server.id})"><i class="bi bi-key"></i> Rotate Key</button>
+                                        <button class="btn-outline" type="button" onclick="toggleLocalServerActive(${server.id}, ${active ? 'false' : 'true'})"><i class="bi ${active ? 'bi-pause-circle' : 'bi-play-circle'}"></i> ${active ? 'Deactivate' : 'Activate'}</button>
+                                    ` : `
+                                        <button class="btn-outline" type="button" disabled><i class="bi bi-eye"></i> Monitor Only</button>
+                                    `}
+                                    <button class="btn-outline" type="button" onclick="refreshLocalServersOnly()"><i class="bi bi-arrow-repeat"></i> Refresh</button>
                                 </div>
                             </div>
-                            <div class="local-server-stats">
-                                <div class="local-stat">
-                                    <div class="local-stat-label">Local IP</div>
-                                    <div class="local-stat-value">${localIp}</div>
+                            <div class="local-server-body">
+                                <div class="local-server-stats main">
+                                    <div class="local-stat">
+                                        <div class="local-stat-label">Local IP</div>
+                                        <div class="local-stat-value">${localIp}</div>
+                                    </div>
+                                    <div class="local-stat">
+                                        <div class="local-stat-label">Public IP</div>
+                                        <div class="local-stat-value">${publicIp}</div>
+                                    </div>
+                                    <div class="local-stat">
+                                        <div class="local-stat-label">Current Version</div>
+                                        <div class="local-stat-value">${currentVersion}</div>
+                                    </div>
+                                    <div class="local-stat">
+                                        <div class="local-stat-label">Target Version</div>
+                                        <div class="local-stat-value">${targetVersion}</div>
+                                    </div>
+                                    <div class="local-stat" style="grid-column:1 / -1;">
+                                        <div class="local-stat-label">Last Seen Commit</div>
+                                        <div class="local-stat-value">${lastCommit}</div>
+                                    </div>
                                 </div>
-                                <div class="local-stat">
-                                    <div class="local-stat-label">Public IP</div>
-                                    <div class="local-stat-value">${publicIp}</div>
-                                </div>
-                                <div class="local-stat">
-                                    <div class="local-stat-label">Current Version</div>
-                                    <div class="local-stat-value">${currentVersion}</div>
-                                </div>
-                                <div class="local-stat">
-                                    <div class="local-stat-label">Target Version</div>
-                                    <div class="local-stat-value">${targetVersion}</div>
-                                </div>
-                                <div class="local-stat" style="grid-column:1 / -1;">
-                                    <div class="local-stat-label">Last Seen Commit</div>
-                                    <div class="local-stat-value">${lastCommit}</div>
-                                </div>
-                            </div>
-                            <div class="local-server-actions">
-                                ${canManage ? `
-                                    <button class="btn-outline" type="button" onclick="promptLocalServerTargetVersion(${server.id})"><i class="bi bi-box-seam"></i> Target Version</button>
-                                    <button class="btn-outline" type="button" onclick="rotateLocalServerKey(${server.id})"><i class="bi bi-key"></i> Rotate Key</button>
-                                    <button class="btn-outline" type="button" onclick="toggleLocalServerActive(${server.id}, ${active ? 'false' : 'true'})"><i class="bi ${active ? 'bi-pause-circle' : 'bi-play-circle'}"></i> ${active ? 'Deactivate' : 'Activate'}</button>
-                                ` : `
-                                    <button class="btn-outline" type="button" disabled><i class="bi bi-eye"></i> Monitor Only</button>
-                                `}
-                                <button class="btn-outline" type="button" onclick="refreshLocalServersOnly()"><i class="bi bi-arrow-repeat"></i> Refresh</button>
                             </div>
                         </div>
                     `;
@@ -1109,13 +1204,13 @@
 
                 if (isSuperadmin(currentUser)) {
                     noteEl.className = 'role-note';
-                    noteEl.innerHTML = '<i class="bi bi-check-circle"></i><div>Superadmin can create local server nodes, rotate node keys, and set target versions. Admin can monitor node health and sync timings only.</div>';
+                    noteEl.innerHTML = '<i class="bi bi-check-circle"></i><div>Superadmin can create local server nodes, download installer packages, rotate node keys, and set target versions. Admin can monitor node health and sync timings only.</div>';
                     formEl.style.display = 'grid';
                     return;
                 }
 
                 noteEl.className = 'role-note restricted';
-                noteEl.innerHTML = '<i class="bi bi-lock"></i><div>Create and provisioning actions are SUPERADMIN only. You can still monitor connected IP, version, heartbeat, last push, and last pull from this screen.</div>';
+                noteEl.innerHTML = '<i class="bi bi-lock"></i><div>Create, download, and provisioning actions are SUPERADMIN only. You can still monitor connected IP, version, heartbeat, last push, and last pull from this screen.</div>';
                 formEl.style.display = 'none';
             }
 
@@ -1409,6 +1504,7 @@
                     populateFactoryOptions(factoriesCache);
                     openNodeKeyModal(localServer, res.nodeKey, 'New node key');
                     window.JPSMS.toast('Local server created successfully.', 'success');
+                    await downloadLocalServerInstaller(localServer.id, res.nodeKey);
                     await loadLocalServers();
                 } catch (error) {
                     console.error('Failed to create local server', error);
@@ -1445,6 +1541,75 @@
                 } catch (error) {
                     console.error('Failed to rotate node key', error);
                     window.JPSMS.toast(error.message || 'Unable to rotate node key.', 'error');
+                }
+            }
+
+            async function downloadLocalServerInstaller(localServerId, nodeKey = '') {
+                if (!isSuperadmin(currentUser)) {
+                    window.JPSMS.toast('Only SUPERADMIN can download installer packages.', 'error');
+                    return;
+                }
+
+                const localServer = localServersCache.find(item => Number(item.id) === Number(localServerId));
+                if (!localServer) {
+                    window.JPSMS.toast('Local server not found in the current list.', 'error');
+                    return;
+                }
+
+                if (!nodeKey && localServer.isConnected) {
+                    const proceed = confirm(`Download a fresh installer for ${localServer.nodeName || localServer.nodeCode}? This will rotate the node key, so the new package should be used on that machine.`);
+                    if (!proceed) return;
+                }
+
+                const token = localStorage.getItem('token');
+                const activeUser = window.JPSMS.auth.getUser() || {};
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                if (activeUser.username) headers['X-User-Name'] = activeUser.username;
+
+                const factoryId = localStorage.getItem('jpsms_factory_id');
+                if (factoryId) headers['X-Factory-ID'] = factoryId;
+                const writeFactoryId = localStorage.getItem('jpsms_write_factory_id');
+                if (writeFactoryId) headers['X-Write-Factory-ID'] = writeFactoryId;
+
+                try {
+                    const response = await fetch(`/api/local-servers/${localServerId}/download-package`, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify(nodeKey ? { nodeKey } : {})
+                    });
+
+                    if (!response.ok) {
+                        let message = 'Unable to download installer package.';
+                        try {
+                            const payload = await response.json();
+                            message = payload.error || message;
+                        } catch (_ignore) {
+                            // Ignore JSON parse failure and use fallback message.
+                        }
+                        throw new Error(message);
+                    }
+
+                    const blob = await response.blob();
+                    const disposition = response.headers.get('Content-Disposition') || '';
+                    const match = disposition.match(/filename=\"?([^"]+)\"?/i);
+                    const fileName = match && match[1] ? match[1] : `jms-local-server-${localServerId}.zip`;
+                    const objectUrl = window.URL.createObjectURL(blob);
+                    const anchor = document.createElement('a');
+                    anchor.href = objectUrl;
+                    anchor.download = fileName;
+                    document.body.appendChild(anchor);
+                    anchor.click();
+                    anchor.remove();
+                    window.URL.revokeObjectURL(objectUrl);
+
+                    window.JPSMS.toast('Local server installer downloaded.', 'success');
+                } catch (error) {
+                    console.error('Failed to download installer', error);
+                    window.JPSMS.toast(error.message || 'Unable to download installer package.', 'error');
                 }
             }
 
@@ -1591,6 +1756,7 @@
             window.rotateLocalServerKey = rotateLocalServerKey;
             window.toggleLocalServerActive = toggleLocalServerActive;
             window.promptLocalServerTargetVersion = promptLocalServerTargetVersion;
+            window.downloadLocalServerInstaller = downloadLocalServerInstaller;
             window.copyNodeKeyPayload = copyNodeKeyPayload;
             window.closeNodeKeyModal = closeNodeKeyModal;
             window.refreshLocalServersOnly = refreshLocalServersOnly;

@@ -7,6 +7,7 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   GEMINI_API_KEY: z.string().optional(),
   APP_GIT_SHA: z.string().optional(),
+  ALLOW_LEGACY_DB_DEFAULTS: z.string().optional(),
   LOCAL_FACTORY_ID: z.string().optional(),
   SERVER_TYPE: z.string().optional(),
   MAIN_SERVER_URL: z.string().optional(),
@@ -27,6 +28,21 @@ const EnvSchema = z.object({
   PGDATABASE: z.string().optional()
 });
 
+function hasExplicitDbConfig(values) {
+  return Boolean(
+    values.DB_HOST ||
+    values.PGHOST ||
+    values.DB_PORT ||
+    values.PGPORT ||
+    values.DB_USER ||
+    values.PGUSER ||
+    values.DB_PASSWORD ||
+    values.PGPASSWORD ||
+    values.DB_NAME ||
+    values.PGDATABASE
+  );
+}
+
 function loadConfig(env = process.env) {
   const parsed = EnvSchema.safeParse(env);
 
@@ -35,6 +51,18 @@ function loadConfig(env = process.env) {
   }
 
   const values = parsed.data;
+  const allowLegacyDbDefaults = ['1', 'true', 'yes'].includes(
+    String(values.ALLOW_LEGACY_DB_DEFAULTS || '').toLowerCase()
+  );
+  const explicitDbConfig = hasExplicitDbConfig(values);
+
+  if (!explicitDbConfig && !allowLegacyDbDefaults) {
+    throw new Error(
+      'Missing database environment. Create BACKEND/.env from BACKEND/.env.local-v1.example ' +
+      'and set DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, and DB_NAME. ' +
+      'Legacy jpsms defaults are now disabled to prevent connecting to the wrong database.'
+    );
+  }
 
   return {
     nodeEnv: values.NODE_ENV,
@@ -54,9 +82,9 @@ function loadConfig(env = process.env) {
     db: {
       host: values.DB_HOST || values.PGHOST || 'localhost',
       port: values.DB_PORT || values.PGPORT || 5432,
-      user: values.DB_USER || values.PGUSER || 'postgres',
-      password: values.DB_PASSWORD || values.PGPASSWORD || 'Sanjay@541##',
-      database: values.DB_NAME || values.PGDATABASE || 'jpsms'
+      user: values.DB_USER || values.PGUSER || (allowLegacyDbDefaults ? 'postgres' : 'jms_v1'),
+      password: values.DB_PASSWORD || values.PGPASSWORD || (allowLegacyDbDefaults ? 'Sanjay@541##' : ''),
+      database: values.DB_NAME || values.PGDATABASE || (allowLegacyDbDefaults ? 'jpsms' : 'jms_v1')
     }
   };
 }

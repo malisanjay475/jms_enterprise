@@ -2915,7 +2915,7 @@ async function logMachineAudit(db, { machineId, actionType, changedFields, chang
 /* ============================================================
    HEALTH CHECK
 ============================================================ */
-app.get('/api/health', async (_req, res) => {
+app.get('/api/legacy-health', async (_req, res) => {
   try {
     const r = await q('SELECT NOW() AS now', []);
     res.json({ ok: true, now: r[0].now });
@@ -3746,8 +3746,8 @@ async function initializeLegacyRuntime() {
   }
   return {
     startupLog() {
-      console.log(`JPSMS server running on http://localhost:${config.port}`);
-      getLanUrls(config.port).forEach(url => console.log(`JPSMS LAN access: ${url}`));
+      console.log(`JMS backend running on http://localhost:${config.port}`);
+      getLanUrls(config.port).forEach(url => console.log(`JMS LAN access: ${url}`));
       console.log('DB Config:', {
         user: config.db.user,
         database: config.db.database,
@@ -14065,28 +14065,51 @@ app.get('/api/dashboard/kpis', async (req, res) => {
 // ADMIN DATABASE TOOLS (Backup / Restore)
 // ============================================================
 const { spawn } = require('child_process');
-// NOTE: User provided path "18", we assume they know their version or path.
-const PG_BIN_PATH = 'C:\\Program Files\\PostgreSQL\\18\\bin';
+
+function resolvePgTool(toolBaseName) {
+  const executable = process.platform === 'win32' ? `${toolBaseName}.exe` : toolBaseName;
+
+  if (process.env.PG_BIN_PATH) {
+    return path.join(process.env.PG_BIN_PATH, executable);
+  }
+
+  if (process.platform === 'win32') {
+    const commonPaths = [
+      'C:\\Program Files\\PostgreSQL\\18\\bin',
+      'C:\\Program Files\\PostgreSQL\\17\\bin',
+      'C:\\Program Files\\PostgreSQL\\16\\bin',
+      'C:\\Program Files\\PostgreSQL\\15\\bin',
+      'C:\\Program Files\\PostgreSQL\\14\\bin'
+    ];
+
+    for (const binPath of commonPaths) {
+      const candidate = path.join(binPath, executable);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+
+  return executable;
+}
 
 // 1. BACKUP (Custom Format -Fc for better Restore)
 app.get('/api/admin/backup', async (req, res) => {
   console.log('[Backup] Starting backup process...');
 
   res.setHeader('Content-Type', 'application/octet-stream');
-  res.setHeader('Content-Disposition', `attachment; filename = jpsms_backup_${Date.now()}.dump`);
+  res.setHeader('Content-Disposition', `attachment; filename = ${config.db.database}_backup_${Date.now()}.dump`);
 
-  const env = { ...process.env, PGPASSWORD: process.env.DB_PASSWORD || 'Sanjay@541##' };
+  const env = { ...process.env, PGPASSWORD: config.db.password };
 
-  // pg_dump -U postgres -h localhost -p 5432 -F c -Z 9 jpsms
+  // Backup the active runtime database instead of the legacy jpsms defaults.
   // -F c: Custom Format (allows pg_restore features)
   // -Z 9: Max Compression
-  const dump = spawn(path.join(PG_BIN_PATH, 'pg_dump.exe'), [
-    '-U', 'postgres',
-    '-h', 'localhost',
-    '-p', '5432',
+  const dump = spawn(resolvePgTool('pg_dump'), [
+    '-U', config.db.user,
+    '-h', config.db.host,
+    '-p', String(config.db.port),
     '-F', 'c',
     '-Z', '9',
-    'jpsms'
+    config.db.database
   ], { env });
 
   dump.stdout.pipe(res);
@@ -14104,27 +14127,29 @@ app.post('/api/admin/restore', upload.single('file'), async (req, res) => {
 
   console.log('[Restore] File:', filePath, 'Type:', isSql ? 'SQL' : 'Binary');
 
-  const env = { ...process.env, PGPASSWORD: process.env.DB_PASSWORD || 'Sanjay@541##' };
+  const env = { ...process.env, PGPASSWORD: config.db.password };
 
   let proc;
   if (isSql) {
     // Legacy Support for .sql (Plain Text)
     // WARNING: Cannot easily --clean. Will append/error on duplicates.
     console.log('[Restore] Using PSQL (Legacy Text Mode)');
-    proc = spawn(path.join(PG_BIN_PATH, 'psql.exe'), [
-      '-U', 'postgres',
-      '-h', 'localhost',
-      '-d', 'jpsms',
+    proc = spawn(resolvePgTool('psql'), [
+      '-U', config.db.user,
+      '-h', config.db.host,
+      '-p', String(config.db.port),
+      '-d', config.db.database,
       '-f', filePath
     ], { env });
   } else {
     // Binary Restore (.dump)
     // ENABLE --clean to DROP tables before restoring (Fixes "Merge" issues)
     console.log('[Restore] Using PG_RESTORE (Binary Mode)');
-    proc = spawn(path.join(PG_BIN_PATH, 'pg_restore.exe'), [
-      '-U', 'postgres',
-      '-h', 'localhost',
-      '-d', 'jpsms',
+    proc = spawn(resolvePgTool('pg_restore'), [
+      '-U', config.db.user,
+      '-h', config.db.host,
+      '-p', String(config.db.port),
+      '-d', config.db.database,
       '--clean',     // DROP objects before creating
       '--if-exists', // Prevent error if db is empty
       '--no-owner',  // Prevent ownership errors on Windows

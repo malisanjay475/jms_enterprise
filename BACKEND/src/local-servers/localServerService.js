@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const { getRequestUsername, normalizeFactoryId } = require('../app/requestContext');
+const buildProvisioningPackage = require('./buildProvisioningPackage');
 
 const router = express.Router();
 
@@ -201,6 +202,18 @@ async function getLocalServerById(localServerId) {
   );
 
   return result.rows[0] || null;
+}
+
+async function getLocalServerSecretHash(localServerId) {
+  const result = await q(
+    `SELECT node_secret_hash
+       FROM local_servers
+      WHERE id = $1
+      LIMIT 1`,
+    [localServerId]
+  );
+
+  return result.rows[0]?.node_secret_hash || null;
 }
 
 async function authenticateNode(req, localServerId) {
@@ -686,6 +699,59 @@ router.post('/:id/rotate-key', async (req, res) => {
     );
 
     res.json({ ok: true, nodeKey });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, error: error.message });
+  }
+});
+
+router.post('/:id/download-package', async (req, res) => {
+  try {
+    const access = await getActorAccess(req);
+    requireSuperadmin(access);
+
+    const localServerId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(localServerId) || localServerId <= 0) {
+      return res.status(400).json({ ok: false, error: 'Invalid local server id' });
+    }
+
+    const existing = await getLocalServerById(localServerId);
+    if (!existing) {
+      return res.status(404).json({ ok: false, error: 'Local server not found' });
+    }
+
+    const providedNodeKey = String(req.body?.nodeKey || '').trim();
+    let nodeKey = providedNodeKey;
+
+    if (providedNodeKey) {
+      const currentHash = await getLocalServerSecretHash(localServerId);
+      if (!currentHash || hashSecret(providedNodeKey) !== currentHash) {
+        return res.status(403).json({ ok: false, error: 'Provided node key is no longer valid. Download a fresh installer.' });
+      }
+    } else {
+      nodeKey = createNodeSecret();
+      await q(
+        `UPDATE local_servers
+            SET node_secret_hash = $2,
+                updated_by = $3,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [localServerId, hashSecret(nodeKey), access.actor.username]
+      );
+    }
+
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.get('host') || '';
+    const mainServerUrl = String(req.app?.locals?.config?.mainServerUrl || '').trim() || `${protocol}://${host}`;
+
+    const { buffer, fileName } = buildProvisioningPackage({
+      localServer: buildLocalServerRow({ ...existing, is_connected: false }),
+      nodeKey,
+      mainServerUrl
+    });
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.send(buffer);
   } catch (error) {
     res.status(error.statusCode || 500).json({ ok: false, error: error.message });
   }
