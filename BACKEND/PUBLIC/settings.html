@@ -757,16 +757,16 @@
         <div class="header">
             <div>
                 <div class="page-title">Settings</div>
-                <div class="page-subtitle">Central place for system configuration. Factory setup starts here, and you can keep adding more settings cards on this screen later.</div>
+                <div class="page-subtitle">Factory, local server, and admin controls in one compact settings screen.</div>
             </div>
             <div class="role-chip" id="roleChip"><i class="bi bi-shield-lock"></i><span>Checking access...</span></div>
         </div>
 
         <div class="settings-grid">
             <section class="card hero-card">
-                <div class="section-eyebrow"><i class="bi bi-sliders"></i><span>Settings Hub</span></div>
-                <h1 class="hero-title">One menu for every setting we add next.</h1>
-                <p class="hero-copy">This page is built as the shared home for admin settings. Today it includes factory creation. Later you can add more setting cards here without changing the navigation structure again.</p>
+                <div class="section-eyebrow"><i class="bi bi-sliders"></i><span>Settings</span></div>
+                <h1 class="hero-title">Clean control center for core setup.</h1>
+                <p class="hero-copy">Manage factory setup, local server provisioning, and admin actions from one place.</p>
                 <div class="hero-actions">
                     <a href="/settings.html?view=factory" class="btn-outline btn-ghost"><i class="bi bi-building"></i> Factory Settings</a>
                     <a href="/settings.html?view=local-servers" class="btn-outline btn-ghost"><i class="bi bi-hdd-network"></i> Local Servers</a>
@@ -794,7 +794,7 @@
                     <div>
                         <div class="section-eyebrow" style="background: rgba(15, 118, 110, 0.12); color: var(--settings-accent);"><i class="bi bi-building"></i><span>Factory Settings</span></div>
                         <div class="section-title">Create Factory</div>
-                        <div class="section-copy">Register a factory name, short code, and location. This card stays here as the first block in your settings area, and you can keep expanding the screen with more settings later.</div>
+                        <div class="section-copy">Create and maintain factory records with name, code, and location.</div>
                     </div>
                     <button class="btn-outline" id="refreshFactoriesBtn" type="button"><i class="bi bi-arrow-repeat"></i> Refresh</button>
                 </div>
@@ -845,8 +845,8 @@
                 <div class="section-head">
                     <div>
                         <div class="section-eyebrow" style="background: rgba(37, 99, 235, 0.12); color: #1d4ed8;"><i class="bi bi-hdd-network"></i><span>Local Servers</span></div>
-                        <div class="section-title">Create, download, and monitor factory local servers.</div>
-                        <div class="section-copy">Superadmin can create a node and download a ready-to-install setup package for each factory server. Admin and Superadmin can monitor the connected IP, version, last heartbeat, last push, and last pull from this screen.</div>
+                        <div class="section-title">Provision and monitor local servers.</div>
+                        <div class="section-copy">Create node packages, track version status, and monitor sync health.</div>
                     </div>
                     <button class="btn-outline" id="refreshLocalServersBtn" type="button"><i class="bi bi-arrow-repeat"></i> Refresh</button>
                 </div>
@@ -899,8 +899,8 @@
                 <div class="section-head">
                     <div>
                         <div class="section-eyebrow" style="background: rgba(217, 119, 6, 0.12); color: #b45309;"><i class="bi bi-tools"></i><span>Admin Tools</span></div>
-                        <div class="section-title">Backup, restore, and plant shutdown tools live here now.</div>
-                        <div class="section-copy">This is now the single place for admin-level database tools. They are removed from Masters so all critical controls stay under Settings only.</div>
+                        <div class="section-title">Backup, restore, and plant controls.</div>
+                        <div class="section-copy">Critical admin operations are available here in one protected section.</div>
                     </div>
                 </div>
 
@@ -912,17 +912,17 @@
                 <div class="admin-tools-grid">
                     <div class="admin-tool-card">
                         <div class="admin-tool-title">Backup Database</div>
-                        <div class="admin-tool-copy">Download the current system backup from one safe location under Settings.</div>
+                        <div class="admin-tool-copy">Download a fresh database backup.</div>
                         <button class="btn-outline" type="button" onclick="downloadBackup()"><i class="bi bi-download"></i> Backup DB</button>
                     </div>
                     <div class="admin-tool-card">
                         <div class="admin-tool-title">Restore Database</div>
-                        <div class="admin-tool-copy">Upload a SQL or Postgres backup and restore the system from Settings only.</div>
+                        <div class="admin-tool-copy">Upload a SQL or dump file and restore safely.</div>
                         <button class="btn-danger" type="button" onclick="openRestoreModal()"><i class="bi bi-upload"></i> Restore DB</button>
                     </div>
                     <div class="admin-tool-card">
                         <div class="admin-tool-title">Plant Closure</div>
-                        <div class="admin-tool-copy">Open or close plant and line entry windows without going to Masters.</div>
+                        <div class="admin-tool-copy">Control plant and line entry windows.</div>
                         <button class="btn-warm" type="button" onclick="openPlantClosureModal()"><i class="bi bi-lock"></i> Plant Closure</button>
                     </div>
                 </div>
