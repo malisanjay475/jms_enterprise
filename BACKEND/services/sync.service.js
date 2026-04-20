@@ -149,6 +149,11 @@ async function setSyncAuditState(stats = {}) {
     await setServerConfigValue('LAST_SYNC_CYCLE_AT', new Date().toISOString());
 }
 
+async function getDatabaseNowIso() {
+    const result = await pool.query('SELECT NOW() AS ts');
+    return new Date(result.rows[0].ts).toISOString();
+}
+
 function normalizeSyncTimestampInput(value) {
     if (!value) return value;
     const raw = String(value).trim();
@@ -348,7 +353,7 @@ async function runSyncCycle() {
             lastPullTime = new Date();
         }
         cycleStats.pending = await countPendingChanges();
-        await setServerConfigValue('LAST_SYNC', new Date().toISOString());
+        await setServerConfigValue('LAST_SYNC', await getDatabaseNowIso());
         await setSyncAuditState(cycleStats);
     } catch (e) {
         console.error('[Sync] Cycle Failed:', e);
@@ -401,7 +406,7 @@ async function pushChanges() {
         }
     }
 
-    await setServerConfigValue('LAST_PUSH', new Date().toISOString());
+    await setServerConfigValue('LAST_PUSH', await getDatabaseNowIso());
     return stats;
 }
 
@@ -428,7 +433,7 @@ async function pushDeletionChanges() {
         stats.deleted += deletions.length;
     }
 
-    await setServerConfigValue('LAST_DELETE_PUSH', new Date().toISOString());
+    await setServerConfigValue('LAST_DELETE_PUSH', await getDatabaseNowIso());
     return stats;
 }
 
@@ -458,7 +463,7 @@ async function pullChanges() {
         }
     }
 
-    await setServerConfigValue('LAST_PULL', new Date().toISOString());
+    await setServerConfigValue('LAST_PULL', await getDatabaseNowIso());
     return stats;
 }
 
@@ -484,7 +489,7 @@ async function pullDeletionChanges() {
         stats.failed += 1;
     }
 
-    await setServerConfigValue('LAST_DELETE_PULL', new Date().toISOString());
+    await setServerConfigValue('LAST_DELETE_PULL', await getDatabaseNowIso());
     return stats;
 }
 
@@ -528,6 +533,12 @@ async function upsertData(table, data) {
             await client.query('BEGIN');
 
             for (let row of data) {
+                if (table === 'plan_board' && (row.plan_id == null || String(row.plan_id).trim() === '')) {
+                    console.warn('[Sync] Skipping plan_board row with empty plan_id to avoid unstable conflict identity');
+                    stats.failed += 1;
+                    continue;
+                }
+
                 if (TRANSFORMERS[table]) {
                     row = TRANSFORMERS[table](row);
                 }
