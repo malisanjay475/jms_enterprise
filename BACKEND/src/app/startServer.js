@@ -21,6 +21,10 @@ async function startServer() {
     ? await legacyRuntime.initializeLegacyRuntime()
     : {};
 
+  if (services.localServerService?.init) {
+    await services.localServerService.init(pool);
+  }
+
   const server = await new Promise((resolve) => {
     const httpServer = app.listen(config.port, '0.0.0.0', () => resolve(httpServer));
   });
@@ -36,6 +40,9 @@ async function startServer() {
 
   if (legacyHooks.startupLog) legacyHooks.startupLog(server);
   if (legacyHooks.onServerStarted) legacyHooks.onServerStarted(server);
+  if (services.localNodeAgent?.init) {
+    await services.localNodeAgent.init({ pool, config });
+  }
 
   return { app, pool, server, config };
 }

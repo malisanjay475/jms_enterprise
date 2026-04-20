@@ -50,6 +50,7 @@ seed/*.backup
 .env.production.local
 *.env.example
 ! .env.example
+!BACKEND/.env.local-v1.example
 !scripts/github-actions.secrets.env.example
 
 # Backup Files

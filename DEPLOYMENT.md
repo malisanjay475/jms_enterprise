@@ -65,6 +65,21 @@
 - Default manual deploy uses `latest`
 - To roll back, run the workflow manually and provide a previous image tag such as `sha-abc123def456`
 
+## Refresh staging from current live production data
+- Use `.github/workflows/refresh-staging-from-live.yml` when staging data has drifted from the live `jms-enterprise-v1` app on port `9092`.
+- This refresh flow is designed to mirror the isolated live `jms-enterprise-v1` stack into the isolated `jms-enterprise-v1-staging` stack.
+- The refresh job:
+  - backs up the current staging database first
+  - snapshots the live `jms-enterprise-v1` database
+  - restores the live production data into staging
+  - keeps staging-only tables and staging-only columns so the newer staging app still has the structures it expects
+  - verifies `/health` and `/api/health` after the refresh
+- Default live source values:
+  - container: `jms-enterprise-v1-db-1`
+  - user: `jms_v1`
+  - database: `jms_v1`
+- You can override those when manually dispatching the workflow if the live stack changes later.
+
 ## Senior-level workflow
 1. Create a feature branch.
 2. Test locally.
