@@ -633,6 +633,33 @@ function parseDeletionRecordPk(table, recordPk) {
     return null;
 }
 
+async function tryResolveLegacyNotificationConflict(client, row, keys, vals) {
+    if (!row || !Object.prototype.hasOwnProperty.call(row, 'created_at')) return false;
+
+    const setClause = keys.map((key, index) => `${key} = $${index + 1}`).join(', ');
+    const matchOffset = vals.length;
+    const result = await client.query(
+        `
+            UPDATE notifications
+               SET ${setClause}
+             WHERE target_user IS NOT DISTINCT FROM $${matchOffset + 1}
+               AND type IS NOT DISTINCT FROM $${matchOffset + 2}
+               AND title IS NOT DISTINCT FROM $${matchOffset + 3}
+               AND created_at IS NOT DISTINCT FROM $${matchOffset + 4}::timestamptz
+         RETURNING 1
+        `,
+        [
+            ...vals,
+            row.target_user ?? null,
+            row.type ?? null,
+            row.title ?? null,
+            row.created_at ?? null
+        ]
+    );
+
+    return result.rowCount > 0;
+}
+
 async function upsertData(table, data) {
     if (!data.length) return { created: 0, updated: 0, failed: 0 };
 
@@ -697,21 +724,34 @@ async function upsertData(table, data) {
                     } else if (result.rows.length) {
                         stats.updated += 1;
                     }
-                } catch (innerErr) {
-                    try {
-                        await client.query('ROLLBACK TO SAVEPOINT sync_row_upsert');
-                        await client.query('RELEASE SAVEPOINT sync_row_upsert');
-                    } catch (savepointErr) {
+                    } catch (innerErr) {
+                        try {
+                            await client.query('ROLLBACK TO SAVEPOINT sync_row_upsert');
+                            await client.query('RELEASE SAVEPOINT sync_row_upsert');
+                        } catch (savepointErr) {
                         console.error(`[Sync] Savepoint rollback failed for ${table}:`, savepointErr.message);
                         throw savepointErr;
+                        }
+                        if (innerErr.code === '40P01') {
+                            throw innerErr;
+                        }
+
+                        if (table === 'notifications' && innerErr.constraint === 'uq_sync_conflict_notifications') {
+                            try {
+                                const resolved = await tryResolveLegacyNotificationConflict(client, row, keys, vals);
+                                if (resolved) {
+                                    stats.updated += 1;
+                                    continue;
+                                }
+                            } catch (legacyErr) {
+                                console.error('[Sync] Legacy notification conflict fallback failed:', legacyErr.message);
+                            }
+                        }
+
+                        console.error(`[Sync] Row Error in ${table}:`, innerErr.message);
+                        console.error('Failed Row:', JSON.stringify(row));
+                        stats.failed += 1;
                     }
-                    if (innerErr.code === '40P01') {
-                        throw innerErr;
-                    }
-                    console.error(`[Sync] Row Error in ${table}:`, innerErr.message);
-                    console.error('Failed Row:', JSON.stringify(row));
-                    stats.failed += 1;
-                }
             }
 
             await client.query('COMMIT');
