@@ -70,6 +70,7 @@ const CONFLICT_KEYS = {
     users: 'id',
     roles: 'code',
     orders: 'id',
+    plan_board: 'plan_id',
     plan_audit_logs: 'id',
     plan_history: 'id',
     purchase_order_items: 'id',
@@ -146,6 +147,23 @@ async function setSyncAuditState(stats = {}) {
     await setServerConfigValue('LAST_SYNC_FAILED_COUNT', stats.failed || 0);
     await setServerConfigValue('LAST_SYNC_PENDING_COUNT', stats.pending || 0);
     await setServerConfigValue('LAST_SYNC_CYCLE_AT', new Date().toISOString());
+}
+
+async function getDatabaseNowIso() {
+    const result = await pool.query('SELECT NOW() AS ts');
+    return new Date(result.rows[0].ts).toISOString();
+}
+
+function normalizeSyncTimestampInput(value) {
+    if (!value) return value;
+    const raw = String(value).trim();
+    if (!raw) return raw;
+
+    if (/\s\d{2}:\d{2}$/.test(raw) && !/[+-]\d{2}:\d{2}$/.test(raw)) {
+        return raw.replace(/\s(\d{2}:\d{2})$/, '+$1');
+    }
+
+    return raw;
 }
 
 /* ============================================================
@@ -335,7 +353,7 @@ async function runSyncCycle() {
             lastPullTime = new Date();
         }
         cycleStats.pending = await countPendingChanges();
-        await pool.query(`INSERT INTO server_config (key, value) VALUES ('LAST_SYNC', NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+        await setServerConfigValue('LAST_SYNC', await getDatabaseNowIso());
         await setSyncAuditState(cycleStats);
     } catch (e) {
         console.error('[Sync] Cycle Failed:', e);
@@ -388,7 +406,7 @@ async function pushChanges() {
         }
     }
 
-    await pool.query(`INSERT INTO server_config (key, value) VALUES ('LAST_PUSH', NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+    await setServerConfigValue('LAST_PUSH', await getDatabaseNowIso());
     return stats;
 }
 
@@ -415,7 +433,7 @@ async function pushDeletionChanges() {
         stats.deleted += deletions.length;
     }
 
-    await pool.query(`INSERT INTO server_config (key, value) VALUES ('LAST_DELETE_PUSH', NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+    await setServerConfigValue('LAST_DELETE_PUSH', await getDatabaseNowIso());
     return stats;
 }
 
@@ -445,7 +463,7 @@ async function pullChanges() {
         }
     }
 
-    await pool.query(`INSERT INTO server_config (key, value) VALUES ('LAST_PULL', NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+    await setServerConfigValue('LAST_PULL', await getDatabaseNowIso());
     return stats;
 }
 
@@ -471,7 +489,7 @@ async function pullDeletionChanges() {
         stats.failed += 1;
     }
 
-    await pool.query(`INSERT INTO server_config (key, value) VALUES ('LAST_DELETE_PULL', NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+    await setServerConfigValue('LAST_DELETE_PULL', await getDatabaseNowIso());
     return stats;
 }
 
@@ -515,6 +533,12 @@ async function upsertData(table, data) {
             await client.query('BEGIN');
 
             for (let row of data) {
+                if (table === 'plan_board' && (row.plan_id == null || String(row.plan_id).trim() === '')) {
+                    console.warn('[Sync] Skipping plan_board row with empty plan_id to avoid unstable conflict identity');
+                    stats.failed += 1;
+                    continue;
+                }
+
                 if (TRANSFORMERS[table]) {
                     row = TRANSFORMERS[table](row);
                 }
@@ -586,9 +610,10 @@ async function getChanges(table, since, targetFactoryId) {
     let sql = `SELECT * FROM ${table}`;
     const params = [];
     const where = [];
+    const normalizedSince = normalizeSyncTimestampInput(since);
 
-    if (since) {
-        params.push(since);
+    if (normalizedSince) {
+        params.push(normalizedSince);
         where.push(`updated_at > $${params.length}`);
     }
 
@@ -611,9 +636,9 @@ async function getChanges(table, since, targetFactoryId) {
             if (targetFactoryId) params.pop();
 
             let fallbackSql = `SELECT * FROM ${table}`;
-            if (since) fallbackSql += ' WHERE updated_at > $1';
+            if (normalizedSince) fallbackSql += ' WHERE updated_at > $1';
             fallbackSql += ' LIMIT 1000';
-            const fallback = await pool.query(fallbackSql, since ? [since] : []);
+            const fallback = await pool.query(fallbackSql, normalizedSince ? [normalizedSince] : []);
             return fallback.rows;
         }
         throw e;
@@ -623,9 +648,10 @@ async function getChanges(table, since, targetFactoryId) {
 async function getDeletionChanges(since, targetFactoryId) {
     const params = [];
     const where = [];
+    const normalizedSince = normalizeSyncTimestampInput(since);
 
-    if (since) {
-        params.push(since);
+    if (normalizedSince) {
+        params.push(normalizedSince);
         where.push(`deleted_at > $${params.length}`);
     }
 
