@@ -80,7 +80,19 @@ async function getServerConfigMap(pool) {
       'LAST_PULL',
       'SERVER_TYPE',
       'MAIN_SERVER_URL',
-      'LOCAL_FACTORY_ID'
+      'LOCAL_FACTORY_ID',
+      'LOCAL_UPDATE_CURRENT_RELEASE',
+      'LOCAL_UPDATE_TARGET_RELEASE',
+      'LOCAL_UPDATE_PENDING',
+      'LOCAL_UPDATE_LAST_SUCCESS_AT',
+      'LOCAL_UPDATE_LAST_FAILURE_REASON',
+      'LOCAL_UPDATE_LAST_CHECK_AT',
+      'LAST_SYNC_CREATED_COUNT',
+      'LAST_SYNC_UPDATED_COUNT',
+      'LAST_SYNC_DELETED_COUNT',
+      'LAST_SYNC_FAILED_COUNT',
+      'LAST_SYNC_PENDING_COUNT',
+      'LAST_SYNC_CYCLE_AT'
     ]]
   );
 
@@ -88,6 +100,11 @@ async function getServerConfigMap(pool) {
     acc[row.key] = row.value;
     return acc;
   }, {});
+}
+
+function parseInteger(value, fallback = 0) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  return Number.isInteger(parsed) ? parsed : fallback;
 }
 
 function pickFirst(...values) {
@@ -129,14 +146,30 @@ function buildAgentConfig(config, serverConfig) {
   };
 }
 
-function buildLocalMetadata(config, agentConfig) {
+function buildLocalMetadata(config, agentConfig, serverConfig = {}) {
   return {
     hostname: os.hostname(),
     serverType: agentConfig.serverType || config.serverType || '',
     localFactoryId: agentConfig.localFactoryId,
     databaseName: config.db?.database || null,
     nodeEnv: config.nodeEnv,
-    appVersion: packageJson.version || null
+    appVersion: packageJson.version || null,
+    autoUpdate: {
+      currentRelease: serverConfig.LOCAL_UPDATE_CURRENT_RELEASE || null,
+      targetRelease: serverConfig.LOCAL_UPDATE_TARGET_RELEASE || null,
+      updatePending: normalizeBool(serverConfig.LOCAL_UPDATE_PENDING) === true,
+      lastSuccessfulAutoUpdateAt: serverConfig.LOCAL_UPDATE_LAST_SUCCESS_AT || null,
+      failedUpdateReason: serverConfig.LOCAL_UPDATE_LAST_FAILURE_REASON || null,
+      lastCheckedAt: serverConfig.LOCAL_UPDATE_LAST_CHECK_AT || null
+    },
+    syncAudit: {
+      created: parseInteger(serverConfig.LAST_SYNC_CREATED_COUNT, 0),
+      updated: parseInteger(serverConfig.LAST_SYNC_UPDATED_COUNT, 0),
+      deleted: parseInteger(serverConfig.LAST_SYNC_DELETED_COUNT, 0),
+      failed: parseInteger(serverConfig.LAST_SYNC_FAILED_COUNT, 0),
+      pending: parseInteger(serverConfig.LAST_SYNC_PENDING_COUNT, 0),
+      lastCycleAt: serverConfig.LAST_SYNC_CYCLE_AT || serverConfig.LAST_SYNC || null
+    }
   };
 }
 
@@ -150,14 +183,19 @@ async function getSyncStatus(pool) {
 }
 
 async function registerNode(pool, config, agentConfig) {
-  const syncStatus = await getSyncStatus(pool);
+  const serverConfig = await getServerConfigMap(pool);
+  const syncStatus = {
+    lastSyncAt: serverConfig.LAST_SYNC || null,
+    lastPushAt: serverConfig.LAST_PUSH || null,
+    lastPullAt: serverConfig.LAST_PULL || null
+  };
   const payload = {
     localIp: getPrimaryLanIp(),
     publicIp: agentConfig.publicIp,
     currentVersion: packageJson.version || '',
     lastSeenCommit: config.appGitSha || '',
     metadata: {
-      ...buildLocalMetadata(config, agentConfig),
+      ...buildLocalMetadata(config, agentConfig, serverConfig),
       lastSyncAt: syncStatus.lastSyncAt
     }
   };
@@ -189,7 +227,12 @@ async function registerNode(pool, config, agentConfig) {
 }
 
 async function sendHeartbeat(pool, config, agentConfig) {
-  const syncStatus = await getSyncStatus(pool);
+  const serverConfig = await getServerConfigMap(pool);
+  const syncStatus = {
+    lastSyncAt: serverConfig.LAST_SYNC || null,
+    lastPushAt: serverConfig.LAST_PUSH || null,
+    lastPullAt: serverConfig.LAST_PULL || null
+  };
   await fetchJson(
     buildUrl(agentConfig.mainServerUrl, `/api/local-servers/${agentConfig.nodeId}/heartbeat`),
     {
@@ -208,7 +251,7 @@ async function sendHeartbeat(pool, config, agentConfig) {
         lastPullAt: syncStatus.lastPullAt,
         syncStatus: 'connected',
         metadata: {
-          ...buildLocalMetadata(config, agentConfig),
+          ...buildLocalMetadata(config, agentConfig, serverConfig),
           lastSyncAt: syncStatus.lastSyncAt
         }
       })
@@ -217,7 +260,12 @@ async function sendHeartbeat(pool, config, agentConfig) {
 }
 
 async function sendSyncStatus(pool, config, agentConfig) {
-  const syncStatus = await getSyncStatus(pool);
+  const serverConfig = await getServerConfigMap(pool);
+  const syncStatus = {
+    lastSyncAt: serverConfig.LAST_SYNC || null,
+    lastPushAt: serverConfig.LAST_PUSH || null,
+    lastPullAt: serverConfig.LAST_PULL || null
+  };
   await fetchJson(
     buildUrl(agentConfig.mainServerUrl, `/api/local-servers/${agentConfig.nodeId}/sync-status`),
     {
@@ -236,7 +284,7 @@ async function sendSyncStatus(pool, config, agentConfig) {
         lastPullAt: syncStatus.lastPullAt,
         syncStatus: syncStatus.lastPushAt || syncStatus.lastPullAt ? 'active' : 'waiting_initial_sync',
         metadata: {
-          ...buildLocalMetadata(config, agentConfig),
+          ...buildLocalMetadata(config, agentConfig, serverConfig),
           lastSyncAt: syncStatus.lastSyncAt
         }
       })

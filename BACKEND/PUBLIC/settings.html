@@ -401,6 +401,19 @@
             gap: 14px;
         }
 
+        .local-server-section {
+            display: grid;
+            gap: 10px;
+        }
+
+        .local-server-section-title {
+            font-size: 0.82rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #4f5f79;
+        }
+
         .local-server-title {
             font-size: 1rem;
             font-weight: 800;
@@ -430,11 +443,20 @@
             grid-template-columns: repeat(4, minmax(0, 1fr));
         }
 
+        .local-server-stats.audit {
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+
         .local-stat {
             border-radius: 14px;
             padding: 10px 12px;
             background: #fff;
             border: 1px solid #e2e8f0;
+        }
+
+        .local-stat.emphasis {
+            background: linear-gradient(180deg, #ffffff, #f2fbf8);
+            border-color: rgba(15, 118, 110, 0.2);
         }
 
         .local-stat-label {
@@ -465,6 +487,16 @@
         .status-pill.degraded {
             background: rgba(217, 119, 6, 0.14);
             color: #b45309;
+        }
+
+        .status-pill.pending {
+            background: rgba(37, 99, 235, 0.12);
+            color: #1d4ed8;
+        }
+
+        .status-pill.failed {
+            background: rgba(185, 28, 28, 0.12);
+            color: #b91c1c;
         }
 
         .code-chip {
@@ -678,6 +710,10 @@
             .local-server-stats.main {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
+
+            .local-server-stats.audit {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
         }
 
         @media (max-width: 720px) {
@@ -708,7 +744,8 @@
             }
 
             .local-server-summary-grid,
-            .local-server-stats.main {
+            .local-server-stats.main,
+            .local-server-stats.audit {
                 grid-template-columns: 1fr;
             }
         }
@@ -1088,6 +1125,8 @@
                     const statusLabel = isConnected ? 'Online' : (server.status || (active ? 'Offline' : 'Inactive'));
                     const currentVersion = escapeHtml(server.currentVersion || '-');
                     const targetVersion = escapeHtml(server.targetVersion || '-');
+                    const currentRelease = escapeHtml(server.currentRelease || server.currentVersion || '-');
+                    const targetRelease = escapeHtml(server.targetRelease || server.targetVersion || server.currentRelease || '-');
                     const lastCommit = escapeHtml(server.lastSeenCommit || '-');
                     const localIp = escapeHtml(server.localIp || '-');
                     const publicIp = escapeHtml(server.publicIp || '-');
@@ -1097,7 +1136,21 @@
                     const lastHeartbeat = formatDateTime(server.lastHeartbeatAt);
                     const lastPush = formatDateTime(server.lastPushAt);
                     const lastPull = formatDateTime(server.lastPullAt);
+                    const lastSuccessAutoUpdate = formatDateTime(server.lastSuccessfulAutoUpdateAt);
+                    const lastUpdateCheck = formatDateTime(server.lastUpdateCheckAt);
+                    const failedUpdateReason = escapeHtml(server.failedUpdateReason || server.lastError || '-');
+                    const syncAudit = server.syncAudit || {};
+                    const syncCreated = escapeHtml(String(syncAudit.created ?? 0));
+                    const syncUpdated = escapeHtml(String(syncAudit.updated ?? 0));
+                    const syncDeleted = escapeHtml(String(syncAudit.deleted ?? 0));
+                    const syncFailed = escapeHtml(String(syncAudit.failed ?? 0));
+                    const syncPending = escapeHtml(String(syncAudit.pending ?? 0));
+                    const syncCycleAt = formatDateTime(syncAudit.lastCycleAt);
                     const canManage = isSuperadmin(currentUser);
+                    const updatePending = server.updatePending === true;
+                    const hasUpdateFailure = !!(server.failedUpdateReason || server.lastError);
+                    const updateStatusClass = hasUpdateFailure ? 'failed' : (updatePending ? 'pending' : 'online');
+                    const updateStatusLabel = hasUpdateFailure ? 'Update Failed' : (updatePending ? 'Update Pending' : 'Up to Date');
 
                     return `
                         <div class="local-server-row">
@@ -1107,6 +1160,7 @@
                                         <div class="local-server-title">${nodeName}</div>
                                         <div class="code-chip"><i class="bi bi-upc-scan"></i>${nodeCode}</div>
                                         <div class="status-pill ${statusClass}">${escapeHtml(statusLabel)}</div>
+                                        <div class="status-pill ${updateStatusClass}">${escapeHtml(updateStatusLabel)}</div>
                                     </div>
                                     <div class="local-server-summary-grid">
                                         <div class="local-stat">
@@ -1140,26 +1194,87 @@
                                 </div>
                             </div>
                             <div class="local-server-body">
-                                <div class="local-server-stats main">
-                                    <div class="local-stat">
-                                        <div class="local-stat-label">Local IP</div>
-                                        <div class="local-stat-value">${localIp}</div>
+                                <div class="local-server-section">
+                                    <div class="local-server-section-title">Network & Runtime</div>
+                                    <div class="local-server-stats main">
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Local IP</div>
+                                            <div class="local-stat-value">${localIp}</div>
+                                        </div>
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Public IP</div>
+                                            <div class="local-stat-value">${publicIp}</div>
+                                        </div>
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Current Version</div>
+                                            <div class="local-stat-value">${currentVersion}</div>
+                                        </div>
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Target Version</div>
+                                            <div class="local-stat-value">${targetVersion}</div>
+                                        </div>
+                                        <div class="local-stat" style="grid-column:1 / -1;">
+                                            <div class="local-stat-label">Last Seen Commit</div>
+                                            <div class="local-stat-value">${lastCommit}</div>
+                                        </div>
                                     </div>
-                                    <div class="local-stat">
-                                        <div class="local-stat-label">Public IP</div>
-                                        <div class="local-stat-value">${publicIp}</div>
+                                </div>
+                                <div class="local-server-section">
+                                    <div class="local-server-section-title">Auto Update</div>
+                                    <div class="local-server-stats main">
+                                        <div class="local-stat emphasis">
+                                            <div class="local-stat-label">Current Release</div>
+                                            <div class="local-stat-value">${currentRelease}</div>
+                                        </div>
+                                        <div class="local-stat emphasis">
+                                            <div class="local-stat-label">Target Release</div>
+                                            <div class="local-stat-value">${targetRelease}</div>
+                                        </div>
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Update Pending</div>
+                                            <div class="local-stat-value">${updatePending ? 'Yes' : 'No'}</div>
+                                        </div>
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Last Checked</div>
+                                            <div class="local-stat-value">${lastUpdateCheck}</div>
+                                        </div>
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Last Successful Auto-Update</div>
+                                            <div class="local-stat-value">${lastSuccessAutoUpdate}</div>
+                                        </div>
+                                        <div class="local-stat" style="grid-column: span 3;">
+                                            <div class="local-stat-label">Failed Update Reason</div>
+                                            <div class="local-stat-value">${failedUpdateReason}</div>
+                                        </div>
                                     </div>
-                                    <div class="local-stat">
-                                        <div class="local-stat-label">Current Version</div>
-                                        <div class="local-stat-value">${currentVersion}</div>
-                                    </div>
-                                    <div class="local-stat">
-                                        <div class="local-stat-label">Target Version</div>
-                                        <div class="local-stat-value">${targetVersion}</div>
-                                    </div>
-                                    <div class="local-stat" style="grid-column:1 / -1;">
-                                        <div class="local-stat-label">Last Seen Commit</div>
-                                        <div class="local-stat-value">${lastCommit}</div>
+                                </div>
+                                <div class="local-server-section">
+                                    <div class="local-server-section-title">Last Sync Audit</div>
+                                    <div class="local-server-stats audit">
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Created</div>
+                                            <div class="local-stat-value">${syncCreated}</div>
+                                        </div>
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Updated</div>
+                                            <div class="local-stat-value">${syncUpdated}</div>
+                                        </div>
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Deleted</div>
+                                            <div class="local-stat-value">${syncDeleted}</div>
+                                        </div>
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Failed</div>
+                                            <div class="local-stat-value">${syncFailed}</div>
+                                        </div>
+                                        <div class="local-stat">
+                                            <div class="local-stat-label">Pending</div>
+                                            <div class="local-stat-value">${syncPending}</div>
+                                        </div>
+                                        <div class="local-stat" style="grid-column:1 / -1;">
+                                            <div class="local-stat-label">Last Sync Audit Cycle</div>
+                                            <div class="local-stat-value">${syncCycleAt}</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
