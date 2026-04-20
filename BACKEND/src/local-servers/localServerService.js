@@ -70,6 +70,21 @@ function normalizeMetadata(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function parseBoolean(value) {
+  if (value === true || value === false) return value;
+  const normalized = String(value || '').trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return false;
+}
+
+function buildReleaseLabel(version, commit) {
+  const cleanVersion = String(version || '').trim();
+  const cleanCommit = String(commit || '').trim();
+  if (cleanVersion && cleanCommit) return `${cleanVersion}+${cleanCommit.slice(0, 12)}`;
+  return cleanVersion || cleanCommit || null;
+}
+
 async function getActor(req) {
   const username = getRequestUsername(req);
   if (!username) return null;
@@ -249,6 +264,13 @@ async function authenticateNode(req, localServerId) {
 }
 
 function buildLocalServerRow(row) {
+  const metadata = normalizeMetadata(row.metadata);
+  const autoUpdate = normalizeMetadata(metadata.autoUpdate);
+  const syncAudit = normalizeMetadata(metadata.syncAudit);
+  const currentRelease = buildReleaseLabel(row.current_version, row.last_seen_commit) || autoUpdate.currentRelease || null;
+  const targetRelease = String(autoUpdate.targetRelease || row.target_version || '').trim() || null;
+  const updatePending = parseBoolean(autoUpdate.updatePending) || (!!targetRelease && targetRelease !== currentRelease);
+
   return {
     id: row.id,
     factoryId: row.factory_id,
@@ -265,13 +287,27 @@ function buildLocalServerRow(row) {
     lastPushAt: row.last_push_at,
     lastPullAt: row.last_pull_at,
     currentVersion: row.current_version,
+    currentRelease,
     targetVersion: row.target_version,
+    targetRelease,
+    updatePending,
+    lastSuccessfulAutoUpdateAt: parseOptionalTimestamp(autoUpdate.lastSuccessfulAutoUpdateAt),
+    failedUpdateReason: String(autoUpdate.failedUpdateReason || '').trim() || null,
+    lastUpdateCheckAt: parseOptionalTimestamp(autoUpdate.lastCheckedAt),
     lastSeenCommit: row.last_seen_commit,
     lastError: row.last_error,
     lastSyncStatus: row.last_sync_status,
+    syncAudit: {
+      created: Number.parseInt(String(syncAudit.created || '0'), 10) || 0,
+      updated: Number.parseInt(String(syncAudit.updated || '0'), 10) || 0,
+      deleted: Number.parseInt(String(syncAudit.deleted || '0'), 10) || 0,
+      failed: Number.parseInt(String(syncAudit.failed || '0'), 10) || 0,
+      pending: Number.parseInt(String(syncAudit.pending || '0'), 10) || 0,
+      lastCycleAt: parseOptionalTimestamp(syncAudit.lastCycleAt)
+    },
     isActive: row.is_active,
     isConnected: !!row.is_connected,
-    metadata: row.metadata || {},
+    metadata,
     createdBy: row.created_by,
     updatedBy: row.updated_by,
     createdAt: row.created_at,
