@@ -42,6 +42,9 @@
   --motion-duration-slow: 760ms;
   --motion-ease-premium: cubic-bezier(0.22, 1, 0.36, 1);
   --motion-sheen: linear-gradient(115deg, transparent 24%, rgba(255, 255, 255, 0.68) 48%, transparent 72%);
+  --layout-max-width: 100%;
+  --layout-page-padding: clamp(14px, 1.8vw, 24px);
+  --layout-section-gap: clamp(12px, 1.4vw, 20px);
 }
 
 * {
@@ -527,8 +530,8 @@ body {
 .main-content {
   flex: 1;
   overflow-y: auto;
-  padding: 32px;
-  max-width: 1600px;
+  padding: var(--layout-page-padding);
+  max-width: var(--layout-max-width);
   margin: 0 auto;
   width: 100%;
   position: relative;
@@ -572,8 +575,8 @@ body.viewport-compact .user-profile {
 }
 
 body.viewport-compact .main-content {
-  padding: 24px;
-  max-width: 1520px;
+  padding: clamp(12px, 1.4vw, 18px);
+  max-width: var(--layout-max-width);
 }
 
 body.viewport-compact .header {
@@ -631,7 +634,7 @@ body.viewport-compact .dataTables_wrapper .dt-layout-row {
 }
 
 body.viewport-tight .main-content {
-  padding: 18px;
+  padding: 12px;
 }
 
 body.viewport-tight .header {
@@ -685,13 +688,13 @@ body.viewport-short .header {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  margin-bottom: 32px;
+  margin-bottom: var(--layout-section-gap);
   border-bottom: 1px solid var(--border);
-  padding-bottom: 20px;
+  padding-bottom: 12px;
 }
 
 .page-title {
-  font-size: 1.75rem;
+  font-size: clamp(1.3rem, 1.2rem + 0.9vw, 1.7rem);
   font-weight: 800;
   letter-spacing: -0.8px;
   color: var(--text-main);
@@ -702,9 +705,9 @@ body.viewport-short .header {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 24px;
+  padding: clamp(14px, 1.5vw, 20px);
   box-shadow: var(--shadow-sm);
-  margin-bottom: 24px;
+  margin-bottom: var(--layout-section-gap);
   transition:
     transform var(--motion-duration-base) var(--motion-ease-premium),
     box-shadow var(--motion-duration-base) var(--motion-ease-premium),
@@ -748,7 +751,7 @@ table {
 
 th,
 td {
-  padding: 14px 16px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   text-align: left;
 }
@@ -772,7 +775,7 @@ tr:hover td {
 
 /* Forms */
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 }
 
 .form-label {
@@ -785,7 +788,7 @@ tr:hover td {
 
 .form-control {
   width: 100%;
-  padding: 10px 14px;
+  padding: 9px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 0.95rem;
@@ -811,7 +814,7 @@ tr:hover td {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 20px;
+  padding: 9px 16px;
   border-radius: 10px;
   font-weight: 600;
   font-size: 0.9rem;
