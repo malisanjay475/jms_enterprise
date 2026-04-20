@@ -23,7 +23,8 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/jms-v1-app
 
 jobs:
-  validate-backend:
+  production_validate_backend:
+    name: production-validate-backend
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -87,7 +88,7 @@ jobs:
 
   publish-image:
     runs-on: ubuntu-latest
-    needs: validate-backend
+    needs: production_validate_backend
     outputs:
       image_ref: ${{ steps.meta.outputs.image_ref }}
       image_tag: ${{ steps.meta.outputs.image_tag }}
@@ -209,6 +210,7 @@ jobs:
           MAIN_SERVER_URL: ${{ secrets.MAIN_SERVER_URL }}
           LOCAL_FACTORY_ID: ${{ secrets.LOCAL_FACTORY_ID }}
           SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
+          DB_BACKUP_BEFORE_DEPLOY: ${{ secrets.DB_BACKUP_BEFORE_DEPLOY || '1' }}
           GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
           GHCR_USERNAME: ${{ github.repository_owner }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -219,7 +221,7 @@ jobs:
           port: 22
           command_timeout: 45m
           script_stop: true
-          envs: DEPLOY_PATH,DEPLOY_BRANCH,DEPLOY_PROJECT,DEPLOY_COMPOSE_FILE,DEPLOY_ENVIRONMENT,DEPLOY_GIT_SHA,APP_IMAGE,DB_USER,DB_PASSWORD,DB_NAME,V1_HTTP_PORT,GEMINI_API_KEY,SERVER_TYPE,MAIN_SERVER_URL,LOCAL_FACTORY_ID,SYNC_API_KEY,GHCR_PULL_TOKEN,GHCR_USERNAME,GITHUB_REPOSITORY
+          envs: DEPLOY_PATH,DEPLOY_BRANCH,DEPLOY_PROJECT,DEPLOY_COMPOSE_FILE,DEPLOY_ENVIRONMENT,DEPLOY_GIT_SHA,APP_IMAGE,DB_USER,DB_PASSWORD,DB_NAME,V1_HTTP_PORT,GEMINI_API_KEY,SERVER_TYPE,MAIN_SERVER_URL,LOCAL_FACTORY_ID,SYNC_API_KEY,DB_BACKUP_BEFORE_DEPLOY,GHCR_PULL_TOKEN,GHCR_USERNAME,GITHUB_REPOSITORY
           script: |
             set -eo pipefail
             mkdir -p "$DEPLOY_PATH"
@@ -252,6 +254,7 @@ jobs:
           MAIN_SERVER_URL: ${{ secrets.MAIN_SERVER_URL }}
           LOCAL_FACTORY_ID: ${{ secrets.LOCAL_FACTORY_ID }}
           SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
+          DB_BACKUP_BEFORE_DEPLOY: ${{ secrets.DB_BACKUP_BEFORE_DEPLOY || '1' }}
           GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
           GHCR_USERNAME: ${{ github.repository_owner }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -263,7 +266,7 @@ jobs:
           port: 22
           command_timeout: 45m
           script_stop: true
-          envs: DEPLOY_PATH,DEPLOY_BRANCH,DEPLOY_PROJECT,DEPLOY_COMPOSE_FILE,DEPLOY_ENVIRONMENT,DEPLOY_GIT_SHA,APP_IMAGE,DB_USER,DB_PASSWORD,DB_NAME,V1_HTTP_PORT,GEMINI_API_KEY,SERVER_TYPE,MAIN_SERVER_URL,LOCAL_FACTORY_ID,SYNC_API_KEY,GHCR_PULL_TOKEN,GHCR_USERNAME,GITHUB_REPOSITORY
+          envs: DEPLOY_PATH,DEPLOY_BRANCH,DEPLOY_PROJECT,DEPLOY_COMPOSE_FILE,DEPLOY_ENVIRONMENT,DEPLOY_GIT_SHA,APP_IMAGE,DB_USER,DB_PASSWORD,DB_NAME,V1_HTTP_PORT,GEMINI_API_KEY,SERVER_TYPE,MAIN_SERVER_URL,LOCAL_FACTORY_ID,SYNC_API_KEY,DB_BACKUP_BEFORE_DEPLOY,GHCR_PULL_TOKEN,GHCR_USERNAME,GITHUB_REPOSITORY
           script: |
             set -eo pipefail
             mkdir -p "$DEPLOY_PATH"
