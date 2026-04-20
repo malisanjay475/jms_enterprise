@@ -114,7 +114,7 @@ const CONFLICT_KEYS = {
     shift_teams: 'line, shift_date, shift',
     closed_plants: 'factory_id, dpr_date, plant, shift',
     machine_audit_logs: 'sync_id',
-    notifications: 'target_user, type, title, created_at',
+    notifications: 'sync_id',
     order_completion_history: 'factory_id, order_no, action_type, changed_at',
     raw_material_issues: 'factory_id, plan_id, created_at',
     wip_stock_movements: 'factory_id, source_type, source_ref, movement_type, created_at',
@@ -133,7 +133,6 @@ const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
 
 const SYNC_CONFLICT_INDEXES = {
     closed_plants: 'factory_id, dpr_date, plant, shift',
-    notifications: 'target_user, type, title, created_at',
     order_completion_history: 'factory_id, order_no, action_type, changed_at',
     raw_material_issues: 'factory_id, plan_id, created_at',
     shift_teams: 'line, shift_date, shift',
@@ -141,6 +140,8 @@ const SYNC_CONFLICT_INDEXES = {
     wip_stock_snapshots: 'factory_id, stock_date, source_file_name',
     wip_stock_snapshot_lines: 'factory_id, stock_date, comparison_key'
 };
+
+const SYNC_ID_REQUIRED_TABLES = ['notifications'];
 
 const TRANSFORMERS = {
     vendors: (row) => {
@@ -327,6 +328,7 @@ async function init(dbPool) {
     pool = dbPool;
     try {
         await ensureSyncUpdatedAtSchema();
+        await ensureSyncIdSchema();
         await ensureSyncConflictIndexes();
         await ensureDeleteTrackingSchema();
 
@@ -978,6 +980,27 @@ async function ensureSyncUpdatedAtSchema() {
     }
 
     console.log('[Sync] updated_at tracking ready');
+}
+
+async function ensureSyncIdSchema() {
+    await pool.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
+
+    for (const table of SYNC_ID_REQUIRED_TABLES) {
+        try {
+            const hasSyncId = await tableHasColumn(table, 'sync_id');
+            if (!hasSyncId) {
+                await pool.query(`ALTER TABLE ${table} ADD COLUMN sync_id UUID`);
+            }
+
+            await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
+            await pool.query(`ALTER TABLE ${table} ALTER COLUMN sync_id SET DEFAULT gen_random_uuid()`);
+            await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_sync_id_${table} ON ${table} (sync_id)`);
+        } catch (e) {
+            console.warn(`[Sync] sync_id schema skipped for ${table}:`, e.message);
+        }
+    }
+
+    console.log('[Sync] sync_id schema ready');
 }
 
 async function ensureSyncConflictIndexes() {
