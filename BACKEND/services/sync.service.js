@@ -113,7 +113,7 @@ const CONFLICT_KEYS = {
     grinding_logs: 'id',
     shift_teams: 'line, shift_date, shift',
     closed_plants: 'factory_id, dpr_date, plant, shift',
-    machine_audit_logs: 'factory_id, machine_id, action_type, changed_at',
+    machine_audit_logs: 'sync_id',
     notifications: 'target_user, type, title, created_at',
     order_completion_history: 'factory_id, order_no, action_type, changed_at',
     raw_material_issues: 'factory_id, plan_id, created_at',
@@ -129,6 +129,17 @@ const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
     order_completion_history: 'changed_at',
     raw_material_issues: 'created_at',
     wip_stock_movements: 'created_at'
+};
+
+const SYNC_CONFLICT_INDEXES = {
+    closed_plants: 'factory_id, dpr_date, plant, shift',
+    notifications: 'target_user, type, title, created_at',
+    order_completion_history: 'factory_id, order_no, action_type, changed_at',
+    raw_material_issues: 'factory_id, plan_id, created_at',
+    shift_teams: 'line, shift_date, shift',
+    wip_stock_movements: 'factory_id, source_type, source_ref, movement_type, created_at',
+    wip_stock_snapshots: 'factory_id, stock_date, source_file_name',
+    wip_stock_snapshot_lines: 'factory_id, stock_date, comparison_key'
 };
 
 const TRANSFORMERS = {
@@ -221,8 +232,11 @@ router.post('/push', async (req, res) => {
             }
         });
 
-        await upsertData(table, normalized);
-        res.json({ ok: true, rows: normalized.length });
+        const stats = await upsertData(table, normalized);
+        if (stats.failed > 0) {
+            return res.status(500).json({ error: `Failed to upsert ${stats.failed} row(s) for ${table}`, stats });
+        }
+        res.json({ ok: true, rows: normalized.length, stats });
     } catch (e) {
         console.error('[Sync] Push Receive Error:', e);
         res.status(500).json({ error: e.message });
@@ -237,8 +251,11 @@ router.post('/push-deletions', async (req, res) => {
         if (!Array.isArray(deletions)) return res.status(400).json({ error: 'Invalid deletions payload' });
 
         const normalized = deletions.filter((entry) => entry && TABLES_TO_PUSH.includes(entry.table));
-        await applyRemoteDeletions(normalized);
-        res.json({ ok: true, rows: normalized.length });
+        const stats = await applyRemoteDeletions(normalized);
+        if (stats.failed > 0) {
+            return res.status(500).json({ error: `Failed to apply ${stats.failed} deletion(s)`, stats });
+        }
+        res.json({ ok: true, rows: normalized.length, stats });
     } catch (e) {
         console.error('[Sync] Push Deletions Error:', e);
         res.status(500).json({ error: e.message });
@@ -310,6 +327,7 @@ async function init(dbPool) {
     pool = dbPool;
     try {
         await ensureSyncUpdatedAtSchema();
+        await ensureSyncConflictIndexes();
         await ensureDeleteTrackingSchema();
 
         const res = await pool.query('SELECT key, value FROM server_config');
@@ -409,6 +427,7 @@ async function pushChanges() {
     const stats = { pushed: 0, failed: 0 };
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_PUSH'`);
     const lastPush = res.rows.length ? res.rows[0].value : '1970-01-01';
+    const cycleWatermark = await getDatabaseNowIso();
 
     for (const table of TABLES_TO_PUSH) {
         let rows;
@@ -459,7 +478,11 @@ async function pushChanges() {
         }
     }
 
-    await setServerConfigValue('LAST_PUSH', await getDatabaseNowIso());
+    if (stats.failed === 0) {
+        await setServerConfigValue('LAST_PUSH', cycleWatermark);
+    } else {
+        console.warn('[Sync] LAST_PUSH not advanced because one or more table pushes failed.');
+    }
     return stats;
 }
 
@@ -467,6 +490,7 @@ async function pushDeletionChanges() {
     const stats = { deleted: 0, failed: 0 };
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_DELETE_PUSH'`);
     const lastPush = res.rows.length ? res.rows[0].value : '1970-01-01';
+    const cycleWatermark = await getDatabaseNowIso();
     const deletions = await getDeletionChanges(lastPush, LOCAL_FACTORY_ID);
 
     if (deletions.length > 0) {
@@ -486,7 +510,11 @@ async function pushDeletionChanges() {
         stats.deleted += deletions.length;
     }
 
-    await setServerConfigValue('LAST_DELETE_PUSH', await getDatabaseNowIso());
+    if (stats.failed === 0) {
+        await setServerConfigValue('LAST_DELETE_PUSH', cycleWatermark);
+    } else {
+        console.warn('[Sync] LAST_DELETE_PUSH not advanced because one or more deletion pushes failed.');
+    }
     return stats;
 }
 
@@ -494,6 +522,7 @@ async function pullChanges() {
     const stats = { created: 0, updated: 0, failed: 0 };
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_PULL'`);
     const lastPull = res.rows.length ? res.rows[0].value : '1970-01-01';
+    const cycleWatermark = await getDatabaseNowIso();
 
     for (const table of TABLES_TO_PULL) {
         try {
@@ -516,7 +545,11 @@ async function pullChanges() {
         }
     }
 
-    await setServerConfigValue('LAST_PULL', await getDatabaseNowIso());
+    if (stats.failed === 0) {
+        await setServerConfigValue('LAST_PULL', cycleWatermark);
+    } else {
+        console.warn('[Sync] LAST_PULL not advanced because one or more table pulls failed.');
+    }
     return stats;
 }
 
@@ -524,6 +557,7 @@ async function pullDeletionChanges() {
     const stats = { deleted: 0, failed: 0 };
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_DELETE_PULL'`);
     const lastPull = res.rows.length ? res.rows[0].value : '1970-01-01';
+    const cycleWatermark = await getDatabaseNowIso();
 
     try {
         const response = await fetch(`${MAIN_SERVER_URL}/api/sync/pull-deletions?since=${encodeURIComponent(lastPull)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`);
@@ -542,7 +576,11 @@ async function pullDeletionChanges() {
         stats.failed += 1;
     }
 
-    await setServerConfigValue('LAST_DELETE_PULL', await getDatabaseNowIso());
+    if (stats.failed === 0) {
+        await setServerConfigValue('LAST_DELETE_PULL', cycleWatermark);
+    } else {
+        console.warn('[Sync] LAST_DELETE_PULL not advanced because one or more deletion pulls failed.');
+    }
     return stats;
 }
 
@@ -624,13 +662,22 @@ async function upsertData(table, data) {
                 `;
 
                 try {
+                    await client.query('SAVEPOINT sync_row_upsert');
                     const result = await client.query(sql, vals);
+                    await client.query('RELEASE SAVEPOINT sync_row_upsert');
                     if (result.rows.length && result.rows[0].inserted === true) {
                         stats.created += 1;
                     } else if (result.rows.length) {
                         stats.updated += 1;
                     }
                 } catch (innerErr) {
+                    try {
+                        await client.query('ROLLBACK TO SAVEPOINT sync_row_upsert');
+                        await client.query('RELEASE SAVEPOINT sync_row_upsert');
+                    } catch (savepointErr) {
+                        console.error(`[Sync] Savepoint rollback failed for ${table}:`, savepointErr.message);
+                        throw savepointErr;
+                    }
                     if (innerErr.code === '40P01') {
                         throw innerErr;
                     }
@@ -931,6 +978,19 @@ async function ensureSyncUpdatedAtSchema() {
     }
 
     console.log('[Sync] updated_at tracking ready');
+}
+
+async function ensureSyncConflictIndexes() {
+    for (const [table, columns] of Object.entries(SYNC_CONFLICT_INDEXES)) {
+        const indexName = `uq_sync_conflict_${table}`;
+        try {
+            await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS ${indexName} ON ${table} (${columns})`);
+        } catch (e) {
+            console.warn(`[Sync] conflict index skipped for ${table}:`, e.message);
+        }
+    }
+
+    console.log('[Sync] conflict indexes ready');
 }
 
 async function tableHasColumn(table, column) {
