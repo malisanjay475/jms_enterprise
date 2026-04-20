@@ -2,6 +2,13 @@
 
 const { z } = require('zod');
 
+function emptyStringToUndefined(value) {
+  if (value === '' || value === null || value === undefined) {
+    return undefined;
+  }
+  return value;
+}
+
 const EnvSchema = z.object({
   NODE_ENV: z.string().default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -15,11 +22,14 @@ const EnvSchema = z.object({
   LOCAL_SERVER_NODE_ID: z.string().optional(),
   LOCAL_SERVER_NODE_KEY: z.string().optional(),
   LOCAL_SERVER_PUBLIC_IP: z.string().optional(),
-  LOCAL_SERVER_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().positive().optional(),
+  LOCAL_SERVER_HEARTBEAT_INTERVAL_MS: z.preprocess(
+    emptyStringToUndefined,
+    z.coerce.number().int().positive().optional()
+  ),
   DB_HOST: z.string().optional(),
   PGHOST: z.string().optional(),
-  DB_PORT: z.coerce.number().int().positive().optional(),
-  PGPORT: z.coerce.number().int().positive().optional(),
+  DB_PORT: z.preprocess(emptyStringToUndefined, z.coerce.number().int().positive().optional()),
+  PGPORT: z.preprocess(emptyStringToUndefined, z.coerce.number().int().positive().optional()),
   DB_USER: z.string().optional(),
   PGUSER: z.string().optional(),
   DB_PASSWORD: z.string().optional(),
