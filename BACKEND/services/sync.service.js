@@ -143,6 +143,27 @@ const SYNC_CONFLICT_INDEXES = {
 
 const SYNC_ID_REQUIRED_TABLES = ['notifications'];
 
+function getDeterministicNotificationSyncIdSql(tableAlias = '') {
+    const prefix = tableAlias ? `${tableAlias}.` : '';
+    return `
+        (
+            substr(
+                md5(
+                    concat_ws(
+                        '||',
+                        COALESCE(${prefix}target_user, ''),
+                        COALESCE(${prefix}type, ''),
+                        COALESCE(${prefix}title, ''),
+                        COALESCE(to_char(${prefix}created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US'), '')
+                    )
+                ),
+                1,
+                32
+            )::uuid
+        )
+    `;
+}
+
 const TRANSFORMERS = {
     vendors: (row) => {
         if (row.factory_access) {
@@ -640,11 +661,15 @@ async function upsertData(table, data) {
                     row = TRANSFORMERS[table](row);
                 }
 
+                const conflictColumns = getConflictColumns(table, row);
+                if (row && row.sync_id && Object.prototype.hasOwnProperty.call(row, 'id') && !conflictColumns.includes('id')) {
+                    delete row.id;
+                }
+
                 const keys = Object.keys(row);
                 const vals = Object.values(row);
                 const idx = keys.map((_, i) => `$${i + 1}`);
                 const setClause = keys.map((k) => `${k} = EXCLUDED.${k}`).join(', ');
-                const conflictColumns = getConflictColumns(table, row);
                 const conflictKey = conflictColumns.join(', ');
 
                 let whereClause = `WHERE (EXCLUDED.updated_at > ${table}.updated_at OR ${table}.updated_at IS NULL)`;
@@ -992,7 +1017,14 @@ async function ensureSyncIdSchema() {
                 await pool.query(`ALTER TABLE ${table} ADD COLUMN sync_id UUID`);
             }
 
-            await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
+            if (table === 'notifications') {
+                await pool.query(`
+                    UPDATE ${table}
+                       SET sync_id = ${getDeterministicNotificationSyncIdSql()}
+                `);
+            } else {
+                await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
+            }
             await pool.query(`ALTER TABLE ${table} ALTER COLUMN sync_id SET DEFAULT gen_random_uuid()`);
             await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_sync_id_${table} ON ${table} (sync_id)`);
         } catch (e) {
