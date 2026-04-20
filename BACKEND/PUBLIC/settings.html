@@ -1126,7 +1126,7 @@
                     const currentVersion = escapeHtml(server.currentVersion || '-');
                     const targetVersion = escapeHtml(server.targetVersion || '-');
                     const currentRelease = escapeHtml(server.currentRelease || server.currentVersion || '-');
-                    const targetRelease = escapeHtml(server.targetRelease || server.targetVersion || server.currentRelease || '-');
+                    const targetRelease = escapeHtml(server.targetRelease || server.targetVersion || '-');
                     const lastCommit = escapeHtml(server.lastSeenCommit || '-');
                     const localIp = escapeHtml(server.localIp || '-');
                     const publicIp = escapeHtml(server.publicIp || '-');
@@ -1149,8 +1149,13 @@
                     const canManage = isSuperadmin(currentUser);
                     const updatePending = server.updatePending === true;
                     const hasUpdateFailure = !!(server.failedUpdateReason || server.lastError);
-                    const updateStatusClass = hasUpdateFailure ? 'failed' : (updatePending ? 'pending' : 'online');
-                    const updateStatusLabel = hasUpdateFailure ? 'Update Failed' : (updatePending ? 'Update Pending' : 'Up to Date');
+                    const hasAutoUpdateTelemetry = server.hasAutoUpdateTelemetry === true;
+                    const hasSyncAuditTelemetry = server.hasSyncAuditTelemetry === true;
+                    const updateStatusClass = hasUpdateFailure ? 'failed' : (updatePending ? 'pending' : (hasAutoUpdateTelemetry ? 'online' : 'pending'));
+                    const updateStatusLabel = hasUpdateFailure ? 'Update Failed' : (updatePending ? 'Update Pending' : (hasAutoUpdateTelemetry ? 'Up to Date' : 'Awaiting Check'));
+                    const displayLastUpdateCheck = hasAutoUpdateTelemetry ? lastUpdateCheck : 'Not reported yet';
+                    const displayLastSuccessAutoUpdate = hasAutoUpdateTelemetry ? lastSuccessAutoUpdate : 'Not reported yet';
+                    const displaySyncCycleAt = hasSyncAuditTelemetry ? syncCycleAt : 'Not reported yet';
 
                     return `
                         <div class="local-server-row">
@@ -1236,11 +1241,11 @@
                                         </div>
                                         <div class="local-stat">
                                             <div class="local-stat-label">Last Checked</div>
-                                            <div class="local-stat-value">${lastUpdateCheck}</div>
+                                            <div class="local-stat-value">${displayLastUpdateCheck}</div>
                                         </div>
                                         <div class="local-stat">
                                             <div class="local-stat-label">Last Successful Auto-Update</div>
-                                            <div class="local-stat-value">${lastSuccessAutoUpdate}</div>
+                                            <div class="local-stat-value">${displayLastSuccessAutoUpdate}</div>
                                         </div>
                                         <div class="local-stat" style="grid-column: span 3;">
                                             <div class="local-stat-label">Failed Update Reason</div>
@@ -1273,7 +1278,7 @@
                                         </div>
                                         <div class="local-stat" style="grid-column:1 / -1;">
                                             <div class="local-stat-label">Last Sync Audit Cycle</div>
-                                            <div class="local-stat-value">${syncCycleAt}</div>
+                                            <div class="local-stat-value">${displaySyncCycleAt}</div>
                                         </div>
                                     </div>
                                 </div>
