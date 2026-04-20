@@ -1,6 +1,10 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { z } = require('zod');
+
+const RUNTIME_RELEASE_PATH = path.resolve(__dirname, '..', '..', 'runtime-release.json');
 
 function emptyStringToUndefined(value) {
   if (value === '' || value === null || value === undefined) {
@@ -53,6 +57,15 @@ function hasExplicitDbConfig(values) {
   );
 }
 
+function readRuntimeRelease() {
+  try {
+    if (!fs.existsSync(RUNTIME_RELEASE_PATH)) return {};
+    return JSON.parse(fs.readFileSync(RUNTIME_RELEASE_PATH, 'utf8'));
+  } catch (error) {
+    return {};
+  }
+}
+
 function loadConfig(env = process.env) {
   const parsed = EnvSchema.safeParse(env);
 
@@ -61,6 +74,7 @@ function loadConfig(env = process.env) {
   }
 
   const values = parsed.data;
+  const runtimeRelease = readRuntimeRelease();
   const allowLegacyDbDefaults = ['1', 'true', 'yes'].includes(
     String(values.ALLOW_LEGACY_DB_DEFAULTS || '').toLowerCase()
   );
@@ -78,7 +92,7 @@ function loadConfig(env = process.env) {
     nodeEnv: values.NODE_ENV,
     port: values.PORT,
     geminiApiKey: values.GEMINI_API_KEY || '',
-    appGitSha: values.APP_GIT_SHA || '',
+    appGitSha: runtimeRelease.commit || values.APP_GIT_SHA || '',
     localFactoryId: values.LOCAL_FACTORY_ID || null,
     serverType: values.SERVER_TYPE || '',
     mainServerUrl: values.MAIN_SERVER_URL || '',
