@@ -466,3 +466,39 @@ The world-class version of your requirement is:
 
 Do not build this as raw DB replication.
 Build it as a controlled distributed platform on top of your existing `BACKEND`, `/api/sync`, and `/api/update` surfaces.
+
+## 16. Phase 1 API shape
+
+The first implemented backend surface for this repo is:
+
+- `GET /api/local-servers`
+  - admin and superadmin visibility
+  - shows factory, IP, heartbeat, push, pull, version, and status
+
+- `GET /api/local-servers/:id`
+  - admin and superadmin detail view
+  - includes recent heartbeat history
+
+- `POST /api/local-servers`
+  - superadmin only
+  - creates a local server node and returns the one-time node key
+
+- `PATCH /api/local-servers/:id`
+  - superadmin only
+  - updates node name, target version, active flag, status, or metadata
+
+- `POST /api/local-servers/:id/rotate-key`
+  - superadmin only
+  - rotates the node credential and returns the new one-time node key
+
+- `POST /api/local-servers/:id/register`
+  - node-authenticated
+  - first registration handshake from the local server
+
+- `POST /api/local-servers/:id/heartbeat`
+  - node-authenticated
+  - updates IP, version, heartbeat, and current health
+
+- `POST /api/local-servers/:id/sync-status`
+  - node-authenticated
+  - updates last push, last pull, sync status, and last error

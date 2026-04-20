@@ -3,6 +3,7 @@
 function createServices() {
   return {
     aiService: require('../../services/ai.service'),
+    localServerService: require('../local-servers/localServerService'),
     syncService: require('../../services/sync.service'),
     updaterService: require('../../services/updater.service'),
     erpRoutes: require('../../routes/erp.routes'),

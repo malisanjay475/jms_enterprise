@@ -21,6 +21,10 @@ async function startServer() {
     ? await legacyRuntime.initializeLegacyRuntime()
     : {};
 
+  if (services.localServerService?.init) {
+    await services.localServerService.init(pool);
+  }
+
   const server = await new Promise((resolve) => {
     const httpServer = app.listen(config.port, '0.0.0.0', () => resolve(httpServer));
   });
