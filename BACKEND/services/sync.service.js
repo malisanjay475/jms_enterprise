@@ -539,6 +539,10 @@ async function upsertData(table, data) {
                     continue;
                 }
 
+                if (table === 'plan_board' && Object.prototype.hasOwnProperty.call(row, 'id')) {
+                    delete row.id;
+                }
+
                 if (TRANSFORMERS[table]) {
                     row = TRANSFORMERS[table](row);
                 }
