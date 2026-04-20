@@ -323,6 +323,111 @@
             border-top: 1px solid var(--settings-border);
         }
 
+        .local-server-grid {
+            display: grid;
+            grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+            gap: 18px;
+            align-items: start;
+        }
+
+        .local-server-form-card {
+            border: 1px solid #dce8ef;
+            border-radius: 18px;
+            padding: 18px;
+            background: linear-gradient(180deg, #ffffff, #f8fbfd);
+        }
+
+        .local-server-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .local-server-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+            gap: 16px;
+            padding: 16px 18px;
+            border-radius: 18px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+        }
+
+        .local-server-title {
+            font-size: 1rem;
+            font-weight: 800;
+            color: #10223a;
+            margin-bottom: 4px;
+        }
+
+        .local-server-subtitle {
+            color: var(--settings-muted);
+            font-size: 0.87rem;
+            line-height: 1.45;
+        }
+
+        .local-server-stats {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .local-stat {
+            border-radius: 14px;
+            padding: 10px 12px;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+        }
+
+        .local-stat-label {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--settings-muted);
+            margin-bottom: 6px;
+        }
+
+        .local-stat-value {
+            font-size: 0.92rem;
+            color: var(--settings-ink);
+            font-weight: 700;
+            word-break: break-word;
+        }
+
+        .local-server-actions {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+            min-width: 150px;
+        }
+
+        .status-pill.online {
+            background: rgba(22, 163, 74, 0.14);
+            color: #166534;
+        }
+
+        .status-pill.offline {
+            background: rgba(148, 163, 184, 0.18);
+            color: #475569;
+        }
+
+        .status-pill.degraded {
+            background: rgba(217, 119, 6, 0.14);
+            color: #b45309;
+        }
+
+        .code-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            background: rgba(15, 118, 110, 0.12);
+            color: var(--settings-accent);
+            font-weight: 700;
+            font-size: 0.8rem;
+        }
+
         .directory-head {
             display: flex;
             justify-content: space-between;
@@ -510,7 +615,8 @@
 
             .hero-metrics,
             .placeholder-grid,
-            .admin-tools-grid {
+            .admin-tools-grid,
+            .local-server-grid {
                 grid-template-columns: 1fr;
             }
         }
@@ -552,6 +658,7 @@
                 <p class="hero-copy">This page is built as the shared home for admin settings. Today it includes factory creation. Later you can add more setting cards here without changing the navigation structure again.</p>
                 <div class="hero-actions">
                     <a href="/settings.html?view=factory" class="btn-outline btn-ghost"><i class="bi bi-building"></i> Factory Settings</a>
+                    <a href="/settings.html?view=local-servers" class="btn-outline btn-ghost"><i class="bi bi-hdd-network"></i> Local Servers</a>
                     <a href="/settings.html?view=admin-tools" class="btn-outline btn-ghost"><i class="bi bi-tools"></i> Admin Tools</a>
                     <a href="/index.html" class="btn-outline btn-ghost"><i class="bi bi-grid"></i> Dashboard</a>
                 </div>
@@ -566,7 +673,7 @@
                     </div>
                     <div class="metric-box">
                         <div class="metric-label">Ready For</div>
-                        <div class="metric-value">More Settings Later</div>
+                        <div class="metric-value">Factories + Local Nodes</div>
                     </div>
                 </div>
             </section>
@@ -623,6 +730,60 @@
                 </div>
             </section>
 
+            <section class="card settings-card" id="localServersCard">
+                <div class="section-head">
+                    <div>
+                        <div class="section-eyebrow" style="background: rgba(37, 99, 235, 0.12); color: #1d4ed8;"><i class="bi bi-hdd-network"></i><span>Local Servers</span></div>
+                        <div class="section-title">Create and monitor factory local servers.</div>
+                        <div class="section-copy">Superadmin can create a node for each factory and provision it with a one-time key. Admin and Superadmin can monitor the connected IP, version, last heartbeat, last push, and last pull from this screen.</div>
+                    </div>
+                    <button class="btn-outline" id="refreshLocalServersBtn" type="button"><i class="bi bi-arrow-repeat"></i> Refresh</button>
+                </div>
+
+                <div class="role-note" id="localServerAccessNote">
+                    <i class="bi bi-info-circle"></i>
+                    <div>Loading local server access...</div>
+                </div>
+
+                <div class="local-server-grid">
+                    <div class="local-server-form-card">
+                        <div class="section-eyebrow" style="background: rgba(15, 118, 110, 0.12); color: var(--settings-accent); margin-bottom:12px;"><i class="bi bi-plus-circle"></i><span>Create Local Node</span></div>
+                        <form id="localServerForm" class="settings-form" style="grid-template-columns:1fr;">
+                            <div class="field-block">
+                                <label class="field-label" for="localServerFactoryId">Factory</label>
+                                <select id="localServerFactoryId" class="field-control"></select>
+                            </div>
+                            <div class="field-block">
+                                <label class="field-label" for="localServerNodeName">Node Name</label>
+                                <input id="localServerNodeName" class="field-control" type="text" placeholder="e.g. Vapi Factory Edge Server">
+                            </div>
+                            <div class="field-block">
+                                <label class="field-label" for="localServerNodeCode">Node Code (Optional)</label>
+                                <input id="localServerNodeCode" class="field-control" type="text" placeholder="e.g. vapi-edge-01">
+                            </div>
+                            <div class="field-block">
+                                <label class="field-label" for="localServerTargetVersion">Target Version (Optional)</label>
+                                <input id="localServerTargetVersion" class="field-control" type="text" placeholder="e.g. 1.0.0">
+                            </div>
+                            <div class="field-block full">
+                                <div class="submit-row">
+                                    <button class="btn-primary" id="createLocalServerBtn" type="submit"><i class="bi bi-hdd-stack"></i> Create Local Server</button>
+                                    <span class="helper-text">One-time node key will be shown after creation.</span>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="factory-directory" style="margin-top:0; padding-top:0; border-top:none;">
+                        <div class="directory-head">
+                            <div class="directory-title">Provisioned Local Servers</div>
+                            <div class="directory-state" id="localServerListState">Loading local servers...</div>
+                        </div>
+                        <div class="local-server-list" id="localServerList"></div>
+                    </div>
+                </div>
+            </section>
+
             <section class="card placeholder-card" id="adminToolsCard">
                 <div class="section-head">
                     <div>
@@ -674,6 +835,21 @@
             <div style="display:flex; justify-content:flex-end; gap:10px;">
                 <button class="btn-outline" type="button" onclick="closeRestoreModal()">Cancel</button>
                 <button class="btn-danger" id="btnRestoreConfirm" type="button" onclick="performRestore()"><i class="bi bi-upload"></i> Restore Now</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="nodeKeyModal" class="settings-modal">
+        <div class="settings-modal-card compact" style="padding: 24px;">
+            <h3 style="margin-top:0; color:#0f766e"><i class="bi bi-key-fill"></i> Local Node Provisioning Key</h3>
+            <p style="font-size:0.92rem; color:#64748b; line-height:1.6;">
+                Save this key now. It is shown only at create or rotate time. Use these values in the local factory server environment.
+            </p>
+            <div id="nodeKeySummary" style="margin: 18px 0 12px; color:#0f172a; font-weight:600;"></div>
+            <textarea id="nodeKeyPayload" readonly class="field-control" style="min-height:220px; font-family:Consolas,monospace; white-space:pre;"></textarea>
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">
+                <button class="btn-outline" type="button" onclick="copyNodeKeyPayload()"><i class="bi bi-clipboard"></i> Copy</button>
+                <button class="btn-primary" type="button" onclick="closeNodeKeyModal()"><i class="bi bi-check2"></i> Done</button>
             </div>
         </div>
     </div>
@@ -733,6 +909,8 @@
     <script>
         (function () {
             let currentUser = null;
+            let factoriesCache = [];
+            let localServersCache = [];
 
             function escapeHtml(value) {
                 return String(value || '')
@@ -755,6 +933,19 @@
                     return window.JPSMS.auth.isSuperadmin(user);
                 }
                 return String(user && user.role_code || '').toLowerCase() === 'superadmin';
+            }
+
+            function formatDateTime(value) {
+                if (!value) return 'Never';
+                const date = new Date(value);
+                if (Number.isNaN(date.getTime())) return escapeHtml(value);
+                return new Intl.DateTimeFormat('en-IN', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }).format(date);
             }
 
             function renderRoleChip() {
@@ -790,6 +981,98 @@
                 }).join('');
             }
 
+            function populateFactoryOptions(items) {
+                const selectEl = document.getElementById('localServerFactoryId');
+                if (!selectEl) return;
+
+                if (!Array.isArray(items) || !items.length) {
+                    selectEl.innerHTML = '<option value="">No factories available</option>';
+                    return;
+                }
+
+                selectEl.innerHTML = '<option value="">Select factory</option>' + items.map(factory => {
+                    const label = `${escapeHtml(factory.name || ('Factory ' + factory.id))} (${escapeHtml(factory.code || 'NO-CODE')})`;
+                    return `<option value="${factory.id}">${label}</option>`;
+                }).join('');
+            }
+
+            function renderLocalServerList(items) {
+                const listEl = document.getElementById('localServerList');
+                const stateEl = document.getElementById('localServerListState');
+
+                if (!Array.isArray(items) || !items.length) {
+                    stateEl.textContent = 'No local servers provisioned yet.';
+                    listEl.innerHTML = '';
+                    return;
+                }
+
+                stateEl.textContent = `${items.length} ${items.length === 1 ? 'local server' : 'local servers'} loaded`;
+                listEl.innerHTML = items.map(server => {
+                    const isConnected = server.isConnected === true;
+                    const active = server.isActive !== false;
+                    const statusClass = isConnected ? 'online' : (String(server.status || '').toLowerCase() === 'degraded' ? 'degraded' : 'offline');
+                    const statusLabel = isConnected ? 'Online' : (server.status || (active ? 'Offline' : 'Inactive'));
+                    const currentVersion = escapeHtml(server.currentVersion || '-');
+                    const targetVersion = escapeHtml(server.targetVersion || '-');
+                    const lastCommit = escapeHtml(server.lastSeenCommit || '-');
+                    const localIp = escapeHtml(server.localIp || '-');
+                    const publicIp = escapeHtml(server.publicIp || '-');
+                    const factoryLabel = escapeHtml(server.factoryName || ('Factory ' + server.factoryId));
+                    const nodeName = escapeHtml(server.nodeName || server.nodeCode || ('Node ' + server.id));
+                    const nodeCode = escapeHtml(server.nodeCode || 'node');
+                    const canManage = isSuperadmin(currentUser);
+
+                    return `
+                        <div class="local-server-row">
+                            <div>
+                                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
+                                    <div class="local-server-title">${nodeName}</div>
+                                    <div class="code-chip"><i class="bi bi-upc-scan"></i>${nodeCode}</div>
+                                    <div class="status-pill ${statusClass}">${escapeHtml(statusLabel)}</div>
+                                </div>
+                                <div class="local-server-subtitle">
+                                    Factory: <strong>${factoryLabel}</strong><br>
+                                    Last heartbeat: ${formatDateTime(server.lastHeartbeatAt)}<br>
+                                    Last push: ${formatDateTime(server.lastPushAt)} | Last pull: ${formatDateTime(server.lastPullAt)}
+                                </div>
+                            </div>
+                            <div class="local-server-stats">
+                                <div class="local-stat">
+                                    <div class="local-stat-label">Local IP</div>
+                                    <div class="local-stat-value">${localIp}</div>
+                                </div>
+                                <div class="local-stat">
+                                    <div class="local-stat-label">Public IP</div>
+                                    <div class="local-stat-value">${publicIp}</div>
+                                </div>
+                                <div class="local-stat">
+                                    <div class="local-stat-label">Current Version</div>
+                                    <div class="local-stat-value">${currentVersion}</div>
+                                </div>
+                                <div class="local-stat">
+                                    <div class="local-stat-label">Target Version</div>
+                                    <div class="local-stat-value">${targetVersion}</div>
+                                </div>
+                                <div class="local-stat" style="grid-column:1 / -1;">
+                                    <div class="local-stat-label">Last Seen Commit</div>
+                                    <div class="local-stat-value">${lastCommit}</div>
+                                </div>
+                            </div>
+                            <div class="local-server-actions">
+                                ${canManage ? `
+                                    <button class="btn-outline" type="button" onclick="promptLocalServerTargetVersion(${server.id})"><i class="bi bi-box-seam"></i> Target Version</button>
+                                    <button class="btn-outline" type="button" onclick="rotateLocalServerKey(${server.id})"><i class="bi bi-key"></i> Rotate Key</button>
+                                    <button class="btn-outline" type="button" onclick="toggleLocalServerActive(${server.id}, ${active ? 'false' : 'true'})"><i class="bi ${active ? 'bi-pause-circle' : 'bi-play-circle'}"></i> ${active ? 'Deactivate' : 'Activate'}</button>
+                                ` : `
+                                    <button class="btn-outline" type="button" disabled><i class="bi bi-eye"></i> Monitor Only</button>
+                                `}
+                                <button class="btn-outline" type="button" onclick="refreshLocalServersOnly()"><i class="bi bi-arrow-repeat"></i> Refresh</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
             function applyFactoryAccessState() {
                 const noteEl = document.getElementById('factoryAccessNote');
                 const formEl = document.getElementById('factoryForm');
@@ -818,6 +1101,22 @@
 
                 noteEl.className = 'role-note restricted';
                 noteEl.innerHTML = '<i class="bi bi-lock"></i><div>Admin Tools are available only for Admin and Superadmin users.</div>';
+            }
+
+            function applyLocalServerAccessState() {
+                const noteEl = document.getElementById('localServerAccessNote');
+                const formEl = document.getElementById('localServerForm');
+
+                if (isSuperadmin(currentUser)) {
+                    noteEl.className = 'role-note';
+                    noteEl.innerHTML = '<i class="bi bi-check-circle"></i><div>Superadmin can create local server nodes, rotate node keys, and set target versions. Admin can monitor node health and sync timings only.</div>';
+                    formEl.style.display = 'grid';
+                    return;
+                }
+
+                noteEl.className = 'role-note restricted';
+                noteEl.innerHTML = '<i class="bi bi-lock"></i><div>Create and provisioning actions are SUPERADMIN only. You can still monitor connected IP, version, heartbeat, last push, and last pull from this screen.</div>';
+                formEl.style.display = 'none';
             }
 
             function downloadBackup() {
@@ -1001,11 +1300,204 @@
 
                 try {
                     const res = await window.JPSMS.api.get('/factories');
-                    renderFactoryList(res.data || []);
+                    factoriesCache = res.data || [];
+                    renderFactoryList(factoriesCache);
+                    populateFactoryOptions(factoriesCache);
                 } catch (error) {
                     console.error('Failed to load factories', error);
                     stateEl.textContent = 'Unable to load factories right now.';
+                    factoriesCache = [];
+                    populateFactoryOptions([]);
                 }
+            }
+
+            async function loadLocalServers() {
+                const stateEl = document.getElementById('localServerListState');
+                const listEl = document.getElementById('localServerList');
+                stateEl.textContent = 'Loading local servers...';
+                listEl.innerHTML = '';
+
+                try {
+                    const res = await window.JPSMS.api.get('/local-servers');
+                    localServersCache = res.localServers || [];
+                    renderLocalServerList(localServersCache);
+                } catch (error) {
+                    console.error('Failed to load local servers', error);
+                    stateEl.textContent = 'Unable to load local servers right now.';
+                    localServersCache = [];
+                }
+            }
+
+            function buildProvisioningPayload(localServer, nodeKey) {
+                const origin = window.location.origin;
+                return [
+                    `SERVER_TYPE=LOCAL`,
+                    `MAIN_SERVER_URL=${origin}`,
+                    `LOCAL_FACTORY_ID=${localServer.factoryId}`,
+                    `LOCAL_SERVER_AGENT_ENABLED=1`,
+                    `LOCAL_SERVER_NODE_ID=${localServer.id}`,
+                    `LOCAL_SERVER_NODE_KEY=${nodeKey}`,
+                    `APP_GIT_SHA=`,
+                    `LOCAL_SERVER_PUBLIC_IP=`
+                ].join('\n');
+            }
+
+            function openNodeKeyModal(localServer, nodeKey, modeLabel) {
+                const summaryEl = document.getElementById('nodeKeySummary');
+                const payloadEl = document.getElementById('nodeKeyPayload');
+                const modalEl = document.getElementById('nodeKeyModal');
+
+                summaryEl.innerHTML = `
+                    ${escapeHtml(modeLabel)} for <strong>${escapeHtml(localServer.nodeName || localServer.nodeCode || ('Node ' + localServer.id))}</strong>
+                    <br>Factory: ${escapeHtml(localServer.factoryName || ('Factory ' + localServer.factoryId))}
+                    <br>Node ID: ${localServer.id}
+                `;
+                payloadEl.value = buildProvisioningPayload(localServer, nodeKey);
+                modalEl.style.display = 'flex';
+            }
+
+            function closeNodeKeyModal() {
+                document.getElementById('nodeKeyModal').style.display = 'none';
+            }
+
+            async function copyNodeKeyPayload() {
+                const payload = document.getElementById('nodeKeyPayload').value;
+                try {
+                    await navigator.clipboard.writeText(payload);
+                    window.JPSMS.toast('Provisioning payload copied.', 'success');
+                } catch (_err) {
+                    window.JPSMS.toast('Unable to copy automatically. Please copy manually.', 'error');
+                }
+            }
+
+            async function handleCreateLocalServer(event) {
+                event.preventDefault();
+
+                if (!isSuperadmin(currentUser)) {
+                    window.JPSMS.toast('Only SUPERADMIN can create local servers.', 'error');
+                    return;
+                }
+
+                const factoryId = document.getElementById('localServerFactoryId').value;
+                const nodeName = document.getElementById('localServerNodeName').value.trim();
+                const nodeCode = document.getElementById('localServerNodeCode').value.trim();
+                const targetVersion = document.getElementById('localServerTargetVersion').value.trim();
+
+                if (!factoryId || !nodeName) {
+                    window.JPSMS.toast('Factory and Node Name are required.', 'error');
+                    return;
+                }
+
+                const submitBtn = document.getElementById('createLocalServerBtn');
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Creating...';
+
+                try {
+                    const res = await window.JPSMS.api.post('/local-servers', {
+                        factoryId: Number(factoryId),
+                        nodeName,
+                        nodeCode: nodeCode || undefined,
+                        targetVersion: targetVersion || undefined
+                    });
+
+                    const localServer = res.localServer;
+                    if (!localServer || !res.nodeKey) {
+                        throw new Error('Local server was created but the node key was not returned.');
+                    }
+
+                    document.getElementById('localServerForm').reset();
+                    populateFactoryOptions(factoriesCache);
+                    openNodeKeyModal(localServer, res.nodeKey, 'New node key');
+                    window.JPSMS.toast('Local server created successfully.', 'success');
+                    await loadLocalServers();
+                } catch (error) {
+                    console.error('Failed to create local server', error);
+                    window.JPSMS.toast(error.message || 'Unable to create local server.', 'error');
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="bi bi-hdd-stack"></i> Create Local Server';
+                }
+            }
+
+            async function rotateLocalServerKey(localServerId) {
+                if (!isSuperadmin(currentUser)) {
+                    window.JPSMS.toast('Only SUPERADMIN can rotate node keys.', 'error');
+                    return;
+                }
+
+                const localServer = localServersCache.find(item => Number(item.id) === Number(localServerId));
+                if (!localServer) {
+                    window.JPSMS.toast('Local server not found in the current list.', 'error');
+                    return;
+                }
+
+                if (!confirm(`Rotate provisioning key for ${localServer.nodeName || localServer.nodeCode}? The old key will stop working.`)) {
+                    return;
+                }
+
+                try {
+                    const res = await window.JPSMS.api.post(`/local-servers/${localServerId}/rotate-key`, {});
+                    if (!res.nodeKey) {
+                        throw new Error('No replacement node key was returned.');
+                    }
+                    openNodeKeyModal(localServer, res.nodeKey, 'Rotated node key');
+                    window.JPSMS.toast('Node key rotated successfully.', 'success');
+                } catch (error) {
+                    console.error('Failed to rotate node key', error);
+                    window.JPSMS.toast(error.message || 'Unable to rotate node key.', 'error');
+                }
+            }
+
+            async function toggleLocalServerActive(localServerId, nextIsActive) {
+                if (!isSuperadmin(currentUser)) {
+                    window.JPSMS.toast('Only SUPERADMIN can activate or deactivate nodes.', 'error');
+                    return;
+                }
+
+                try {
+                    await window.JPSMS.api.request(`/local-servers/${localServerId}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ isActive: nextIsActive === true || nextIsActive === 'true' })
+                    });
+                    window.JPSMS.toast('Local server updated.', 'success');
+                    await loadLocalServers();
+                } catch (error) {
+                    console.error('Failed to update local server state', error);
+                    window.JPSMS.toast(error.message || 'Unable to update local server state.', 'error');
+                }
+            }
+
+            async function promptLocalServerTargetVersion(localServerId) {
+                if (!isSuperadmin(currentUser)) {
+                    window.JPSMS.toast('Only SUPERADMIN can change target version.', 'error');
+                    return;
+                }
+
+                const localServer = localServersCache.find(item => Number(item.id) === Number(localServerId));
+                if (!localServer) {
+                    window.JPSMS.toast('Local server not found in the current list.', 'error');
+                    return;
+                }
+
+                const currentTarget = localServer.targetVersion || '';
+                const nextTarget = prompt(`Enter target version for ${localServer.nodeName || localServer.nodeCode}`, currentTarget);
+                if (nextTarget === null) return;
+
+                try {
+                    await window.JPSMS.api.request(`/local-servers/${localServerId}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ targetVersion: nextTarget.trim() || null })
+                    });
+                    window.JPSMS.toast('Target version updated.', 'success');
+                    await loadLocalServers();
+                } catch (error) {
+                    console.error('Failed to update target version', error);
+                    window.JPSMS.toast(error.message || 'Unable to update target version.', 'error');
+                }
+            }
+
+            async function refreshLocalServersOnly() {
+                await loadLocalServers();
             }
 
             async function handleCreateFactory(event) {
@@ -1067,19 +1559,25 @@
                 window.JPSMS.renderShell('settings');
                 renderRoleChip();
                 applyFactoryAccessState();
+                applyLocalServerAccessState();
                 applyAdminToolsState();
 
                 document.getElementById('factoryForm').addEventListener('submit', handleCreateFactory);
+                document.getElementById('localServerForm').addEventListener('submit', handleCreateLocalServer);
                 document.getElementById('refreshFactoriesBtn').addEventListener('click', loadFactories);
+                document.getElementById('refreshLocalServersBtn').addEventListener('click', loadLocalServers);
 
                 const params = new URLSearchParams(window.location.search);
                 if (params.get('view') === 'factory') {
                     document.getElementById('factoryCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else if (params.get('view') === 'local-servers') {
+                    document.getElementById('localServersCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
                 } else if (params.get('view') === 'admin-tools') {
                     document.getElementById('adminToolsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
 
                 await loadFactories();
+                await loadLocalServers();
             });
 
             window.downloadBackup = downloadBackup;
@@ -1090,6 +1588,12 @@
             window.closePlantClosureModal = closePlantClosureModal;
             window.savePlantClosure = savePlantClosure;
             window.deletePlantClosure = deletePlantClosure;
+            window.rotateLocalServerKey = rotateLocalServerKey;
+            window.toggleLocalServerActive = toggleLocalServerActive;
+            window.promptLocalServerTargetVersion = promptLocalServerTargetVersion;
+            window.copyNodeKeyPayload = copyNodeKeyPayload;
+            window.closeNodeKeyModal = closeNodeKeyModal;
+            window.refreshLocalServersOnly = refreshLocalServersOnly;
         })();
     </script>
 </body>
