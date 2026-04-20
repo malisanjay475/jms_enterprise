@@ -1173,6 +1173,86 @@ tbody tr:hover {
 }
 
 /* =========================================
+   DESKTOP COMPACT DENSITY OVERRIDES
+   ========================================= */
+@media (min-width: 769px) {
+  body {
+    font-size: 14px;
+  }
+
+  .main-content,
+  #contentArea,
+  #pageContent {
+    max-width: 100% !important;
+    padding: clamp(10px, 1.2vw, 16px) !important;
+  }
+
+  .header {
+    margin-bottom: 12px !important;
+    padding-bottom: 10px !important;
+  }
+
+  .page-title {
+    font-size: clamp(1.18rem, 1.02rem + 0.58vw, 1.48rem) !important;
+  }
+
+  .card {
+    padding: clamp(10px, 1.15vw, 14px) !important;
+    margin-bottom: 12px !important;
+    border-radius: 10px !important;
+  }
+
+  th,
+  td {
+    padding: 8px 10px !important;
+  }
+
+  .form-group {
+    margin-bottom: 10px !important;
+  }
+
+  .form-control {
+    padding: 8px 10px !important;
+    min-height: 38px;
+  }
+
+  .btn {
+    padding: 7px 12px !important;
+    font-size: 0.82rem !important;
+    border-radius: 8px !important;
+  }
+
+  .dashboard-header,
+  .welcome-hero,
+  .stats-row,
+  .analytics-grid,
+  .kpi-grid,
+  .tiles-grid,
+  .summary-grid {
+    gap: 10px !important;
+  }
+
+  .hero-copy,
+  .hero-visuals,
+  .hero-card,
+  .settings-card,
+  .dashboard-panel,
+  .panel {
+    border-radius: 12px !important;
+  }
+
+  .dataTables_wrapper .dt-layout-row {
+    gap: 8px 10px !important;
+  }
+
+  .notif-item,
+  .metric-box,
+  .stat-card {
+    padding: 10px 12px !important;
+  }
+}
+
+/* =========================================
    MOBILE APP EXPERIENCE V2 (PREMIUM OVERRIDES)
    ========================================= */
 
