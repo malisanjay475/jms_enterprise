@@ -205,9 +205,20 @@ router.post('/push', async (req, res) => {
         console.log(`[Sync] Received ${Array.isArray(data) ? data.length : 0} rows for ${table} from Factory ${factoryId}`);
 
         const normalized = Array.isArray(data) ? data : [];
+        const hasFactoryIdColumn = await tableHasColumn(table, 'factory_id');
+        const hasSyncIdColumn = await tableHasColumn(table, 'sync_id');
         normalized.forEach((row) => {
-            row.factory_id = factoryId;
-            if (!row.sync_id) row.sync_id = row.global_id;
+            if (hasFactoryIdColumn) {
+                row.factory_id = factoryId;
+            } else if (Object.prototype.hasOwnProperty.call(row, 'factory_id')) {
+                delete row.factory_id;
+            }
+
+            if (hasSyncIdColumn) {
+                if (!row.sync_id && row.global_id) row.sync_id = row.global_id;
+            } else if (Object.prototype.hasOwnProperty.call(row, 'sync_id')) {
+                delete row.sync_id;
+            }
         });
 
         await upsertData(table, normalized);
@@ -877,14 +888,20 @@ async function ensureSyncUpdatedAtSchema() {
         $$ LANGUAGE plpgsql
     `);
 
-    for (const [table, sourceColumn] of Object.entries(SYNC_UPDATED_AT_SOURCE_COLUMNS)) {
+    for (const table of SYNC_ALL) {
         try {
+            const sourceColumn = SYNC_UPDATED_AT_SOURCE_COLUMNS[table];
             const hasUpdatedAt = await tableHasColumn(table, 'updated_at');
+            const hasSourceColumn = sourceColumn ? await tableHasColumn(table, sourceColumn) : false;
+
+            if (!hasUpdatedAt && !sourceColumn) {
+                continue;
+            }
+
             if (!hasUpdatedAt) {
                 await pool.query(`ALTER TABLE ${table} ADD COLUMN updated_at TIMESTAMPTZ`);
             }
 
-            const hasSourceColumn = await tableHasColumn(table, sourceColumn);
             if (hasSourceColumn) {
                 await pool.query(`
                     UPDATE ${table}
