@@ -101,7 +101,7 @@ function buildBackendEnv({ localServer, nodeKey, mainServerUrl }) {
     `LOCAL_FACTORY_ID=${localServer.factoryId}`,
     'SYNC_API_KEY=',
     'GEMINI_API_KEY=',
-    'APP_GIT_SHA=',
+    `APP_GIT_SHA=${process.env.APP_GIT_SHA || ''}`,
     '',
     '# Local server agent registration',
     'LOCAL_SERVER_AGENT_ENABLED=1',
@@ -132,6 +132,7 @@ function buildReadme({ localServer, mainServerUrl }) {
     '## Result',
     '- The local server will register itself to the main site automatically.',
     '- The Local Servers screen on the main site will show IP, heartbeat, and version after registration.',
+    '- START_LOCAL_SERVER.bat launches a supervisor so backend updates can restart automatically after download.',
     '',
     '## Important',
     '- This package contains the node registration key for this local server.',
@@ -174,9 +175,53 @@ function buildStartBat() {
     '@echo off',
     'setlocal',
     'cd /d "%~dp0"',
-    'start "JMS Local Backend" cmd /k "cd /d %~dp0BACKEND && node server.js"',
-    'if exist "%~dp0CLIENT_BRIDGE\\package.json" start "JMS Client Bridge" cmd /k "cd /d %~dp0CLIENT_BRIDGE && node bridge.js"',
+    'where node >nul 2>nul',
+    'if errorlevel 1 (',
+    '  echo [ERROR] Node.js is not installed or not in PATH.',
+    '  pause',
+    '  exit /b 1',
+    ')',
+    'if not exist "%~dp0LOCAL_SERVER_SUPERVISOR.js" (',
+    '  echo [ERROR] LOCAL_SERVER_SUPERVISOR.js was not found in this package.',
+    '  pause',
+    '  exit /b 1',
+    ')',
+    'start "JMS Local Supervisor" cmd /k "cd /d %~dp0 && node LOCAL_SERVER_SUPERVISOR.js"',
     'exit /b 0'
+  ].join('\r\n');
+}
+
+function buildSupervisorJs() {
+  return [
+    "'use strict';",
+    '',
+    "const fs = require('fs');",
+    "const path = require('path');",
+    "const { spawn } = require('child_process');",
+    '',
+    "const rootDir = __dirname;",
+    "const backendDir = path.join(rootDir, 'BACKEND');",
+    "const clientBridgeDir = path.join(rootDir, 'CLIENT_BRIDGE');",
+    "const restartDelayMs = 3000;",
+    '',
+    'function runProcess(label, cwd, scriptFile, enabled) {',
+    '  if (!enabled) return;',
+    '  const child = spawn(process.execPath, [scriptFile], { cwd, stdio: "inherit", detached: false });',
+    '  child.on("exit", code => {',
+    '    console.log("[" + label + "] exited with code " + code + ". Restarting in " + restartDelayMs + "ms...");',
+    '    setTimeout(() => runProcess(label, cwd, scriptFile, enabled), restartDelayMs);',
+    '  });',
+    '}',
+    '',
+    'if (!fs.existsSync(path.join(backendDir, "server.js"))) {',
+    '  console.error("[Supervisor] BACKEND/server.js not found.");',
+    '  process.exit(1);',
+    '}',
+    '',
+    'console.log("[Supervisor] Starting JMS local services...");',
+    'runProcess("Backend", backendDir, "server.js", true);',
+    'runProcess("Client Bridge", clientBridgeDir, "bridge.js", fs.existsSync(path.join(clientBridgeDir, "bridge.js")));',
+    ''
   ].join('\r\n');
 }
 
@@ -352,6 +397,10 @@ function buildProvisioningPackage({ localServer, nodeKey, mainServerUrl }) {
   zip.addFile(
     path.posix.join(packageRoot, 'START_LOCAL_SERVER.bat'),
     Buffer.from(buildStartBat(), 'utf8')
+  );
+  zip.addFile(
+    path.posix.join(packageRoot, 'LOCAL_SERVER_SUPERVISOR.js'),
+    Buffer.from(buildSupervisorJs(), 'utf8')
   );
 
   return {

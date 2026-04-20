@@ -1,6 +1,17 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { z } = require('zod');
+
+const RUNTIME_RELEASE_PATH = path.resolve(__dirname, '..', '..', 'runtime-release.json');
+
+function emptyStringToUndefined(value) {
+  if (value === '' || value === null || value === undefined) {
+    return undefined;
+  }
+  return value;
+}
 
 const EnvSchema = z.object({
   NODE_ENV: z.string().default('development'),
@@ -15,11 +26,14 @@ const EnvSchema = z.object({
   LOCAL_SERVER_NODE_ID: z.string().optional(),
   LOCAL_SERVER_NODE_KEY: z.string().optional(),
   LOCAL_SERVER_PUBLIC_IP: z.string().optional(),
-  LOCAL_SERVER_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().positive().optional(),
+  LOCAL_SERVER_HEARTBEAT_INTERVAL_MS: z.preprocess(
+    emptyStringToUndefined,
+    z.coerce.number().int().positive().optional()
+  ),
   DB_HOST: z.string().optional(),
   PGHOST: z.string().optional(),
-  DB_PORT: z.coerce.number().int().positive().optional(),
-  PGPORT: z.coerce.number().int().positive().optional(),
+  DB_PORT: z.preprocess(emptyStringToUndefined, z.coerce.number().int().positive().optional()),
+  PGPORT: z.preprocess(emptyStringToUndefined, z.coerce.number().int().positive().optional()),
   DB_USER: z.string().optional(),
   PGUSER: z.string().optional(),
   DB_PASSWORD: z.string().optional(),
@@ -43,6 +57,15 @@ function hasExplicitDbConfig(values) {
   );
 }
 
+function readRuntimeRelease() {
+  try {
+    if (!fs.existsSync(RUNTIME_RELEASE_PATH)) return {};
+    return JSON.parse(fs.readFileSync(RUNTIME_RELEASE_PATH, 'utf8'));
+  } catch (error) {
+    return {};
+  }
+}
+
 function loadConfig(env = process.env) {
   const parsed = EnvSchema.safeParse(env);
 
@@ -51,6 +74,7 @@ function loadConfig(env = process.env) {
   }
 
   const values = parsed.data;
+  const runtimeRelease = readRuntimeRelease();
   const allowLegacyDbDefaults = ['1', 'true', 'yes'].includes(
     String(values.ALLOW_LEGACY_DB_DEFAULTS || '').toLowerCase()
   );
@@ -68,7 +92,7 @@ function loadConfig(env = process.env) {
     nodeEnv: values.NODE_ENV,
     port: values.PORT,
     geminiApiKey: values.GEMINI_API_KEY || '',
-    appGitSha: values.APP_GIT_SHA || '',
+    appGitSha: runtimeRelease.commit || values.APP_GIT_SHA || '',
     localFactoryId: values.LOCAL_FACTORY_ID || null,
     serverType: values.SERVER_TYPE || '',
     mainServerUrl: values.MAIN_SERVER_URL || '',
