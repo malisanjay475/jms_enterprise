@@ -85,6 +85,13 @@ function buildReleaseLabel(version, commit) {
   return cleanVersion || cleanCommit || null;
 }
 
+function hasMeaningfulValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  return String(value).trim() !== '';
+}
+
 async function getActor(req) {
   const username = getRequestUsername(req);
   if (!username) return null;
@@ -267,9 +274,29 @@ function buildLocalServerRow(row) {
   const metadata = normalizeMetadata(row.metadata);
   const autoUpdate = normalizeMetadata(metadata.autoUpdate);
   const syncAudit = normalizeMetadata(metadata.syncAudit);
-  const currentRelease = buildReleaseLabel(row.current_version, row.last_seen_commit) || autoUpdate.currentRelease || null;
+  const reportedCurrentRelease = String(autoUpdate.currentRelease || '').trim() || null;
+  const fallbackCurrentRelease = buildReleaseLabel(row.current_version, row.last_seen_commit);
+  const currentRelease = reportedCurrentRelease || fallbackCurrentRelease || null;
   const targetRelease = String(autoUpdate.targetRelease || row.target_version || '').trim() || null;
-  const updatePending = parseBoolean(autoUpdate.updatePending) || (!!targetRelease && targetRelease !== currentRelease);
+  const rawUpdatePending = parseBoolean(autoUpdate.updatePending);
+  const updatePending = rawUpdatePending || (!!targetRelease && !!currentRelease && targetRelease !== currentRelease);
+  const hasAutoUpdateTelemetry = [
+    autoUpdate.currentRelease,
+    autoUpdate.targetRelease,
+    autoUpdate.lastCheckedAt,
+    autoUpdate.lastSuccessfulAutoUpdateAt,
+    autoUpdate.failedUpdateReason,
+    autoUpdate.updatePending
+  ].some(hasMeaningfulValue);
+  const hasSyncAuditTelemetry =
+    [
+      syncAudit.created,
+      syncAudit.updated,
+      syncAudit.deleted,
+      syncAudit.failed,
+      syncAudit.pending,
+      syncAudit.lastCycleAt
+    ].some(hasMeaningfulValue);
 
   return {
     id: row.id,
@@ -291,6 +318,7 @@ function buildLocalServerRow(row) {
     targetVersion: row.target_version,
     targetRelease,
     updatePending,
+    hasAutoUpdateTelemetry,
     lastSuccessfulAutoUpdateAt: parseOptionalTimestamp(autoUpdate.lastSuccessfulAutoUpdateAt),
     failedUpdateReason: String(autoUpdate.failedUpdateReason || '').trim() || null,
     lastUpdateCheckAt: parseOptionalTimestamp(autoUpdate.lastCheckedAt),
@@ -305,6 +333,7 @@ function buildLocalServerRow(row) {
       pending: Number.parseInt(String(syncAudit.pending || '0'), 10) || 0,
       lastCycleAt: parseOptionalTimestamp(syncAudit.lastCycleAt)
     },
+    hasSyncAuditTelemetry,
     isActive: row.is_active,
     isConnected: !!row.is_connected,
     metadata,
