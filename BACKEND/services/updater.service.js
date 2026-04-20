@@ -22,6 +22,24 @@ let pool = null;
 let configMap = {};
 let checkTimer = null;
 
+async function setServerConfigValue(key, value) {
+  if (!pool) return;
+  await pool.query(
+    `INSERT INTO server_config (key, value)
+     VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [key, value == null ? '' : String(value)]
+  );
+  configMap[key] = value == null ? '' : String(value);
+}
+
+async function setUpdaterState(patch = {}) {
+  const entries = Object.entries(patch);
+  for (const [key, value] of entries) {
+    await setServerConfigValue(key, value);
+  }
+}
+
 function readRuntimeRelease() {
   try {
     if (!fs.existsSync(RUNTIME_RELEASE_PATH)) return {};
@@ -182,6 +200,13 @@ async function init(dbPool) {
     return;
   }
 
+  const localRelease = getCurrentLocalRelease();
+  await setUpdaterState({
+    LOCAL_UPDATE_CURRENT_RELEASE: localRelease.releaseId,
+    LOCAL_UPDATE_TARGET_RELEASE: configMap.LOCAL_UPDATE_TARGET_RELEASE || localRelease.releaseId,
+    LOCAL_UPDATE_PENDING: '0'
+  });
+
   console.log('[Updater] Auto-Update Service Started.');
 
   if (checkTimer) {
@@ -232,57 +257,90 @@ async function checkUpdate(mainUrl) {
   const localRelease = getCurrentLocalRelease();
   console.log(`[Updater] Checking for updates. Current: ${localRelease.releaseId}`);
 
-  const response = await fetch(buildCheckUrl(mainUrl, localRelease), {
-    headers: buildAuthHeaders()
-  });
+  try {
+    await setUpdaterState({
+      LOCAL_UPDATE_CURRENT_RELEASE: localRelease.releaseId,
+      LOCAL_UPDATE_LAST_CHECK_AT: new Date().toISOString(),
+      LOCAL_UPDATE_LAST_FAILURE_REASON: ''
+    });
 
-  if (!response.ok) {
-    throw new Error(`Check request failed: ${response.status} ${response.statusText}`);
+    const response = await fetch(buildCheckUrl(mainUrl, localRelease), {
+      headers: buildAuthHeaders()
+    });
+
+    if (!response.ok) {
+      throw new Error(`Check request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const remote = await response.json();
+    if (!remote.ok) {
+      throw new Error(remote.error || 'Remote update check failed');
+    }
+
+    await setUpdaterState({
+      LOCAL_UPDATE_CURRENT_RELEASE: localRelease.releaseId,
+      LOCAL_UPDATE_TARGET_RELEASE: remote.targetVersion || remote.releaseId || localRelease.releaseId,
+      LOCAL_UPDATE_PENDING: remote.updateAvailable ? '1' : '0'
+    });
+
+    if (!remote.updateAllowed) {
+      console.log(`[Updater] Hold: ${remote.reason || 'Release is not approved for this node.'}`);
+      return;
+    }
+
+    if (!remote.updateAvailable) {
+      console.log(`[Updater] System is up to date at ${localRelease.releaseId}.`);
+      return;
+    }
+
+    console.log(`[Updater] New release found: ${remote.releaseId}. Downloading...`);
+    await downloadAndApply(mainUrl, remote);
+  } catch (error) {
+    await setUpdaterState({
+      LOCAL_UPDATE_LAST_FAILURE_REASON: error.message || 'Update check failed'
+    });
+    throw error;
   }
-
-  const remote = await response.json();
-  if (!remote.ok) {
-    throw new Error(remote.error || 'Remote update check failed');
-  }
-
-  if (!remote.updateAllowed) {
-    console.log(`[Updater] Hold: ${remote.reason || 'Release is not approved for this node.'}`);
-    return;
-  }
-
-  if (!remote.updateAvailable) {
-    console.log(`[Updater] System is up to date at ${localRelease.releaseId}.`);
-    return;
-  }
-
-  console.log(`[Updater] New release found: ${remote.releaseId}. Downloading...`);
-  await downloadAndApply(mainUrl, remote);
 }
 
 async function downloadAndApply(mainUrl, remote) {
   const packageRoot = PACKAGE_ROOT;
   const tmpPath = path.join(packageRoot, 'temp_update.zip');
-  const response = await fetch(new URL(remote.url, mainUrl).toString(), {
-    headers: buildAuthHeaders()
-  });
-
-  if (!response.ok) {
-    throw new Error(`Download failed: ${response.status} ${response.statusText}`);
-  }
-
-  await new Promise((resolve, reject) => {
-    const stream = fs.createWriteStream(tmpPath);
-    response.body.pipe(stream);
-    response.body.on('error', reject);
-    stream.on('error', reject);
-    stream.on('finish', resolve);
-  });
-
-  console.log('[Updater] Download complete. Extracting release...');
-
   try {
+    const response = await fetch(new URL(remote.url, mainUrl).toString(), {
+      headers: buildAuthHeaders()
+    });
+
+    if (!response.ok) {
+      throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+    }
+
+    await new Promise((resolve, reject) => {
+      const stream = fs.createWriteStream(tmpPath);
+      response.body.pipe(stream);
+      response.body.on('error', reject);
+      stream.on('error', reject);
+      stream.on('finish', resolve);
+    });
+
+    console.log('[Updater] Download complete. Extracting release...');
     const zip = new AdmZip(tmpPath);
     zip.extractAllTo(packageRoot, true);
+
+    await setUpdaterState({
+      LOCAL_UPDATE_CURRENT_RELEASE: remote.releaseId,
+      LOCAL_UPDATE_TARGET_RELEASE: remote.releaseId,
+      LOCAL_UPDATE_PENDING: '0',
+      LOCAL_UPDATE_LAST_SUCCESS_AT: new Date().toISOString(),
+      LOCAL_UPDATE_LAST_FAILURE_REASON: ''
+    });
+  } catch (error) {
+    await setUpdaterState({
+      LOCAL_UPDATE_TARGET_RELEASE: remote.releaseId || '',
+      LOCAL_UPDATE_PENDING: '1',
+      LOCAL_UPDATE_LAST_FAILURE_REASON: error.message || 'Download/apply failed'
+    });
+    throw error;
   } finally {
     if (fs.existsSync(tmpPath)) {
       fs.unlinkSync(tmpPath);

@@ -129,6 +129,25 @@ const TRANSFORMERS = {
     }
 };
 
+async function setServerConfigValue(key, value) {
+    if (!pool) return;
+    await pool.query(
+        `INSERT INTO server_config (key, value)
+         VALUES ($1, $2)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [key, value == null ? '' : String(value)]
+    );
+}
+
+async function setSyncAuditState(stats = {}) {
+    await setServerConfigValue('LAST_SYNC_CREATED_COUNT', stats.created || 0);
+    await setServerConfigValue('LAST_SYNC_UPDATED_COUNT', stats.updated || 0);
+    await setServerConfigValue('LAST_SYNC_DELETED_COUNT', stats.deleted || 0);
+    await setServerConfigValue('LAST_SYNC_FAILED_COUNT', stats.failed || 0);
+    await setServerConfigValue('LAST_SYNC_PENDING_COUNT', stats.pending || 0);
+    await setServerConfigValue('LAST_SYNC_CYCLE_AT', new Date().toISOString());
+}
+
 /* ============================================================
    ROUTER DEFINITIONS (Mounted at /api/sync)
    ============================================================ */
@@ -290,21 +309,41 @@ async function runSyncCycle() {
     if (!pool || !LOCAL_FACTORY_ID || !MAIN_SERVER_URL) return;
     console.log('[Sync] Running Cycle...');
     lastSyncTime = new Date();
+    const cycleStats = {
+        created: 0,
+        updated: 0,
+        deleted: 0,
+        failed: 0,
+        pending: 0
+    };
 
     try {
         if (TABLES_TO_PUSH.length > 0) {
-            await pushChanges();
-            await pushDeletionChanges();
+            const pushStats = await pushChanges();
+            const deletePushStats = await pushDeletionChanges();
+            cycleStats.failed += pushStats.failed + deletePushStats.failed;
+            cycleStats.deleted += deletePushStats.deleted;
             lastPushTime = new Date();
         }
         if (TABLES_TO_PULL.length > 0) {
-            await pullChanges();
-            await pullDeletionChanges();
+            const pullStats = await pullChanges();
+            const deletePullStats = await pullDeletionChanges();
+            cycleStats.created += pullStats.created;
+            cycleStats.updated += pullStats.updated;
+            cycleStats.failed += pullStats.failed + deletePullStats.failed;
+            cycleStats.deleted += deletePullStats.deleted;
             lastPullTime = new Date();
         }
+        cycleStats.pending = await countPendingChanges();
         await pool.query(`INSERT INTO server_config (key, value) VALUES ('LAST_SYNC', NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+        await setSyncAuditState(cycleStats);
     } catch (e) {
         console.error('[Sync] Cycle Failed:', e);
+        cycleStats.failed += 1;
+        cycleStats.pending = await countPendingChanges().catch(() => cycleStats.pending);
+        await setSyncAuditState(cycleStats).catch((err) => {
+            console.error('[Sync] Failed to persist sync audit state:', err.message);
+        });
     }
 
     if (syncTimer) clearTimeout(syncTimer);
@@ -312,6 +351,7 @@ async function runSyncCycle() {
 }
 
 async function pushChanges() {
+    const stats = { pushed: 0, failed: 0 };
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_PUSH'`);
     const lastPush = res.rows.length ? res.rows[0].value : '1970-01-01';
 
@@ -341,15 +381,19 @@ async function pushChanges() {
             if (!response.ok) {
                 const text = await response.text();
                 console.error(`[Sync] Push Failed Details for ${table}:`, text);
+                stats.failed += rows.rows.length;
                 throw new Error(`Push failed: ${response.status} ${response.statusText} - ${text}`);
             }
+            stats.pushed += rows.rows.length;
         }
     }
 
     await pool.query(`INSERT INTO server_config (key, value) VALUES ('LAST_PUSH', NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+    return stats;
 }
 
 async function pushDeletionChanges() {
+    const stats = { deleted: 0, failed: 0 };
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_DELETE_PUSH'`);
     const lastPush = res.rows.length ? res.rows[0].value : '1970-01-01';
     const deletions = await getDeletionChanges(lastPush, LOCAL_FACTORY_ID);
@@ -365,14 +409,18 @@ async function pushDeletionChanges() {
         if (!response.ok) {
             const text = await response.text();
             console.error('[Sync] Push Deletions Failed:', text);
+            stats.failed += deletions.length;
             throw new Error(`Push deletions failed: ${response.status} ${response.statusText} - ${text}`);
         }
+        stats.deleted += deletions.length;
     }
 
     await pool.query(`INSERT INTO server_config (key, value) VALUES ('LAST_DELETE_PUSH', NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+    return stats;
 }
 
 async function pullChanges() {
+    const stats = { created: 0, updated: 0, failed: 0 };
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_PULL'`);
     const lastPull = res.rows.length ? res.rows[0].value : '1970-01-01';
 
@@ -386,17 +434,23 @@ async function pullChanges() {
 
             if (data.length > 0) {
                 console.log(`[Sync] Pulled ${data.length} rows for ${table}...`);
-                await upsertData(table, data);
+                const tableStats = await upsertData(table, data);
+                stats.created += tableStats.created;
+                stats.updated += tableStats.updated;
+                stats.failed += tableStats.failed;
             }
         } catch (e) {
             console.error(`[Sync] Pull Failed ${table}:`, e);
+            stats.failed += 1;
         }
     }
 
     await pool.query(`INSERT INTO server_config (key, value) VALUES ('LAST_PULL', NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+    return stats;
 }
 
 async function pullDeletionChanges() {
+    const stats = { deleted: 0, failed: 0 };
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_DELETE_PULL'`);
     const lastPull = res.rows.length ? res.rows[0].value : '1970-01-01';
 
@@ -407,14 +461,18 @@ async function pullDeletionChanges() {
             const deletions = json.data || [];
             if (deletions.length > 0) {
                 console.log(`[Sync] Pulled ${deletions.length} deletions...`);
-                await applyRemoteDeletions(deletions);
+                const applied = await applyRemoteDeletions(deletions);
+                stats.deleted += applied.deleted;
+                stats.failed += applied.failed;
             }
         }
     } catch (e) {
         console.error('[Sync] Pull Deletions Failed:', e);
+        stats.failed += 1;
     }
 
     await pool.query(`INSERT INTO server_config (key, value) VALUES ('LAST_DELETE_PULL', NOW()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+    return stats;
 }
 
 function getConflictColumns(table, row) {
@@ -444,10 +502,11 @@ function parseDeletionRecordPk(table, recordPk) {
 }
 
 async function upsertData(table, data) {
-    if (!data.length) return;
+    if (!data.length) return { created: 0, updated: 0, failed: 0 };
 
     const MAX_RETRIES = 3;
     let attempt = 0;
+    const stats = { created: 0, updated: 0, failed: 0 };
 
     while (attempt < MAX_RETRIES) {
         const client = await pool.connect();
@@ -480,21 +539,28 @@ async function upsertData(table, data) {
                     ON CONFLICT (${conflictKey})
                     DO UPDATE SET ${setClause}
                     ${whereClause}
+                    RETURNING (xmax = 0) AS inserted
                 `;
 
                 try {
-                    await client.query(sql, vals);
+                    const result = await client.query(sql, vals);
+                    if (result.rows.length && result.rows[0].inserted === true) {
+                        stats.created += 1;
+                    } else if (result.rows.length) {
+                        stats.updated += 1;
+                    }
                 } catch (innerErr) {
                     if (innerErr.code === '40P01') {
                         throw innerErr;
                     }
                     console.error(`[Sync] Row Error in ${table}:`, innerErr.message);
                     console.error('Failed Row:', JSON.stringify(row));
+                    stats.failed += 1;
                 }
             }
 
             await client.query('COMMIT');
-            return;
+            return stats;
         } catch (e) {
             await client.query('ROLLBACK');
 
@@ -583,9 +649,10 @@ async function getDeletionChanges(since, targetFactoryId) {
 }
 
 async function applyRemoteDeletions(deletions) {
-    if (!Array.isArray(deletions) || deletions.length === 0) return;
+    if (!Array.isArray(deletions) || deletions.length === 0) return { deleted: 0, failed: 0 };
 
     const client = await pool.connect();
+    const stats = { deleted: 0, failed: 0 };
     try {
         await client.query('BEGIN');
 
@@ -594,7 +661,10 @@ async function applyRemoteDeletions(deletions) {
             if (!TABLES_TO_PUSH.includes(table)) continue;
 
             const keyValues = parseDeletionRecordPk(table, deletion.record_pk);
-            if (!keyValues) continue;
+            if (!keyValues) {
+                stats.failed += 1;
+                continue;
+            }
 
             const factoryScope = deletion.factory_id == null ? '__global__' : String(deletion.factory_id);
             await client.query(`
@@ -625,10 +695,12 @@ async function applyRemoteDeletions(deletions) {
                 }
             }
 
-            await client.query(`DELETE FROM ${table} WHERE ${where}`, params);
+            const deleteResult = await client.query(`DELETE FROM ${table} WHERE ${where}`, params);
+            stats.deleted += deleteResult.rowCount || 0;
         }
 
         await client.query('COMMIT');
+        return stats;
     } catch (e) {
         await client.query('ROLLBACK');
         throw e;
@@ -732,6 +804,43 @@ async function tableHasColumn(table, column) {
     `, [table, column]);
 
     return result.rows.length > 0;
+}
+
+async function countPendingChanges() {
+    let pending = 0;
+    const lastPushRes = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_PUSH'`);
+    const lastDeletePushRes = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_DELETE_PUSH'`);
+    const lastPush = lastPushRes.rows.length ? lastPushRes.rows[0].value : '1970-01-01';
+    const lastDeletePush = lastDeletePushRes.rows.length ? lastDeletePushRes.rows[0].value : '1970-01-01';
+
+    for (const table of TABLES_TO_PUSH) {
+        try {
+            const hasFactoryId = await tableHasColumn(table, 'factory_id');
+            const query = hasFactoryId
+                ? `SELECT COUNT(*)::int AS count FROM ${table} WHERE updated_at > $1 AND factory_id = $2`
+                : `SELECT COUNT(*)::int AS count FROM ${table} WHERE updated_at > $1`;
+            const params = hasFactoryId ? [lastPush, LOCAL_FACTORY_ID] : [lastPush];
+            const result = await pool.query(query, params);
+            pending += result.rows[0]?.count || 0;
+        } catch (error) {
+            console.warn(`[Sync] Pending count skipped for ${table}:`, error.message);
+        }
+    }
+
+    try {
+        const deleteResult = await pool.query(
+            `SELECT COUNT(*)::int AS count
+               FROM sync_deletions
+              WHERE deleted_at > $1
+                AND (factory_id = $2 OR factory_id IS NULL)`,
+            [lastDeletePush, LOCAL_FACTORY_ID]
+        );
+        pending += deleteResult.rows[0]?.count || 0;
+    } catch (error) {
+        console.warn('[Sync] Pending delete count skipped:', error.message);
+    }
+
+    return pending;
 }
 
 module.exports = { init, router, triggerSync };
