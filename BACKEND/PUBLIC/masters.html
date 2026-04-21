@@ -2454,12 +2454,13 @@
           if (c === 'machine_icon' && currentType === 'machines') {
             base.title = 'MACHINE ICON';
             base.render = function (data) {
-              const src = String(data || '').trim();
+              const src = normalizeMachineIconSrc(data);
               if (!src) return '<span style="color:#94a3b8">No icon</span>';
               const safeSrc = src.replace(/"/g, '&quot;');
+              const safeLabel = (src.split('/').pop() || 'Machine icon').replace(/"/g, '&quot;');
               return `<div style="display:flex; align-items:center; gap:8px; min-width:120px">
-                        <img src="${safeSrc}" alt="Machine Icon" style="width:48px; height:28px; object-fit:contain; border:1px solid #e2e8f0; border-radius:6px; background:#fff; padding:2px">
-                        <span style="font-size:0.72rem; color:#475569; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${safeSrc}</span>
+                        <img src="${safeSrc}" alt="Machine Icon" style="width:48px; height:28px; object-fit:contain; border:1px solid #e2e8f0; border-radius:6px; background:#fff; padding:2px" onerror="this.style.display='none'; if(this.nextElementSibling){ this.nextElementSibling.textContent='No icon'; this.nextElementSibling.style.color='#94a3b8'; }">
+                        <span style="font-size:0.72rem; color:#475569; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${safeLabel}</span>
                       </div>`;
             };
           }
@@ -3216,18 +3217,44 @@
     }
 
     // --- Machine CRUD ---
+    function normalizeMachineIconSrc(src) {
+      const raw = String(src || '').trim();
+      if (!raw) return '';
+      if (/^data:image\//i.test(raw)) return raw;
+      if (/^https?:\/\//i.test(raw)) return raw;
+
+      const normalized = raw.replace(/\\/g, '/');
+      if (normalized.startsWith('/uploads/')) return normalized;
+      if (normalized.startsWith('uploads/')) return `/${normalized}`;
+      if (normalized.startsWith('/public/uploads/')) return normalized.replace(/^\/public/, '');
+      if (normalized.startsWith('public/uploads/')) return `/${normalized.replace(/^public\//, '')}`;
+
+      const fileName = normalized.split('/').pop();
+      if (fileName && /\.(png|jpe?g|webp|gif|svg)$/i.test(fileName)) {
+        return `/uploads/machines/${fileName}`;
+      }
+
+      return normalized.startsWith('/') ? normalized : `/${normalized}`;
+    }
+
     function setMachineIconPreview(src) {
       const preview = document.getElementById('m_machine_icon_preview');
       const empty = document.getElementById('m_machine_icon_empty');
-      const cleanSrc = String(src || '').trim();
+      const cleanSrc = normalizeMachineIconSrc(src);
       if (!preview || !empty) return;
 
       if (cleanSrc) {
         preview.src = cleanSrc;
+        preview.onerror = function () {
+          preview.removeAttribute('src');
+          preview.style.display = 'none';
+          empty.style.display = 'flex';
+        };
         preview.style.display = 'block';
         empty.style.display = 'none';
       } else {
         preview.removeAttribute('src');
+        preview.onerror = null;
         preview.style.display = 'none';
         empty.style.display = 'flex';
       }
