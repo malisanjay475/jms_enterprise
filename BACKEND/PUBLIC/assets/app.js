@@ -471,6 +471,7 @@ const BRAND_NAME = 'JMS OCEAN';
         if (typeof window === 'undefined' || typeof document === 'undefined' || !document.body) return;
         const width = window.innerWidth || document.documentElement.clientWidth || 0;
         const height = window.innerHeight || document.documentElement.clientHeight || 0;
+        const mobile = width <= 768;
         const compact = width <= 1440;
         const tight = width <= 1280 || height <= 820;
         const short = height <= 760;
@@ -480,12 +481,20 @@ const BRAND_NAME = 'JMS OCEAN';
         body.classList.toggle('viewport-compact', compact);
         body.classList.toggle('viewport-tight', tight);
         body.classList.toggle('viewport-short', short);
-        body.classList.toggle('sidebar-auto-collapsed', autoCollapse);
+        body.classList.toggle('sidebar-auto-collapsed', !mobile && autoCollapse);
 
         const sb = document.querySelector('.sidebar');
         if (sb) {
-            sb.classList.toggle('auto-collapsed', autoCollapse);
+            if (mobile) {
+                sb.classList.remove('auto-collapsed');
+            } else {
+                sb.classList.remove('mobile-open');
+                sb.classList.toggle('auto-collapsed', autoCollapse);
+                body.classList.remove('mobile-sidebar-open');
+            }
         }
+
+        refreshMobileSidebarControls();
     }
 
     let viewportLayoutWatcherBound = false;
@@ -511,12 +520,97 @@ const BRAND_NAME = 'JMS OCEAN';
         applyViewportLayoutMode();
     }
 
+    function isMobileShellViewport() {
+        if (typeof window === 'undefined') return false;
+        return (window.innerWidth || document.documentElement.clientWidth || 0) <= 1024;
+    }
+
+    function refreshMobileSidebarControls() {
+        if (typeof document === 'undefined' || !document.body) return;
+
+        const body = document.body;
+        const sidebar = document.querySelector('.sidebar');
+        const fab = document.getElementById('mobileSidebarFab');
+        const backdrop = document.getElementById('mobileSidebarBackdrop');
+        const enabled = Boolean(sidebar) && isMobileShellViewport();
+        const open = enabled && sidebar.classList.contains('mobile-open');
+
+        body.classList.toggle('mobile-sidebar-enabled', enabled);
+        body.classList.toggle('mobile-sidebar-open', open);
+
+        if (sidebar) {
+            sidebar.id = sidebar.id || 'appSidebar';
+            sidebar.setAttribute('aria-hidden', open ? 'false' : 'true');
+        }
+
+        if (fab) {
+            fab.hidden = !enabled;
+            fab.setAttribute('aria-expanded', open ? 'true' : 'false');
+            fab.setAttribute('aria-controls', sidebar?.id || 'appSidebar');
+        }
+
+        if (backdrop) {
+            backdrop.hidden = !open;
+        }
+    }
+
+    function ensureMobileSidebarControls() {
+        if (typeof document === 'undefined' || !document.body) return;
+
+        let fab = document.getElementById('mobileSidebarFab');
+        if (!fab) {
+            fab = document.createElement('button');
+            fab.id = 'mobileSidebarFab';
+            fab.type = 'button';
+            fab.className = 'mobile-sidebar-fab';
+            fab.setAttribute('aria-label', 'Open sidebar menu');
+            fab.innerHTML = '<i class="bi bi-list"></i>';
+            fab.onclick = () => exports.toggleSidebar();
+            document.body.appendChild(fab);
+        }
+
+        let backdrop = document.getElementById('mobileSidebarBackdrop');
+        if (!backdrop) {
+            backdrop = document.createElement('button');
+            backdrop.id = 'mobileSidebarBackdrop';
+            backdrop.type = 'button';
+            backdrop.className = 'mobile-sidebar-backdrop';
+            backdrop.hidden = true;
+            backdrop.setAttribute('aria-label', 'Close sidebar menu');
+            backdrop.onclick = () => exports.closeSidebar();
+            document.body.appendChild(backdrop);
+        }
+
+        if (!document.body.hasAttribute('data-mobile-sidebar-esc-bound')) {
+            document.body.setAttribute('data-mobile-sidebar-esc-bound', 'true');
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') {
+                    exports.closeSidebar();
+                }
+            });
+        }
+
+        refreshMobileSidebarControls();
+    }
+
+    exports.closeSidebar = () => {
+        const sb = document.querySelector('.sidebar');
+        if (!sb) return;
+        sb.classList.remove('mobile-open');
+        refreshMobileSidebarControls();
+    };
+
     exports.toggleSidebar = () => {
         const sb = document.querySelector('.sidebar');
         if (sb) {
-            sb.classList.toggle('collapsed');
-            localStorage.setItem('sidebar_collapsed', sb.classList.contains('collapsed'));
-            applyViewportLayoutMode();
+            if (isMobileShellViewport()) {
+                sb.classList.toggle('mobile-open');
+                refreshMobileSidebarControls();
+            } else {
+                sb.classList.toggle('collapsed');
+                localStorage.setItem('sidebar_collapsed', sb.classList.contains('collapsed'));
+                applyViewportLayoutMode();
+            }
         }
     };
 
@@ -847,8 +941,8 @@ const BRAND_NAME = 'JMS OCEAN';
                 { id: 'plan_timeline', label: 'Machine Timeline', icon: 'bi-clock-history', href: 'planning.html?view=timeline' },
                 { id: 'plan_map', label: 'Machine Grid', icon: 'bi-grid-3x3', href: 'planning.html?view=map' },
                 { id: 'plan_print_jc', label: 'Print JobCard', icon: 'bi-printer', href: 'planning.html?view=print_jc' },
-                { id: 'plan_completed', label: 'Completed Plans', icon: 'bi-check-circle-fill', href: 'planning.html?view=completed' },
-                { id: 'mould_drop', label: 'Mould Drop/Changed', icon: 'bi-exclamation-triangle', href: 'planning.html?view=log' }
+                { id: 'plan_completed', label: 'Complete Production Plan', icon: 'bi-check-circle-fill', href: 'planning.html?view=prod_complete' },
+                { id: 'mould_drop', label: 'Mould Change Report', icon: 'bi-exclamation-triangle', href: 'planning.html?view=mould_change' }
             ]
         },
         {
@@ -908,9 +1002,10 @@ const BRAND_NAME = 'JMS OCEAN';
                 { id: 'master_order', label: 'Order Master', icon: 'bi-cart-fill', href: 'masters.html?type=orders' },
                 { id: 'master_machine', label: 'Machine Master', icon: 'bi-hdd-network', href: 'masters.html?type=machines' },
                 { id: 'master_orjr', label: 'OR-JR Status', icon: 'bi-graph-up', href: 'masters.html?type=orjr' },
-                { id: 'master_orjr_wise_summary', label: 'ORJR Wise Summary', icon: 'bi-table', href: 'masters.html?type=orjrwise' },
-                { id: 'master_orjr_wise_detail', label: 'ORJR Wise Detail', icon: 'bi-file-earmark-richtext', href: 'masters.html?type=orjrwisedetail' },
-                { id: 'master_boplanning_detail', label: 'BO Planning Detail', icon: 'bi-clipboard-data', href: 'masters.html?type=boplanningdetail' },
+        { id: 'master_orjr_wise_summary', label: 'ORJR Wise Summary', icon: 'bi-table', href: 'masters.html?type=orjrwise' },
+        { id: 'master_orjr_wise_detail', label: 'ORJR Wise Detail', icon: 'bi-file-earmark-richtext', href: 'masters.html?type=orjrwisedetail' },
+        { id: 'master_jc_detail', label: 'JC Detail', icon: 'bi-journal-richtext', href: 'masters.html?type=jcdetails' },
+        { id: 'master_boplanning_detail', label: 'BO Planning Detail', icon: 'bi-clipboard-data', href: 'masters.html?type=boplanningdetail' },
                 { id: 'master_wip_stock', label: 'WIP Stock', icon: 'bi-box-seam-fill', href: 'masters.html?type=wipstock' },
                 { id: 'master_mould', label: 'Mould Master', icon: 'bi-gem', href: 'masters.html?type=moulds' }
             ]
@@ -1063,6 +1158,7 @@ const BRAND_NAME = 'JMS OCEAN';
 
         // Prevent double render (idempotency)
         if (document.querySelector('.sidebar')) {
+            ensureMobileSidebarControls();
             applyViewportLayoutMode();
             return;
         }
@@ -1185,7 +1281,8 @@ const BRAND_NAME = 'JMS OCEAN';
     `;
 
         const sidebar = document.createElement('div');
-        sidebar.className = 'sidebar';
+        sidebar.className = 'sidebar app-shell-sidebar';
+        sidebar.id = 'appSidebar';
         sidebar.innerHTML = html;
 
         // Restore Collapsed State
@@ -1199,6 +1296,11 @@ const BRAND_NAME = 'JMS OCEAN';
         const toggleBtn = sidebar.querySelector('#sidebar-toggle');
         if (toggleBtn) {
             toggleBtn.onclick = () => {
+                if (isMobileShellViewport()) {
+                    exports.closeSidebar();
+                    return;
+                }
+
                 sidebar.classList.toggle('collapsed');
                 const collapsed = sidebar.classList.contains('collapsed');
                 localStorage.setItem('sidebar_collapsed', collapsed);
@@ -1217,6 +1319,7 @@ const BRAND_NAME = 'JMS OCEAN';
         */
 
         document.body.prepend(sidebar);
+        ensureMobileSidebarControls();
         applyViewportLayoutMode();
 
         // Inject Hamburger if Header Exists
