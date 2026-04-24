@@ -2717,6 +2717,57 @@
               </div>
             </div>
           </div>
+
+          <section class="planning-overview-card">
+            <div class="planning-overview-header">
+              <div>
+                <div class="planning-panel-kicker">
+                  <i class="bi bi-speedometer2"></i>
+                  <span>Planning Dashboard</span>
+                </div>
+                <h3 id="planningScopeTitle" style="margin:6px 0 4px;">All Buildings</h3>
+                <p id="planningSummaryText" style="margin:0; color:#64748b;">Loading planning dashboard metrics...</p>
+              </div>
+              <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                <span class="chip" id="planningScopeChip"><i class="bi bi-building"></i><span>All Buildings</span></span>
+                <span class="chip" id="planningFilterChip"><i class="bi bi-funnel"></i><span>Filters loading...</span></span>
+              </div>
+            </div>
+
+            <div class="kpi-deck" id="planningKpiDeck">
+              ${kpiCard('bi-box-seam', 'All Pending Orders (Order Master)', 'pending')}
+              ${kpiCard('bi-check2-circle', 'Today Completed Orders', 'inprog')}
+              ${kpiCard('bi-exclamation-triangle', 'Delayed Pending Orders', 'variance')}
+              ${kpiCard('bi-calendar2-week', 'Upcoming Orders', 'upcoming')}
+            </div>
+
+            <div class="planning-focus-grid">
+              <div class="planning-focus-tile">
+                <div class="planning-focus-label">Pending Focus</div>
+                <div class="planning-focus-value" id="planningFocusPending">Loading pending order summary...</div>
+              </div>
+              <div class="planning-focus-tile">
+                <div class="planning-focus-label">Planning Flow</div>
+                <div class="planning-focus-value" id="planningFocusFlow">Reading live machine load...</div>
+              </div>
+              <div class="planning-focus-tile mini">
+                <div class="planning-focus-label">Visible Machines</div>
+                <div class="planning-focus-count" id="planningVisibleCount">0</div>
+              </div>
+              <div class="planning-focus-tile mini">
+                <div class="planning-focus-label">Running</div>
+                <div class="planning-focus-count" id="planningRunningCount">0</div>
+              </div>
+              <div class="planning-focus-tile mini">
+                <div class="planning-focus-label">Planned</div>
+                <div class="planning-focus-count" id="planningPlannedCount">0</div>
+              </div>
+              <div class="planning-focus-tile mini">
+                <div class="planning-focus-label">Off / Maintenance</div>
+                <div class="planning-focus-count" id="planningBlockedCount">0</div>
+              </div>
+            </div>
+          </section>
         </div> <!-- End view-main -->
 
           <div class="map-wrap" id="mapWrap" aria-expanded="false">
@@ -2732,6 +2783,7 @@
                   <span class="demo-badge" id="demoBadge" style="display:none"><i class="bi bi-bug"></i> Demo data</span>
                 </div>
                 <div class="map-sub" id="planningMapSub">Loading machine availability for the planning department.</div>
+                <div class="muted mini" id="planningGridMeta" style="margin-top:6px;">Loading dashboard summary...</div>
               </div>
               <div class="map-actions">
                 <label class="small-muted">Horizon</label>
@@ -3080,6 +3132,11 @@
     `;
 
         /* ---------- helpers to render KPI cards with spark ---------- */
+        function fmtNum(val) {
+          const n = Number(val || 0);
+          return Number.isFinite(n) ? n.toLocaleString('en-IN') : '0';
+        }
+
         function kpiCard(icon, label, key) {
           return `
         <div class="kpi-card" data-k="${key}">
@@ -3095,7 +3152,8 @@
         </div>`;
         }
         function setKpi(key, v, deltaPct, trend) {
-          const el = document.getElementById('kpi_' + key); if (el) el.textContent = v;
+          const el = document.getElementById('kpi_' + key);
+          if (el) el.textContent = fmtNum(v);
           const d = document.getElementById('delta_' + key);
           if (d) {
             const up = (deltaPct || 0) >= 0;
@@ -3239,8 +3297,8 @@
           if (focusFlow) focusFlow.textContent = visible ? 'Machine load is updating live' : 'Adjust filters or show inactive machines';
           if (gridMeta) gridMeta.textContent = summary;
           if (mapSub) mapSub.textContent = summary;
-          if (focusPending && focusPending.textContent.includes('loading')) {
-            focusPending.textContent = 'Pending planning load is updating live';
+          if (focusPending && /loading/i.test(focusPending.textContent || '')) {
+            focusPending.textContent = 'Pending order summary is updating live';
           }
         }
 
