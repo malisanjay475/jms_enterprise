@@ -91,11 +91,13 @@
 
         .auth-panel {
             width: 100%;
+            min-width: 0;
         }
 
         .auth-shell {
             position: relative;
             padding: 16px;
+            width: 100%;
         }
 
         .auth-shell::before {
@@ -112,6 +114,7 @@
             position: relative;
             overflow: hidden;
             width: 100%;
+            max-width: 100%;
             padding: 36px 34px 32px;
             border-radius: 34px;
             background:
@@ -229,6 +232,7 @@
             position: relative;
             z-index: 1;
             margin-bottom: 18px;
+            min-width: 0;
         }
 
         .form-label {
@@ -240,30 +244,38 @@
 
         .input-shell {
             position: relative;
+            width: 100%;
+            min-width: 0;
+            isolation: isolate;
         }
 
-        .input-shell i {
+        .input-shell .field-icon {
             position: absolute;
-            left: 15px;
+            left: 14px;
             top: 50%;
             transform: translateY(-50%);
             color: #658093;
             font-size: 1rem;
             z-index: 2;
+            pointer-events: none;
         }
 
-        .input-shell input {
+        .login-page .input-shell input.form-control {
             width: 100%;
             height: 56px;
-            padding: 0 46px 0 44px;
+            max-width: 100%;
+            padding: 0 58px 0 48px;
             border-radius: 17px;
             border: 1px solid #d3e4ec;
             background: linear-gradient(180deg, #ffffff 0%, #f8fcfd 100%);
             color: var(--text-main);
+            font-size: 16px;
             transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        .input-shell input:focus {
+        .login-page .input-shell input.form-control:focus {
             outline: none;
             border-color: rgba(1, 168, 221, 0.7);
             box-shadow: 0 0 0 4px rgba(1, 168, 221, 0.14);
@@ -271,16 +283,38 @@
 
         .input-shell .toggle-btn {
             position: absolute;
-            right: 14px;
+            right: 18px;
             top: 50%;
             transform: translateY(-50%);
+            z-index: 4;
             color: #6b8496;
             background: transparent;
             border: none;
             box-shadow: none;
+            width: 28px;
+            height: 28px;
+            display: grid;
+            place-items: center;
             min-height: auto;
             padding: 0;
             font-size: 1rem;
+            line-height: 1;
+            border-radius: 999px;
+            cursor: pointer;
+        }
+
+        .input-shell .toggle-btn i {
+            left: 0;
+            position: relative;
+            top: 0;
+            transform: none;
+            pointer-events: auto;
+        }
+
+        .input-shell .toggle-btn .toggle-icon {
+            color: #6b8496;
+            font-size: 1rem;
+            line-height: 1;
         }
 
         .login-actions {
@@ -464,6 +498,78 @@
                 border-radius: 20px;
             }
         }
+
+        @media (max-width: 400px) {
+            body.login-page {
+                padding: 10px;
+            }
+
+            .auth-card {
+                padding: 22px 14px 18px;
+                border-radius: 20px;
+            }
+
+            .auth-brand {
+                gap: 10px;
+                margin-bottom: 16px;
+            }
+
+            .brand-mark {
+                width: 112px;
+                height: 112px;
+            }
+
+            .auth-brand img {
+                width: 78px;
+                height: 78px;
+            }
+
+            .brand-name {
+                font-size: 1.34rem;
+            }
+
+            .auth-heading {
+                font-size: 1.6rem;
+            }
+
+            .auth-subtitle {
+                margin: 8px auto 16px;
+                font-size: 0.85rem;
+                line-height: 1.45;
+            }
+
+            .form-label {
+                margin-bottom: 6px;
+                font-size: 0.9rem;
+            }
+
+            .login-page .input-shell input.form-control,
+            .sign-in-btn {
+                height: 50px;
+                border-radius: 14px;
+            }
+
+            .login-page .input-shell input.form-control {
+                padding: 0 48px 0 42px;
+                font-size: 0.94rem;
+            }
+
+            .input-shell .field-icon {
+                left: 12px;
+                font-size: 0.94rem;
+            }
+
+            .input-shell .toggle-btn {
+                right: 12px;
+                font-size: 0.94rem;
+                width: 26px;
+                height: 26px;
+            }
+
+            .login-actions {
+                margin: 4px 0 12px;
+            }
+        }
     </style>
 </head>
 
@@ -488,7 +594,7 @@
                     <div class="form-group">
                         <label class="form-label" for="u_name">Username</label>
                         <div class="input-shell">
-                            <i class="bi bi-person-circle"></i>
+                            <i class="bi bi-person-circle field-icon"></i>
                             <input id="u_name" class="form-control" placeholder="Enter username"
                                 onkeydown="if(event.key==='Enter') document.getElementById('u_pass').focus()">
                         </div>
@@ -497,11 +603,11 @@
                     <div class="form-group" style="margin-bottom:0;">
                         <label class="form-label" for="u_pass">Password</label>
                         <div class="input-shell">
-                            <i class="bi bi-shield-lock"></i>
+                            <i class="bi bi-shield-lock field-icon"></i>
                             <input id="u_pass" type="password" class="form-control" placeholder="Enter password"
                                 onkeydown="if(event.key==='Enter') login()">
                             <button class="toggle-btn" type="button" onclick="togglePassword()" aria-label="Show password">
-                                <i class="bi bi-eye-slash" id="togglePassIcon"></i>
+                                <i class="bi bi-eye-slash toggle-icon" id="togglePassIcon"></i>
                             </button>
                         </div>
                     </div>

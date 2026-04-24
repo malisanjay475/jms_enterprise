@@ -1,0 +1,39 @@
+{
+  "folders": [
+    {
+      "name": "GIT-SOURCE-develop",
+      "path": "."
+    },
+    {
+      "name": "LIVE-LOCAL-SERVER",
+      "path": "C:\\Users\\SanjayMali\\Downloads\\jms-local-server-jms-01\\JMS_LOCAL_SERVER_jms-01"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/.git": true
+    },
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/BACKEND/uploads": true
+    }
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Sync Git Source To Live Local Server",
+        "type": "shell",
+        "command": "powershell",
+        "args": [
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "${workspaceFolder:GIT-SOURCE-develop}\\scripts\\sync-git-to-live-local.ps1"
+        ],
+        "problemMatcher": []
+      }
+    ]
+  }
+}

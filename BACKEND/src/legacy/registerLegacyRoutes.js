@@ -8,6 +8,8 @@ const fs = require('fs');
 const xlsx = require('xlsx');
 const bcrypt = require('bcryptjs');
 const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
+const STATIC_PUBLIC_DIR_NAME = fs.existsSync(path.join(BACKEND_ROOT, 'PUBLIC', 'index.html')) ? 'PUBLIC' : 'public';
+const STATIC_PUBLIC_DIR = path.join(BACKEND_ROOT, STATIC_PUBLIC_DIR_NAME);
 const {
   getFinancialYearInfo,
   getFinancialYearPrefix,
@@ -281,6 +283,7 @@ const MASTER_UPLOAD_SCHEMAS = {
       { key: 'primary_machine', label: 'PRIMARY MACHINE', headers: ['PRIMARY MACHINE'], required: true },
       { key: 'secondary_machine', label: 'SECONDARY MACHINE', headers: ['SECONDARY MACHINE'], required: true },
       { key: 'moulding_sqn', label: 'MOULDING SQN.', headers: ['MOULDING SQN.', 'MOULDING SQN'], required: true },
+      { key: 'consumption_ratio_qty', label: 'CONSUMPTION RATIO(QTY)', headers: ['CONSUMPTION RATIO(QTY)', 'CONSUMPTION RATIO (QTY)', 'CONSUMPTION RATIO QTY'], required: false },
       { key: 'tonnage', label: 'TONNAGE', headers: ['TONNAGE', 'Machine'], required: true },
       { key: 'no_of_cav', label: 'NO OF CAV', headers: ['NO OF CAV', 'NO OF CAVITY'], required: true },
       { key: 'cycle_time', label: 'CYCLE TIME', headers: ['CYCLE TIME'], required: true },
@@ -290,6 +293,7 @@ const MASTER_UPLOAD_SCHEMAS = {
       { key: 'manpower', label: 'MANPOWER', headers: ['MANPOWER'], required: true },
       { key: 'operator_activities', label: 'OPERATOR ACTIVITIES', headers: ['OPERATOR ACTIVITIES'], required: true },
       { key: 'sfg_std_packing', label: 'SFG STD PACKING', headers: ['SFG STD PACKING', 'SFG QTY'], required: true },
+      { key: 'sfg_bag_size', label: 'SFG BAG SIZE', headers: ['SFG BAG SIZE'], required: false },
       { key: 'std_volume_cap', label: 'STD VOLUME CAP.', headers: ['STD VOLUME CAP.', 'STD VOLUME CAP', 'STD VOLUME CAPACITY'], required: true },
       { key: 'factory_id', label: 'FACTORY ID', headers: ['FACTORY ID', 'FACTORY', 'FACTORY CODE'], required: false }
     ]
@@ -353,6 +357,36 @@ const MASTER_UPLOAD_SCHEMAS = {
       { key: 'machine_name', label: 'Machine', headers: ['Machine', 'Machine Name'], required: true },
       { key: 'cycle_time', label: 'Cycle Time', headers: ['Cycle Time'], required: true },
       { key: 'cavity', label: 'Cavity', headers: ['Cavity'], required: true },
+      { key: 'factory_id', label: 'Factory ID', headers: ['Factory ID', 'Factory', 'Factory Code'], required: false }
+    ]
+  },
+  jcdetails: {
+    label: 'JC Detail',
+    maxHeaderScanRows: 25,
+    minMatchedColumns: 12,
+    columns: [
+      { key: 'or_jr_no', label: 'OR/JR No', headers: ['OR/JR No'], required: true },
+      { key: 'jr_date', label: 'JR Date', headers: ['JR Date', 'OR/JR Date'], required: true },
+      { key: 'jc_no', label: 'JC No', headers: ['JC No', 'Job Card No'], required: true },
+      { key: 'jc_id', label: 'JC ID', headers: ['JC ID', 'Job Card ID'], required: false },
+      { key: 'jc_date', label: 'JC Date', headers: ['JC Date', 'Job Card Date'], required: false },
+      { key: 'jc_qty', label: 'JC Qty', headers: ['JC Qty', 'Job Card Qty'], required: false },
+      { key: 'our_code', label: 'Our Code', headers: ['Our Code', 'Item Code'], required: true },
+      { key: 'bom_type', label: 'BomType', headers: ['BomType', 'BOM Type'], required: false },
+      { key: 'jr_item_name', label: 'JR Item Name', headers: ['JR Item Name', 'Product Name'], required: true },
+      { key: 'jr_qty', label: 'JR Qty', headers: ['JR Qty'], required: false },
+      { key: 'uom', label: 'UOM', headers: ['UOM'], required: false },
+      { key: 'plan_date', label: 'Plan Date', headers: ['Plan Date'], required: false },
+      { key: 'plan_qty', label: 'Plan Qty', headers: ['Plan Qty'], required: false },
+      { key: 'mould_item_code', label: 'Mold Item Code', headers: ['Mold Item Code', 'Mould Item Code'], required: false },
+      { key: 'mould_item_name', label: 'Mold Item Name', headers: ['Mold Item Name', 'Mould Item Name'], required: false },
+      { key: 'mould_no', label: 'Mould No', headers: ['Mould No', 'Mold No'], required: false },
+      { key: 'mould_name', label: 'Mould', headers: ['Mould', 'Mould Name', 'Mold'], required: false },
+      { key: 'mould_item_qty', label: 'Mould Item Qty', headers: ['Mould Item Qty', 'Mold Item Qty'], required: false },
+      { key: 'tonnage', label: 'Tonnage', headers: ['Tonnage'], required: false },
+      { key: 'machine_name', label: 'Machine', headers: ['Machine', 'Machine Name'], required: false },
+      { key: 'cycle_time', label: 'Cycle Time', headers: ['Cycle Time'], required: false },
+      { key: 'cavity', label: 'Cavity', headers: ['Cavity'], required: false },
       { key: 'factory_id', label: 'Factory ID', headers: ['Factory ID', 'Factory', 'Factory Code'], required: false }
     ]
   },
@@ -840,9 +874,15 @@ function parseWipStockUploadSheet(filePath) {
 ========================= */
 const PUBLIC_DIR = path.join(
   BACKEND_ROOT,
-  fs.existsSync(path.join(BACKEND_ROOT, 'PUBLIC', 'index.html')) ? 'PUBLIC' : 'public'
+  STATIC_PUBLIC_DIR_NAME
 );
+const PRIMARY_UPLOADS_DIR = path.join(STATIC_PUBLIC_DIR, 'uploads');
+const LEGACY_UPLOADS_DIR = path.join(BACKEND_ROOT, 'public', 'uploads');
 app.use(express.static(PUBLIC_DIR));
+app.use('/uploads', express.static(PRIMARY_UPLOADS_DIR));
+if (path.normalize(LEGACY_UPLOADS_DIR) !== path.normalize(PRIMARY_UPLOADS_DIR)) {
+  app.use('/uploads', express.static(LEGACY_UPLOADS_DIR));
+}
 
 /* ============================================================
    DPR DASHBOARD MATRIX (New Endpoint for Production Dashboard)
@@ -1109,6 +1149,7 @@ const MOULD_MASTER_FIELDS = [
   'primary_machine',
   'secondary_machine',
   'moulding_sqn',
+  'consumption_ratio_qty',
   'tonnage',
   'no_of_cav',
   'cycle_time',
@@ -1118,12 +1159,14 @@ const MOULD_MASTER_FIELDS = [
   'manpower',
   'operator_activities',
   'sfg_std_packing',
+  'sfg_bag_size',
   'std_volume_cap'
 ];
 
 const MOULD_MASTER_NUMERIC_FIELDS = new Set([
   'std_wt_kg',
   'runner_weight',
+  'consumption_ratio_qty',
   'tonnage',
   'no_of_cav',
   'cycle_time',
@@ -1157,6 +1200,7 @@ async function migrateMouldMasterSchema() {
       primary_machine TEXT,
       secondary_machine TEXT,
       moulding_sqn TEXT,
+      consumption_ratio_qty NUMERIC,
       tonnage NUMERIC,
       no_of_cav NUMERIC,
       cycle_time NUMERIC,
@@ -1166,6 +1210,7 @@ async function migrateMouldMasterSchema() {
       manpower NUMERIC,
       operator_activities TEXT,
       sfg_std_packing TEXT,
+      sfg_bag_size TEXT,
       std_volume_cap TEXT,
       updated_at TIMESTAMPTZ DEFAULT NOW(),
       factory_id INTEGER,
@@ -1221,6 +1266,7 @@ async function migrateMouldMasterSchema() {
     ['primary_machine', 'TEXT'],
     ['secondary_machine', 'TEXT'],
     ['moulding_sqn', 'TEXT'],
+    ['consumption_ratio_qty', 'NUMERIC'],
     ['tonnage', 'NUMERIC'],
     ['no_of_cav', 'NUMERIC'],
     ['cycle_time', 'NUMERIC'],
@@ -1230,6 +1276,7 @@ async function migrateMouldMasterSchema() {
     ['manpower', 'NUMERIC'],
     ['operator_activities', 'TEXT'],
     ['sfg_std_packing', 'TEXT'],
+    ['sfg_bag_size', 'TEXT'],
     ['std_volume_cap', 'TEXT'],
     ['updated_at', 'TIMESTAMPTZ DEFAULT NOW()'],
     ['factory_id', 'INTEGER'],
@@ -1776,24 +1823,24 @@ function getUploadTemplateDefinition(type, factoryContext = {}) {
       label: 'Moulds Master',
       headers: [
         'MOULD NUMBER', 'MOULD NAME', 'STD WT (KG)', 'RUNNER WEIGHT', 'PRIMARY MACHINE',
-        'SECONDARY MACHINE', 'MOULDING SQN.', 'TONNAGE', 'NO OF CAV', 'CYCLE TIME',
+        'SECONDARY MACHINE', 'MOULDING SQN.', 'CONSUMPTION RATIO(QTY)', 'TONNAGE', 'NO OF CAV', 'CYCLE TIME',
         'PCS/HOUR', 'TARGET PCS/DAY', 'MATERIAL', 'MANPOWER', 'OPERATOR ACTIVITIES',
-        'SFG STD PACKING', 'STD VOLUME CAP.', 'FACTORY ID'
+        'SFG STD PACKING', 'SFG BAG SIZE', 'STD VOLUME CAP.', 'FACTORY ID'
       ],
       sample: [
         'MLD-001', '20L Bucket', 0.82, 0.06, 'B-L1>HYD-300-1',
-        'B-L1>HYD-300-2', 'SQN-A', 300, 2, 38,
+        'B-L1>HYD-300-2', 'SQN-A', 1.25, 300, 2, 38,
         190, 4560, 'PP', 2, 'Change insert, cleaning, packing check',
-        '25 PCS', '20 L', factoryId
+        '25 PCS', 'Medium', '20 L', factoryId
       ],
       notes: [
         ['Rule', 'Value'],
         ['Master', 'Moulds Master'],
         ['Upload sheet', 'Use the first sheet only'],
-        ['Column order', 'Do not change the column order from A to R'],
+        ['Column order', 'Do not change the column order from A to T'],
         ['Header row', 'Keep row 1 as headers'],
         ['Factory ID', factoryId ? `Optional. Current scope is ${factoryName || `Factory ${factoryId}`} (${factoryId}). Leave blank to use selected Factory Scope.` : 'Optional. Leave blank to use selected Factory Scope.'],
-        ['Numeric columns', 'STD WT (KG), RUNNER WEIGHT, TONNAGE, NO OF CAV, CYCLE TIME, PCS/HOUR, TARGET PCS/DAY, and MANPOWER must be numeric'],
+        ['Numeric columns', 'STD WT (KG), RUNNER WEIGHT, CONSUMPTION RATIO(QTY), TONNAGE, NO OF CAV, CYCLE TIME, PCS/HOUR, TARGET PCS/DAY, and MANPOWER must be numeric'],
         ['Machine columns', 'PRIMARY MACHINE and SECONDARY MACHINE can be text']
       ]
     },
@@ -1840,6 +1887,29 @@ function getUploadTemplateDefinition(type, factoryContext = {}) {
         ['Detail columns', 'Mold Item Code and Mold Item Name help the detail master show exact uploaded data'],
         ['Date column', 'JR Date is used as the summary date and default Plan Date'],
         ['Numeric columns', 'JR Qty, Mould Item Qty, Tonnage, Cycle Time, and Cavity must be numeric']
+      ]
+    },
+    jcdetails: {
+      label: 'JC Detail',
+      headers: [
+        'OR/JR No', 'JR Date', 'JC No', 'JC ID', 'JC Date', 'JC Qty', 'Our Code', 'BomType',
+        'JR Item Name', 'JR Qty', 'UOM', 'Plan Date', 'Plan Qty', 'Mold Item Code', 'Mold Item Name',
+        'Mould No', 'Mould', 'Mould Item Qty', 'Tonnage', 'Machine', 'Cycle Time', 'Cavity', 'Factory ID'
+      ],
+      sample: [
+        'OR-1001', '2026-04-05', 'JC-5001', 'JCID-001', '2026-04-05', 5000, 'ITEM-001', 'Main',
+        '20L Bucket', 10000, 'PCS', '2026-04-10', 5000, 'ERP-001', '20L Bucket Finished Part',
+        'MLD-001', '20L Bucket Mould', 5000, 300, 'B-L1>HYD-300-1', 38, 2, factoryId
+      ],
+      notes: [
+        ['Rule', 'Value'],
+        ['Master', 'JC Detail'],
+        ['Upload sheet', 'Use the first sheet only'],
+        ['Header row', 'Keep row 1 as headers'],
+        ['Factory ID', factoryId ? `Optional. Current scope is ${factoryName || `Factory ${factoryId}`} (${factoryId}). Leave blank to use selected Factory Scope.` : 'Optional. Leave blank to use selected Factory Scope.'],
+        ['Required columns', 'OR/JR No, JC No, Our Code, and JR Item Name should always be filled'],
+        ['Date columns', 'JR Date, JC Date, and Plan Date should use YYYY-MM-DD when possible'],
+        ['Numeric columns', 'JC Qty, JR Qty, Plan Qty, Mould Item Qty, Tonnage, Cycle Time, and Cavity should be numeric']
       ]
     },
     boplanningdetail: {
@@ -2567,9 +2637,11 @@ async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, a
           factory_scope_id,
           MIN(factory_id) AS factory_id,
           BOOL_AND(
-            COALESCE(is_closed, FALSE)
-            OR COALESCE(TRIM(LOWER(mld_status)), '') IN ('completed', 'complete', 'cancelled', 'canceled', 'cancel')
-          ) AS all_terminal,
+            COALESCE(TRIM(LOWER(mld_status)), '') IN ('completed', 'complete')
+          ) AS all_completed,
+          BOOL_AND(
+            COALESCE(TRIM(LOWER(mld_status)), '') IN ('cancelled', 'canceled', 'cancel')
+          ) AS all_cancelled,
           BOOL_OR(COALESCE(is_closed, FALSE)) AS any_closed,
           ARRAY_REMOVE(ARRAY_AGG(DISTINCT NULLIF(TRIM(mld_status), '')), NULL) AS mould_statuses,
           COUNT(*) AS row_count
@@ -2624,11 +2696,92 @@ async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, a
     );
     const existing = existingRes.rows[0] || null;
 
-    if (group.all_terminal) {
-      const change = buildOrderCompletionChange({
-        mouldStatuses: group.mould_statuses || [],
-        anyClosed: group.any_closed === true
-      });
+    if (group.all_cancelled) {
+      const sourceSnapshot = {
+        row_count: Number(group.row_count || 0),
+        any_closed: group.any_closed === true,
+        mould_statuses: Array.isArray(group.mould_statuses) ? group.mould_statuses : [],
+        representative: {
+          item_code: normalizeOptionalText(group.item_code),
+          product_name: normalizeOptionalText(group.product_name),
+          client_name: normalizeOptionalText(group.client_name),
+          plan_qty: group.plan_qty ?? null
+        }
+      };
+
+      if (!existing) {
+        await db.query(
+          `INSERT INTO orders(
+            order_no,
+            item_code,
+            item_name,
+            client_name,
+            qty,
+            priority,
+            status,
+            created_at,
+            updated_at,
+            factory_id,
+            completion_confirmation_required,
+            completion_change_field,
+            completion_change_to,
+            completion_change_summary,
+            completion_detected_at,
+            completion_source_snapshot,
+            completion_confirmed_at,
+            completion_confirmed_by
+          ) VALUES(
+            $1, $2, $3, $4, $5, 'Normal', 'Cancelled', NOW(), NOW(), $6,
+            FALSE, NULL, NULL, NULL, NULL, '{}'::jsonb, NULL, NULL
+          )`,
+          [
+            orderNo,
+            normalizeOptionalText(group.item_code),
+            normalizeOptionalText(group.product_name),
+            normalizeOptionalText(group.client_name),
+            toNum(group.plan_qty),
+            groupFactoryId
+          ]
+        );
+      } else {
+        await db.query(
+          `UPDATE orders
+              SET item_code = COALESCE($2, item_code),
+                  item_name = COALESCE($3, item_name),
+                  client_name = COALESCE($4, client_name),
+                  qty = COALESCE($5, qty),
+                  factory_id = COALESCE($6, factory_id),
+                  status = 'Cancelled',
+                  completion_confirmation_required = FALSE,
+                  completion_change_field = NULL,
+                  completion_change_to = NULL,
+                  completion_change_summary = NULL,
+                  completion_detected_at = NULL,
+                  completion_source_snapshot = '{}'::jsonb,
+                  completion_confirmed_at = NULL,
+                  completion_confirmed_by = NULL,
+                  updated_at = NOW()
+            WHERE id = $1`,
+          [
+            existing.id,
+            normalizeOptionalText(group.item_code),
+            normalizeOptionalText(group.product_name),
+            normalizeOptionalText(group.client_name),
+            toNum(group.plan_qty),
+            groupFactoryId
+          ]
+        );
+      }
+
+      continue;
+    }
+
+    if (group.all_completed) {
+      const change = {
+        field: 'MLD Status',
+        to: 'Completed',
+        summary: 'MLD Status changed to Completed'
+      };
       const sourceSnapshot = {
         row_count: Number(group.row_count || 0),
         any_closed: group.any_closed === true,
@@ -2763,7 +2916,7 @@ async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, a
 
     const shouldClear = existing.completion_confirmation_required === true
       || !!existing.completion_confirmed_at
-      || String(existing.status || '').toLowerCase() === 'completed';
+      || ['completed', 'cancelled'].includes(String(existing.status || '').toLowerCase());
 
     if (!shouldClear) continue;
 
@@ -2861,7 +3014,7 @@ function saveDataUrlImage(dataUrl, folderName, prefix) {
   const payload = raw.split(',')[1];
   if (!payload) return null;
 
-  const uploadsDir = path.join(BACKEND_ROOT, `public/uploads/${folderName}`);
+  const uploadsDir = path.join(STATIC_PUBLIC_DIR, 'uploads', folderName);
   fs.mkdirSync(uploadsDir, { recursive: true });
 
   const ext = getImageExtensionFromDataUrl(raw);
@@ -5467,7 +5620,11 @@ app.get('/api/planning/board', async (req, res) => {
           WHERE dh.plan_id = pb.plan_id
       ) dpr ON true
       WHERE ${where}
-      ORDER BY pb.start_date ASC
+      ORDER BY pb.machine ASC,
+               CASE WHEN UPPER(COALESCE(pb.status, '')) = 'RUNNING' THEN 0 ELSE 1 END ASC,
+               COALESCE(pb.seq, 999999) ASC,
+               pb.start_date ASC,
+               pb.id ASC
       `, params
     );
 
@@ -5873,13 +6030,475 @@ async function syncOrderStatus(orderNo) {
   }
 }
 
+function normalizePlanningText(value) {
+  return String(value || '').trim();
+}
+
+function normalizeMouldFamilyCode(value) {
+  return normalizePlanningText(value).replace(/\s+\d+$/, '').trim();
+}
+
+function parseMouldingSequenceValue(value) {
+  const raw = normalizePlanningText(value);
+  if (!raw) return null;
+  const match = raw.match(/(\d+)/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeMachinePreferenceKey(value) {
+  return normalizePlanningText(value).toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function sortPlanningMouldRows(rows) {
+  rows.sort((a, b) => {
+    const aSqn = Number.isFinite(a.mouldingSqnValue) ? a.mouldingSqnValue : Number.MAX_SAFE_INTEGER;
+    const bSqn = Number.isFinite(b.mouldingSqnValue) ? b.mouldingSqnValue : Number.MAX_SAFE_INTEGER;
+    if (aSqn !== bSqn) return aSqn - bSqn;
+    const aFamily = String(a.mouldFamily || '');
+    const bFamily = String(b.mouldFamily || '');
+    const familyCompare = aFamily.localeCompare(bFamily, undefined, { numeric: true, sensitivity: 'base' });
+    if (familyCompare !== 0) return familyCompare;
+    const aNo = String(a.mould_no || a.item_code || '');
+    const bNo = String(b.mould_no || b.item_code || '');
+    return aNo.localeCompare(bNo, undefined, { numeric: true, sensitivity: 'base' });
+  });
+  return rows;
+}
+
+async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
+  const rawRows = await queryFn(`
+    SELECT 
+      TRIM(r.or_jr_no) AS or_jr_no,
+      r.or_jr_date,
+      TRIM(COALESCE(r.item_code, '')) AS item_code,
+      TRIM(COALESCE(r.mould_no, '')) AS mould_no,
+      COALESCE(NULLIF(TRIM(COALESCE(r.mould_name, '')), ''), regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', '')) AS mould_name,
+      r.mould_item_qty AS plan_qty,
+      regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', '') AS mould_family,
+      COALESCE(r.product_name, o.item_name) AS product_name,
+      COALESCE(o.client_name, '') AS client_name,
+      r.tonnage AS "reportTonnage",
+      r.cycle_time AS "reportCycleTime",
+      r.cavity AS "reportCavity",
+      m.id AS mould_id,
+      TRIM(COALESCE(m.mould_number, '')) AS "masterMouldNumber",
+      m.tonnage AS "masterMachineRaw",
+      m.no_of_cav AS "masterCavity",
+      m.cycle_time AS "masterCycleTime",
+      m.std_wt_kg AS "masterStdWeight",
+      NULLIF(TRIM(COALESCE(m.primary_machine, '')), '') AS "primaryMachine",
+      NULLIF(TRIM(COALESCE(m.secondary_machine, '')), '') AS "secondaryMachine",
+      NULLIF(TRIM(COALESCE(m.moulding_sqn, '')), '') AS "mouldingSqn",
+      m.consumption_ratio_qty AS "consumptionRatioQty",
+      d.id AS drop_id,
+      pb.plan_id AS existing_plan_id,
+      pb.status AS existing_plan_status,
+      COALESCE(pb_sum.planned_qty, 0)::numeric AS existing_planned_qty,
+      COALESCE(pb_sum.plan_count, 0)::int AS existing_plan_count
+    FROM mould_planning_summary r
+    LEFT JOIN orders o
+      ON TRIM(o.order_no) = TRIM(r.or_jr_no)
+     AND ($2::int IS NULL OR o.factory_id = $2 OR o.factory_id IS NULL)
+    LEFT JOIN LATERAL (
+      SELECT
+        mm.id,
+        mm.mould_number,
+        mm.tonnage,
+        mm.no_of_cav,
+        mm.cycle_time,
+        mm.std_wt_kg,
+        mm.primary_machine,
+        mm.secondary_machine,
+        mm.moulding_sqn,
+        mm.consumption_ratio_qty
+      FROM moulds mm
+      WHERE ($2::int IS NULL OR mm.factory_id = $2 OR mm.factory_id IS NULL)
+        AND (
+          TRIM(COALESCE(mm.mould_number, '')) = TRIM(COALESCE(r.mould_no, ''))
+          OR regexp_replace(TRIM(COALESCE(mm.mould_number, '')), '\\s+\\d+$', '') = regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', '')
+        )
+      ORDER BY
+        CASE WHEN TRIM(COALESCE(mm.mould_number, '')) = TRIM(COALESCE(r.mould_no, '')) THEN 0 ELSE 1 END,
+        TRIM(COALESCE(mm.mould_number, ''))
+      LIMIT 1
+    ) m ON true
+    LEFT JOIN LATERAL (
+      SELECT id
+      FROM planning_drops d0
+      WHERE TRIM(COALESCE(d0.order_no, '')) = TRIM(COALESCE(r.or_jr_no, ''))
+        AND (
+          TRIM(COALESCE(d0.mould_name, '')) = TRIM(COALESCE(r.mould_name, ''))
+          OR TRIM(COALESCE(d0.item_code, '')) = TRIM(COALESCE(r.mould_no, ''))
+        )
+      ORDER BY d0.id DESC
+      LIMIT 1
+    ) d ON true
+    LEFT JOIN LATERAL (
+      SELECT
+        COALESCE(SUM(COALESCE(pb0.plan_qty, 0)), 0)::numeric AS planned_qty,
+        COUNT(*)::int AS plan_count
+      FROM plan_board pb0
+      WHERE TRIM(COALESCE(pb0.order_no, '')) = TRIM(COALESCE(r.or_jr_no, ''))
+        AND TRIM(COALESCE(pb0.mould_name, '')) = TRIM(COALESCE(r.mould_name, ''))
+        AND UPPER(COALESCE(pb0.status, '')) IN ('PLANNED', 'RUNNING', 'STOPPED', 'COMPLETED')
+    ) pb_sum ON true
+    LEFT JOIN LATERAL (
+      SELECT plan_id, status
+      FROM plan_board pb0
+      WHERE TRIM(COALESCE(pb0.order_no, '')) = TRIM(COALESCE(r.or_jr_no, ''))
+        AND TRIM(COALESCE(pb0.mould_name, '')) = TRIM(COALESCE(r.mould_name, ''))
+        AND UPPER(COALESCE(pb0.status, '')) IN ('PLANNED', 'RUNNING', 'STOPPED', 'COMPLETED')
+      ORDER BY pb0.updated_at DESC NULLS LAST, pb0.id DESC
+      LIMIT 1
+    ) pb ON true
+    WHERE TRIM(COALESCE(r.or_jr_no, '')) = TRIM($1)
+      AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
+    ORDER BY
+      regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', ''),
+      TRIM(COALESCE(r.mould_no, '')),
+      TRIM(COALESCE(r.mould_name, ''))
+  `, [orderNo, factoryId]);
+  const rows = Array.isArray(rawRows) ? rawRows : (Array.isArray(rawRows?.rows) ? rawRows.rows : []);
+
+  const moulds = sortPlanningMouldRows(rows.map((row) => {
+    const mouldingSqnValue = parseMouldingSequenceValue(row.mouldingSqn);
+    const mouldCode = normalizePlanningText(row.mould_no || row.item_code);
+    const mouldFamily = normalizeMouldFamilyCode(row.mould_family || mouldCode || row.mould_name);
+    const targetPlanQty = toNum(row.plan_qty) ?? 0;
+    const plannedQty = toNum(row.existing_planned_qty) ?? 0;
+    const remainingQty = Math.max(targetPlanQty - plannedQty, 0);
+    const hasAnyPlan = plannedQty > 0 || !!row.existing_plan_id || Number(row.existing_plan_count || 0) > 0;
+    const isFullyPlanned = targetPlanQty > 0 ? remainingQty <= 0 : hasAnyPlan;
+    return {
+      ...row,
+      mould_name: row.mould_name || mouldFamily || mouldCode,
+      mould_no: mouldCode,
+      mouldFamily,
+      masterMachineRaw: row.masterMachineRaw || row.reportTonnage || null,
+      masterCavity: row.masterCavity || row.reportCavity || null,
+      masterCycleTime: row.masterCycleTime || row.reportCycleTime || null,
+      masterStdWeight: row.masterStdWeight || null,
+      primary_machine: row.primaryMachine || null,
+      secondary_machine: row.secondaryMachine || null,
+      mouldingSqn: normalizePlanningText(row.mouldingSqn),
+      mouldingSqnValue,
+      targetPlanQty,
+      plannedQty,
+      remainingQty,
+      hasAnyPlan,
+      isFullyPlanned,
+      consumptionRatioQty: row.consumptionRatioQty == null ? null : Number(row.consumptionRatioQty),
+      isDropped: !!row.drop_id,
+      isAlreadyPlanned: isFullyPlanned,
+      existingPlanId: row.existing_plan_id || null,
+      existingPlanStatus: normalizePlanningText(row.existing_plan_status).toUpperCase() || null
+    };
+  }));
+
+  const unresolved = moulds.filter((row) => !row.isDropped && !row.isAlreadyPlanned);
+  const missingSqnMoulds = sortPlanningMouldRows(unresolved.filter((row) => !Number.isFinite(row.mouldingSqnValue)));
+
+  const nextRequiredSqn = missingSqnMoulds.length
+    ? null
+    : unresolved.reduce((min, row) => {
+        if (!Number.isFinite(row.mouldingSqnValue)) return min;
+        return min == null ? row.mouldingSqnValue : Math.min(min, row.mouldingSqnValue);
+      }, null);
+
+  const requiredRows = nextRequiredSqn == null
+    ? []
+    : sortPlanningMouldRows(unresolved.filter((row) => row.mouldingSqnValue === nextRequiredSqn));
+
+  const allMoulds = moulds.map((row) => {
+    let planState = 'PENDING';
+    if (row.isDropped) {
+      planState = 'DROPPED';
+    } else if (row.isAlreadyPlanned) {
+      planState = 'PLANNED';
+    } else if (row.hasAnyPlan) {
+      planState = 'PARTIAL';
+    } else if (!Number.isFinite(row.mouldingSqnValue)) {
+      planState = 'MISSING_SQN';
+    } else if (nextRequiredSqn != null && row.mouldingSqnValue === nextRequiredSqn) {
+      planState = 'NEXT';
+    } else if (nextRequiredSqn != null && row.mouldingSqnValue > nextRequiredSqn) {
+      planState = 'WAITING';
+    }
+
+    return {
+      mouldNo: row.mould_no,
+      mouldName: row.mould_name,
+      mouldFamily: row.mouldFamily,
+      mouldingSqn: row.mouldingSqn || null,
+      mouldingSqnValue: row.mouldingSqnValue,
+      planState,
+      targetPlanQty: row.targetPlanQty,
+      plannedQty: row.plannedQty,
+      remainingQty: row.remainingQty,
+      hasAnyPlan: row.hasAnyPlan,
+      isFullyPlanned: row.isFullyPlanned,
+      primaryMachine: row.primary_machine || null,
+      secondaryMachine: row.secondary_machine || null
+    };
+  });
+
+  return {
+    moulds,
+    sequenceMeta: {
+      nextRequiredSqn,
+      missingSqnMoulds: missingSqnMoulds.map((row) => ({
+        mouldNo: row.mould_no,
+        mouldName: row.mould_name,
+        mouldFamily: row.mouldFamily
+      })),
+      requiredRows: requiredRows.map((row) => ({
+        mouldNo: row.mould_no,
+        mouldName: row.mould_name,
+        mouldFamily: row.mouldFamily,
+        mouldingSqn: row.mouldingSqn,
+        mouldingSqnValue: row.mouldingSqnValue
+      })),
+      allMoulds
+    }
+  };
+}
+
+function getPlanningSequenceBlockMessage(bundle, selectedMouldCode, selectedMouldName, options = {}) {
+  const virtualPlannedCodes = new Set((options.virtualPlannedCodes || []).map((code) => normalizePlanningText(code).toUpperCase()).filter(Boolean));
+  const moulds = (Array.isArray(bundle?.moulds) ? bundle.moulds : []).map((row) => {
+    const rowCode = normalizePlanningText(row.mould_no || row.item_code).toUpperCase();
+    if (!virtualPlannedCodes.has(rowCode)) return row;
+    return {
+      ...row,
+      plannedQty: row.targetPlanQty || row.plan_qty || row.plannedQty || 0,
+      remainingQty: 0,
+      hasAnyPlan: true,
+      isFullyPlanned: true,
+      isAlreadyPlanned: true,
+      existingPlanStatus: row.existingPlanStatus || 'PLANNED',
+      existingPlanId: row.existingPlanId || 'QUEUE'
+    };
+  });
+  const unresolved = moulds.filter((row) => !row.isDropped && !row.isAlreadyPlanned);
+  const missingSqnMoulds = sortPlanningMouldRows(unresolved.filter((row) => !Number.isFinite(row.mouldingSqnValue)));
+  const nextRequiredSqn = missingSqnMoulds.length
+    ? null
+    : unresolved.reduce((min, row) => {
+        if (!Number.isFinite(row.mouldingSqnValue)) return min;
+        return min == null ? row.mouldingSqnValue : Math.min(min, row.mouldingSqnValue);
+      }, null);
+  const requiredRows = nextRequiredSqn == null
+    ? []
+    : sortPlanningMouldRows(unresolved.filter((row) => row.mouldingSqnValue === nextRequiredSqn));
+  const meta = {
+    ...(bundle?.sequenceMeta || {}),
+    nextRequiredSqn,
+    missingSqnMoulds: missingSqnMoulds.map((row) => ({
+      mouldNo: row.mould_no,
+      mouldName: row.mould_name,
+      mouldFamily: row.mouldFamily
+    })),
+    requiredRows: requiredRows.map((row) => ({
+      mouldNo: row.mould_no,
+      mouldName: row.mould_name,
+      mouldFamily: row.mouldFamily,
+      mouldingSqn: row.mouldingSqn,
+      mouldingSqnValue: row.mouldingSqnValue
+    }))
+  };
+  const normCode = normalizePlanningText(selectedMouldCode).toUpperCase();
+  const normName = normalizePlanningText(selectedMouldName).toUpperCase();
+
+  const selected = moulds.find((row) => {
+    const rowCode = normalizePlanningText(row.mould_no || row.item_code).toUpperCase();
+    const rowName = normalizePlanningText(row.mould_name).toUpperCase();
+    return (normCode && rowCode === normCode) || (normName && rowName === normName);
+  });
+
+  if (!selected) {
+    return { ok: false, error: 'Selected mould was not found in OR/JR wise summary for this order.' };
+  }
+
+  if (selected.isDropped) {
+    return { ok: false, error: `Mould '${selected.mould_name}' is already dropped for this order.` };
+  }
+
+  if (selected.isAlreadyPlanned) {
+    const plannedQty = toNum(selected.plannedQty) ?? 0;
+    const targetPlanQty = toNum(selected.targetPlanQty ?? selected.plan_qty) ?? 0;
+    return {
+      ok: false,
+      error: `Mould '${selected.mould_name}' is already fully planned (${plannedQty} / ${targetPlanQty}) under plan ${selected.existingPlanId || '-'}.`
+    };
+  }
+
+  if (meta.missingSqnMoulds?.length) {
+    const names = meta.missingSqnMoulds.map((row) => row.mouldNo || row.mouldName).filter(Boolean).join(', ');
+    return { ok: false, error: `Fill Moulding Sqn. first in Mould Master for: ${names}. Then continue planning.` };
+  }
+
+  if (!Number.isFinite(selected.mouldingSqnValue)) {
+    return { ok: false, error: `Moulding Sqn. is missing for '${selected.mould_name}'. Fill it in Mould Master first.` };
+  }
+
+  if (meta.nextRequiredSqn != null && selected.mouldingSqnValue !== meta.nextRequiredSqn) {
+    const pendingNames = (meta.requiredRows || []).map((row) => row.mouldNo || row.mouldName).filter(Boolean).join(', ');
+    return { ok: false, error: `Plan Moulding Sqn. ${meta.nextRequiredSqn} first: ${pendingNames}.` };
+  }
+
+  return { ok: true, selected, sequenceMeta: meta };
+}
+
+async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, options = {}) {
+  function splitColourFromMouldItemName(value) {
+    const text = normalizePlanningText(value);
+    if (!text) return { itemName: null, itemColour: null };
+    const dashIndex = text.lastIndexOf('-');
+    if (dashIndex === -1) return { itemName: text, itemColour: null };
+    const itemName = text.slice(0, dashIndex).trim();
+    const itemColour = text.slice(dashIndex + 1).trim();
+    return {
+      itemName: itemName || text,
+      itemColour: itemColour || null
+    };
+  }
+
+  const rawRows = await queryFn(`
+    WITH latest_snapshot AS (
+      SELECT id, stock_date
+      FROM wip_stock_snapshots
+      WHERE ($2::int IS NULL OR factory_id = $2)
+      ORDER BY stock_date DESC NULLS LAST, id DESC
+      LIMIT 1
+    ),
+    latest_wip AS (
+      SELECT
+        TRIM(COALESCE(l.item_code, '')) AS item_code,
+        SUM(COALESCE(l.current_stock_available_qty, l.total_qty, 0))::numeric AS wip_qty,
+        MAX(ls.stock_date)::text AS stock_date
+      FROM latest_snapshot ls
+      JOIN wip_stock_snapshot_lines l ON l.snapshot_id = ls.id
+      WHERE ($2::int IS NULL OR l.factory_id = $2 OR l.factory_id IS NULL)
+      GROUP BY TRIM(COALESCE(l.item_code, ''))
+    )
+    SELECT
+      TRIM(COALESCE(r.item_code, '')) AS item_code,
+      TRIM(COALESCE(r.product_name, '')) AS product_name,
+      TRIM(COALESCE(r.mould_no, '')) AS mould_no,
+      TRIM(COALESCE(r.mould_name, '')) AS mould_name,
+      TRIM(COALESCE(r.mould_item_code, '')) AS mould_item_code,
+      TRIM(COALESCE(r.mould_item_name, '')) AS mould_item_name,
+      r.jr_qty,
+      r.plan_qty,
+      r.mould_item_qty,
+      COALESCE(w.wip_qty, 0)::numeric AS wip_qty,
+      w.stock_date AS wip_stock_date
+    FROM mould_planning_report r
+    LEFT JOIN latest_wip w
+      ON TRIM(COALESCE(w.item_code, '')) = TRIM(COALESCE(NULLIF(r.mould_item_code, ''), r.item_code, ''))
+    WHERE TRIM(COALESCE(r.or_jr_no, '')) = TRIM($1)
+      AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
+    ORDER BY TRIM(COALESCE(r.item_code, '')), TRIM(COALESCE(r.product_name, ''))
+  `, [orderNo, factoryId]);
+
+  const rows = Array.isArray(rawRows) ? rawRows : (Array.isArray(rawRows?.rows) ? rawRows.rows : []);
+  const normMouldNo = normalizePlanningText(options.mouldNo).toUpperCase();
+  const normMouldName = normalizePlanningText(options.mouldName).toUpperCase();
+  const normFamily = normalizeMouldFamilyCode(options.mouldFamily || options.mouldNo || options.mouldName);
+
+  const exactRows = rows.filter((row) => {
+    const rowNo = normalizePlanningText(row.mould_no).toUpperCase();
+    const rowName = normalizePlanningText(row.mould_name).toUpperCase();
+    return (normMouldNo && rowNo === normMouldNo) || (normMouldName && rowName === normMouldName);
+  });
+
+  const familyRows = rows.filter((row) => {
+    const family = normalizeMouldFamilyCode(row.mould_no || row.mould_name || row.mould_item_code || row.item_code);
+    return normFamily && family === normFamily;
+  });
+
+  const groupedRows = new Map();
+  const sourceRows = exactRows.length
+    ? exactRows
+    : ((normMouldNo || normMouldName) ? [] : familyRows);
+
+  sourceRows.forEach((row) => {
+    const colourInfo = splitColourFromMouldItemName(row.mould_item_name || row.product_name || '');
+    const mouldItemQty = toNum(row.mould_item_qty) ?? toNum(row.plan_qty) ?? toNum(row.jr_qty) ?? 0;
+    const reqQty = mouldItemQty;
+    const planQty = toNum(row.plan_qty) ?? mouldItemQty;
+    const useQty = planQty;
+    const reqBalQty = Math.max(reqQty - useQty, 0);
+    const wipQty = toNum(row.wip_qty) ?? 0;
+    const wipBalQty = wipQty;
+    const key = [
+      normalizePlanningText(row.mould_item_code || row.item_code).toUpperCase(),
+      normalizePlanningText(row.mould_item_name || row.product_name).toUpperCase(),
+      normalizePlanningText(row.mould_no).toUpperCase()
+    ].join('|');
+    const nextRow = {
+      itemCode: row.mould_item_code || row.item_code || null,
+      itemName: colourInfo.itemName || row.mould_item_name || row.product_name || null,
+      itemColour: colourInfo.itemColour,
+      rawMouldItemName: row.mould_item_name || row.product_name || null,
+      mouldItemQty,
+      reqQty,
+      useQty,
+      reqBalQty,
+      wipQty,
+      wipBalQty,
+      planQty,
+      mouldNo: row.mould_no || null,
+      mouldName: row.mould_name || null,
+      selectedMould: row.mould_no || options.mouldNo || null,
+      wipStockDate: row.wip_stock_date || null
+    };
+    const existing = groupedRows.get(key);
+    if (!existing) {
+      groupedRows.set(key, nextRow);
+      return;
+    }
+    groupedRows.set(key, {
+      ...existing,
+      reqQty: Math.max(existing.reqQty || 0, nextRow.reqQty || 0),
+      useQty: Math.max(existing.useQty || 0, nextRow.useQty || 0),
+      reqBalQty: Math.max(existing.reqBalQty || 0, nextRow.reqBalQty || 0),
+      wipQty: Math.max(existing.wipQty || 0, nextRow.wipQty || 0),
+      wipBalQty: Math.max(existing.wipBalQty || 0, nextRow.wipBalQty || 0),
+      planQty: Math.max(existing.planQty || 0, nextRow.planQty || 0),
+      wipStockDate: existing.wipStockDate || nextRow.wipStockDate || null
+    });
+  });
+
+  const selectedRows = Array.from(groupedRows.values())
+    .sort((a, b) => String(a.itemCode || '').localeCompare(String(b.itemCode || ''), undefined, { numeric: true, sensitivity: 'base' }));
+
+  return {
+    rows: selectedRows,
+    meta: {
+      matchedBy: exactRows.length ? 'exact' : ((normMouldNo || normMouldName) ? 'exact' : 'family'),
+      wipStockDate: selectedRows.find((row) => row.wipStockDate)?.wipStockDate || null
+    }
+  };
+}
+
 // POST /api/planning/create
 // POST /api/planning/create (Supports Single Object or Array of Plans)
 app.post('/api/planning/create', async (req, res) => {
   const client = await pool.connect();
   try {
-    const plans = Array.isArray(req.body) ? req.body : [req.body];
+    const plans = (Array.isArray(req.body) ? req.body : [req.body]).slice().sort((a, b) => {
+      const orderCmp = normalizePlanningText(a?.orderNo).localeCompare(normalizePlanningText(b?.orderNo), undefined, { numeric: true, sensitivity: 'base' });
+      if (orderCmp !== 0) return orderCmp;
+      const aSqn = parseMouldingSequenceValue(a?.mouldingSqn);
+      const bSqn = parseMouldingSequenceValue(b?.mouldingSqn);
+      return (aSqn ?? Number.MAX_SAFE_INTEGER) - (bSqn ?? Number.MAX_SAFE_INTEGER);
+    });
     if (!plans.length) return res.json({ ok: false, error: 'No plans provided' });
+    const requestFactoryId = getFactoryId(req);
+    const stagedOrderCodes = new Map();
 
     await client.query('BEGIN');
     const results = [];
@@ -5906,20 +6525,22 @@ app.post('/api/planning/create', async (req, res) => {
       );
       const seq = Number(mx.rows[0]?.mx || 0) + 1;
 
-      // VALIDATION: Prevent Duplicate Planning for Same Mould on Same Order
-      if (p.orderNo && p.mouldName) {
-        // console.log(`[PlanningCheck] Checking: Order='${p.orderNo}', Mould='${p.mouldName}'`);
-        const dupCheck = await client.query(`
-          SELECT machine, status FROM plan_board 
-          WHERE order_no = $1 
-            AND mould_name = $2 
-            AND status IN ('PLANNED', 'RUNNING')
-          LIMIT 1
-        `, [p.orderNo, p.mouldName]);
+      if (p.orderNo) {
+        const bundle = await getPlanningOrderMouldBundle(client.query.bind(client), p.orderNo, requestFactoryId);
+        const stagedCodes = stagedOrderCodes.get(String(p.orderNo).trim()) || [];
+        const validation = getPlanningSequenceBlockMessage(bundle, p.mouldCode, p.mouldName, { virtualPlannedCodes: stagedCodes });
+        if (!validation.ok) {
+          throw new Error(validation.error);
+        }
 
-        if (dupCheck.rows.length) {
-          const d = dupCheck.rows[0];
-          throw new Error(`Already Planned! Mould '${p.mouldName}' is ${d.status} on ${d.machine}.`);
+        const requestedPlanQty = Math.max(0, toNum(p.planQty) ?? 0);
+        const selectedTargetQty = Math.max(0, toNum(validation.selected?.targetPlanQty ?? validation.selected?.plan_qty) ?? 0);
+        const selectedRemainingQty = Math.max(0, toNum(validation.selected?.remainingQty) ?? selectedTargetQty);
+        if (!requestedPlanQty) {
+          throw new Error(`Enter a valid Plan Qty for mould '${validation.selected?.mould_name || p.mouldName || '-'}'.`);
+        }
+        if (selectedTargetQty > 0 && requestedPlanQty > selectedRemainingQty) {
+          throw new Error(`Plan Qty ${requestedPlanQty} cannot be more than balance ${selectedRemainingQty} for mould '${validation.selected?.mould_name || p.mouldName || '-'}'.`);
         }
       }
 
@@ -5955,6 +6576,13 @@ app.post('/api/planning/create', async (req, res) => {
 
       results.push(ins.rows[0].id);
       generatedPlanIds.push(reservedPlanId);
+      if (p.orderNo) {
+        const orderKey = String(p.orderNo).trim();
+        const current = stagedOrderCodes.get(orderKey) || [];
+        const code = normalizePlanningText(p.mouldCode || p.itemCode || p.mouldName);
+        if (code) current.push(code);
+        stagedOrderCodes.set(orderKey, current);
+      }
 
       // Auto-Sync Status
       if (p.orderNo) await syncOrderStatus(p.orderNo);
@@ -6228,98 +6856,27 @@ app.get('/api/planning/orders/:orderNo/details', async (req, res) => {
 
     // [FIX] Factory Isolation
     const factoryId = getFactoryId(req);
-
-    const rows = await q(`
-      SELECT 
-        TRIM(r.or_jr_no) AS or_jr_no,
-        r.or_jr_date,
-        r.item_code,
-        TRIM(r.mould_no) AS mould_no,
-        r.mould_name,
-        r.mould_item_qty as plan_qty,
-        regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', '') AS mould_family,
-        
-        -- Meta Data
-        COALESCE(r.product_name, o.item_name) as product_name,
-        COALESCE(o.client_name, '') as client_name,
-
-        -- Report Data (From Summary)
-        r.tonnage AS "reportTonnage",
-        r.cycle_time AS "reportCycleTime",
-        r.cavity AS "reportCavity",
-        
-        -- Master Data: exact mould number first, then same mould-number family
-        m.id AS mould_id,
-        m.mould_number AS "masterMouldNumber",
-        m.tonnage AS "masterMachineRaw",
-        m.no_of_cav AS "masterCavity",
-        m.cycle_time AS "masterCycleTime",
-
-        -- Drop Status
-        d.id as drop_id
-      FROM mould_planning_summary r
-      LEFT JOIN orders o
-        ON TRIM(o.order_no) = TRIM(r.or_jr_no)
-       AND ($2::int IS NULL OR o.factory_id = $2 OR o.factory_id IS NULL)
-      LEFT JOIN LATERAL (
-        SELECT
-          mm.id,
-          mm.mould_number,
-          mm.tonnage,
-          mm.no_of_cav,
-          mm.cycle_time
-        FROM moulds mm
-        WHERE ($2::int IS NULL OR mm.factory_id = $2 OR mm.factory_id IS NULL)
-          AND (
-            TRIM(mm.mould_number) = TRIM(r.mould_no)
-            OR regexp_replace(TRIM(mm.mould_number), '\\s+\\d+$', '') = regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', '')
-          )
-        ORDER BY
-          CASE WHEN TRIM(mm.mould_number) = TRIM(r.mould_no) THEN 0 ELSE 1 END,
-          TRIM(mm.mould_number)
-        LIMIT 1
-      ) m ON true
-      LEFT JOIN planning_drops d
-        ON TRIM(d.order_no) = TRIM(r.or_jr_no)
-       AND (
-         TRIM(COALESCE(d.mould_name, '')) = TRIM(COALESCE(r.mould_name, ''))
-         OR TRIM(COALESCE(d.item_code, '')) = TRIM(COALESCE(r.mould_no, ''))
-       )
-      WHERE TRIM(r.or_jr_no) = TRIM($1)
-        AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
-      ORDER BY
-        regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', ''),
-        TRIM(COALESCE(r.mould_no, '')),
-        TRIM(COALESCE(r.mould_name, ''))
-    `, [orderNo, factoryId]);
-
-    // Normalize for Frontend
-    const cleaned = rows.map(r => ({
-      ...r,
-      // PRIORITY: Master Data (Joined) > Report Data (Uploaded)
-      // User Request: Fetch Tonnage from Mould Master
-      masterMachineRaw: r.masterMachineRaw || r.reportTonnage,
-      masterCavity: r.reportCavity || r.masterCavity,
-      masterCycleTime: r.reportCycleTime || r.masterCycleTime,
-      isDropped: !!r.drop_id
-    }));
-
-    // Filter out dropped items from the "To Plan" list? 
-    // Or send them and let frontend handle?
-    // User says "Drop Plan is not working" often implies "It doesn't go away".
-    // So let's FILTER them out by default, OR send them to frontend to show "Dropped".
-    // Better: Send isDropped flag. Update frontend to HIDE or Show as Dropped.
-    // Given the request for "Order Transfer" when "Fully Planning", hiding them makes sense for "To Plan" list.
-    // BUT user might want to UNDROP.
-    // Let's filter out for now to ensure "Drop" feels like "Done".
-
-    // User Request: Show Dropped Moulds but mark them.
-    // We send 'isDropped' flag (already in 'cleaned'). 
-    // Frontend will handle the display/blocking.
-
-    res.json({ ok: true, data: cleaned });
+    const bundle = await getPlanningOrderMouldBundle(q, orderNo, factoryId);
+    res.json({ ok: true, data: bundle.moulds, sequenceMeta: bundle.sequenceMeta });
   } catch (e) {
     console.error('planning/orders/details', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// 2A. GET /api/planning/orders/:orderNo/colour-plan
+app.get('/api/planning/orders/:orderNo/colour-plan', async (req, res) => {
+  try {
+    const { orderNo } = req.params;
+    const factoryId = getFactoryId(req);
+    const colourPlan = await getPlanningOrderColourBreakdown(q, orderNo, factoryId, {
+      mouldNo: req.query.mouldNo,
+      mouldName: req.query.mouldName,
+      mouldFamily: req.query.mouldFamily
+    });
+    res.json({ ok: true, data: colourPlan.rows, meta: colourPlan.meta });
+  } catch (e) {
+    console.error('planning/orders/colour-plan', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
@@ -6329,7 +6886,13 @@ app.get('/api/planning/orders/:orderNo/details', async (req, res) => {
 app.get('/api/planning/machines/compatible', async (req, res) => {
   try {
     const requestedProcess = getRequestedMachineProcess(req, 'Moulding');
-    const tonnage = String(req.query.tonnage || '').trim();
+    const primaryMachine = normalizePlanningText(req.query.primaryMachine);
+    const secondaryMachine = normalizePlanningText(req.query.secondaryMachine);
+    const primaryMachineKey = normalizeMachinePreferenceKey(primaryMachine);
+    const secondaryMachineKeys = secondaryMachine
+      .split(',')
+      .map((item) => normalizeMachinePreferenceKey(item))
+      .filter(Boolean);
     const factoryId = getFactoryId(req);
 
     let machineSql = `
@@ -6355,18 +6918,10 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
     }
 
     if (requestedProcess === 'Moulding') {
-      if (!tonnage) return res.json({ ok: true, data: [] });
-
-      const requiredTonnages = tonnage.split(/[/\,\\]+/).map(s => {
-        const n = parseFloat(s.trim());
-        return Number.isNaN(n) ? null : n;
-      }).filter(n => n !== null);
-
-      if (requiredTonnages.length === 0) return res.json({ ok: true, data: [] });
-
-      machineParams.push(requiredTonnages);
-      machineSql += ` AND m.tonnage = ANY($${machineParams.length}::numeric[])`;
-      machineSql += ` ORDER BY m.tonnage ASC NULLS LAST, m.machine ASC`;
+      if (!primaryMachineKey && secondaryMachineKeys.length === 0) {
+        return res.json({ ok: true, data: [] });
+      }
+      machineSql += ` ORDER BY m.machine ASC`;
     } else {
       machineSql += ` ORDER BY m.machine ASC`;
     }
@@ -6382,45 +6937,158 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
     if (machineIds.length === 0) return res.json({ ok: true, data: [] });
 
     let statusSql = `
-      SELECT machine, status, order_no, end_date
-      FROM plan_board
-      WHERE machine = ANY($1::text[])
-        AND status = 'RUNNING'
+      SELECT
+        pb.machine,
+        pb.status,
+        pb.plan_id,
+        pb.order_no,
+        pb.start_date,
+        pb.end_date,
+        pb.plan_qty,
+        pb.seq,
+        COALESCE(m.cycle_time, mps.cycle_time, 0)::numeric AS cycle_time,
+        GREATEST(COALESCE(m.no_of_cav, mps.cavity, 1)::numeric, 1) AS cavity,
+        COALESCE(dpr.qty, 0)::numeric AS produced_qty,
+        dpr.first_entry
+      FROM plan_board pb
+      LEFT JOIN moulds m
+        ON TRIM(COALESCE(m.mould_name, '')) = TRIM(COALESCE(pb.mould_name, ''))
+       AND ($2::int IS NULL OR m.factory_id = $2 OR m.factory_id IS NULL)
+      LEFT JOIN mould_planning_summary mps
+        ON TRIM(COALESCE(mps.or_jr_no, '')) = TRIM(COALESCE(pb.order_no, ''))
+       AND TRIM(COALESCE(mps.mould_name, '')) = TRIM(COALESCE(pb.mould_name, ''))
+       AND ($2::int IS NULL OR mps.factory_id = $2 OR mps.factory_id IS NULL)
+      LEFT JOIN LATERAL (
+        SELECT
+          SUM(dh.good_qty) AS qty,
+          MIN(dh.created_at) AS first_entry
+        FROM dpr_hourly dh
+        WHERE TRIM(COALESCE(dh.plan_id, '')) = TRIM(COALESCE(pb.plan_id, ''))
+      ) dpr ON true
+      WHERE pb.machine = ANY($1::text[])
+        AND UPPER(COALESCE(pb.status, '')) IN ('RUNNING', 'PLANNED')
     `;
     const statusParams = [machineIds];
     if (factoryId) {
       statusParams.push(factoryId);
-      statusSql += ` AND factory_id = $${statusParams.length}`;
+      statusSql += ` AND pb.factory_id = $${statusParams.length}`;
+    } else {
+      statusParams.push(null);
     }
-    const statuses = await q(statusSql, statusParams);
+    statusSql += ` ORDER BY pb.machine, CASE WHEN UPPER(COALESCE(pb.status, '')) = 'RUNNING' THEN 0 ELSE 1 END, pb.seq ASC NULLS LAST, pb.updated_at ASC NULLS LAST`;
+    const statusRows = await q(statusSql, statusParams);
 
+    const plus15Days = new Date(Date.now() + (15 * 24 * 60 * 60 * 1000));
     const statusMap = {};
-    statuses.forEach(s => {
-      statusMap[s.machine] = { status: s.status, order: s.order_no, end: s.end_date };
+    const statusGroups = {};
+    statusRows.forEach((row) => {
+      if (!statusGroups[row.machine]) statusGroups[row.machine] = [];
+      statusGroups[row.machine].push(row);
+    });
+    Object.keys(statusGroups).forEach((machineKey) => {
+      const rows = statusGroups[machineKey];
+      let cursorTime = Date.now();
+      let machineBookedUntil = null;
+      const orderNos = [];
+      let hasRunning = false;
+
+      rows.forEach((row, idx) => {
+        if (row.order_no && !orderNos.includes(row.order_no)) orderNos.push(row.order_no);
+        const status = String(row.status || '').toUpperCase();
+        const isRunning = status === 'RUNNING';
+        if (isRunning) hasRunning = true;
+
+        const explicitStartMs = row.start_date ? new Date(row.start_date).getTime() : null;
+        const explicitEndMs = row.end_date ? new Date(row.end_date).getTime() : null;
+        const firstDprEntryMs = row.first_entry ? new Date(row.first_entry).getTime() : null;
+        const cycleTime = Number(row.cycle_time || 0);
+        const cavity = Math.max(Number(row.cavity || 1), 1);
+        let pcsHr = 0;
+        if (cycleTime > 0) pcsHr = (3600 / cycleTime) * cavity;
+        if (pcsHr === 0) pcsHr = 30;
+
+        const qty = Number(row.plan_qty || 0);
+        const produced = Number(row.produced_qty || 0);
+        const bal = Math.max(0, qty - produced);
+        const workQty = (isRunning || bal < qty) ? bal : qty;
+        const durationMs = workQty > 0 ? (workQty / pcsHr) * 3600 * 1000 : 0;
+
+        let startMs;
+        let endMs;
+        if (isRunning) {
+          startMs = firstDprEntryMs || explicitStartMs || Date.now();
+          endMs = explicitEndMs || (Date.now() + durationMs);
+        } else {
+          startMs = idx === 0 ? Date.now() : cursorTime;
+          endMs = explicitEndMs || (startMs + durationMs);
+        }
+
+        if (!startMs || Number.isNaN(startMs)) startMs = Date.now();
+        if (!endMs || Number.isNaN(endMs)) endMs = startMs + 3600000;
+
+        cursorTime = endMs;
+        machineBookedUntil = new Date(endMs);
+      });
+
+      statusMap[machineKey] = {
+        status: hasRunning ? 'RUNNING' : 'PLANNED',
+        order: orderNos.join(', '),
+        bookedUntil: machineBookedUntil,
+        isBookedFor15Days: !!(machineBookedUntil && machineBookedUntil >= plus15Days)
+      };
     });
 
     // Combine
     const result = machines.map(m => {
       const s = statusMap[m.machine];
+      const machineNameKey = normalizeMachinePreferenceKey(m.machine);
+      const isPrimary = !!primaryMachineKey && machineNameKey === primaryMachineKey;
+      const isSecondary = secondaryMachineKeys.includes(machineNameKey);
       return {
         ...m,
         isFree: !s, // true if no running job
         currentStatus: s ? s.status : 'AVAILABLE',
-        currentOrder: s ? s.order : null
+        currentOrder: s ? s.order : null,
+        bookedUntil: s?.bookedUntil || null,
+        isBookedFor15Days: !!s?.isBookedFor15Days,
+        preferenceRole: isPrimary ? 'PRIMARY' : isSecondary ? 'SECONDARY' : 'COMPATIBLE'
       };
     });
 
-    // Sort: Free first, then by Tonnage
-    result.sort((a, b) => {
+    const primaryBookedFor15Days = result.some((row) => row.preferenceRole === 'PRIMARY' && row.isBookedFor15Days);
+    let scopedResult = result;
+
+    if (requestedProcess === 'Moulding') {
+      const primaryRows = result.filter((row) => row.preferenceRole === 'PRIMARY');
+      const secondaryRows = result.filter((row) => row.preferenceRole === 'SECONDARY');
+
+      if (primaryRows.length > 0) {
+        scopedResult = primaryBookedFor15Days ? secondaryRows : primaryRows;
+      } else if (secondaryRows.length > 0) {
+        scopedResult = secondaryRows;
+      } else {
+        scopedResult = [];
+      }
+    }
+
+    scopedResult.sort((a, b) => {
+      const rankFor = (row) => {
+        if (row.preferenceRole === 'PRIMARY' && !row.isBookedFor15Days) return 0;
+        if (row.preferenceRole === 'SECONDARY' && primaryBookedFor15Days) return 1;
+        if (row.preferenceRole === 'PRIMARY') return 2;
+        if (row.preferenceRole === 'SECONDARY') return 3;
+        if (row.isFree) return 4;
+        return 5;
+      };
+
+      const rankDiff = rankFor(a) - rankFor(b);
+      if (rankDiff !== 0) return rankDiff;
       if (a.isFree && !b.isFree) return -1;
       if (!a.isFree && b.isFree) return 1;
-      if (requestedProcess === 'Moulding') {
-        return Number(a.tonnage || 0) - Number(b.tonnage || 0) || naturalCompare(a.machine, b.machine);
-      }
       return naturalCompare(a.machine, b.machine);
     });
 
-    res.json({ ok: true, data: result });
+    res.json({ ok: true, data: scopedResult });
   } catch (e) {
     console.error('planning/compatible', e);
     res.status(500).json({ ok: false, error: String(e) });
@@ -7048,6 +7716,17 @@ app.post('/api/planning/move', async (req, res) => {
       await q('UPDATE plan_board SET seq = $1 WHERE id = $2', [newSeq, p.id]);
     }
 
+    // E. Also compact the old machine when a plan was moved away.
+    if (plan.machine && String(plan.machine).trim() !== String(targetMachine).trim()) {
+      const oldMachinePlans = await q(
+        `SELECT id FROM plan_board WHERE machine = $1 ORDER BY COALESCE(seq, 999999) ASC, start_date ASC, id ASC`,
+        [plan.machine]
+      );
+      for (let i = 0; i < oldMachinePlans.length; i++) {
+        await q('UPDATE plan_board SET seq = $1 WHERE id = $2', [(i + 1) * 10, oldMachinePlans[i].id]);
+      }
+    }
+
     // 3. Log
     await q(
       "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'MOVE', $2, 'System')",
@@ -7325,9 +8004,22 @@ app.get('/api/machines/supervisor', async (req, res) => {
     }
 
     const rows = await q(
-      `SELECT machine, line, building, tonnage, is_active 
+      `SELECT
+          machine,
+          line,
+          building,
+          tonnage,
+          is_active,
+          COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') AS machine_process
          FROM machines 
         WHERE COALESCE(is_active, TRUE) = TRUE
+          AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
+          AND (
+            NULLIF(TRIM(line), '') IS NOT NULL
+            OR NULLIF(TRIM(building), '') IS NOT NULL
+            OR tonnage IS NOT NULL
+            OR machine LIKE '%>%'
+          )
           AND ${whereClause}`,
       params
     );
@@ -8498,7 +9190,7 @@ app.post('/api/admin/restore-closed-orders', async (req, res) => {
 SELECT
 or_jr_no, item_code, product_name, client_name, plan_qty, 'Normal', 'Completed', NOW(), NOW(), factory_id
       FROM or_jr_report
-      WHERE LOWER(mld_status) IN('completed', 'cancelled')
+      WHERE LOWER(mld_status) IN('completed')
       ${requestFactoryId ? `AND factory_id = $1` : ''}
       ON CONFLICT(order_no) DO NOTHING
     `, requestFactoryId ? [requestFactoryId] : []);
@@ -8951,10 +9643,10 @@ app.post('/api/upload/:type', async (req, res, next) => {
       const file = req.file;
       if (!file) return res.status(400).json({ ok: false, error: 'No file uploaded' });
       validateMasterUploadFile(file);
-      if (['orders', 'moulds', 'machines', 'orjrwise', 'orjrwisedetail', 'boplanningdetail', 'wipstock'].includes(type) && requestFactoryId !== null) {
+      if (['orders', 'moulds', 'machines', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'].includes(type) && requestFactoryId !== null) {
         await ensureFactoryIdsExist([requestFactoryId], pool, 'Current upload factory');
       }
-      if (!['orders', 'moulds', 'machines', 'orjrwise', 'orjrwisedetail', 'boplanningdetail', 'wipstock'].includes(type)) {
+      if (!['orders', 'moulds', 'machines', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'].includes(type)) {
         throw new UploadValidationError(`Upload is not configured for ${type}.`);
       }
 
@@ -9061,6 +9753,7 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
             primary_machine: row.primary_machine,
             secondary_machine: row.secondary_machine,
             moulding_sqn: row.moulding_sqn,
+            consumption_ratio_qty: row.consumption_ratio_qty,
             tonnage: row.tonnage,
             no_of_cav: row.no_of_cav,
             cycle_time: row.cycle_time,
@@ -9070,6 +9763,7 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
             manpower: row.manpower,
             operator_activities: row.operator_activities,
             sfg_std_packing: row.sfg_std_packing,
+            sfg_bag_size: row.sfg_bag_size,
             std_volume_cap: row.std_volume_cap
           });
 
@@ -9263,6 +9957,100 @@ VALUES($1, 'CREATE', '{"message": "Created via Bulk Upload"}', 'BulkUpload')
             row.plan_date, row.plan_qty, row.mould_item_code, row.mould_item_name, row.mould_no, row.mould_name, row.mould_item_qty, row.tonnage, row.machine_name,
             row.cycle_time, row.cavity, row.factory_id
           ]);
+          count++;
+        }
+      } else if (type === 'jcdetails') {
+        const rowsToUpsert = data.map((row, index) => {
+          const jrDate = toIsoDateText(row.jr_date);
+          const jcDate = toIsoDateText(row.jc_date);
+          const planDate = toIsoDateText(row.plan_date) || jrDate || null;
+          const orJrNo = String(row.or_jr_no || '').trim();
+          const jcNo = String(row.jc_no || '').trim();
+          const jcId = String(row.jc_id || '').trim();
+          const mouldNo = String(row.mould_no || '').trim();
+          const mouldItemCode = String(row.mould_item_code || '').trim();
+          const mouldItemName = String(row.mould_item_name || '').trim();
+          const machineName = String(row.machine_name || row.machine || '').trim();
+          const uniqueKey = [
+            orJrNo || 'no-or-jr',
+            jcNo || 'no-jc-no',
+            jcId || 'no-jc-id',
+            mouldNo || 'no-mould-no',
+            mouldItemCode || mouldItemName || 'no-mould-item',
+            machineName || 'no-machine',
+            planDate || jcDate || jrDate || 'no-date',
+            String(index + 1)
+          ].join('::');
+          return {
+            unique_key: uniqueKey,
+            factory_id: normalizeFactoryId(row.factory_id) ?? requestFactoryId,
+            data: {
+              or_jr_no: orJrNo,
+              jr_date: jrDate,
+              jc_no: jcNo,
+              job_card_no: jcNo,
+              jc_id: jcId,
+              jc_date: jcDate,
+              job_card_date: jcDate,
+              jc_qty: normalizeOptionalText(toNum(row.jc_qty)),
+              our_code: String(row.our_code || '').trim(),
+              item_code: String(row.our_code || '').trim(),
+              bom_type: String(row.bom_type || '').trim(),
+              jr_item_name: String(row.jr_item_name || '').trim(),
+              item_name: String(row.jr_item_name || '').trim(),
+              product_name: String(row.jr_item_name || '').trim(),
+              jr_qty: normalizeOptionalText(toNum(row.jr_qty)),
+              uom: String(row.uom || '').trim(),
+              plan_date: planDate,
+              plan_qty: normalizeOptionalText(toNum(row.plan_qty)),
+              mould_item_code: String(row.mould_item_code || '').trim(),
+              mould_item_name: String(row.mould_item_name || '').trim(),
+              mould_no: String(row.mould_no || '').trim(),
+              mould: String(row.mould_name || row.mould || '').trim(),
+              mould_name: String(row.mould_name || row.mould || '').trim(),
+              mould_item_qty: normalizeOptionalText(toNum(row.mould_item_qty)),
+              tonnage: normalizeOptionalText(toNum(row.tonnage)),
+              machine: machineName,
+              machine_name: machineName,
+              cycle_time: normalizeOptionalText(toNum(row.cycle_time)),
+              cavity: normalizeOptionalText(toNum(row.cavity)),
+              upload_row_no: String(index + 1)
+            }
+          };
+        }).filter(row => {
+          const payload = row.data || {};
+          return [
+            payload.or_jr_no,
+            payload.jc_no,
+            payload.jc_id,
+            payload.our_code,
+            payload.jr_item_name,
+            payload.mould_item_code,
+            payload.mould_item_name,
+            payload.mould_no
+          ].some(value => String(value || '').trim() !== '');
+        });
+
+        const rowFactoryIds = [...new Set(rowsToUpsert.map(row => normalizeFactoryId(row.factory_id)).filter(id => id !== null))];
+        if (rowFactoryIds.length) {
+          await ensureFactoryIdsExist(rowFactoryIds, client, 'JC Detail upload factory');
+        }
+
+        const scopedFactoryIds = rowFactoryIds.length
+          ? rowFactoryIds
+          : (requestFactoryId !== null ? [requestFactoryId] : []);
+
+        if (scopedFactoryIds.length) {
+          await client.query('DELETE FROM jc_details WHERE factory_id = ANY($1::int[])', [scopedFactoryIds]);
+        } else if (requestFactoryId === null) {
+          await client.query('DELETE FROM jc_details WHERE factory_id IS NULL');
+        }
+
+        for (const row of rowsToUpsert) {
+          await client.query(`
+            INSERT INTO jc_details(unique_key, data, created_by, factory_id, updated_at, last_updated_at)
+            VALUES ($1, $2::jsonb, 'BulkUpload', $3, NOW(), NOW())
+          `, [row.unique_key, JSON.stringify(row.data), row.factory_id]);
           count++;
         }
       } else if (type === 'boplanningdetail') {
@@ -10248,6 +11036,16 @@ app.get('/api/orders/pending', async (req, res) => {
       WHERE
           (r.is_closed IS FALSE OR r.is_closed IS NULL)
         AND(r.mld_status IS NULL OR(LOWER(r.mld_status) NOT IN('completed', 'cancelled')))
+        AND NOT EXISTS (
+          SELECT 1
+          FROM or_jr_report rc
+          WHERE rc.or_jr_no = o.order_no
+            AND LOWER(COALESCE(TRIM(rc.mld_status), '')) = 'cancelled'
+        )
+        AND NOT (
+          COALESCE(TRIM(r.job_card_no), '') = ''
+          AND LOWER(COALESCE(TRIM(r.jr_close), '')) IN('close', 'closed', 'yes')
+        )
         AND r.or_jr_no IS NOT NULL-- Ensure we only fetch linked valid report rows
     `;
 
@@ -10274,7 +11072,17 @@ app.get('/api/orders/pending', async (req, res) => {
 
 app.get('/api/orders', async (req, res) => { // Alias
   try {
-    let sql = `SELECT * FROM orders WHERE status = 'Pending'`;
+    let sql = `
+      SELECT *
+      FROM orders o
+      WHERE o.status = 'Pending'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM or_jr_report r
+          WHERE r.or_jr_no = o.order_no
+            AND LOWER(COALESCE(TRIM(r.mld_status), '')) = 'cancelled'
+        )
+    `;
     const params = [];
 
     // [FIX] Factory Isolation
@@ -11235,6 +12043,7 @@ app.post('/api/admin/clear-data', async (req, res) => {
     else if (type === 'orjr') table = 'or_jr_report';
     else if (type === 'orjrwise') table = 'mould_planning_summary';
     else if (type === 'orjrwisedetail') table = 'mould_planning_report';
+    else if (type === 'jcdetails') table = 'jc_details';
     else if (type === 'wipstock') table = 'wip_stock_snapshots';
     if (!table) return res.json({ ok: false, error: 'Unknown data type' });
 
@@ -11336,7 +12145,7 @@ app.get('/api/masters/:type', async (req, res) => {
     let table = type;
     if (type === 'users') table = 'users';
 
-    if (!['orders', 'machines', 'moulds', 'users', 'wipstock'].includes(type)) {
+    if (!['orders', 'machines', 'moulds', 'users', 'wipstock', 'jcdetails'].includes(type)) {
       return res.status(400).json({ ok: false, error: 'Invalid type' });
     }
 
@@ -11476,6 +12285,75 @@ WHERE 1 = 1
     let sql = '';
     const params = [];
 
+    if (type === 'jcdetails') {
+      sql = `
+SELECT
+  j.id,
+  j.factory_id,
+  f.name AS factory_name,
+  f.code AS factory_code,
+  j.data ->> 'or_jr_no' AS or_jr_no,
+  j.data ->> 'jr_date' AS jr_date,
+  j.data ->> 'jc_no' AS jc_no,
+  j.data ->> 'jc_id' AS jc_id,
+  j.data ->> 'jc_date' AS jc_date,
+  j.data ->> 'jc_qty' AS jc_qty,
+  j.data ->> 'our_code' AS our_code,
+  j.data ->> 'bom_type' AS bom_type,
+  j.data ->> 'jr_item_name' AS jr_item_name,
+  j.data ->> 'jr_qty' AS jr_qty,
+  j.data ->> 'uom' AS uom,
+  j.data ->> 'plan_date' AS plan_date,
+  j.data ->> 'plan_qty' AS plan_qty,
+  j.data ->> 'mould_item_code' AS mould_item_code,
+  j.data ->> 'mould_item_name' AS mould_item_name,
+  j.data ->> 'mould_no' AS mould_no,
+  COALESCE(j.data ->> 'mould', j.data ->> 'mould_name') AS mould,
+  j.data ->> 'mould_item_qty' AS mould_item_qty,
+  j.data ->> 'tonnage' AS tonnage,
+  COALESCE(j.data ->> 'machine', j.data ->> 'machine_name') AS machine,
+  j.data ->> 'cycle_time' AS cycle_time,
+  j.data ->> 'cavity' AS cavity,
+  j.updated_at
+FROM jc_details j
+LEFT JOIN factories f ON f.id = j.factory_id
+WHERE 1 = 1
+      `;
+      const conditions = [];
+      applyFactoryScopeCondition(conditions, params, 'j.factory_id', factoryScope);
+      if (conditions.length) {
+        sql += ` AND ${conditions.join(' AND ')} `;
+      }
+
+      if (from) {
+        params.push(from);
+        sql += ` AND COALESCE(NULLIF(j.data ->> 'plan_date', ''), NULLIF(j.data ->> 'jr_date', '')) >= $${params.length} `;
+      }
+      if (to) {
+        params.push(to);
+        sql += ` AND COALESCE(NULLIF(j.data ->> 'plan_date', ''), NULLIF(j.data ->> 'jr_date', '')) <= $${params.length} `;
+      }
+      if (search) {
+        params.push(`%${search}%`);
+        sql += ` AND (
+          COALESCE(j.data ->> 'or_jr_no', '') ILIKE $${params.length}
+          OR COALESCE(j.data ->> 'jc_no', '') ILIKE $${params.length}
+          OR COALESCE(j.data ->> 'jc_id', '') ILIKE $${params.length}
+          OR COALESCE(j.data ->> 'our_code', '') ILIKE $${params.length}
+          OR COALESCE(j.data ->> 'jr_item_name', '') ILIKE $${params.length}
+          OR COALESCE(j.data ->> 'mould_item_code', '') ILIKE $${params.length}
+          OR COALESCE(j.data ->> 'mould_item_name', '') ILIKE $${params.length}
+          OR COALESCE(j.data ->> 'mould_no', '') ILIKE $${params.length}
+          OR COALESCE(j.data ->> 'mould', j.data ->> 'mould_name', '') ILIKE $${params.length}
+          OR COALESCE(j.data ->> 'machine', j.data ->> 'machine_name', '') ILIKE $${params.length}
+        )`;
+      }
+
+      sql += ` ORDER BY COALESCE(NULLIF(j.data ->> 'plan_date', ''), NULLIF(j.data ->> 'jr_date', '')) DESC NULLS LAST, j.id DESC`;
+      const rows = await q(sql, params);
+      return res.json({ ok: true, data: rows });
+    }
+
     if (type === 'orders') {
       sql = `
 SELECT
@@ -11576,7 +12454,31 @@ WHEN(SELECT COUNT(DISTINCT pb.mould_name) FROM plan_board pb WHERE pb.order_no =
              LIMIT 1
           ) r ON TRUE
           LEFT JOIN factories f ON f.id = COALESCE(r.factory_id, o.factory_id)
- WHERE(COALESCE(o.status, 'Pending') <> 'Completed' OR COALESCE(o.completion_confirmation_required, FALSE) = TRUE)
+ WHERE (COALESCE(o.status, 'Pending') NOT IN ('Completed', 'Cancelled')
+        OR COALESCE(o.completion_confirmation_required, FALSE) = TRUE)
+   AND NOT EXISTS (
+         SELECT 1
+           FROM or_jr_report rc
+          WHERE TRIM(rc.or_jr_no) = TRIM(o.order_no)
+            AND (
+              COALESCE(rc.factory_id, 0) = COALESCE(o.factory_id, 0)
+              OR rc.factory_id IS NULL
+              OR o.factory_id IS NULL
+            )
+            AND COALESCE(TRIM(LOWER(rc.mld_status)), '') IN ('cancelled', 'canceled', 'cancel')
+       )
+   AND NOT EXISTS (
+         SELECT 1
+           FROM or_jr_report rj
+          WHERE TRIM(rj.or_jr_no) = TRIM(o.order_no)
+            AND (
+              COALESCE(rj.factory_id, 0) = COALESCE(o.factory_id, 0)
+              OR rj.factory_id IS NULL
+              OR o.factory_id IS NULL
+            )
+            AND COALESCE(TRIM(rj.job_card_no), '') = ''
+            AND COALESCE(TRIM(LOWER(rj.jr_close)), '') IN ('close', 'closed', 'yes')
+       )
        `;
     } else {
       sql = `SELECT * FROM ${table} WHERE 1 = 1`;

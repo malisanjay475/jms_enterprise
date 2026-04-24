@@ -533,6 +533,8 @@
 
         <div><label class="control-label">Moulding Sqn.</label><input type="text" id="mould_moulding_sqn"
             class="form-input" style="width:100%"></div>
+        <div><label class="control-label">Consumption Ratio(QTY)</label><input type="number" step="0.01" id="mould_consumption_ratio_qty"
+            class="form-input" style="width:100%"></div>
         <div><label class="control-label">Tonnage</label><input type="number" step="0.01" id="mould_tonnage"
             class="form-input" style="width:100%"></div>
         <div><label class="control-label">NO OF CAV</label><input type="number" step="0.01" id="mould_no_of_cav"
@@ -553,6 +555,8 @@
             class="form-input" style="width:100%"></div>
 
         <div><label class="control-label">SFG STD Packing</label><input type="text" id="mould_sfg_std_packing"
+            class="form-input" style="width:100%"></div>
+        <div><label class="control-label">SFG Bag Size</label><input type="text" id="mould_sfg_bag_size"
             class="form-input" style="width:100%"></div>
         <div><label class="control-label">STD VOLUME CAP.</label><input type="text" id="mould_std_volume_cap"
             class="form-input" style="width:100%"></div>
@@ -691,8 +695,8 @@
     let mouldMode = 'edit';
     const mouldFields = [
       'mould_number', 'mould_name', 'std_wt_kg', 'runner_weight',
-      'primary_machine', 'secondary_machine', 'moulding_sqn', 'tonnage', 'no_of_cav', 'cycle_time', 'pcs_per_hour',
-      'target_pcs_day', 'material', 'manpower', 'operator_activities', 'sfg_std_packing',
+      'primary_machine', 'secondary_machine', 'moulding_sqn', 'consumption_ratio_qty', 'tonnage', 'no_of_cav', 'cycle_time', 'pcs_per_hour',
+      'target_pcs_day', 'material', 'manpower', 'operator_activities', 'sfg_std_packing', 'sfg_bag_size',
       'std_volume_cap'
     ];
     const mouldColumnTitles = {
@@ -703,6 +707,7 @@
       primary_machine: 'PRIMARY MACHINE',
       secondary_machine: 'SECONDARY MACHINE',
       moulding_sqn: 'MOULDING SQN.',
+      consumption_ratio_qty: 'CONSUMPTION RATIO(QTY)',
       tonnage: 'TONNAGE',
       no_of_cav: 'NO OF CAV',
       cycle_time: 'CYCLE TIME',
@@ -712,6 +717,7 @@
       manpower: 'MANPOWER',
       operator_activities: 'OPERATOR ACTIVITIES',
       sfg_std_packing: 'SFG STD PACKING',
+      sfg_bag_size: 'SFG BAG SIZE',
       std_volume_cap: 'STD VOLUME CAP.'
     };
     const orjrWiseSummaryColumns = [
@@ -747,6 +753,35 @@
       jr_item_name: 'JR Item Name',
       jr_qty: 'JR Qty',
       uom: 'UOM',
+      mould_item_code: 'Mold Item Code',
+      mould_item_name: 'Mold Item Name',
+      mould_no: 'Mould No',
+      mould: 'Mould',
+      mould_item_qty: 'Mould Item Qty',
+      tonnage: 'Tonnage',
+      machine: 'Machine',
+      cycle_time: 'Cycle Time',
+      cavity: 'Cavity'
+    };
+    const jcDetailColumns = [
+      'or_jr_no', 'jr_date', 'jc_no', 'jc_id', 'jc_date', 'jc_qty', 'our_code', 'bom_type',
+      'jr_item_name', 'jr_qty', 'uom', 'plan_date', 'plan_qty', 'mould_item_code', 'mould_item_name',
+      'mould_no', 'mould', 'mould_item_qty', 'tonnage', 'machine', 'cycle_time', 'cavity'
+    ];
+    const jcDetailTitles = {
+      or_jr_no: 'OR/JR No',
+      jr_date: 'JR Date',
+      jc_no: 'JC No',
+      jc_id: 'JC ID',
+      jc_date: 'JC Date',
+      jc_qty: 'JC Qty',
+      our_code: 'Our Code',
+      bom_type: 'BomType',
+      jr_item_name: 'JR Item Name',
+      jr_qty: 'JR Qty',
+      uom: 'UOM',
+      plan_date: 'Plan Date',
+      plan_qty: 'Plan Qty',
       mould_item_code: 'Mold Item Code',
       mould_item_name: 'Mold Item Name',
       mould_no: 'Mould No',
@@ -1391,7 +1426,7 @@
     let currentFactoryScope = { id: null, name: '', isAll: false };
     let currentWriteScope = { id: null, name: '', isAll: false };
     let currentMachineIconBase64 = null;
-    const templateSupportedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'boplanningdetail', 'wipstock'];
+    const templateSupportedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
     const reportOnlyTypes = [];
     const clientPreviewSchemas = {
       boplanningdetail: {
@@ -1440,6 +1475,7 @@
           { key: 'primary_machine', label: 'Primary Machine', aliases: ['PRIMARY MACHINE'] },
           { key: 'secondary_machine', label: 'Secondary Machine', aliases: ['SECONDARY MACHINE'] },
           { key: 'moulding_sqn', label: 'Moulding SQN.', aliases: ['MOULDING SQN.', 'MOULDING SQN'] },
+          { key: 'consumption_ratio_qty', label: 'Consumption Ratio(QTY)', aliases: ['CONSUMPTION RATIO(QTY)', 'CONSUMPTION RATIO (QTY)', 'CONSUMPTION RATIO QTY'] },
           { key: 'tonnage', label: 'Tonnage', aliases: ['TONNAGE', 'Machine'] },
           { key: 'no_of_cav', label: 'No Of Cav', aliases: ['NO OF CAV', 'NO OF CAVITY'] },
           { key: 'cycle_time', label: 'Cycle Time', aliases: ['CYCLE TIME'] },
@@ -1449,6 +1485,7 @@
           { key: 'manpower', label: 'Manpower', aliases: ['MANPOWER'] },
           { key: 'operator_activities', label: 'Operator Activities', aliases: ['OPERATOR ACTIVITIES'] },
           { key: 'sfg_std_packing', label: 'SFG STD Packing', aliases: ['SFG STD PACKING', 'SFG QTY'] },
+          { key: 'sfg_bag_size', label: 'SFG Bag Size', aliases: ['SFG BAG SIZE', 'SFG BAG SIZE '] },
           { key: 'std_volume_cap', label: 'STD Volume Cap.', aliases: ['STD VOLUME CAP.', 'STD VOLUME CAP', 'STD VOLUME CAPACITY'] },
           { key: 'factory_id', label: 'Factory ID', aliases: ['FACTORY ID', 'FACTORY', 'FACTORY CODE'], optional: true }
         ]
@@ -1494,6 +1531,36 @@
           { key: 'mould_item_qty', label: 'Mould Item Qty', aliases: ['Mould Item Qty', 'Mold Item Qty'] },
           { key: 'tonnage', label: 'Tonnage', aliases: ['Tonnage'] },
           { key: 'machine_name', label: 'Machine', aliases: ['Machine', 'Machine Name'] },
+          { key: 'cycle_time', label: 'Cycle Time', aliases: ['Cycle Time'] },
+          { key: 'cavity', label: 'Cavity', aliases: ['Cavity'] },
+          { key: 'factory_id', label: 'Factory ID', aliases: ['Factory ID', 'Factory', 'Factory Code'], optional: true }
+        ]
+      },
+      jcdetails: {
+        label: 'JC Detail',
+        maxHeaderScanRows: 25,
+        minMatchedColumns: 12,
+        columns: [
+          { key: 'or_jr_no', label: 'OR/JR No', aliases: ['OR/JR No'] },
+          { key: 'jr_date', label: 'JR Date', aliases: ['JR Date', 'OR/JR Date'] },
+          { key: 'jc_no', label: 'JC No', aliases: ['JC No', 'Job Card No'] },
+          { key: 'jc_id', label: 'JC ID', aliases: ['JC ID', 'Job Card ID'] },
+          { key: 'jc_date', label: 'JC Date', aliases: ['JC Date', 'Job Card Date'] },
+          { key: 'jc_qty', label: 'JC Qty', aliases: ['JC Qty', 'Job Card Qty'] },
+          { key: 'our_code', label: 'Our Code', aliases: ['Our Code', 'Item Code'] },
+          { key: 'bom_type', label: 'BomType', aliases: ['BomType', 'BOM Type'] },
+          { key: 'jr_item_name', label: 'JR Item Name', aliases: ['JR Item Name', 'Product Name'] },
+          { key: 'jr_qty', label: 'JR Qty', aliases: ['JR Qty'] },
+          { key: 'uom', label: 'UOM', aliases: ['UOM'] },
+          { key: 'plan_date', label: 'Plan Date', aliases: ['Plan Date'] },
+          { key: 'plan_qty', label: 'Plan Qty', aliases: ['Plan Qty'] },
+          { key: 'mould_item_code', label: 'Mold Item Code', aliases: ['Mold Item Code', 'Mould Item Code'] },
+          { key: 'mould_item_name', label: 'Mold Item Name', aliases: ['Mold Item Name', 'Mould Item Name'] },
+          { key: 'mould_no', label: 'Mould No', aliases: ['Mould No', 'Mold No'] },
+          { key: 'mould', label: 'Mould', aliases: ['Mould', 'Mould Name', 'Mold'] },
+          { key: 'mould_item_qty', label: 'Mould Item Qty', aliases: ['Mould Item Qty', 'Mold Item Qty'] },
+          { key: 'tonnage', label: 'Tonnage', aliases: ['Tonnage'] },
+          { key: 'machine', label: 'Machine', aliases: ['Machine', 'Machine Name'] },
           { key: 'cycle_time', label: 'Cycle Time', aliases: ['Cycle Time'] },
           { key: 'cavity', label: 'Cavity', aliases: ['Cavity'] },
           { key: 'factory_id', label: 'Factory ID', aliases: ['Factory ID', 'Factory', 'Factory Code'], optional: true }
@@ -1563,6 +1630,7 @@
         orjr: 'OR-JR Status',
         orjrwise: 'ORJR Wise Summary',
         orjrwisedetail: 'ORJR Wise Detail',
+        jcdetails: 'JC Detail',
         boplanningdetail: 'BO Planning Detail',
         wipstock: 'WIP Stock',
         users: 'User Master'
@@ -1886,6 +1954,7 @@
         orjr: 'OR-JR Status Template',
         orjrwise: 'ORJR Wise Summary Template',
         orjrwisedetail: 'ORJR Wise Detail Template',
+        jcdetails: 'JC Detail Template',
         boplanningdetail: 'BO Planning Detail Template',
         wipstock: 'WIP Stock Template'
       };
@@ -1929,9 +1998,9 @@
       JPSMS.auth.requireAuth();
 
       const params = new URLSearchParams(window.location.search);
-      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'boplanningdetail', 'wipstock', 'users'];
+      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users'];
       const requestedType = params.get('type') || 'orders';
-      const optionalDateTypes = ['orjrwise', 'orjrwisedetail', 'boplanningdetail', 'wipstock'];
+        const optionalDateTypes = ['orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
       const manualDateTypes = ['orjr'];
       currentType = allowedTypes.includes(requestedType) ? requestedType : 'orders';
       currentView = params.get('view') || 'active'; // Allow deep linking
@@ -2008,6 +2077,7 @@
         'orjr': { title: 'OR-JR Status', hint: 'Upload .xlsx', hasDates: true },
         'orjrwise': { title: 'ORJR Wise Summary', hint: 'Upload .xlsx', hasDates: true },
         'orjrwisedetail': { title: 'ORJR Wise Detail', hint: 'Upload .xlsx', hasDates: true, icon: 'bi-file-earmark-richtext' },
+        'jcdetails': { title: 'JC Detail', hint: 'Upload .xlsx', hasDates: true, icon: 'bi-journal-richtext' },
         'boplanningdetail': { title: 'BO Planning Detail', hint: 'Upload .xlsx', hasDates: true, icon: 'bi-clipboard-data' },
         'wipstock': { title: 'WIP Stock', hint: 'Upload dated WIP stock sheet', hasDates: true, icon: 'bi-box-seam-fill' },
         'users': { title: 'User Master', hint: 'Admin Only', hasDates: false }
@@ -2062,7 +2132,7 @@
       }
 
       if (filterSearch) {
-        if (['orjrwise', 'orjrwisedetail', 'boplanningdetail'].includes(type)) {
+        if (['orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail'].includes(type)) {
           filterSearch.placeholder = 'OR/JR No, Code, Name, Bo Item...';
         } else if (type === 'wipstock') {
           filterSearch.placeholder = 'Item Code, Item Name, Location, Job No...';
@@ -2203,6 +2273,8 @@
           endpoint = `/reports/orjr-wise-summary?${qParams}`;
         } else if (currentType === 'orjrwisedetail') {
           endpoint = `/reports/orjr-wise-detail?${qParams}`;
+        } else if (currentType === 'jcdetails') {
+          endpoint = `/masters/jcdetails?${qParams}`;
         } else if (currentType === 'boplanningdetail') {
           endpoint = `/reports/bo-planning-detail?${qParams}`;
         } else if (currentType === 'users') {
@@ -2272,6 +2344,8 @@
           cols = ['factory_name', ...orjrWiseSummaryColumns].filter(c => cols.includes(c));
         } else if (currentType === 'orjrwisedetail') {
           cols = ['factory_name', ...orjrWiseDetailColumns].filter(c => cols.includes(c));
+        } else if (currentType === 'jcdetails') {
+          cols = ['factory_name', ...jcDetailColumns].filter(c => cols.includes(c));
         } else if (currentType === 'boplanningdetail') {
           cols = ['factory_name', ...boPlanningDetailColumns].filter(c => cols.includes(c));
         } else if (currentType === 'wipstock') {
@@ -2340,6 +2414,8 @@
             base.title = 'Factory';
           } else if (boPlanningDetailTitles[c]) {
             base.title = boPlanningDetailTitles[c];
+          } else if (currentType === 'jcdetails' && jcDetailTitles[c]) {
+            base.title = jcDetailTitles[c];
           } else if (c === 'factory_code') {
             base.title = 'Factory Code';
           } else if (currentType === 'machines' && isPrintingMachineView() && c === 'machine') {
@@ -3006,6 +3082,7 @@
           'primary_machine': 'Primary Machine',
           'secondary_machine': 'Secondary Machine',
           'moulding_sqn': 'Moulding SQN.',
+          'consumption_ratio_qty': 'Consumption Ratio(QTY)',
           'no_of_cav': 'No Of Cav',
           'pcs_per_hour': 'PCS/HOUR',
           'target_pcs_day': 'Target PCS/Day',
@@ -3013,6 +3090,7 @@
           'manpower': 'Manpower',
           'operator_activities': 'Operator Activities',
           'sfg_std_packing': 'SFG STD Packing',
+          'sfg_bag_size': 'SFG Bag Size',
           'std_volume_cap': 'STD Volume Cap.',
           'building': 'Building',
           'line': 'Line',
@@ -3107,8 +3185,8 @@
         const priority = [
           'order_no', 'item_code', 'item_name', 'mould_code', 'qty', 'priority', 'client_name',
           'mould_number', 'mould_name', 'std_wt_kg', 'runner_weight', 'primary_machine', 'secondary_machine',
-          'moulding_sqn', 'tonnage', 'no_of_cav', 'cycle_time', 'pcs_per_hour', 'target_pcs_day',
-          'material', 'manpower', 'operator_activities', 'sfg_std_packing', 'std_volume_cap',
+          'moulding_sqn', 'consumption_ratio_qty', 'tonnage', 'no_of_cav', 'cycle_time', 'pcs_per_hour', 'target_pcs_day',
+          'material', 'manpower', 'operator_activities', 'sfg_std_packing', 'sfg_bag_size', 'std_volume_cap',
           'building', 'line', 'machine', 'vendor_name', 'model_no', 'machine_type', 'factory_id',
           'or_jr_no', 'or_jr_date', 'or_qty', 'jr_qty', 'plan_qty', 'plan_date',
           'jr_date', 'our_code', 'bom_type', 'jr_item_name',

@@ -15,27 +15,27 @@
   <style>
     :root {
       --phone: 460px;
-      /* Industry Standard Slate/Blue Theme (Matching app.css) */
-      --bg: #f1f5f9;
-      /* Slate 100 */
-      --ink: #0f172a;
-      /* Slate 900 */
-      --muted: #64748b;
-      /* Slate 500 */
-      --card: #ffffff;
-      --line: #e2e8f0;
-      /* Slate 200 */
+      --bg: #eef3fb;
+      --ink: #0f2740;
+      --muted: #7085a0;
+      --card: rgba(255, 255, 255, 0.94);
+      --line: rgba(180, 199, 229, 0.52);
 
-      --accent: #2563eb;
-      /* Royal Blue */
-      --accent-ink: #1e40af;
-      --pill: #eff6ff;
+      --accent: #6f35ff;
+      --accent-ink: #5b24dc;
+      --pill: #f2eeff;
+      --ocean-deep: #14345b;
+      --ocean-cyan: #1da2d8;
+      --ocean-foam: #f8fbff;
+      --pending-bg: #fff0f1;
+      --pending-border: #ffd4d8;
+      --pending-ink: #f05252;
 
       --ok: #10b981;
       --err: #ef4444;
       --warn: #f59e0b;
 
-      --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+      --shadow: 0 20px 48px -30px rgba(31, 65, 114, 0.35);
 
       /* Mobile type/spacing */
       --fs-xs: 13px;
@@ -51,19 +51,19 @@
 
     html,
     body {
-      height: 100%;
+      min-height: 100%;
       width: 100%;
-      overflow: hidden;
-      /* Prevent body scroll, handle in views */
-      position: fixed;
-      /* Lock viewport */
+      overflow-x: hidden;
     }
 
     body {
       margin: 0;
-      background: var(--bg);
+      background:
+        radial-gradient(circle at top left, rgba(111, 53, 255, 0.10), transparent 24%),
+        radial-gradient(circle at top right, rgba(29, 162, 216, 0.14), transparent 26%),
+        linear-gradient(180deg, #f7faff 0%, #eef3fb 100%);
       color: var(--ink);
-      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Arial, sans-serif;
+      font-family: "Segoe UI Variable", Inter, system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Arial, sans-serif;
       font-size: var(--fs-base);
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
@@ -73,7 +73,7 @@
     /* Scrollable Views */
     #view-login,
     #view-app {
-      height: 100%;
+      min-height: 100%;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
       padding-bottom: 40px;
@@ -128,15 +128,15 @@
     .shell {
       width: min(100vw, var(--phone));
       margin: 0 auto;
-      padding: 12px 12px 24px;
+      padding: 18px 12px 24px;
     }
 
     /* Cards / pills / buttons */
     .card {
       background: var(--card);
       border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 14px;
+      border-radius: 24px;
+      padding: 16px;
       box-shadow: var(--shadow)
     }
 
@@ -155,9 +155,9 @@
     button {
       cursor: pointer;
       border: 1px solid var(--line);
-      background: var(--card);
+      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,250,255,0.95));
       color: var(--ink);
-      border-radius: 14px;
+      border-radius: 16px;
       padding: 12px 16px;
       font-size: 16px;
       min-height: var(--tap);
@@ -166,9 +166,9 @@
     }
 
     button.primary {
-      background: var(--accent);
+      background: linear-gradient(135deg, #5b24dc, #8b46ff);
       color: #fff;
-      border-color: var(--accent)
+      border-color: transparent
     }
 
     button.ghost {
@@ -218,21 +218,94 @@
       font-variant-numeric: tabular-nums
     }
 
-    /* Topbar (not sticky) */
-    .topbar {
-      margin-bottom: 12px;
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 8px 10px;
-      box-shadow: var(--shadow)
+    .brand-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
     }
 
-    .topbar .line {
+    .brand-identity {
       display: flex;
-      gap: 8px;
       align-items: center;
-      justify-content: space-between
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 40px;
+      height: 40px;
+      border-radius: 14px;
+      object-fit: cover;
+      background: #fff;
+      border: 1px solid rgba(190, 205, 232, 0.7);
+      box-shadow: 0 12px 24px -22px rgba(20, 52, 91, 0.8);
+      flex: 0 0 auto;
+    }
+
+    .brand-copy {
+      min-width: 0;
+    }
+
+    .brand-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #11263f;
+      letter-spacing: -0.01em;
+      line-height: 1.05;
+      white-space: nowrap;
+    }
+
+    .brand-subtitle {
+      margin-top: 2px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #7a8ea8;
+      white-space: nowrap;
+    }
+
+    .brand-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .brand-chip,
+    .brand-alert {
+      min-height: 34px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      box-shadow: none;
+    }
+
+    .brand-chip {
+      background: #f2eaff;
+      border-color: #eadcff;
+      color: #7a40ff;
+    }
+
+    .brand-alert {
+      background: var(--pending-bg) !important;
+      border-color: var(--pending-border) !important;
+      color: var(--pending-ink) !important;
+      display: none;
+    }
+
+    /* Topbar (not sticky) */
+    .topbar {
+      margin-bottom: 14px;
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid rgba(190, 205, 232, 0.7);
+      border-radius: 24px;
+      padding: 14px;
+      box-shadow: var(--shadow)
     }
 
     /* Tabs */
@@ -240,21 +313,66 @@
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
       gap: 8px;
-      margin-top: 8px
+      margin-top: 12px
     }
 
     .tabs button {
-      border-radius: 12px;
-      background: #f4f7ff;
-      border: 1px solid #d7e4ff;
-      padding: 10px 8px
+      border-radius: 18px;
+      background: transparent;
+      border: 0;
+      padding: 10px 8px;
+      box-shadow: none;
+      color: #6c7f99;
+      font-weight: 700;
     }
 
     .tabs button.active {
-      background: var(--ink);
-      color: #fff;
-      border-color: var(--ink);
-      font-weight: 600
+      background: #fff;
+      color: var(--ink);
+      border: 1px solid #edf2ff;
+      font-weight: 800
+    }
+
+    .machine-select-wrap {
+      margin-bottom: 12px;
+    }
+
+    #dd-machine {
+      border-radius: 22px;
+      min-height: 56px;
+      padding: 14px 18px;
+      font-size: 18px;
+      font-weight: 700;
+      background: #fff;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.92), 0 10px 22px -20px rgba(20, 52, 91, 0.45);
+    }
+
+    .control-actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .action-chip {
+      min-height: 54px;
+      padding: 12px 10px;
+      font-weight: 700;
+      font-size: 15px;
+      border-radius: 18px;
+      box-shadow: none;
+    }
+
+    .action-chip.alert {
+      background: #fff4f5;
+      border-color: #ffd4d8;
+      color: #ef4444;
+    }
+
+    .segmented-tabs {
+      padding: 6px;
+      border-radius: 22px;
+      background: #edf3ff;
+      border: 1px solid #e3ebff;
     }
 
     /* Job cards list */
@@ -266,7 +384,7 @@
 
     .job {
       border: 1px solid var(--line);
-      border-radius: 14px;
+      border-radius: 22px;
       padding: 12px;
       background: #fff
     }
@@ -288,6 +406,11 @@
       border-radius: 12px;
       color: var(--muted);
       background: #fafcff
+    }
+
+    #geo-pill,
+    .supervisor-summary-strip {
+      display: none !important;
     }
 
     /* Layout helpers */
@@ -945,38 +1068,43 @@
   <div id="view-app" class="hidden">
     <div class="shell">
 
+      <div class="brand-row" aria-label="JMS Ocean header">
+        <div class="brand-identity">
+          <img src="/assets/jms-logo.png" alt="JMS Ocean logo" class="brand-mark">
+          <div class="brand-copy">
+            <div class="brand-title">JMS Ocean</div>
+            <div class="brand-subtitle">Moulding Supervisor</div>
+          </div>
+        </div>
+        <div class="brand-meta">
+          <div class="pill brand-chip"><i class="bi bi-grid-3x3-gap-fill"></i> Line: <b id="line-name">—</b></div>
+          <button id="btn-pending" class="small ghost brand-alert hidden" onclick="showPendingDetails()" type="button">
+            <i class="bi bi-exclamation-triangle-fill"></i> Pending
+          </button>
+        </div>
+      </div>
+
       <!-- Topbar -->
       <div class="topbar" role="region" aria-label="Top bar">
-        <div class="line">
-          <div class="pill">Line:&nbsp;<b id="line-name">—</b></div>
-
-          <!-- NEW: Pending Alert Badge (Separated) -->
-          <button id="btn-pending" class="small ghost hidden" onclick="showPendingDetails()"
-            style="margin-left:auto; padding:2px 8px; font-size:11px; background:#fff1f2; color:#be123c; border-color:#fda4af; display:none">
-            ⚠ Pending
-          </button>
-          <div id="geo-pill" class="muted" style="font-size:11px"></div>
-        </div>
-
-        <!-- Updated: Full Width Machine Select -->
-        <div class="line" style="margin-top:8px; display:flex; flex-direction:column; gap:8px">
+        <div class="machine-select-wrap">
           <div class="inline" style="width:100%">
-            <!-- <span class="muted" style="font-size:13px">Machine</span> -->
             <select id="dd-machine" onchange="onMachineChange()" style="width:100%"></select>
           </div>
-
-          <!-- NEW: Controls Row -->
-          <div class="grid-3" style="gap:6px">
-            <button class="small ghost" id="btn-main-menu" onclick="openMaintenanceMenu()"
-              style="color:#ef4444; border-color:#fca5a5; background:#fef2f2">
-              🛠️ Maint/MP
-            </button>
-            <button class="small ghost" onclick="loadQueue()">Refresh</button>
-            <button class="small ghost" onclick="openShiftTeamModal()">Shift Team</button>
-          </div>
         </div>
 
-        <div class="tabs" role="tablist" aria-label="Navigation tabs">
+        <div class="control-actions">
+          <button class="small ghost action-chip alert" id="btn-main-menu" onclick="openMaintenanceMenu()" type="button">
+            <i class="bi bi-wrench-adjustable-circle"></i> Maint/MP
+          </button>
+          <button class="small ghost action-chip" onclick="loadQueue()" type="button">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+          </button>
+          <button class="small ghost action-chip" onclick="openShiftTeamModal()" type="button">
+            <i class="bi bi-people-fill"></i> Shift Team
+          </button>
+        </div>
+
+        <div class="tabs segmented-tabs" role="tablist" aria-label="Navigation tabs">
           <button class="active" id="tab-queue" role="tab" aria-selected="true"
             onclick="showPage('sec-queue', this)">Queue</button>
           <button id="tab-dpr" role="tab" aria-selected="false" onclick="showPage('sec-dpr', this)">DPR</button>
@@ -988,7 +1116,7 @@
       <!-- QUEUE -->
       <section id="sec-queue" class="page card" style="display:block">
         <h2 style="margin-bottom:6px">Job Queue</h2>
-        <div class="muted" style="font-size:13px;margin-bottom:10px">Tap <b>Fill DPR</b> on the first job.</div>
+        <div class="muted" style="font-size:13px;margin-bottom:10px">Tap Fill DPR on the first job</div>
         <div id="jobs" class="jobs"></div>
         <div id="no-jobs" class="no-jobs hidden">No queued jobs for this machine.</div>
       </section>

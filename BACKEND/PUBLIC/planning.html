@@ -824,8 +824,7 @@
         flex: 1 1 260px;
       }
 
-      #buildingFilter,
-      #masterBuilding {
+      #buildingFilter {
         width: 150px !important;
       }
 
@@ -1438,6 +1437,661 @@
 
     .toolbar:hover {
       box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+    }
+
+    .master-toolbar-shell {
+      padding: 16px 18px !important;
+      border-radius: 22px !important;
+      margin-bottom: 16px !important;
+      display: grid;
+      gap: 12px;
+      border: 1px solid rgba(191, 219, 254, 0.9) !important;
+      background:
+        radial-gradient(circle at top right, rgba(14, 165, 233, 0.08), transparent 32%),
+        linear-gradient(180deg, rgba(255,255,255,0.99), rgba(241,245,249,0.97)) !important;
+      box-shadow:
+        0 18px 38px rgba(15, 23, 42, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+    }
+
+    .master-toolbar-top,
+    .master-toolbar-bottom {
+      display: grid;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .master-toolbar-top {
+      grid-template-columns: minmax(420px, 1.35fr) auto;
+      justify-content: space-between;
+    }
+
+    .master-toolbar-bottom {
+      grid-template-columns: minmax(0, 1fr);
+      padding-top: 2px;
+    }
+
+    .master-report-heading {
+      display: grid;
+      gap: 5px;
+      margin-bottom: 14px;
+      padding: 2px 4px 0;
+    }
+
+    .master-report-kicker {
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #0f766e;
+    }
+
+    .master-report-heading h2 {
+      margin: 0;
+      font-size: 1.55rem;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      color: #0f172a;
+    }
+
+    .master-toolbar-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+
+    .master-toolbar-title i {
+      color: #0369a1;
+    }
+
+    .master-toolbar-search {
+      min-width: 0;
+      max-width: 760px;
+      width: 100%;
+    }
+
+    .master-toolbar-process {
+      min-width: max-content;
+      max-width: none;
+      justify-self: end;
+    }
+
+    .master-toolbar-select {
+      width: 164px !important;
+      min-width: 164px;
+      height: 42px;
+      border-radius: 14px;
+      box-shadow: 0 10px 24px rgba(148, 163, 184, 0.14);
+    }
+
+    .master-toolbar-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 5px;
+      border-radius: 16px;
+      border: 1px solid rgba(219, 234, 254, 0.95);
+      background: linear-gradient(180deg, rgba(248,250,252,0.98), rgba(241,245,249,0.92));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+    }
+
+    .master-toolbar-actions .btn,
+    .master-toolbar-bottom .btn {
+      min-height: 42px;
+      padding: 0 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-radius: 12px;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+
+    .master-toolbar-actions .btn {
+      min-width: 112px;
+      background: rgba(255,255,255,0.86);
+      border-color: rgba(191, 219, 254, 0.95);
+    }
+
+    .master-toolbar-actions .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px rgba(14, 165, 233, 0.12);
+    }
+
+    .master-toolbar-secondary {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 5px;
+      min-width: 0;
+      border-radius: 16px;
+      border: 1px solid rgba(226, 232, 240, 0.96);
+      background: rgba(255,255,255,0.74);
+      width: fit-content;
+      max-width: 100%;
+    }
+
+    .master-toolbar-primary {
+      justify-self: end;
+      display: flex;
+      align-items: center;
+    }
+
+    .master-toolbar-primary .btn.primary {
+      min-width: 142px;
+      min-height: 44px;
+      border-radius: 14px;
+      box-shadow: 0 12px 28px rgba(37, 99, 235, 0.22);
+    }
+
+    .planning-process-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: nowrap;
+      padding: 5px;
+      border-radius: 16px;
+      border: 1px solid rgba(191, 219, 254, 0.95);
+      background: linear-gradient(180deg, rgba(248,250,252,0.98), rgba(239,246,255,0.92));
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.95),
+        0 10px 24px rgba(14, 165, 233, 0.08);
+    }
+
+    .planning-process-pill {
+      min-width: 94px;
+      height: 40px;
+      padding: 0 14px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: #334155;
+      font-size: 0.92rem;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      transition: all 0.18s ease;
+      white-space: nowrap;
+    }
+
+    .planning-process-pill:hover {
+      background: rgba(255,255,255,0.9);
+      border-color: rgba(191, 219, 254, 0.95);
+      color: #0f172a;
+    }
+
+    .planning-process-pill.is-active {
+      background: linear-gradient(135deg, #0ea5e9, #0f5fa8);
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 12px 26px rgba(14, 165, 233, 0.24);
+    }
+
+    @media (max-width: 1320px) {
+      .master-toolbar-top {
+        grid-template-columns: minmax(260px, 1fr) auto;
+      }
+
+      .master-toolbar-search {
+        min-width: 240px;
+      }
+    }
+
+    @media (max-width: 1100px) {
+      .master-toolbar-top {
+        grid-template-columns: 1fr;
+      }
+
+      .master-toolbar-bottom {
+        grid-template-columns: 1fr;
+      }
+
+      .master-toolbar-actions,
+      .master-toolbar-secondary,
+      .planning-process-group {
+        width: 100%;
+      }
+
+      .master-toolbar-search,
+      .master-toolbar-process {
+        max-width: none;
+        min-width: 0;
+      }
+
+      .planning-process-group {
+        flex-wrap: wrap;
+      }
+
+      .master-toolbar-process {
+        justify-self: stretch;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .master-toolbar-top {
+        grid-template-columns: 1fr;
+      }
+
+      .master-toolbar-title,
+      .master-toolbar-search,
+      .master-toolbar-process,
+      .master-toolbar-select {
+        width: 100%;
+      }
+
+      .master-report-heading h2 {
+        font-size: 1.28rem;
+      }
+
+      .planning-process-pill,
+      .master-toolbar-actions .btn {
+        flex: 1 1 120px;
+        min-width: 0;
+      }
+    }
+
+    .master-search-shell {
+      position: relative;
+      display: flex;
+      align-items: center;
+      min-height: 56px;
+      gap: 10px;
+      padding: 0 14px 0 50px;
+      border-radius: 20px;
+      border: 1px solid rgba(186, 230, 253, 0.98);
+      background:
+        radial-gradient(circle at right top, rgba(14, 165, 233, 0.10), transparent 38%),
+        linear-gradient(180deg, rgba(255,255,255,0.99), rgba(241,245,249,0.96));
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.96),
+        0 12px 28px rgba(15, 23, 42, 0.06);
+      transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+    }
+
+    .master-search-shell:focus-within {
+      border-color: rgba(14, 165, 233, 0.95);
+      box-shadow:
+        0 0 0 4px rgba(14, 165, 233, 0.12),
+        0 16px 30px rgba(2, 132, 199, 0.08);
+      transform: translateY(-1px);
+    }
+
+    .master-search-icon {
+      position: absolute;
+      left: 18px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #0284c7;
+      font-size: 1.02rem;
+      pointer-events: none;
+    }
+
+    .master-search-input {
+      flex: 1;
+      min-width: 0;
+      border: none;
+      outline: none;
+      background: transparent;
+      color: #0f172a;
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .master-search-input::placeholder {
+      color: #94a3b8;
+      font-weight: 600;
+    }
+
+    .master-search-meta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 78px;
+      padding: 0 13px;
+      height: 30px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(224, 242, 254, 0.95), rgba(186, 230, 253, 0.7));
+      color: #0369a1;
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .master-search-clear {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: #64748b;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      opacity: 0;
+      pointer-events: none;
+      transition: all .16s ease;
+    }
+
+    .master-search-clear.is-visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .master-search-clear:hover {
+      background: rgba(226, 232, 240, 0.8);
+      color: #0f172a;
+    }
+
+    .master-grid-shell {
+      overflow: auto !important;
+      max-height: calc(100vh - 180px);
+      border: 1px solid #dbeafe !important;
+      border-radius: 20px !important;
+      background:
+        radial-gradient(circle at top right, rgba(14, 165, 233, 0.08), transparent 26%),
+        linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98));
+      box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+      padding-bottom: 8px;
+    }
+
+    .master-grid-head {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: grid;
+      width: max-content;
+      min-width: 100%;
+      gap: 12px;
+      align-items: center;
+      padding: 15px 18px 15px 16px;
+      font-size: 0.71rem;
+      text-transform: uppercase;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      color: #5b6f8c;
+      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(238,246,255,0.98));
+      border-bottom: 1px solid rgba(191, 219, 254, 0.95);
+      box-shadow:
+        inset 0 -1px 0 rgba(191, 219, 254, 0.9),
+        0 10px 22px rgba(148, 163, 184, 0.10);
+      backdrop-filter: blur(10px);
+    }
+
+    .master-grid-head > div {
+      white-space: nowrap;
+    }
+
+    .master-grid-head > div,
+    .master-plan-row > div {
+      min-width: 0;
+    }
+
+    .master-plan-row {
+      gap: 14px;
+      margin: 0;
+      padding: 13px 18px 13px 16px;
+      border-radius: 0;
+      border: 0;
+      border-top: 1px solid rgba(203, 213, 225, 0.75);
+      box-shadow: none;
+      transition: background .14s ease;
+    }
+
+    .master-plan-row:hover {
+      transform: none;
+      box-shadow: none;
+    }
+
+    .master-cell-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+      justify-content: center;
+    }
+
+    .master-cell-stack.compact {
+      gap: 2px;
+    }
+
+    .master-cell-title {
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.2;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .master-cell-title.is-wrap {
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+      word-break: break-word;
+    }
+
+    .master-cell-title.is-mono {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.93rem;
+      letter-spacing: -0.01em;
+    }
+
+    .master-cell-sub {
+      font-size: 0.73rem;
+      color: #64748b;
+      line-height: 1.25;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .master-cell-sub.is-wrap {
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+      word-break: break-word;
+    }
+
+    .master-machine-badges {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .master-mini-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid #dbeafe;
+      background: #f8fbff;
+      color: #475569;
+      font-size: 0.72rem;
+      font-weight: 700;
+      width: fit-content;
+    }
+
+    .master-inline-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .master-report-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
+
+    .master-priority-chip {
+      padding: 2px 8px;
+      font-size: 0.68rem;
+      border-color: rgba(96, 165, 250, 0.22);
+      background: rgba(239, 246, 255, 0.95);
+      color: #3b82f6;
+    }
+
+    .master-column-value {
+      display: flex;
+      align-items: center;
+      min-height: 100%;
+      color: #0f172a;
+      font-weight: 700;
+    }
+
+    .master-column-value.is-mono {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.9rem;
+      letter-spacing: -0.01em;
+    }
+
+    .master-column-value.is-date {
+      font-size: 0.79rem;
+      line-height: 1.35;
+      color: #334155;
+      white-space: nowrap;
+    }
+
+    .master-column-value.is-date.expected {
+      color: #0f766e;
+      font-weight: 800;
+    }
+
+    .master-value {
+      font-weight: 800;
+      color: #0f172a;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      font-size: 0.98rem;
+    }
+
+    .master-value.warn {
+      color: #d97706;
+    }
+
+    .master-date {
+      font-size: 0.79rem;
+      line-height: 1.35;
+      color: #334155;
+      font-weight: 700;
+      white-space: normal;
+      word-break: break-word;
+    }
+
+    .master-date-note {
+      font-size: 0.69rem;
+      color: #64748b;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .master-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: nowrap;
+      min-width: 156px;
+      white-space: nowrap;
+    }
+
+    .master-action-btn,
+    .master-action-pulse {
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      cursor: pointer;
+      transition: transform .14s ease, box-shadow .14s ease;
+    }
+
+    .master-action-btn:hover,
+    .master-action-pulse:hover {
+      transform: translateY(-1px);
+    }
+
+    .master-action-btn {
+      border: 1px solid transparent;
+      background: #f8fafc;
+      color: #475569;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.88);
+    }
+
+    .master-action-btn.view {
+      background: #f1f5f9;
+      color: #64748b;
+      border-color: rgba(203, 213, 225, 0.95);
+    }
+
+    .master-action-btn.complete {
+      background: #dcfce7;
+      color: #16a34a;
+      border-color: #bbf7d0;
+    }
+
+    .master-action-btn.play {
+      background: #10b981;
+      color: #fff;
+    }
+
+    .master-action-btn.stop {
+      background: #ef4444;
+      color: #fff;
+    }
+
+    .master-action-btn.delete {
+      background: transparent;
+      color: #ef4444;
+      border-color: #fee2e2;
+    }
+
+    .master-action-pulse {
+      border: 1px solid rgba(187, 247, 208, 0.95);
+      background: rgba(220, 252, 231, 0.75);
+      color: #10b981;
+    }
+
+    .master-badge-lane {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .master-stat-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      padding: 0 9px;
+      font-size: 0.73rem;
+      font-weight: 800;
+      line-height: 1;
+      white-space: nowrap;
+      transform: none !important;
+    }
+
+    .master-grid-shell .tag.master-stat-pill {
+      border-radius: 999px;
     }
 
     /* Search & Inputs */
@@ -2751,34 +3405,34 @@
 
           <!-- Master Plan View -->
           <div id="masterView" style="display:none; margin-top:20px;">
-            <div class="toolbar" style="background:var(--card); padding:10px; border:1px solid var(--border); border-radius:10px; margin-bottom:12px">
-              <div class="row-flex">
-                <strong><i class="bi bi-table"></i> Master Plan</strong>
-                <div style="width:20px"></div>
-                <div class="search"><i class="bi bi-search"></i><input id="masterSearch" placeholder="Search (OR, Item, Machine, Any...)" aria-label="Search Master Plan"/></div>
-                <div id="masterProcessFilter" style="min-width:340px" aria-label="Filter master plan by process"></div>
-                 <select id="masterBuilding" class="input" style="width:140px" aria-label="Filter by building">
-                  <option value="">All Buildings</option>
-                  <option>B</option><option>C</option><option>E</option><option>F</option>
-                </select>
-                <button class="btn" onclick="window.switchView(null)"><i class="bi bi-grid-1x2"></i> Dashboard</button>
-                <button class="btn" onclick="window.switchView('timeline')"><i class="bi bi-bar-chart-steps"></i> Timeline</button>
-                <div style="width:1px; background:var(--border); margin:0 8px; height:20px"></div>
-                <button class="btn" id="btnRefreshMaster"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
-                <button class="btn" onclick="window.showAuditLog()" title="View Activity Log"><i class="bi bi-clock-history"></i> History</button>
-                <button class="btn" onclick="window.switchView('prod_complete')" title="View Completed Plans"><i class="bi bi-check-all"></i> Complete Production Plan</button>
-                <button class="btn" onclick="window.openMouldReport()" title="Mould Change Report"><i class="bi bi-arrow-repeat"></i> Mould Change Rpt</button>
-                <button class="btn" id="btnDeleteAll" onclick="window.deleteAllPlans()" style="display:none; color:#ef4444; border-color:#ef4444; background:#fef2f2" title="Delete ALL Plans (Admin Only)"><i class="bi bi-trash"></i> Delete All</button>
+            <div class="master-report-heading">
+              <div class="master-report-kicker">Planning Board</div>
+              <h2>Master Plan Report</h2>
+            </div>
+            <div class="toolbar master-toolbar-shell">
+              <div class="master-toolbar-top">
+                <div class="master-search-shell master-toolbar-search">
+                  <i class="bi bi-search master-search-icon"></i>
+                  <input id="masterSearch" class="master-search-input" placeholder="Search order, client, mould, machine..." aria-label="Search Master Plan"/>
+                  <span id="masterSearchMeta" class="master-search-meta">All Plans</span>
+                  <button type="button" id="masterSearchClear" class="master-search-clear" aria-label="Clear search">
+                    <i class="bi bi-x-lg"></i>
+                  </button>
+                </div>
+                <div id="masterProcessFilter" class="master-toolbar-process" aria-label="Filter master plan by process"></div>
               </div>
-              <div class="row-flex">
-                 <button class="btn primary" id="btnMasterCreate"><i class="bi bi-plus-circle"></i> Create Plan</button>
+              <div class="master-toolbar-bottom">
+                <div class="master-toolbar-secondary">
+                  <button class="btn" onclick="window.showAuditLog()" title="View Activity Log"><i class="bi bi-clock-history"></i> History</button>
+                  <button class="btn" id="btnDeleteAll" onclick="window.deleteAllPlans()" style="display:none; color:#ef4444; border-color:#ef4444; background:#fef2f2" title="Delete ALL Plans (Admin Only)"><i class="bi bi-trash"></i> Delete All</button>
+                </div>
               </div>
             </div>
             
-            <div class="list" id="masterTableContainer" style="overflow:auto; max-height:calc(100vh - 180px); border:1px solid var(--border); border-radius:8px;">
+            <div class="list master-grid-shell" id="masterTableContainer">
                 <!-- Updated Grid Template for Better Spacing -->
-                <div class="row h" style="width: 100%; grid-template-columns: 40px minmax(140px, 1.2fr) 60px 120px minmax(180px, 2fr) 100px minmax(90px, 1fr) 60px 60px 85px 85px 85px 50px 70px 200px; font-size:0.75rem; text-transform:uppercase; font-weight:700; letter-spacing:0.05em; color:#64748b; padding-left:12px; align-items:center; position:sticky; top:0; z-index:20; background:#ffffff; border-bottom:1px solid var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                  <div>JC</div><div>Machine</div><div>Pri</div><div>OR No</div><div>Mould/Product</div><div>Mould No</div><div>Client</div><div>Qty</div><div>Bal</div><div>Start</div><div>End</div><div>Exp</div><div>Perf</div><div>Status</div><div style="text-align:right; padding-right:10px">Act</div>
+                <div class="row h master-grid-head" style="grid-template-columns: 40px minmax(220px, 1.4fr) 190px minmax(330px, 2.15fr) 144px minmax(190px, 1.2fr) 98px 104px 128px 128px 128px 88px 112px 168px; width: 1880px; min-width: 1880px;">
+                  <div>JC</div><div>Machine</div><div>Order No</div><div>Mould / Product</div><div>Mould No</div><div>Client</div><div>Plan Qty</div><div>Balance</div><div>Start</div><div>Sched End</div><div>Expected End</div><div>Eff.%</div><div>Status</div><div style="text-align:right; padding-right:10px">Actions</div>
                 </div>
                <div id="masterTableBody"></div>
             </div>
@@ -2955,7 +3609,9 @@
             <!-- Moulds List -->
             <div class="cp-section">
               <div class="cp-section-title">Available Moulds</div>
-              <div class="cp-section-copy">Choose the mould line that should move into production for the selected order.</div>
+              <div class="cp-section-copy">Review moulding sequence from Mould Master, then choose the right mould family to continue planning.</div>
+              <div id="cpSequenceAlert" style="display:none; margin:10px 0 12px"></div>
+              <div id="cpSequenceBoard" style="display:none; margin:0 0 12px"></div>
               <div id="cpMouldList" style="display:flex; flex-direction:column; gap:10px">
                 <!-- Mould Cards -->
               </div>
@@ -2965,6 +3621,9 @@
             <div id="cpMachineSection"
               style="padding:18px; border-top:1px solid rgba(203, 213, 225, 0.8); background:rgba(248,250,252,0.86); display:none">
               <div class="cp-section-title" style="margin-bottom:10px">Select Machine</div>
+              <div id="cpSelectedMouldSummary" style="display:none; margin-bottom:12px"></div>
+              <div id="cpColourPlanBlock" style="display:none; margin-bottom:12px"></div>
+              <div id="cpMachineGuidance" style="display:none; margin-bottom:12px"></div>
 
               <div style="margin-bottom:10px; font-size:0.9rem">
                 Target Tonnage: <span id="cpTargetTonnage" class="tag"
@@ -3269,6 +3928,7 @@
     window.pcrDebounceTimer = null;
         window.cpSelectedOrder = null;
         window.cpOrderMoulds = [];
+        window.cpOrderSequenceMeta = null;
         let cpSelectedMould = null;
         let cpSelectedMachine = null;
         let allMachines = [];
@@ -3332,18 +3992,16 @@
           const el = document.getElementById(id);
           if (!el) return;
 
-          el.style.display = 'flex';
-          el.style.flexWrap = 'wrap';
-          el.style.gap = '10px';
-          el.style.alignItems = 'center';
+          el.className = (el.className || '')
+            .split(/\s+/)
+            .filter(Boolean)
+            .filter(name => name !== 'planning-process-group')
+            .concat('planning-process-group')
+            .join(' ');
 
           el.innerHTML = PLANNING_PROCESS_OPTIONS.map(option => {
             const isActive = option === planningProcess;
-            const buttonStyle = isActive
-              ? 'background:linear-gradient(135deg,#0f8ea8,#024c81); color:#fff; border-color:transparent; box-shadow:0 12px 24px rgba(2,76,129,0.22);'
-              : 'background:rgba(255,255,255,0.9); color:#0f172a; border-color:rgba(148,163,184,0.35); box-shadow:0 8px 18px rgba(15,23,42,0.08);';
-
-            return `<button type="button" data-process-option="${option}" style="min-width:104px; padding:12px 18px; border-radius:16px; border:1px solid; font-size:0.95rem; font-weight:800; letter-spacing:0.01em; transition:all 0.2s ease; ${buttonStyle}">${option}</button>`;
+            return `<button type="button" class="planning-process-pill${isActive ? ' is-active' : ''}" data-process-option="${option}">${option}</button>`;
           }).join('');
 
           Array.from(el.querySelectorAll('[data-process-option]')).forEach(btn => {
@@ -3411,14 +4069,8 @@
           return String(plan?.building || plan?.machineProcess || plan?.machine_process || '').trim();
         }
 
-        function refreshMasterBuildingOptions(list = []) {
-          const masterBuildingEl = document.getElementById('masterBuilding');
-          if (!masterBuildingEl) return;
-          const previous = masterBuildingEl.value;
-          const values = [...new Set((list || []).map(getPlanScopeValue).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-          const defaultLabel = planningProcess === 'Moulding' ? 'All Buildings' : `All ${planningProcess}`;
-          masterBuildingEl.innerHTML = `<option value="">${defaultLabel}</option>` + values.map(value => `<option value="${value}">${value}</option>`).join('');
-          if (previous && values.includes(previous)) masterBuildingEl.value = previous;
+        function refreshMasterBuildingOptions() {
+          return;
         }
 
         async function refreshPlanningProcessViews() {
@@ -4113,11 +4765,9 @@
 
             if (res.ok || res.data?.ok) {
               if (window.JPSMS && window.JPSMS.toast) window.JPSMS.toast('Plan moved', 'success');
-              // Fallback if Optimistic UI failed to render
-              if (!optimisticSuccess) {
-                if (typeof window.superLoadTimeline === 'function') window.superLoadTimeline();
-                else if (typeof loadTimeline === 'function') loadTimeline();
-              }
+              // Always reload after saving so sequence-based Start/End/Exp ripple dates are accurate.
+              if (typeof window.superLoadTimeline === 'function') window.superLoadTimeline();
+              else if (typeof loadTimeline === 'function') loadTimeline();
             } else {
               if (window.JPSMS && window.JPSMS.toast) window.JPSMS.toast('Error: ' + (res.error || res.data?.error || 'Unknown'), 'error');
               // Refresh to undo optimistic UI on failure
@@ -4945,6 +5595,7 @@
           window.cpSelectedOrder = order;
           cpSelectedMould = null;
           cpSelectedMachine = null;
+          window.cpOrderSequenceMeta = null;
 
           // UI Highlight
           const list = document.getElementById('cpOrderList');
@@ -4971,6 +5622,7 @@
 
           const macSec = document.getElementById('cpMachineSection');
           if (macSec) macSec.style.display = 'none';
+          clearCpColourPlan();
 
           const saveBtn = document.getElementById('cpSaveBtn');
           if (saveBtn) saveBtn.disabled = true;
@@ -4984,210 +5636,999 @@
           try {
             const res = await api.get(`/planning/orders/${encodeURIComponent(order.orderNo)}/details`);
             window.cpOrderMoulds = Array.isArray(res.data) ? res.data : [];
-            renderCpMoulds(window.cpOrderMoulds);
+            window.cpOrderSequenceMeta = res.sequenceMeta || null;
+            renderCpMoulds(window.cpOrderMoulds, window.cpOrderSequenceMeta);
           } catch (e) {
             window.cpOrderMoulds = [];
+            window.cpOrderSequenceMeta = null;
             if (mList) mList.innerHTML = `<div class="error">Failed to load details: ${esc(e.message)}</div>`;
           }
         }
         window.selectCpOrder = selectCpOrder;
 
-        function renderCpMoulds(moulds) {
+        function normalizeCpFamilyCode(value) {
+          return String(value || '').trim().replace(/\s+\d+$/, '').trim();
+        }
+
+        function parseCpSqn(value) {
+          const raw = String(value || '').trim();
+          const match = raw.match(/(\d+)/);
+          return match ? Number(match[1]) : null;
+        }
+
+        function buildCpMouldGroups(moulds) {
+          const groups = new Map();
+          moulds.forEach((mould) => {
+            const family = normalizeCpFamilyCode(mould.mouldFamily || mould.mould_family || mould.mould_no || mould.item_code || mould.mould_name);
+            if (!groups.has(family)) {
+              groups.set(family, {
+                family,
+                displayName: family || mould.mould_name || mould.product_name || mould.mould_no || 'Unnamed Mould',
+                rows: []
+              });
+            }
+            groups.get(family).rows.push(mould);
+          });
+          return Array.from(groups.values()).map((group) => {
+            group.rows.sort((a, b) => {
+              const aSqn = parseCpSqn(a.mouldingSqn || a.moulding_sqn) ?? Number.MAX_SAFE_INTEGER;
+              const bSqn = parseCpSqn(b.mouldingSqn || b.moulding_sqn) ?? Number.MAX_SAFE_INTEGER;
+              if (aSqn !== bSqn) return aSqn - bSqn;
+              return String(a.mould_no || '').localeCompare(String(b.mould_no || ''), undefined, { numeric: true, sensitivity: 'base' });
+            });
+            group.minSqn = group.rows.reduce((min, row) => {
+              const sqn = parseCpSqn(row.mouldingSqn || row.moulding_sqn);
+              return Number.isFinite(sqn) ? (min == null ? sqn : Math.min(min, sqn)) : min;
+            }, null);
+            group.hasDropped = group.rows.some((row) => !!row.isDropped);
+            group.hasPlanned = group.rows.some((row) => !!row.hasAnyPlan);
+            group.hasFullyPlanned = group.rows.every((row) => !!row.isDropped || !!row.isFullyPlanned);
+            group.hasMissingSqn = group.rows.some((row) => !Number.isFinite(parseCpSqn(row.mouldingSqn || row.moulding_sqn)));
+            group.targetPlanQty = group.rows.reduce((sum, row) => sum + (parseCpNumber(row.targetPlanQty ?? row.plan_qty) ?? 0), 0);
+            group.plannedQty = group.rows.reduce((sum, row) => sum + (parseCpNumber(row.plannedQty) ?? 0), 0);
+            group.remainingQty = group.rows.reduce((sum, row) => sum + (parseCpNumber(row.remainingQty ?? row.targetPlanQty ?? row.plan_qty) ?? 0), 0);
+            return group;
+          }).sort((a, b) => {
+            const aSqn = Number.isFinite(a.minSqn) ? a.minSqn : Number.MAX_SAFE_INTEGER;
+            const bSqn = Number.isFinite(b.minSqn) ? b.minSqn : Number.MAX_SAFE_INTEGER;
+            if (aSqn !== bSqn) return aSqn - bSqn;
+            return String(a.displayName || '').localeCompare(String(b.displayName || ''), undefined, { numeric: true, sensitivity: 'base' });
+          });
+        }
+
+        function renderCpSequenceMeta(meta) {
+          const alert = document.getElementById('cpSequenceAlert');
+          const board = document.getElementById('cpSequenceBoard');
+          if (!alert || !board) return;
+
+          const allRows = Array.isArray(meta?.allMoulds) ? meta.allMoulds : [];
+          if (!allRows.length) {
+            alert.style.display = 'none';
+            board.style.display = 'none';
+            board.innerHTML = '';
+            return;
+          }
+
+          if (meta?.missingSqnMoulds?.length) {
+            const names = meta.missingSqnMoulds.map((row) => row.mouldNo || row.mouldName).filter(Boolean).join(', ');
+            alert.style.display = 'block';
+            alert.innerHTML = `
+              <div style="border:1px solid #fecaca; background:#fff1f2; color:#be123c; border-radius:16px; padding:12px 14px; font-weight:700">
+                Fill Moulding Sqn. first in Mould Master for: ${esc(names)}.
+              </div>
+            `;
+          } else if (meta?.nextRequiredSqn != null) {
+            const nextNames = (meta.requiredRows || []).map((row) => row.mouldNo || row.mouldName).filter(Boolean).join(', ');
+            alert.style.display = 'block';
+            alert.innerHTML = `
+              <div style="border:1px solid #bfdbfe; background:#eff6ff; color:#1d4ed8; border-radius:16px; padding:12px 14px; font-weight:700">
+                Plan Moulding Sqn. ${esc(meta.nextRequiredSqn)} first: ${esc(nextNames)}.
+              </div>
+            `;
+          } else {
+            alert.style.display = 'block';
+            alert.innerHTML = `
+              <div style="border:1px solid #bbf7d0; background:#f0fdf4; color:#166534; border-radius:16px; padding:12px 14px; font-weight:700">
+                All moulding sequence checks are complete for this order.
+              </div>
+            `;
+          }
+
+          board.style.display = 'block';
+          board.innerHTML = `
+            <div style="font-size:0.8rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#475569; margin-bottom:8px">
+              Mould Master Sequence Check
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px">
+              ${allRows.map((row) => {
+                const palette = row.planState === 'NEXT'
+                  ? { border: '#3b82f6', bg: '#eff6ff', text: '#1d4ed8', badge: '#dbeafe' }
+                  : row.planState === 'PLANNED'
+                    ? { border: '#86efac', bg: '#f0fdf4', text: '#166534', badge: '#dcfce7' }
+                    : row.planState === 'PARTIAL'
+                      ? { border: '#f59e0b', bg: '#fffbeb', text: '#b45309', badge: '#fef3c7' }
+                    : row.planState === 'DROPPED'
+                      ? { border: '#fecaca', bg: '#fff1f2', text: '#be123c', badge: '#ffe4e6' }
+                      : row.planState === 'MISSING_SQN'
+                        ? { border: '#fdba74', bg: '#fff7ed', text: '#c2410c', badge: '#ffedd5' }
+                        : { border: '#cbd5e1', bg: '#ffffff', text: '#334155', badge: '#f1f5f9' };
+                return `
+                  <div style="border:1px solid ${palette.border}; background:${palette.bg}; border-radius:16px; padding:12px; box-shadow:0 10px 24px rgba(15,23,42,.05); min-width:0">
+                    <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start">
+                      <div style="font-weight:900; color:#0f172a; line-height:1.15; min-width:0; word-break:break-word">${esc(row.mouldName || row.mouldNo)}</div>
+                      <span style="background:${palette.badge}; color:${palette.text}; border-radius:999px; padding:4px 8px; font-size:.72rem; font-weight:900; white-space:nowrap; flex-shrink:0">${esc(row.planState)}</span>
+                    </div>
+                    <div style="margin-top:7px; color:#475569; font-size:.84rem; line-height:1.35">Mould No: <strong>${esc(row.mouldNo || '-')}</strong></div>
+                    <div style="margin-top:2px; color:#475569; font-size:.84rem">Moulding Sqn.: <strong>${esc(row.mouldingSqn || '-')}</strong></div>
+                    <div style="margin-top:10px; display:grid; grid-template-columns:repeat(3, minmax(72px, 1fr)); gap:7px">
+                      <div style="border:1px solid rgba(203,213,225,.8); border-radius:12px; background:#fff; padding:7px 8px; min-width:0">
+                        <div class="mini muted">Target</div>
+                        <div style="font-weight:900; color:#0f172a; margin-top:2px; white-space:nowrap">${esc(formatCpQty(row.targetPlanQty || 0))}</div>
+                      </div>
+                      <div style="border:1px solid rgba(203,213,225,.8); border-radius:12px; background:#fff; padding:7px 8px; min-width:0">
+                        <div class="mini muted">Planned</div>
+                        <div style="font-weight:900; color:#0f172a; margin-top:2px; white-space:nowrap">${esc(formatCpQty(row.plannedQty || 0))}</div>
+                      </div>
+                      <div style="border:1px solid rgba(203,213,225,.8); border-radius:12px; background:#fff; padding:7px 8px; min-width:0">
+                        <div class="mini muted">Balance</div>
+                        <div style="font-weight:900; color:${row.remainingQty > 0 ? '#b45309' : '#166534'}; margin-top:2px; white-space:nowrap">${esc(formatCpQty(row.remainingQty || 0))}</div>
+                      </div>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `;
+        }
+
+        function getCpGroupBlockReason(group, meta) {
+          if (meta?.missingSqnMoulds?.length) {
+            return 'Fill missing Moulding Sqn. values in Mould Master first.';
+          }
+          if (group.hasFullyPlanned) {
+            return 'This mould family is fully planned or dropped.';
+          }
+          if (meta?.nextRequiredSqn != null && Number.isFinite(group.minSqn) && group.minSqn !== meta.nextRequiredSqn) {
+            const pendingNames = (meta.requiredRows || []).map((row) => row.mouldNo || row.mouldName).filter(Boolean).join(', ');
+            return `Plan Moulding Sqn. ${meta.nextRequiredSqn} first: ${pendingNames}.`;
+          }
+          return '';
+        }
+
+        function closeCpMouldChooser() {
+          const modal = document.getElementById('cpMouldChooserModal');
+          if (modal) modal.remove();
+        }
+        window.closeCpMouldChooser = closeCpMouldChooser;
+
+        function openCpMouldChooser(group) {
+          closeCpMouldChooser();
+          const modal = document.createElement('div');
+          modal.id = 'cpMouldChooserModal';
+          modal.className = 'modal show';
+          modal.setAttribute('aria-hidden', 'false');
+          modal.style.display = 'flex';
+          modal.innerHTML = `
+            <div class="modal-card" style="width:920px; max-width:96vw; max-height:88vh; display:flex; flex-direction:column; overflow:hidden">
+              <div class="modal-head" style="flex-shrink:0">
+                <div>
+                  <div style="font-size:.78rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#64748b">Colour Wise Mould Plan</div>
+                  <strong style="font-size:1.2rem; color:#0f172a">${esc(group.displayName)}</strong>
+                  <div class="mini muted" style="margin-top:4px">Select the exact mould variant from OR/JR wise summary and Mould Master details.</div>
+                </div>
+                <button class="btn icon ghost" type="button" onclick="closeCpMouldChooser()"><i class="bi bi-x-lg"></i></button>
+              </div>
+              <div style="padding:14px 18px; border-bottom:1px solid var(--border); background:#f8fafc; flex-shrink:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px">
+                <div><div class="mini muted">Selected Order</div><strong>${esc(window.cpSelectedOrder?.orderNo || '-')}</strong></div>
+                <div><div class="mini muted">Product</div><strong>${esc(window.cpSelectedOrder?.productName || '-')}</strong></div>
+                <div><div class="mini muted">Required Sqn.</div><strong>${esc(window.cpOrderSequenceMeta?.nextRequiredSqn ?? '-')}</strong></div>
+              </div>
+              <div style="padding:18px; overflow:auto; display:flex; flex-direction:column; gap:12px">
+                ${group.rows.map((row, index) => `
+                  <div style="border:1px solid rgba(203,213,225,.95); border-radius:18px; padding:16px; background:linear-gradient(180deg, #ffffff, #f8fbff); box-shadow:0 14px 30px rgba(15,23,42,.06)">
+                    <div style="display:grid; grid-template-columns:minmax(0, 1.4fr) repeat(4, minmax(110px, .7fr)) auto; gap:12px; align-items:center">
+                      <div>
+                        <div style="font-size:.78rem; font-weight:800; color:#64748b; letter-spacing:.06em; text-transform:uppercase">Mould Option ${index + 1}</div>
+                        <div style="font-weight:800; font-size:1rem; color:#0f172a; margin-top:4px">${esc(row.mould_name || row.product_name || row.mould_no)}</div>
+                        <div style="margin-top:6px; color:#475569; font-size:.85rem">Mould No: <strong>${esc(row.mould_no || '-')}</strong></div>
+                      </div>
+                      <div><div class="mini muted">Moulding Sqn.</div><strong>${esc(row.mouldingSqn || row.moulding_sqn || '-')}</strong></div>
+                      <div><div class="mini muted">STD Cycle Time</div><strong>${esc(row.masterCycleTime || row.cycle_time || '-')}</strong></div>
+                      <div><div class="mini muted">Std Weight</div><strong>${esc(row.masterStdWeight || '-')}</strong></div>
+                      <div><div class="mini muted">No Of Cavity</div><strong>${esc(row.masterCavity || row.no_of_cavity || '-')}</strong></div>
+                      <button class="btn primary" type="button" onclick="window.selectCpMouldVariant(${index})">Select Mould</button>
+                    </div>
+                    <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
+                      <span class="tag" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe">Primary: ${esc(row.primary_machine || '-')}</span>
+                      <span class="tag" style="background:#fff7ed; color:#c2410c; border-color:#fed7aa">Secondary: ${esc(row.secondary_machine || '-')}</span>
+                      <span class="tag">Target ${esc(formatCpQty(row.targetPlanQty ?? row.plan_qty ?? 0))}</span>
+                      <span class="tag">Planned ${esc(formatCpQty(row.plannedQty || 0))}</span>
+                      <span class="tag">Balance ${esc(formatCpQty(row.remainingQty ?? row.targetPlanQty ?? row.plan_qty ?? 0))}</span>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+          document.body.appendChild(modal);
+          window.cpChooserRows = group.rows.slice();
+        }
+
+        window.selectCpMouldVariant = function(index) {
+          const rows = Array.isArray(window.cpChooserRows) ? window.cpChooserRows : [];
+          const mould = rows[index];
+          if (!mould) return toast('Selected mould option is no longer available.', 'error');
+          closeCpMouldChooser();
+          selectCpMould(mould);
+        };
+
+        function renderCpSelectedMouldSummary(mould) {
+          const box = document.getElementById('cpSelectedMouldSummary');
+          if (!box) return;
+          if (!mould) {
+            box.style.display = 'none';
+            box.innerHTML = '';
+            return;
+          }
+          box.style.display = 'block';
+          box.innerHTML = `
+            <div style="border:1px solid #bfdbfe; background:linear-gradient(180deg, #f8fbff, #eef6ff); border-radius:18px; padding:14px 16px; box-shadow:0 12px 28px rgba(59,130,246,.08)">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap">
+                <div>
+                  <div style="font-size:.78rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#64748b">Selected Mould</div>
+                  <div style="margin-top:4px; font-size:1rem; font-weight:800; color:#0f172a">${esc(mould.mould_name || mould.mouldName || '-')}</div>
+                  <div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap">
+                    <span class="tag" style="font-family:monospace">${esc(mould.mould_no || mould.item_code || '-')}</span>
+                    <span class="tag">Moulding Sqn. ${esc(mould.mouldingSqn || mould.moulding_sqn || '-')}</span>
+                  </div>
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(3, minmax(120px, 1fr)); gap:10px; flex:1; min-width:min(100%, 360px)">
+                  <div style="border:1px solid rgba(203,213,225,.85); border-radius:14px; padding:10px 12px; background:#fff">
+                    <div class="mini muted">STD Cycle Time</div>
+                    <div style="font-weight:800; color:#0f172a; margin-top:4px">${esc(mould.masterCycleTime || mould.cycle_time || '-')}</div>
+                  </div>
+                  <div style="border:1px solid rgba(203,213,225,.85); border-radius:14px; padding:10px 12px; background:#fff">
+                    <div class="mini muted">Std Weight</div>
+                    <div style="font-weight:800; color:#0f172a; margin-top:4px">${esc(mould.masterStdWeight || mould.std_wt_kg || '-')}</div>
+                  </div>
+                  <div style="border:1px solid rgba(203,213,225,.85); border-radius:14px; padding:10px 12px; background:#fff">
+                    <div class="mini muted">No Of Cavity</div>
+                    <div style="font-weight:800; color:#0f172a; margin-top:4px">${esc(mould.masterCavity || mould.no_of_cavity || '-')}</div>
+                  </div>
+                </div>
+              </div>
+              <div style="margin-top:12px; display:grid; grid-template-columns:repeat(3, minmax(160px, 1fr)); gap:10px">
+                <div style="border:1px solid #e2e8f0; border-radius:14px; padding:10px 12px; background:#fff">
+                  <div class="mini muted">Target Qty</div>
+                  <div style="font-weight:800; color:#0f172a; margin-top:4px">${esc(formatCpQty(mould.targetPlanQty ?? mould.plan_qty ?? 0))}</div>
+                </div>
+                <div style="border:1px solid #dbeafe; border-radius:14px; padding:10px 12px; background:#eff6ff">
+                  <div class="mini muted">Already Planned</div>
+                  <div style="font-weight:800; color:#1d4ed8; margin-top:4px">${esc(formatCpQty(mould.plannedQty || 0))}</div>
+                </div>
+                <div style="border:1px solid #fed7aa; border-radius:14px; padding:10px 12px; background:#fff7ed">
+                  <div class="mini muted">Balance To Plan</div>
+                  <div style="font-weight:800; color:#c2410c; margin-top:4px">${esc(formatCpQty(mould.remainingQty ?? mould.targetPlanQty ?? mould.plan_qty ?? 0))}</div>
+                </div>
+              </div>
+              <div style="margin-top:12px; display:grid; grid-template-columns:repeat(2, minmax(220px, 1fr)); gap:10px">
+                <div style="border:1px solid #bfdbfe; border-radius:14px; padding:10px 12px; background:#eff6ff">
+                  <div class="mini muted">Primary Machine</div>
+                  <div style="font-weight:800; color:#1d4ed8; margin-top:4px">${esc(mould.primary_machine || mould.primaryMachine || '-')}</div>
+                </div>
+                <div style="border:1px solid #fed7aa; border-radius:14px; padding:10px 12px; background:#fff7ed">
+                  <div class="mini muted">Secondary Machine</div>
+                  <div style="font-weight:800; color:#c2410c; margin-top:4px">${esc(mould.secondary_machine || mould.secondaryMachine || '-')}</div>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        function parseCpNumber(value) {
+          if (value === null || value === undefined || value === '') return null;
+          const raw = typeof value === 'string' ? value.replace(/,/g, '').trim() : value;
+          const n = Number(raw);
+          return Number.isFinite(n) ? n : null;
+        }
+
+        function clearCpColourPlan() {
+          const box = document.getElementById('cpColourPlanBlock');
+          if (!box) return;
+          box.style.display = 'none';
+          box.innerHTML = '';
+        }
+
+        function renderCpColourPlan(mould, payload) {
+          const box = document.getElementById('cpColourPlanBlock');
+          if (!box) return;
+          const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+          const ratio = parseCpNumber(mould?.consumptionRatioQty);
+          const wipDate = payload?.meta?.wipStockDate ? formatCpDate(payload.meta.wipStockDate) : null;
+
+          if (!rows.length) {
+            box.style.display = 'block';
+            box.innerHTML = `
+              <div style="border:1px solid #cbd5e1; background:#fff; border-radius:18px; padding:14px 16px">
+                <div style="font-size:.82rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#64748b">Colour Wise Mould Plan</div>
+                <div style="margin-top:6px; color:#475569; font-size:.9rem">No OR/JR Wise Detail colours were found for the selected mould.</div>
+              </div>
+            `;
+            return;
+          }
+
+          const enrichedRows = rows.map((row, index) => {
+            const reqQty = parseCpNumber(row.reqQty ?? row.jr_qty) ?? 0;
+            const useQty = parseCpNumber(row.useQty ?? row.planQty ?? row.plan_qty ?? row.suggestedPlanQty ?? row.mould_item_qty) ?? reqQty;
+            const planQty = parseCpNumber(row.planQty ?? row.plan_qty ?? row.suggestedPlanQty ?? row.mould_item_qty) ?? useQty;
+            const reqBalQty = parseCpNumber(row.reqBalQty) ?? Math.max(reqQty - useQty, 0);
+            const wipQty = parseCpNumber(row.wipQty ?? row.wip_qty) ?? 0;
+            const consumeQty = ratio == null ? null : Number((useQty * ratio).toFixed(3));
+            const wipBalQty = parseCpNumber(row.wipBalQty) ?? Math.max(wipQty - useQty, 0);
+            return {
+              index: index + 1,
+              itemCode: row.itemCode || row.item_code || '-',
+              itemName: row.itemName || row.product_name || row.mould_item_name || '-',
+              itemColour: row.itemColour || row.item_colour || null,
+              rawItemName: row.rawMouldItemName || row.raw_item_name || row.mould_item_name || row.product_name || null,
+              reqQty,
+              useQty,
+              reqBalQty,
+              wipQty,
+              consumeQty,
+              wipBalQty,
+              planQty,
+              mouldSelection: row.selectedMould || row.mould_no || mould?.mould_no || '-'
+            };
+          });
+
+          const totals = enrichedRows.reduce((acc, row) => {
+            acc.reqQty += row.reqQty || 0;
+            acc.useQty += row.useQty || 0;
+            acc.reqBalQty += row.reqBalQty || 0;
+            acc.wipQty += row.wipQty || 0;
+            acc.consumeQty += row.consumeQty || 0;
+            acc.wipBalQty += row.wipBalQty || 0;
+            acc.planQty += row.planQty || 0;
+            return acc;
+          }, { reqQty: 0, useQty: 0, reqBalQty: 0, wipQty: 0, consumeQty: 0, wipBalQty: 0, planQty: 0 });
+
+          box.style.display = 'block';
+          box.innerHTML = `
+            <div style="border:1px solid #bfdbfe; background:linear-gradient(180deg, #ffffff, #f8fbff); border-radius:18px; padding:14px 16px; box-shadow:0 12px 28px rgba(59,130,246,.08)">
+              <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; margin-bottom:12px">
+                <div>
+                  <div style="font-size:.78rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#64748b">Colour Wise Mould Plan</div>
+                  <div style="margin-top:4px; color:#0f172a; font-size:1rem; font-weight:800">${esc(mould?.mould_name || mould?.mouldName || mould?.mould_no || '-')}</div>
+                  <div style="margin-top:4px; color:#475569; font-size:.86rem">Available colours from OR/JR Wise Detail for the selected mould.</div>
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end">
+                  ${wipDate ? `<span class="tag" style="background:#f0fdf4; color:#166534; border-color:#bbf7d0">WIP As On ${esc(wipDate)}</span>` : ''}
+                  ${ratio != null ? `<span class="tag" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe">Consumption Ratio ${esc(formatCpQty(ratio))}</span>` : ''}
+                  <span class="tag">${esc(enrichedRows.length)} Colours</span>
+                </div>
+              </div>
+              <div style="overflow:auto; border:1px solid rgba(203,213,225,.92); border-radius:16px; background:#fff">
+                <table style="width:100%; min-width:1080px; border-collapse:separate; border-spacing:0">
+                  <thead>
+                    <tr style="background:#f8fafc">
+                      <th style="padding:10px 8px; text-align:left; font-size:.72rem; color:#64748b; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid #e2e8f0">#</th>
+                      <th style="padding:10px 8px; text-align:left; font-size:.72rem; color:#64748b; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid #e2e8f0">Item Code</th>
+                      <th style="padding:10px 8px; text-align:left; font-size:.72rem; color:#64748b; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid #e2e8f0">Item Name</th>
+                      <th style="padding:10px 8px; text-align:right; font-size:.72rem; color:#64748b; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid #e2e8f0">Req. Qty</th>
+                      <th style="padding:10px 8px; text-align:right; font-size:.72rem; color:#64748b; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid #e2e8f0">Use</th>
+                      <th style="padding:10px 8px; text-align:right; font-size:.72rem; color:#64748b; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid #e2e8f0">Req. Qty (Bal)</th>
+                      <th style="padding:10px 8px; text-align:right; font-size:.72rem; color:#64748b; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid #e2e8f0">WIP</th>
+                      <th style="padding:10px 8px; text-align:right; font-size:.72rem; color:#64748b; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid #e2e8f0">Consume</th>
+                      <th style="padding:10px 8px; text-align:right; font-size:.72rem; color:#64748b; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid #e2e8f0">WIP Bal</th>
+                      <th style="padding:10px 8px; text-align:right; font-size:.72rem; color:#64748b; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid #e2e8f0">Plan Qty</th>
+                      <th style="padding:10px 8px; text-align:left; font-size:.72rem; color:#64748b; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid #e2e8f0">Mould Selection</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${enrichedRows.map((row, idx) => `
+                      <tr style="background:${idx % 2 === 0 ? '#fff' : '#f8fbff'}">
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; color:#64748b; font-weight:700">${esc(row.index)}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; color:#0f172a; font-weight:700; font-family:monospace">${esc(row.itemCode)}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; color:#0f172a; min-width:240px">${esc(row.itemName)}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:700">${esc(formatCpQty(row.reqQty))}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:#1d4ed8; font-weight:800">${esc(formatCpQty(row.useQty))}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right">${esc(formatCpQty(row.reqBalQty))}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:700">${esc(formatCpQty(row.wipQty))}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right">${row.consumeQty == null ? '<span style="color:#94a3b8">-</span>' : esc(formatCpQty(row.consumeQty))}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:700; color:#0f766e">${esc(formatCpQty(row.wipBalQty))}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:800">${esc(formatCpQty(row.planQty))}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9"><span class="tag" style="font-family:monospace">${esc(row.mouldSelection)}</span></td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                  <tfoot>
+                    <tr style="background:#f8fafc">
+                      <td colspan="3" style="padding:10px 8px; border-top:1px solid #e2e8f0; font-weight:800; color:#0f172a">Total</td>
+                      <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:800">${esc(formatCpQty(totals.reqQty))}</td>
+                      <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:800">${esc(formatCpQty(totals.useQty))}</td>
+                      <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:800">${esc(formatCpQty(totals.reqBalQty))}</td>
+                      <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:800">${esc(formatCpQty(totals.wipQty))}</td>
+                      <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:800">${totals.consumeQty ? esc(formatCpQty(totals.consumeQty)) : '-'}</td>
+                      <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:800">${esc(formatCpQty(totals.wipBalQty))}</td>
+                      <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:800">${esc(formatCpQty(totals.planQty))}</td>
+                      <td style="padding:10px 8px; border-top:1px solid #e2e8f0"></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          `;
+        }
+
+        async function loadCpColourPlan(mould) {
+          const box = document.getElementById('cpColourPlanBlock');
+          if (!box || !window.cpSelectedOrder || !mould) {
+            clearCpColourPlan();
+            return;
+          }
+          box.style.display = 'block';
+          box.innerHTML = `
+            <div style="border:1px solid #cbd5e1; background:#fff; border-radius:18px; padding:14px 16px; color:#475569">
+              Loading colour-wise mould detail...
+            </div>
+          `;
+          try {
+            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+            const params = new URLSearchParams();
+            if (mould.mould_no) params.set('mouldNo', mould.mould_no);
+            if (mould.mould_name) params.set('mouldName', mould.mould_name);
+            if (mould.mouldFamily || mould.mould_family) params.set('mouldFamily', mould.mouldFamily || mould.mould_family);
+            const res = await api.get(`/planning/orders/${encodeURIComponent(window.cpSelectedOrder.orderNo)}/colour-plan?${params.toString()}`);
+            renderCpColourPlan(mould, {
+              rows: Array.isArray(res.data) ? res.data : [],
+              meta: res.meta || {}
+            });
+          } catch (e) {
+            box.style.display = 'block';
+            box.innerHTML = `
+              <div style="border:1px solid #fecaca; background:#fff1f2; border-radius:18px; padding:14px 16px; color:#be123c">
+                Failed to load colour-wise mould detail: ${esc(e.message)}
+              </div>
+            `;
+          }
+        }
+
+        async function fetchCpColourPlanData(mould) {
+          if (!window.cpSelectedOrder || !mould) return { rows: [], meta: {} };
+          const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          const params = new URLSearchParams();
+          if (mould.mould_no) params.set('mouldNo', mould.mould_no);
+          if (mould.mould_name) params.set('mouldName', mould.mould_name);
+          if (mould.mouldFamily || mould.mould_family) params.set('mouldFamily', mould.mouldFamily || mould.mould_family);
+          const res = await api.get(`/planning/orders/${encodeURIComponent(window.cpSelectedOrder.orderNo)}/colour-plan?${params.toString()}`);
+          return {
+            rows: Array.isArray(res.data) ? res.data : [],
+            meta: res.meta || {}
+          };
+        }
+
+        function closeCpColourPlanModal() {
+          const modal = document.getElementById('cpColourPlanModal');
+          if (modal) modal.remove();
+        }
+        window.closeCpColourPlanModal = closeCpColourPlanModal;
+
+        function extractCpColourParts(value) {
+          const text = String(value || '').trim();
+          if (!text) return { itemName: null, itemColour: null };
+          const dashIndex = text.lastIndexOf('-');
+          if (dashIndex === -1) return { itemName: text, itemColour: null };
+          const itemName = text.slice(0, dashIndex).trim();
+          const itemColour = text.slice(dashIndex + 1).trim();
+          return {
+            itemName: itemName || text,
+            itemColour: itemColour || null
+          };
+        }
+
+        function buildCpColourRows(mould, rows) {
+          const mouldBalanceLimit = Math.max(0, parseCpNumber(mould?.remainingQty ?? mould?.targetPlanQty ?? mould?.plan_qty) ?? 0);
+          let remainingDefaultQty = Number.isFinite(mouldBalanceLimit) ? mouldBalanceLimit : Number.POSITIVE_INFINITY;
+          return (Array.isArray(rows) ? rows : []).map((row, index) => {
+            const colourParts = extractCpColourParts(row.rawMouldItemName || row.rawItemName || row.mould_item_name || row.product_name || row.itemName);
+            const mouldItemQty = parseCpNumber(row.mouldItemQty ?? row.mould_item_qty ?? row.reqQty ?? row.jr_qty) ?? 0;
+            const reqQty = mouldItemQty;
+            const defaultUseQty = Math.min(reqQty, remainingDefaultQty);
+            const requestedUseQty = parseCpNumber(row.useQty ?? row.planQty ?? row.plan_qty);
+            const wipQty = parseCpNumber(row.wipQty ?? row.wip_qty) ?? 0;
+            const consumeFromWip = parseCpNumber(row.consumeFromWip ?? row.consume_from_wip) ?? 0;
+            const initialUseQty = requestedUseQty == null ? defaultUseQty : requestedUseQty;
+            const useQty = Math.min(Math.max(initialUseQty, 0), reqQty || initialUseQty, remainingDefaultQty);
+            remainingDefaultQty = Math.max(remainingDefaultQty - useQty, 0);
+            return {
+              index: index + 1,
+              itemCode: row.itemCode || row.item_code || '-',
+              itemName: row.itemName || colourParts.itemName || row.product_name || row.mould_item_name || '-',
+              itemColour: row.itemColour || row.item_colour || colourParts.itemColour || null,
+              rawItemName: row.rawMouldItemName || row.rawItemName || row.mould_item_name || row.product_name || null,
+              mouldItemQty,
+              reqQty,
+              useQty,
+              reqBalQty: Math.max(reqQty - useQty, 0),
+              wipQty,
+              consumeFromWip,
+              wipBalQty: parseCpNumber(row.wipBalQty ?? row.wip_bal_qty) ?? Math.max(wipQty - consumeFromWip, 0),
+              planQty: useQty,
+              mouldSelection: row.selectedMould || row.mould_no || mould?.mould_no || '-'
+            };
+          });
+        }
+
+        function recalcCpColourPlanModal() {
+          const modal = document.getElementById('cpColourPlanModal');
+          if (!modal) return;
+          const rows = Array.isArray(window.cpColourPlanRows) ? window.cpColourPlanRows : [];
+          const mouldBalanceLimit = parseCpNumber(modal.dataset.planQtyLimit);
+          const planQtyLimit = mouldBalanceLimit;
+          const totals = {
+            reqQty: 0,
+            useQty: 0,
+            reqBalQty: 0,
+            wipQty: 0,
+            consumeFromWip: 0,
+            wipBalQty: 0,
+            planQty: 0
+          };
+          let remainingOrderQty = planQtyLimit == null ? Number.POSITIVE_INFINITY : Math.max(planQtyLimit, 0);
+          let cappedByOrderQty = false;
+          let cappedByReqQty = false;
+
+          rows.forEach((row, index) => {
+            const input = modal.querySelector(`.cp-colour-use-input[data-row-index="${index}"]`);
+            const requestedUseQty = Math.max(0, parseCpNumber(input?.value) ?? 0);
+            const rowReqQty = Math.max(0, parseCpNumber(row.mouldItemQty ?? row.reqQty) ?? 0);
+            const cappedToReq = Math.min(requestedUseQty, rowReqQty || requestedUseQty);
+            const useQty = Math.min(cappedToReq, remainingOrderQty);
+            if (cappedToReq < requestedUseQty) cappedByReqQty = true;
+            if (useQty < cappedToReq) cappedByOrderQty = true;
+            remainingOrderQty = Math.max(remainingOrderQty - useQty, 0);
+            if (input && String(parseCpNumber(input.value) ?? '') !== String(useQty)) {
+              input.value = String(useQty);
+            }
+            row.useQty = useQty;
+            row.reqBalQty = Math.max((row.reqQty || 0) - useQty, 0);
+            row.consumeFromWip = parseCpNumber(row.consumeFromWip) ?? 0;
+            row.wipBalQty = Math.max((row.wipQty || 0) - row.consumeFromWip, 0);
+            row.planQty = useQty;
+
+            ['reqBalQty', 'consumeFromWip', 'wipBalQty', 'planQty'].forEach((key) => {
+              const cell = modal.querySelector(`[data-colour-cell="${key}-${index}"]`);
+              if (cell) cell.textContent = formatCpQty(row[key]);
+            });
+
+            Object.keys(totals).forEach((key) => {
+              totals[key] += Number(row[key] || 0);
+            });
+          });
+
+          Object.keys(totals).forEach((key) => {
+            const cell = modal.querySelector(`[data-colour-total="${key}"]`);
+            if (cell) cell.textContent = formatCpQty(totals[key]);
+          });
+
+          const footer = modal.querySelector('#cpColourFooter');
+          if (footer) {
+            if (cappedByOrderQty) {
+              footer.textContent = `Use Qty cannot be more than Mould Item Balance Qty (${formatCpQty(planQtyLimit || 0)}).`;
+            } else if (cappedByReqQty) {
+              footer.textContent = 'Use Qty cannot be more than Mould Item Qty for a colour row.';
+            } else {
+              footer.textContent = cpSelectedMachine
+                ? `Machine selected: ${cpSelectedMachine.machine || '-'} | Mould item balance: ${formatCpQty(planQtyLimit || 0)}`
+                : `Mould item balance: ${formatCpQty(planQtyLimit || 0)} | Select machine to continue`;
+            }
+          }
+
+          if (cpSelectedMould) {
+            cpSelectedMould.plan_qty = totals.planQty;
+            cpSelectedMould.colourPlanRows = rows.map((row) => ({ ...row }));
+          }
+        }
+
+        function renderCpColourPlanMachines(machines) {
+          const modal = document.getElementById('cpColourPlanModal');
+          const list = modal?.querySelector('#cpColourMachineList');
+          if (!list) return;
+          window.cpColourPlanMachines = Array.isArray(machines) ? machines : [];
+          list.innerHTML = '';
+          cpSelectedMachine = null;
+
+          if (!window.cpColourPlanMachines.length) {
+            list.innerHTML = '<div style="grid-column:1/-1; color:#be123c; background:#fff1f2; border:1px solid #fecdd3; border-radius:14px; padding:12px 14px; font-weight:700">No primary/secondary machine is available for this mould.</div>';
+            return;
+          }
+
+          window.cpColourPlanMachines.forEach((mac, index) => {
+            const isFree = !!mac.isFree;
+            const statusColor = isFree ? '#15803d' : '#c2410c';
+            const statusTxt = isFree ? 'AVAILABLE' : (mac.currentStatus || 'BUSY');
+            const roleText = mac.preferenceRole === 'PRIMARY' ? 'Primary' : (mac.preferenceRole === 'SECONDARY' ? 'Secondary' : 'Machine');
+            const roleColor = mac.preferenceRole === 'PRIMARY' ? '#1d4ed8' : '#c2410c';
+            const el = document.createElement('button');
+            el.type = 'button';
+            el.dataset.machineIndex = String(index);
+            el.style.cssText = 'text-align:left; border:1px solid #cbd5e1; border-radius:16px; background:#fff; padding:12px; cursor:pointer; box-shadow:0 10px 22px rgba(15,23,42,.05)';
+            el.innerHTML = `
+              <div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start">
+                <div style="font-weight:900; color:#0f172a; line-height:1.2">${esc(mac.machine || '-')}</div>
+                <span style="border:1px solid #bfdbfe; background:#eff6ff; color:${roleColor}; border-radius:999px; padding:3px 8px; font-size:.72rem; font-weight:900">${esc(roleText)}</span>
+              </div>
+              <div style="margin-top:6px; color:#64748b; font-size:.8rem">${esc(mac.building || '-')} ${mac.line ? `- L${esc(mac.line)}` : ''}</div>
+              <div style="margin-top:8px; color:${statusColor}; font-weight:900; font-size:.82rem">${esc(statusTxt)}</div>
+              <div style="margin-top:4px; color:#64748b; font-size:.78rem">Available on: <strong>${esc(formatCpMachineAvailability(mac.bookedUntil))}</strong></div>
+              ${mac.currentOrder ? `<div style="margin-top:4px; color:#94a3b8; font-size:.76rem">Running: ${esc(mac.currentOrder)}</div>` : ''}
+            `;
+            el.onclick = () => {
+              cpSelectedMachine = mac;
+              Array.from(list.children).forEach((child) => {
+                child.style.borderColor = '#cbd5e1';
+                child.style.background = '#fff';
+              });
+              el.style.borderColor = '#0284c7';
+              el.style.background = '#eff6ff';
+              modal.querySelectorAll('[data-cp-colour-submit]').forEach((btn) => {
+                btn.disabled = false;
+              });
+            };
+            list.appendChild(el);
+          });
+        }
+
+        async function fetchCpMachinesForMould(mould) {
+          const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          if (getPlanningProcessFilter() === 'Moulding') {
+            const params = new URLSearchParams();
+            params.set('process', getPlanningProcessFilter());
+            if (mould.primary_machine) params.set('primaryMachine', mould.primary_machine);
+            if (mould.secondary_machine) params.set('secondaryMachine', mould.secondary_machine);
+            const res = await api.get(`/planning/machines/compatible?${params.toString()}`);
+            return Array.isArray(res.data) ? res.data : [];
+          }
+          const res = await api.get(`/masters/machines?process=${encodeURIComponent(getPlanningProcessFilter())}`);
+          return (res.data || []).map(machine => ({
+            machine: machine.machine,
+            tonnage: machine.tonnage || '-',
+            building: machine.building || getPlanningProcessFilter(),
+            line: machine.line || 'Machines',
+            isFree: true,
+            currentStatus: 'AVAILABLE',
+            currentOrder: null
+          }));
+        }
+
+        async function openCpColourPlanModal(mould) {
+          closeCpColourPlanModal();
+          const modalItemName = window.cpSelectedOrder?.productName || mould.product_name || mould.itemName || mould.item_name || '-';
+          const modalMouldName = mould.mould_name || mould.mouldName || mould.mould_no || '-';
+          const modal = document.createElement('div');
+          modal.id = 'cpColourPlanModal';
+          modal.className = 'modal show';
+          modal.setAttribute('aria-hidden', 'false');
+          modal.style.display = 'flex';
+          modal.innerHTML = `
+            <div class="modal-card" style="width:min(1320px, 98vw); height:min(92vh, 840px); max-height:92vh; display:flex; flex-direction:column; overflow:hidden">
+              <div class="modal-head" style="flex-shrink:0; padding:14px 18px; gap:14px">
+                <div>
+                  <div style="font-size:.78rem; color:#0284c7; font-weight:900; letter-spacing:.12em; text-transform:uppercase">Colour Wise Mould Plan</div>
+                  <div style="margin-top:4px; display:grid; gap:3px">
+                    <div style="font-size:.86rem; color:#475569; font-weight:800">
+                      Item Name :- <span style="color:#0f172a">${esc(modalItemName)}</span>
+                    </div>
+                    <div style="font-size:1.12rem; color:#0f172a; font-weight:900">
+                      Mould Name :- ${esc(modalMouldName)}
+                    </div>
+                  </div>
+                </div>
+                <button class="btn icon ghost" type="button" onclick="closeCpColourPlanModal()"><i class="bi bi-x-lg"></i></button>
+              </div>
+              <div id="cpColourPlanPopupBody" style="padding:14px 18px; overflow-y:auto; min-height:0; flex:1 1 auto; background:linear-gradient(180deg,#f8fbff,#ffffff); display:flex; flex-direction:column; gap:14px">
+                <div class="muted">Loading OR/JR Wise Detail and machine availability...</div>
+              </div>
+              <div class="modal-actions" style="flex-shrink:0; padding:12px 18px; background:#fff; border-top:1px solid #e2e8f0">
+                <div id="cpColourFooter" style="margin-right:auto; color:#64748b; font-size:.9rem">Select machine to continue</div>
+                <button class="btn ghost" type="button" onclick="closeCpColourPlanModal()">Cancel</button>
+                <button class="btn" type="button" data-cp-colour-submit="queue" disabled>Save & Add Another</button>
+                <button class="btn primary" type="button" data-cp-colour-submit="create" disabled>Create Plan</button>
+              </div>
+            </div>
+          `;
+          document.body.appendChild(modal);
+
+          const body = modal.querySelector('#cpColourPlanPopupBody');
+          try {
+            const [colourPayload, machines] = await Promise.all([
+              fetchCpColourPlanData(mould),
+              fetchCpMachinesForMould(mould)
+            ]);
+            const colourRows = buildCpColourRows(mould, colourPayload.rows);
+            window.cpColourPlanRows = colourRows;
+            const mouldBalanceQty = parseCpNumber(mould.remainingQty ?? mould.targetPlanQty ?? mould.plan_qty);
+            modal.dataset.planQtyLimit = String(mouldBalanceQty ?? '');
+            const wipDate = colourPayload?.meta?.wipStockDate ? formatCpDate(colourPayload.meta.wipStockDate) : '-';
+
+            body.innerHTML = `
+              <div style="display:grid; grid-template-columns:repeat(3, minmax(180px, 1fr)); gap:10px">
+                <div style="border:1px solid #bfdbfe; border-radius:16px; padding:12px 14px; background:#eff6ff">
+                  <div class="mini muted">OR Number</div>
+                  <div style="font-weight:900; color:#0f172a; margin-top:4px">${esc(window.cpSelectedOrder?.orderNo || '-')}</div>
+                </div>
+                <div style="border:1px solid #cbd5e1; border-radius:16px; padding:12px 14px; background:#fff">
+                  <div class="mini muted">Client Name</div>
+                  <div style="font-weight:900; color:#0f172a; margin-top:4px">${esc(window.cpSelectedOrder?.partyName || window.cpSelectedOrder?.clientName || '-')}</div>
+                </div>
+                <div style="border:1px solid #fed7aa; border-radius:16px; padding:12px 14px; background:#fff7ed">
+                  <div class="mini muted">OR Qty</div>
+                  <div style="font-weight:900; color:#c2410c; margin-top:4px">${esc(formatCpQty(window.cpSelectedOrder?.orQty || window.cpSelectedOrder?.qty || 0))}</div>
+                </div>
+              </div>
+
+              <div style="border:1px solid #dbeafe; border-radius:18px; padding:14px; background:#fff">
+                <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap">
+                  <div>
+                    <div class="mini muted">Item Name</div>
+                    <div style="font-weight:900; color:#0f172a; margin-top:4px">${esc(modalItemName)}</div>
+                    <div class="mini muted" style="margin-top:8px">Mould Name</div>
+                    <div style="font-weight:900; color:#0f172a; margin-top:4px">${esc(modalMouldName)}</div>
+                    <div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap">
+                      <span class="tag" style="font-family:monospace">${esc(mould.mould_no || mould.item_code || '-')}</span>
+                      <span class="tag">Sqn. ${esc(mould.mouldingSqn || mould.moulding_sqn || '-')}</span>
+                      <span class="tag">Target ${esc(formatCpQty(mould.targetPlanQty ?? mould.plan_qty ?? 0))}</span>
+                      <span class="tag">Planned ${esc(formatCpQty(mould.plannedQty || 0))}</span>
+                      <span class="tag">Balance ${esc(formatCpQty(mould.remainingQty ?? mould.targetPlanQty ?? mould.plan_qty ?? 0))}</span>
+                      <span class="tag">Cycle ${esc(mould.masterCycleTime || mould.cycle_time || '-')}</span>
+                      <span class="tag">Weight ${esc(mould.masterStdWeight || mould.std_wt_kg || '-')}</span>
+                      <span class="tag">Cavity ${esc(mould.masterCavity || mould.no_of_cavity || '-')}</span>
+                    </div>
+                  </div>
+                  <div style="text-align:right">
+                    <div class="mini muted">WIP Snapshot</div>
+                    <div style="font-weight:900; color:#0f766e; margin-top:4px">${esc(wipDate)}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="border:1px solid #cbd5e1; border-radius:18px; overflow:hidden; background:#fff; flex:0 0 auto">
+                <div style="padding:12px 14px; background:#f8fafc; display:flex; justify-content:space-between; gap:10px; align-items:center">
+                  <strong style="color:#0f172a">OR/JR Wise Detail Colours</strong>
+                  <span class="tag">${esc(colourRows.length)} Rows</span>
+                </div>
+                <div style="overflow:auto; max-height:clamp(210px, 30vh, 330px); border-top:1px solid #e2e8f0">
+                  <table style="width:100%; min-width:1180px; border-collapse:collapse">
+                    <thead>
+                      <tr style="background:#f8fafc">
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Item Code</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Item Name / Colour</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Mould Item Qty</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Use</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Req. Bal</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">WIP Qty</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Consume From WIP</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">WIP Bal</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Plan Qty</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Mould</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${colourRows.length ? colourRows.map((row, index) => `
+                        <tr>
+                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; font-family:monospace; font-weight:800">${esc(row.itemCode)}</td>
+                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; min-width:260px">
+                            <div style="font-weight:800; color:#0f172a">${esc(row.itemName)}</div>
+                            ${row.itemColour ? `<div style="margin-top:4px; font-size:.82rem; color:#4338ca; font-weight:700">Colour: ${esc(row.itemColour)}</div>` : ''}
+                          </td>
+                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:800">${esc(formatCpQty(row.reqQty))}</td>
+                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right">
+                            <input class="cp-colour-use-input" data-row-index="${index}" type="number" min="0" step="1" value="${esc(row.useQty)}" style="width:110px; border:1px solid #bfdbfe; border-radius:10px; padding:8px 10px; text-align:right; font-weight:900; color:#0f172a">
+                          </td>
+                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right" data-colour-cell="reqBalQty-${index}">${esc(formatCpQty(row.reqBalQty))}</td>
+                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:800">${esc(formatCpQty(row.wipQty))}</td>
+                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right" data-colour-cell="consumeFromWip-${index}">${esc(formatCpQty(row.consumeFromWip))}</td>
+                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:#0f766e; font-weight:800" data-colour-cell="wipBalQty-${index}">${esc(formatCpQty(row.wipBalQty))}</td>
+                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:900" data-colour-cell="planQty-${index}">${esc(formatCpQty(row.planQty))}</td>
+                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9"><span class="tag" style="font-family:monospace">${esc(row.mouldSelection)}</span></td>
+                        </tr>
+                      `).join('') : `<tr><td colspan="10" style="padding:18px; text-align:center; color:#64748b">No OR/JR Wise Detail rows found for this mould.</td></tr>`}
+                    </tbody>
+                    <tfoot>
+                      <tr style="background:#f8fafc">
+                        <td colspan="2" style="padding:10px 8px; border-top:1px solid #e2e8f0; font-weight:900">Total</td>
+                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="reqQty">-</td>
+                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="useQty">-</td>
+                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="reqBalQty">-</td>
+                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="wipQty">-</td>
+                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="consumeFromWip">-</td>
+                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="wipBalQty">-</td>
+                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="planQty">-</td>
+                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0"></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              <div style="border:1px solid #bfdbfe; border-radius:18px; background:#f8fbff; padding:14px; flex:0 0 auto">
+                <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:10px">
+                  <strong style="color:#0f172a">Selected Mould Machines</strong>
+                  <span class="tag">Primary / Secondary only</span>
+                </div>
+                <div id="cpColourMachineList" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:10px"></div>
+              </div>
+            `;
+
+            modal.querySelectorAll('.cp-colour-use-input').forEach((input) => {
+              input.addEventListener('input', recalcCpColourPlanModal);
+            });
+            renderCpColourPlanMachines(machines);
+            recalcCpColourPlanModal();
+            modal.querySelector('[data-cp-colour-submit="queue"]').onclick = () => {
+              if (!cpSelectedMachine) return toast('Select machine first.', 'error');
+              addToQueue();
+              closeCpColourPlanModal();
+            };
+            modal.querySelector('[data-cp-colour-submit="create"]').onclick = async () => {
+              if (!cpSelectedMachine) return toast('Select machine first.', 'error');
+              await handleCreatePlanSubmit();
+              closeCpColourPlanModal();
+            };
+          } catch (e) {
+            body.innerHTML = `<div style="border:1px solid #fecaca; background:#fff1f2; color:#be123c; border-radius:16px; padding:16px; font-weight:800">Failed to open colour-wise plan: ${esc(e.message)}</div>`;
+          }
+        }
+
+        function formatCpMachineAvailability(value) {
+          if (!value) return 'Not scheduled';
+          const dt = new Date(value);
+          if (Number.isNaN(dt.getTime())) return String(value);
+          return dt.toLocaleString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+          });
+        }
+
+        function renderCpMachineGuidance(machines, mould) {
+          const box = document.getElementById('cpMachineGuidance');
+          if (!box) return;
+          if (!mould) {
+            box.style.display = 'none';
+            box.innerHTML = '';
+            return;
+          }
+          const primary = (machines || []).find((m) => m.preferenceRole === 'PRIMARY');
+          const firstVacantSecondary = (machines || []).find((m) => m.preferenceRole === 'SECONDARY' && m.isFree);
+          const secondaryFallback = (machines || []).find((m) => m.preferenceRole === 'SECONDARY');
+
+          if (primary && primary.isBookedFor15Days) {
+            const recommended = firstVacantSecondary || secondaryFallback;
+            box.style.display = 'block';
+            box.innerHTML = `
+              <div style="border:1px solid #fed7aa; background:#fff7ed; color:#9a3412; border-radius:16px; padding:12px 14px; font-weight:700">
+                Primary machine <strong>${esc(primary.machine)}</strong> is booked for the next 15 days.
+                <div style="margin-top:6px; font-weight:600">Available on: <strong>${esc(formatCpMachineAvailability(primary.bookedUntil))}</strong></div>
+                ${recommended ? ` First secondary option: <strong>${esc(recommended.machine)}</strong>.` : ' No secondary machine is currently vacant.'}
+              </div>
+            `;
+            return;
+          }
+
+          if (primary) {
+            box.style.display = 'block';
+            box.innerHTML = `
+              <div style="border:1px solid #bfdbfe; background:#eff6ff; color:#1d4ed8; border-radius:16px; padding:12px 14px; font-weight:700">
+                Primary machine recommended first: <strong>${esc(primary.machine)}</strong>.
+                ${primary.bookedUntil ? `<div style="margin-top:6px; font-weight:600">Available on: <strong>${esc(formatCpMachineAvailability(primary.bookedUntil))}</strong></div>` : ''}
+              </div>
+            `;
+            return;
+          }
+
+          if (secondaryFallback) {
+            box.style.display = 'block';
+            box.innerHTML = `
+              <div style="border:1px solid #fed7aa; background:#fff7ed; color:#9a3412; border-radius:16px; padding:12px 14px; font-weight:700">
+                Primary machine is not configured in Mould Master. Showing secondary machine list only.
+              </div>
+            `;
+            return;
+          }
+
+          box.style.display = 'none';
+          box.innerHTML = '';
+        }
+
+        function renderCpMoulds(moulds, sequenceMeta) {
           const con = document.getElementById('cpMouldList');
           if (!con) return;
           con.innerHTML = '';
+          renderCpSequenceMeta(sequenceMeta);
 
           if (!moulds.length) {
             con.innerHTML = '<div class="cp-list-empty">No detailed mould lines were found for this order.</div>';
             return;
           }
-
-          const resetCpMouldCardState = (card) => {
-            if (!card) return;
-            const isDroppedCard = card.dataset.dropped === '1';
-            card.dataset.selected = '0';
-            card.style.borderColor = isDroppedCard ? '#f8b4b4' : 'rgba(203, 213, 225, 0.95)';
-            card.style.boxShadow = isDroppedCard ? '0 8px 18px rgba(239, 68, 68, 0.08)' : '0 12px 28px rgba(15, 23, 42, 0.06)';
-            card.style.background = isDroppedCard ? '#fef2f2' : 'linear-gradient(180deg, #ffffff, #f8fbff)';
-            card.style.transform = 'translateY(0)';
-          };
-
-          moulds.forEach(m => {
+          const groups = buildCpMouldGroups(moulds);
+          groups.forEach((group) => {
+            const blockReason = getCpGroupBlockReason(group, sequenceMeta);
+            const hasMaster = group.rows.some((row) => !!row.mould_id);
+            const representative = group.rows[0] || {};
             const row = document.createElement('div');
-            row.style.border = '1px solid rgba(203, 213, 225, 0.95)';
+            row.style.border = `1px solid ${blockReason ? '#fecaca' : 'rgba(203, 213, 225, 0.95)'}`;
             row.style.borderRadius = '18px';
-            row.style.padding = '14px';
-            row.style.cursor = 'pointer';
-            row.style.background = 'linear-gradient(180deg, #ffffff, #f8fbff)';
-            row.style.position = 'relative'; // context
+            row.style.padding = '16px';
+            row.style.background = blockReason ? '#fffaf9' : 'linear-gradient(180deg, #ffffff, #f8fbff)';
             row.style.boxShadow = '0 12px 28px rgba(15, 23, 42, 0.06)';
-            row.style.transition = 'border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease, transform 0.16s ease';
-
-            // Info logic
-            const tonnage = m.masterMachineRaw || 'N/A';
-            const hasMaster = !!m.mould_id;
-            const masterBadge = hasMaster ? '<i class="bi bi-database-check" title="Linked to Mould Master" style="color:var(--ok)"></i>' : '<i class="bi bi-exclamation-triangle" title="Missing Master Link" style="color:var(--warn)"></i>';
-            const isDropped = m.isDropped;
-            const droppedBadge = isDropped ? '<span class="tag r" style="margin-left:6px">DROPPED</span>' : '';
-
-            // 1. Flex Container
-            const flex = document.createElement('div');
-            flex.style.display = 'flex';
-            flex.style.gap = '10px';
-            flex.style.alignItems = 'flex-start';
-
-            // 2. Radio
-            const radio = document.createElement('input');
-            radio.type = 'radio';
-            radio.name = 'cpMouldSelect';
-            radio.style.transform = 'scale(1.2)';
-            radio.style.cursor = 'pointer';
-            radio.style.marginTop = '10px';
-            flex.appendChild(radio);
-
-            // 3. Info Column
-            const infoCol = document.createElement('div');
-            infoCol.style.flex = '1';
-
-            // Text Content via innerHTML (Safe for text)
-            infoCol.innerHTML = `
-                <div style="font-weight:700; color:#334155">${esc(m.mould_name)} ${masterBadge} ${droppedBadge}</div>
-                ${isDropped ? '<div style="font-size:0.75rem; color:#dc2626; font-weight:600">This mould was previously dropped. Cannot plan again.</div>' : ''}
-               <div style="font-size:0.85rem; color:#64748b; margin-top:2px">
-                  <span style="display:inline-flex; align-items:center; background:#eef4fb; color:#475569; padding:3px 8px; border-radius:999px; margin-right:6px; font-weight:700; font-family:monospace; box-shadow:inset 0 0 0 1px rgba(203,213,225,0.9)">
-                     ${esc(m.mould_no || 'No #')}
-                  </span>
-                  Qty: <strong>${esc(formatCpQty(m.plan_qty))}</strong>
-               </div>
-               <div style="font-size:0.85rem; color:#64748b; margin-top:2px">
-                  Tonnage: <strong>${esc(tonnage)}</strong> • Cav: ${esc(m.masterCavity || '-')} • CT: ${esc(m.masterCycleTime || '-')}s
-               </div>
+            row.innerHTML = `
+              <div style="display:flex; justify-content:space-between; gap:14px; align-items:flex-start">
+                <div style="min-width:0">
+                  <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center">
+                    <div style="font-weight:800; color:#0f172a; font-size:1.02rem">${esc(group.displayName)}</div>
+                    <span class="tag" style="background:${hasMaster ? '#f0fdf4' : '#fff7ed'}; color:${hasMaster ? '#166534' : '#c2410c'}; border-color:${hasMaster ? '#bbf7d0' : '#fed7aa'}">${hasMaster ? 'Linked to Mould Master' : 'Master Link Missing'}</span>
+                    <span class="tag">Variants ${esc(group.rows.length)}</span>
+                    <span class="tag">Moulding Sqn. ${esc(group.minSqn ?? '-')}</span>
+                  </div>
+                  <div style="margin-top:8px; color:#475569; font-size:.88rem">
+                    OR/JR summary found <strong>${esc(group.rows.length)}</strong> mould option(s) for this family. Selection happens inside popup.
+                  </div>
+                  <div style="margin-top:10px; display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px; max-width:540px">
+                    <div style="border:1px solid #e2e8f0; border-radius:14px; background:#fff; padding:10px 12px">
+                      <div class="mini muted">Target Qty</div>
+                      <div style="font-weight:800; color:#0f172a; margin-top:4px">${esc(formatCpQty(group.targetPlanQty || 0))}</div>
+                    </div>
+                    <div style="border:1px solid #dbeafe; border-radius:14px; background:#eff6ff; padding:10px 12px">
+                      <div class="mini muted">Planned Qty</div>
+                      <div style="font-weight:800; color:#1d4ed8; margin-top:4px">${esc(formatCpQty(group.plannedQty || 0))}</div>
+                    </div>
+                    <div style="border:1px solid #fed7aa; border-radius:14px; background:#fff7ed; padding:10px 12px">
+                      <div class="mini muted">Balance Qty</div>
+                      <div style="font-weight:800; color:${group.remainingQty > 0 ? '#c2410c' : '#166534'}; margin-top:4px">${esc(formatCpQty(group.remainingQty || 0))}</div>
+                    </div>
+                  </div>
+                  <div style="margin-top:8px; color:#64748b; font-size:.83rem">
+                    Exact mould numbers and master details will open inside the selection popup.
+                  </div>
+                  ${blockReason ? `<div style="margin-top:10px; color:#be123c; font-weight:700; font-size:.88rem">${esc(blockReason)}</div>` : ''}
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end">
+                  <button class="btn mini secondary" type="button" data-cp-action="batch">Batch Plan</button>
+                  <button class="btn mini secondary" type="button" data-cp-action="drop" ${group.hasPlanned ? 'disabled' : ''} style="color:#dc2626">Drop</button>
+                  <button class="btn primary" type="button" data-cp-action="select" ${blockReason ? 'disabled' : ''}>${group.rows.length > 1 ? 'Open Selection' : 'Select Mould'}</button>
+                </div>
+              </div>
             `;
 
-            // 4. Actions Container
-            const actions = document.createElement('div');
-            actions.style.marginTop = '8px';
-            actions.style.display = 'flex';
-            actions.style.gap = '8px';
-            actions.style.flexWrap = 'wrap';
-            actions.style.position = 'relative'; // Ensure stacking
-            actions.style.zIndex = '10'; // Above row
-
-            // 5. Alternative Button
-            const btnAlt = document.createElement('button');
-            btnAlt.className = 'btn mini secondary';
-            btnAlt.innerHTML = '<i class="bi bi-shuffle"></i> Alternatives';
-            btnAlt.type = 'button';
-            // Force pointer events
-            btnAlt.style.pointerEvents = 'auto';
-            btnAlt.style.position = 'relative';
-            btnAlt.style.zIndex = '20';
-
-            btnAlt.onclick = (e) => {
+            row.querySelector('[data-cp-action="batch"]').onclick = (e) => {
               e.stopPropagation();
-              e.preventDefault();
-              console.log('Alternatives Clicked for:', m.mould_name);
-
-              if (typeof window.findAlternativeMoulds === 'function') {
-                window.findAlternativeMoulds({
-                  orderNo: window.cpSelectedOrder ? window.cpSelectedOrder.orderNo : '',
-                  orDate: window.cpSelectedOrder ? window.cpSelectedOrder.orDate : '',
-                  mouldNo: m.mould_no || m.item_code || '',
-                  mouldName: m.mould_name || '',
-                  itemCode: m.item_code || m.mould_no || '',
-                  planQty: m.plan_qty
-                });
-              } else {
-                toast('Error: Alternative feature not ready', 'error');
-              }
-            };
-
-            // 6. Batch Button
-            const btnBatch = document.createElement('button');
-            btnBatch.className = 'btn mini secondary';
-            btnBatch.innerHTML = '<i class="bi bi-layers-fill"></i> Batch Plan';
-            btnBatch.type = 'button';
-            btnBatch.style.pointerEvents = 'auto';
-            btnBatch.style.position = 'relative';
-            btnBatch.style.zIndex = '20';
-
-            btnBatch.onclick = (e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              console.log('Batch Clicked for:', m.mould_name);
+              const first = group.rows[0] || {};
               if (typeof window.openBatchPlanning === 'function') {
-                window.openBatchPlanning(m.item_code, m.mould_name, m.plan_qty);
-              } else {
-                toast('Error: Batch feature not ready', 'error');
+                window.openBatchPlanning(first.item_code || first.mould_no, group.displayName || first.mould_name, first.plan_qty);
               }
             };
 
-            actions.appendChild(btnAlt);
-            actions.appendChild(btnBatch);
-
-            // 7. Drop Button (NEW)
-            const btnDrop = document.createElement('button');
-            btnDrop.className = 'btn mini secondary';
-            btnDrop.innerHTML = '<i class="bi bi-x-circle"></i> Drop';
-            btnDrop.type = 'button';
-            btnDrop.style.pointerEvents = 'auto';
-            btnDrop.style.position = 'relative';
-            btnDrop.style.zIndex = '20';
-            btnDrop.style.color = '#dc2626'; // Red text
-
-            btnDrop.onclick = (e) => {
+            row.querySelector('[data-cp-action="drop"]').onclick = (e) => {
               e.stopPropagation();
-              e.preventDefault();
-              console.log('Drop Clicked for:', m.mould_name);
+              const first = group.rows[0] || {};
               if (typeof window.dropCpMould === 'function') {
-                window.dropCpMould(m);
-              } else {
-                toast('Error: Drop feature not initialized', 'error');
+                window.dropCpMould(first);
               }
             };
 
-            actions.appendChild(btnDrop);
-            infoCol.appendChild(actions);
-            flex.appendChild(infoCol);
-            row.appendChild(flex);
-
-            row.onmouseover = () => {
-              if (row.dataset.selected === '1' || isDropped) return;
-              row.style.borderColor = '#93c5fd';
-              row.style.boxShadow = '0 16px 32px rgba(59, 130, 246, 0.10)';
-              row.style.transform = 'translateY(-1px)';
-            };
-
-            row.onmouseout = () => {
-              if (row.dataset.selected === '1') return;
-              resetCpMouldCardState(row);
-            };
-
-            row.onclick = () => {
-              if (isDropped) {
-                return toast('Mould is Dropped. Cannot select.', 'error');
+            row.querySelector('[data-cp-action="select"]').onclick = (e) => {
+              e.stopPropagation();
+              if (blockReason) return toast(blockReason, 'error');
+              if (group.rows.length > 1) {
+                openCpMouldChooser(group);
+                return;
               }
-              console.log('Row Clicked');
-              radio.checked = true;
-              selectCpMould(m);
-              Array.from(con.children).forEach(c => resetCpMouldCardState(c));
-              row.dataset.selected = '1';
-              row.style.borderColor = '#2563eb';
-              row.style.background = 'linear-gradient(180deg, #f3f8ff, #e8f1ff)';
-              row.style.boxShadow = '0 18px 36px rgba(59, 130, 246, 0.14)';
-              row.style.transform = 'translateY(-1px)';
+              selectCpMould(group.rows[0]);
             };
-
-            if (isDropped) {
-              row.dataset.dropped = '1';
-              row.style.background = '#fef2f2'; // Red tint
-              row.style.opacity = '0.7';
-              row.style.borderColor = '#f8b4b4';
-              row.style.boxShadow = '0 8px 18px rgba(239, 68, 68, 0.08)';
-              radio.disabled = true;
-              if (typeof btnBatch !== 'undefined') btnBatch.disabled = true;
-              if (typeof btnAlt !== 'undefined') btnAlt.disabled = true; // Also block alternatives to be safe/simple
-            }
 
             con.appendChild(row);
           });
@@ -5250,6 +6691,7 @@
             itemName: cpSelectedOrder.productName,
             mouldName: cpSelectedMould.mould_name || cpSelectedMould.mouldName,
             mouldCode: cpSelectedMould.mould_no || cpSelectedMould.item_code,
+            mouldingSqn: cpSelectedMould.mouldingSqn || cpSelectedMould.moulding_sqn || null,
             planQty: cpSelectedMould.plan_qty,
             balQty: cpSelectedMould.plan_qty,
             startDate: new Date().toISOString()
@@ -5334,7 +6776,12 @@
               // Better: Force user to "Add" first. 
               // Only execute Queue.
 
-              const payload = [...cpDraftQueue];
+              const payload = [...cpDraftQueue].sort((a, b) => {
+                const aSqn = parseCpSqn(a.mouldingSqn) ?? Number.MAX_SAFE_INTEGER;
+                const bSqn = parseCpSqn(b.mouldingSqn) ?? Number.MAX_SAFE_INTEGER;
+                if (a.orderNo !== b.orderNo) return String(a.orderNo || '').localeCompare(String(b.orderNo || ''));
+                return aSqn - bSqn;
+              });
               // If User has a valid selection pending that IS NOT in queue, ask?
               // For simplicity, just send Queue + Current (if valid)?
               // The user workflow: Select -> Add -> Select -> Add -> Create.
@@ -5355,6 +6802,7 @@
                     itemName: cpSelectedOrder.productName,
                     mouldName: cpSelectedMould.mould_name || cpSelectedMould.mouldName,
                     mouldCode: cpSelectedMould.mould_no || cpSelectedMould.item_code,
+                    mouldingSqn: cpSelectedMould.mouldingSqn || cpSelectedMould.moulding_sqn || null,
                     planQty: cpSelectedMould.plan_qty,
                     balQty: cpSelectedMould.plan_qty,
                     startDate: new Date().toISOString()
@@ -5386,6 +6834,7 @@
               itemName: cpSelectedOrder.productName,
               mouldName: cpSelectedMould.mould_name || cpSelectedMould.mouldName,
               mouldCode: cpSelectedMould.mould_no || cpSelectedMould.item_code,
+              mouldingSqn: cpSelectedMould.mouldingSqn || cpSelectedMould.moulding_sqn || null,
               planQty: cpSelectedMould.plan_qty,
               balQty: cpSelectedMould.plan_qty,
               startDate: new Date().toISOString()
@@ -5414,15 +6863,28 @@
         }
 
         async function selectCpMould(mould) {
+          const selectedSqn = parseCpSqn(mould.mouldingSqn || mould.moulding_sqn);
+          if (window.cpOrderSequenceMeta?.missingSqnMoulds?.length) {
+            const names = window.cpOrderSequenceMeta.missingSqnMoulds.map((row) => row.mouldNo || row.mouldName).filter(Boolean).join(', ');
+            return toast(`Fill Moulding Sqn. first in Mould Master for: ${names}`, 'error');
+          }
+          if (window.cpOrderSequenceMeta?.nextRequiredSqn != null && selectedSqn !== window.cpOrderSequenceMeta.nextRequiredSqn) {
+            const pendingNames = (window.cpOrderSequenceMeta.requiredRows || []).map((row) => row.mouldNo || row.mouldName).filter(Boolean).join(', ');
+            return toast(`Plan Moulding Sqn. ${window.cpOrderSequenceMeta.nextRequiredSqn} first: ${pendingNames}`, 'error');
+          }
+
           // ---------------------------------------------------------
           // DUPLICATE MOULD CHECK (Instant on Selection)
           // ---------------------------------------------------------
           const saveBtn = document.getElementById('cpSaveBtn');
 
-          const duplicate = window.isPlanDuplicate(
-            window.cpSelectedOrder ? window.cpSelectedOrder.orderNo : '',
-            mould.mould_name || mould.mouldName
-          );
+          const remainingQtyForPlan = Math.max(0, parseCpNumber(mould.remainingQty ?? mould.targetPlanQty ?? mould.plan_qty) ?? 0);
+          const duplicate = remainingQtyForPlan > 0
+            ? null
+            : window.isPlanDuplicate(
+              window.cpSelectedOrder ? window.cpSelectedOrder.orderNo : '',
+              mould.mould_name || mould.mouldName
+            );
 
           if (duplicate) {
             // Update UI for Duplicate
@@ -5495,6 +6957,7 @@
 
           cpSelectedMould = mould;
           cpSelectedMachine = null;
+          renderCpSelectedMouldSummary(mould);
 
           // Enable Add Button
           const addBtn = document.getElementById('cpAddBtn');
@@ -5514,40 +6977,14 @@
           }
 
           const sec = document.getElementById('cpMachineSection');
-          if (sec) sec.style.display = 'block';
+          if (sec) sec.style.display = 'none';
+          clearCpColourPlan();
 
-          const t = document.getElementById('cpTargetTonnage');
-          if (t) t.textContent = mould.masterMachineRaw || 'Unknown';
-
-          const list = document.getElementById('cpMachineList');
-          if (list) list.innerHTML = '<div class="muted">Finding compatible machines...</div>';
-
-          if (!mould.masterMachineRaw && getPlanningProcessFilter() === 'Moulding') {
-            if (list) list.innerHTML = '<div class="error">No tonnage info in master. Cannot match machines.</div>';
-            return;
+          if (getPlanningProcessFilter() === 'Moulding' && !(mould.primary_machine || mould.primaryMachine || mould.secondary_machine || mould.secondaryMachine)) {
+            return toast('Primary / Secondary Machine is missing in Mould Master. Fill it first.', 'error');
           }
 
-          try {
-            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-            if (getPlanningProcessFilter() === 'Moulding') {
-              const res = await api.get(`/planning/machines/compatible?tonnage=${encodeURIComponent(mould.masterMachineRaw)}&process=${encodeURIComponent(getPlanningProcessFilter())}`);
-              renderCpMachines(res.data || []);
-            } else {
-              const res = await api.get(`/masters/machines?process=${encodeURIComponent(getPlanningProcessFilter())}`);
-              const masterMachines = (res.data || []).map(machine => ({
-                machine: machine.machine,
-                tonnage: machine.tonnage || '-',
-                building: machine.building || getPlanningProcessFilter(),
-                line: machine.line || 'Machines',
-                isFree: true,
-                currentStatus: 'AVAILABLE',
-                currentOrder: null
-              }));
-              renderCpMachines(masterMachines);
-            }
-          } catch (e) {
-            if (list) list.innerHTML = `<div class="error">Error: ${esc(e.message)}</div>`;
-          }
+          await openCpColourPlanModal(mould);
         }
 
         function renderCpMachines(machines) {
@@ -5564,6 +7001,12 @@
             const isFree = mac.isFree;
             const statusColor = isFree ? 'var(--ok)' : 'var(--warn)';
             const statusTxt = isFree ? 'AVAILABLE' : (mac.currentStatus || 'BUSY');
+            const availableOn = formatCpMachineAvailability(mac.bookedUntil);
+            const preferenceBadge = mac.preferenceRole === 'PRIMARY'
+              ? '<span class="tag" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe">Primary</span>'
+              : mac.preferenceRole === 'SECONDARY'
+                ? '<span class="tag" style="background:#fff7ed; color:#c2410c; border-color:#fed7aa">Secondary</span>'
+                : '';
             const machineArea = mac.line && mac.line !== 'Machines'
               ? `${mac.building} - L${mac.line}`
               : `${mac.building}`;
@@ -5585,9 +7028,11 @@
                            <div style="font-weight:700; color:#64748b; font-size:0.9rem; white-space:nowrap; background:#f1f5f9; padding:2px 6px; border-radius:4px">${esc(mac.tonnage)}T</div>
                        </div>
                     <div style="font-size:0.8rem; color:#64748b">${esc(machineArea)}</div>
+                    <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap">${preferenceBadge}${mac.isBookedFor15Days ? '<span class="tag" style="background:#fff1f2; color:#be123c; border-color:#fecdd3">Booked 15 Days</span>' : ''}</div>
                     <div style="font-size:0.8rem; margin-top:6px; font-weight:700; color:${statusColor}">
                        ${statusTxt}
                     </div>
+                    <div style="font-size:0.75rem; color:#64748b; margin-top:4px">Available on: <strong>${esc(availableOn)}</strong></div>
                    ${!isFree ? `<div style="font-size:0.75rem; color:#94a3b8">Running: ${esc(mac.currentOrder || '-')}</div>` : ''}
                 `;
 
@@ -6002,13 +7447,43 @@
 
 
         // Master View Events
-        document.getElementById('btnRefreshMaster').onclick = loadMasterPlan;
-        document.getElementById('masterBuilding').onchange = filterMasterPlan;
-        document.getElementById('masterSearch').oninput = filterMasterPlan;
-        document.getElementById('btnMasterCreate').onclick = openCreatePlanLauncher;
+        const masterSearchInput = document.getElementById('masterSearch');
+        const masterSearchClear = document.getElementById('masterSearchClear');
+        const masterSearchMeta = document.getElementById('masterSearchMeta');
 
+        function syncMasterSearchUi(resultCount = null, totalCount = allMasterPlans.length || 0) {
+          if (masterSearchClear) {
+            const hasValue = !!((masterSearchInput?.value || '').trim());
+            masterSearchClear.classList.toggle('is-visible', hasValue);
+          }
 
+          if (masterSearchMeta) {
+            if (resultCount === null) {
+              masterSearchMeta.textContent = 'All Plans';
+            } else {
+              masterSearchMeta.textContent = `${resultCount} Match${resultCount === 1 ? '' : 'es'}`;
+            }
+            masterSearchMeta.title = `${resultCount === null ? totalCount : resultCount} visible plan${(resultCount === 1) ? '' : 's'}`;
+          }
+        }
 
+        if (masterSearchInput) {
+          masterSearchInput.oninput = filterMasterPlan;
+          masterSearchInput.onkeydown = (e) => {
+            if (e.key === 'Escape' && masterSearchInput.value) {
+              masterSearchInput.value = '';
+              filterMasterPlan();
+            }
+          };
+        }
+        if (masterSearchClear) {
+          masterSearchClear.onclick = () => {
+            if (!masterSearchInput) return;
+            masterSearchInput.value = '';
+            masterSearchInput.focus();
+            filterMasterPlan();
+          };
+        }
         function openCreatePlanLauncher() {
           if (!JPSMS.auth.can('planning', 'edit')) {
             JPSMS.toast('Read Only Mode: Cannot create plans', 'error');
@@ -6216,10 +7691,10 @@
               });
             });
 
-            refreshMasterBuildingOptions(plans);
             allMasterPlans = plans;
             window.allMasterPlans = plans;
             renderMasterTable(plans);
+            syncMasterSearchUi((document.getElementById('masterSearch')?.value || '').trim() ? plans.length : null, plans.length);
             toast(`Loaded ${plans.length} plans`);
           } catch (e) {
             console.error(e);
@@ -6235,7 +7710,8 @@
 
           // Header correction if needed (synced with below)
           // Tighter grid for single-page view (~1275px min) - Updated to fix overlaps
-          const gridTemplate = '40px minmax(140px, 1.2fr) 60px 120px minmax(180px, 2fr) 100px minmax(90px, 1fr) 60px 60px 85px 85px 85px 50px 70px 200px';
+          const gridTemplate = '40px minmax(220px, 1.4fr) 190px minmax(330px, 2.15fr) 144px minmax(190px, 1.2fr) 98px 104px 128px 128px 128px 88px 112px 168px';
+          const gridMinWidth = '1880px';
 
           if (!list.length) {
             tbody.innerHTML = `<div class="row" style="padding:40px; justify-content:center; color:#cbd5e1; font-style:italic">No plans found.</div>`;
@@ -6354,7 +7830,7 @@
 
 
             const row = document.createElement('div');
-            row.className = 'row';
+            row.className = 'row master-plan-row';
 
             // Highlight Logic
             if (window.highlightPlanId && (p.id === window.highlightPlanId || String(p.id) === String(window.highlightPlanId))) {
@@ -6368,22 +7844,22 @@
             }
             row.style.gridTemplateColumns = gridTemplate;
             row.style.alignItems = 'center';
-            row.style.borderBottom = '1px solid #f1f5f9';
-            row.style.padding = '8px 0';
+            row.style.borderBottom = 'none';
             row.style.fontSize = '0.85rem';
-            row.style.minWidth = '100%'; // Ensure horizontal scroll match
+            row.style.width = gridMinWidth;
+            row.style.minWidth = gridMinWidth;
 
             // Master Plan Row Color Coding (User Request)
-            let baseBg = 'transparent';
-            let hoverBg = '#f8fafc';
+            let baseBg = 'linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.96))';
+            let hoverBg = 'linear-gradient(180deg, rgba(240,249,255,0.98), rgba(232,245,255,0.96))';
             const cleanSt = (p.status || '').trim().toLowerCase();
 
             if (cleanSt === 'running') {
-              baseBg = '#bfdbfe'; // Light Blue
-              hoverBg = '#93c5fd'; // slightly darker on hover
+              baseBg = 'linear-gradient(180deg, rgba(219,234,254,0.95), rgba(191,219,254,0.92))';
+              hoverBg = 'linear-gradient(180deg, rgba(191,219,254,0.98), rgba(147,197,253,0.92))';
             } else if (cleanSt === 'planned' || cleanSt === 'next plan') {
-              baseBg = '#fed7aa'; // Light Orange
-              hoverBg = '#fdba74';
+              baseBg = 'linear-gradient(180deg, rgba(255,237,213,0.95), rgba(254,215,170,0.92))';
+              hoverBg = 'linear-gradient(180deg, rgba(254,215,170,0.98), rgba(253,186,116,0.92))';
             }
 
             row.style.background = baseBg;
@@ -6411,16 +7887,13 @@
 
             // View Detail Button (New)
             actionHtml += `
-                  <button class="btn icon mini" 
-                     style="background:#f1f5f9; color:#64748b; border:none; width:24px; height:24px; border-radius:4px; margin-right:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;" 
+                  <button class="btn icon mini master-action-btn view" 
                      title="View Detail"
-                     <title="View Detail"
                      onclick="window.viewPlan('${p.id}')">
                      <i class="bi bi-eye"></i>
                   </button>
                   
-                  <button class="btn icon mini" 
-                     style="background:#dcfce7; color:#16a34a; border:1px solid #bbf7d0; width:24px; height:24px; border-radius:4px; margin-right:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;" 
+                  <button class="btn icon mini master-action-btn complete" 
                      title="Complete Plan"
                      onclick="event.stopPropagation(); window.openCompletePlanModal('${p.id}', '${esc(JSON.stringify(p))}')">
                      <i class="bi bi-check-lg" style="font-weight:bold"></i>
@@ -6430,8 +7903,7 @@
               if (!isRunning) {
                 // Play
                 actionHtml += `
-                    <button class="btn icon mini" 
-                       style="background:#10b981; color:#fff; border:none; width:24px; height:24px; border-radius:4px; margin-right:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;" 
+                    <button class="btn icon mini master-action-btn play" 
                        title="Activate Plan" 
                        onclick="event.stopPropagation(); window.forceActivatePlan('${p.id}', '${esc(p.orderNo || p.order_no || 'Unknown Order')}')">
                        <i class="bi bi-play-fill" style="transform:scale(1.2); margin-left:2px"></i>
@@ -6439,8 +7911,7 @@
               } else {
                 // STOP Button (New)
                 actionHtml += `
-                    <button class="btn icon mini" 
-                       style="background:#ef4444; color:#fff; border:none; width:24px; height:24px; border-radius:4px; margin-right:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;" 
+                    <button class="btn icon mini master-action-btn stop" 
                        title="Stop Plan" 
                        onclick="event.stopPropagation(); window.stopPlan('${p.id}')">
                        <i class="bi bi-stop-fill"></i>
@@ -6448,7 +7919,7 @@
 
                 // Active Pulse
                 actionHtml += `
-                    <div style="width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; margin-right:6px" title="Running">
+                    <div class="master-action-pulse" title="Running">
                        <i class="bi bi-activity" style="color:#10b981; animation: pulse 2s infinite;"></i>
                     </div>`;
               }
@@ -6457,13 +7928,19 @@
             // PERMANENT DELETE (Admin Only)
             if (window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.hasRole('admin')) {
               actionHtml += `
-                <button class="btn icon mini" 
-                   style="background:transparent; color:#ef4444; border:1px solid #fee2e2; width:24px; height:24px; border-radius:4px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;" 
+                <button class="btn icon mini master-action-btn delete" 
                    title="Delete Plan Permanently (Admin Only)" 
                    onclick="event.stopPropagation(); window.removePlan('${p.id}', '${esc(p.orderNo || p.order_no || 'Unknown Order')}')">
                    <i class="bi bi-trash"></i>
                 </button>`;
             }
+
+            const lineLabel = p.line ? String(p.line).replace(/^L/i, '') : '-';
+            const productLabel = p.itemName || p.item_name || '-';
+            const startLabel = p._rippledStartRaw
+              ? p._rippledStartRaw.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })
+              : '-';
+            const endLabel = calculatedEnd.replace(/\s\(\w+\)$/, '');
 
             row.innerHTML = `
                <div style="display:flex; justify-content:center; align-items:center;">
@@ -6472,40 +7949,46 @@
                      onclick="window.updateJCStatus('${p.id}', this.checked); event.stopPropagation();"
                      title="Mark Job Card as Given">
                </div>
-               <div style="display:flex; flex-direction:column; justify-content:center">
-                  <div style="font-weight:700; color:#334155; line-height:1.2">${esc(p.machine)}</div>
-                  <div style="font-size:0.75rem; color:#64748b; margin-top:2px; display:flex; align-items:center; gap:6px">
-                     ${(p.building && String(p.building).toUpperCase() !== 'MAIN') ? `<span style="background:#f1f5f9; padding:1px 6px; border-radius:4px; border:1px solid #cbd5e1">${esc(p.building)}</span>` : ''}
-                     <span>L${esc(p.line)}</span>
+               <div class="master-cell-stack">
+                  <div class="master-cell-title is-wrap">${esc(p.machine)}</div>
+                  <div class="master-machine-badges">
+                     ${(p.building && String(p.building).toUpperCase() !== 'MAIN') ? `<span class="master-mini-chip">${esc(p.building)}</span>` : ''}
+                     <span class="master-mini-chip">L${esc(lineLabel)}</span>
                   </div>
                </div>
-               <div><span class="tag ${priClass}" style="transform:scale(0.85); transform-origin:left">${esc(p.priority || '-')}</span></div>
-               <div><span style="font-family:monospace; font-weight:600; color:#475569; word-break:break-all">${esc(p.orderNo)}</span></div>
-               
-               <div style="color:#64748b; font-size:0.8rem; line-height:1.3; word-break:break-word; padding-right:10px" title="${esc(p.mouldName)}">${esc(p.mouldName)}</div>
-               <div style="font-family:monospace; color:#475569; font-weight:600; word-break:break-word">${esc(p.mouldNo || p.mould_code || '-')}</div>
-               <div style="color:#64748b; font-size:0.8rem; line-height:1.3; word-break:break-word" title="${esc(p.clientName)}">${esc(p.clientName || '-')}</div>
-
-
-               <div style="font-family:monospace">${qty.toLocaleString()}</div>
-               <div style="font-family:monospace; color:#f59e0b">${bal.toLocaleString()}</div>
-
-               <div class="mini" style="color:#64748b">${p._rippledStartRaw ? p._rippledStartRaw.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '-'}</div>
-               <div class="mini" style="color:#64748b">${calculatedEnd.replace(/\s\(\w+\)$/, '')}</div>
-               <div class="mini" style="color:#64748b; font-weight:600">${expEnd}</div>
-               
-               <div><span class="${perfClass}" style="transform:scale(0.85); transform-origin:left" title="Efficiency: ${perfPct}%">${perfPct}%</span></div>
-               
-               <div><span class="${sClass}" style="transform:scale(0.85); transform-origin:left">${esc(p.status || 'Pending')}</span></div>
-               <div style="display:flex; align-items:center; justify-content:flex-end">${actionHtml}</div>
+               <div class="master-cell-stack compact">
+                  <div class="master-cell-title is-mono is-wrap" title="${esc(p.orderNo)}">${esc(p.orderNo)}</div>
+                  <div class="master-report-meta">
+                    <span class="master-mini-chip master-priority-chip">${esc(p.priority || '-')}</span>
+                  </div>
+               </div>
+                
+               <div class="master-cell-stack compact" title="${esc(p.mouldName)}">
+                  <div class="master-cell-title is-wrap">${esc(p.mouldName)}</div>
+                  <div class="master-cell-sub is-wrap" title="${esc(productLabel)}">${esc(productLabel)}</div>
+               </div>
+               <div class="master-column-value is-mono">${esc(p.mouldNo || p.mould_code || '-')}</div>
+               <div class="master-column-value" title="${esc(p.clientName)}">
+                  <span class="master-cell-title is-wrap" style="font-size:0.92rem">${esc(p.clientName || '-')}</span>
+               </div>
+               <div class="master-column-value"><span class="master-value">${qty.toLocaleString()}</span></div>
+               <div class="master-column-value"><span class="master-value warn">${bal.toLocaleString()}</span></div>
+               <div class="master-column-value is-date">${startLabel}</div>
+               <div class="master-column-value is-date">${endLabel}</div>
+               <div class="master-column-value is-date expected">${expEnd}</div>
+                
+               <div class="master-badge-lane"><span class="${perfClass} master-stat-pill" title="Efficiency: ${perfPct}%">${perfPct}%</span></div>
+                
+               <div class="master-badge-lane"><span class="${sClass} master-stat-pill">${esc(p.status || 'Pending')}</span></div>
+               <div class="master-actions">${actionHtml}</div>
             `;
             tbody.appendChild(row);
           });
         }
 
         function filterMasterPlan() {
-          const b = document.getElementById('masterBuilding').value;
-          const q = (document.getElementById('masterSearch').value || '').toLowerCase();
+          const b = '';
+          const q = (document.getElementById('masterSearch')?.value || '').toLowerCase();
 
           const filtered = allMasterPlans.filter(p => {
             if (b && getPlanScopeValue(p) !== b) return false;
@@ -6515,6 +7998,9 @@
             }
             return true;
           });
+          if (typeof syncMasterSearchUi === 'function') {
+            syncMasterSearchUi(q ? filtered.length : null, allMasterPlans.length || filtered.length);
+          }
           renderMasterTable(filtered);
         }
 
@@ -7759,7 +9245,7 @@
     // --- Read-Only UI Enforcement ---
     if (window.JPSMS && window.JPSMS.auth && !window.JPSMS.auth.can('planning', 'edit')) {
       // Hide Create Buttons
-      ['btnMasterCreate', 'btnCreatePlan'].forEach(id => {
+      ['btnCreatePlan'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
       });
@@ -8177,7 +9663,7 @@
 
 
 
-    <script src="assets/timeline_patch.js?v=release54"></script>
+  <script src="assets/timeline_patch.js?v=release56"></script>
 </body>
 
 </html>
