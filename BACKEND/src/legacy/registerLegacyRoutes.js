@@ -3178,8 +3178,17 @@ async function bootstrapFreshCoreTables() {
       item_code VARCHAR(255),
       item_name VARCHAR(255),
       mould_name VARCHAR(255),
+      mould_code VARCHAR(255),
       plan_qty NUMERIC,
       bal_qty NUMERIC,
+      our_code TEXT,
+      batch_no INTEGER,
+      batch_qty NUMERIC,
+      mould_item_qty NUMERIC,
+      consumption_ratio_qty NUMERIC,
+      colour_details JSONB,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
       start_date TIMESTAMP,
       end_date TIMESTAMP,
       status VARCHAR(50) DEFAULT 'PLANNED',
@@ -3527,6 +3536,15 @@ async function initializeLegacyRuntime() {
             );
             
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS seq INTEGER DEFAULT 0;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS mould_code VARCHAR(255);
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS our_code TEXT;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS batch_no INTEGER;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS batch_qty NUMERIC;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS mould_item_qty NUMERIC;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS consumption_ratio_qty NUMERIC;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS colour_details JSONB;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS created_by TEXT;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
             CREATE TABLE IF NOT EXISTS shifting_records (
                 id SERIAL PRIMARY KEY,
@@ -6499,10 +6517,29 @@ app.post('/api/planning/create', async (req, res) => {
     if (!plans.length) return res.json({ ok: false, error: 'No plans provided' });
     const requestFactoryId = getFactoryId(req);
     const stagedOrderCodes = new Map();
+    const requestUsername = getRequestUsername(req) || 'System';
+    const batchMetaByOrder = new Map();
 
     await client.query('BEGIN');
     const results = [];
     const generatedPlanIds = [];
+
+    const getBatchMeta = async (orderNo) => {
+      const orderKey = normalizePlanningText(orderNo || 'NO-ORDER') || 'NO-ORDER';
+      if (batchMetaByOrder.has(orderKey)) return batchMetaByOrder.get(orderKey);
+      const maxRows = await client.query(
+        `SELECT COALESCE(MAX(batch_no), 0)::int AS max_batch
+           FROM plan_board
+          WHERE TRIM(COALESCE(order_no, '')) = TRIM($1)`,
+        [orderKey === 'NO-ORDER' ? '' : orderKey]
+      );
+      const batchNo = Number(maxRows.rows[0]?.max_batch || 0) + 1;
+      const safeOrder = orderKey.replace(/[^A-Za-z0-9]/g, '').slice(-10) || 'ORDER';
+      const ourCode = `JMSP-${safeOrder}-${String(batchNo).padStart(3, '0')}`;
+      const meta = { batchNo, ourCode };
+      batchMetaByOrder.set(orderKey, meta);
+      return meta;
+    };
 
     for (const p of plans) {
       if (!p.plant || !p.machine) {
@@ -6524,6 +6561,7 @@ app.post('/api/planning/create', async (req, res) => {
         [p.plant, p.machine]
       );
       const seq = Number(mx.rows[0]?.mx || 0) + 1;
+      const batchMeta = await getBatchMeta(p.orderNo);
 
       if (p.orderNo) {
         const bundle = await getPlanningOrderMouldBundle(client.query.bind(client), p.orderNo, requestFactoryId);
@@ -6548,12 +6586,14 @@ app.post('/api/planning/create', async (req, res) => {
         `
         INSERT INTO plan_board
         (plan_id, plant, building, line, machine, seq,
-          order_no, item_code, item_name, mould_name,
-          plan_qty, bal_qty, start_date, end_date, status, updated_at)
+          order_no, item_code, item_name, mould_name, mould_code,
+          plan_qty, bal_qty, our_code, batch_no, batch_qty, mould_item_qty,
+          consumption_ratio_qty, colour_details, created_by, created_at, start_date, end_date, status, updated_at)
         VALUES
         ($1, $2, $3, $4, $5, $6,
-          $7, $8, $9, $10,
-          $11, $12, $13, $14, 'PLANNED', NOW())
+          $7, $8, $9, $10, $11,
+          $12, $13, $14, $15, $16, $17,
+          $18, $19::jsonb, $20, NOW(), $21, $22, 'PLANNED', NOW())
         RETURNING id
         `,
         [
@@ -6567,8 +6607,16 @@ app.post('/api/planning/create', async (req, res) => {
           p.itemCode || null,
           p.itemName || null,
           p.mouldName || null,
+          p.mouldCode || p.itemCode || null,
           toNum(p.planQty),
           toNum(p.balQty ?? p.planQty),
+          p.ourCode || batchMeta.ourCode,
+          toNum(p.batchNo) || batchMeta.batchNo,
+          toNum(p.batchQty ?? p.planQty),
+          toNum(p.mouldItemQty),
+          toNum(p.consumptionRatioQty),
+          JSON.stringify(Array.isArray(p.colourDetails) ? p.colourDetails : []),
+          p.createdBy || requestUsername,
           p.startDate || null,
           p.endDate || null
         ]
@@ -6597,6 +6645,91 @@ app.post('/api/planning/create', async (req, res) => {
     res.json({ ok: false, error: String(e.message || e) }); // Return 200 with error for frontend handling
   } finally {
     client.release();
+  }
+});
+
+
+// GET /api/planning/orders/:orderNo/batches
+app.get('/api/planning/orders/:orderNo/batches', async (req, res) => {
+  try {
+    const orderNo = normalizePlanningText(req.params.orderNo);
+    if (!orderNo) return res.json({ ok: false, error: 'Order No required' });
+    const factoryId = getFactoryId(req);
+    const rows = await q(`
+      SELECT
+        pb.id,
+        pb.plan_id,
+        pb.order_no,
+        pb.our_code,
+        pb.batch_no,
+        pb.batch_qty,
+        pb.plan_qty,
+        pb.mould_name,
+        pb.mould_code,
+        pb.machine,
+        COALESCE(pb.created_by, 'System') AS created_by,
+        pb.created_at,
+        COALESCE(pb.colour_details, '[]'::jsonb) AS colour_details
+      FROM plan_board pb
+      WHERE TRIM(COALESCE(pb.order_no, '')) = TRIM($1)
+        AND COALESCE(pb.batch_no, 0) > 0
+        AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
+      ORDER BY pb.batch_no ASC, pb.created_at ASC NULLS LAST, pb.id ASC
+    `, [orderNo, factoryId || null]);
+
+    const batchesByKey = new Map();
+    rows.forEach((row) => {
+      const batchNo = Number(row.batch_no || 0);
+      const key = `${batchNo || 'NA'}__${row.our_code || ''}`;
+      if (!batchesByKey.has(key)) {
+        batchesByKey.set(key, {
+          batchNo,
+          ourCode: row.our_code || '',
+          batchQty: 0,
+          planQty: 0,
+          createdBy: row.created_by || 'System',
+          createdAt: row.created_at || null,
+          details: []
+        });
+      }
+      const batch = batchesByKey.get(key);
+      const rowBatchQty = toNum(row.batch_qty) ?? 0;
+      batch.batchQty = Math.max(batch.batchQty || 0, rowBatchQty);
+      batch.planQty += toNum(row.plan_qty) ?? 0;
+      if (!batch.createdAt || (row.created_at && new Date(row.created_at) < new Date(batch.createdAt))) {
+        batch.createdAt = row.created_at;
+        batch.createdBy = row.created_by || batch.createdBy;
+      }
+
+      const rawDetails = Array.isArray(row.colour_details)
+        ? row.colour_details
+        : (typeof row.colour_details === 'string' ? JSON.parse(row.colour_details || '[]') : []);
+      const detailRows = rawDetails.length ? rawDetails : [{
+        colourName: '-',
+        batchQty: rowBatchQty,
+        planQty: toNum(row.plan_qty) ?? 0
+      }];
+      detailRows.forEach((detail) => {
+        batch.details.push({
+          planId: row.plan_id || '',
+          mouldName: row.mould_name || row.mould_code || '-',
+          mouldCode: row.mould_code || '',
+          colourName: detail.colourName || detail.itemColour || detail.itemName || '-',
+          qty: toNum(detail.batchQty ?? detail.useQty ?? detail.qty) ?? rowBatchQty,
+          planQty: toNum(detail.planQty) ?? 0,
+          machine: row.machine || '-',
+          createdBy: row.created_by || 'System',
+          createdAt: row.created_at || null
+        });
+      });
+    });
+
+    const batches = Array.from(batchesByKey.values()).sort((a, b) => (a.batchNo || 0) - (b.batchNo || 0));
+    const totalBatchQty = batches.reduce((sum, batch) => sum + (toNum(batch.batchQty) ?? 0), 0);
+    res.json({ ok: true, data: { batches, totalBatchQty } });
+  } catch (e) {
+    console.error('/api/planning/orders/:orderNo/batches', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
 
@@ -7911,6 +8044,118 @@ app.get('/api/planning/job-card-print', async (req, res) => {
 ========================= */
 
 
+
+async function ensureJmsPlanReportSchema() {
+  const planBoardColumns = [
+    ['mould_code', 'VARCHAR(255)'],
+    ['our_code', 'TEXT'],
+    ['batch_no', 'INTEGER'],
+    ['batch_qty', 'NUMERIC'],
+    ['mould_item_qty', 'NUMERIC'],
+    ['consumption_ratio_qty', 'NUMERIC'],
+    ['colour_details', 'JSONB'],
+    ['created_by', 'TEXT'],
+    ['created_at', 'TIMESTAMPTZ DEFAULT NOW()'],
+    ['factory_id', 'INTEGER']
+  ];
+  for (const [name, typeSql] of planBoardColumns) {
+    await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
+  }
+
+  const mouldReportColumns = [
+    ['or_jr_date', 'TEXT'],
+    ['bom_type', 'TEXT'],
+    ['product_name', 'TEXT'],
+    ['jr_qty', 'TEXT'],
+    ['uom', 'TEXT'],
+    ['mould_no', 'TEXT'],
+    ['mould_name', 'TEXT'],
+    ['mould_item_qty', 'TEXT'],
+    ['tonnage', 'TEXT'],
+    ['cycle_time', 'TEXT'],
+    ['cavity', 'TEXT'],
+    ['factory_id', 'INTEGER']
+  ];
+  for (const [name, typeSql] of mouldReportColumns) {
+    await q(`ALTER TABLE mould_planning_report ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
+  }
+
+  const orJrColumns = [
+    ['or_jr_date', 'DATE'],
+    ['client_name', 'TEXT'],
+    ['product_name', 'TEXT'],
+    ['jr_qty', 'INTEGER'],
+    ['uom', 'TEXT'],
+    ['factory_id', 'INTEGER']
+  ];
+  for (const [name, typeSql] of orJrColumns) {
+    await q(`ALTER TABLE or_jr_report ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
+  }
+}
+
+// GET /api/reports/jms-plan
+app.get('/api/reports/jms-plan', async (req, res) => {
+  try {
+    await ensureJmsPlanReportSchema();
+    const requestFactoryId = getFactoryId(req);
+    const from = normalizePlanningText(req.query.from);
+    const to = normalizePlanningText(req.query.to);
+    const rows = await q(`
+      SELECT
+        pb.order_no AS "orJrNo",
+        COALESCE(mpr.or_jr_date::text, ojr.or_jr_date::text, '') AS "jrDate",
+        COALESCE(pb.our_code, '') AS "ourCode",
+        COALESCE(mpr.bom_type, ojr.client_name, '') AS "bomType",
+        COALESCE(mpr.product_name, ojr.product_name, pb.item_name, '') AS "jrItemName",
+        COALESCE(NULLIF(mpr.jr_qty, ''), ojr.jr_qty::text, '') AS "jrQty",
+        COALESCE(mpr.uom, ojr.uom, '') AS "uom",
+        COALESCE(pb.created_at::date::text, pb.start_date::date::text, CURRENT_DATE::text) AS "planDate",
+        pb.plan_qty AS "planQty",
+        COALESCE(pb.mould_code, mpr.mould_no, '') AS "mouldNo",
+        COALESCE(pb.mould_name, mpr.mould_name, '') AS "mould",
+        COALESCE(pb.mould_item_qty::text, mpr.mould_item_qty, '') AS "mouldItemQty",
+        COALESCE(mpr.tonnage, m.tonnage::text, '') AS "tonnage",
+        pb.machine AS "machine",
+        COALESCE(mpr.cycle_time, m.cycle_time::text, '') AS "cycleTime",
+        COALESCE(mpr.cavity, m.no_of_cav::text, '') AS "cavity",
+        pb.batch_no AS "batchNo",
+        pb.batch_qty AS "batchQty",
+        pb.consumption_ratio_qty AS "consumptionRatioQty",
+        COALESCE(pb.created_by, 'System') AS "createdBy",
+        pb.created_at AS "timestamp"
+      FROM plan_board pb
+      LEFT JOIN LATERAL (
+        SELECT *
+        FROM mould_planning_report mpr0
+        WHERE TRIM(COALESCE(mpr0.or_jr_no, '')) = TRIM(COALESCE(pb.order_no, ''))
+          AND (
+            TRIM(COALESCE(mpr0.mould_no, '')) = TRIM(COALESCE(pb.mould_code, ''))
+            OR TRIM(COALESCE(mpr0.mould_name, '')) = TRIM(COALESCE(pb.mould_name, ''))
+          )
+          AND ($3::int IS NULL OR mpr0.factory_id = $3 OR mpr0.factory_id IS NULL)
+        ORDER BY mpr0.id DESC
+        LIMIT 1
+      ) mpr ON true
+      LEFT JOIN LATERAL (
+        SELECT *
+        FROM or_jr_report ojr0
+        WHERE TRIM(COALESCE(ojr0.or_jr_no, '')) = TRIM(COALESCE(pb.order_no, ''))
+          AND ($3::int IS NULL OR ojr0.factory_id = $3 OR ojr0.factory_id IS NULL)
+        ORDER BY ojr0.id DESC
+        LIMIT 1
+      ) ojr ON true
+      LEFT JOIN moulds m ON TRIM(COALESCE(m.mould_number, '')) = TRIM(COALESCE(pb.mould_code, ''))
+      WHERE COALESCE(pb.our_code, '') <> ''
+        AND ($1::date IS NULL OR COALESCE(pb.created_at::date, pb.start_date::date, CURRENT_DATE) >= $1::date)
+        AND ($2::date IS NULL OR COALESCE(pb.created_at::date, pb.start_date::date, CURRENT_DATE) <= $2::date)
+      ORDER BY pb.created_at DESC NULLS LAST, pb.our_code DESC, pb.batch_no DESC, pb.id DESC
+    `, [from || null, to || null, requestFactoryId]);
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('/api/reports/jms-plan', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
 
 // GET /api/reports/or-jr
 app.get('/api/reports/or-jr', async (req, res) => {

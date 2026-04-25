@@ -1062,7 +1062,8 @@ const BRAND_NAME = 'JMS OCEAN';
             icon: 'bi-file-earmark-bar-graph',
             href: 'reports.html',
             items: [
-                { id: 'rep_wip', label: 'WIP Report', icon: 'bi-box-seam', href: 'reports.html?view=wip' }
+                { id: 'rep_wip', label: 'WIP Report', icon: 'bi-box-seam', href: 'reports.html?view=wip' },
+                { id: 'rep_jms_plan', label: 'JMS Plan', icon: 'bi-clipboard2-data', href: 'reports.html?view=jms-plan' }
             ]
         },
         {

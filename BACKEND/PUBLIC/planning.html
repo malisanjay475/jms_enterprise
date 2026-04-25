@@ -3606,6 +3606,8 @@
               <div class="cp-order-header-copy" id="cpTitleProduct"></div>
             </div>
 
+            <div id="cpBatchSetup" style="display:none; flex:0 0 auto; margin:12px 18px 0; border:1px solid #bfdbfe; background:linear-gradient(180deg,#eff6ff,#ffffff); border-radius:18px; padding:14px 16px; overflow:hidden"></div>
+
             <!-- Moulds List -->
             <div class="cp-section">
               <div class="cp-section-title">Available Moulds</div>
@@ -3640,7 +3642,7 @@
             <div id="cpQueueSection" style="padding:18px; border-top:1px solid rgba(203, 213, 225, 0.8); background:linear-gradient(180deg, #f0f9ff, #ecfeff); display:none">
                <div style="font-weight:700; color:#0369a1; margin-bottom:10px; display:flex; justify-content:space-between">
                   <span>PLANS TO CREATE (<span id="cpQueueCount">0</span>)</span>
-                  <button class="btn mini ghost" onclick="clearQueue()" style="color:#ef4444">Clear All</button>
+                  <button class="btn mini ghost" type="button" id="cpClearQueueBtn" style="color:#ef4444">Clear All</button>
                </div>
                <div id="cpQueueList" style="display:flex; flex-direction:column; gap:8px">
                   <!-- Draft Items -->
@@ -3929,6 +3931,8 @@
         window.cpSelectedOrder = null;
         window.cpOrderMoulds = [];
         window.cpOrderSequenceMeta = null;
+        window.cpOrderBatchHistory = [];
+        window.cpCurrentBatchQty = null;
         let cpSelectedMould = null;
         let cpSelectedMachine = null;
         let allMachines = [];
@@ -4040,11 +4044,15 @@
           if (empty) empty.style.display = 'flex';
           if (machineSection) machineSection.style.display = 'none';
           if (queueSection) queueSection.style.display = 'none';
+          const batchSetup = document.getElementById('cpBatchSetup');
+          if (batchSetup) batchSetup.style.display = 'none';
           if (queueList) queueList.innerHTML = '';
           if (queueCount) queueCount.textContent = '0';
           if (footer) footer.textContent = `Process: ${planningProcess}`;
           if (addBtn) addBtn.disabled = true;
           if (saveBtn) saveBtn.disabled = true;
+          window.cpCurrentBatchQty = null;
+          window.cpOrderBatchHistory = [];
         }
 
         function getMachineScopeValue(machine) {
@@ -5464,6 +5472,14 @@
 
           const footer = document.getElementById('cpFooterStatus');
           if (footer) footer.textContent = 'Select an order to view mould details';
+
+          const batchSetup = document.getElementById('cpBatchSetup');
+          if (batchSetup) {
+            batchSetup.style.display = 'none';
+            batchSetup.innerHTML = '';
+          }
+          window.cpCurrentBatchQty = null;
+          window.cpOrderBatchHistory = [];
         }
 
         function renderCpOrders(filter = '') {
@@ -5592,15 +5608,21 @@
         }
 
         async function selectCpOrder(order, el) {
+          const preserveQueue = el === true || !!el?.preserveQueue;
+          const highlightEl = preserveQueue ? null : el;
           window.cpSelectedOrder = order;
           cpSelectedMould = null;
           cpSelectedMachine = null;
           window.cpOrderSequenceMeta = null;
+          if (!preserveQueue) {
+            window.cpCurrentBatchQty = null;
+            window.cpOrderBatchHistory = [];
+          }
 
           // UI Highlight
           const list = document.getElementById('cpOrderList');
           if (list) Array.from(list.children).forEach(c => applyCpOrderCardState(c, 'base'));
-          if (el) applyCpOrderCardState(el, 'selected');
+          if (highlightEl) applyCpOrderCardState(highlightEl, 'selected');
 
           // Show Detail View
           const empty = document.getElementById('cpEmptyState');
@@ -5614,7 +5636,8 @@
           if (tProd) tProd.textContent = order.productName;
 
           const footer = document.getElementById('cpFooterStatus');
-          if (footer) footer.textContent = 'Select a mould and machine to continue';
+          if (footer) footer.textContent = 'Enter Batch Qty to start planning';
+          renderCpBatchSetup(order);
 
           // clear mould list
           const mList = document.getElementById('cpMouldList');
@@ -5628,19 +5651,28 @@
           if (saveBtn) saveBtn.disabled = true;
 
           // Clear Queue on Order Switch
-          if (typeof updateQueueUI === 'function') {
+          if (!preserveQueue && typeof updateQueueUI === 'function') {
             cpDraftQueue.length = 0;
             updateQueueUI();
           }
 
           try {
-            const res = await api.get(`/planning/orders/${encodeURIComponent(order.orderNo)}/details`);
+            const [detailsResult, batchesResult] = await Promise.allSettled([
+              api.get(`/planning/orders/${encodeURIComponent(order.orderNo)}/details`),
+              api.get(`/planning/orders/${encodeURIComponent(order.orderNo)}/batches`)
+            ]);
+            if (detailsResult.status !== 'fulfilled') throw detailsResult.reason;
+            const res = detailsResult.value;
+            const batchRes = batchesResult.status === 'fulfilled' ? batchesResult.value : null;
             window.cpOrderMoulds = Array.isArray(res.data) ? res.data : [];
             window.cpOrderSequenceMeta = res.sequenceMeta || null;
+            window.cpOrderBatchHistory = Array.isArray(batchRes?.data?.batches) ? batchRes.data.batches : [];
+            renderCpBatchSetup(order);
             renderCpMoulds(window.cpOrderMoulds, window.cpOrderSequenceMeta);
           } catch (e) {
             window.cpOrderMoulds = [];
             window.cpOrderSequenceMeta = null;
+            window.cpOrderBatchHistory = [];
             if (mList) mList.innerHTML = `<div class="error">Failed to load details: ${esc(e.message)}</div>`;
           }
         }
@@ -5654,6 +5686,250 @@
           const raw = String(value || '').trim();
           const match = raw.match(/(\d+)/);
           return match ? Number(match[1]) : null;
+        }
+
+        function getCpDraftFamilyQtyMap() {
+          const map = new Map();
+          (Array.isArray(cpDraftQueue) ? cpDraftQueue : []).forEach((item) => {
+            const family = normalizeCpFamilyCode(item.mouldCode || item.mouldName || '');
+            const qty = parseCpNumber(item.planQty) ?? 0;
+            if (!family || qty <= 0) return;
+            map.set(family, (map.get(family) || 0) + qty);
+          });
+          return map;
+        }
+
+        function getCpFamilyRowsByValue(value) {
+          const family = normalizeCpFamilyCode(value);
+          const orderRows = Array.isArray(window.cpOrderMoulds) ? window.cpOrderMoulds : [];
+          return orderRows.filter((row) => normalizeCpFamilyCode(row.mouldFamily || row.mould_family || row.mould_no || row.item_code || row.mould_name) === family);
+        }
+
+        function getCpFamilySnapshotByRows(rows, familyCode, includeDraft = true) {
+          const safeRows = Array.isArray(rows) ? rows : [];
+          const targetList = safeRows.map((row) => Math.max(0, parseCpNumber(row.targetPlanQty ?? row.plan_qty) ?? 0));
+          const targetSum = targetList.reduce((sum, qty) => sum + qty, 0);
+          const targetMax = targetList.reduce((max, qty) => Math.max(max, qty), 0);
+          const targetQty = targetMax > 0 ? targetMax : targetSum;
+          const plannedQty = safeRows.reduce((sum, row) => sum + (Math.max(0, parseCpNumber(row.plannedQty) ?? 0)), 0);
+          const draftQty = includeDraft ? (getCpDraftFamilyQtyMap().get(normalizeCpFamilyCode(familyCode)) || 0) : 0;
+          const adjustedPlannedQty = plannedQty + draftQty;
+          const remainingQty = Math.max(0, targetQty - adjustedPlannedQty);
+          return { targetQty, plannedQty, draftQty, adjustedPlannedQty, remainingQty };
+        }
+
+        function getCpFamilySnapshotForMould(mould, includeDraft = true) {
+          const family = normalizeCpFamilyCode(mould?.mouldFamily || mould?.mould_family || mould?.mould_no || mould?.item_code || mould?.mould_name);
+          const rows = getCpFamilyRowsByValue(family);
+          return {
+            family,
+            rows,
+            ...getCpFamilySnapshotByRows(rows, family, includeDraft)
+          };
+        }
+
+        function formatCpBalanceOrPlanned(value) {
+          const qty = Math.max(0, parseCpNumber(value) ?? 0);
+          return qty <= 0 ? 'Planned' : formatCpQty(qty);
+        }
+
+        function getCpOrderQty(order = window.cpSelectedOrder) {
+          return Math.max(0, parseCpNumber(order?.orQty ?? order?.qty ?? order?.jcQty) ?? 0);
+        }
+
+        function getCpActiveBatchQty() {
+          return Math.max(0, parseCpNumber(window.cpCurrentBatchQty) ?? 0);
+        }
+
+        function getCpMergePayloadKey(item) {
+          return `${String(item.orderNo || '')}|${normalizeCpMouldKey(item.mouldCode || item.itemCode || item.mouldName)}|${String(item.machine || '')}`;
+        }
+
+        function getCpMergedQueueAndExtraPayloads(extraPayloads = []) {
+          const queueItems = (Array.isArray(cpDraftQueue) ? cpDraftQueue : [])
+            .filter((item) => Math.max(0, parseCpNumber(item.planQty) ?? 0) > 0);
+          const extraItems = (Array.isArray(extraPayloads) ? extraPayloads : [])
+            .filter((item) => Math.max(0, parseCpNumber(item.planQty) ?? 0) > 0);
+          const merged = new Map();
+          extraItems.forEach((row) => merged.set(getCpMergePayloadKey(row), row));
+          queueItems.forEach((row) => merged.set(getCpMergePayloadKey(row), row));
+          return Array.from(merged.values());
+        }
+
+        function getCpQueuedBatchQtyByMould(extraPayloads = []) {
+          const map = new Map();
+          const payloads = getCpMergedQueueAndExtraPayloads(extraPayloads);
+          payloads.forEach((item) => {
+            const key = normalizeCpMouldKey(item.mouldCode || item.itemCode || item.mouldName);
+            const qty = Math.max(0, parseCpNumber(item.batchQty) ?? 0);
+            if (!key || qty <= 0) return;
+            map.set(key, (map.get(key) || 0) + qty);
+          });
+          return map;
+        }
+
+        function getCpExistingBatchQtyTotal() {
+          return (Array.isArray(window.cpOrderBatchHistory) ? window.cpOrderBatchHistory : [])
+            .reduce((sum, batch) => sum + Math.max(0, parseCpNumber(batch.batchQty) ?? 0), 0);
+        }
+
+        function formatCpDateTime(value) {
+          if (!value) return '-';
+          const dt = new Date(value);
+          if (Number.isNaN(dt.getTime())) return String(value);
+          return dt.toLocaleString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+          });
+        }
+
+        function renderCpBatchHistoryRows() {
+          const batches = Array.isArray(window.cpOrderBatchHistory) ? window.cpOrderBatchHistory : [];
+          if (!batches.length) {
+            return `<div style="margin-top:12px; border:1px dashed #cbd5e1; border-radius:14px; padding:10px 12px; color:#64748b; font-weight:800; font-size:.84rem">No batch created yet for this OR.</div>`;
+          }
+          return `
+            <div style="margin-top:12px; border-top:1px solid #dbeafe; padding-top:12px">
+              <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:8px">
+                <div style="font-weight:900; color:#1e3a8a">Created Batches</div>
+                <span class="tag">${esc(batches.length)} Batch(es)</span>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:8px">
+                ${batches.map((batch, idx) => `
+                  <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; border:1px solid #bfdbfe; background:#fff; border-radius:14px; padding:9px 10px">
+                    <div style="min-width:180px; flex:1 1 260px">
+                      <div style="font-weight:900; color:#0f172a">Batch ${esc(batch.batchNo || idx + 1)} <span style="color:#64748b; font-weight:700">${esc(batch.ourCode || '')}</span></div>
+                      <div class="mini muted">Batch Qty: ${esc(formatCpQty(batch.batchQty || 0))} | Plan Qty: ${esc(formatCpQty(batch.planQty || 0))} | By ${esc(batch.createdBy || 'System')}</div>
+                    </div>
+                    <div class="mini muted" style="flex:0 1 auto">${esc(formatCpDateTime(batch.createdAt))}</div>
+                    <button class="btn mini" type="button" data-cp-view-batch="${idx}" style="flex:0 0 auto">View Details</button>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        function bindCpBatchHistoryActions() {
+          const box = document.getElementById('cpBatchSetup');
+          if (!box) return;
+          box.querySelectorAll('[data-cp-view-batch]').forEach((btn) => {
+            btn.onclick = () => openCpBatchDetailsModal(Number(btn.dataset.cpViewBatch));
+          });
+        }
+
+        function closeCpBatchDetailsModal() {
+          const modal = document.getElementById('cpBatchDetailsModal');
+          if (modal) modal.remove();
+        }
+        window.closeCpBatchDetailsModal = closeCpBatchDetailsModal;
+
+        function openCpBatchDetailsModal(batchIndex) {
+          const batch = (Array.isArray(window.cpOrderBatchHistory) ? window.cpOrderBatchHistory : [])[batchIndex];
+          if (!batch) return toast('Batch details not found.', 'error');
+          closeCpBatchDetailsModal();
+          const rows = Array.isArray(batch.details) ? batch.details : [];
+          const modal = document.createElement('div');
+          modal.id = 'cpBatchDetailsModal';
+          modal.className = 'modal show';
+          modal.setAttribute('aria-hidden', 'false');
+          modal.style.display = 'flex';
+          modal.innerHTML = `
+            <div class="modal-card" style="width:min(920px, 96vw); max-height:88vh; display:flex; flex-direction:column; overflow:hidden">
+              <div class="modal-head" style="padding:14px 18px">
+                <div>
+                  <div style="font-size:.78rem; color:#0284c7; font-weight:900; letter-spacing:.12em; text-transform:uppercase">Batch Details</div>
+                  <div style="font-size:1.1rem; color:#0f172a; font-weight:900; margin-top:4px">Batch ${esc(batch.batchNo || batchIndex + 1)} ${esc(batch.ourCode || '')}</div>
+                  <div class="mini muted" style="margin-top:4px">Batch Qty: ${esc(formatCpQty(batch.batchQty || 0))} | Created By: ${esc(batch.createdBy || 'System')} | ${esc(formatCpDateTime(batch.createdAt))}</div>
+                </div>
+                <button class="btn icon ghost" type="button" onclick="closeCpBatchDetailsModal()"><i class="bi bi-x-lg"></i></button>
+              </div>
+              <div style="padding:14px 18px; overflow:auto; background:linear-gradient(180deg,#f8fbff,#ffffff)">
+                <table style="width:100%; min-width:760px; border-collapse:collapse; background:#fff; border:1px solid #e2e8f0; border-radius:14px; overflow:hidden">
+                  <thead>
+                    <tr style="background:#f8fafc">
+                      <th style="padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Mould Name</th>
+                      <th style="padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Colour Name</th>
+                      <th style="padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Qty</th>
+                      <th style="padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Plan Qty</th>
+                      <th style="padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Machine</th>
+                      <th style="padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Who Create</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${rows.length ? rows.map((row) => `
+                      <tr>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; font-weight:800">${esc(row.mouldName || '-')}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; color:#4338ca; font-weight:800">${esc(row.colourName || '-')}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:900">${esc(formatCpQty(row.qty || 0))}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right">${esc(formatCpQty(row.planQty || 0))}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9">${esc(row.machine || '-')}</td>
+                        <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9">${esc(row.createdBy || batch.createdBy || 'System')}</td>
+                      </tr>
+                    `).join('') : `<tr><td colspan="6" style="padding:18px; text-align:center; color:#64748b">No batch details found.</td></tr>`}
+                  </tbody>
+                </table>
+              </div>
+              <div class="modal-actions" style="padding:12px 18px">
+                <button class="btn primary" type="button" onclick="closeCpBatchDetailsModal()">Close</button>
+              </div>
+            </div>
+          `;
+          document.body.appendChild(modal);
+        }
+        window.openCpBatchDetailsModal = openCpBatchDetailsModal;
+
+        function renderCpBatchSetup(order = window.cpSelectedOrder) {
+          const box = document.getElementById('cpBatchSetup');
+          if (!box || !order) return;
+          const orderQty = getCpOrderQty(order);
+          const batchStatus = getCpBatchCompleteness();
+          const locked = cpDraftQueue.length > 0;
+          const currentBatchQty = parseCpNumber(window.cpCurrentBatchQty) ?? '';
+          const savedMoulds = Math.max(0, (batchStatus.required?.length || 0) - (batchStatus.missing?.length || 0));
+          const existingBatchQty = getCpExistingBatchQtyTotal();
+          const availableBalanceQty = Math.max(orderQty - existingBatchQty, 0);
+          box.style.display = 'block';
+          box.innerHTML = `
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:12px; align-items:stretch">
+              <div>
+                <div class="mini muted">OR Qty</div>
+                <div style="font-weight:900; color:#0f172a; margin-top:4px; font-size:1.05rem">${esc(formatCpQty(orderQty))}</div>
+              </div>
+              <div>
+                <label class="mini muted" for="cpBatchQtyInput" style="display:block; margin-bottom:5px">Create Batch Qty</label>
+                <input id="cpBatchQtyInput" type="number" min="1" step="1" max="${esc(orderQty || '')}" value="${esc(currentBatchQty)}" ${locked ? 'disabled' : ''}
+                  placeholder="Enter batch qty, e.g. 600"
+                  style="width:100%; border:1px solid #93c5fd; border-radius:12px; padding:10px 12px; font-weight:900; color:#0f172a; background:${locked ? '#f1f5f9' : '#fff'}">
+              </div>
+              <div style="border:1px solid #fed7aa; background:#fff7ed; border-radius:14px; padding:10px 12px">
+                <div class="mini muted">Balance Qty</div>
+                <div id="cpBatchBalanceQty" style="font-weight:900; color:#c2410c; margin-top:4px">${esc(formatCpQty(availableBalanceQty))}</div>
+                <div class="mini muted" style="margin-top:3px">Available: ${esc(formatCpQty(availableBalanceQty))}</div>
+              </div>
+              <div style="border:1px solid ${locked ? '#bbf7d0' : '#bfdbfe'}; background:${locked ? '#f0fdf4' : '#eff6ff'}; color:${locked ? '#166534' : '#1d4ed8'}; border-radius:14px; padding:10px 12px; font-weight:800; font-size:.86rem; min-width:0">
+                ${locked
+                  ? `Batch locked at ${esc(formatCpQty(currentBatchQty))} per mould. Saved moulds ${esc(savedMoulds)} / ${esc(batchStatus.required?.length || 0)}.`
+                  : 'Enter Batch Qty first. Each mould can use up to this qty across its colour rows; balance remains for next batch.'}
+              </div>
+            </div>
+            ${renderCpBatchHistoryRows()}
+          `;
+          const input = document.getElementById('cpBatchQtyInput');
+          if (input && !locked) {
+            input.oninput = () => {
+              const requested = Math.max(0, parseCpNumber(input.value) ?? 0);
+              const value = Math.min(requested, Math.max(orderQty, 0));
+              if (requested !== value) input.value = String(value);
+              window.cpCurrentBatchQty = value || null;
+              const footer = document.getElementById('cpFooterStatus');
+              if (footer) footer.textContent = value ? `Batch Qty set: ${formatCpQty(value)}` : 'Enter Batch Qty to start planning';
+            };
+          }
+          bindCpBatchHistoryActions();
         }
 
         function buildCpMouldGroups(moulds) {
@@ -5684,9 +5960,13 @@
             group.hasPlanned = group.rows.some((row) => !!row.hasAnyPlan);
             group.hasFullyPlanned = group.rows.every((row) => !!row.isDropped || !!row.isFullyPlanned);
             group.hasMissingSqn = group.rows.some((row) => !Number.isFinite(parseCpSqn(row.mouldingSqn || row.moulding_sqn)));
-            group.targetPlanQty = group.rows.reduce((sum, row) => sum + (parseCpNumber(row.targetPlanQty ?? row.plan_qty) ?? 0), 0);
-            group.plannedQty = group.rows.reduce((sum, row) => sum + (parseCpNumber(row.plannedQty) ?? 0), 0);
-            group.remainingQty = group.rows.reduce((sum, row) => sum + (parseCpNumber(row.remainingQty ?? row.targetPlanQty ?? row.plan_qty) ?? 0), 0);
+            const snapshot = getCpFamilySnapshotByRows(group.rows, group.family, true);
+            group.targetPlanQty = snapshot.targetQty;
+            group.plannedQty = snapshot.plannedQty;
+            group.remainingQty = snapshot.remainingQty;
+            group.draftQty = snapshot.draftQty;
+            group.adjustedPlannedQty = snapshot.adjustedPlannedQty;
+            group.adjustedRemainingQty = snapshot.remainingQty;
             return group;
           }).sort((a, b) => {
             const aSqn = Number.isFinite(a.minSqn) ? a.minSqn : Number.MAX_SAFE_INTEGER;
@@ -5788,6 +6068,9 @@
           if (group.hasFullyPlanned) {
             return 'This mould family is fully planned or dropped.';
           }
+          if (cpDraftQueue.length > 0) {
+            return '';
+          }
           if (meta?.nextRequiredSqn != null && Number.isFinite(group.minSqn) && group.minSqn !== meta.nextRequiredSqn) {
             const pendingNames = (meta.requiredRows || []).map((row) => row.mouldNo || row.mouldName).filter(Boolean).join(', ');
             return `Plan Moulding Sqn. ${meta.nextRequiredSqn} first: ${pendingNames}.`;
@@ -5823,6 +6106,9 @@
                 <div><div class="mini muted">Product</div><strong>${esc(window.cpSelectedOrder?.productName || '-')}</strong></div>
                 <div><div class="mini muted">Required Sqn.</div><strong>${esc(window.cpOrderSequenceMeta?.nextRequiredSqn ?? '-')}</strong></div>
               </div>
+              <div style="padding:10px 18px; border-bottom:1px solid var(--border); background:#eff6ff; color:#1d4ed8; font-weight:800; font-size:.84rem">
+                Shared Family Balance Applied: planning one variant updates balance for all variants in this family.
+              </div>
               <div style="padding:18px; overflow:auto; display:flex; flex-direction:column; gap:12px">
                 ${group.rows.map((row, index) => `
                   <div style="border:1px solid rgba(203,213,225,.95); border-radius:18px; padding:16px; background:linear-gradient(180deg, #ffffff, #f8fbff); box-shadow:0 14px 30px rgba(15,23,42,.06)">
@@ -5841,9 +6127,9 @@
                     <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
                       <span class="tag" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe">Primary: ${esc(row.primary_machine || '-')}</span>
                       <span class="tag" style="background:#fff7ed; color:#c2410c; border-color:#fed7aa">Secondary: ${esc(row.secondary_machine || '-')}</span>
-                      <span class="tag">Target ${esc(formatCpQty(row.targetPlanQty ?? row.plan_qty ?? 0))}</span>
-                      <span class="tag">Planned ${esc(formatCpQty(row.plannedQty || 0))}</span>
-                      <span class="tag">Balance ${esc(formatCpQty(row.remainingQty ?? row.targetPlanQty ?? row.plan_qty ?? 0))}</span>
+                      <span class="tag">Target ${esc(formatCpQty(group.targetPlanQty || 0))}</span>
+                      <span class="tag">Planned ${esc(formatCpQty(group.adjustedPlannedQty || 0))}</span>
+                      <span class="tag">Balance ${esc(formatCpBalanceOrPlanned(group.adjustedRemainingQty || 0))}</span>
                     </div>
                   </div>
                 `).join('')}
@@ -5870,6 +6156,7 @@
             box.innerHTML = '';
             return;
           }
+          const familySnapshot = getCpFamilySnapshotForMould(mould, true);
           box.style.display = 'block';
           box.innerHTML = `
             <div style="border:1px solid #bfdbfe; background:linear-gradient(180deg, #f8fbff, #eef6ff); border-radius:18px; padding:14px 16px; box-shadow:0 12px 28px rgba(59,130,246,.08)">
@@ -5900,15 +6187,15 @@
               <div style="margin-top:12px; display:grid; grid-template-columns:repeat(3, minmax(160px, 1fr)); gap:10px">
                 <div style="border:1px solid #e2e8f0; border-radius:14px; padding:10px 12px; background:#fff">
                   <div class="mini muted">Target Qty</div>
-                  <div style="font-weight:800; color:#0f172a; margin-top:4px">${esc(formatCpQty(mould.targetPlanQty ?? mould.plan_qty ?? 0))}</div>
+                  <div style="font-weight:800; color:#0f172a; margin-top:4px">${esc(formatCpQty(familySnapshot.targetQty || 0))}</div>
                 </div>
                 <div style="border:1px solid #dbeafe; border-radius:14px; padding:10px 12px; background:#eff6ff">
                   <div class="mini muted">Already Planned</div>
-                  <div style="font-weight:800; color:#1d4ed8; margin-top:4px">${esc(formatCpQty(mould.plannedQty || 0))}</div>
+                  <div style="font-weight:800; color:#1d4ed8; margin-top:4px">${esc(formatCpQty(familySnapshot.adjustedPlannedQty || 0))}</div>
                 </div>
                 <div style="border:1px solid #fed7aa; border-radius:14px; padding:10px 12px; background:#fff7ed">
                   <div class="mini muted">Balance To Plan</div>
-                  <div style="font-weight:800; color:#c2410c; margin-top:4px">${esc(formatCpQty(mould.remainingQty ?? mould.targetPlanQty ?? mould.plan_qty ?? 0))}</div>
+                  <div style="font-weight:800; color:#c2410c; margin-top:4px">${esc(formatCpBalanceOrPlanned(familySnapshot.remainingQty || 0))}</div>
                 </div>
               </div>
               <div style="margin-top:12px; display:grid; grid-template-columns:repeat(2, minmax(220px, 1fr)); gap:10px">
@@ -6127,20 +6414,28 @@
           };
         }
 
-        function buildCpColourRows(mould, rows) {
+        function buildCpColourRows(mould, rows, options = {}) {
           const mouldBalanceLimit = Math.max(0, parseCpNumber(mould?.remainingQty ?? mould?.targetPlanQty ?? mould?.plan_qty) ?? 0);
           let remainingDefaultQty = Number.isFinite(mouldBalanceLimit) ? mouldBalanceLimit : Number.POSITIVE_INFINITY;
+          const availableMoulds = Array.isArray(options.availableMoulds) ? options.availableMoulds : [];
+          const machineMap = options.machineMap || {};
           return (Array.isArray(rows) ? rows : []).map((row, index) => {
             const colourParts = extractCpColourParts(row.rawMouldItemName || row.rawItemName || row.mould_item_name || row.product_name || row.itemName);
             const mouldItemQty = parseCpNumber(row.mouldItemQty ?? row.mould_item_qty ?? row.reqQty ?? row.jr_qty) ?? 0;
             const reqQty = mouldItemQty;
-            const defaultUseQty = Math.min(reqQty, remainingDefaultQty);
             const requestedUseQty = parseCpNumber(row.useQty ?? row.planQty ?? row.plan_qty);
             const wipQty = parseCpNumber(row.wipQty ?? row.wip_qty) ?? 0;
-            const consumeFromWip = parseCpNumber(row.consumeFromWip ?? row.consume_from_wip) ?? 0;
-            const initialUseQty = requestedUseQty == null ? defaultUseQty : requestedUseQty;
-            const useQty = Math.min(Math.max(initialUseQty, 0), reqQty || initialUseQty, remainingDefaultQty);
+            const selectedMouldCodeRaw = row.selectedMould || row.mould_no || mould?.mould_no || '';
+            const selectedMouldCode = String(selectedMouldCodeRaw || '');
+            const selectedMould = availableMoulds.find((m) => m.code === selectedMouldCode) || availableMoulds[0] || null;
+            const machines = selectedMould ? (machineMap[selectedMould.code] || []) : [];
+            const selectedMachine = machines[0]?.machine || '';
+            const consumptionRatioQty = parseCpNumber(selectedMould?.consumptionRatioQty);
+            const initialUseQty = requestedUseQty == null ? 0 : requestedUseQty;
+            const useQty = Math.min(Math.max(initialUseQty, 0), remainingDefaultQty);
+            const planQty = consumptionRatioQty == null ? 0 : Number((useQty * consumptionRatioQty).toFixed(3));
             remainingDefaultQty = Math.max(remainingDefaultQty - useQty, 0);
+            const consumeFromWip = parseCpNumber(row.consumeFromWip ?? row.consume_from_wip) ?? Math.min(planQty, wipQty);
             return {
               index: index + 1,
               itemCode: row.itemCode || row.item_code || '-',
@@ -6148,14 +6443,19 @@
               itemColour: row.itemColour || row.item_colour || colourParts.itemColour || null,
               rawItemName: row.rawMouldItemName || row.rawItemName || row.mould_item_name || row.product_name || null,
               mouldItemQty,
+              consumptionRatioQty,
               reqQty,
               useQty,
-              reqBalQty: Math.max(reqQty - useQty, 0),
+              reqBalQty: Math.max(reqQty - planQty, 0),
               wipQty,
               consumeFromWip,
               wipBalQty: parseCpNumber(row.wipBalQty ?? row.wip_bal_qty) ?? Math.max(wipQty - consumeFromWip, 0),
-              planQty: useQty,
-              mouldSelection: row.selectedMould || row.mould_no || mould?.mould_no || '-'
+              planQty,
+              mouldSelection: row.selectedMould || row.mould_no || mould?.mould_no || '-',
+              availableMoulds,
+              selectedMouldCode: selectedMould ? selectedMould.code : selectedMouldCode,
+              selectedMachine,
+              availableMachines: machines
             };
           });
         }
@@ -6166,6 +6466,9 @@
           const rows = Array.isArray(window.cpColourPlanRows) ? window.cpColourPlanRows : [];
           const mouldBalanceLimit = parseCpNumber(modal.dataset.planQtyLimit);
           const planQtyLimit = mouldBalanceLimit;
+          const targetBatchQty = getCpActiveBatchQty();
+          const queuedBatchQtyByMould = getCpQueuedBatchQtyByMould();
+          const currentBatchQtyByMould = new Map();
           const totals = {
             reqQty: 0,
             useQty: 0,
@@ -6175,31 +6478,39 @@
             wipBalQty: 0,
             planQty: 0
           };
-          let remainingOrderQty = planQtyLimit == null ? Number.POSITIVE_INFINITY : Math.max(planQtyLimit, 0);
-          let cappedByOrderQty = false;
           let cappedByReqQty = false;
+          let cappedByBatchQty = false;
+          let missingConsumptionRatio = false;
 
           rows.forEach((row, index) => {
             const input = modal.querySelector(`.cp-colour-use-input[data-row-index="${index}"]`);
             const requestedUseQty = Math.max(0, parseCpNumber(input?.value) ?? 0);
             const rowReqQty = Math.max(0, parseCpNumber(row.mouldItemQty ?? row.reqQty) ?? 0);
-            const cappedToReq = Math.min(requestedUseQty, rowReqQty || requestedUseQty);
-            const useQty = Math.min(cappedToReq, remainingOrderQty);
+            const ratio = parseCpNumber(row.consumptionRatioQty);
+            const maxBatchQty = ratio && ratio > 0 ? (rowReqQty / ratio) : rowReqQty;
+            const cappedToReq = Math.min(requestedUseQty, maxBatchQty || requestedUseQty);
+            const mouldKey = normalizeCpMouldKey(row.selectedMouldCode || row.mouldSelection || cpSelectedMould?.mould_no || cpSelectedMould?.item_code || cpSelectedMould?.mould_name);
+            const queuedForMould = queuedBatchQtyByMould.get(mouldKey) || 0;
+            const currentForMould = currentBatchQtyByMould.get(mouldKey) || 0;
+            const remainingForMould = targetBatchQty > 0 ? Math.max(targetBatchQty - queuedForMould - currentForMould, 0) : 0;
+            const cappedToBatch = targetBatchQty > 0 ? Math.min(cappedToReq, remainingForMould) : 0;
+            const useQty = cappedToBatch;
             if (cappedToReq < requestedUseQty) cappedByReqQty = true;
-            if (useQty < cappedToReq) cappedByOrderQty = true;
-            remainingOrderQty = Math.max(remainingOrderQty - useQty, 0);
+            if (cappedToBatch < cappedToReq) cappedByBatchQty = true;
+            if (mouldKey) currentBatchQtyByMould.set(mouldKey, currentForMould + useQty);
+            if (useQty > 0 && (ratio == null || ratio <= 0)) missingConsumptionRatio = true;
             if (input && String(parseCpNumber(input.value) ?? '') !== String(useQty)) {
               input.value = String(useQty);
             }
             row.useQty = useQty;
-            row.reqBalQty = Math.max((row.reqQty || 0) - useQty, 0);
-            row.consumeFromWip = parseCpNumber(row.consumeFromWip) ?? 0;
+            row.planQty = ratio == null || ratio <= 0 ? 0 : Number((useQty * ratio).toFixed(3));
+            row.reqBalQty = Math.max((row.reqQty || 0) - row.planQty, 0);
+            row.consumeFromWip = Math.min(row.planQty, Math.max(0, parseCpNumber(row.wipQty) ?? 0));
             row.wipBalQty = Math.max((row.wipQty || 0) - row.consumeFromWip, 0);
-            row.planQty = useQty;
 
-            ['reqBalQty', 'consumeFromWip', 'wipBalQty', 'planQty'].forEach((key) => {
+            ['consumptionRatioQty', 'reqBalQty', 'consumeFromWip', 'wipBalQty', 'planQty'].forEach((key) => {
               const cell = modal.querySelector(`[data-colour-cell="${key}-${index}"]`);
-              if (cell) cell.textContent = formatCpQty(row[key]);
+              if (cell) cell.textContent = row[key] == null ? 'Fill in Mould Master' : formatCpQty(row[key]);
             });
 
             Object.keys(totals).forEach((key) => {
@@ -6212,16 +6523,38 @@
             if (cell) cell.textContent = formatCpQty(totals[key]);
           });
 
+          const exceedsOrderQty = planQtyLimit != null && totals.planQty > planQtyLimit;
+          const rowsWithPlan = rows.filter((row) => Number(row.planQty || 0) > 0);
+          const missingMachine = rowsWithPlan.some((row) => !String(row.selectedMachine || '').trim());
+          const missingBatchQty = targetBatchQty <= 0;
+          const canSavePlan = rowsWithPlan.length > 0 && !missingBatchQty && !missingMachine && !missingConsumptionRatio && !exceedsOrderQty;
+          const currentPayloads = canSavePlan ? buildCpColourPlanPayloads() : [];
+          const batchStatus = getCpBatchCompleteness(currentPayloads);
+          const canSaveThisPlan = canSavePlan && !batchStatus.exceedsBatchQty;
+          const queueBtn = modal.querySelector('[data-cp-colour-submit="queue"]');
+          const createBtn = modal.querySelector('[data-cp-colour-submit="create"]');
+          if (queueBtn) queueBtn.disabled = !canSaveThisPlan;
+          if (createBtn) createBtn.disabled = !canSavePlan || !batchStatus.complete;
+
           const footer = modal.querySelector('#cpColourFooter');
           if (footer) {
-            if (cappedByOrderQty) {
-              footer.textContent = `Use Qty cannot be more than Mould Item Balance Qty (${formatCpQty(planQtyLimit || 0)}).`;
+            if (missingBatchQty) {
+              footer.textContent = 'Enter Batch Qty on the selected OR first.';
+            } else if (exceedsOrderQty) {
+              const overBy = totals.planQty - planQtyLimit;
+              footer.textContent = `Total Plan Qty exceeds Mould Item Balance Qty by ${formatCpQty(overBy)} (Limit ${formatCpQty(planQtyLimit || 0)}).`;
+            } else if (missingConsumptionRatio) {
+              footer.textContent = 'Consumption Ratio Qty is missing. Fill it first in Mould Master for selected mould(s).';
             } else if (cappedByReqQty) {
-              footer.textContent = 'Use Qty cannot be more than Mould Item Qty for a colour row.';
+              footer.textContent = 'Batch Qty cannot create Plan Qty more than Mould Item Qty for a colour row.';
+            } else if (cappedByBatchQty) {
+              footer.textContent = `One selected mould reached the per-mould Batch Qty limit of ${formatCpQty(targetBatchQty)}.`;
+            } else if (missingMachine) {
+              footer.textContent = `Select machine for each colour row with Batch Qty > 0 | Per mould limit: ${formatCpQty(targetBatchQty)}`;
+            } else if (!batchStatus.complete) {
+              footer.textContent = `${getCpBatchBlockMessage(currentPayloads)} Use Save Plan, then plan pending mould(s).`;
             } else {
-              footer.textContent = cpSelectedMachine
-                ? `Machine selected: ${cpSelectedMachine.machine || '-'} | Mould item balance: ${formatCpQty(planQtyLimit || 0)}`
-                : `Mould item balance: ${formatCpQty(planQtyLimit || 0)} | Select machine to continue`;
+              footer.textContent = `Batch is complete. Create Plan will save all moulds with one unique batch code. Per mould Batch Qty limit: ${formatCpQty(targetBatchQty)} | Plan Qty: ${formatCpQty(totals.planQty)}`;
             }
           }
 
@@ -6230,6 +6563,47 @@
             cpSelectedMould.colourPlanRows = rows.map((row) => ({ ...row }));
           }
         }
+
+        function renderCpColourMachineOptions(modal, row, rowIndex) {
+          const machineSelect = modal.querySelector(`.cp-colour-machine-select[data-row-index="${rowIndex}"]`);
+          if (!machineSelect) return;
+          const machines = Array.isArray(row.availableMachines) ? row.availableMachines : [];
+          machineSelect.innerHTML = machines.map((m) => {
+            const role = m.preferenceRole === 'PRIMARY' ? 'P' : (m.preferenceRole === 'SECONDARY' ? 'S' : 'M');
+            const available = m.isFree
+              ? 'AVL'
+              : (m.bookedUntil ? `BUSY ${formatCpMachineAvailability(m.bookedUntil)}` : 'BUSY');
+            return `<option value="${esc(m.machine)}">${esc(`${m.machine} [${role}] - ${available}`)}</option>`;
+          }).join('');
+          if (row.selectedMachine && machines.some((m) => m.machine === row.selectedMachine)) {
+            machineSelect.value = row.selectedMachine;
+          } else {
+            row.selectedMachine = machines[0]?.machine || '';
+            machineSelect.value = row.selectedMachine || '';
+          }
+        }
+
+        window.onCpColourMouldChange = function(rowIndex, mouldCode) {
+          const modal = document.getElementById('cpColourPlanModal');
+          const rows = Array.isArray(window.cpColourPlanRows) ? window.cpColourPlanRows : [];
+          const row = rows[rowIndex];
+          if (!modal || !row) return;
+          row.selectedMouldCode = mouldCode;
+          const selectedMould = (row.availableMoulds || []).find((m) => m.code === mouldCode) || null;
+          row.availableMachines = selectedMould ? (window.cpVariantMachineMap?.[selectedMould.code] || []) : [];
+          row.mouldSelection = selectedMould?.code || mouldCode || '-';
+          row.consumptionRatioQty = parseCpNumber(selectedMould?.consumptionRatioQty);
+          renderCpColourMachineOptions(modal, row, rowIndex);
+          recalcCpColourPlanModal();
+        };
+
+        window.onCpColourMachineChange = function(rowIndex, machineName) {
+          const rows = Array.isArray(window.cpColourPlanRows) ? window.cpColourPlanRows : [];
+          const row = rows[rowIndex];
+          if (!row) return;
+          row.selectedMachine = machineName || '';
+          recalcCpColourPlanModal();
+        };
 
         function renderCpColourPlanMachines(machines) {
           const modal = document.getElementById('cpColourPlanModal');
@@ -6306,6 +6680,13 @@
           closeCpColourPlanModal();
           const modalItemName = window.cpSelectedOrder?.productName || mould.product_name || mould.itemName || mould.item_name || '-';
           const modalMouldName = mould.mould_name || mould.mouldName || mould.mould_no || '-';
+          const familySnapshot = getCpFamilySnapshotForMould(mould, true);
+          const mouldForColourCalc = {
+            ...mould,
+            targetPlanQty: familySnapshot.targetQty,
+            plannedQty: familySnapshot.adjustedPlannedQty,
+            remainingQty: familySnapshot.remainingQty
+          };
           const modal = document.createElement('div');
           modal.id = 'cpColourPlanModal';
           modal.className = 'modal show';
@@ -6333,8 +6714,7 @@
               <div class="modal-actions" style="flex-shrink:0; padding:12px 18px; background:#fff; border-top:1px solid #e2e8f0">
                 <div id="cpColourFooter" style="margin-right:auto; color:#64748b; font-size:.9rem">Select machine to continue</div>
                 <button class="btn ghost" type="button" onclick="closeCpColourPlanModal()">Cancel</button>
-                <button class="btn" type="button" data-cp-colour-submit="queue" disabled>Save & Add Another</button>
-                <button class="btn primary" type="button" data-cp-colour-submit="create" disabled>Create Plan</button>
+                <button class="btn" type="button" data-cp-colour-submit="queue" disabled>Save Plan</button>
               </div>
             </div>
           `;
@@ -6342,18 +6722,35 @@
 
           const body = modal.querySelector('#cpColourPlanPopupBody');
           try {
-            const [colourPayload, machines] = await Promise.all([
-              fetchCpColourPlanData(mould),
-              fetchCpMachinesForMould(mould)
-            ]);
-            const colourRows = buildCpColourRows(mould, colourPayload.rows);
+            const familyMoulds = familySnapshot.rows.map((row) => ({
+              code: row.mould_no || row.item_code || '',
+              name: row.mould_name || row.mouldName || row.product_name || row.mould_no || '-',
+              mouldingSqn: row.mouldingSqn || row.moulding_sqn || null,
+              primary_machine: row.primary_machine || row.primaryMachine || null,
+              secondary_machine: row.secondary_machine || row.secondaryMachine || null,
+              item_code: row.item_code || row.mould_no || null,
+              consumptionRatioQty: parseCpNumber(row.consumptionRatioQty ?? row.consumption_ratio_qty)
+            })).filter((row) => row.code);
+            const colourPayload = await fetchCpColourPlanData(mould);
+            const machineEntries = await Promise.all(familyMoulds.map(async (variant) => {
+              const variantMachines = await fetchCpMachinesForMould(variant);
+              return [variant.code, Array.isArray(variantMachines) ? variantMachines : []];
+            }));
+            window.cpVariantMachineMap = Object.fromEntries(machineEntries);
+            const colourRows = buildCpColourRows(mouldForColourCalc, colourPayload.rows, {
+              availableMoulds: familyMoulds,
+              machineMap: window.cpVariantMachineMap
+            });
             window.cpColourPlanRows = colourRows;
-            const mouldBalanceQty = parseCpNumber(mould.remainingQty ?? mould.targetPlanQty ?? mould.plan_qty);
+            const mouldBalanceQty = parseCpNumber(familySnapshot.remainingQty);
             modal.dataset.planQtyLimit = String(mouldBalanceQty ?? '');
             const wipDate = colourPayload?.meta?.wipStockDate ? formatCpDate(colourPayload.meta.wipStockDate) : '-';
+            const activeBatchQty = getCpActiveBatchQty();
+            const modalMouldKey = normalizeCpMouldKey(mould.mould_no || mould.item_code || mould.mould_name || mould.mouldName);
+            const savedBatchQty = getCpQueuedBatchQtyByMould().get(modalMouldKey) || 0;
 
             body.innerHTML = `
-              <div style="display:grid; grid-template-columns:repeat(3, minmax(180px, 1fr)); gap:10px">
+              <div style="display:grid; grid-template-columns:repeat(4, minmax(160px, 1fr)); gap:10px">
                 <div style="border:1px solid #bfdbfe; border-radius:16px; padding:12px 14px; background:#eff6ff">
                   <div class="mini muted">OR Number</div>
                   <div style="font-weight:900; color:#0f172a; margin-top:4px">${esc(window.cpSelectedOrder?.orderNo || '-')}</div>
@@ -6365,6 +6762,10 @@
                 <div style="border:1px solid #fed7aa; border-radius:16px; padding:12px 14px; background:#fff7ed">
                   <div class="mini muted">OR Qty</div>
                   <div style="font-weight:900; color:#c2410c; margin-top:4px">${esc(formatCpQty(window.cpSelectedOrder?.orQty || window.cpSelectedOrder?.qty || 0))}</div>
+                </div>
+                <div style="border:1px solid #bbf7d0; border-radius:16px; padding:12px 14px; background:#f0fdf4">
+                  <div class="mini muted">Batch Qty Per Mould / This Mould Remaining</div>
+                  <div style="font-weight:900; color:#166534; margin-top:4px">${esc(formatCpQty(activeBatchQty))} / ${esc(formatCpQty(Math.max(activeBatchQty - savedBatchQty, 0)))}</div>
                 </div>
               </div>
 
@@ -6378,9 +6779,9 @@
                     <div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap">
                       <span class="tag" style="font-family:monospace">${esc(mould.mould_no || mould.item_code || '-')}</span>
                       <span class="tag">Sqn. ${esc(mould.mouldingSqn || mould.moulding_sqn || '-')}</span>
-                      <span class="tag">Target ${esc(formatCpQty(mould.targetPlanQty ?? mould.plan_qty ?? 0))}</span>
-                      <span class="tag">Planned ${esc(formatCpQty(mould.plannedQty || 0))}</span>
-                      <span class="tag">Balance ${esc(formatCpQty(mould.remainingQty ?? mould.targetPlanQty ?? mould.plan_qty ?? 0))}</span>
+                      <span class="tag">Target ${esc(formatCpQty(familySnapshot.targetQty || 0))}</span>
+                      <span class="tag">Planned ${esc(formatCpQty(familySnapshot.adjustedPlannedQty || 0))}</span>
+                      <span class="tag">Balance ${esc(formatCpQty(familySnapshot.remainingQty || 0))}</span>
                       <span class="tag">Cycle ${esc(mould.masterCycleTime || mould.cycle_time || '-')}</span>
                       <span class="tag">Weight ${esc(mould.masterStdWeight || mould.std_wt_kg || '-')}</span>
                       <span class="tag">Cavity ${esc(mould.masterCavity || mould.no_of_cavity || '-')}</span>
@@ -6404,14 +6805,16 @@
                       <tr style="background:#f8fafc">
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Item Code</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Item Name / Colour</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Consumption Ratio Qty</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Mould Item Qty</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Use</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Batch Qty</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Req. Bal</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">WIP Qty</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Consume From WIP</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">WIP Bal</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Plan Qty</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Mould</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Machine (Primary first)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -6422,6 +6825,7 @@
                             <div style="font-weight:800; color:#0f172a">${esc(row.itemName)}</div>
                             ${row.itemColour ? `<div style="margin-top:4px; font-size:.82rem; color:#4338ca; font-weight:700">Colour: ${esc(row.itemColour)}</div>` : ''}
                           </td>
+                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:900; color:${row.consumptionRatioQty == null ? '#be123c' : '#0f172a'}" data-colour-cell="consumptionRatioQty-${index}">${row.consumptionRatioQty == null ? 'Fill in Mould Master' : esc(formatCpQty(row.consumptionRatioQty))}</td>
                           <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:800">${esc(formatCpQty(row.reqQty))}</td>
                           <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right">
                             <input class="cp-colour-use-input" data-row-index="${index}" type="number" min="0" step="1" value="${esc(row.useQty)}" style="width:110px; border:1px solid #bfdbfe; border-radius:10px; padding:8px 10px; text-align:right; font-weight:900; color:#0f172a">
@@ -6431,13 +6835,21 @@
                           <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right" data-colour-cell="consumeFromWip-${index}">${esc(formatCpQty(row.consumeFromWip))}</td>
                           <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:#0f766e; font-weight:800" data-colour-cell="wipBalQty-${index}">${esc(formatCpQty(row.wipBalQty))}</td>
                           <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:900" data-colour-cell="planQty-${index}">${esc(formatCpQty(row.planQty))}</td>
-                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9"><span class="tag" style="font-family:monospace">${esc(row.mouldSelection)}</span></td>
+                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9">
+                            <select class="cp-colour-mould-select" data-row-index="${index}" onchange="window.onCpColourMouldChange(${index}, this.value)" style="width:220px; border:1px solid #bfdbfe; border-radius:10px; padding:8px 10px; font-weight:800">
+                              ${(row.availableMoulds || []).map((m) => `<option value="${esc(m.code)}" ${m.code === row.selectedMouldCode ? 'selected' : ''}>${esc(`${m.code}${m.mouldingSqn ? ` (Sqn ${m.mouldingSqn})` : ''}`)}</option>`).join('')}
+                            </select>
+                          </td>
+                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9">
+                            <select class="cp-colour-machine-select" data-row-index="${index}" onchange="window.onCpColourMachineChange(${index}, this.value)" style="width:320px; border:1px solid #bfdbfe; border-radius:10px; padding:8px 10px; font-weight:700"></select>
+                          </td>
                         </tr>
-                      `).join('') : `<tr><td colspan="10" style="padding:18px; text-align:center; color:#64748b">No OR/JR Wise Detail rows found for this mould.</td></tr>`}
+                      `).join('') : `<tr><td colspan="12" style="padding:18px; text-align:center; color:#64748b">No OR/JR Wise Detail rows found for this mould.</td></tr>`}
                     </tbody>
                     <tfoot>
                       <tr style="background:#f8fafc">
                         <td colspan="2" style="padding:10px 8px; border-top:1px solid #e2e8f0; font-weight:900">Total</td>
+                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="consumptionRatioQty">-</td>
                         <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="reqQty">-</td>
                         <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="useQty">-</td>
                         <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="reqBalQty">-</td>
@@ -6446,34 +6858,23 @@
                         <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="wipBalQty">-</td>
                         <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="planQty">-</td>
                         <td style="padding:10px 8px; border-top:1px solid #e2e8f0"></td>
+                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0"></td>
                       </tr>
                     </tfoot>
                   </table>
                 </div>
-              </div>
-
-              <div style="border:1px solid #bfdbfe; border-radius:18px; background:#f8fbff; padding:14px; flex:0 0 auto">
-                <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:10px">
-                  <strong style="color:#0f172a">Selected Mould Machines</strong>
-                  <span class="tag">Primary / Secondary only</span>
-                </div>
-                <div id="cpColourMachineList" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:10px"></div>
               </div>
             `;
 
             modal.querySelectorAll('.cp-colour-use-input').forEach((input) => {
               input.addEventListener('input', recalcCpColourPlanModal);
             });
-            renderCpColourPlanMachines(machines);
+            colourRows.forEach((row, index) => renderCpColourMachineOptions(modal, row, index));
             recalcCpColourPlanModal();
             modal.querySelector('[data-cp-colour-submit="queue"]').onclick = () => {
-              if (!cpSelectedMachine) return toast('Select machine first.', 'error');
+              const hasMissingMachine = (window.cpColourPlanRows || []).some((r) => (r.planQty || 0) > 0 && !String(r.selectedMachine || '').trim());
+              if (hasMissingMachine) return toast('Select machine for each colour row with Use Qty > 0.', 'error');
               addToQueue();
-              closeCpColourPlanModal();
-            };
-            modal.querySelector('[data-cp-colour-submit="create"]').onclick = async () => {
-              if (!cpSelectedMachine) return toast('Select machine first.', 'error');
-              await handleCreatePlanSubmit();
               closeCpColourPlanModal();
             };
           } catch (e) {
@@ -6584,11 +6985,11 @@
                     </div>
                     <div style="border:1px solid #dbeafe; border-radius:14px; background:#eff6ff; padding:10px 12px">
                       <div class="mini muted">Planned Qty</div>
-                      <div style="font-weight:800; color:#1d4ed8; margin-top:4px">${esc(formatCpQty(group.plannedQty || 0))}</div>
+                      <div style="font-weight:800; color:#1d4ed8; margin-top:4px">${esc(formatCpQty(group.adjustedPlannedQty || 0))}</div>
                     </div>
                     <div style="border:1px solid #fed7aa; border-radius:14px; background:#fff7ed; padding:10px 12px">
                       <div class="mini muted">Balance Qty</div>
-                      <div style="font-weight:800; color:${group.remainingQty > 0 ? '#c2410c' : '#166534'}; margin-top:4px">${esc(formatCpQty(group.remainingQty || 0))}</div>
+                      <div style="font-weight:800; color:${group.adjustedRemainingQty > 0 ? '#c2410c' : '#166534'}; margin-top:4px">${esc(formatCpQty(group.adjustedRemainingQty || 0))}</div>
                     </div>
                   </div>
                   <div style="margin-top:8px; color:#64748b; font-size:.83rem">
@@ -6597,20 +6998,11 @@
                   ${blockReason ? `<div style="margin-top:10px; color:#be123c; font-weight:700; font-size:.88rem">${esc(blockReason)}</div>` : ''}
                 </div>
                 <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end">
-                  <button class="btn mini secondary" type="button" data-cp-action="batch">Batch Plan</button>
                   <button class="btn mini secondary" type="button" data-cp-action="drop" ${group.hasPlanned ? 'disabled' : ''} style="color:#dc2626">Drop</button>
                   <button class="btn primary" type="button" data-cp-action="select" ${blockReason ? 'disabled' : ''}>${group.rows.length > 1 ? 'Open Selection' : 'Select Mould'}</button>
                 </div>
               </div>
             `;
-
-            row.querySelector('[data-cp-action="batch"]').onclick = (e) => {
-              e.stopPropagation();
-              const first = group.rows[0] || {};
-              if (typeof window.openBatchPlanning === 'function') {
-                window.openBatchPlanning(first.item_code || first.mould_no, group.displayName || first.mould_name, first.plan_qty);
-              }
-            };
 
             row.querySelector('[data-cp-action="drop"]').onclick = (e) => {
               e.stopPropagation();
@@ -6635,6 +7027,76 @@
         }
 
         const cpDraftQueue = []; // Global Queue
+
+        function normalizeCpMouldKey(value) {
+          return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        }
+
+        function getCpRequiredBatchMoulds() {
+          const required = (Array.isArray(window.cpOrderMoulds) ? window.cpOrderMoulds : [])
+            .filter((row) => !row.isDropped && !row.isFullyPlanned);
+          const seen = new Set();
+          return required.map((row) => {
+            const code = row.mouldNo || row.mould_no || row.item_code || row.mouldName || row.mould_name;
+            const key = normalizeCpMouldKey(code);
+            if (!key || seen.has(key)) return null;
+            seen.add(key);
+            return {
+              key,
+              code: code || '-',
+              name: row.mouldName || row.mould_name || code || '-'
+            };
+          }).filter(Boolean);
+        }
+
+        function getCpBatchCompleteness(extraPayloads = []) {
+          const required = getCpRequiredBatchMoulds();
+          const payloads = getCpMergedQueueAndExtraPayloads(extraPayloads);
+          const plannedKeys = new Set(payloads.map((item) => normalizeCpMouldKey(item.mouldCode || item.itemCode || item.mouldName)).filter(Boolean));
+          const missing = required.filter((row) => !plannedKeys.has(row.key));
+          const batchQtyValues = payloads
+            .map((item) => parseCpNumber(item.batchQty))
+            .filter((qty) => qty != null && qty > 0);
+          const totalBatchQty = batchQtyValues.reduce((sum, qty) => sum + qty, 0);
+          const targetBatchQty = getCpActiveBatchQty();
+          const hasBatchQty = targetBatchQty > 0;
+          const batchQtyByMould = getCpQueuedBatchQtyByMould(extraPayloads);
+          const overLimitMoulds = Array.from(batchQtyByMould.entries())
+            .filter(([, qty]) => hasBatchQty && qty - targetBatchQty > 0.0001)
+            .map(([key, qty]) => {
+              const mould = required.find((row) => row.key === key);
+              return { key, code: mould?.code || key, qty };
+            });
+          const exceedsBatchQty = overLimitMoulds.length > 0;
+          return {
+            required,
+            payloads,
+            missing,
+            firstBatchQty: targetBatchQty || null,
+            totalBatchQty,
+            batchQtyByMould,
+            overLimitMoulds,
+            targetBatchQty,
+            hasMixedBatchQty: false,
+            exceedsBatchQty,
+            hasPendingBatchQty: false,
+            complete: required.length > 0 && missing.length === 0 && hasBatchQty && !exceedsBatchQty && payloads.length > 0
+          };
+        }
+
+        function getCpBatchBlockMessage(extraPayloads = []) {
+          const status = getCpBatchCompleteness(extraPayloads);
+          if (!status.targetBatchQty) return 'Enter Batch Qty first.';
+          if (!status.payloads.length) return 'Save at least one plan row first.';
+          if (status.exceedsBatchQty) {
+            const over = (status.overLimitMoulds || []).map((row) => `${row.code}: ${formatCpQty(row.qty)}`).join(', ');
+            return `Batch Qty per mould cannot exceed ${formatCpQty(status.targetBatchQty)}. Over limit: ${over || 'selected mould'}.`;
+          }
+          if (status.missing.length) {
+            return `Save Plan for all moulds in this batch first. Pending moulds: ${status.missing.map((row) => row.code).join(', ')}.`;
+          }
+          return '';
+        }
 
         function updateQueueUI() {
           const sec = document.getElementById('cpQueueSection');
@@ -6663,27 +7125,93 @@
                        <div style="font-weight:700; color:#0c4a6e">${esc(item.mouldName)}</div>
                        <div style="font-size:0.8rem; color:#0284c7">on ${esc(item.machine)}</div>
                     </div>
-                    <button onclick="removeFromQueue(${idx})" style="border:0; background:none; color:#ef4444; cursor:pointer"><i class="bi bi-trash"></i></button>
+                    <button type="button" data-cp-remove-queue="${idx}" style="border:0; background:none; color:#ef4444; cursor:pointer"><i class="bi bi-trash"></i></button>
                  `;
               list.appendChild(row);
             });
+            list.querySelectorAll('[data-cp-remove-queue]').forEach((btn) => {
+              btn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                removeFromQueue(Number(btn.dataset.cpRemoveQueue));
+              };
+            });
 
-            // If Queue has items, Save Button creates ALL
-            saveBtn.innerHTML = `<i class="bi bi-check2-all"></i> Create ${cpDraftQueue.length} Plans`;
-            saveBtn.disabled = false;
+            const batchStatus = getCpBatchCompleteness();
+            if (batchStatus.missing.length || batchStatus.exceedsBatchQty) {
+              const msg = getCpBatchBlockMessage();
+              const warn = document.createElement('div');
+              warn.style.cssText = 'margin-top:8px; border:1px solid #fed7aa; background:#fff7ed; color:#9a3412; border-radius:10px; padding:8px 10px; font-size:.82rem; font-weight:800';
+              warn.textContent = msg;
+              list.appendChild(warn);
+            }
+            saveBtn.innerHTML = `<i class="bi bi-check2-all"></i> Create ${cpDraftQueue.length} Saved Plan(s)`;
+            saveBtn.disabled = !batchStatus.complete;
           } else {
             sec.style.display = 'none';
             saveBtn.innerHTML = '<i class="bi bi-check2-circle"></i> Create Plan';
-            // Disable create button if no singleton selection AND no queue
-            if (!cpSelectedMachine) saveBtn.disabled = true;
+            saveBtn.disabled = true;
           }
+          renderCpBatchSetup(cpSelectedOrder);
+        }
+
+        function buildCpColourPlanPayloads() {
+          const rows = Array.isArray(window.cpColourPlanRows) ? window.cpColourPlanRows : [];
+          if (!cpSelectedOrder || !rows.length) return [];
+          const byKey = new Map();
+          rows.forEach((row) => {
+            const qty = Math.max(0, parseCpNumber(row.planQty) ?? 0);
+            if (qty <= 0) return;
+            const mouldCode = row.selectedMouldCode || row.mouldSelection || cpSelectedMould?.mould_no || cpSelectedMould?.item_code;
+            const machine = row.selectedMachine || '';
+            const consumptionRatioQty = parseCpNumber(row.consumptionRatioQty);
+            if (!mouldCode || !machine) return;
+            const mouldVariant = (row.availableMoulds || []).find((m) => m.code === mouldCode) || null;
+            const key = `${mouldCode}__${machine}`;
+            if (!byKey.has(key)) {
+              byKey.set(key, {
+                plant: (localStorage.getItem('jpsms_factory_id') == '2' ? 'SHIVANI' : 'DUNGRA'),
+                machine,
+                orderNo: cpSelectedOrder.orderNo,
+                itemCode: mouldVariant?.item_code || cpSelectedMould?.item_code || mouldCode,
+                itemName: cpSelectedOrder.productName,
+                mouldName: mouldVariant?.name || cpSelectedMould?.mould_name || cpSelectedMould?.mouldName || mouldCode,
+                mouldCode,
+                mouldingSqn: mouldVariant?.mouldingSqn || cpSelectedMould?.mouldingSqn || cpSelectedMould?.moulding_sqn || null,
+                planQty: 0,
+                balQty: 0,
+                batchQty: 0,
+                consumptionRatioQty,
+                mouldItemQty: 0,
+                colourDetails: [],
+                startDate: new Date().toISOString()
+              });
+            }
+            const entry = byKey.get(key);
+            const rowBatchQty = Math.max(0, parseCpNumber(row.useQty) ?? 0);
+            entry.planQty += qty;
+            entry.balQty = entry.planQty;
+            entry.batchQty += rowBatchQty;
+            entry.mouldItemQty += Math.max(0, parseCpNumber(row.mouldItemQty ?? row.reqQty) ?? 0);
+            entry.consumptionRatioQty = consumptionRatioQty;
+            entry.colourDetails.push({
+              itemCode: row.itemCode || '',
+              itemName: row.itemName || '',
+              colourName: row.itemColour || row.rawItemName || row.itemName || '-',
+              batchQty: rowBatchQty,
+              planQty: qty,
+              consumptionRatioQty
+            });
+          });
+          return Array.from(byKey.values());
         }
 
         function addToQueue() {
-          if (!cpSelectedOrder || !cpSelectedMould || !cpSelectedMachine) return toast('Select Order, Mould and Machine', 'error');
+          const colourPayloads = buildCpColourPlanPayloads();
+          if (!cpSelectedOrder) return toast('Select Order', 'error');
+          if (!colourPayloads.length && (!cpSelectedMould || !cpSelectedMachine)) return toast('Select Order, Mould and Machine', 'error');
 
-          // Construct payload
-          const payload = {
+          const payloads = colourPayloads.length ? colourPayloads : [{
             plant: (localStorage.getItem('jpsms_factory_id') == '2' ? 'SHIVANI' : 'DUNGRA'),
             machine: cpSelectedMachine.machine,
             orderNo: cpSelectedOrder.orderNo,
@@ -6694,15 +7222,24 @@
             mouldingSqn: cpSelectedMould.mouldingSqn || cpSelectedMould.moulding_sqn || null,
             planQty: cpSelectedMould.plan_qty,
             balQty: cpSelectedMould.plan_qty,
+            batchQty: getCpActiveBatchQty(),
             startDate: new Date().toISOString()
-          };
+          }];
 
-          // Check dup in queue
-          const exists = cpDraftQueue.find(x => x.mouldName === payload.mouldName && x.orderNo === payload.orderNo);
-          if (exists) return toast('This mould is already in the queue!', 'warning');
+          const batchStatus = getCpBatchCompleteness(payloads);
+          if (!batchStatus.targetBatchQty || batchStatus.exceedsBatchQty) {
+            return toast(getCpBatchBlockMessage(payloads), 'error');
+          }
 
-          cpDraftQueue.push(payload);
-          toast('Added to Queue', 'success');
+          let added = 0;
+          payloads.forEach((payload) => {
+            const exists = cpDraftQueue.find((x) => x.mouldCode === payload.mouldCode && x.orderNo === payload.orderNo && x.machine === payload.machine);
+            if (exists) return;
+            cpDraftQueue.push(payload);
+            added += 1;
+          });
+          if (!added) return toast('Selected mould/machine entries already exist in queue.', 'warning');
+          toast(`Added ${added} plan row(s) to Queue`, 'success');
 
           // Reset Selection (Mould/Machine) but keep Order
           cpSelectedMould = null;
@@ -6714,38 +7251,55 @@
           selectCpOrder(cpSelectedOrder, true);
 
           updateQueueUI();
+          renderCpBatchSetup(cpSelectedOrder);
         }
 
         function removeFromQueue(idx) {
           cpDraftQueue.splice(idx, 1);
           updateQueueUI();
         }
+        window.removeFromQueue = removeFromQueue;
 
         function clearQueue() {
           if (!confirm('Clear all drafted plans?')) return;
           cpDraftQueue.length = 0;
           updateQueueUI();
         }
+        window.clearQueue = clearQueue;
+
+        const cpClearQueueBtn = document.getElementById('cpClearQueueBtn');
+        if (cpClearQueueBtn) cpClearQueueBtn.onclick = clearQueue;
 
         // Defined explicitly for reuse (Fix for Duplicate Status Reset)
         async function handleCreatePlanSubmit() {
           const cpSave = document.getElementById('cpSaveBtn');
           console.log('Create Plan Clicked!');
           console.log('State:', { cpSelectedOrder, cpSelectedMould, cpSelectedMachine });
+          const colourPayloads = buildCpColourPlanPayloads();
+          const hasColourPayloads = colourPayloads.length > 0;
+          const hasQueuedPayloads = cpDraftQueue.length > 0;
 
-          if (!cpSelectedOrder || !cpSelectedMould || !cpSelectedMachine) {
+          if (!cpSelectedOrder || (!hasQueuedPayloads && !hasColourPayloads && (!cpSelectedMould || !cpSelectedMachine))) {
             let missing = [];
             if (!cpSelectedOrder) missing.push("Order");
-            if (!cpSelectedMould) missing.push("Mould");
-            if (!cpSelectedMachine) missing.push("Machine");
+            if (!hasQueuedPayloads && !hasColourPayloads) {
+              if (!cpSelectedMould) missing.push("Mould");
+              if (!cpSelectedMachine) missing.push("Machine");
+            }
             return toast('Please select: ' + missing.join(', '), 'error');
           }
 
+          const batchBlockMessage = getCpBatchBlockMessage(colourPayloads);
+          if (hasQueuedPayloads || hasColourPayloads) {
+            const status = getCpBatchCompleteness(colourPayloads);
+            if (!status.complete) return toast(batchBlockMessage, 'error');
+          }
+
           // IN-MEMORY CHECK (Immediate Feedback) via Helper
-          const duplicate = window.isPlanDuplicate(
+          const duplicate = cpSelectedMould ? window.isPlanDuplicate(
             cpSelectedOrder ? cpSelectedOrder.orderNo : '',
             cpSelectedMould.mould_name || cpSelectedMould.mouldName
-          );
+          ) : null;
 
           if (duplicate) {
             console.error('DEBUG: Duplicate Found!', duplicate);
@@ -6789,7 +7343,12 @@
               // If they selected a last one but didn't click Add, but clicked Create...
               // We should probably include it.
 
-              if (cpSelectedOrder && cpSelectedMould && cpSelectedMachine) {
+              if (hasColourPayloads) {
+                colourPayloads.forEach((rowPayload) => {
+                  const isQueued = payload.find((x) => x.orderNo === rowPayload.orderNo && x.mouldCode === rowPayload.mouldCode && x.machine === rowPayload.machine);
+                  if (!isQueued) payload.push(rowPayload);
+                });
+              } else if (cpSelectedOrder && cpSelectedMould && cpSelectedMachine) {
                 // Check if it's already in queue
                 const isQueued = cpDraftQueue.find(x => x.mouldName === (cpSelectedMould.mould_name || cpSelectedMould.mouldName));
                 if (!isQueued) {
@@ -6805,6 +7364,7 @@
                     mouldingSqn: cpSelectedMould.mouldingSqn || cpSelectedMould.moulding_sqn || null,
                     planQty: cpSelectedMould.plan_qty,
                     balQty: cpSelectedMould.plan_qty,
+                    batchQty: getCpActiveBatchQty(),
                     startDate: new Date().toISOString()
                   });
                 }
@@ -6826,26 +7386,29 @@
             }
 
             // MODE B: Single Create (Legacy / No Queue)
-            const payload = {
-              plant: (localStorage.getItem('jpsms_factory_id') == '2' ? 'SHIVANI' : 'DUNGRA'),
-              machine: cpSelectedMachine.machine,
-              orderNo: cpSelectedOrder.orderNo,
-              itemCode: cpSelectedMould.item_code,
-              itemName: cpSelectedOrder.productName,
-              mouldName: cpSelectedMould.mould_name || cpSelectedMould.mouldName,
-              mouldCode: cpSelectedMould.mould_no || cpSelectedMould.item_code,
-              mouldingSqn: cpSelectedMould.mouldingSqn || cpSelectedMould.moulding_sqn || null,
-              planQty: cpSelectedMould.plan_qty,
-              balQty: cpSelectedMould.plan_qty,
-              startDate: new Date().toISOString()
-            };
+            const payload = hasColourPayloads
+              ? colourPayloads
+              : {
+                plant: (localStorage.getItem('jpsms_factory_id') == '2' ? 'SHIVANI' : 'DUNGRA'),
+                machine: cpSelectedMachine.machine,
+                orderNo: cpSelectedOrder.orderNo,
+                itemCode: cpSelectedMould.item_code,
+                itemName: cpSelectedOrder.productName,
+                mouldName: cpSelectedMould.mould_name || cpSelectedMould.mouldName,
+                mouldCode: cpSelectedMould.mould_no || cpSelectedMould.item_code,
+                mouldingSqn: cpSelectedMould.mouldingSqn || cpSelectedMould.moulding_sqn || null,
+                planQty: cpSelectedMould.plan_qty,
+                balQty: cpSelectedMould.plan_qty,
+                batchQty: getCpActiveBatchQty(),
+                startDate: new Date().toISOString()
+              };
 
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : null;
             console.log('Sending Payload:', payload);
             const res = await api.post('/planning/create', payload);
 
             if (res && res.ok) {
-              toast('Plan created successfully!', 'success');
+              toast(hasColourPayloads ? `Created ${colourPayloads.length} colour-wise plan row(s)!` : 'Plan created successfully!', 'success');
               closeModal('newCreatePlanModal');
               loadMasterPlan();
             } else {
@@ -6863,12 +7426,20 @@
         }
 
         async function selectCpMould(mould) {
+          const activeBatchQty = getCpActiveBatchQty();
+          const orderQty = getCpOrderQty();
+          if (activeBatchQty <= 0) {
+            return toast('Enter Batch Qty after selecting OR first.', 'error');
+          }
+          if (orderQty > 0 && activeBatchQty > orderQty) {
+            return toast(`Batch Qty cannot be more than OR Qty (${formatCpQty(orderQty)}).`, 'error');
+          }
           const selectedSqn = parseCpSqn(mould.mouldingSqn || mould.moulding_sqn);
           if (window.cpOrderSequenceMeta?.missingSqnMoulds?.length) {
             const names = window.cpOrderSequenceMeta.missingSqnMoulds.map((row) => row.mouldNo || row.mouldName).filter(Boolean).join(', ');
             return toast(`Fill Moulding Sqn. first in Mould Master for: ${names}`, 'error');
           }
-          if (window.cpOrderSequenceMeta?.nextRequiredSqn != null && selectedSqn !== window.cpOrderSequenceMeta.nextRequiredSqn) {
+          if (cpDraftQueue.length === 0 && window.cpOrderSequenceMeta?.nextRequiredSqn != null && selectedSqn !== window.cpOrderSequenceMeta.nextRequiredSqn) {
             const pendingNames = (window.cpOrderSequenceMeta.requiredRows || []).map((row) => row.mouldNo || row.mouldName).filter(Boolean).join(', ');
             return toast(`Plan Moulding Sqn. ${window.cpOrderSequenceMeta.nextRequiredSqn} first: ${pendingNames}`, 'error');
           }
@@ -6878,7 +7449,8 @@
           // ---------------------------------------------------------
           const saveBtn = document.getElementById('cpSaveBtn');
 
-          const remainingQtyForPlan = Math.max(0, parseCpNumber(mould.remainingQty ?? mould.targetPlanQty ?? mould.plan_qty) ?? 0);
+          const familySnapshot = getCpFamilySnapshotForMould(mould, true);
+          const remainingQtyForPlan = Math.max(0, familySnapshot.remainingQty);
           const duplicate = remainingQtyForPlan > 0
             ? null
             : window.isPlanDuplicate(
