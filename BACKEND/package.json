@@ -6,6 +6,8 @@
   "scripts": {
     "setup:local:v1": "node scripts/create-local-v1-env.js",
     "check:config": "node scripts/print-runtime-config.js",
+    "mcp:stitch": "node scripts/stitch-mcp-server.js",
+    "stitch:push:qc": "node scripts/push-qc-design-to-stitch.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js"
   },
