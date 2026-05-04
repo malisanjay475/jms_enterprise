@@ -29,8 +29,8 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
   const { aiService, syncService, updaterService } = services;
 
   aiService.init(config.geminiApiKey);
-  registerHrPerformanceRoutes({ app, pool, config, services });
-  registerInterviewPanelRoutes({ app, pool, config, services });
+  const hrPerformanceRuntime = registerHrPerformanceRoutes({ app, pool, config, services }) || {};
+  const interviewPanelRuntime = registerInterviewPanelRoutes({ app, pool, config, services }) || {};
 
 /* ============================================================
    HELPER: MACHINE SERIES SORT (Suffix Priority)
@@ -3570,6 +3570,8 @@ async function initializeLegacyRuntime() {
     await migrateOrderCompletionWorkflowSchema();
     await migrateWipStockMasterSchema();
     await migrateRawMaterialSchema();
+    if (hrPerformanceRuntime.ensureTables) await hrPerformanceRuntime.ensureTables();
+    if (interviewPanelRuntime.ensureTables) await interviewPanelRuntime.ensureTables();
 
     // Non-blocking index creation
     await pool.query(`

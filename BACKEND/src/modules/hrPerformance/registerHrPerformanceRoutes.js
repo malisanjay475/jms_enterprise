@@ -307,10 +307,6 @@ module.exports = function registerHrPerformanceRoutes({ app, pool }) {
     await exec(`CREATE INDEX IF NOT EXISTS idx_hr_kra_daily_entries_employee_date ON hr_kra_daily_entries(employee_user_id, entry_date DESC)`);
   }
 
-  ensureTables().catch((error) => {
-    console.error('[HR PERFORMANCE] Failed to initialize tables:', error);
-  });
-
   async function getSessionUser(req) {
     const username = getRequestUsername(req);
     if (!username) return null;
@@ -1768,4 +1764,5 @@ module.exports = function registerHrPerformanceRoutes({ app, pool }) {
       res.status(500).json({ ok: false, error: error.message });
     }
   });
+  return { ensureTables };
 };

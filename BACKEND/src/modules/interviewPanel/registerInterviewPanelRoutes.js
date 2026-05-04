@@ -709,10 +709,6 @@ module.exports = function registerInterviewPanelRoutes({ app, pool, config = {} 
     await exec(`CREATE INDEX IF NOT EXISTS idx_hr_interview_scores_interview_section ON hr_interview_scores(interview_id, section)`);
   }
 
-  ensureTables().catch((error) => {
-    console.error('[Interview Panel] Failed to initialize tables:', error);
-  });
-
   async function getSessionUser(req) {
     const username = getRequestUsername(req);
     if (!username) return null;
@@ -1045,4 +1041,5 @@ module.exports = function registerInterviewPanelRoutes({ app, pool, config = {} 
       res.status(500).json({ ok: false, error: error.message });
     }
   });
+  return { ensureTables };
 };
