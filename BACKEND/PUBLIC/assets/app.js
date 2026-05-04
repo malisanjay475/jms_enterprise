@@ -69,6 +69,80 @@ const BRAND_NAME = 'JMS OCEAN';
 
 (function (exports) {
     const API_BASE = '/api';
+    const APP_ACCESS_CONFIG = [
+        { id: 'dashboard', label: 'Dashboard', href: 'index.html' },
+        { id: 'planning', label: 'Planning Board', href: 'planning.html' },
+        { id: 'analyze', label: 'Analyze', href: 'analyze.html' },
+        { id: 'raw_material', label: 'Raw Material', href: 'raw_material_jobwise.html' },
+        { id: 'dpr', label: 'DPR', href: 'dpr.html' },
+        { id: 'purchase', label: 'Purchase', href: 'purchase_orders.html' },
+        { id: 'masters', label: 'Masters', href: 'masters.html' },
+        { id: 'quality', label: 'Quality', href: 'Quality.html' },
+        { id: 'hr', label: 'HR', href: 'hr.html' },
+        { id: 'shifting_module', label: 'Shifting Module', href: 'shifting_reports.html' },
+        { id: 'wip_internal', label: 'WIP Internal', href: 'wip.html' },
+        { id: 'reports', label: 'Reports', href: 'reports.html' },
+        { id: 'users', label: 'User Management', href: 'users.html' },
+        { id: 'notifications', label: 'Notifications', href: 'notifications.html' },
+        { id: 'settings', label: 'Settings', href: 'settings.html' },
+        { id: 'joy_learning', label: 'Joy Learning', href: 'joy.html' },
+        { id: 'grinding', label: 'Grinding', href: 'grinding.html' },
+        { id: 'packing', label: 'Packing', href: 'assembly.html' },
+        { id: 'supervisor_app', label: 'Moulding Supervisor App', href: 'supervisor.html' },
+        { id: 'qc_supervisor_app', label: 'QC Supervisor App', href: 'QCSupervisor.html' },
+        { id: 'shifting_supervisor_app', label: 'Shifting Supervisor App', href: 'shifting_supervisor.html' },
+        { id: 'wip_supervisor_app', label: 'WIP Supervisor App', href: 'wip_supervisor.html' }
+    ];
+
+    const PATH_APP_MAP = {
+        '': 'dashboard',
+        '/': 'dashboard',
+        'index.html': 'dashboard',
+        'planning.html': 'planning',
+        'analyze.html': 'analyze',
+        'raw_material_jobwise.html': 'raw_material',
+        'dpr.html': 'dpr',
+        'dpr_daily_report.html': 'dpr',
+        'job_summary.html': 'dpr',
+        'purchase_orders.html': 'purchase',
+        'purchase_vendors.html': 'purchase',
+        'purchase_grn.html': 'purchase',
+        'masters.html': 'masters',
+        'quality.html': 'quality',
+        'hr.html': 'hr',
+        'hr_performance.html': 'hr',
+        'hr_interview_panel.html': 'hr',
+        'shifting_reports.html': 'shifting_module',
+        'shifting_logs.html': 'shifting_module',
+        'shifting_summary.html': 'shifting_module',
+        'shifting.html': 'shifting_module',
+        'wip.html': 'wip_internal',
+        'reports.html': 'reports',
+        'users.html': 'users',
+        'notifications.html': 'notifications',
+        'settings.html': 'settings',
+        'packing_settings.html': 'settings',
+        'joy.html': 'joy_learning',
+        'grinding.html': 'grinding',
+        'assembly.html': 'packing',
+        'scanning.html': 'packing',
+        'scanning_list.html': 'packing',
+        'scanning_dashboard.html': 'packing',
+        'barcode_printer.html': 'packing',
+        'supervisor.html': 'supervisor_app',
+        'qcsupervisor.html': 'qc_supervisor_app',
+        'shifting_supervisor.html': 'shifting_supervisor_app',
+        'wip_supervisor.html': 'wip_supervisor_app'
+    };
+
+    const ROLE_APP_DEFAULTS = {
+        supervisor: 'supervisor.html',
+        qc_supervisor: 'QCSupervisor.html',
+        shifting_supervisor: 'shifting_supervisor.html',
+        quality: 'Quality.html',
+        planning: 'planning.html',
+        planner: 'planning.html'
+    };
 
     function readStoredJson(key, fallback = null) {
         try {
@@ -123,6 +197,10 @@ const BRAND_NAME = 'JMS OCEAN';
         const normalized = {};
 
         Object.entries(permissions).forEach(([feature, config]) => {
+            if (feature === '__apps' || feature === 'app_access') {
+                normalized[feature] = (config && typeof config === 'object' && !Array.isArray(config)) ? { ...config } : {};
+                return;
+            }
             if (!config || typeof config !== 'object' || Array.isArray(config)) {
                 normalized[feature] = config;
                 return;
@@ -143,6 +221,70 @@ const BRAND_NAME = 'JMS OCEAN';
         });
 
         return normalized;
+    }
+
+    function normalizeAppPath(pathname = '') {
+        const raw = String(pathname || '').trim().toLowerCase();
+        if (!raw || raw === '/') return 'index.html';
+        const stripped = raw.replace(/^\//, '');
+        return stripped || 'index.html';
+    }
+
+    function getExplicitAppAccessMap(user = readStoredJson('user', {})) {
+        const normalizedPermissions = normalizePermissionsObject(user?.permissions || {});
+        const appMap = normalizedPermissions.__apps || normalizedPermissions.app_access || {};
+        const keys = Object.keys(appMap || {});
+        if (!keys.length) return null;
+        const normalized = {};
+        keys.forEach((key) => {
+            normalized[String(key)] = appMap[key] === true;
+        });
+        return normalized;
+    }
+
+    function resolveAppIdFromPath(pathname = window.location.pathname) {
+        const normalizedPath = normalizeAppPath(pathname);
+        return PATH_APP_MAP[normalizedPath] || null;
+    }
+
+    function canAccessAppId(appId, user = readStoredJson('user', {})) {
+        if (!appId) return true;
+        if (isAdminLikeUser(user)) return true;
+        const appMap = getExplicitAppAccessMap(user);
+        if (!appMap) return true;
+        return appMap[appId] === true;
+    }
+
+    function getAllowedAppsForUser(user = readStoredJson('user', {})) {
+        return APP_ACCESS_CONFIG.filter(app => canAccessAppId(app.id, user));
+    }
+
+    function getDefaultLandingHref(user = readStoredJson('user', {}), preferredHref = '') {
+        const preferredAppId = preferredHref ? resolveAppIdFromPath(preferredHref) : null;
+        if (preferredHref && canAccessAppId(preferredAppId, user)) {
+            return preferredHref;
+        }
+
+        const role = String(user?.role_code || '').toLowerCase();
+        const roleHref = ROLE_APP_DEFAULTS[role];
+        if (roleHref) {
+            const roleAppId = resolveAppIdFromPath(roleHref);
+            if (canAccessAppId(roleAppId, user)) return roleHref;
+        }
+
+        const firstAllowed = getAllowedAppsForUser(user)[0];
+        return firstAllowed?.href || 'index.html';
+    }
+
+    function getLogoutRedirectForCurrentPath() {
+        const currentPath = normalizeAppPath(window.location.pathname);
+        const portalPaths = new Set([
+            'supervisor.html',
+            'qcsupervisor.html',
+            'shifting_supervisor.html',
+            'wip_supervisor.html'
+        ]);
+        return portalPaths.has(currentPath) ? `/${currentPath}` : '/login.html';
     }
 
     function getCurrentFactoryScope() {
@@ -243,6 +385,7 @@ const BRAND_NAME = 'JMS OCEAN';
         get: (url) => request(url),
         post: (url, body) => request(url, { method: 'POST', body: JSON.stringify(body) }),
         put: (url, body) => request(url, { method: 'PUT', body: JSON.stringify(body) }),
+        patch: (url, body, opts = {}) => request(url, { method: 'PATCH', body: JSON.stringify(body), ...opts }),
         delete: (url) => request(url, { method: 'DELETE' }),
         upload: (url, formData) => request(url, { method: 'POST', body: formData }),
         request: (url, options) => request(url, options) // Expose generic just in case
@@ -259,8 +402,10 @@ const BRAND_NAME = 'JMS OCEAN';
 
     // --- Auth ---
     exports.auth = {
-        login: async (username, password) => {
-            const res = await exports.api.post('/login', { username, password });
+        login: async (username, password, options = {}) => {
+            const payload = { username, password };
+            if (options?.requested_app) payload.requested_app = options.requested_app;
+            const res = await exports.api.post('/login', payload);
             if (res.ok) {
                 localStorage.setItem('token', 'dummy-token-for-now'); // Simulating token
                 localStorage.setItem('user', JSON.stringify(res.data));
@@ -283,13 +428,23 @@ const BRAND_NAME = 'JMS OCEAN';
             localStorage.removeItem('jpsms_factory_name');
             localStorage.removeItem('jpsms_write_factory_id');
             localStorage.removeItem('jpsms_write_factory_name');
-            window.location.href = '/login.html'; // Redirect to login
+            window.location.href = getLogoutRedirectForCurrentPath();
         },
         getUser: () => JSON.parse(localStorage.getItem('user') || '{}'),
+        getAppAccessMap: (user = readStoredJson('user', {})) => getExplicitAppAccessMap(user),
+        getAppConfig: () => APP_ACCESS_CONFIG.slice(),
+        resolveAppIdFromPath: (pathname) => resolveAppIdFromPath(pathname),
+        canAccessApp: (appIdOrPath, user = readStoredJson('user', {})) => {
+            const resolvedAppId = String(appIdOrPath || '').includes('.html') || String(appIdOrPath || '').includes('/')
+                ? resolveAppIdFromPath(appIdOrPath)
+                : String(appIdOrPath || '').trim();
+            return canAccessAppId(resolvedAppId, user);
+        },
+        getDefaultLandingHref: (user = readStoredJson('user', {}), preferredHref = '') => getDefaultLandingHref(user, preferredHref),
         requireAuth: () => {
             const u = JSON.parse(localStorage.getItem('user') || '{}');
             if (!u.username) {
-                window.location.href = '/login.html';
+                window.location.href = getLogoutRedirectForCurrentPath();
                 throw new Error('Unauthorized');
             }
             // Strict lockout for Mobile-only roles if they try to access Desktop Shell pages
@@ -305,6 +460,12 @@ const BRAND_NAME = 'JMS OCEAN';
             if (u.role_code === 'shifting_supervisor' && !path.includes('shifting_supervisor.html')) {
                 window.location.href = '/shifting_supervisor.html';
                 throw new Error('Redirecting to Shifting Portal');
+            }
+            const currentAppId = resolveAppIdFromPath(path);
+            if (currentAppId && !canAccessAppId(currentAppId, u)) {
+                toast('You do not have access to this app.', 'error');
+                window.location.href = '/' + getDefaultLandingHref(u);
+                throw new Error('App access denied');
             }
             const currentScope = getCurrentFactoryScope();
             const writeScope = getWriteFactoryScope();
@@ -940,7 +1101,8 @@ const BRAND_NAME = 'JMS OCEAN';
                 { id: 'plan_master', label: 'Master Plan', icon: 'bi-table', href: 'planning.html?view=master' },
                 { id: 'plan_timeline', label: 'Machine Timeline', icon: 'bi-clock-history', href: 'planning.html?view=timeline' },
                 { id: 'plan_map', label: 'Machine Grid', icon: 'bi-grid-3x3', href: 'planning.html?view=map' },
-                { id: 'plan_print_jc', label: 'Print JobCard', icon: 'bi-printer', href: 'planning.html?view=print_jc' },
+                { id: 'plan_jc_approval', label: 'Pending Plan Approval', icon: 'bi-shield-check', href: 'planning.html#view=pending_plan_approval' },
+                { id: 'plan_print_jc', label: 'Print JobCard', icon: 'bi-printer', href: 'planning.html#view=print_jc' },
                 { id: 'plan_completed', label: 'Complete Production Plan', icon: 'bi-check-circle-fill', href: 'planning.html?view=prod_complete' },
                 { id: 'mould_drop', label: 'Mould Change Report', icon: 'bi-exclamation-triangle', href: 'planning.html?view=mould_change' }
             ]
@@ -1028,6 +1190,14 @@ const BRAND_NAME = 'JMS OCEAN';
             icon: 'bi-people-fill',
             href: 'hr.html',
             items: [
+                { id: 'hr_kra', label: 'KRA Performance', icon: 'bi-clipboard-data', href: 'hr_performance.html' },
+                {
+                    id: 'hr_interview_panel',
+                    label: 'Interview Panel',
+                    icon: 'bi-person-workspace',
+                    href: 'hr_interview_panel.html',
+                    visibleIf: (user) => ['admin', 'superadmin', 'hr_manager'].includes(String(user?.role_code || '').toLowerCase())
+                },
                 { id: 'hr_operators', label: 'Machine Operators', icon: 'bi-person-badge', href: 'hr.html?view=operators' },
                 { id: 'hr_scan', label: 'Engineer Scan', icon: 'bi-qr-code-scan', href: 'hr.html?view=scan' },
                 { id: 'hr_history', label: 'Scan History', icon: 'bi-clock-history', href: 'hr.html?view=history' }
@@ -1165,6 +1335,43 @@ const BRAND_NAME = 'JMS OCEAN';
         }
         console.log('[App] Rendering Shell for:', activePage);
 
+        const parseMenuHref = (href) => {
+            const hi = href.indexOf('#');
+            const baseAll = hi >= 0 ? href.slice(0, hi) : href;
+            const hashStr = hi >= 0 ? href.slice(hi + 1) : '';
+            const qi = baseAll.indexOf('?');
+            const pathRaw = qi >= 0 ? baseAll.slice(0, qi) : baseAll;
+            const path = pathRaw.replace(/^\//, '');
+            const query = new URLSearchParams(qi >= 0 ? baseAll.slice(qi + 1) : '');
+            const hash = new URLSearchParams(hashStr);
+            return { path, query, hash };
+        };
+        const menuPathMatchesLocation = (menuPath) => {
+            const p = (menuPath || '').replace(/^\//, '');
+            const cur = (window.location.pathname || '/').replace(/^\//, '');
+            if (p === cur) return true;
+            const norm = (s) => s.replace(/\.html$/i, '');
+            if (norm(p) === norm(cur)) return true;
+            const leaf = (s) => (s.includes('/') ? s.split('/').pop() : s) || s;
+            return norm(leaf(p)) === norm(leaf(cur));
+        };
+        const subLinkMatchesLocation = (href) => {
+            const { path, query, hash } = parseMenuHref(href);
+            const currentSearch = new URLSearchParams(window.location.search);
+            const currentHash = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
+            if (!menuPathMatchesLocation(path)) return false;
+            for (const [key, val] of query.entries()) {
+                if (currentSearch.get(key) !== val) return false;
+            }
+            const hashKeys = [...hash.keys()];
+            if (hashKeys.length) {
+                for (const key of hashKeys) {
+                    if (currentHash.get(key) !== hash.get(key)) return false;
+                }
+            }
+            return true;
+        };
+
         let navHtml = '';
         const isAdmin = exports.auth.isAdminLike(user);
         const perms = user.permissions || {};
@@ -1176,7 +1383,7 @@ const BRAND_NAME = 'JMS OCEAN';
             // Use .can() to respect Role Fallback
             let canViewParent = false;
             try {
-                canViewParent = exports.auth.can(menu.id, 'view');
+                canViewParent = exports.auth.canAccessApp(menu.href || menu.id, user) && exports.auth.can(menu.id, 'view');
             } catch (e) { console.warn('Auth Error:', e); }
 
             if (canViewParent) {
@@ -1187,23 +1394,11 @@ const BRAND_NAME = 'JMS OCEAN';
                     menu.items.forEach(sub => {
                         if (!canShowEntry(sub)) return;
 
-                        const canViewSub = exports.auth.can(sub.id, 'view');
+                        const canViewSub = exports.auth.canAccessApp(sub.href || menu.href || menu.id, user) && exports.auth.can(sub.id, 'view');
 
                         if (canViewSub) {
                             visibleSubItems.push(sub);
-                            // Robust Active Check
-                            const subPath = sub.href.split('?')[0];
-                            const subParams = new URLSearchParams(sub.href.split('?')[1] || '');
-                            const currentParams = new URLSearchParams(window.location.search);
-                            const currentPath = window.location.pathname.substring(1);
-
-                            let match = (currentPath === subPath);
-                            if (match) {
-                                for (const [key, val] of subParams.entries()) {
-                                    if (currentParams.get(key) !== val) { match = false; break; }
-                                }
-                            }
-                            const subActive = match ? 'active-link' : '';
+                            const subActive = subLinkMatchesLocation(sub.href) ? 'active-link' : '';
 
                             subHtml += `
                             <li>
@@ -1216,20 +1411,8 @@ const BRAND_NAME = 'JMS OCEAN';
                 }
 
                 // Check Matching for Parent Highlighting
-                const isParentActive = visibleSubItems.some(sub => {
-                    const subPath = sub.href.split('?')[0];
-                    const subParams = new URLSearchParams(sub.href.split('?')[1] || '');
-                    const currentParams = new URLSearchParams(window.location.search);
-                    const currentPath = window.location.pathname.substring(1);
-                    let match = (currentPath === subPath);
-                    if (match) {
-                        for (const [key, val] of subParams.entries()) {
-                            if (currentParams.get(key) !== val) return false;
-                        }
-                        return true;
-                    }
-                    return false;
-                }) || (menu.id === activePage);
+                const isParentActive = visibleSubItems.some(sub => subLinkMatchesLocation(sub.href))
+                    || (menu.id === activePage);
 
                 const hasSub = subHtml.length > 0;
 

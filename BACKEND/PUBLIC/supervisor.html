@@ -2902,6 +2902,40 @@
       update(selCc);
     }
 
+    function getSavedPlanColorRows(job) {
+      const raw = job?.colour_details
+        ?? job?.ColourDetails
+        ?? job?._all?.colour_details
+        ?? job?._all?.ColourDetails
+        ?? [];
+
+      let rows = raw;
+      if (typeof rows === 'string') {
+        try {
+          rows = JSON.parse(rows || '[]');
+        } catch (_) {
+          rows = [];
+        }
+      }
+
+      if (!Array.isArray(rows) || !rows.length) return [];
+
+      const grouped = new Map();
+      rows.forEach((row) => {
+        const qty = Math.max(0, Number(row?.planQty ?? row?.plan_qty ?? row?.batchQty ?? row?.batch_qty ?? 0) || 0);
+        const rawName = String(row?.colourName || row?.itemColour || row?.item_colour || row?.rawItemName || row?.itemName || row?.item_name || 'Unspecified').trim();
+        const name = rawName || 'Unspecified';
+        const current = grouped.get(name) || { name, qty: 0, bal: 0, produced: 0 };
+        current.qty += qty;
+        current.bal += qty;
+        grouped.set(name, current);
+      });
+
+      return Array.from(grouped.values())
+        .filter((row) => row.name)
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+
     async function renderColorPlanTable(job) {
       if (!job) {
         hide('color-plan-card');
@@ -2913,6 +2947,78 @@
       show('color-plan-card');
 
       try {
+        const savedPlanColors = getSavedPlanColorRows(job);
+        if (savedPlanColors.length) {
+          if (tbody) tbody.innerHTML = '';
+          window.jobColorsData = {};
+
+          let sumPlan = 0;
+          let sumBal = 0;
+
+          savedPlanColors.forEach((r) => {
+            const q = Math.round(Number(r.qty || 0));
+            const b = Math.round(Number(r.bal || 0));
+
+            window.jobColorsData[r.name] = { plan: q, bal: b };
+            sumPlan += q;
+            sumBal += b;
+
+            const cName = r.name.toLowerCase();
+            let badgeClass = 'color-badge';
+            if (r.name.includes('Other')) badgeClass = 'color-badge badge-grey';
+            else if (cName.includes('red') || cName.includes('maroon') || cName.includes('cherry')) badgeClass += ' badge-red';
+            else if (cName.includes('blue') || cName.includes('navy') || cName.includes('cyan')) badgeClass += ' badge-blue';
+            else if (cName.includes('green') || cName.includes('lime') || cName.includes('olive')) badgeClass += ' badge-green';
+            else if (cName.includes('yellow') || cName.includes('gold') || cName.includes('lemon')) badgeClass += ' badge-yellow';
+            else if (cName.includes('black') || cName.includes('dark')) badgeClass += ' badge-black';
+            else if (cName.includes('white') || cName.includes('ivory') || cName.includes('milk')) badgeClass += ' badge-white';
+            else if (cName.includes('grey') || cName.includes('silver') || cName.includes('ash')) badgeClass += ' badge-grey';
+            else if (cName.includes('orange') || cName.includes('amber')) badgeClass += ' badge-orange';
+            else if (cName.includes('purple') || cName.includes('violet') || cName.includes('lavender')) badgeClass += ' badge-purple';
+            else if (cName.includes('pink') || cName.includes('rose') || cName.includes('magenta')) badgeClass += ' badge-pink';
+            else if (cName.includes('brown') || cName.includes('beige') || cName.includes('tan')) badgeClass += ' badge-brown';
+            else if (cName.includes('teal') || cName.includes('aqua')) badgeClass += ' badge-teal';
+
+            const tr = document.createElement('tr');
+            tr.className = 'color-row';
+            tr.dataset.colorName = r.name;
+            tr.innerHTML = `
+             <td><span class="${badgeClass}">${r.name}</span></td>
+             <td><span class="qty-pill">${q}</span></td>
+             <td><span class="qty-pill">${b}</span></td>
+           `;
+            tr.onclick = () => {
+              const sel = el('d-color');
+              if (sel) {
+                sel.value = r.name;
+                sel.dispatchEvent(new Event('change'));
+              }
+            };
+            if (tbody) tbody.appendChild(tr);
+          });
+
+          const trTot = document.createElement('tr');
+          trTot.className = 'color-row';
+          trTot.innerHTML = `
+           <td><span class="color-badge" style="font-weight:700">Required</span></td>
+           <td><span class="qty-pill" style="font-weight:700">${Math.round(sumPlan)}</span></td>
+           <td><span class="qty-pill" style="font-weight:700">${Math.round(sumBal)}</span></td>
+         `;
+          if (tbody) tbody.appendChild(trTot);
+
+          el('color-plan-note').textContent = 'Source: Saved plan colour breakdown';
+          buildColourOptions(job);
+
+          const planKey = 'last_color_' + (job.PlanID || '');
+          const last = localStorage.getItem(planKey);
+          const s = el('d-color');
+          if (last && hasOption(s, last)) {
+            s.value = last;
+            s.dispatchEvent(new Event('change'));
+          }
+          return;
+        }
+
         const orJrNo = job.OrderNo || (job._all ? job._all['Order No'] : '');
         const jcNo = getJobCardNo(job);
         const mouldNo = job.MouldNo || (job._all ? job._all['Mould No'] : '');
@@ -2935,7 +3041,7 @@
         let sumProduced = 0;
 
         if (!rows.length) {
-          if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="muted">No color details found in JC Report.</td></tr>';
+          if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="muted">No color details found in saved plan or JC Report.</td></tr>';
           // Update dropdowns (fallback will run)
           buildColourOptions(job);
           return;
@@ -3136,7 +3242,7 @@
         const res = await apiFetch('/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
+          body: JSON.stringify({ username, password, requested_app: 'supervisor_app' })
         });
 
         const data = await res.json();
@@ -3613,10 +3719,25 @@
           return;
         }
 
+        let qcChecks = [];
+        try {
+          const qcRes = await apiFetch(`/api/qc/job-checks?jobCardNo=${encodeURIComponent(jcToUse)}&machine=${encodeURIComponent(session.machine || '')}&limit=20`);
+          const qcJson = await qcRes.json();
+          qcChecks = (qcJson && qcJson.ok && Array.isArray(qcJson.data)) ? qcJson.data : [];
+        } catch (_) { qcChecks = []; }
+
         // Calculate Compliance
         const target = parseFloat(jobMeta.JobQty || (jobMeta._all && (jobMeta._all['Total Order Qty'] || jobMeta._all['Order Qty'])) || 0);
         const actual = jobEntries.reduce((sum, r) => sum + (parseFloat(r.GoodQty) || 0), 0);
         const compliance = target > 0 ? Math.min(100, Math.round((actual / target) * 100)) : 0;
+        const latestQc = qcChecks[0] || {};
+        const supervisorActual = jobEntries.find(r => r.ArticleACTWeight)?.ArticleACTWeight || document.getElementById('act-article')?.value || '-';
+        const qcWeights = qcChecks
+          .flatMap(r => [r.qc_weight_1, r.qc_weight_2, r.qc_weight_3])
+          .filter(v => v !== null && v !== undefined && String(v) !== '')
+          .slice(0, 3);
+        const fpaRecord = qcChecks.find(r => r.fpa_form_image || (Array.isArray(r.product_images) && r.product_images.length));
+        const fpaImages = fpaRecord ? [fpaRecord.fpa_form_image, ...((Array.isArray(fpaRecord.product_images) ? fpaRecord.product_images : []))].filter(Boolean) : [];
 
         // Render Snapshot
         jsSnapshot.innerHTML = `
@@ -3633,6 +3754,27 @@
               <div style="font-size: 20px; font-weight: 800; color: var(--ink);">${actual} / ${target}</div>
               <div class="muted" style="font-size: 12px;">Good Pcs Produced</div>
             </div>
+          </div>
+          <div class="premium-card" style="padding:16px; margin-top:12px; background:#fff; border:1px solid #e2e8f0;">
+            <div style="font-weight:800; margin-bottom:10px; color:var(--ink);">QC Weight & FPA Evidence</div>
+            <div style="display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px;">
+              <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:10px;">
+                <div class="muted" style="font-size:11px; font-weight:700;">Supervisor ACT</div>
+                <div style="font-weight:800;">${safe(supervisorActual)}</div>
+              </div>
+              ${[0,1,2].map(i => `
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:10px;">
+                  <div class="muted" style="font-size:11px; font-weight:700;">QC Weight ${i + 1}</div>
+                  <div style="font-weight:800;">${safe(qcWeights[i] || '-')}</div>
+                </div>
+              `).join('')}
+            </div>
+            ${fpaImages.length ? `
+              <div style="font-weight:800; margin:12px 0 8px; color:var(--ink);">FPA Images</div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(86px,1fr)); gap:8px;">
+                ${fpaImages.map((src, i) => `<a href="${src}" target="_blank"><img src="${src}" alt="FPA image ${i + 1}" style="width:100%; height:96px; object-fit:cover; border-radius:10px; border:1px solid #e2e8f0;"></a>`).join('')}
+              </div>
+            ` : '<div class="muted" style="font-size:12px; margin-top:10px;">No FPA images saved yet.</div>'}
           </div>
         `;
 

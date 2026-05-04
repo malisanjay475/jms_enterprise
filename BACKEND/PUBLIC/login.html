@@ -663,14 +663,27 @@
             icon.className = reveal ? 'bi bi-eye' : 'bi bi-eye-slash';
         }
 
+        /** Return path+query to open after login (same-origin relative only). */
+        function getSafeNextPath() {
+            try {
+                const raw = new URLSearchParams(window.location.search).get('next');
+                if (!raw) return '';
+                const decoded = decodeURIComponent(raw);
+                if (!decoded || decoded.includes('://') || decoded.startsWith('//')) return '';
+                if (decoded.includes('\0') || decoded.includes('<')) return '';
+                return decoded;
+            } catch (_e) {
+                return '';
+            }
+        }
+
         function redirectByRole(user) {
-            const role = String(user.role_code || user.role || '').toLowerCase();
-            if (role === 'supervisor') window.location.href = 'supervisor.html';
-            else if (role === 'qc_supervisor') window.location.href = 'QCSupervisor.html';
-            else if (role === 'quality') window.location.href = 'Quality.html';
-            else if (role === 'planning' || role === 'planner') window.location.href = 'planning.html';
-            else if (role === 'shifting_supervisor') window.location.href = 'shifting_supervisor.html';
-            else window.location.href = 'index.html';
+            const next = getSafeNextPath();
+            if (next && JPSMS.auth.canAccessApp(next, user)) {
+                window.location.href = next;
+                return;
+            }
+            window.location.href = JPSMS.auth.getDefaultLandingHref(user, next || '');
         }
 
         function completeLogin(factoryId, factoryName) {
@@ -780,7 +793,14 @@
 
             try {
                 const user = JSON.parse(storedUser);
-                if (user && user.username) redirectByRole(user);
+                if (user && user.username) {
+                    const next = getSafeNextPath();
+                    if (next) {
+                        window.location.replace(next);
+                        return;
+                    }
+                    redirectByRole(user);
+                }
             } catch (_err) {
                 localStorage.removeItem('user');
                 localStorage.removeItem('jpsms_user');

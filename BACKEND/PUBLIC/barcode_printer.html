@@ -15,6 +15,7 @@
         body {
             background: #f1f5f9;
             font-family: 'Segoe UI', sans-serif;
+            color: #0f172a;
         }
 
         .sidebar {
@@ -42,8 +43,8 @@
         }
 
         .preview-area {
-            background: #cbd5e1;
-            padding: 40px;
+            background: linear-gradient(135deg, #dbeafe, #f8fafc);
+            padding: clamp(16px, 4vw, 40px);
             display: flex;
             justify-content: center;
             align-items: center;
@@ -52,135 +53,209 @@
             overflow: auto;
         }
 
-        /* LABEL STYLES - "Perfect" Polish */
         .label-container {
             background: #fff;
             color: #000;
             box-sizing: border-box;
             border: 1px dashed #94a3b8;
-            /* Guide border */
             display: flex;
             flex-direction: column;
             align-items: center;
             text-align: center;
             overflow: hidden;
             position: relative;
-            font-family: 'Arial Narrow', Arial, sans-serif;
-            /* Standard Label Font */
-            padding: 2mm;
+            font-family: Arial, Helvetica, sans-serif;
+            padding: 1.7mm;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
 
-        /* Sizes */
         .l-50-50 {
             width: 50mm;
             height: 50mm;
-            font-size: 8px;
+            font-size: 8.4px;
         }
 
         .l-75-50 {
             width: 75mm;
             height: 50mm;
-            font-size: 10px;
+            font-size: 9.8px;
         }
 
         .l-85-60 {
             width: 85mm;
             height: 60mm;
-            font-size: 11px;
+            font-size: 10.6px;
         }
 
-        /* Typography */
         .l-header {
-            font-size: 1.1em;
-            font-weight: 800;
+            font-size: 1.14em;
+            font-weight: 900;
             text-transform: uppercase;
             margin-bottom: 1px;
-            letter-spacing: 0.5px;
+            letter-spacing: 0;
+            line-height: 1;
         }
 
         .l-address {
-            font-size: 0.75em;
-            margin-bottom: 4px;
-            line-height: 1.1;
-            font-weight: 500;
-            padding: 0 4mm;
+            font-size: 0.72em;
+            margin-bottom: 2px;
+            line-height: 1.08;
+            font-weight: 700;
+            padding: 0 2mm;
         }
 
-        /* Standard Barcode Area */
         .code-area {
             display: flex;
             align-items: center;
             justify-content: center;
             width: 100%;
-            margin: 4px 0 6px 0;
+            margin: 2px 0 3px 0;
             padding: 0;
+            flex: 0 0 auto;
         }
 
         .bc-wrap {
             width: 100%;
             display: flex;
             justify-content: center;
+            align-items: center;
+            min-height: 25mm;
         }
 
         .bc-bars {
-            height: 16mm;
-            width: 80%;
-            max-width: 42mm;
+            height: 18mm;
+            width: 92%;
+            max-width: 62mm;
+            shape-rendering: crispEdges;
         }
 
-        /* Product Name */
+        .qr-box {
+            background: #fff;
+            border: 1px solid #000;
+            padding: 1.5mm;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .qr-box canvas,
+        .qr-box img {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+            image-rendering: pixelated;
+        }
+
+        .l-50-50 .qr-box {
+            width: 27mm;
+            height: 27mm;
+        }
+
+        .l-75-50 .qr-box {
+            width: 28mm;
+            height: 28mm;
+        }
+
+        .l-85-60 .qr-box {
+            width: 33mm;
+            height: 33mm;
+        }
+
         .l-product {
-            font-size: 1.3em;
+            font-size: 1.18em;
             font-weight: 900;
-            margin: 2px 0 4px 0;
+            margin: 1px 0 2px 0;
             text-transform: uppercase;
-            line-height: 1.1;
+            line-height: 1.02;
             width: 100%;
-            border-bottom: 1px solid #eee;
+            border-top: 1px solid #000;
+            border-bottom: 1px solid #000;
+            min-height: 8mm;
             padding-bottom: 2px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            word-break: break-word;
         }
 
-        /* Details Grid */
         .l-details {
-            font-size: 0.95em;
-            display: flex;
-            flex-direction: column;
+            font-size: 0.88em;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1px 2mm;
             width: 100%;
-            padding: 0 2mm;
+            padding: 0 1mm;
             flex: 1;
+            align-content: start;
         }
 
         .l-row {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 2px;
             align-items: baseline;
+            gap: 2px;
+            border-bottom: 1px solid #e5e7eb;
         }
 
         .l-lbl {
-            font-weight: 700;
-            color: #333;
+            font-weight: 900;
+            color: #000;
         }
 
         .l-val {
-            font-weight: 800;
+            font-weight: 900;
             text-align: right;
+            min-width: 0;
+            word-break: break-word;
         }
 
-        /* Footer */
         .l-footer {
-            font-size: 0.65em;
+            font-size: 0.58em;
             margin-top: auto;
-            border-top: 2px solid #000;
+            border-top: 1px solid #000;
             padding-top: 2px;
             line-height: 1.1;
             text-align: center;
             width: 100%;
-            font-weight: 600;
+            font-weight: 700;
         }
 
-        /* Print Media */
+        .scan-value {
+            font-size: 0.9em;
+            font-weight: 900;
+            line-height: 1;
+            margin-top: 1px;
+            max-width: 100%;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 768px) {
+            .main {
+                padding: 12px;
+            }
+
+            .preview-area {
+                min-height: 360px;
+            }
+
+            .label-container {
+                transform: scale(1.12);
+                transform-origin: center;
+                margin: 12px;
+            }
+        }
+
         @media print {
+            html,
+            body {
+                width: auto;
+                height: auto;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #fff !important;
+            }
+
             body * {
                 visibility: hidden;
             }
@@ -196,17 +271,36 @@
                 top: 0;
                 margin: 0;
                 padding: 0;
-                background: none;
+                background: #fff;
                 border: none;
+                display: block;
             }
 
             .label-container {
                 border: none !important;
+                transform: none !important;
+                margin: 0 !important;
+                break-after: page;
+                page-break-after: always;
+                page-break-inside: avoid;
+                box-shadow: none !important;
+            }
+
+            .label-container:last-child {
+                break-after: auto;
+                page-break-after: auto;
             }
 
             @page {
+                size: 50mm 50mm;
                 margin: 0;
             }
+        }
+    </style>
+    <style id="dynamic-print-page-size">
+        @page {
+            size: 50mm 50mm;
+            margin: 0;
         }
     </style>
 </head>
@@ -359,10 +453,26 @@
 
         let isUniqueMode = false;
         let printFormat = 'qr'; // 'qr' or 'barcode'
+        const LABEL_SIZES = {
+            'l-50-50': { width: 50, height: 50, qr: 27, barcode: 17, barcodeWidth: 1.85 },
+            'l-75-50': { width: 75, height: 50, qr: 28, barcode: 18, barcodeWidth: 2.15 },
+            'l-85-60': { width: 85, height: 60, qr: 33, barcode: 22, barcodeWidth: 2.25 }
+        };
 
         function setSize(size) {
             currentSize = 'l-' + size;
+            setPrintPageSize();
             render();
+        }
+
+        function setPrintPageSize() {
+            const size = LABEL_SIZES[currentSize] || LABEL_SIZES['l-50-50'];
+            document.getElementById('dynamic-print-page-size').textContent = `
+                @page {
+                    size: ${size.width}mm ${size.height}mm;
+                    margin: 0;
+                }
+            `;
         }
 
         function toggleMode() {
@@ -413,7 +523,7 @@
             // CREATE CONTAINER
             const box = document.createElement('div');
             box.className = `label-container ${currentSize}`;
-            if (total > 1) box.style.pageBreakAfter = 'always';
+            if (total > 1 && index < total) box.style.pageBreakAfter = 'always';
 
             // HTML CONTENT
             box.innerHTML = `
@@ -423,6 +533,7 @@
                 <div class="code-area">
                     <div class="bc-wrap" id="bc-wrap-${index}"></div>
                 </div>
+                <div class="scan-value">${ean}</div>
 
                 <div class="l-product">${name}</div>
 
@@ -441,6 +552,7 @@
             // BARCODE / QR GENERATION
             const wrap = box.querySelector(`#bc-wrap-${index}`);
             const suffix = uniqueSuffix || Date.now().toString().slice(-9);
+            const labelSize = LABEL_SIZES[currentSize] || LABEL_SIZES['l-50-50'];
 
             // LOGIC: 
             let codeText = ean;
@@ -452,14 +564,15 @@
 
             if (printFormat === 'qr') {
                 const qrDiv = document.createElement("div");
+                qrDiv.className = 'qr-box';
                 wrap.appendChild(qrDiv);
                 new QRCode(qrDiv, {
                     text: codeText,
-                    width: 128,
-                    height: 128,
+                    width: Math.round(labelSize.qr * 4),
+                    height: Math.round(labelSize.qr * 4),
                     colorDark: "#000000",
                     colorLight: "#ffffff",
-                    correctLevel: QRCode.CorrectLevel.H
+                    correctLevel: QRCode.CorrectLevel.Q
                 });
             } else {
                 // BARCODE
@@ -477,12 +590,13 @@
 
                     JsBarcode(svg, codeText, {
                         format: fmt,
-                        width: (fmt === "EAN13") ? 2.0 : 1.7,
-                        height: 45,
+                        width: (fmt === "EAN13") ? labelSize.barcodeWidth : Math.max(1.45, labelSize.barcodeWidth - 0.35),
+                        height: Math.round(labelSize.barcode * 3.78),
                         displayValue: true,
-                        fontSize: 11,
+                        fontSize: 13,
                         fontOptions: "bold",
-                        margin: 0
+                        textMargin: 2,
+                        margin: 4
                     });
                 } catch (e) {
                     console.error(e);
@@ -495,6 +609,7 @@
 
         // Init
         window.addEventListener('DOMContentLoaded', () => {
+            setPrintPageSize();
             render();
         });
     </script>

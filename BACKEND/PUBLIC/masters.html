@@ -556,6 +556,8 @@
 
         <div><label class="control-label">SFG STD Packing</label><input type="text" id="mould_sfg_std_packing"
             class="form-input" style="width:100%"></div>
+        <div><label class="control-label">SFG Bag Type</label><input type="text" id="mould_sfg_bag_type"
+            class="form-input" style="width:100%"></div>
         <div><label class="control-label">SFG Bag Size</label><input type="text" id="mould_sfg_bag_size"
             class="form-input" style="width:100%"></div>
         <div><label class="control-label">STD VOLUME CAP.</label><input type="text" id="mould_std_volume_cap"
@@ -696,7 +698,7 @@
     const mouldFields = [
       'mould_number', 'mould_name', 'std_wt_kg', 'runner_weight',
       'primary_machine', 'secondary_machine', 'moulding_sqn', 'consumption_ratio_qty', 'tonnage', 'no_of_cav', 'cycle_time', 'pcs_per_hour',
-      'target_pcs_day', 'material', 'manpower', 'operator_activities', 'sfg_std_packing', 'sfg_bag_size',
+      'target_pcs_day', 'material', 'manpower', 'operator_activities', 'sfg_std_packing', 'sfg_bag_type', 'sfg_bag_size',
       'std_volume_cap'
     ];
     const mouldColumnTitles = {
@@ -717,6 +719,7 @@
       manpower: 'MANPOWER',
       operator_activities: 'OPERATOR ACTIVITIES',
       sfg_std_packing: 'SFG STD PACKING',
+      sfg_bag_type: 'SFG BAG TYPE',
       sfg_bag_size: 'SFG BAG SIZE',
       std_volume_cap: 'STD VOLUME CAP.'
     };
@@ -1416,6 +1419,7 @@
     });
 
     let masterTable;
+
     let pendingUploadData = [];
     let pendingUploadMode = null;
     let pendingUploadFile = null;
@@ -1485,6 +1489,7 @@
           { key: 'manpower', label: 'Manpower', aliases: ['MANPOWER'] },
           { key: 'operator_activities', label: 'Operator Activities', aliases: ['OPERATOR ACTIVITIES'] },
           { key: 'sfg_std_packing', label: 'SFG STD Packing', aliases: ['SFG STD PACKING', 'SFG QTY'] },
+          { key: 'sfg_bag_type', label: 'SFG Bag Type', aliases: ['SFG BAG TYPE'] },
           { key: 'sfg_bag_size', label: 'SFG Bag Size', aliases: ['SFG BAG SIZE', 'SFG BAG SIZE '] },
           { key: 'std_volume_cap', label: 'STD Volume Cap.', aliases: ['STD VOLUME CAP.', 'STD VOLUME CAP', 'STD VOLUME CAPACITY'] },
           { key: 'factory_id', label: 'Factory ID', aliases: ['FACTORY ID', 'FACTORY', 'FACTORY CODE'], optional: true }
@@ -2702,6 +2707,17 @@
             };
           }
 
+          if (c === 'remarks_all' && (currentType === 'orjr' || currentType === 'orders')) {
+            base.title = 'Remarks';
+            base.render = function (data, type, row) {
+              if (type === 'sort' || type === 'type') return data || '';
+              const text = data == null ? '' : String(data);
+              const safe = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              const safeTitle = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+              return `<div title="${safeTitle}" style="white-space:nowrap; font-size:0.78rem; color:#334155; line-height:1.35; min-width:max-content;">${safe || '—'}</div>`;
+            };
+          }
+
           // Date Formatting
           if ((c.includes('date') || c.includes('dob') || c.includes('time')) && c !== 'cycle_time' && !['actions', 'plan_status'].includes(c)) {
             base.render = function (data, type) {
@@ -3090,6 +3106,7 @@
           'manpower': 'Manpower',
           'operator_activities': 'Operator Activities',
           'sfg_std_packing': 'SFG STD Packing',
+          'sfg_bag_type': 'SFG Bag Type',
           'sfg_bag_size': 'SFG Bag Size',
           'std_volume_cap': 'STD Volume Cap.',
           'building': 'Building',
@@ -3186,7 +3203,7 @@
           'order_no', 'item_code', 'item_name', 'mould_code', 'qty', 'priority', 'client_name',
           'mould_number', 'mould_name', 'std_wt_kg', 'runner_weight', 'primary_machine', 'secondary_machine',
           'moulding_sqn', 'consumption_ratio_qty', 'tonnage', 'no_of_cav', 'cycle_time', 'pcs_per_hour', 'target_pcs_day',
-          'material', 'manpower', 'operator_activities', 'sfg_std_packing', 'sfg_bag_size', 'std_volume_cap',
+          'material', 'manpower', 'operator_activities', 'sfg_std_packing', 'sfg_bag_type', 'sfg_bag_size', 'std_volume_cap',
           'building', 'line', 'machine', 'vendor_name', 'model_no', 'machine_type', 'factory_id',
           'or_jr_no', 'or_jr_date', 'or_qty', 'jr_qty', 'plan_qty', 'plan_date',
           'jr_date', 'our_code', 'bom_type', 'jr_item_name',
