@@ -1,5 +1,5 @@
 # Base Image
-FROM node:18-alpine
+FROM node:20-alpine
 
 # pg_restore / psql / dropdb for optional AUTO_IMPORT_DB_PATH (see scripts/auto-import-db-if-needed.js)
 RUN apk add --no-cache postgresql-client
