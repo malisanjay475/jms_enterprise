@@ -35,6 +35,7 @@ const SYNC_ALL = [
     'purchase_orders',
     'qc_deviations',
     'qc_issue_memos',
+    'qc_job_checks',
     'qc_online_reports',
     'qc_training_sheets',
     // 'roles', // Static?

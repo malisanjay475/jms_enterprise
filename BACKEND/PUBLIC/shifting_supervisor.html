@@ -10,68 +10,603 @@
     <style>
         :root {
             --phone: 480px;
-            --bg: #f8fafc;
+            --bg: #eef7fb;
             --card: #ffffff;
-            --primary: #2563eb;
+            --primary: #0b7db0;
+            --primary-deep: #0f2f4c;
+            --accent: #f59e0b;
+            --line: #cfe3ee;
+            --muted: #64748b;
+        }
+
+        html,
+        body {
+            min-height: 100%;
+            height: auto;
+            overflow-x: hidden;
+            overflow-y: auto;
+            overscroll-behavior-y: contain;
+            -webkit-overflow-scrolling: touch;
         }
 
         body {
-            background: var(--bg);
+            background:
+                radial-gradient(circle at top left, rgba(11, 125, 176, .14), transparent 30%),
+                radial-gradient(circle at bottom right, rgba(245, 158, 11, .12), transparent 28%),
+                var(--bg);
             margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             color: #1e293b;
+            min-height: 100dvh;
             padding-bottom: 40px;
         }
 
         .shell {
             width: min(100%, var(--phone));
             margin: 0 auto;
-            padding: 16px;
+            padding: 16px 14px calc(34px + env(safe-area-inset-bottom, 0px));
+            overflow: visible;
+        }
+
+        #view-app {
+            min-height: 100dvh;
+            overflow: visible !important;
         }
 
         .card {
             background: var(--card);
-            border-radius: 12px;
+            border-radius: 22px;
             padding: 16px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-            border: 1px solid #e2e8f0;
-            margin-bottom: 12px;
+            box-shadow: 0 14px 34px rgba(15, 47, 76, 0.08);
+            border: 1px solid var(--line);
+            margin-bottom: 14px;
         }
 
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            gap: 12px;
+            margin-bottom: 18px;
         }
 
         .btn-primary {
             width: 100%;
-            padding: 12px;
-            border-radius: 8px;
-            background: var(--primary);
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, var(--primary-deep) 0%, var(--primary) 100%);
             color: white;
             border: none;
-            font-weight: 600;
-            font-size: 1rem;
+            font-weight: 800;
+            font-size: 0.98rem;
+            box-shadow: 0 12px 24px rgba(8, 125, 168, .22);
         }
 
         .btn-outline {
             background: transparent;
             border: 1px solid #cbd5e1;
-            padding: 6px 12px;
-            border-radius: 6px;
-            color: #64748b;
+            padding: 10px 12px;
+            border-radius: 12px;
+            color: #475569;
         }
 
-        /* Machine Card */
+        .hero {
+            background: linear-gradient(135deg, rgba(255, 255, 255, .96) 0%, rgba(232, 248, 255, .96) 100%);
+        }
+
+        .eyebrow {
+            font-size: 11px;
+            letter-spacing: .14em;
+            text-transform: uppercase;
+            font-weight: 900;
+            color: var(--primary);
+            margin-bottom: 6px;
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 900;
+            color: var(--primary-deep);
+            margin: 0;
+        }
+
+        .section-copy {
+            font-size: .84rem;
+            color: var(--muted);
+            margin-top: 4px;
+            line-height: 1.45;
+        }
+
+        .scan-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-top: 14px;
+        }
+
+        .scan-row.stack {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .scan-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+            flex-wrap: wrap;
+        }
+
+        .scan-row .form-control,
+        .scan-row .form-select {
+            flex: 1;
+        }
+
+        .scan-cta {
+            width: auto;
+            min-width: 106px;
+            white-space: nowrap;
+        }
+
+        .scan-cta.main-scan {
+            width: 100%;
+            min-height: 54px;
+            font-size: 1.05rem;
+        }
+
+        .scan-cta.secondary {
+            background: #fff;
+            color: var(--primary-deep);
+            border: 1px solid #bfdbfe;
+            box-shadow: none;
+        }
+
+        .scan-shell {
+            border: 1px solid #bfdbfe;
+            background: linear-gradient(135deg, rgba(239, 248, 255, .92) 0%, rgba(255, 255, 255, .98) 100%);
+        }
+
+        .scan-placeholder {
+            margin-top: 14px;
+            padding: 18px;
+            border: 1px dashed #bfd4df;
+            border-radius: 18px;
+            color: var(--muted);
+            background: rgba(255, 255, 255, .8);
+            text-align: center;
+            font-size: .9rem;
+        }
+
+        .scan-ready-card {
+            margin-top: 14px;
+            border: 1px solid #b7d8ea;
+            border-radius: 20px;
+            background: #fff;
+            overflow: hidden;
+        }
+
+        .scan-ready-top {
+            padding: 16px;
+            background: linear-gradient(135deg, #e8f7ff 0%, #ffffff 100%);
+            border-bottom: 1px solid #dbeafe;
+        }
+
+        .scan-colour-name {
+            font-size: 1.55rem;
+            line-height: 1.08;
+            font-weight: 950;
+            color: var(--primary-deep);
+            word-break: break-word;
+        }
+
+        .scan-item-line {
+            margin-top: 6px;
+            color: #475569;
+            font-size: .84rem;
+            line-height: 1.35;
+            font-weight: 700;
+        }
+
+        .scan-qty-pill {
+            margin-top: 12px;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .scan-qty-tile {
+            border: 1px solid #bfdbfe;
+            border-radius: 16px;
+            background: #f8fbff;
+            padding: 12px;
+        }
+
+        .scan-qty-tile.primary {
+            background: #0b7db0;
+            border-color: #0b7db0;
+            color: #fff;
+        }
+
+        .scan-qty-tile .label {
+            font-size: .66rem;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            font-weight: 900;
+            opacity: .78;
+        }
+
+        .scan-qty-tile .value {
+            margin-top: 4px;
+            font-size: 1.3rem;
+            line-height: 1;
+            font-weight: 950;
+        }
+
+        .scan-shift-form {
+            padding: 14px;
+        }
+
+        .scan-shift-form .qty-form-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .result-card {
+            margin-top: 14px;
+            border: 1px solid #dbeafe;
+            border-radius: 18px;
+            padding: 14px;
+            background: #fff;
+        }
+
+        .result-grid,
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .metric-grid {
+            margin-top: 12px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .field,
+        .metric {
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            background: #fbfdff;
+            padding: 12px;
+        }
+
+        .field-label,
+        .metric-label {
+            font-size: .68rem;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: var(--muted);
+            font-weight: 900;
+            margin-bottom: 5px;
+        }
+
+        .field-value {
+            font-size: .92rem;
+            font-weight: 800;
+            color: #0f172a;
+            line-height: 1.35;
+            word-break: break-word;
+        }
+
+        .metric-value {
+            font-size: 1.05rem;
+            font-weight: 900;
+            color: var(--primary-deep);
+        }
+
+        .metric.hot .metric-value { color: #dc2626; }
+        .metric.good .metric-value { color: #166534; }
+        .metric.warn .metric-value { color: #b45309; }
+
+        .metric.focus {
+            border-color: #93c5fd;
+            background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
+        }
+
+        .metric.focus .metric-value {
+            color: #1d4ed8;
+        }
+
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 11px;
+            border-radius: 999px;
+            font-size: .76rem;
+            font-weight: 900;
+            border: 1px solid transparent;
+        }
+
+        .status-chip.ok {
+            color: #166534;
+            background: #dcfce7;
+            border-color: #bbf7d0;
+        }
+
+        .status-chip.pending {
+            color: #92400e;
+            background: #fef3c7;
+            border-color: #fde68a;
+        }
+
+        .status-chip.error {
+            color: #991b1b;
+            background: #fee2e2;
+            border-color: #fecaca;
+        }
+
+        .section-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .subtle-btn {
+            background: #fff;
+            border: 1px solid #dbeafe;
+            color: var(--primary-deep);
+            border-radius: 12px;
+            padding: 10px 12px;
+            font-weight: 800;
+        }
+
+        .compact-note {
+            margin-top: 10px;
+            font-size: .78rem;
+            color: var(--muted);
+            line-height: 1.45;
+        }
+
+        .qty-form-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .qty-form-grid .field {
+            padding: 10px 12px;
+        }
+
+        .form-control.readonly {
+            background: #eff6ff;
+            color: #0f172a;
+            font-weight: 900;
+        }
+
+        .colour-summary-wrap {
+            margin-top: 14px;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 14px;
+        }
+
+        .colour-summary-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .colour-card {
+            border: 1px solid #dbeafe;
+            border-radius: 18px;
+            padding: 12px;
+            background: #f8fbff;
+        }
+
+        .colour-card.active {
+            border-color: #0b7db0;
+            background: linear-gradient(135deg, rgba(11, 125, 176, .09) 0%, rgba(255, 255, 255, .98) 100%);
+            box-shadow: 0 10px 24px rgba(11, 125, 176, 0.14);
+        }
+
+        .colour-card-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .colour-card-title {
+            font-size: .9rem;
+            font-weight: 900;
+            color: #0f172a;
+            line-height: 1.35;
+        }
+
+        .colour-card-sub {
+            font-size: .76rem;
+            color: var(--muted);
+            margin-top: 3px;
+        }
+
+        .colour-card-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            padding: 7px 10px;
+            font-size: .72rem;
+            font-weight: 900;
+            white-space: nowrap;
+            background: #e0f2fe;
+            color: #0c4a6e;
+        }
+
+        .colour-card.active .colour-card-badge {
+            background: #0b7db0;
+            color: #fff;
+        }
+
+        .colour-card-metrics {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .colour-card-metrics .metric {
+            padding: 10px;
+        }
+
+        .camera-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(2, 6, 23, 0.78);
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            padding: 16px;
+            z-index: 1200;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .18s ease;
+        }
+
+        .camera-modal.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .camera-sheet {
+            width: min(100%, var(--phone));
+            background: #fff;
+            border-radius: 24px;
+            border: 1px solid #cfe3ee;
+            box-shadow: 0 22px 48px rgba(15, 23, 42, 0.28);
+            padding: 16px;
+            max-height: calc(100dvh - 24px);
+            overflow: auto;
+        }
+
+        .camera-box {
+            margin-top: 12px;
+            border-radius: 18px;
+            overflow: hidden;
+            background: #0f172a;
+            min-height: 280px;
+            border: 1px solid #1e293b;
+            position: relative;
+        }
+
+        #qrReader {
+            width: 100%;
+        }
+
+        #qrReader video {
+            width: 100% !important;
+            height: auto !important;
+            border-radius: 18px;
+        }
+
+        #nativeQrVideo {
+            width: 100%;
+            min-height: 280px;
+            max-height: 58dvh;
+            object-fit: cover;
+            display: none;
+            background: #0f172a;
+        }
+
+        .scan-frame {
+            position: absolute;
+            inset: 20%;
+            border: 3px solid rgba(255, 255, 255, .92);
+            border-radius: 18px;
+            box-shadow: 0 0 0 999px rgba(15, 23, 42, .28);
+            pointer-events: none;
+            display: none;
+        }
+
+        .camera-box.native-active #nativeQrVideo,
+        .camera-box.native-active .scan-frame {
+            display: block;
+        }
+
+        .camera-box.native-active #qrReader {
+            display: none;
+        }
+
+        .camera-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .camera-actions > button {
+            flex: 1;
+        }
+
+        .recent-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid #eef2f7;
+        }
+
+        .recent-item:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .recent-title {
+            font-size: .9rem;
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        .recent-meta {
+            font-size: .76rem;
+            color: var(--muted);
+            line-height: 1.45;
+            margin-top: 4px;
+        }
+
+        .recent-qty {
+            text-align: right;
+            font-size: 1rem;
+            font-weight: 900;
+            color: var(--primary-deep);
+            white-space: nowrap;
+        }
+
+        .job-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+
+        .job-title {
+            font-size: .98rem;
+            font-weight: 900;
+            color: #0f172a;
+        }
+
+        .job-sub {
+            font-size: .78rem;
+            color: var(--muted);
+            margin-top: 3px;
+        }
+
         .m-card {
-            cursor: pointer;
-            transition: transform 0.1s;
+            transition: transform 0.12s ease, box-shadow 0.12s ease;
         }
 
         .m-card:active {
-            transform: scale(0.98);
+            transform: scale(0.985);
         }
 
         .status-dot {
@@ -89,12 +624,86 @@
         }
 
         .bal-badge {
-            background: #dbeafe;
-            color: #1e40af;
-            padding: 4px 8px;
+            background: #e0f2fe;
+            color: var(--primary-deep);
+            padding: 6px 10px;
             border-radius: 99px;
             font-size: 0.8rem;
-            font-weight: 600;
+            font-weight: 800;
+        }
+
+        .job-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .job-meta-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin: 14px 0;
+        }
+
+        .detail-modal .modal-content {
+            width: min(96vw, var(--phone));
+            max-height: 92dvh;
+            overflow: auto;
+            padding: 0;
+        }
+
+        .detail-head {
+            padding: 18px;
+            border-bottom: 1px solid #e2e8f0;
+            background: linear-gradient(135deg, #e8f7ff 0%, #ffffff 100%);
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+
+        .detail-body {
+            padding: 16px;
+        }
+
+        .detail-title {
+            margin: 0;
+            font-size: 1.15rem;
+            line-height: 1.18;
+            color: var(--primary-deep);
+            font-weight: 950;
+        }
+
+        .colour-break-card {
+            border: 1px solid #dbeafe;
+            border-radius: 18px;
+            padding: 12px;
+            background: #fff;
+            margin-bottom: 10px;
+        }
+
+        .colour-break-title {
+            font-weight: 950;
+            color: #0f172a;
+            line-height: 1.25;
+        }
+
+        .colour-break-colour {
+            margin-top: 3px;
+            color: #0b7db0;
+            font-weight: 900;
+            font-size: .82rem;
+        }
+
+        .colour-break-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .colour-break-grid .metric {
+            padding: 9px;
         }
 
         /* Modal for Shift */
@@ -120,7 +729,7 @@
             background: white;
             width: 90%;
             max-width: 400px;
-            border-radius: 16px;
+            border-radius: 20px;
             padding: 20px;
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
         }
@@ -140,8 +749,61 @@
             width: 100%;
             padding: 10px;
             border: 1px solid #cbd5e1;
-            border-radius: 8px;
+            border-radius: 12px;
             font-size: 1rem;
+        }
+
+        .form-select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            font-size: .96rem;
+            background: #fff;
+        }
+
+        @media (max-width: 420px) {
+            .metric-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .qty-form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .colour-card-metrics {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .scan-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .job-meta-grid,
+            .job-actions {
+                grid-template-columns: 1fr;
+            }
+
+            .scan-actions {
+                flex-direction: column;
+            }
+
+            .scan-cta {
+                width: 100%;
+            }
+
+            .scan-qty-pill {
+                grid-template-columns: 1fr;
+            }
+
+            .section-head {
+                flex-direction: column;
+            }
+
+            .camera-actions {
+                flex-direction: column;
+            }
         }
     </style>
 </head>
@@ -168,25 +830,67 @@
     </div>
 
     <!-- APP VIEW -->
-    <div id="view-app" class="shell" style="display:none">
-        <div class="header">
+    <div id="view-app" class="shell" style="display:none; min-height:100dvh;">
+        <div class="card hero">
             <div>
-                <div style="font-weight:700; font-size:1.1rem">Shifting Portal</div>
-                <div style="font-size:0.8rem; color:#64748b">Line: <span id="userLine">-</span> | <span
+                <div class="eyebrow">Shifting Supervisor</div>
+                <div class="section-title">Scan printed labels and move shop-floor stock</div>
+                <div class="section-copy">Line: <span id="userLine">-</span> | Supervisor: <span
                         id="userName">-</span></div>
             </div>
-            <button onclick="JPSMS.auth.logout()" class="btn-outline"><i class="bi bi-box-arrow-right"></i></button>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <button onclick="loadData()" class="subtle-btn"><i class="bi bi-arrow-clockwise"></i></button>
+                <button onclick="JPSMS.auth.logout()" class="btn-outline"><i class="bi bi-box-arrow-right"></i></button>
+            </div>
         </div>
 
-        <!-- Sticky Machine Select/Search -->
-        <div style="position:sticky; top:10px; z-index:10; margin-bottom:16px">
-            <input id="searchMachine" oninput="filterMachines()" class="form-control" placeholder="Search Machine..."
-                style="box-shadow:0 4px 6px -1px rgba(0,0,0,0.1)">
+        <div class="card scan-shell">
+            <div class="section-head">
+                <div>
+                    <div class="eyebrow">Label Scan</div>
+                    <h3 class="section-title">Shift directly from printed QR label</h3>
+                    <div class="section-copy">Scan a printed label to auto-load machine, batch, colour, label qty, shop-floor balance, pending shift, and scan history.</div>
+                </div>
+                <span id="scanStatusChip" class="status-chip pending">Waiting for scan</span>
+            </div>
+
+            <input id="scanInput" type="hidden" autocomplete="off">
+            <div class="scan-row">
+                <button type="button" onclick="openScanner()" class="btn-primary scan-cta main-scan"><i class="bi bi-upc-scan"></i> Scan Label</button>
+            </div>
+
+            <div id="scanResultPanel" class="scan-placeholder">
+                Scan label to show colour, label qty, weight, and destination.
+            </div>
         </div>
 
-        <div id="machineList">
-            <!-- Cards injected here -->
+        <div class="card">
+            <div class="section-head">
+                <div>
+                    <div class="eyebrow">Recent Scans</div>
+                    <div class="section-title">Who scanned how much</div>
+                </div>
+            </div>
+            <div id="recentShiftList" class="scan-placeholder" style="margin-top:14px;">Loading shift records...</div>
+        </div>
 
+        <div class="card">
+            <div class="section-head">
+                <div>
+                    <div class="eyebrow">Job Dashboard</div>
+                    <div class="section-title">Running and completed jobs</div>
+                    <div class="section-copy">Open View Details to check colour-wise plan, moulding, QC approved, shifted, and floor balance.</div>
+                </div>
+            </div>
+
+            <div style="margin-top:14px; margin-bottom:16px">
+                <input id="searchMachine" oninput="filterMachines()" class="form-control" placeholder="Search Machine / Item..."
+                    style="box-shadow:0 4px 6px -1px rgba(0,0,0,0.08)">
+            </div>
+
+            <div id="machineList">
+                <!-- Cards injected here -->
+            </div>
         </div>
     </div>
 
@@ -225,32 +929,282 @@
         </div>
     </div>
 
+    <div id="scanCameraModal" class="camera-modal">
+        <div class="camera-sheet">
+            <div class="section-head">
+                <div>
+                    <div class="eyebrow">Fast Camera Scan</div>
+                    <div class="section-title">Point the camera at the printed label QR</div>
+                    <div class="section-copy">The scan will auto-load the job and close the camera as soon as a valid QR is found.</div>
+                </div>
+                <button type="button" onclick="closeScanner()" class="btn-outline">Close</button>
+            </div>
+            <div class="camera-box">
+                <video id="nativeQrVideo" playsinline muted></video>
+                <div class="scan-frame"></div>
+                <div id="qrReader"></div>
+            </div>
+            <div id="scanCameraStatus" class="compact-note">Opening camera...</div>
+            <div class="camera-actions">
+                <button type="button" onclick="restartScanner()" class="btn-outline"><i class="bi bi-arrow-repeat"></i> Restart</button>
+                <button type="button" onclick="closeScanner()" class="btn-primary"><i class="bi bi-check2-circle"></i> Done</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="jobDetailModal" class="modal detail-modal">
+        <div class="modal-content">
+            <div class="detail-head">
+                <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+                    <div>
+                        <div class="eyebrow">Job Information</div>
+                        <h3 id="detailTitle" class="detail-title">Loading...</h3>
+                        <div id="detailSub" class="section-copy"></div>
+                    </div>
+                    <button type="button" onclick="closeJobDetails()" class="btn-outline" style="padding:8px 10px">&times;</button>
+                </div>
+            </div>
+            <div id="jobDetailBody" class="detail-body">
+                <div class="scan-placeholder">Loading details...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/html5-qrcode.min.js" defer></script>
     <script src="/assets/app.js"></script>
     <script>
         let MACHINES = [];
         let LOCATIONS = [];
+        let CURRENT_SCAN = null;
+        let currentItem = null;
+        let QR_SCANNER = null;
+        let QR_SCANNER_ACTIVE = false;
+        let QR_SCAN_LOCK = false;
+        let QR_LIBRARY_PROMISE = null;
+        let NATIVE_QR_STREAM = null;
+        let NATIVE_QR_TIMER = null;
+        let NATIVE_QR_DETECTOR = null;
 
-        // --- Init ---
+        const SCAN_DESTINATIONS = [
+            'Moulding Itself',
+            'Shifting Wip',
+            'Shopfloor Wip',
+            'Printing',
+            'Tuffting',
+            'Packing'
+        ];
+
         document.addEventListener('DOMContentLoaded', () => {
             const user = JPSMS.auth.getUser();
             if (user && user.username) {
-                showApp(user);
+                if (JPSMS.auth.canAccessApp('shifting_supervisor_app', user)) {
+                    showApp(user);
+                } else {
+                    JPSMS.auth.logout();
+                    return;
+                }
             }
+            const scanInput = document.getElementById('scanInput');
+            if (scanInput) {
+                scanInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        lookupScannedLabel();
+                    }
+                });
+            }
+            LOCATIONS = SCAN_DESTINATIONS.slice();
+            populateLocationSelects();
         });
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (m) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[m]));
+        }
+
+        function numberFmt(value) {
+            const n = Number(value || 0);
+            return Number.isFinite(n) ? n.toLocaleString('en-IN') : '0';
+        }
+
+        function qtyFmt(value) {
+            const n = Number(value || 0);
+            if (!Number.isFinite(n)) return '0';
+            return n.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+        }
+
+        function nowShift() {
+            const h = new Date().getHours();
+            return (h >= 8 && h < 20) ? 'Day' : 'Night';
+        }
+
+        function setScanStatus(mode, text) {
+            const chip = document.getElementById('scanStatusChip');
+            if (!chip) return;
+            chip.className = `status-chip ${mode || 'pending'}`;
+            chip.textContent = text || 'Waiting for scan';
+        }
+
+        function populateLocationSelects() {
+            const targets = [document.getElementById('mLoc'), document.getElementById('scanLocation')];
+            targets.forEach((sel) => {
+                if (!sel) return;
+                const desiredValue = sel.value || (sel.id === 'scanLocation' ? 'Shifting Wip' : '');
+                sel.innerHTML = '';
+                const source = (LOCATIONS.length ? LOCATIONS : SCAN_DESTINATIONS);
+                source.forEach((l) => {
+                    const opt = document.createElement('option');
+                    opt.value = l;
+                    opt.textContent = l;
+                    sel.appendChild(opt);
+                });
+                sel.value = source.includes(desiredValue) ? desiredValue : (source[0] || '');
+            });
+        }
+
+        function getScanLocationSelectHtml(selected) {
+            const options = (LOCATIONS.length ? LOCATIONS : SCAN_DESTINATIONS).map((location) => {
+                const isSelected = String(selected || '') === String(location);
+                return `<option value="${escapeHtml(location)}" ${isSelected ? 'selected' : ''}>${escapeHtml(location)}</option>`;
+            }).join('');
+            return `<select id="scanLocation" class="form-select">${options}</select>`;
+        }
+
+        function focusScanInput() {
+            const scanInput = document.getElementById('scanInput');
+            if (scanInput) scanInput.focus();
+        }
+
+        function setCameraStatus(text, mode = 'pending') {
+            const status = document.getElementById('scanCameraStatus');
+            if (!status) return;
+            status.textContent = text || 'Opening camera...';
+            status.style.color = mode === 'error' ? '#b91c1c' : (mode === 'ok' ? '#166534' : '');
+        }
+
+        async function ensureScannerLibrary() {
+            if (window.Html5Qrcode) return true;
+            if (QR_LIBRARY_PROMISE) return QR_LIBRARY_PROMISE;
+
+            const sources = [
+                '/assets/html5-qrcode.min.js',
+                'https://unpkg.com/html5-qrcode',
+                'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js'
+            ];
+
+            QR_LIBRARY_PROMISE = (async () => {
+                for (const src of sources) {
+                    try {
+                        await new Promise((resolve, reject) => {
+                            const existing = Array.from(document.scripts).find((script) => script.src === src);
+                            if (existing) {
+                                if (window.Html5Qrcode) return resolve();
+                                existing.addEventListener('load', resolve, { once: true });
+                                existing.addEventListener('error', reject, { once: true });
+                                return;
+                            }
+                            const script = document.createElement('script');
+                            script.src = src;
+                            script.async = true;
+                            script.onload = resolve;
+                            script.onerror = reject;
+                            document.head.appendChild(script);
+                        });
+                        if (window.Html5Qrcode) return true;
+                    } catch (_) {}
+                }
+                return false;
+            })();
+
+            return QR_LIBRARY_PROMISE;
+        }
+
+        function supportsNativeQrScanner() {
+            return Boolean(navigator.mediaDevices?.getUserMedia && window.BarcodeDetector);
+        }
+
+        async function stopNativeScanner() {
+            if (NATIVE_QR_TIMER) {
+                clearInterval(NATIVE_QR_TIMER);
+                NATIVE_QR_TIMER = null;
+            }
+            const video = document.getElementById('nativeQrVideo');
+            if (video) {
+                video.pause();
+                video.srcObject = null;
+            }
+            if (NATIVE_QR_STREAM) {
+                NATIVE_QR_STREAM.getTracks().forEach((track) => track.stop());
+                NATIVE_QR_STREAM = null;
+            }
+            const box = document.querySelector('.camera-box');
+            if (box) box.classList.remove('native-active');
+        }
+
+        async function startNativeScanner() {
+            if (!supportsNativeQrScanner()) return false;
+
+            const video = document.getElementById('nativeQrVideo');
+            const box = document.querySelector('.camera-box');
+            if (!video || !box) return false;
+
+            if (!NATIVE_QR_DETECTOR) {
+                NATIVE_QR_DETECTOR = new BarcodeDetector({ formats: ['qr_code'] });
+            }
+
+            await stopNativeScanner();
+            box.classList.add('native-active');
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: { ideal: 'environment' },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false
+            });
+
+            NATIVE_QR_STREAM = stream;
+            video.srcObject = stream;
+            await video.play();
+
+            NATIVE_QR_TIMER = setInterval(async () => {
+                if (QR_SCAN_LOCK || video.readyState < 2) return;
+                try {
+                    const codes = await NATIVE_QR_DETECTOR.detect(video);
+                    const first = codes?.[0]?.rawValue;
+                    if (first) {
+                        await onCameraScanSuccess(first);
+                    }
+                } catch (_) {}
+            }, 180);
+
+            return true;
+        }
+
+        function clearScanState({ keepStatus = false } = {}) {
+            CURRENT_SCAN = null;
+            const input = document.getElementById('scanInput');
+            if (input) input.value = '';
+            renderScanResult(null);
+            if (!keepStatus) setScanStatus('pending', 'Waiting for scan');
+            focusScanInput();
+        }
 
         async function doLogin() {
             const u = document.getElementById('loginUser').value;
             const p = document.getElementById('loginPass').value;
             if (!u || !p) return JPSMS.toast('Enter credentials', 'error');
-
-
             try {
-                const user = await JPSMS.auth.login(u, p);
-                if (user) showApp(user);
+                const result = await JPSMS.auth.login(u, p, { requested_app: 'shifting_supervisor_app' });
+                const user = result?.user || JPSMS.auth.getUser();
+                if (user?.username) showApp(user);
             } catch (e) {
                 JPSMS.toast(e.message, 'error');
-            } finally {
-
             }
         }
 
@@ -259,123 +1213,479 @@
             document.getElementById('view-app').style.display = 'block';
             document.getElementById('userName').textContent = user.username;
             document.getElementById('userLine').textContent = user.line || 'All';
-
-            loadData();
+            loadData().then(() => {
+                const scanInput = document.getElementById('scanInput');
+                if (scanInput) scanInput.focus();
+            });
         }
 
-        // --- Data Loading ---
         async function loadData() {
             try {
-
-
                 const d = new Date().toISOString().split('T')[0];
-                const h = new Date().getHours();
-                const s = (h >= 8 && h < 20) ? 'Day' : 'Night';
                 const user = JPSMS.auth.getUser();
-
-                const params = `date=${d}&shift=${s}` +
+                const params = `date=${d}&shift=${nowShift()}` +
                     ((user.line && user.line.trim() !== '') ? `&line=${encodeURIComponent(user.line.trim())}` : '');
 
-                // Parallel Execution: Fetch Locations (if empty) + Dashboard
                 const promises = [];
-
-                // 1. Locations (Cache check)
                 if (LOCATIONS.length === 0) {
-                    promises.push(JPSMS.api.get('/shifting/locations').then(res => {
-                        LOCATIONS = res.data || ['WIP Store'];
-                        const sel = document.getElementById('mLoc');
-                        sel.innerHTML = '';
-                        LOCATIONS.forEach(l => {
-                            const opt = document.createElement('option');
-                            opt.value = l; opt.textContent = l;
-                            sel.appendChild(opt);
-                        });
-                        sel.value = 'WIP Store';
-                    }));
+                    promises.push(JPSMS.api.get('/shifting/locations'));
                 } else {
-                    promises.push(Promise.resolve());
+                    promises.push(Promise.resolve({ ok: true, data: LOCATIONS }));
                 }
+                promises.push(JPSMS.api.get(`/shifting/jobs?${params}`));
+                promises.push(JPSMS.api.get('/shifting/logs?limit=20'));
 
-                // 2. Dashboard
-                promises.push(JPSMS.api.get(`/shifting/dashboard?${params}`));
+                const [locRes, dashRes, logRes] = await Promise.all(promises);
 
-                const [_, dashRes] = await Promise.all(promises);
-
-                if (dashRes) {
+                if (locRes && locRes.ok) {
+                    LOCATIONS = Array.isArray(locRes.data) && locRes.data.length ? locRes.data : SCAN_DESTINATIONS.slice();
+                    populateLocationSelects();
+                }
+                if (dashRes && dashRes.ok) {
                     MACHINES = dashRes.data || [];
                     renderMachines(MACHINES);
                 }
-
-
+                if (logRes && logRes.ok) {
+                    renderRecentShifts(logRes.data || []);
+                }
             } catch (e) {
                 JPSMS.toast(e.message, 'error');
-            } finally {
-
             }
         }
 
         function renderMachines(list) {
             const container = document.getElementById('machineList');
-            if (list.length === 0) {
-                container.innerHTML = '<div style="text-align:center; padding:20px;">No Active Jobs Found</div>';
+            if (!list.length) {
+                container.innerHTML = '<div class="scan-placeholder" style="margin-top:0">No running or completed jobs found for this line right now.</div>';
                 return;
             }
 
             let html = '';
-            list.forEach(item => {
-                const prod = parseInt(item.total_produced) || 0;
-                const shift = parseInt(item.total_shifted) || 0;
-                const bal = prod - shift;
-                const isRun = (item.status || '').toUpperCase() === 'RUNNING';
-
-                // Only show relevant items? No, show all assigned.
-
+            list.forEach((item, index) => {
+                const produced = Number(item.total_produced) || 0;
+                const qcApproved = Number(item.total_qc_approved) || 0;
+                const shifted = Number(item.total_shifted) || 0;
+                const floor = Math.max(produced - shifted, 0);
+                const labelled = Number(item.total_labelled_qty) || 0;
+                const shiftPending = Math.max((qcApproved || produced) - shifted, 0);
+                const isRun = String(item.status || '').toUpperCase() === 'RUNNING';
+                const isDone = ['COMPLETED', 'CLOSED'].includes(String(item.status || '').toUpperCase());
                 html += `
-                <div class="card m-card" onclick='openModal(${JSON.stringify(item)})'>
-                    <div style="display:flex; justify-content:space-between; margin-bottom:8px">
-                        <div style="font-weight:700; color:#1e293b">
-                             <span class="status-dot ${isRun ? 'status-running' : ''}"></span>
-                             ${item.machine}
+                <div class="card m-card">
+                    <div class="job-head">
+                        <div>
+                            <div class="job-title"><span class="status-dot ${isRun ? 'status-running' : ''}"></span>${escapeHtml(item.machine || '-')}</div>
+                            <div class="job-sub">${escapeHtml(item.item_name || '-')}</div>
+                            <div class="job-sub">${escapeHtml(item.mould_name || '-')}</div>
                         </div>
-                        <div class="bal-badge">${bal}</div>
+                        <div class="bal-badge">${escapeHtml(isDone ? 'Completed' : (item.status || 'Running'))}</div>
                     </div>
-                    <div style="font-size:0.9rem; font-weight:600; margin-bottom:2px">${item.item_name}</div>
-                    <div style="font-size:0.8rem; color:#64748b">${item.mould_name || '-'}</div>
-                    
-                    <div style="margin-top:8px; display:flex; gap:12px; font-size:0.8rem; color:#64748b">
-                        <span>Produced: <b>${prod}</b></span>
-                        <span>Shifted: <b>${shift}</b></span>
+                    <div class="metric-grid" style="margin-top:0">
+                        <div class="metric"><div class="metric-label">Produced</div><div class="metric-value">${numberFmt(produced)}</div></div>
+                        <div class="metric good"><div class="metric-label">QC Approved</div><div class="metric-value">${numberFmt(qcApproved)}</div></div>
+                        <div class="metric hot"><div class="metric-label">Floor Bal</div><div class="metric-value">${numberFmt(floor)}</div></div>
                     </div>
-                </div>
-                `;
+                    <div class="job-sub" style="margin-top:12px">
+                        OR: ${escapeHtml(item.order_no || '-')} | JC: ${escapeHtml(item.jc_no || '-')}<br>
+                        Plan: ${escapeHtml(item.plan_code || '-')} | Shifted: ${numberFmt(shifted)} | Pending: ${numberFmt(shiftPending)}<br>
+                        Labels: ${numberFmt(item.total_labels_printed || 0)} | Printed Qty: ${numberFmt(labelled)}
+                    </div>
+                    <div class="job-actions">
+                        <button class="subtle-btn" onclick="openJobDetails('${escapeHtml(item.plan_id)}')">View Details</button>
+                        <button class="subtle-btn" onclick="openModalByPlanId('${escapeHtml(item.plan_id)}')">Manual Shift</button>
+                    </div>
+                </div>`;
             });
             container.innerHTML = html;
+        }
+
+        function closeJobDetails() {
+            document.getElementById('jobDetailModal')?.classList.remove('active');
+        }
+
+        async function openJobDetails(planId) {
+            const modal = document.getElementById('jobDetailModal');
+            const body = document.getElementById('jobDetailBody');
+            const title = document.getElementById('detailTitle');
+            const sub = document.getElementById('detailSub');
+            if (!modal || !body) return;
+            modal.classList.add('active');
+            title.textContent = 'Loading job details...';
+            sub.textContent = '';
+            body.innerHTML = '<div class="scan-placeholder">Loading colour-wise breakdown...</div>';
+            try {
+                const res = await JPSMS.api.get(`/shifting/jobs/${encodeURIComponent(planId)}/details`);
+                if (!res.ok) throw new Error(res.error || 'Unable to load job details');
+                renderJobDetails(res.data || {});
+            } catch (e) {
+                body.innerHTML = `<div class="scan-placeholder">${escapeHtml(e.message || 'Unable to load details')}</div>`;
+                JPSMS.toast(e.message, 'error');
+            }
+        }
+
+        function renderJobDetails(data) {
+            const body = document.getElementById('jobDetailBody');
+            const title = document.getElementById('detailTitle');
+            const sub = document.getElementById('detailSub');
+            const totals = data.totals || {};
+            title.textContent = data.product_name || data.mould_name || 'Job Details';
+            sub.textContent = `${data.machine || '-'} | ${data.status || '-'} | OR ${data.order_no || '-'} | JC ${data.jc_no || '-'}`;
+            const metric = (label, value, cls = '') => `
+                <div class="metric ${cls}">
+                    <div class="metric-label">${label}</div>
+                    <div class="metric-value">${numberFmt(value)}</div>
+                </div>`;
+            const colourRows = Array.isArray(data.colours) ? data.colours : [];
+            body.innerHTML = `
+                <div class="job-meta-grid">
+                    <div class="field"><div class="field-label">OR Number</div><div class="field-value">${escapeHtml(data.order_no || '-')}</div></div>
+                    <div class="field"><div class="field-label">JC Number</div><div class="field-value">${escapeHtml(data.jc_no || '-')}</div></div>
+                    <div class="field"><div class="field-label">Product</div><div class="field-value">${escapeHtml(data.product_name || '-')}</div></div>
+                    <div class="field"><div class="field-label">Mould</div><div class="field-value">${escapeHtml(data.mould_name || '-')}</div></div>
+                    <div class="field"><div class="field-label">Machine</div><div class="field-value">${escapeHtml(data.machine || '-')}</div></div>
+                    <div class="field"><div class="field-label">Plan No</div><div class="field-value">${escapeHtml(data.plan_code || '-')}</div></div>
+                </div>
+                <div class="metric-grid">
+                    ${metric('Plan Qty', totals.plan_qty || data.plan_qty)}
+                    ${metric('Produced', totals.produced_qty)}
+                    ${metric('QC Approved', totals.qc_approved_qty, 'good')}
+                    ${metric('Shifted', totals.shifted_qty)}
+                    ${metric('Floor Bal', totals.shop_floor_balance_qty, 'hot')}
+                    ${metric('Shift Pending', totals.shifting_pending_qty, 'warn')}
+                </div>
+                <div class="colour-summary-wrap">
+                    <div class="section-head">
+                        <div>
+                            <div class="eyebrow">Colour Wise Breakdown</div>
+                            <div class="section-title">Plan vs moulding vs QC vs shifting</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:12px">
+                        ${colourRows.length ? colourRows.map(row => `
+                            <div class="colour-break-card">
+                                <div class="colour-break-title">${escapeHtml(row.item_name || '-')}</div>
+                                <div class="colour-break-colour">Colour: ${escapeHtml(row.colour || '-')}</div>
+                                <div class="colour-break-grid">
+                                    ${metric('Plan Qty', row.plan_qty)}
+                                    ${metric('Produced', row.produced_qty)}
+                                    ${metric('QC Approved', row.qc_approved_qty, 'good')}
+                                    ${metric('Shifted', row.shifted_qty)}
+                                    ${metric('Floor Balance', row.shop_floor_balance_qty, 'hot')}
+                                    ${metric('Shift Pending', row.shifting_pending_qty, 'warn')}
+                                </div>
+                            </div>
+                        `).join('') : '<div class="scan-placeholder">No colour breakdown found for this job.</div>'}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderRecentShifts(rows) {
+            const list = document.getElementById('recentShiftList');
+            if (!list) return;
+            if (!rows.length) {
+                list.innerHTML = 'No shifting records yet.';
+                return;
+            }
+            list.className = '';
+            list.innerHTML = rows.map((row) => `
+                <div class="recent-item">
+                    <div>
+                        <div class="recent-title">${escapeHtml(row.machine || row.machine_code || '-')} · ${escapeHtml(row.colour || 'Manual')}</div>
+                        <div class="recent-meta">${escapeHtml(row.item_name || '-')}<br>${escapeHtml(row.shifted_by || '-')} to ${escapeHtml(row.to_location || '-')} · ${(row.created_at ? new Date(row.created_at).toLocaleString('en-IN') : '-')} ${row.weight_kg ? `<br>Weight: ${qtyFmt(row.weight_kg)} kg` : ''}</div>
+                    </div>
+                    <div class="recent-qty">${numberFmt(row.quantity)}<br><span class="recent-meta">${row.label_no ? `${row.label_no}/${row.total_labels}` : 'Qty'}</span></div>
+                </div>
+            `).join('');
         }
 
         function filterMachines() {
             const q = document.getElementById('searchMachine').value.toLowerCase();
             const filtered = MACHINES.filter(m =>
-                m.machine.toLowerCase().includes(q) ||
-                (m.item_name || '').toLowerCase().includes(q)
+                String(m.machine || '').toLowerCase().includes(q) ||
+                String(m.item_name || '').toLowerCase().includes(q) ||
+                String(m.mould_name || '').toLowerCase().includes(q)
             );
             renderMachines(filtered);
         }
 
-        // --- Interaction ---
-        let currentItem = null;
+        function renderScanResult(data) {
+            const panel = document.getElementById('scanResultPanel');
+            if (!panel) return;
+            if (!data) {
+                panel.className = 'scan-placeholder';
+                panel.innerHTML = 'Scan label to show colour, label qty, weight, and destination.';
+                return;
+            }
+            panel.className = 'scan-ready-card';
+            const scannedColour = data.colour || '-';
+            const activeSummary = Array.isArray(data.colour_summary)
+                ? data.colour_summary.find((row) => row.is_scanned_colour)
+                : null;
+            const colourPlanQty = data.colour_plan_qty || activeSummary?.plan_qty || 0;
+            const colourPendingQty = data.colour_pending_qty ?? activeSummary?.pending_qty ?? 0;
+            panel.innerHTML = `
+                <div class="scan-ready-top">
+                    <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
+                        <div>
+                            <div class="eyebrow">Scanned Colour</div>
+                            <div class="scan-colour-name">${escapeHtml(scannedColour)}</div>
+                            <div class="scan-item-line">${escapeHtml(data.item_name || '-')}</div>
+                            <div class="scan-item-line">${escapeHtml(data.machine_name || '-')} · Label ${escapeHtml(data.label_no || '-')}/${escapeHtml(data.total_labels || '-')}</div>
+                        </div>
+                        <span class="status-chip ${data.already_shifted ? 'error' : 'ok'}">${data.already_shifted ? 'Already shifted' : 'Ready'}</span>
+                    </div>
+                    <div class="scan-qty-pill">
+                        <div class="scan-qty-tile primary">
+                            <div class="label">Label Qty</div>
+                            <div class="value">${qtyFmt(data.label_qty)}</div>
+                        </div>
+                        <div class="scan-qty-tile">
+                            <div class="label">Colour Pending</div>
+                            <div class="value">${qtyFmt(colourPendingQty)}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="scan-shift-form">
+                    <input id="scanQty" type="hidden" value="${escapeHtml(data.label_qty || 0)}">
+                    <div class="qty-form-grid">
+                        <div class="field">
+                            <div class="field-label">Weight (kg)</div>
+                            <input id="scanWeight" class="form-control" type="number" step="0.001" min="0" placeholder="Enter weight">
+                        </div>
+                        <div class="field">
+                            <div class="field-label">Send To</div>
+                            ${getScanLocationSelectHtml('Shifting Wip')}
+                        </div>
+                        <div class="field">
+                            <div class="field-label">Colour Plan Qty</div>
+                            <div class="field-value">${qtyFmt(colourPlanQty)}</div>
+                        </div>
+                    </div>
+                    <div class="scan-actions">
+                        <button class="btn-primary" onclick="submitScannedShift()" ${data.already_shifted ? 'disabled style="opacity:.55; cursor:not-allowed;"' : ''}>${data.already_shifted ? 'Already shifted' : 'Confirm Shift'}</button>
+                        <button class="btn-outline" type="button" onclick="clearScanState()">Clear</button>
+                    </div>
+                </div>
+            `;
+            populateLocationSelects();
+            setTimeout(() => document.getElementById('scanWeight')?.focus(), 100);
+        }
+
+        async function lookupScannedLabel(rawOverride) {
+            const input = document.getElementById('scanInput');
+            const raw = String(rawOverride || input?.value || '').trim();
+            if (input && rawOverride) input.value = raw;
+            if (!raw) return JPSMS.toast('Scan a label first', 'warning');
+            try {
+                setScanStatus('pending', 'Checking label...');
+                renderScanResult(null);
+                const res = await JPSMS.api.get(`/shifting/scan-label?scan=${encodeURIComponent(raw)}`);
+                if (!res.ok) throw new Error(res.error || 'Label lookup failed');
+                CURRENT_SCAN = res.data;
+                renderScanResult(CURRENT_SCAN);
+                setScanStatus(CURRENT_SCAN.already_shifted ? 'error' : 'ok', CURRENT_SCAN.already_shifted ? 'Already shifted' : 'Label ready');
+            } catch (e) {
+                CURRENT_SCAN = null;
+                document.getElementById('scanResultPanel').className = 'scan-placeholder';
+                document.getElementById('scanResultPanel').textContent = e.message || 'Unable to read this label.';
+                setScanStatus('error', 'Scan failed');
+                JPSMS.toast(e.message, 'error');
+            }
+        }
+
+        async function submitScannedShift() {
+            if (!CURRENT_SCAN) return JPSMS.toast('Scan a label first', 'warning');
+            if (CURRENT_SCAN.already_shifted) return JPSMS.toast('This label is already shifted', 'warning');
+            try {
+                const user = JPSMS.auth.getUser();
+                const scanLocation = document.getElementById('scanLocation')?.value;
+                const scanQty = Math.max(0, Number(document.getElementById('scanQty')?.value || CURRENT_SCAN.label_qty || 0));
+                const weightKg = Math.max(0, Number(document.getElementById('scanWeight')?.value || 0));
+                if (!scanLocation) return JPSMS.toast('Select destination', 'warning');
+                const res = await JPSMS.api.post('/shifting/scan-entry', {
+                    scan: document.getElementById('scanInput').value,
+                    quantity: scanQty,
+                    weightKg,
+                    toLocation: scanLocation,
+                    date: new Date().toISOString().split('T')[0],
+                    shift: nowShift(),
+                    supervisor: user?.username || 'Shifting Supervisor'
+                });
+                if (!res.ok) throw new Error(res.error || 'Shift failed');
+                JPSMS.toast('Label shifted successfully', 'success');
+                clearScanState({ keepStatus: true });
+                setScanStatus('ok', 'Shift saved');
+                await loadData();
+                document.getElementById('scanInput').focus();
+            } catch (e) {
+                setScanStatus('error', 'Shift failed');
+                JPSMS.toast(e.message, 'error');
+            }
+        }
+
+        async function openScanner() {
+            const modal = document.getElementById('scanCameraModal');
+            if (!modal || QR_SCANNER_ACTIVE) return;
+            modal.classList.add('active');
+            setCameraStatus('Opening live camera...');
+            QR_SCAN_LOCK = false;
+
+            try {
+                const nativeStarted = await startNativeScanner();
+                if (nativeStarted) {
+                    QR_SCANNER_ACTIVE = true;
+                    setCameraStatus('Live camera ready. Hold the QR inside the box.', 'ok');
+                    setScanStatus('pending', 'Camera scanning...');
+                    return;
+                }
+            } catch (nativeError) {
+                const msg = nativeError?.name === 'NotAllowedError'
+                    ? 'Camera permission denied. Allow camera access and tap Restart.'
+                    : 'Native camera scan unavailable. Trying backup scanner...';
+                setCameraStatus(msg, nativeError?.name === 'NotAllowedError' ? 'error' : 'pending');
+                if (nativeError?.name === 'NotAllowedError') {
+                    JPSMS.toast('Please allow camera permission for this app.', 'error');
+                    return;
+                }
+            }
+
+            setCameraStatus('Preparing backup scanner...');
+            const hasLibrary = await ensureScannerLibrary();
+            if (!hasLibrary || !window.Html5Qrcode) {
+                setCameraStatus('Scanner library could not load. Check internet once, then tap Restart.', 'error');
+                JPSMS.toast('Scanner library could not load. Check internet once, then tap Restart.', 'warning');
+                return;
+            }
+
+            if (!window.isSecureContext && !['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+                setCameraStatus('Live camera may be blocked on HTTP IP. Use HTTPS if camera permission does not open.', 'error');
+            } else {
+                setCameraStatus('Opening back camera...');
+            }
+
+            try {
+                if (!QR_SCANNER) {
+                    QR_SCANNER = new Html5Qrcode('qrReader');
+                }
+                QR_SCAN_LOCK = false;
+                const scanConfig = {
+                    fps: 15,
+                    qrbox: { width: 220, height: 220 },
+                    aspectRatio: 1,
+                    rememberLastUsedCamera: true
+                };
+                const cameras = await Html5Qrcode.getCameras().catch(() => []);
+                const preferredCamera = cameras.find((camera) => /back|rear|environment/i.test(String(camera.label || '')))
+                    || cameras[0];
+
+                const attempts = [];
+                if (preferredCamera?.id) attempts.push(preferredCamera.id);
+                attempts.push({ facingMode: { exact: 'environment' } });
+                attempts.push({ facingMode: 'environment' });
+
+                let started = false;
+                let lastError = null;
+                for (const attempt of attempts) {
+                    try {
+                        await QR_SCANNER.start(attempt, scanConfig, onCameraScanSuccess, () => {});
+                        started = true;
+                        break;
+                    } catch (error) {
+                        lastError = error;
+                    }
+                }
+                if (!started) throw lastError || new Error('Unable to access the camera');
+
+                QR_SCANNER_ACTIVE = true;
+                setCameraStatus('Camera ready. Point it at the printed QR label.', 'ok');
+                setScanStatus('pending', 'Camera scanning...');
+            } catch (e) {
+                QR_SCANNER_ACTIVE = false;
+                setCameraStatus('Unable to open live camera. Allow camera permission or open app with HTTPS.', 'error');
+                JPSMS.toast(e.message || 'Camera permission or camera device is unavailable.', 'error');
+            }
+        }
+
+        async function closeScanner() {
+            const modal = document.getElementById('scanCameraModal');
+            try {
+                await stopNativeScanner();
+                if (QR_SCANNER && QR_SCANNER_ACTIVE) {
+                    await QR_SCANNER.stop();
+                }
+            } catch (_) {}
+            QR_SCANNER_ACTIVE = false;
+            setCameraStatus('Camera closed.');
+            if (modal) modal.classList.remove('active');
+            setScanStatus(CURRENT_SCAN ? 'ok' : 'pending', CURRENT_SCAN ? 'Label ready' : 'Waiting for scan');
+        }
+
+        async function restartScanner() {
+            await closeScanner();
+            setTimeout(() => openScanner(), 120);
+        }
+
+        async function onCameraScanSuccess(decodedText) {
+            if (QR_SCAN_LOCK) return;
+            QR_SCAN_LOCK = true;
+            const input = document.getElementById('scanInput');
+            if (input) input.value = decodedText;
+            await stopNativeScanner();
+            await closeScanner();
+            setScanStatus('pending', 'Reading scanned label...');
+            await lookupScannedLabel(decodedText);
+            setTimeout(() => { QR_SCAN_LOCK = false; }, 500);
+        }
+
+        async function scanImageFile(event) {
+            const file = event?.target?.files?.[0];
+            if (!file) return;
+            const modal = document.getElementById('scanCameraModal');
+            if (modal) modal.classList.add('active');
+            setCameraStatus('Reading QR from photo...');
+            try {
+                const hasLibrary = await ensureScannerLibrary();
+                if (!hasLibrary || !window.Html5Qrcode) throw new Error('Scanner library could not load');
+                if (!QR_SCANNER) {
+                    QR_SCANNER = new Html5Qrcode('qrReader');
+                }
+                const decodedText = await QR_SCANNER.scanFile(file, true);
+                const input = document.getElementById('scanInput');
+                if (input) input.value = decodedText;
+                await closeScanner();
+                setScanStatus('pending', 'Reading scanned label...');
+                await lookupScannedLabel(decodedText);
+            } catch (e) {
+                setCameraStatus('Could not read QR from this photo.', 'error');
+                JPSMS.toast(e.message || 'Could not read QR from this photo.', 'error');
+            } finally {
+                if (event?.target) event.target.value = '';
+            }
+        }
+
+        function openModalByIndex(index) {
+            const item = MACHINES[index];
+            if (!item) return;
+            openModal(item);
+        }
+
+        function openModalByPlanId(planId) {
+            const item = MACHINES.find((row) => String(row.plan_id) === String(planId));
+            if (!item) return JPSMS.toast('Job not found. Refresh and try again.', 'warning');
+            openModal(item);
+        }
+
         function openModal(item) {
             currentItem = item;
-            const bal = (parseInt(item.total_produced) || 0) - (parseInt(item.total_shifted) || 0);
-
+            const bal = Math.max((parseInt(item.total_produced) || 0) - (parseInt(item.total_shifted) || 0), 0);
             document.getElementById('mTitle').textContent = item.machine;
             document.getElementById('mItem').textContent = item.item_name;
             document.getElementById('mProd').textContent = parseInt(item.total_produced) || 0;
             document.getElementById('mBal').textContent = bal;
             document.getElementById('mPlanId').value = item.plan_id;
-
-            // Auto fill
             document.getElementById('mQty').value = bal > 0 ? bal : '';
-
             document.getElementById('shiftModal').classList.add('active');
             setTimeout(() => document.getElementById('mQty').focus(), 100);
         }
@@ -388,37 +1698,29 @@
             const qty = parseInt(document.getElementById('mQty').value);
             const loc = document.getElementById('mLoc').value;
             const bal = parseInt(document.getElementById('mBal').textContent);
-
             if (!qty || qty <= 0) return JPSMS.toast('Invalid Qty', 'error');
             if (qty > bal) return JPSMS.toast('Cannot shift more than balance', 'error');
 
             try {
-
-                const d = new Date().toISOString().split('T')[0];
-                const h = new Date().getHours();
-                const s = (h >= 8 && h < 20) ? 'Day' : 'Night';
                 const user = JPSMS.auth.getUser();
-
                 const res = await JPSMS.api.post('/shifting/entry', {
+                    machine: currentItem.machine,
                     planId: currentItem.plan_id,
                     quantity: qty,
                     toLocation: loc,
-                    date: d,
-                    shift: s,
-                    supervisor: user.username // IMPORTANT: Logged in supervisor
+                    date: new Date().toISOString().split('T')[0],
+                    shift: nowShift(),
+                    supervisor: user.username
                 });
-
                 if (res.ok) {
-                    JPSMS.toast('Entry Success', 'success');
+                    JPSMS.toast('Manual shift saved', 'success');
                     closeModal();
-                    loadData(); // Refresh list to update balance
+                    loadData();
                 } else {
                     JPSMS.toast(res.error, 'error');
                 }
             } catch (e) {
                 JPSMS.toast(e.message, 'error');
-            } finally {
-
             }
         }
     </script>

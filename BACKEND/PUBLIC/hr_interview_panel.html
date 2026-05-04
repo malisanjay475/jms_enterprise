@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JMS Ocean - HR Interview Panel</title>
+  <link rel="stylesheet" href="/assets/app.css?v=6">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+  <style>
+    :root {
+      --panel-primary: #0f5c8f;
+      --panel-sky: #1ca9d6;
+      --panel-gold: #f8b23f;
+      --panel-danger: #ef4444;
+      --panel-success: #16a34a;
+      --panel-warn: #d97706;
+    }
+
+    body.interview-page {
+      display: flex;
+      overflow: hidden;
+      min-height: 100vh;
+    }
+
+    .interview-main {
+      padding-top: 18px;
+    }
+
+    .interview-shell {
+      display: grid;
+      gap: 18px;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    .interview-page-header {
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .interview-subtitle {
+      color: #64748b;
+      max-width: 860px;
+      line-height: 1.55;
+    }
+
+    .hero-strip {
+      border-radius: 26px;
+      border: 1px solid rgba(15, 92, 143, 0.08);
+      background: linear-gradient(180deg, #fff, #f7fbff);
+      box-shadow: 0 20px 44px rgba(15, 92, 143, 0.08);
+      padding: 22px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-strip::before {
+      content: '';
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--panel-primary), var(--panel-sky), var(--panel-gold));
+    }
+
+    .hero-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .kicker {
+      color: var(--panel-sky);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .hero-title {
+      margin: 0;
+      font-size: 1.65rem;
+      color: var(--text-main);
+      letter-spacing: -0.03em;
+    }
+
+    .hero-copy {
+      color: #5f7387;
+      line-height: 1.6;
+      max-width: 760px;
+      margin-top: 10px;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(15, 92, 143, 0.12);
+      background: #fff;
+      padding: 10px 14px;
+      font-weight: 700;
+      color: var(--text-main);
+      box-shadow: 0 10px 24px rgba(15, 92, 143, 0.08);
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+    }
+
+    .kpi-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: 0 18px 34px rgba(15, 92, 143, 0.08);
+      padding: 20px;
+    }
+
+    .kpi-label {
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 0.74rem;
+      font-weight: 800;
+      color: #64748b;
+    }
+
+    .kpi-value {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--text-main);
+      margin-top: 8px;
+    }
+
+    .kpi-sub {
+      color: #64748b;
+      margin-top: 8px;
+      font-size: 0.9rem;
+    }
+
+    .split-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 18px;
+    }
+
+    .card-panel {
+      background: #fff;
+      border-radius: 24px;
+      border: 1px solid var(--border);
+      box-shadow: 0 18px 34px rgba(15, 92, 143, 0.08);
+      padding: 22px;
+    }
+
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .card-title {
+      margin: 0;
+      font-size: 1.22rem;
+      color: var(--text-main);
+      letter-spacing: -0.03em;
+    }
+
+    .muted {
+      color: #64748b;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .btn-ai,
+    .btn-secondary,
+    .btn-danger {
+      border: none;
+      border-radius: 14px;
+      padding: 11px 16px;
+      font-weight: 800;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: 0.18s ease;
+      text-decoration: none;
+    }
+
+    .btn-ai {
+      color: #fff;
+      background: linear-gradient(135deg, var(--panel-primary), var(--panel-sky));
+      box-shadow: 0 16px 26px rgba(28, 169, 214, 0.22);
+    }
+
+    .btn-secondary {
+      background: #fff;
+      color: var(--text-main);
+      border: 1px solid rgba(15, 92, 143, 0.14);
+    }
+
+    .btn-danger {
+      background: #fff1f2;
+      color: #be123c;
+      border: 1px solid rgba(239, 68, 68, 0.18);
+    }
+
+    .btn-ai:hover,
+    .btn-secondary:hover,
+    .btn-danger:hover {
+      transform: translateY(-1px);
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 14px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .field label {
+      font-size: 0.84rem;
+      color: var(--text-main);
+      font-weight: 700;
+    }
+
+    .form-control {
+      width: 100%;
+      min-height: 48px;
+      border-radius: 14px;
+      border: 1px solid rgba(15, 92, 143, 0.14);
+      background: #fff;
+      padding: 11px 14px;
+      font: inherit;
+      color: var(--text-main);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+    }
+
+    textarea.form-control {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    .form-control:focus {
+      outline: none;
+      border-color: rgba(28, 169, 214, 0.7);
+      box-shadow: 0 0 0 4px rgba(28, 169, 214, 0.12);
+    }
+
+    .drop-note {
+      color: #64748b;
+      font-size: 0.86rem;
+    }
+
+    .ranking-list,
+    .score-bars,
+    .trend-bars {
+      display: grid;
+      gap: 12px;
+    }
+
+    .rank-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid rgba(15, 92, 143, 0.08);
+      background: linear-gradient(180deg, #fff, #f8fbff);
+      cursor: pointer;
+    }
+
+    .rank-row.active {
+      border-color: rgba(28, 169, 214, 0.4);
+      box-shadow: 0 12px 24px rgba(15, 92, 143, 0.12);
+    }
+
+    .rank-name {
+      font-weight: 800;
+      color: var(--text-main);
+    }
+
+    .rank-meta {
+      color: #64748b;
+      font-size: 0.86rem;
+      margin-top: 4px;
+    }
+
+    .badge-score,
+    .badge-decision,
+    .badge-band {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 800;
+    }
+
+    .band-green { background: rgba(22,163,74,0.12); color: var(--panel-success); }
+    .band-yellow { background: rgba(245,158,11,0.16); color: var(--panel-warn); }
+    .band-red { background: rgba(239,68,68,0.12); color: var(--panel-danger); }
+
+    .table-wrap {
+      overflow: auto;
+      border-radius: 18px;
+      border: 1px solid rgba(15, 92, 143, 0.08);
+    }
+
+    table.panel-table {
+      width: 100%;
+      min-width: 920px;
+      border-collapse: collapse;
+    }
+
+    table.panel-table th,
+    table.panel-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid #e7eef5;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    table.panel-table th {
+      background: #f4fbff;
+      color: var(--text-main);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .summary-item {
+      border: 1px solid rgba(15, 92, 143, 0.08);
+      border-radius: 18px;
+      padding: 14px;
+      background: linear-gradient(180deg, #fff, #f9fcff);
+    }
+
+    .summary-item .label {
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      font-weight: 800;
+    }
+
+    .summary-item .value {
+      margin-top: 7px;
+      color: var(--text-main);
+      font-weight: 800;
+      line-height: 1.45;
+    }
+
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: #eef7ff;
+      color: var(--panel-primary);
+      font-weight: 700;
+      font-size: 0.8rem;
+    }
+
+    .section-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, #f5faff, #eef6fd);
+      border: 1px solid rgba(15, 92, 143, 0.08);
+      margin-bottom: 16px;
+    }
+
+    .section-tab {
+      border: 1px solid rgba(15, 92, 143, 0.14);
+      background: #fff;
+      color: var(--text-main);
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .section-tab.active {
+      background: linear-gradient(135deg, var(--panel-primary), var(--panel-sky));
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .question-card {
+      border: 1px solid rgba(15, 92, 143, 0.08);
+      border-radius: 20px;
+      padding: 18px;
+      background: #fff;
+      box-shadow: 0 14px 28px rgba(15, 92, 143, 0.06);
+      margin-bottom: 14px;
+    }
+
+    .question-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .question-title {
+      margin: 0;
+      color: var(--text-main);
+      font-size: 1.02rem;
+      line-height: 1.55;
+    }
+
+    .expected-answer {
+      color: #475569;
+      background: #f8fbff;
+      border: 1px solid rgba(15, 92, 143, 0.08);
+      border-radius: 14px;
+      padding: 12px 14px;
+      line-height: 1.55;
+      margin-bottom: 12px;
+      white-space: pre-wrap;
+    }
+
+    .score-grid {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .score-input {
+      width: 100%;
+      min-height: 46px;
+      border-radius: 14px;
+      border: 1px solid rgba(15, 92, 143, 0.14);
+      padding: 10px 12px;
+      font: inherit;
+      font-weight: 800;
+    }
+
+    .score-input.green { border-color: rgba(22,163,74,0.3); background: rgba(22,163,74,0.08); color: var(--panel-success); }
+    .score-input.yellow { border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.08); color: var(--panel-warn); }
+    .score-input.red { border-color: rgba(239,68,68,0.25); background: rgba(239,68,68,0.06); color: var(--panel-danger); }
+
+    .empty-state {
+      padding: 30px;
+      text-align: center;
+      color: #64748b;
+      background: #f8fbff;
+      border: 1px dashed rgba(15, 92, 143, 0.22);
+      border-radius: 18px;
+    }
+
+    @media (max-width: 1200px) {
+      .split-grid,
+      .detail-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .interview-main {
+        padding-top: 10px;
+      }
+
+      .hero-title {
+        font-size: 1.35rem;
+      }
+
+      .chip-row {
+        justify-content: flex-start;
+      }
+
+      .score-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .section-tab,
+      .btn-ai,
+      .btn-secondary,
+      .btn-danger {
+        width: 100%;
+        justify-content: center;
+      }
+    }
+  </style>
+</head>
+<body class="interview-page">
+  <div class="main-content interview-main">
+    <div class="header interview-page-header">
+      <div>
+        <div class="page-title">HR Interview Panel</div>
+        <div class="interview-subtitle">AI-powered resume screening, interview generation, smart scoring, and export-ready candidate evaluation for Joyo Plastics hiring teams.</div>
+      </div>
+      <div class="chip-row" id="metaChips">
+        <div class="chip"><i class="bi bi-buildings"></i>Joyo Plastics</div>
+      </div>
+    </div>
+
+    <div class="interview-shell">
+      <section class="hero-strip">
+        <div class="hero-row">
+          <div>
+            <div class="kicker">AI Hiring Workspace</div>
+            <h1 class="hero-title">Upload resumes, let AI build the panel, score interviews, and rank candidates.</h1>
+            <div class="hero-copy">This module keeps the whole interview cycle in one place: resume parsing, AI question generation, weighted scoring, final evaluation, and exportable reports.</div>
+          </div>
+          <div class="toolbar">
+            <button class="btn-ai" id="btnRefreshAll"><i class="bi bi-arrow-repeat"></i> Refresh</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="kpi-grid" id="dashboardKpis"></div>
+
+      <div class="split-grid">
+        <section class="card-panel">
+          <div class="card-head">
+            <div>
+              <h2 class="card-title">Resume Upload + AI Analysis</h2>
+              <div class="muted">Upload PDF or DOCX, extract resume text, then generate structured interview content through AI.</div>
+            </div>
+          </div>
+          <form id="uploadForm" class="form-grid">
+            <div class="field">
+              <label for="candidateName">Candidate Name</label>
+              <input id="candidateName" class="form-control" type="text" placeholder="Optional if present in resume">
+            </div>
+            <div class="field">
+              <label for="candidateEmail">Candidate Email</label>
+              <input id="candidateEmail" class="form-control" type="email" placeholder="candidate@email.com">
+            </div>
+            <div class="field">
+              <label for="appliedRole">Applied Role</label>
+              <input id="appliedRole" class="form-control" type="text" placeholder="Senior Full-Stack Engineer" required>
+            </div>
+            <div class="field">
+              <label for="department">Department</label>
+              <input id="department" class="form-control" type="text" list="departmentList" placeholder="IT / Engineering / HR">
+            </div>
+            <div class="field" style="grid-column:1 / -1">
+              <label for="resumeFile">Resume File</label>
+              <input id="resumeFile" class="form-control" type="file" accept=".pdf,.doc,.docx,.txt" required>
+              <div class="drop-note">Supported formats: PDF, DOCX, DOC, TXT. AI output follows your structured interview JSON flow.</div>
+            </div>
+            <div class="toolbar" style="grid-column:1 / -1">
+              <button class="btn-ai" type="submit" id="btnAnalyzeResume"><i class="bi bi-stars"></i> Analyze Resume & Generate Panel</button>
+              <span class="muted" id="uploadStatus">No upload in progress.</span>
+            </div>
+          </form>
+        </section>
+
+        <section class="card-panel">
+          <div class="card-head">
+            <div>
+              <h2 class="card-title">Candidate Ranking</h2>
+              <div class="muted">Sorted by final score first, then by skill match score.</div>
+            </div>
+          </div>
+          <div id="rankingList" class="ranking-list"></div>
+        </section>
+      </div>
+
+      <div class="split-grid">
+        <section class="card-panel">
+          <div class="card-head">
+            <div>
+              <h2 class="card-title">Interview Register</h2>
+              <div class="muted">Track uploaded resumes, AI readiness, scoring progress, and final decision.</div>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="panel-table">
+              <thead>
+                <tr>
+                  <th>Candidate</th>
+                  <th>Role</th>
+                  <th>Department</th>
+                  <th>Score</th>
+                  <th>Decision</th>
+                  <th>Updated</th>
+                </tr>
+              </thead>
+              <tbody id="interviewTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card-panel">
+          <div class="card-head">
+            <div>
+              <h2 class="card-title">Performance Dashboard</h2>
+              <div class="muted">Department performance, top performers, low performers, and monthly interview trend.</div>
+            </div>
+          </div>
+          <div class="split-grid" style="grid-template-columns:1fr 1fr">
+            <div>
+              <h3 class="card-title" style="font-size:1rem; margin-bottom:10px;">Score Bar View</h3>
+              <div id="scoreBars" class="score-bars"></div>
+            </div>
+            <div>
+              <h3 class="card-title" style="font-size:1rem; margin-bottom:10px;">Monthly Trend</h3>
+              <div id="trendBars" class="trend-bars"></div>
+            </div>
+          </div>
+          <div style="margin-top:16px" class="table-wrap">
+            <table class="panel-table">
+              <thead>
+                <tr>
+                  <th>Department</th>
+                  <th>Total Interviews</th>
+                  <th>Average Score</th>
+                </tr>
+              </thead>
+              <tbody id="departmentTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <section class="card-panel">
+        <div class="card-head">
+          <div>
+            <h2 class="card-title">Interview Workspace</h2>
+            <div class="muted">Review AI profile, score each interview section, generate a final AI decision, and export the full report.</div>
+          </div>
+          <div class="toolbar">
+            <button class="btn-secondary" id="btnExportExcel" disabled><i class="bi bi-file-earmark-spreadsheet"></i> Export Excel</button>
+            <button class="btn-secondary" id="btnExportPdf" disabled><i class="bi bi-file-earmark-pdf"></i> Export PDF</button>
+            <button class="btn-ai" id="btnRunFinalAi" disabled><i class="bi bi-magic"></i> AI Final Evaluation</button>
+            <button class="btn-ai" id="btnSaveScores" disabled><i class="bi bi-save2"></i> Save Scores</button>
+          </div>
+        </div>
+
+        <div id="workspaceEmpty" class="empty-state">Select a candidate from the ranking list or interview register to open the interview workspace.</div>
+
+        <div id="workspaceContent" style="display:none">
+          <div class="detail-grid">
+            <div class="summary-grid" id="summaryGrid"></div>
+            <div class="card-panel" style="padding:18px">
+              <div class="card-head" style="margin-bottom:10px">
+                <div>
+                  <h3 class="card-title" style="font-size:1.05rem">AI Findings</h3>
+                  <div class="muted">Strengths, weaknesses, risk flags, and final recommendation.</div>
+                </div>
+              </div>
+              <div class="summary-item" style="margin-bottom:10px">
+                <div class="label">Strengths</div>
+                <div class="pill-list" id="strengthPills"></div>
+              </div>
+              <div class="summary-item" style="margin-bottom:10px">
+                <div class="label">Weaknesses</div>
+                <div class="pill-list" id="weaknessPills"></div>
+              </div>
+              <div class="summary-item">
+                <div class="label">Risk Flags</div>
+                <div class="pill-list" id="riskPills"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-panel" style="padding:18px; margin-top:16px">
+            <div class="card-head">
+              <div>
+                <h3 class="card-title" style="font-size:1.05rem">Final AI Evaluation</h3>
+                <div class="muted">This updates after the final evaluation run. It uses weighted scores and resume context.</div>
+              </div>
+            </div>
+            <div class="summary-grid" id="finalAiGrid"></div>
+          </div>
+
+          <div class="section-tabs" id="sectionTabs"></div>
+          <div id="sectionContent"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <datalist id="departmentList"></datalist>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    (() => {
+      const state = {
+        meta: null,
+        dashboard: null,
+        interviews: [],
+        selectedInterviewId: null,
+        selectedInterview: null,
+        activeSection: 'summary'
+      };
+
+      const SECTION_LABELS = {
+        summary: 'Summary',
+        technical: 'Technical',
+        practical: 'Practical',
+        logic: 'Logic',
+        behavioral: 'Behavioral',
+        follow_up: 'Follow-up'
+      };
+
+      function currentUser() {
+        return (window.JPSMS && JPSMS.auth.getUser()) || {};
+      }
+
+      function isHrLike() {
+        const role = String(currentUser().role_code || '').toLowerCase();
+        return ['admin', 'superadmin', 'hr_manager'].includes(role);
+      }
+
+      function scoreBand(score) {
+        const value = Number(score || 0);
+        if (value >= 75) return 'green';
+        if (value >= 60) return 'yellow';
+        return 'red';
+      }
+
+      function questionScoreBand(score) {
+        const value = Number(score || 0);
+        if (value >= 7.5) return 'green';
+        if (value >= 6) return 'yellow';
+        return 'red';
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function showToast(message, type = 'success') {
+        if (window.JPSMS && typeof JPSMS.toast === 'function') JPSMS.toast(message, type);
+        else alert(message);
+      }
+
+      function authHeaders(includeJson = true) {
+        const headers = {};
+        if (includeJson) headers['Content-Type'] = 'application/json';
+        const token = localStorage.getItem('token');
+        const user = currentUser();
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+        if (user?.username) headers['X-User-Name'] = user.username;
+        const factoryId = localStorage.getItem('jpsms_factory_id');
+        if (factoryId) headers['X-Factory-Id'] = factoryId;
+        const writeFactoryId = localStorage.getItem('jpsms_write_factory_id');
+        if (writeFactoryId) headers['X-Write-Factory-Id'] = writeFactoryId;
+        return headers;
+      }
+
+      async function apiRequest(url, options = {}) {
+        const response = await fetch('/api/interview' + url, {
+          method: options.method || 'GET',
+          headers: {
+            ...authHeaders(!(options.body instanceof FormData)),
+            ...(options.headers || {})
+          },
+          body: options.body instanceof FormData ? options.body : (options.body ? JSON.stringify(options.body) : undefined)
+        });
+        if (!response.ok) {
+          let message = 'Request failed';
+          try {
+            const data = await response.json();
+            message = data.error || message;
+          } catch (_) {}
+          throw new Error(message);
+        }
+        return response.json();
+      }
+
+      function formatScore(score) {
+        return Number(score || 0).toFixed(2).replace(/\.00$/, '');
+      }
+
+      function renderMeta() {
+        const chips = [
+          `<div class="chip"><i class="bi bi-buildings"></i>Joyo Plastics</div>`,
+          `<div class="chip"><i class="bi bi-person-badge"></i>${escapeHtml(state.meta?.current_user?.username || '-')}</div>`,
+          `<div class="chip"><i class="bi bi-cpu"></i>${escapeHtml(state.meta?.model || 'Fallback Analyzer')}</div>`
+        ];
+        document.getElementById('metaChips').innerHTML = chips.join('');
+        document.getElementById('departmentList').innerHTML = (state.meta?.departments || []).map((department) => `<option value="${escapeHtml(department)}"></option>`).join('');
+      }
+
+      function renderDashboard() {
+        const data = state.dashboard || {
+          total_interviews: 0,
+          average_score: 0,
+          top_candidates: [],
+          low_performers: [],
+          ranking: [],
+          department_performance: [],
+          monthly_trend: []
+        };
+
+        const kpis = [
+          { label: 'Total Interviews', value: data.total_interviews, sub: 'Uploaded and analyzed candidates' },
+          { label: 'Average Score', value: formatScore(data.average_score), sub: 'Weighted interview result' },
+          { label: 'Top Candidates', value: data.top_candidates.length, sub: 'High-ranking shortlist' },
+          { label: 'Departments', value: data.department_performance.length, sub: 'Department coverage in interviews' }
+        ];
+
+        document.getElementById('dashboardKpis').innerHTML = kpis.map((kpi) => `
+          <div class="kpi-card">
+            <div class="kpi-label">${escapeHtml(kpi.label)}</div>
+            <div class="kpi-value">${escapeHtml(kpi.value)}</div>
+            <div class="kpi-sub">${escapeHtml(kpi.sub)}</div>
+          </div>
+        `).join('');
+
+        document.getElementById('scoreBars').innerHTML = (data.ranking || []).slice(0, 8).map((row) => `
+          <div class="summary-item">
+            <div style="display:flex; justify-content:space-between; gap:10px; align-items:center;">
+              <div>
+                <div class="rank-name">${escapeHtml(row.candidate_name || '-')}</div>
+                <div class="rank-meta">${escapeHtml(row.applied_role || '-')}</div>
+              </div>
+              <span class="badge-band band-${scoreBand(row.final_score)}">${formatScore(row.final_score)}</span>
+            </div>
+            <div style="margin-top:10px; height:10px; border-radius:999px; background:#eaf3fb; overflow:hidden">
+              <div style="width:${Math.min(100, Number(row.final_score || 0) * 10)}%; height:100%; background:linear-gradient(135deg, #0f5c8f, #1ca9d6);"></div>
+            </div>
+          </div>
+        `).join('') || `<div class="empty-state">No interview scores available yet.</div>`;
+
+        document.getElementById('trendBars').innerHTML = (data.monthly_trend || []).map((row) => `
+          <div class="summary-item">
+            <div style="display:flex; justify-content:space-between; gap:10px">
+              <strong>${escapeHtml(row.month || '-')}</strong>
+              <span class="badge-band band-${scoreBand(row.average_score)}">${formatScore(row.average_score)}</span>
+            </div>
+            <div style="margin-top:10px; height:10px; border-radius:999px; background:#eaf3fb; overflow:hidden">
+              <div style="width:${Math.min(100, Number(row.average_score || 0) * 10)}%; height:100%; background:linear-gradient(135deg, #1ca9d6, #f8b23f);"></div>
+            </div>
+            <div class="rank-meta" style="margin-top:8px">${row.total_interviews} interviews</div>
+          </div>
+        `).join('') || `<div class="empty-state">Monthly trend appears after interviews are saved.</div>`;
+
+        document.getElementById('departmentTableBody').innerHTML = (data.department_performance || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.department || '-')}</td>
+            <td>${row.total_interviews}</td>
+            <td><span class="badge-band band-${scoreBand(row.average_score)}">${formatScore(row.average_score)}</span></td>
+          </tr>
+        `).join('') || `<tr><td colspan="3"><div class="empty-state">No department data yet.</div></td></tr>`;
+      }
+
+      function renderInterviewTable() {
+        document.getElementById('interviewTableBody').innerHTML = state.interviews.map((row) => `
+          <tr data-id="${row.id}" class="${row.id === state.selectedInterviewId ? 'table-active' : ''}">
+            <td>
+              <div class="rank-name">${escapeHtml(row.candidate_name || '-')}</div>
+              <div class="rank-meta">${escapeHtml(row.experience_level || '-')} · Skill match ${formatScore(row.skill_match_score)}</div>
+            </td>
+            <td>${escapeHtml(row.applied_role || '-')}</td>
+            <td>${escapeHtml(row.department || '-')}</td>
+            <td><span class="badge-band band-${scoreBand(row.final_score)}">${formatScore(row.final_score)}</span></td>
+            <td>${escapeHtml(row.result || 'Pending')}</td>
+            <td>${escapeHtml(String(row.updated_at || '').slice(0, 10) || '-')}</td>
+          </tr>
+        `).join('') || `<tr><td colspan="6"><div class="empty-state">Upload the first resume to start the panel.</div></td></tr>`;
+
+        document.querySelectorAll('#interviewTableBody tr[data-id]').forEach((row) => {
+          row.addEventListener('click', () => selectInterview(Number(row.dataset.id)));
+        });
+      }
+
+      function renderRanking() {
+        const ranking = (state.dashboard?.ranking || state.interviews).slice(0, 12);
+        document.getElementById('rankingList').innerHTML = ranking.map((row, index) => `
+          <div class="rank-row ${row.id === state.selectedInterviewId ? 'active' : ''}" data-id="${row.id}">
+            <div>
+              <div class="rank-name">#${index + 1} ${escapeHtml(row.candidate_name || '-')}</div>
+              <div class="rank-meta">${escapeHtml(row.applied_role || '-')} · ${escapeHtml(row.department || '-')} · Match ${formatScore(row.skill_match_score)}</div>
+            </div>
+            <span class="badge-band band-${scoreBand(row.final_score)}">${formatScore(row.final_score)}</span>
+          </div>
+        `).join('') || `<div class="empty-state">No candidates analyzed yet.</div>`;
+        document.querySelectorAll('#rankingList .rank-row[data-id]').forEach((row) => {
+          row.addEventListener('click', () => selectInterview(Number(row.dataset.id)));
+        });
+      }
+
+      function setWorkspaceEnabled(enabled) {
+        document.getElementById('btnSaveScores').disabled = !enabled;
+        document.getElementById('btnRunFinalAi').disabled = !enabled;
+        document.getElementById('btnExportExcel').disabled = !enabled;
+        document.getElementById('btnExportPdf').disabled = !enabled;
+      }
+
+      function renderSummary() {
+        const interview = state.selectedInterview;
+        const profile = interview?.ai_profile_json?.candidate_profile || {};
+        const finalAi = interview?.ai_final_json || {};
+        const summary = [
+          ['Candidate', interview?.candidate_name || profile.name || '-'],
+          ['Applied Role', interview?.applied_role || '-'],
+          ['Department', interview?.department || '-'],
+          ['Experience Level', profile.experience_level || '-'],
+          ['Recommended Role', interview?.recommended_role || interview?.ai_questions_json?.recommended_role || '-'],
+          ['Difficulty', interview?.difficulty_level || interview?.ai_questions_json?.difficulty_level || 'medium'],
+          ['Skill Match', formatScore(interview?.skill_match_score || 0)],
+          ['Final Score', formatScore(interview?.final_score || 0)],
+          ['Decision', interview?.result || finalAi.final_decision || 'Pending'],
+          ['Confidence', formatScore(interview?.confidence_score || finalAi.confidence_score || 0)]
+        ];
+
+        document.getElementById('summaryGrid').innerHTML = summary.map(([label, value]) => `
+          <div class="summary-item">
+            <div class="label">${escapeHtml(label)}</div>
+            <div class="value">${escapeHtml(value)}</div>
+          </div>
+        `).join('');
+
+        const fillPills = (id, values, emptyLabel) => {
+          const target = document.getElementById(id);
+          const list = Array.isArray(values) && values.length ? values : [emptyLabel];
+          target.innerHTML = list.map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join('');
+        };
+
+        fillPills('strengthPills', profile.strengths, 'No strengths generated');
+        fillPills('weaknessPills', profile.weaknesses, 'No weaknesses generated');
+        fillPills('riskPills', profile.risk_flags, 'No major risks');
+
+        const finalRows = [
+          ['Final Decision', interview?.result || finalAi.final_decision || 'Pending'],
+          ['Confidence Score', formatScore(interview?.confidence_score || finalAi.confidence_score || 0)],
+          ['Justification', finalAi.justification || 'Run the final AI evaluation after scoring to generate this.'],
+          ['Risk Analysis', finalAi.risk_analysis || '-'],
+          ['Salary Range Suggestion', finalAi.salary_range_suggestion || '-']
+        ];
+        document.getElementById('finalAiGrid').innerHTML = finalRows.map(([label, value]) => `
+          <div class="summary-item">
+            <div class="label">${escapeHtml(label)}</div>
+            <div class="value">${escapeHtml(value)}</div>
+          </div>
+        `).join('');
+      }
+
+      function renderSectionTabs() {
+        const tabs = ['summary', 'technical', 'practical', 'logic', 'behavioral', 'follow_up'];
+        document.getElementById('sectionTabs').innerHTML = tabs.map((tab) => `
+          <button class="section-tab ${state.activeSection === tab ? 'active' : ''}" data-section="${tab}">${SECTION_LABELS[tab]}</button>
+        `).join('');
+        document.querySelectorAll('#sectionTabs .section-tab').forEach((button) => {
+          button.addEventListener('click', () => {
+            state.activeSection = button.dataset.section;
+            renderSectionTabs();
+            renderSectionContent();
+          });
+        });
+      }
+
+      function getSectionItems(section) {
+        const interview = state.selectedInterview;
+        if (!interview) return [];
+        if (section === 'summary') return [];
+        if (section === 'follow_up') return interview.ai_questions_json?.follow_up_questions || [];
+        return interview.ai_questions_json?.interview_panel?.[section] || [];
+      }
+
+      function getScoreMap() {
+        const map = { technical: {}, practical: {}, logic: {}, behavioral: {}, follow_up: {} };
+        (state.selectedInterview?.scores || []).forEach((row) => {
+          if (!map[row.section]) map[row.section] = {};
+          map[row.section][String(row.question_index)] = row;
+        });
+        return map;
+      }
+
+      function applyScoreColor(input) {
+        input.classList.remove('green', 'yellow', 'red');
+        input.classList.add(questionScoreBand(input.value || 0));
+      }
+
+      function renderSectionContent() {
+        if (state.activeSection === 'summary') {
+          document.getElementById('sectionContent').innerHTML = `<div class="empty-state">Use the tabs above to review each AI-generated interview section and enter scores from 0 to 10.</div>`;
+          return;
+        }
+
+        const items = getSectionItems(state.activeSection);
+        const scoreMap = getScoreMap();
+        document.getElementById('sectionContent').innerHTML = items.map((item, index) => {
+          const scoreRow = scoreMap?.[state.activeSection]?.[String(index)] || {};
+          return `
+            <div class="question-card">
+              <div class="question-head">
+                <h3 class="question-title">${index + 1}. ${escapeHtml(item.question || '')}</h3>
+                <span class="badge-band band-${questionScoreBand(scoreRow.score)}">${formatScore(scoreRow.score || 0)}</span>
+              </div>
+              <div class="expected-answer">${escapeHtml(item.expected_answer || '')}</div>
+              <div class="score-grid">
+                <div class="field">
+                  <label>Score (0-10)</label>
+                  <input class="score-input ${questionScoreBand(scoreRow.score)}" type="number" min="0" max="10" step="0.5"
+                    data-section="${state.activeSection}" data-question-index="${index}" data-score-input value="${Number(scoreRow.score || 0)}">
+                </div>
+                <div class="field">
+                  <label>Remarks</label>
+                  <textarea class="form-control" rows="3" data-section="${state.activeSection}" data-question-index="${index}" data-remarks-input>${escapeHtml(scoreRow.remarks || '')}</textarea>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('') || `<div class="empty-state">No ${SECTION_LABELS[state.activeSection]} questions available for this candidate.</div>`;
+
+        document.querySelectorAll('[data-score-input]').forEach((input) => {
+          input.addEventListener('input', () => applyScoreColor(input));
+        });
+      }
+
+      async function selectInterview(interviewId) {
+        state.selectedInterviewId = interviewId;
+        const result = await apiRequest('/' + interviewId);
+        state.selectedInterview = result.data;
+        state.activeSection = 'summary';
+        document.getElementById('workspaceEmpty').style.display = 'none';
+        document.getElementById('workspaceContent').style.display = 'block';
+        setWorkspaceEnabled(true);
+        renderInterviewTable();
+        renderRanking();
+        renderSummary();
+        renderSectionTabs();
+        renderSectionContent();
+      }
+
+      async function loadMeta() {
+        const result = await apiRequest('/meta');
+        state.meta = result.data;
+        renderMeta();
+      }
+
+      async function loadDashboard() {
+        const result = await apiRequest('/dashboard');
+        state.dashboard = result.data;
+        renderDashboard();
+      }
+
+      async function loadInterviews() {
+        const result = await apiRequest('/list');
+        state.interviews = result.data || [];
+        renderInterviewTable();
+        renderRanking();
+      }
+
+      async function refreshAll() {
+        await Promise.all([loadMeta(), loadDashboard(), loadInterviews()]);
+        if (state.selectedInterviewId) {
+          const exists = state.interviews.some((item) => item.id === state.selectedInterviewId);
+          if (exists) await selectInterview(state.selectedInterviewId);
+        }
+      }
+
+      async function saveScores() {
+        if (!state.selectedInterviewId) return;
+        const items = Array.from(document.querySelectorAll('[data-score-input]')).map((input) => ({
+          section: input.dataset.section,
+          question_index: Number(input.dataset.questionIndex),
+          score: Number(input.value || 0),
+          remarks: document.querySelector(`[data-remarks-input][data-section="${input.dataset.section}"][data-question-index="${input.dataset.questionIndex}"]`)?.value || ''
+        }));
+        const result = await apiRequest('/' + state.selectedInterviewId + '/score', {
+          method: 'POST',
+          body: { items }
+        });
+        state.selectedInterview = result.data;
+        await loadDashboard();
+        await loadInterviews();
+        showToast('Interview scores saved');
+        renderSummary();
+        renderSectionContent();
+        renderRanking();
+      }
+
+      async function runFinalAi() {
+        if (!state.selectedInterviewId) return;
+        const result = await apiRequest('/' + state.selectedInterviewId + '/final-evaluate', {
+          method: 'POST',
+          body: {}
+        });
+        state.selectedInterview = result.data;
+        await loadDashboard();
+        await loadInterviews();
+        showToast('AI final evaluation updated');
+        renderSummary();
+        renderRanking();
+        renderInterviewTable();
+      }
+
+      async function exportExcel() {
+        if (!state.selectedInterviewId) return;
+        const response = await fetch('/api/interview/' + state.selectedInterviewId + '/export.xlsx', {
+          headers: authHeaders(false)
+        });
+        if (!response.ok) throw new Error('Failed to export Excel report');
+        const blob = await response.blob();
+        const fileName = `interview-panel-${state.selectedInterviewId}.xlsx`;
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      async function exportPdf() {
+        if (!state.selectedInterviewId) return;
+        const response = await fetch('/api/interview/' + state.selectedInterviewId + '/export.pdf', {
+          headers: authHeaders(false)
+        });
+        if (!response.ok) throw new Error('Failed to export printable report');
+        const html = await response.text();
+        const popup = window.open('', '_blank');
+        if (!popup) throw new Error('Please allow popups to open the printable report');
+        popup.document.open();
+        popup.document.write(html);
+        popup.document.close();
+      }
+
+      async function uploadResume(event) {
+        event.preventDefault();
+        const formData = new FormData();
+        const file = document.getElementById('resumeFile').files[0];
+        if (!file) {
+          showToast('Please choose a resume file', 'error');
+          return;
+        }
+        formData.append('resume', file);
+        formData.append('candidate_name', document.getElementById('candidateName').value);
+        formData.append('candidate_email', document.getElementById('candidateEmail').value);
+        formData.append('applied_role', document.getElementById('appliedRole').value);
+        formData.append('department', document.getElementById('department').value);
+
+        const btn = document.getElementById('btnAnalyzeResume');
+        const status = document.getElementById('uploadStatus');
+        btn.disabled = true;
+        status.textContent = 'Uploading resume and generating AI interview panel...';
+
+        try {
+          const result = await apiRequest('/upload', {
+            method: 'POST',
+            body: formData
+          });
+          showToast('Resume analyzed successfully');
+          document.getElementById('uploadForm').reset();
+          status.textContent = 'AI panel generated successfully.';
+          await refreshAll();
+          if (result.data?.id) await selectInterview(result.data.id);
+        } catch (error) {
+          status.textContent = 'Upload failed.';
+          showToast(error.message, 'error');
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      async function init() {
+        JPSMS.auth.requireAuth();
+        if (!isHrLike()) {
+          showToast('Only Admin or HR Manager can access Interview Panel', 'error');
+          window.location.href = '/index.html';
+          return;
+        }
+        JPSMS.renderShell('hr_interview_panel');
+        await refreshAll();
+      }
+
+      document.getElementById('uploadForm').addEventListener('submit', uploadResume);
+      document.getElementById('btnRefreshAll').addEventListener('click', refreshAll);
+      document.getElementById('btnSaveScores').addEventListener('click', saveScores);
+      document.getElementById('btnRunFinalAi').addEventListener('click', runFinalAi);
+      document.getElementById('btnExportExcel').addEventListener('click', exportExcel);
+      document.getElementById('btnExportPdf').addEventListener('click', exportPdf);
+
+      init().catch((error) => {
+        console.error(error);
+        showToast(error.message || 'Failed to load Interview Panel', 'error');
+      });
+    })();
+  </script>
+</body>
+</html>

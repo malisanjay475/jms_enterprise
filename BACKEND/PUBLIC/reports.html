@@ -219,6 +219,7 @@
           <select id="reportType" class="form-input">
             <option value="summary">Summary View</option>
             <option value="detail">Detailed View</option>
+            <option value="jms-plan">JMS Plan</option>
           </select>
         </div>
 
@@ -277,6 +278,10 @@
       JPSMS.renderShell('reports');
 
       initFilters();
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('view') === 'jms-plan') {
+        document.getElementById('reportType').value = 'jms-plan';
+      }
       
       // Auto-set current month dates
       const now = new Date();
@@ -309,7 +314,10 @@
       const to = document.getElementById('dateTo').value;
 
       try {
-        const res = await JPSMS.api.get(`/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`);
+        const endpoint = type === 'jms-plan'
+          ? `/reports/jms-plan?factory_id=${factoryId}&from=${from}&to=${to}`
+          : `/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`;
+        const res = await JPSMS.api.get(endpoint);
         
         if (res.ok) {
           renderReport(res.data, type);
@@ -318,7 +326,7 @@
         }
       } catch (err) {
         console.error(err);
-        JPSMS.toast('Error generating report', 'error');
+        JPSMS.toast(err.message || 'Error generating report', 'error');
       }
     }
 
@@ -327,7 +335,7 @@
       document.getElementById('tableCard').style.display = 'block';
 
       const badge = document.getElementById('reportStatusBadge');
-      badge.textContent = type === 'summary' ? 'Summary View' : 'Detailed View';
+      badge.textContent = type === 'jms-plan' ? 'JMS Plan' : (type === 'summary' ? 'Summary View' : 'Detailed View');
       badge.className = 'status-badge ' + (type === 'summary' ? 'badge-summary' : 'badge-detail');
 
       if (reportTable) {
@@ -337,7 +345,31 @@
       }
 
       let columns = [];
-      if (type === 'summary') {
+      if (type === 'jms-plan') {
+        columns = [
+          { title: "OR/JR No", data: "orJrNo" },
+          { title: "JR Date", data: "jrDate", render: v => v ? String(v).split('T')[0] : '' },
+          { title: "Our Code", data: "ourCode" },
+          { title: "BomType (Client Name)", data: "bomType" },
+          { title: "JR Item Name", data: "jrItemName" },
+          { title: "JR Qty", data: "jrQty" },
+          { title: "UOM", data: "uom" },
+          { title: "Plan Date", data: "planDate", render: v => v ? String(v).split('T')[0] : '' },
+          { title: "Plan Qty", data: "planQty" },
+          { title: "Mould No", data: "mouldNo" },
+          { title: "Mould", data: "mould" },
+          { title: "Mould Item Qty", data: "mouldItemQty" },
+          { title: "Tonnage", data: "tonnage" },
+          { title: "Machine", data: "machine" },
+          { title: "Cycle Time", data: "cycleTime" },
+          { title: "Cavity", data: "cavity" },
+          { title: "Batch No.", data: "batchNo" },
+          { title: "Batch Qty", data: "batchQty" },
+          { title: "Consumption Ratio Qty", data: "consumptionRatioQty" },
+          { title: "Who Create User Name", data: "createdBy" },
+          { title: "Timestamp", data: "timestamp", render: v => v ? new Date(v).toLocaleString('en-IN') : '' }
+        ];
+      } else if (type === 'summary') {
         columns = [
           { title: "Unit", data: "factory_unit" },
           { title: "Item Code", data: "item_code" },
@@ -371,12 +403,12 @@
         buttons: [
           {
             extend: 'excelHtml5',
-            title: 'WIP Report - ' + new Date().toLocaleDateString(),
+            title: (type === 'jms-plan' ? 'JMS Plan Report' : 'WIP Report') + ' - ' + new Date().toLocaleDateString(),
             className: 'btn-dt'
           },
           {
             extend: 'csvHtml5',
-            title: 'WIP Report - ' + new Date().toLocaleDateString(),
+            title: (type === 'jms-plan' ? 'JMS Plan Report' : 'WIP Report') + ' - ' + new Date().toLocaleDateString(),
              className: 'btn-dt'
           }
         ],

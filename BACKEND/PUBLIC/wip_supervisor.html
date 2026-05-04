@@ -311,8 +311,9 @@
             if (!u || !p) return JPSMS.toast('Enter credentials', 'error');
 
             try {
-                const user = await JPSMS.auth.login(u, p);
-                if (user) showApp(user);
+                const result = await JPSMS.auth.login(u, p, { requested_app: 'wip_supervisor_app' });
+                const user = result?.user || JPSMS.auth.getUser();
+                if (user?.username) showApp(user);
             } catch (e) {
                 JPSMS.toast(e.message, 'error');
             }
