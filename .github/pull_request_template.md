@@ -22,6 +22,8 @@
 - Commands run:
 - What was verified:
 - What remains unverified:
+- Staging deploy required before main merge: Yes/No
+- Smoke test results:
 
 ## Docs
 - Updated docs:
@@ -42,3 +44,11 @@ If this PR touches any of the following, fill this in explicitly:
 - Who or what might break:
 - Is the change additive or breaking:
 - Rollback difficulty: simple | medium | hard
+
+## Release checklist
+- [ ] Branch is `feature/*` or equivalent non-main working branch
+- [ ] PR targets `develop` first unless this is an emergency hotfix
+- [ ] PR CI passed
+- [ ] Staging deploy completed
+- [ ] Staging smoke test completed
+- [ ] Production follow-up and rollback plan are clear

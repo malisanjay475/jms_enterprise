@@ -1,0 +1,83 @@
+name: JMS PR validation
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-backend-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr_validate_backend:
+    name: pr-validate-backend
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jpsms
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d jpsms"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: BACKEND/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: BACKEND
+        run: npm ci
+
+      - name: Validate backend boot and health
+        shell: bash
+        working-directory: BACKEND
+        run: |
+          cat > .env <<'EOF'
+          GEMINI_API_KEY=dummy-key
+          DB_USER=postgres
+          DB_PASSWORD=postgres
+          DB_HOST=127.0.0.1
+          DB_PORT=5432
+          DB_NAME=jpsms
+          SERVER_TYPE=STANDALONE
+          LOCAL_FACTORY_ID=1
+          SYNC_API_KEY=pr-ci
+          EOF
+
+          node scripts/wait-for-postgres.js
+          node scripts/auto-import-db-if-needed.js
+
+          node server.js > server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3000/health >/tmp/health.json; then
+              break
+            fi
+            sleep 2
+          done
+
+          curl -fsS http://127.0.0.1:3000/health
+          curl -fsS http://127.0.0.1:3000/api/health
+
+      - name: Upload backend logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-backend-logs
+          path: BACKEND/server.log

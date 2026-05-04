@@ -368,13 +368,15 @@
 
             async function loadMachines() {
                 try {
-                    const res = await JPSMS.api.get('/machines');
+                    const res = await JPSMS.api.get('/machines?process=Moulding');
                     if (res.ok && Array.isArray(res.data)) {
                         const sel = document.getElementById('filter-machine');
                         res.data.forEach(m => {
+                            const machineName = typeof m === 'string' ? m : (m.machine || m.machine_name || m.name || '');
+                            if (!machineName) return;
                             const opt = document.createElement('option');
-                            opt.value = m.machine;
-                            opt.textContent = m.machine;
+                            opt.value = machineName;
+                            opt.textContent = machineName;
                             sel.appendChild(opt);
                         });
                     }
@@ -480,7 +482,12 @@
                                     bg = '#dcfce7'; // Green-100
                                     border = '1px solid #86efac'; // Green-300
                                     color = '#15803d'; // Green-700
-                                    content = '<i class="bi bi-check-lg" style="font-size:1.1rem"></i>'; // Bold Checkmark
+                                    const hasWeights = Array.isArray(cell.details?.weights) && cell.details.weights.length;
+                                    const hasFpa = String(cell.details?.fpa_status || '').toLowerCase() === 'done';
+                                    content = `<div style="display:flex; flex-direction:column; align-items:center; gap:2px">
+                                        <i class="bi bi-check-lg" style="font-size:1.1rem"></i>
+                                        ${(hasWeights || hasFpa) ? `<span style="font-size:10px; font-weight:800; letter-spacing:.03em">${hasWeights ? 'WT' : ''}${hasWeights && hasFpa ? ' + ' : ''}${hasFpa ? 'FPA' : ''}</span>` : ''}
+                                    </div>`;
                                 } else if (cell.status === 'PENDING') {
                                     content = '<span style="font-size:1.2rem; line-height:0">.</span>';
                                     color = '#e2e8f0';
@@ -499,7 +506,11 @@
 
                                 // Tooltip for details
                                 let title = '';
-                                if (cell.details) title = `Product: ${cell.details.item}\nRejected: ${cell.details.rej}`;
+                                if (cell.details) {
+                                    const wt = Array.isArray(cell.details.weights) && cell.details.weights.length ? `\nWeights: ${cell.details.weights.join(', ')}` : '';
+                                    const fpa = cell.details.fpa_status ? `\nFPA: ${cell.details.fpa_status}` : '';
+                                    title = `Product: ${cell.details.item || '-'}\nRejected: ${cell.details.rej || 0}${wt}${fpa}`;
+                                }
 
                                 html += `<td title="${title}" style="padding:8px; background:${bg}; color:${color}; border:${border}; vertical-align:middle; height:48px; cursor:default; transition:all 0.2s">${content}</td>`;
                             });

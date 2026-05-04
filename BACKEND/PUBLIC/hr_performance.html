@@ -1,0 +1,1982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Joyo Plastics - HR KRA &amp; Performance</title>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="assets/app.css">
+    <style>
+        :root {
+            --hr-brand: #0f5c8f;
+            --hr-brand-deep: #0a3558;
+            --hr-sky: #1ca9d6;
+            --hr-mint: #dbf5f8;
+            --hr-ice: #eef8ff;
+            --hr-gold: #f8b23f;
+            --hr-warm: #fff7eb;
+            --hr-danger: #ef4444;
+            --hr-success: #16a34a;
+            --hr-radius: 22px;
+            --hr-shadow: 0 24px 60px rgba(15, 92, 143, 0.12);
+        }
+
+        body {
+            font-family: 'Manrope', sans-serif;
+            background:
+                radial-gradient(circle at top right, rgba(28, 169, 214, 0.12), transparent 30%),
+                linear-gradient(180deg, #f7fbff 0%, #f5fafc 100%);
+            display: flex;
+            overflow: hidden;
+            min-height: 100vh;
+        }
+
+        .hr-main {
+            padding-top: 18px;
+        }
+
+        .hr-shell {
+            display: grid;
+            gap: 20px;
+            max-width: 1560px;
+            margin: 0 auto;
+        }
+
+        .hr-page-header {
+            align-items: flex-start;
+            gap: 18px;
+            margin-bottom: 18px;
+        }
+
+        .hr-page-copy {
+            display: grid;
+            gap: 8px;
+            max-width: 760px;
+        }
+
+        .hr-page-subtitle {
+            color: #5f7387;
+            font-size: 0.96rem;
+            line-height: 1.6;
+            max-width: 760px;
+        }
+
+        .hr-header-chip-row {
+            justify-content: flex-end;
+            margin-left: auto;
+        }
+
+        .hr-hero {
+            background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+            border-radius: 28px;
+            padding: 24px;
+            color: var(--hr-brand-deep);
+            box-shadow: 0 20px 44px rgba(15, 92, 143, 0.09);
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(15, 92, 143, 0.08);
+        }
+
+        .hr-hero::before {
+            content: '';
+            position: absolute;
+            inset: 0 0 auto 0;
+            height: 5px;
+            background: linear-gradient(90deg, var(--hr-brand), var(--hr-sky), var(--hr-gold));
+        }
+
+        .hr-hero::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(circle at top right, rgba(28,169,214,0.12), transparent 28%),
+                radial-gradient(circle at bottom left, rgba(248,178,63,0.12), transparent 20%);
+            pointer-events: none;
+        }
+
+        .hr-hero-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 18px;
+            position: relative;
+            z-index: 1;
+            flex-wrap: wrap;
+        }
+
+        .section-kicker {
+            color: var(--hr-sky);
+            font-size: 0.76rem;
+            font-weight: 800;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .hr-hero h1 {
+            margin: 0 0 8px;
+            font-size: 1.55rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            color: var(--hr-brand-deep);
+        }
+
+        .hr-hero p {
+            margin: 0;
+            color: #5f7387;
+            max-width: 760px;
+            line-height: 1.6;
+        }
+
+        .hero-chip-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .hero-chip {
+            background: #ffffff;
+            border: 1px solid rgba(15, 92, 143, 0.12);
+            border-radius: 999px;
+            padding: 10px 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            color: var(--hr-brand-deep);
+            box-shadow: 0 10px 24px rgba(15, 92, 143, 0.08);
+        }
+
+        .hero-chip strong {
+            color: var(--hr-brand-deep);
+        }
+
+        .hero-controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-top: 20px;
+            position: relative;
+            z-index: 1;
+            align-items: end;
+        }
+
+        .form-control {
+            width: 100%;
+            min-height: 48px;
+            border-radius: 14px;
+            border: 1px solid rgba(15, 92, 143, 0.14);
+            background: #fff;
+            padding: 11px 14px;
+            font: inherit;
+            color: var(--hr-brand-deep);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+        }
+
+        textarea.form-control {
+            min-height: 110px;
+            resize: vertical;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: rgba(28, 169, 214, 0.7);
+            box-shadow: 0 0 0 4px rgba(28, 169, 214, 0.12);
+        }
+
+        .hero-controls .form-group label {
+            color: var(--hr-brand-deep) !important;
+        }
+
+        .tab-strip {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 18px;
+            padding: 10px;
+            border-radius: 20px;
+            background: linear-gradient(180deg, #f5faff, #eef6fd);
+            border: 1px solid rgba(15, 92, 143, 0.08);
+            position: relative;
+            z-index: 1;
+        }
+
+        .tab-btn {
+            border: 1px solid rgba(15, 92, 143, 0.16);
+            background: #fff;
+            color: var(--hr-brand-deep);
+            border-radius: 999px;
+            padding: 12px 18px;
+            font-weight: 700;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: 0.18s ease;
+        }
+
+        .tab-btn.active {
+            background: linear-gradient(135deg, var(--hr-brand), var(--hr-sky));
+            color: #fff;
+            border-color: transparent;
+            box-shadow: 0 12px 32px rgba(28, 169, 214, 0.22);
+        }
+
+        .section-panel {
+            display: none;
+        }
+
+        .section-panel.active {
+            display: block;
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .kpi-card {
+            background: #fff;
+            border-radius: var(--hr-radius);
+            padding: 22px;
+            border: 1px solid rgba(15, 92, 143, 0.08);
+            box-shadow: 0 18px 38px rgba(15, 92, 143, 0.08);
+        }
+
+        .kpi-label {
+            color: #64748b;
+            font-size: 0.82rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-weight: 800;
+        }
+
+        .kpi-value {
+            margin-top: 10px;
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--hr-brand-deep);
+            letter-spacing: -0.04em;
+        }
+
+        .kpi-sub {
+            margin-top: 8px;
+            color: #64748b;
+            font-size: 0.92rem;
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 18px;
+        }
+
+        .hr-card {
+            background: #fff;
+            border-radius: 24px;
+            border: 1px solid rgba(15, 92, 143, 0.08);
+            box-shadow: 0 18px 38px rgba(15, 92, 143, 0.08);
+            padding: 22px;
+        }
+
+        .hr-card-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+        }
+
+        .hr-card h3, .hr-card h2 {
+            margin: 0;
+            color: var(--hr-brand-deep);
+            letter-spacing: -0.03em;
+        }
+
+        .muted {
+            color: #64748b;
+        }
+
+        .stack {
+            display: grid;
+            gap: 16px;
+        }
+
+        .split-form {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+        }
+
+        .form-group {
+            display: grid;
+            gap: 8px;
+        }
+
+        .form-group label {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--hr-brand-deep);
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .btn-hr-primary,
+        .btn-hr-secondary,
+        .btn-hr-danger {
+            border: none;
+            border-radius: 14px;
+            padding: 11px 16px;
+            font-weight: 800;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: 0.18s ease;
+        }
+
+        .btn-hr-primary {
+            background: linear-gradient(135deg, var(--hr-brand), var(--hr-sky));
+            color: #fff;
+            box-shadow: 0 14px 26px rgba(28, 169, 214, 0.22);
+        }
+
+        .btn-hr-secondary {
+            background: #fff;
+            color: var(--hr-brand-deep);
+            border: 1px solid rgba(15, 92, 143, 0.14);
+        }
+
+        .btn-hr-danger {
+            background: #fff1f2;
+            color: #be123c;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .btn-hr-primary:hover,
+        .btn-hr-secondary:hover,
+        .btn-hr-danger:hover {
+            transform: translateY(-1px);
+        }
+
+        .table-wrap {
+            overflow: auto;
+            border-radius: 18px;
+            border: 1px solid rgba(15, 92, 143, 0.08);
+        }
+
+        table.hr-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 860px;
+        }
+
+        table.hr-table th,
+        table.hr-table td {
+            padding: 12px 14px;
+            border-bottom: 1px solid #e7eef5;
+            vertical-align: top;
+            text-align: left;
+            font-size: 0.92rem;
+        }
+
+        table.hr-table th {
+            position: sticky;
+            top: 0;
+            background: #f4fbff;
+            color: var(--hr-brand-deep);
+            font-size: 0.78rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            z-index: 1;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 11px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 800;
+        }
+
+        .pill.role-admin { background: rgba(15, 92, 143, 0.1); color: var(--hr-brand); }
+        .pill.role-hr { background: rgba(248, 178, 63, 0.16); color: #b66a00; }
+        .pill.role-employee { background: rgba(22, 163, 74, 0.12); color: var(--hr-success); }
+        .pill.status-completed { background: rgba(22, 163, 74, 0.12); color: var(--hr-success); }
+        .pill.status-partial { background: rgba(248, 178, 63, 0.18); color: #a16207; }
+        .pill.status-not_done { background: rgba(239, 68, 68, 0.12); color: var(--hr-danger); }
+
+        .chart-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .chart-row {
+            display: grid;
+            grid-template-columns: 160px 1fr 70px;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .chart-bar-track {
+            height: 12px;
+            border-radius: 999px;
+            background: #e8f4fb;
+            overflow: hidden;
+        }
+
+        .chart-bar-fill {
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(135deg, var(--hr-brand), var(--hr-sky));
+        }
+
+        .trend-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
+            align-items: end;
+            gap: 10px;
+            min-height: 220px;
+            padding-top: 16px;
+        }
+
+        .trend-col {
+            display: grid;
+            gap: 8px;
+            justify-items: center;
+        }
+
+        .trend-bar {
+            width: 100%;
+            border-radius: 16px 16px 6px 6px;
+            background: linear-gradient(180deg, var(--hr-sky), var(--hr-brand));
+            min-height: 12px;
+        }
+
+        .trend-label {
+            font-size: 0.7rem;
+            color: #64748b;
+            text-align: center;
+        }
+
+        .template-item-table input,
+        .template-item-table select,
+        .template-item-table textarea {
+            width: 100%;
+            border: 1px solid #d8e4ef;
+            border-radius: 10px;
+            min-height: 38px;
+            padding: 8px 10px;
+            background: #fff;
+            font: inherit;
+        }
+
+        .template-item-table textarea {
+            min-height: 72px;
+            resize: vertical;
+        }
+
+        .template-item-table {
+            width: 100%;
+            min-width: 1160px;
+            border-collapse: collapse;
+        }
+
+        .checklist-group {
+            border: 1px solid rgba(15, 92, 143, 0.08);
+            border-radius: 20px;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .checklist-head {
+            background: linear-gradient(135deg, rgba(15, 92, 143, 0.08), rgba(28, 169, 214, 0.08));
+            padding: 16px 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .checklist-table {
+            width: 100%;
+            min-width: 940px;
+            border-collapse: collapse;
+        }
+
+        .checklist-table th,
+        .checklist-table td {
+            padding: 12px 14px;
+            border-bottom: 1px solid #e7eef5;
+            vertical-align: top;
+        }
+
+        .checklist-table th {
+            background: #f9fcff;
+            font-size: 0.76rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #64748b;
+        }
+
+        .status-select {
+            min-width: 150px;
+        }
+
+        .status-select.status-completed {
+            background: rgba(22, 163, 74, 0.09);
+            border-color: rgba(22, 163, 74, 0.2);
+            color: var(--hr-success);
+        }
+
+        .status-select.status-partial {
+            background: rgba(248, 178, 63, 0.16);
+            border-color: rgba(248, 178, 63, 0.28);
+            color: #a16207;
+        }
+
+        .status-select.status-not_done {
+            background: rgba(239, 68, 68, 0.08);
+            border-color: rgba(239, 68, 68, 0.18);
+            color: var(--hr-danger);
+        }
+
+        .report-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+        }
+
+        .report-tile {
+            padding: 20px;
+            border-radius: 22px;
+            border: 1px solid rgba(15, 92, 143, 0.08);
+            background: linear-gradient(180deg, #ffffff, #f8fbff);
+            display: grid;
+            gap: 12px;
+        }
+
+        .empty-state {
+            padding: 28px;
+            text-align: center;
+            color: #64748b;
+            background: #f8fbff;
+            border: 1px dashed rgba(15, 92, 143, 0.2);
+            border-radius: 18px;
+        }
+
+        .profile-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+        }
+
+        @media (max-width: 1200px) {
+            .hr-page-header {
+                flex-direction: column;
+            }
+
+            .hr-header-chip-row {
+                margin-left: 0;
+                justify-content: flex-start;
+            }
+
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .hr-main {
+                padding-top: 10px;
+            }
+
+            .hr-page-subtitle {
+                font-size: 0.9rem;
+            }
+
+            .hr-hero {
+                padding: 20px;
+                border-radius: 24px;
+            }
+
+            .hr-hero h1 {
+                font-size: 1.55rem;
+            }
+
+            .chart-row {
+                grid-template-columns: 1fr;
+            }
+
+            .tab-btn {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .toolbar {
+                width: 100%;
+            }
+
+            .toolbar > * {
+                flex: 1 1 160px;
+            }
+        }
+    </style>
+</head>
+<body class="hr-kra-page">
+    <div class="main-content hr-main">
+        <div class="header hr-page-header">
+            <div class="hr-page-copy">
+                <div class="page-title">HR KRA &amp; Performance</div>
+                <div class="hr-page-subtitle">Joyo Plastics workspace for employee KRAs, daily checklist scoring, monthly performance tracking, and management-ready reporting.</div>
+            </div>
+            <div class="hero-chip-row hr-header-chip-row" id="heroChipRow">
+                <div class="hero-chip"><i class="bi bi-buildings"></i><strong>Joyo Plastics</strong></div>
+            </div>
+        </div>
+
+        <div class="hr-shell">
+            <section class="hr-hero">
+                <div class="hr-hero-top">
+                    <div>
+                        <div class="section-kicker">Workspace Console</div>
+                        <h1>Track KRAs, checklist completion, and live performance in one place.</h1>
+                        <p>Use this screen to manage employee master, assign KRAs, capture daily checklist updates, and export clean monthly reports without leaving the JMS shell.</p>
+                    </div>
+                    <div class="toolbar">
+                        <button class="btn-hr-primary" id="btnRefreshAll"><i class="bi bi-arrow-repeat"></i> Refresh Data</button>
+                    </div>
+                </div>
+                <div class="hero-controls">
+                    <div class="form-group">
+                        <label for="filterMonth">Reporting Month</label>
+                        <input type="month" id="filterMonth" class="form-control">
+                    </div>
+                    <div class="form-group" id="departmentFilterWrap">
+                        <label for="filterDepartment">Department Filter</label>
+                        <select id="filterDepartment" class="form-control"></select>
+                    </div>
+                </div>
+                <div class="tab-strip" id="tabStrip">
+                    <button class="tab-btn active" data-tab="dashboard"><i class="bi bi-speedometer2"></i> Dashboard</button>
+                    <button class="tab-btn" data-tab="employees"><i class="bi bi-people"></i> Employee Master</button>
+                    <button class="tab-btn" data-tab="templates"><i class="bi bi-journal-check"></i> KRA Templates</button>
+                    <button class="tab-btn" data-tab="assignments"><i class="bi bi-diagram-3"></i> Assignments</button>
+                    <button class="tab-btn" data-tab="checklist"><i class="bi bi-ui-checks-grid"></i> Daily Checklist</button>
+                    <button class="tab-btn" data-tab="reports"><i class="bi bi-file-earmark-spreadsheet"></i> Reports</button>
+                </div>
+            </section>
+
+            <section class="section-panel active" id="panel-dashboard">
+                <div class="stack">
+                    <div class="kpi-grid" id="dashboardKpis"></div>
+                    <div class="content-grid">
+                        <div class="hr-card">
+                            <div class="hr-card-head">
+                                <div>
+                                    <h3>Employee Performance Ranking</h3>
+                                    <div class="muted">Bar view for monthly performance percentage.</div>
+                                </div>
+                            </div>
+                            <div id="rankingChart" class="chart-list"></div>
+                        </div>
+                        <div class="hr-card">
+                            <div class="hr-card-head">
+                                <div>
+                                    <h3>Monthly Trend</h3>
+                                    <div class="muted">Daily average performance progression for the selected month.</div>
+                                </div>
+                            </div>
+                            <div id="trendChart" class="trend-grid"></div>
+                        </div>
+                    </div>
+                    <div class="content-grid">
+                        <div class="hr-card">
+                            <div class="hr-card-head">
+                                <div>
+                                    <h3>Top &amp; Low Performers</h3>
+                                    <div class="muted">Quick management view of standout performers and support cases.</div>
+                                </div>
+                            </div>
+                            <div class="content-grid" style="grid-template-columns:1fr 1fr">
+                                <div>
+                                    <h4 style="margin:0 0 12px; color:var(--hr-success)">Top Performers</h4>
+                                    <div id="topPerformersList" class="stack"></div>
+                                </div>
+                                <div>
+                                    <h4 style="margin:0 0 12px; color:var(--hr-danger)">Low Performers</h4>
+                                    <div id="lowPerformersList" class="stack"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="hr-card">
+                            <div class="hr-card-head">
+                                <div>
+                                    <h3>Department Summary</h3>
+                                    <div class="muted">Average performance and completion by department.</div>
+                                </div>
+                            </div>
+                            <div class="table-wrap">
+                                <table class="hr-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Department</th>
+                                            <th>Employees</th>
+                                            <th>Performance %</th>
+                                            <th>Completion %</th>
+                                            <th>Top Performer</th>
+                                            <th>Low Performer</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="departmentSummaryBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section-panel" id="panel-employees">
+                <div class="content-grid">
+                    <div class="hr-card">
+                        <div class="hr-card-head">
+                            <div>
+                                <h3>Employee Profile</h3>
+                                <div class="muted">Create or update employee access and reporting structure.</div>
+                            </div>
+                            <div class="toolbar">
+                                <button class="btn-hr-secondary" id="btnResetEmployeeForm"><i class="bi bi-arrow-counterclockwise"></i> Reset</button>
+                            </div>
+                        </div>
+                        <form id="employeeForm" class="stack">
+                            <input type="hidden" id="empId">
+                            <div class="split-form">
+                                <div class="form-group">
+                                    <label for="empName">Employee Name</label>
+                                    <input type="text" id="empName" class="form-control" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="empCode">Employee Code</label>
+                                    <input type="text" id="empCode" class="form-control" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="empDepartment">Department</label>
+                                    <input type="text" id="empDepartment" class="form-control" list="departmentList" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="empDesignation">Designation</label>
+                                    <input type="text" id="empDesignation" class="form-control" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="empManager">Manager</label>
+                                    <select id="empManager" class="form-control"></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="empRole">Role</label>
+                                    <select id="empRole" class="form-control"></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="empUsername">Login Username</label>
+                                    <input type="text" id="empUsername" class="form-control" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="empPassword">Password</label>
+                                    <input type="password" id="empPassword" class="form-control" placeholder="Required on create, optional on update">
+                                </div>
+                                <div class="form-group">
+                                    <label for="empEmail">Email</label>
+                                    <input type="email" id="empEmail" class="form-control">
+                                </div>
+                                <div class="form-group">
+                                    <label for="empPhone">Phone</label>
+                                    <input type="text" id="empPhone" class="form-control">
+                                </div>
+                            </div>
+                            <div class="toolbar">
+                                <button type="submit" class="btn-hr-primary"><i class="bi bi-save"></i> Save Employee</button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="hr-card">
+                        <div class="hr-card-head">
+                            <div>
+                                <h3>Employee Directory</h3>
+                                <div class="muted">Profiles, roles, and live assignment counts.</div>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="hr-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Code</th>
+                                        <th>Department</th>
+                                        <th>Designation</th>
+                                        <th>Manager</th>
+                                        <th>Role</th>
+                                        <th>Assignments</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="employeeTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section-panel" id="panel-templates">
+                <div class="content-grid">
+                    <div class="hr-card">
+                        <div class="hr-card-head">
+                            <div>
+                                <h3>KRA Template Builder</h3>
+                                <div class="muted">Set measurable KRAs and daily behavior activities in one template.</div>
+                            </div>
+                            <div class="toolbar">
+                                <button class="btn-hr-secondary" id="btnNewTemplate"><i class="bi bi-plus-circle"></i> New Template</button>
+                            </div>
+                        </div>
+                        <form id="templateForm" class="stack">
+                            <input type="hidden" id="templateId">
+                            <div class="split-form">
+                                <div class="form-group">
+                                    <label for="templateName">Template Name</label>
+                                    <input type="text" id="templateName" class="form-control" placeholder="Production Supervisor KRA">
+                                </div>
+                                <div class="form-group">
+                                    <label for="templateDepartment">Department</label>
+                                    <input type="text" id="templateDepartment" class="form-control" list="departmentList">
+                                </div>
+                                <div class="form-group">
+                                    <label for="templateFrequency">Default Frequency</label>
+                                    <select id="templateFrequency" class="form-control">
+                                        <option value="Daily">Daily</option>
+                                        <option value="Weekly">Weekly</option>
+                                        <option value="Monthly">Monthly</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" style="grid-column:1/-1">
+                                    <label for="templateDescription">Description</label>
+                                    <textarea id="templateDescription" class="form-control" rows="3" placeholder="Explain when and where this template is used."></textarea>
+                                </div>
+                            </div>
+                            <div class="toolbar">
+                                <button type="button" class="btn-hr-secondary" id="btnAddKraRow"><i class="bi bi-plus-square"></i> Add KRA Row</button>
+                                <button type="button" class="btn-hr-secondary" id="btnAddDailyRow"><i class="bi bi-plus-square-dotted"></i> Add Daily Activity</button>
+                            </div>
+                            <div class="table-wrap">
+                                <table class="template-item-table hr-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Type</th>
+                                            <th>Key Area</th>
+                                            <th>Responsibilities</th>
+                                            <th>Measurement</th>
+                                            <th>Frequency</th>
+                                            <th>Target</th>
+                                            <th>Marks</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="templateItemsBody"></tbody>
+                                </table>
+                            </div>
+                            <div class="toolbar">
+                                <button type="submit" class="btn-hr-primary"><i class="bi bi-save"></i> Save Template</button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="hr-card">
+                        <div class="hr-card-head">
+                            <div>
+                                <h3>Saved Templates</h3>
+                                <div class="muted">Click edit to reopen a template with all KRA rows.</div>
+                            </div>
+                        </div>
+                        <div id="templateList" class="stack"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section-panel" id="panel-assignments">
+                <div class="content-grid">
+                    <div class="hr-card">
+                        <div class="hr-card-head">
+                            <div>
+                                <h3>Assign KRA Template</h3>
+                                <div class="muted">Assign to an individual employee or push to an entire department.</div>
+                            </div>
+                        </div>
+                        <form id="assignmentForm" class="stack">
+                            <div class="split-form">
+                                <div class="form-group">
+                                    <label for="assignTemplate">Template</label>
+                                    <select id="assignTemplate" class="form-control"></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="assignMode">Assignment Mode</label>
+                                    <select id="assignMode" class="form-control">
+                                        <option value="individual">Individual Employee</option>
+                                        <option value="department">Department</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" id="assignEmployeeWrap">
+                                    <label for="assignEmployee">Employee</label>
+                                    <select id="assignEmployee" class="form-control"></select>
+                                </div>
+                                <div class="form-group" id="assignDepartmentWrap" style="display:none">
+                                    <label for="assignDepartment">Department</label>
+                                    <select id="assignDepartment" class="form-control"></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="assignStartDate">Start Date</label>
+                                    <input type="date" id="assignStartDate" class="form-control">
+                                </div>
+                                <div class="form-group">
+                                    <label for="assignEndDate">End Date</label>
+                                    <input type="date" id="assignEndDate" class="form-control">
+                                </div>
+                            </div>
+                            <div class="toolbar">
+                                <button type="submit" class="btn-hr-primary"><i class="bi bi-send-check"></i> Assign Template</button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="hr-card">
+                        <div class="hr-card-head">
+                            <div>
+                                <h3>Active Assignments</h3>
+                                <div class="muted">Track who has which KRA template live right now.</div>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="hr-table">
+                                <thead>
+                                    <tr>
+                                        <th>Employee</th>
+                                        <th>Department</th>
+                                        <th>Template</th>
+                                        <th>Mode</th>
+                                        <th>Start</th>
+                                        <th>End</th>
+                                        <th>Status</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="assignmentTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section-panel" id="panel-checklist">
+                <div class="stack">
+                    <div class="hr-card">
+                        <div class="hr-card-head">
+                            <div>
+                                <h3>Daily Checklist</h3>
+                                <div class="muted">Employees update assigned KRAs daily with status and remarks. HR can review live scoring.</div>
+                            </div>
+                        </div>
+                        <div class="split-form">
+                            <div class="form-group" id="checklistEmployeeWrap">
+                                <label for="checklistEmployee">Employee</label>
+                                <select id="checklistEmployee" class="form-control"></select>
+                            </div>
+                            <div class="form-group">
+                                <label for="checklistDate">Checklist Date</label>
+                                <input type="date" id="checklistDate" class="form-control">
+                            </div>
+                            <div class="form-group" style="align-self:end">
+                                <button class="btn-hr-primary" id="btnLoadChecklist"><i class="bi bi-arrow-repeat"></i> Load Checklist</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="kpi-grid" id="checklistSummary"></div>
+
+                    <div id="checklistProfileCard" class="hr-card" style="display:none">
+                        <div class="hr-card-head">
+                            <div>
+                                <h3>Employee Snapshot</h3>
+                                <div class="muted">Profile information for the currently loaded checklist.</div>
+                            </div>
+                        </div>
+                        <div class="profile-grid" id="checklistProfileGrid"></div>
+                    </div>
+
+                    <div id="checklistContainer" class="stack"></div>
+
+                    <div class="toolbar" id="checklistSaveWrap" style="display:none">
+                        <button class="btn-hr-primary" id="btnSaveChecklist"><i class="bi bi-check2-square"></i> Save Daily Checklist</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section-panel" id="panel-reports">
+                <div class="report-grid">
+                    <div class="report-tile">
+                        <div>
+                            <h3 style="margin:0 0 8px">Employee Performance Report</h3>
+                            <div class="muted">Detailed KRA-by-KRA export with status, remarks, and score.</div>
+                        </div>
+                        <button class="btn-hr-primary" data-report="employee"><i class="bi bi-download"></i> Download Employee Report</button>
+                    </div>
+                    <div class="report-tile">
+                        <div>
+                            <h3 style="margin:0 0 8px">Monthly Summary</h3>
+                            <div class="muted">Overall performance percentage, completion, and grading by employee.</div>
+                        </div>
+                        <button class="btn-hr-primary" data-report="monthly"><i class="bi bi-download"></i> Download Monthly Summary</button>
+                    </div>
+                    <div class="report-tile">
+                        <div>
+                            <h3 style="margin:0 0 8px">Department Performance</h3>
+                            <div class="muted">Department-wise performance and completion view for management.</div>
+                        </div>
+                        <button class="btn-hr-primary" data-report="department"><i class="bi bi-download"></i> Download Department Report</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <datalist id="departmentList"></datalist>
+
+    <script src="assets/app.js"></script>
+    <script>
+        const JPSMS = window.JPSMS;
+        const auth = JPSMS.auth;
+
+        const state = {
+            meta: null,
+            dashboard: null,
+            templates: [],
+            assignments: [],
+            checklist: null,
+            templateDraft: [],
+            activeTab: 'dashboard'
+        };
+
+        function currentUser() {
+            return auth.getUser();
+        }
+
+        function isHrLike() {
+            const role = String(currentUser().role_code || '').toLowerCase();
+            return role === 'admin' || role === 'superadmin' || role === 'hr_manager';
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function monthValue() {
+            return document.getElementById('filterMonth').value || new Date().toISOString().slice(0, 7);
+        }
+
+        function authHeaders(includeJson = true) {
+            const headers = {};
+            if (includeJson) headers['Content-Type'] = 'application/json';
+            const token = localStorage.getItem('token');
+            const user = currentUser();
+            if (token) headers['Authorization'] = 'Bearer ' + token;
+            if (user?.username) headers['X-User-Name'] = user.username;
+            const factoryId = localStorage.getItem('jpsms_factory_id');
+            const writeFactoryId = localStorage.getItem('jpsms_write_factory_id');
+            if (factoryId) headers['X-Factory-Id'] = factoryId;
+            if (writeFactoryId) headers['X-Write-Factory-Id'] = writeFactoryId;
+            return headers;
+        }
+
+        async function apiRequest(path, options = {}) {
+            const response = await fetch('/api/hr-performance' + path, {
+                ...options,
+                headers: {
+                    ...authHeaders(!options.rawBody),
+                    ...(options.headers || {})
+                },
+                body: options.rawBody ? options.body : (options.body ? JSON.stringify(options.body) : undefined)
+            });
+            if (!response.ok) {
+                let message = 'Request failed';
+                try {
+                    const data = await response.json();
+                    message = data.error || message;
+                } catch (_) {}
+                throw new Error(message);
+            }
+            return response.json();
+        }
+
+        async function downloadReport(type) {
+            const user = currentUser();
+            const params = new URLSearchParams({
+                type,
+                month: monthValue()
+            });
+            const department = isHrLike() ? document.getElementById('filterDepartment').value : '';
+            if (department) params.set('department', department);
+            if (type === 'employee' && !isHrLike()) {
+                const employeeUserId = state.meta?.currentProfile?.user_id;
+                if (employeeUserId) params.set('employee_user_id', employeeUserId);
+            }
+            const response = await fetch('/api/hr-performance/reports/export?' + params.toString(), {
+                method: 'GET',
+                headers: authHeaders(false)
+            });
+            if (!response.ok) {
+                let message = 'Export failed';
+                try {
+                    const data = await response.json();
+                    message = data.error || message;
+                } catch (_) {}
+                throw new Error(message);
+            }
+            const blob = await response.blob();
+            const disposition = response.headers.get('Content-Disposition') || '';
+            const match = disposition.match(/filename=\"([^\"]+)\"/i);
+            const filename = match ? match[1] : `report-${type}.xlsx`;
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        function setStatusSelectClass(selectEl) {
+            const status = String(selectEl.value || 'not_done').toLowerCase();
+            selectEl.classList.remove('status-completed', 'status-partial', 'status-not_done');
+            selectEl.classList.add(`status-${status}`);
+        }
+
+        function rolePillClass(roleCode) {
+            const role = String(roleCode || '').toLowerCase();
+            if (role === 'admin' || role === 'superadmin') return 'role-admin';
+            if (role === 'hr_manager') return 'role-hr';
+            return 'role-employee';
+        }
+
+        function prettyRole(roleCode) {
+            const role = String(roleCode || '').toLowerCase();
+            if (role === 'superadmin' || role === 'admin') return 'Admin';
+            if (role === 'hr_manager') return 'HR Manager';
+            return 'Employee';
+        }
+
+        function statusPill(status) {
+            const value = String(status || 'not_done').toLowerCase();
+            const labelMap = { completed: 'Completed', partial: 'Partial', not_done: 'Not done' };
+            return `<span class="pill status-${value}">${labelMap[value] || value}</span>`;
+        }
+
+        function showToast(message, type = 'success') {
+            if (JPSMS && typeof JPSMS.toast === 'function') JPSMS.toast(message, type);
+            else alert(message);
+        }
+
+        function renderHero() {
+            const meta = state.meta;
+            const currentProfile = meta?.currentProfile;
+            const chips = [
+                `<div class="hero-chip"><i class="bi bi-buildings"></i><strong>Joyo Plastics</strong></div>`,
+                `<div class="hero-chip"><i class="bi bi-person-badge"></i><strong>${escapeHtml(meta?.currentUser?.username || '-')}</strong></div>`,
+                `<div class="hero-chip"><i class="bi bi-shield-lock"></i><strong>${escapeHtml(prettyRole(meta?.currentUser?.role_code))}</strong></div>`
+            ];
+            if (currentProfile?.department) {
+                chips.push(`<div class="hero-chip"><i class="bi bi-diagram-2"></i><strong>${escapeHtml(currentProfile.department)}</strong></div>`);
+            }
+            document.getElementById('heroChipRow').innerHTML = chips.join('');
+        }
+
+        function renderDepartmentOptions() {
+            const selectIds = ['filterDepartment', 'assignDepartment'];
+            const departments = state.meta?.departments || [];
+            const options = [`<option value="">All Departments</option>`]
+                .concat(departments.map((department) => `<option value="${escapeHtml(department)}">${escapeHtml(department)}</option>`));
+            selectIds.forEach((id) => {
+                const select = document.getElementById(id);
+                if (select) {
+                    const current = select.value;
+                    select.innerHTML = options.join('');
+                    if (current) select.value = current;
+                }
+            });
+            document.getElementById('departmentList').innerHTML = departments.map((department) => `<option value="${escapeHtml(department)}"></option>`).join('');
+        }
+
+        function renderEmployeeOptions() {
+            const employees = state.meta?.employees || [];
+            const managerSelect = document.getElementById('empManager');
+            managerSelect.innerHTML = `<option value="">No manager</option>` + employees.map((employee) => `
+                <option value="${employee.user_id}">${escapeHtml(employee.full_name)} (${escapeHtml(employee.employee_code)})</option>
+            `).join('');
+
+            const employeeSelect = document.getElementById('assignEmployee');
+            employeeSelect.innerHTML = `<option value="">Select employee</option>` + employees.map((employee) => `
+                <option value="${employee.user_id}">${escapeHtml(employee.full_name)} - ${escapeHtml(employee.department || '')}</option>
+            `).join('');
+
+            const checklistEmployee = document.getElementById('checklistEmployee');
+            checklistEmployee.innerHTML = employees.map((employee) => `
+                <option value="${employee.user_id}">${escapeHtml(employee.full_name)} (${escapeHtml(employee.employee_code)})</option>
+            `).join('');
+            if (!isHrLike() && state.meta?.currentProfile?.user_id) {
+                checklistEmployee.value = String(state.meta.currentProfile.user_id);
+            } else if (isHrLike() && employees.length && !checklistEmployee.value) {
+                checklistEmployee.value = String(employees[0].user_id);
+            }
+        }
+
+        function renderRoleOptions() {
+            const roleSelect = document.getElementById('empRole');
+            roleSelect.innerHTML = (state.meta?.roles || []).map((role) => `<option value="${role.code}">${escapeHtml(role.label)}</option>`).join('');
+        }
+
+        function renderTemplateOptions() {
+            const select = document.getElementById('assignTemplate');
+            select.innerHTML = `<option value="">Select template</option>` + state.templates.map((template) => `
+                <option value="${template.id}">${escapeHtml(template.name)}${template.department ? ` - ${escapeHtml(template.department)}` : ''}</option>
+            `).join('');
+        }
+
+        function applyRoleVisibility() {
+            const hrLike = isHrLike();
+            ['employees', 'templates', 'assignments'].forEach((tab) => {
+                const button = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
+                if (!button) return;
+                button.style.display = hrLike ? 'inline-flex' : 'none';
+            });
+            document.getElementById('departmentFilterWrap').style.display = hrLike ? 'block' : 'none';
+            document.getElementById('checklistEmployeeWrap').style.display = hrLike ? 'block' : 'none';
+            if (!hrLike && ['employees', 'templates', 'assignments'].includes(state.activeTab)) {
+                switchTab('dashboard');
+            }
+        }
+
+        function switchTab(tab) {
+            state.activeTab = tab;
+            document.querySelectorAll('.tab-btn').forEach((button) => {
+                button.classList.toggle('active', button.dataset.tab === tab);
+            });
+            document.querySelectorAll('.section-panel').forEach((panel) => {
+                panel.classList.toggle('active', panel.id === `panel-${tab}`);
+            });
+        }
+
+        function renderDashboard() {
+            const data = state.dashboard;
+            if (!data) return;
+            const kpis = [
+                {
+                    label: 'Employees Tracked',
+                    value: data.overview.employees,
+                    sub: 'Profiles included in the current dashboard scope.'
+                },
+                {
+                    label: 'Average Performance',
+                    value: `${data.overview.average_performance}%`,
+                    sub: 'Overall monthly performance percentage.'
+                },
+                {
+                    label: 'Average Completion',
+                    value: `${data.overview.average_completion}%`,
+                    sub: 'Checklist completion quality across entries.'
+                },
+                {
+                    label: 'Active Templates',
+                    value: data.overview.active_templates,
+                    sub: 'KRA templates available for assignment.'
+                }
+            ];
+
+            document.getElementById('dashboardKpis').innerHTML = kpis.map((kpi) => `
+                <div class="kpi-card">
+                    <div class="kpi-label">${escapeHtml(kpi.label)}</div>
+                    <div class="kpi-value">${escapeHtml(String(kpi.value))}</div>
+                    <div class="kpi-sub">${escapeHtml(kpi.sub)}</div>
+                </div>
+            `).join('');
+
+            const ranking = data.ranking.slice(0, 10);
+            document.getElementById('rankingChart').innerHTML = ranking.length ? ranking.map((row) => `
+                <div class="chart-row">
+                    <div>
+                        <div style="font-weight:800; color:var(--hr-brand-deep)">${escapeHtml(row.full_name)}</div>
+                        <div class="muted">${escapeHtml(row.department || 'Unassigned')}</div>
+                    </div>
+                    <div class="chart-bar-track">
+                        <div class="chart-bar-fill" style="width:${Math.min(row.performance_percent, 100)}%"></div>
+                    </div>
+                    <div style="font-weight:800; color:var(--hr-brand)">${row.performance_percent}%</div>
+                </div>
+            `).join('') : `<div class="empty-state">No ranking data yet for this month.</div>`;
+
+            document.getElementById('trendChart').innerHTML = data.trend.length ? data.trend.map((row) => `
+                <div class="trend-col">
+                    <div style="font-size:0.72rem; color:var(--hr-brand); font-weight:800">${row.performance_percent}%</div>
+                    <div class="trend-bar" style="height:${Math.max(18, row.performance_percent * 1.6)}px"></div>
+                    <div class="trend-label">${escapeHtml(row.date.slice(8))}</div>
+                </div>
+            `).join('') : `<div class="empty-state" style="grid-column:1/-1">No daily trend yet. Employees need to start submitting checklists.</div>`;
+
+            const performerCard = (row, accent) => `
+                <div class="kpi-card" style="padding:16px; border-left:4px solid ${accent}">
+                    <div style="font-weight:800; color:var(--hr-brand-deep)">${escapeHtml(row.full_name)}</div>
+                    <div class="muted">${escapeHtml(row.department || 'Unassigned')} • ${escapeHtml(row.designation || '')}</div>
+                    <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
+                        <span class="pill role-employee">${row.performance_percent}%</span>
+                        <span class="pill role-hr">Grade ${escapeHtml(row.grade)}</span>
+                        <span class="pill role-admin">${row.days_updated} days</span>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('topPerformersList').innerHTML = data.top_performers.length
+                ? data.top_performers.map((row) => performerCard(row, '#16a34a')).join('')
+                : `<div class="empty-state">No top performers yet.</div>`;
+            document.getElementById('lowPerformersList').innerHTML = data.low_performers.length
+                ? data.low_performers.map((row) => performerCard(row, '#ef4444')).join('')
+                : `<div class="empty-state">No low performers yet.</div>`;
+
+            document.getElementById('departmentSummaryBody').innerHTML = data.department_performance.length
+                ? data.department_performance.map((row) => `
+                    <tr>
+                        <td><strong>${escapeHtml(row.department)}</strong></td>
+                        <td>${row.employees}</td>
+                        <td>${row.average_performance}%</td>
+                        <td>${row.average_completion}%</td>
+                        <td>${escapeHtml(row.top_performer)}</td>
+                        <td>${escapeHtml(row.low_performer)}</td>
+                    </tr>
+                `).join('')
+                : `<tr><td colspan="6"><div class="empty-state">No department summary yet.</div></td></tr>`;
+        }
+
+        function resetEmployeeForm() {
+            document.getElementById('employeeForm').reset();
+            document.getElementById('empId').value = '';
+            document.getElementById('empRole').value = 'employee';
+        }
+
+        function editEmployee(id) {
+            const employee = (state.meta?.employees || []).find((row) => Number(row.id) === Number(id));
+            if (!employee) return;
+            document.getElementById('empId').value = employee.id;
+            document.getElementById('empName').value = employee.full_name || '';
+            document.getElementById('empCode').value = employee.employee_code || '';
+            document.getElementById('empDepartment').value = employee.department || '';
+            document.getElementById('empDesignation').value = employee.designation || '';
+            document.getElementById('empManager').value = employee.manager_user_id || '';
+            document.getElementById('empRole').value = employee.role_code || employee.account_role_code || 'employee';
+            document.getElementById('empUsername').value = employee.username || '';
+            document.getElementById('empPassword').value = '';
+            document.getElementById('empEmail').value = employee.email || '';
+            document.getElementById('empPhone').value = employee.phone || '';
+            switchTab('employees');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        async function deleteEmployee(id) {
+            if (!confirm('Delete this employee and their login account?')) return;
+            try {
+                await fetch(`/api/hr-performance/employees/${id}`, {
+                    method: 'DELETE',
+                    headers: authHeaders(false)
+                }).then(async (response) => {
+                    if (!response.ok) {
+                        const data = await response.json().catch(() => ({}));
+                        throw new Error(data.error || 'Delete failed');
+                    }
+                });
+                showToast('Employee deleted');
+                await refreshMetaAndSectionData();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        function renderEmployees() {
+            const body = document.getElementById('employeeTableBody');
+            const employees = state.meta?.employees || [];
+            body.innerHTML = employees.length ? employees.map((employee) => `
+                <tr>
+                    <td>
+                        <div style="font-weight:800; color:var(--hr-brand-deep)">${escapeHtml(employee.full_name)}</div>
+                        <div class="muted">${escapeHtml(employee.username || '')}</div>
+                    </td>
+                    <td>${escapeHtml(employee.employee_code || '')}</td>
+                    <td>${escapeHtml(employee.department || '')}</td>
+                    <td>${escapeHtml(employee.designation || '')}</td>
+                    <td>${escapeHtml(employee.manager_name || '-')}</td>
+                    <td><span class="pill ${rolePillClass(employee.role_code || employee.account_role_code)}">${escapeHtml(prettyRole(employee.role_code || employee.account_role_code))}</span></td>
+                    <td>${employee.active_assignments || 0}</td>
+                    <td>
+                        <div class="toolbar">
+                            <button class="btn-hr-secondary" type="button" onclick="editEmployee(${employee.id})"><i class="bi bi-pencil-square"></i></button>
+                            <button class="btn-hr-danger" type="button" onclick="deleteEmployee(${employee.id})"><i class="bi bi-trash"></i></button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('') : `<tr><td colspan="8"><div class="empty-state">No employee profiles created yet.</div></td></tr>`;
+        }
+
+        function newTemplateDraft() {
+            state.templateDraft = [
+                {
+                    local_id: `row-${Date.now()}-1`,
+                    item_type: 'kra',
+                    category: 'KRA',
+                    key_area: '',
+                    responsibility: '',
+                    measurement: '',
+                    frequency: 'Daily',
+                    target_value: '',
+                    marks: 10,
+                    is_daily_activity: false
+                },
+                {
+                    local_id: `row-${Date.now()}-2`,
+                    item_type: 'daily_activity',
+                    category: 'Daily Activities',
+                    key_area: 'Discipline',
+                    responsibility: 'Discipline',
+                    measurement: 'Daily behaviour',
+                    frequency: 'Daily',
+                    target_value: 'Maintain discipline',
+                    marks: 5,
+                    is_daily_activity: true
+                }
+            ];
+        }
+
+        function resetTemplateForm() {
+            document.getElementById('templateForm').reset();
+            document.getElementById('templateId').value = '';
+            newTemplateDraft();
+            renderTemplateBuilder();
+        }
+
+        function addTemplateItem(type) {
+            const defaults = type === 'daily_activity'
+                ? {
+                    item_type: 'daily_activity',
+                    category: 'Daily Activities',
+                    key_area: 'Teamwork',
+                    responsibility: 'Teamwork',
+                    measurement: 'Daily behaviour',
+                    frequency: 'Daily',
+                    target_value: 'Positive contribution',
+                    marks: 5,
+                    is_daily_activity: true
+                }
+                : {
+                    item_type: 'kra',
+                    category: 'KRA',
+                    key_area: '',
+                    responsibility: '',
+                    measurement: '',
+                    frequency: document.getElementById('templateFrequency').value || 'Daily',
+                    target_value: '',
+                    marks: 10,
+                    is_daily_activity: false
+                };
+            state.templateDraft.push({ local_id: `row-${Date.now()}-${Math.random()}`, ...defaults });
+            renderTemplateBuilder();
+        }
+
+        function updateTemplateItem(localId, field, value) {
+            const item = state.templateDraft.find((row) => row.local_id === localId);
+            if (!item) return;
+            item[field] = field === 'marks' ? Number(value || 0) : value;
+            if (field === 'item_type') {
+                item.is_daily_activity = String(value).includes('daily');
+                if (item.is_daily_activity && !item.category) item.category = 'Daily Activities';
+                if (!item.is_daily_activity && item.category === 'Daily Activities') item.category = 'KRA';
+            }
+        }
+
+        function removeTemplateItem(localId) {
+            state.templateDraft = state.templateDraft.filter((row) => row.local_id !== localId);
+            renderTemplateBuilder();
+        }
+
+        function renderTemplateBuilder() {
+            const body = document.getElementById('templateItemsBody');
+            body.innerHTML = state.templateDraft.map((item, index) => `
+                <tr>
+                    <td>
+                        <select onchange="updateTemplateItem('${item.local_id}', 'item_type', this.value)">
+                            <option value="kra" ${item.item_type === 'kra' ? 'selected' : ''}>KRA</option>
+                            <option value="daily_activity" ${item.item_type === 'daily_activity' ? 'selected' : ''}>Daily Activity</option>
+                        </select>
+                    </td>
+                    <td>
+                        <input value="${escapeHtml(item.key_area || '')}" oninput="updateTemplateItem('${item.local_id}', 'key_area', this.value)" placeholder="Key area or activity">
+                        <div style="margin-top:8px"><input value="${escapeHtml(item.category || '')}" oninput="updateTemplateItem('${item.local_id}', 'category', this.value)" placeholder="Section / category"></div>
+                    </td>
+                    <td><textarea oninput="updateTemplateItem('${item.local_id}', 'responsibility', this.value)" placeholder="Responsibility">${escapeHtml(item.responsibility || '')}</textarea></td>
+                    <td><textarea oninput="updateTemplateItem('${item.local_id}', 'measurement', this.value)" placeholder="How performance is measured">${escapeHtml(item.measurement || '')}</textarea></td>
+                    <td><input value="${escapeHtml(item.frequency || '')}" oninput="updateTemplateItem('${item.local_id}', 'frequency', this.value)" placeholder="Daily / Weekly / Monthly"></td>
+                    <td><textarea oninput="updateTemplateItem('${item.local_id}', 'target_value', this.value)" placeholder="Target">${escapeHtml(item.target_value || '')}</textarea></td>
+                    <td><input type="number" min="0" step="0.5" value="${escapeHtml(item.marks ?? 0)}" oninput="updateTemplateItem('${item.local_id}', 'marks', this.value)"></td>
+                    <td>
+                        <button type="button" class="btn-hr-danger" onclick="removeTemplateItem('${item.local_id}')"><i class="bi bi-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+            if (!state.templateDraft.length) {
+                body.innerHTML = `<tr><td colspan="8"><div class="empty-state">No KRA items yet. Add a KRA row or daily activity.</div></td></tr>`;
+            }
+        }
+
+        function loadTemplateIntoForm(templateId) {
+            const template = state.templates.find((row) => Number(row.id) === Number(templateId));
+            if (!template) return;
+            document.getElementById('templateId').value = template.id;
+            document.getElementById('templateName').value = template.name || '';
+            document.getElementById('templateDepartment').value = template.department || '';
+            document.getElementById('templateFrequency').value = template.frequency || 'Daily';
+            document.getElementById('templateDescription').value = template.description || '';
+            state.templateDraft = (template.items || []).map((item) => ({
+                local_id: `row-${template.id}-${item.id}`,
+                item_type: item.item_type || (item.is_daily_activity ? 'daily_activity' : 'kra'),
+                category: item.category || '',
+                key_area: item.key_area || '',
+                responsibility: item.responsibility || '',
+                measurement: item.measurement || '',
+                frequency: item.frequency || '',
+                target_value: item.target_value || '',
+                marks: item.marks || 0,
+                is_daily_activity: !!item.is_daily_activity
+            }));
+            renderTemplateBuilder();
+            switchTab('templates');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        async function deleteTemplate(templateId) {
+            if (!confirm('Delete this KRA template?')) return;
+            try {
+                await fetch(`/api/hr-performance/templates/${templateId}`, {
+                    method: 'DELETE',
+                    headers: authHeaders(false)
+                }).then(async (response) => {
+                    if (!response.ok) {
+                        const data = await response.json().catch(() => ({}));
+                        throw new Error(data.error || 'Delete failed');
+                    }
+                });
+                showToast('Template deleted');
+                await loadTemplates();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        function renderTemplates() {
+            const container = document.getElementById('templateList');
+            container.innerHTML = state.templates.length ? state.templates.map((template) => `
+                <div class="hr-card" style="padding:18px">
+                    <div class="hr-card-head" style="margin-bottom:12px">
+                        <div>
+                            <h3 style="font-size:1.05rem">${escapeHtml(template.name)}</h3>
+                            <div class="muted">${escapeHtml(template.department || 'All Departments')} • ${(template.item_count ?? template.items?.length ?? 0)} items • ${(template.total_marks ?? (template.items || []).reduce((sum, item) => sum + Number(item.marks || 0), 0))} marks</div>
+                        </div>
+                        <div class="toolbar">
+                            <button class="btn-hr-secondary" onclick="loadTemplateIntoForm(${template.id})"><i class="bi bi-pencil-square"></i> Edit</button>
+                            <button class="btn-hr-danger" onclick="deleteTemplate(${template.id})"><i class="bi bi-trash"></i></button>
+                        </div>
+                    </div>
+                    <div class="muted">${escapeHtml(template.description || 'No description')}</div>
+                </div>
+            `).join('') : `<div class="empty-state">No KRA templates created yet.</div>`;
+        }
+
+        function toggleAssignMode() {
+            const mode = document.getElementById('assignMode').value;
+            document.getElementById('assignEmployeeWrap').style.display = mode === 'individual' ? 'block' : 'none';
+            document.getElementById('assignDepartmentWrap').style.display = mode === 'department' ? 'block' : 'none';
+        }
+
+        function renderAssignments() {
+            const body = document.getElementById('assignmentTableBody');
+            body.innerHTML = state.assignments.length ? state.assignments.map((assignment) => `
+                <tr>
+                    <td>
+                        <div style="font-weight:800">${escapeHtml(assignment.employee_name || '')}</div>
+                        <div class="muted">${escapeHtml(assignment.employee_code || '')}</div>
+                    </td>
+                    <td>${escapeHtml(assignment.employee_department || '')}</td>
+                    <td>${escapeHtml(assignment.template_name || 'Manual Assignment')}</td>
+                    <td>${escapeHtml(assignment.assignment_mode || '')}</td>
+                    <td>${escapeHtml(assignment.start_date || '')}</td>
+                    <td>${escapeHtml(assignment.end_date || '-') }</td>
+                    <td>${assignment.is_active ? '<span class="pill role-employee">Active</span>' : '<span class="pill role-admin">Inactive</span>'}</td>
+                    <td>
+                        <button class="btn-hr-secondary" onclick="toggleAssignment(${assignment.id}, ${assignment.is_active ? 'false' : 'true'})">
+                            <i class="bi bi-${assignment.is_active ? 'pause-circle' : 'play-circle'}"></i>
+                            ${assignment.is_active ? 'Deactivate' : 'Activate'}
+                        </button>
+                    </td>
+                </tr>
+            `).join('') : `<tr><td colspan="8"><div class="empty-state">No KRA assignments yet.</div></td></tr>`;
+        }
+
+        async function toggleAssignment(id, nextState) {
+            try {
+                await apiRequest(`/assignments/${id}/toggle`, {
+                    method: 'POST',
+                    body: { is_active: nextState === true || nextState === 'true' }
+                });
+                showToast('Assignment updated');
+                await loadAssignments();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        function renderChecklist() {
+            const summaryTarget = document.getElementById('checklistSummary');
+            const container = document.getElementById('checklistContainer');
+            const profileCard = document.getElementById('checklistProfileCard');
+            const profileGrid = document.getElementById('checklistProfileGrid');
+            const saveWrap = document.getElementById('checklistSaveWrap');
+            const data = state.checklist;
+
+            if (!data || !data.profile) {
+                summaryTarget.innerHTML = '';
+                container.innerHTML = `<div class="empty-state">No employee profile found for the selected checklist scope.</div>`;
+                profileCard.style.display = 'none';
+                saveWrap.style.display = 'none';
+                return;
+            }
+
+            const summary = data.summary || {};
+            summaryTarget.innerHTML = [
+                { label: 'Daily Score', value: summary.daily_score || 0, sub: 'Total marks scored today.' },
+                { label: 'Possible Marks', value: summary.daily_possible || 0, sub: 'Available checklist marks for today.' },
+                { label: 'Performance %', value: `${summary.performance_percent || 0}%`, sub: 'Daily performance percentage.' }
+            ].map((kpi) => `
+                <div class="kpi-card">
+                    <div class="kpi-label">${escapeHtml(kpi.label)}</div>
+                    <div class="kpi-value">${escapeHtml(String(kpi.value))}</div>
+                    <div class="kpi-sub">${escapeHtml(kpi.sub)}</div>
+                </div>
+            `).join('');
+
+            profileCard.style.display = 'block';
+            profileGrid.innerHTML = [
+                ['Employee', data.profile.full_name],
+                ['Employee Code', data.profile.employee_code],
+                ['Department', data.profile.department],
+                ['Designation', data.profile.designation],
+                ['Manager', data.profile.manager_name || '-'],
+                ['Role', prettyRole(data.profile.role_code || data.profile.account_role_code)]
+            ].map(([label, value]) => `
+                <div class="kpi-card" style="padding:16px">
+                    <div class="kpi-label">${escapeHtml(label)}</div>
+                    <div style="margin-top:10px; font-size:1rem; font-weight:800; color:var(--hr-brand-deep)">${escapeHtml(String(value || '-'))}</div>
+                </div>
+            `).join('');
+
+            container.innerHTML = data.assignments.length ? data.assignments.map((assignment) => `
+                <div class="checklist-group">
+                    <div class="checklist-head">
+                        <div>
+                            <div style="font-weight:800; color:var(--hr-brand-deep)">${escapeHtml(assignment.template_name || 'Assigned KRA')}</div>
+                            <div class="muted">Checklist items for ${escapeHtml(document.getElementById('checklistDate').value)}</div>
+                        </div>
+                        <div class="pill role-admin">${assignment.items.length} items</div>
+                    </div>
+                    <div class="table-wrap" style="border:none; border-radius:0">
+                        <table class="checklist-table">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Key Area</th>
+                                    <th>Responsibilities</th>
+                                    <th>Measurement</th>
+                                    <th>Frequency</th>
+                                    <th>Target</th>
+                                    <th>Marks</th>
+                                    <th>Status</th>
+                                    <th>Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${assignment.items.map((item) => `
+                                    <tr data-assignment-item-id="${item.assignment_item_id}">
+                                        <td>${item.is_daily_activity ? '<span class="pill role-hr">Daily Activity</span>' : '<span class="pill role-admin">KRA</span>'}</td>
+                                        <td>
+                                            <div style="font-weight:800; color:var(--hr-brand-deep)">${escapeHtml(item.key_area)}</div>
+                                            ${item.category ? `<div class="muted">${escapeHtml(item.category)}</div>` : ''}
+                                        </td>
+                                        <td>${escapeHtml(item.responsibility || '-')}</td>
+                                        <td>${escapeHtml(item.measurement || '-')}</td>
+                                        <td>${escapeHtml(item.frequency || '-')}</td>
+                                        <td>${escapeHtml(item.target_value || '-')}</td>
+                                        <td>${item.marks}</td>
+                                        <td>
+                                            <select class="form-control status-select status-${item.status}" data-field="status" onchange="setStatusSelectClass(this)">
+                                                <option value="completed" ${item.status === 'completed' ? 'selected' : ''}>✔ Completed</option>
+                                                <option value="partial" ${item.status === 'partial' ? 'selected' : ''}>~ Partial</option>
+                                                <option value="not_done" ${item.status === 'not_done' ? 'selected' : ''}>✖ Not done</option>
+                                            </select>
+                                        </td>
+                                        <td><textarea class="form-control" data-field="remarks" rows="2" placeholder="Optional remarks">${escapeHtml(item.remarks || '')}</textarea></td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `).join('') : `<div class="empty-state">No active KRA assignments found for this employee.</div>`;
+
+            saveWrap.style.display = data.assignments.length ? 'flex' : 'none';
+            document.querySelectorAll('.status-select').forEach(setStatusSelectClass);
+        }
+
+        async function loadMeta() {
+            const result = await apiRequest('/meta');
+            state.meta = result.data;
+            renderHero();
+            renderDepartmentOptions();
+            renderEmployeeOptions();
+            renderRoleOptions();
+            applyRoleVisibility();
+            renderEmployees();
+        }
+
+        async function loadTemplates() {
+            const result = await apiRequest('/templates?include_items=1');
+            state.templates = result.data || [];
+            renderTemplateOptions();
+            renderTemplates();
+        }
+
+        async function loadAssignments() {
+            const result = await apiRequest('/assignments');
+            state.assignments = result.data || [];
+            renderAssignments();
+        }
+
+        async function loadDashboard() {
+            const params = new URLSearchParams({ month: monthValue() });
+            if (isHrLike()) {
+                const department = document.getElementById('filterDepartment').value;
+                if (department) params.set('department', department);
+            }
+            const result = await apiRequest('/dashboard?' + params.toString());
+            state.dashboard = result.data;
+            renderDashboard();
+        }
+
+        async function loadChecklist() {
+            const date = document.getElementById('checklistDate').value || new Date().toISOString().slice(0, 10);
+            const targetUserId = isHrLike()
+                ? document.getElementById('checklistEmployee').value
+                : String(state.meta?.currentProfile?.user_id || '');
+            const params = new URLSearchParams({ entry_date: date });
+            if (targetUserId) params.set('employee_user_id', targetUserId);
+            const result = await apiRequest('/checklist?' + params.toString());
+            state.checklist = result.data;
+            renderChecklist();
+        }
+
+        async function refreshMetaAndSectionData() {
+            await loadMeta();
+            await Promise.all([
+                loadTemplates(),
+                loadAssignments(),
+                loadDashboard()
+            ]);
+            await loadChecklist();
+        }
+
+        async function init() {
+            JPSMS.auth.requireAuth();
+            JPSMS.renderShell('hr_kra');
+            const today = new Date();
+            document.getElementById('filterMonth').value = today.toISOString().slice(0, 7);
+            document.getElementById('checklistDate').value = today.toISOString().slice(0, 10);
+            document.getElementById('assignStartDate').value = today.toISOString().slice(0, 10);
+            newTemplateDraft();
+            renderTemplateBuilder();
+            await refreshMetaAndSectionData();
+        }
+
+        document.querySelectorAll('.tab-btn').forEach((button) => {
+            button.addEventListener('click', () => switchTab(button.dataset.tab));
+        });
+
+        document.getElementById('btnRefreshAll').addEventListener('click', async () => {
+            try {
+                await refreshMetaAndSectionData();
+                showToast('Performance data refreshed');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        });
+
+        document.getElementById('filterDepartment').addEventListener('change', loadDashboard);
+        document.getElementById('filterMonth').addEventListener('change', async () => {
+            await loadDashboard();
+            await loadChecklist();
+        });
+
+        document.getElementById('employeeForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            try {
+                await apiRequest('/employees', {
+                    method: 'POST',
+                    body: {
+                        id: document.getElementById('empId').value || null,
+                        full_name: document.getElementById('empName').value,
+                        employee_code: document.getElementById('empCode').value,
+                        department: document.getElementById('empDepartment').value,
+                        designation: document.getElementById('empDesignation').value,
+                        manager_user_id: document.getElementById('empManager').value || null,
+                        role_code: document.getElementById('empRole').value,
+                        username: document.getElementById('empUsername').value,
+                        password: document.getElementById('empPassword').value,
+                        email: document.getElementById('empEmail').value,
+                        phone: document.getElementById('empPhone').value
+                    }
+                });
+                showToast('Employee saved');
+                resetEmployeeForm();
+                await refreshMetaAndSectionData();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        });
+
+        document.getElementById('btnResetEmployeeForm').addEventListener('click', resetEmployeeForm);
+
+        document.getElementById('btnNewTemplate').addEventListener('click', resetTemplateForm);
+        document.getElementById('btnAddKraRow').addEventListener('click', () => addTemplateItem('kra'));
+        document.getElementById('btnAddDailyRow').addEventListener('click', () => addTemplateItem('daily_activity'));
+
+        document.getElementById('templateForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            try {
+                await apiRequest('/templates', {
+                    method: 'POST',
+                    body: {
+                        id: document.getElementById('templateId').value || null,
+                        name: document.getElementById('templateName').value,
+                        department: document.getElementById('templateDepartment').value,
+                        description: document.getElementById('templateDescription').value,
+                        frequency: document.getElementById('templateFrequency').value,
+                        items: state.templateDraft
+                    }
+                });
+                showToast('Template saved');
+                resetTemplateForm();
+                await loadTemplates();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        });
+
+        document.getElementById('assignMode').addEventListener('change', toggleAssignMode);
+        document.getElementById('assignmentForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            try {
+                const mode = document.getElementById('assignMode').value;
+                await apiRequest('/assignments', {
+                    method: 'POST',
+                    body: {
+                        template_id: document.getElementById('assignTemplate').value,
+                        employee_user_id: mode === 'individual' ? document.getElementById('assignEmployee').value : null,
+                        department: mode === 'department' ? document.getElementById('assignDepartment').value : null,
+                        start_date: document.getElementById('assignStartDate').value,
+                        end_date: document.getElementById('assignEndDate').value
+                    }
+                });
+                showToast('KRA assigned successfully');
+                await loadAssignments();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        });
+
+        document.getElementById('btnLoadChecklist').addEventListener('click', async () => {
+            try {
+                await loadChecklist();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        });
+
+        document.getElementById('btnSaveChecklist').addEventListener('click', async () => {
+            try {
+                const entries = Array.from(document.querySelectorAll('#checklistContainer tr[data-assignment-item-id]')).map((row) => ({
+                    assignment_item_id: Number(row.dataset.assignmentItemId),
+                    status: row.querySelector('[data-field="status"]').value,
+                    remarks: row.querySelector('[data-field="remarks"]').value
+                }));
+                await apiRequest('/checklist', {
+                    method: 'POST',
+                    body: {
+                        employee_user_id: isHrLike() ? document.getElementById('checklistEmployee').value : state.meta?.currentProfile?.user_id,
+                        entry_date: document.getElementById('checklistDate').value,
+                        entries
+                    }
+                });
+                showToast('Checklist saved');
+                await Promise.all([loadChecklist(), loadDashboard()]);
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        });
+
+        document.querySelectorAll('[data-report]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                try {
+                    await downloadReport(button.dataset.report);
+                } catch (error) {
+                    showToast(error.message, 'error');
+                }
+            });
+        });
+
+        window.editEmployee = editEmployee;
+        window.deleteEmployee = deleteEmployee;
+        window.updateTemplateItem = updateTemplateItem;
+        window.removeTemplateItem = removeTemplateItem;
+        window.loadTemplateIntoForm = loadTemplateIntoForm;
+        window.deleteTemplate = deleteTemplate;
+        window.toggleAssignment = toggleAssignment;
+        window.setStatusSelectClass = setStatusSelectClass;
+
+        init().catch((error) => {
+            console.error(error);
+            showToast(error.message || 'Failed to load HR performance module', 'error');
+        });
+    </script>
+</body>
+</html>

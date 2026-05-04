@@ -127,6 +127,48 @@
             background: #fbfdff;
         }
 
+        #appAccessChecks {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            max-height: 260px;
+            overflow-y: auto;
+            border: 1px solid #dce8ef;
+            border-radius: 14px;
+            padding: 12px;
+            background: linear-gradient(180deg, #fbfdff, #f4fbff);
+        }
+
+        .app-access-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 9px;
+            border: 1px solid #e2edf4;
+            border-radius: 12px;
+            background: #fff;
+        }
+
+        .app-access-item input {
+            width: 17px;
+            height: 17px;
+            margin-top: 2px;
+        }
+
+        .app-access-item label {
+            cursor: pointer;
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: #12344d;
+            line-height: 1.25;
+        }
+
+        .app-access-actions {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
         .user-perm-toolbar {
             display: flex;
             justify-content: space-between;
@@ -205,6 +247,10 @@
 
             #factoryChecks {
                 grid-template-columns: 1fr !important;
+            }
+
+            #appAccessChecks {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -287,6 +333,17 @@
                                     <!-- Dynamic -->
                                 </div>
                             </div>
+
+                            <div class="form-group" style="margin-bottom:0">
+                                <label class="form-label">App Access</label>
+                                <div class="app-access-actions">
+                                    <button type="button" class="btn btn-sm btn-outline" onclick="toggleAllApps(true)">Allow All</button>
+                                    <button type="button" class="btn btn-sm btn-outline" onclick="toggleAllApps(false)">Clear</button>
+                                </div>
+                                <div id="appAccessChecks">
+                                    <!-- Dynamic -->
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -354,12 +411,14 @@
             loadUsers();
             loadRoles();
             loadFactories();
+            renderAppAccessChecks();
 
             // Auto-check for admin
             document.getElementById('u_role').addEventListener('change', (e) => {
                 const val = e.target.value;
                 if (val === 'admin' || val === 'superadmin') {
                     toggleAllPerms(true);
+                    toggleAllApps(true);
                     document.getElementById('u_global').checked = true;
                     // Check all factories? Maybe not automatically
                 }
@@ -392,6 +451,7 @@
                 username: updatedUser.username,
                 role_code: updatedUser.role_code,
                 line: updatedUser.line,
+                permissions: updatedUser.permissions,
                 global_access: updatedUser.global_access
             };
             localStorage.setItem('user', JSON.stringify(nextUser));
@@ -624,6 +684,40 @@
             return perms;
         }
 
+        function getAppAccessFromForm() {
+            const appMap = {};
+            document.querySelectorAll('.app-access-chk').forEach(box => {
+                appMap[box.value] = box.checked === true;
+            });
+            return appMap;
+        }
+
+        function renderAppAccessChecks(appMap = null) {
+            const div = document.getElementById('appAccessChecks');
+            if (!div) return;
+            const apps = (JPSMS.auth.getAppConfig ? JPSMS.auth.getAppConfig() : []) || [];
+            div.innerHTML = apps.map(app => {
+                const checked = appMap && Object.prototype.hasOwnProperty.call(appMap, app.id)
+                    ? appMap[app.id] === true
+                    : false;
+                return `
+                    <div class="app-access-item">
+                        <input type="checkbox" class="app-access-chk" id="app_${app.id}" value="${app.id}" ${checked ? 'checked' : ''}>
+                        <label for="app_${app.id}">
+                            ${app.label}
+                            <span style="display:block; font-size:0.72rem; font-weight:600; color:#7890a2; margin-top:2px">${app.href || ''}</span>
+                        </label>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function toggleAllApps(state) {
+            document.querySelectorAll('.app-access-chk').forEach(box => {
+                box.checked = state;
+            });
+        }
+
         function toggleAllPerms(state) {
             document.querySelectorAll('#permTable input[type="checkbox"]').forEach(box => {
                 box.checked = state;
@@ -645,6 +739,7 @@
             document.getElementById('u_line').value = '';
 
             renderPermTable({}); // Empty perms
+            renderAppAccessChecks({});
 
             // Checks
             document.getElementById('u_global').checked = false;
@@ -688,8 +783,16 @@
             if (user.role_code === 'admin' || user.role_code === 'superadmin') {
                 renderPermTable({}); // Render empty first
                 toggleAllPerms(true);
+                renderAppAccessChecks({});
+                toggleAllApps(true);
             } else {
                 renderPermTable(perms);
+                const appMap = JPSMS.auth.getAppAccessMap ? JPSMS.auth.getAppAccessMap(user) : null;
+                if (appMap) {
+                    renderAppAccessChecks(appMap);
+                } else {
+                    renderAppAccessChecks({});
+                }
             }
         }
 
@@ -698,12 +801,14 @@
         }
 
         async function saveUser() {
+            const permissions = getPermsFromTable();
+            permissions.__apps = getAppAccessFromForm();
             const u = {
                 id: isEditMode ? editUserId : null,
                 username: document.getElementById('u_username').value,
                 role_code: document.getElementById('u_role').value,
                 line: document.getElementById('u_line').value,
-                permissions: getPermsFromTable(),
+                permissions,
                 global_access: document.getElementById('u_global').checked,
                 factories: Array.from(document.querySelectorAll('.factory-chk:checked')).map(c => parseInt(c.value))
             };

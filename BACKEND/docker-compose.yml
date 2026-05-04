@@ -2,7 +2,7 @@ services:
   # Application Service
   app:
     build: .
-    container_name: jpsms-app
+    container_name: jms-v1-local-app
     restart: always
     ports:
       - "3000:3000"
@@ -25,12 +25,12 @@ services:
       db:
         condition: service_healthy
     networks:
-      - jpsms-net
+      - jms-v1-local-net
 
   # Database Service
   db:
     image: postgres:14-alpine
-    container_name: jpsms-db
+    container_name: jms-v1-local-db
     restart: always
     environment:
       - POSTGRES_USER=${DB_USER}
@@ -45,7 +45,7 @@ services:
       timeout: 5s
       retries: 12
     networks:
-      - jpsms-net
+      - jms-v1-local-net
 
   # Nginx Reverse Proxy (Optional, good for SSL)
   nginx:
@@ -62,7 +62,7 @@ services:
     depends_on:
       - app
     networks:
-      - jpsms-net
+      - jms-v1-local-net
 
   certbot:
     image: certbot/certbot
@@ -70,10 +70,10 @@ services:
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
     networks:
-      - jpsms-net
+      - jms-v1-local-net
 
 networks:
-  jpsms-net:
+  jms-v1-local-net:
 
 
 volumes:

@@ -241,6 +241,7 @@
 
                     const div = document.createElement('div');
                     div.className = `notif-card ${readClass}`;
+                    const safeLink = n.link ? String(n.link).replace(/"/g, '&quot;') : '';
                     div.innerHTML = `
                         <div class="notif-meta">
                             <span><span class="badge-type ${typeClass}">${n.type}</span> &nbsp; ${date}</span>
@@ -250,6 +251,7 @@
                             <div>
                                 <div class="notif-title">${n.title}</div>
                                 <div class="notif-msg">${n.message}</div>
+                                ${safeLink ? `<button class="btn sm primary" style="margin-top:10px" onclick="openNotificationLink(${n.id}, '${safeLink}')"><i class="bi bi-box-arrow-up-right"></i> Open Approval</button>` : ''}
                             </div>
                             <button class="btn icon sm" onclick="markRead(${n.id})" title="Mark Read" ${n.is_read ? 'disabled' : ''}>
                                 ${icon}
@@ -274,6 +276,11 @@
                 // Trigger bell update immediately
                 if (window.checkUnread) window.checkUnread(); // Global Helper
             } catch (e) { console.error(e); }
+        }
+
+        async function openNotificationLink(id, link) {
+            try { await api.post('/notifications/mark-read', { id }); } catch (e) { console.warn(e); }
+            window.location.href = link;
         }
 
         async function markAllRead() {
