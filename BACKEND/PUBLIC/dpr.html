@@ -2311,9 +2311,67 @@
 
         // Let's trigger a fetch for the detailed breakdown
         fetchDetailedStats(currentOrder, machine, d);
+        loadJobQCEvidence(d);
 
         // Show Modal
         document.getElementById('jobDetailModal').style.display = 'flex';
+    }
+
+    async function loadJobQCEvidence(details) {
+        const box = document.getElementById('modalJobQCEvidence');
+        if (!box) return;
+
+        const jc = details.job_card_no || details.JobCardNo || '';
+        const planId = details.plan_id || details.PlanID || '';
+        const machine = details.machine || '';
+        const stdWeight = details.std_weight || document.getElementById('modalJobWeight')?.innerText || '-';
+        const supervisorWeight = details.article_act || details.act_weight || '-';
+        box.innerHTML = '<div style="color:#64748b; font-size:0.85rem">Loading QC weights and FPA evidence...</div>';
+
+        try {
+            const qs = new URLSearchParams();
+            if (jc) qs.set('jobCardNo', jc);
+            if (planId) qs.set('planId', planId);
+            if (machine) qs.set('machine', machine);
+            qs.set('limit', '50');
+            const res = await fetch(`/api/qc/job-checks?${qs.toString()}`);
+            const json = await res.json();
+            const rows = json.ok && Array.isArray(json.data) ? json.data : [];
+            const weights = rows
+                .flatMap(r => [r.qc_weight_1, r.qc_weight_2, r.qc_weight_3])
+                .filter(v => v !== null && v !== undefined && String(v) !== '')
+                .slice(0, 3);
+            const fpa = rows.find(r => r.fpa_form_image || (Array.isArray(r.product_images) && r.product_images.length));
+            const fpaImages = fpa ? [fpa.fpa_form_image, ...((Array.isArray(fpa.product_images) ? fpa.product_images : []))].filter(Boolean) : [];
+
+            box.innerHTML = `
+                <h4 style="font-size:1rem; font-weight:800; color:#0f172a; margin:0 0 10px">QC & DPR Compliance</h4>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(105px,1fr)); gap:10px">
+                    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:10px">
+                        <div style="font-size:0.7rem; color:#64748b; font-weight:800; text-transform:uppercase">STD Weight</div>
+                        <div style="font-weight:800; color:#0f172a">${stdWeight || '-'}</div>
+                    </div>
+                    <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:10px">
+                        <div style="font-size:0.7rem; color:#1d4ed8; font-weight:800; text-transform:uppercase">Supervisor</div>
+                        <div style="font-weight:800; color:#1e3a8a">${supervisorWeight || '-'}</div>
+                    </div>
+                    ${[0, 1, 2].map(i => `
+                        <div style="background:#ecfdf5; border:1px solid #bbf7d0; border-radius:10px; padding:10px">
+                            <div style="font-size:0.7rem; color:#047857; font-weight:800; text-transform:uppercase">QC Weight ${i + 1}</div>
+                            <div style="font-weight:800; color:#064e3b">${weights[i] || '-'}</div>
+                        </div>
+                    `).join('')}
+                </div>
+                ${fpaImages.length ? `
+                    <div style="font-size:0.85rem; color:#334155; font-weight:800; margin:14px 0 8px">FPA Images</div>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(95px,1fr)); gap:8px">
+                        ${fpaImages.map((src, i) => `<a href="${src}" target="_blank"><img src="${src}" alt="FPA image ${i + 1}" style="width:100%; height:92px; object-fit:cover; border-radius:10px; border:1px solid #e2e8f0"></a>`).join('')}
+                    </div>
+                ` : '<div style="color:#64748b; font-size:0.82rem; margin-top:10px">No FPA images saved for this job yet.</div>'}
+            `;
+        } catch (err) {
+            box.innerHTML = `<div style="color:#b91c1c; font-size:0.85rem">QC evidence could not be loaded: ${String(err.message || err)}</div>`;
+        }
     }
 
     async function fetchDetailedStats(orderNo, machine, headerDetails) {
@@ -2639,6 +2697,10 @@
                         <span class="font-bold text-orange-600" id="modalJobPending">0</span>
                     </div>
                 </div>
+            </div>
+
+            <div id="modalJobQCEvidence" style="background:#ffffff; border:1px solid #e2e8f0; border-radius:12px; padding:16px; margin-bottom:24px">
+                <div style="color:#64748b; font-size:0.85rem">QC weights and FPA evidence will appear here.</div>
             </div>
 
             <!-- Colour Table -->

@@ -484,8 +484,8 @@
                 <!-- Charts Area -->
                 <div class="main-grid">
 
-                    <!-- Grid Col 2: Trends & Charts (Replaces Shift Status) -->
-                    <div class="card glass-panel" style="grid-column: span 8; display:flex; flex-direction:column;">
+                    <!-- Hourly Trends -->
+                    <div class="glass-card col-span-12" style="display:flex; flex-direction:column; min-height:350px;">
 
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
                             <div style="font-weight:700; color:var(--text-primary)">Hourly Trends</div>
@@ -521,53 +521,38 @@
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <!-- Line Chart (Plan vs Actual) -->
-                <div class="glass-card col-span-4" style="min-height:350px">
-                    <h3 style="margin-top:0; font-size:1rem; font-weight:600; margin-bottom:20px">Hourly Trend</h3>
-                    <div style="flex:1; position:relative">
-                        <canvas id="trendChart"></canvas>
-                    </div>
-                </div>
-
-                <!-- Alerts / Notifications (Full Width on Mobile, Side on Desktop) -->
-                <!-- Merged into table view to save space or separate? Let's keep separate -->
-
-
-                <!-- Production Table -->
-                <div class="glass-card col-span-12" style="min-height:400px; padding:0; overflow:hidden">
-                    <div
-                        style="padding:20px; border-bottom:1px solid var(--glass-border); display:flex; justify-content:space-between; align-items:center">
-                        <h3 style="margin:0; font-size:1rem; font-weight:600">Active Production Details</h3>
-                        <div style="position:relative">
-                            <i class="bi bi-search"
-                                style="position:absolute; left:10px; top:8px; color:var(--text-secondary)"></i>
-                            <input type="text" id="tableSearch" onkeyup="filterTable()"
-                                placeholder="Search Machine / Mould..."
-                                style="background:rgba(0,0,0,0.2); border:1px solid var(--glass-border); border-radius:8px; padding:6px 10px 6px 32px; color:#fff; outline:none; font-size:0.85rem">
+                    <!-- Production Table -->
+                    <div class="glass-card col-span-12" style="min-height:400px; padding:0; overflow:hidden">
+                        <div
+                            style="padding:20px; border-bottom:1px solid var(--glass-border); display:flex; justify-content:space-between; align-items:center">
+                            <h3 style="margin:0; font-size:1rem; font-weight:600">Active Production Details</h3>
+                            <div style="position:relative">
+                                <i class="bi bi-search"
+                                    style="position:absolute; left:10px; top:8px; color:var(--text-secondary)"></i>
+                                <input type="text" id="tableSearch" onkeyup="filterTable()"
+                                    placeholder="Search Machine / Mould..."
+                                    style="background:rgba(0,0,0,0.2); border:1px solid var(--glass-border); border-radius:8px; padding:6px 10px 6px 32px; color:#fff; outline:none; font-size:0.85rem">
+                            </div>
                         </div>
-                    </div>
-                    <div style="overflow-x:auto;">
-                        <table class="dark-table">
-                            <thead>
-                                <tr>
-                                    <th>Machine</th>
-                                    <th style="padding:12px; text-align:left">Machine</th>
-                                    <th style="padding:12px; text-align:left">Plan vs Act</th>
-                                    <th style="padding:12px; text-align:center">Last Hr</th> <!-- [NEW] -->
-                                    <th style="padding:12px; text-align:center">Rej</th>
-                                    <th style="padding:12px; text-align:center">Status</th>
-                                    <th style="padding:12px; text-align:center">DT (m)</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tableBody">
-                                <tr>
-                                    <td colspan="7" style="text-align:center; padding:30px">Loading Real Data...
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                        <div style="overflow-x:auto;">
+                            <table class="dark-table">
+                                <thead>
+                                    <tr>
+                                        <th style="padding:12px; text-align:left">Machine / Mould</th>
+                                        <th style="padding:12px; text-align:left">Plan vs Actual</th>
+                                        <th style="padding:12px; text-align:center">Last Hour</th>
+                                        <th style="padding:12px; text-align:center">Rejection</th>
+                                        <th style="padding:12px; text-align:center">Status</th>
+                                        <th style="padding:12px; text-align:center">Downtime</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tableBody">
+                                    <tr>
+                                        <td colspan="6" style="text-align:center; padding:30px">Loading real data...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
@@ -863,8 +848,8 @@
 
             tbody.innerHTML = '';
 
-            if (!rows || rows.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px; color:var(--text-secondary)">No active plans found</td></tr>';
+                if (!rows || rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="padding:20px; color:var(--text-secondary)">No active plans found</td></tr>';
                 return;
             }
 
@@ -884,7 +869,7 @@
                     </td>
                     <td style="padding:12px;">
                         <div style="font-family:monospace">
-                            <span style="color:var(--text-secondary)">-</span> / 
+                            <span style="color:var(--text-secondary)">${r.plan_id || '-'}</span> / 
                             <span style="color:#fff; font-weight:700">${r.total_good || 0}</span>
                         </div>
                     </td>

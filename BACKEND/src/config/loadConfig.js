@@ -16,6 +16,10 @@ function emptyStringToUndefined(value) {
 const EnvSchema = z.object({
   NODE_ENV: z.string().default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
+  HTTPS_ENABLED: z.string().optional(),
+  HTTPS_PORT: z.preprocess(emptyStringToUndefined, z.coerce.number().int().positive().optional()),
+  HTTPS_PFX_PATH: z.string().optional(),
+  HTTPS_PFX_PASSPHRASE: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   APP_GIT_SHA: z.string().optional(),
   ALLOW_LEGACY_DB_DEFAULTS: z.string().optional(),
@@ -91,6 +95,12 @@ function loadConfig(env = process.env) {
   return {
     nodeEnv: values.NODE_ENV,
     port: values.PORT,
+    https: {
+      enabled: ['1', 'true', 'yes', 'on'].includes(String(values.HTTPS_ENABLED || '').toLowerCase()),
+      port: values.HTTPS_PORT || (values.PORT + 443),
+      pfxPath: values.HTTPS_PFX_PATH || '',
+      pfxPassphrase: values.HTTPS_PFX_PASSPHRASE || ''
+    },
     geminiApiKey: values.GEMINI_API_KEY || '',
     appGitSha: runtimeRelease.commit || values.APP_GIT_SHA || '',
     localFactoryId: values.LOCAL_FACTORY_ID || null,

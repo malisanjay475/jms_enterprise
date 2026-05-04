@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JMS Label Scan</title>
+  <style>
+    :root {
+      --ocean: #087da8;
+      --deep: #0f2f4c;
+      --sky: #e8f8ff;
+      --line: #cfe9f7;
+      --muted: #64748b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, sans-serif;
+      color: var(--deep);
+      background:
+        radial-gradient(circle at top left, rgba(14, 165, 233, .24), transparent 34%),
+        linear-gradient(135deg, #f8fdff 0%, #eef9ff 52%, #fffaf0 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    }
+    .card {
+      width: min(680px, 100%);
+      background: rgba(255, 255, 255, .95);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: 0 24px 70px rgba(15, 47, 76, .16);
+      overflow: hidden;
+    }
+    .head {
+      padding: 22px;
+      background: linear-gradient(135deg, #ffffff 0%, #eaf9ff 100%);
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      font-size: 12px;
+      font-weight: 900;
+      color: var(--ocean);
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 6px 0 0; font-size: 26px; line-height: 1.1; }
+    .body { padding: 20px 22px 24px; }
+    .status {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #dcfce7;
+      color: #166534;
+      font-weight: 900;
+      margin-bottom: 16px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .field {
+      border: 1px solid #dbeafe;
+      background: #fbfdff;
+      border-radius: 16px;
+      padding: 13px 14px;
+    }
+    .label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .value {
+      font-size: 16px;
+      font-weight: 900;
+      word-break: break-word;
+    }
+    .wide { grid-column: 1 / -1; }
+    .error {
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+      border-radius: 16px;
+      padding: 16px;
+      font-weight: 800;
+    }
+    @media (max-width: 560px) {
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <section class="head">
+      <div class="eyebrow">JMS Ocean Label Scan</div>
+      <h1>SFG Identification Label</h1>
+    </section>
+    <section id="content" class="body">
+      <div class="status">Loading label details...</div>
+    </section>
+  </main>
+
+  <script>
+    (async function () {
+      const content = document.getElementById('content');
+      const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (m) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[m]));
+      const params = new URLSearchParams(window.location.search);
+      const uid = params.get('uid') || '';
+
+      function field(label, value, wide) {
+        return `<div class="field ${wide ? 'wide' : ''}"><div class="label">${esc(label)}</div><div class="value">${esc(value || '-')}</div></div>`;
+      }
+
+      if (!uid) {
+        content.innerHTML = '<div class="error">No label UID found in QR code.</div>';
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/planning/job-card-label-log?label_uid=${encodeURIComponent(uid)}&limit=1`, {
+          cache: 'no-store'
+        });
+        const json = await response.json();
+        if (!response.ok || json.ok === false) throw new Error(json.error || 'Label not found');
+        const row = (json.data || json.items || [])[0];
+        if (!row) throw new Error('Label not found in print log.');
+        content.innerHTML = `
+          <div class="status">Valid Label</div>
+          <div class="grid">
+            ${field('Label No', `${row.label_no || '-'} / ${row.total_labels || '-'}`)}
+            ${field('Label Qty', row.label_qty)}
+            ${field('Machine', row.machine_name)}
+            ${field('Job Card No', row.jc_no)}
+            ${field('OR No', row.order_no)}
+            ${field('Batch / Plan', row.our_code || row.plan_id)}
+            ${field('Mould', `${row.mould_no || ''} ${row.mould_name || ''}`.trim(), true)}
+            ${field('Item Name', row.item_name, true)}
+            ${field('Colour', row.colour)}
+            ${field('SFG Std Packing', row.sfg_std_packing)}
+            ${field('Printed By', row.printed_by)}
+            ${field('Printed At', row.printed_at ? new Date(row.printed_at).toLocaleString('en-IN') : '')}
+            ${field('Unique Label UID', row.label_uid, true)}
+          </div>
+        `;
+      } catch (err) {
+        content.innerHTML = `<div class="error">${esc(err.message || 'Unable to load label details.')}</div>`;
+      }
+    })();
+  </script>
+</body>
+</html>

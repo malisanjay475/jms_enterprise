@@ -103,6 +103,48 @@
             color: var(--warn)
         }
 
+        .qc-weight-grid,
+        .fpa-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .qc-action-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            align-items: center;
+        }
+
+        .qc-action-row .small {
+            min-width: 92px;
+        }
+
+        .fpa-preview {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .fpa-preview img {
+            width: 100%;
+            height: 86px;
+            object-fit: cover;
+            border-radius: 10px;
+            border: 1px solid var(--line);
+            background: #f8fafc;
+        }
+
+        @media (max-width: 420px) {
+            .qc-weight-grid,
+            .fpa-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .hidden {
             display: none !important
         }
@@ -685,7 +727,7 @@
             <!-- QUEUE -->
             <section id="sec-queue" class="page card" style="display:block">
                 <h2 style="margin-bottom:6px">Job Queue</h2>
-                <div class="muted" style="font-size:13px;margin-bottom:10px">Tap <b>QC Check</b> on the first job.</div>
+                <div class="muted" style="font-size:13px;margin-bottom:10px">Tap <b>QC Check</b> or <b>FPA</b> on any job of the selected moulding machine.</div>
                 <div id="jobs" class="jobs"></div>
                 <div id="no-jobs" class="no-jobs hidden">No queued jobs for this machine.</div>
             </section>
@@ -706,6 +748,9 @@
                         <button class="ghost" onclick="openQCForm('sec-qc-online')"><i class="bi bi-activity"></i>
                             Online QC
                             Report</button>
+                        <button class="ghost" onclick="openQCForm('sec-qc-fpa')"><i class="bi bi-camera"></i>
+                            FPA
+                            Images</button>
                         <button class="ghost" onclick="openQCForm('sec-qc-issue')"><i
                                 class="bi bi-exclamation-triangle"></i> Line
                             Issue Memo</button>
@@ -744,6 +789,9 @@
                             Quality
                             Report</button>
                         <button class="ghost" style="justify-content:flex-start; text-align:left"
+                            onclick="showPage('sec-qc-fpa'); toggleSidebar()"><i class="bi bi-camera"></i> FPA
+                            Images</button>
+                        <button class="ghost" style="justify-content:flex-start; text-align:left"
                             onclick="showPage('sec-qc-issue'); toggleSidebar()"><i
                                 class="bi bi-exclamation-triangle"></i> Line Issue
                             Memo</button>
@@ -780,6 +828,15 @@
                     <label>Hour Slot <select id="qc1-slot"></select></label>
                     <label>Item Name <input id="qc1-item" placeholder="Item Name"></label>
                     <label>Mould Name <input id="qc1-mould" placeholder="Mould Name"></label>
+                    <div class="card" style="background:#f8fafc; border-style:dashed; padding:12px">
+                        <div style="font-weight:700; margin-bottom:4px">Shift Weight Checks</div>
+                        <div class="muted" style="font-size:12px; margin-bottom:8px">Enter 3 article weights per shift, one reading every 4 hours. These compare against STD weight in QC and DPR summaries.</div>
+                        <div class="qc-weight-grid">
+                            <label>Weight 1 <input type="number" step="0.001" id="qc1-weight1" placeholder="0.000" inputmode="decimal"></label>
+                            <label>Weight 2 <input type="number" step="0.001" id="qc1-weight2" placeholder="0.000" inputmode="decimal"></label>
+                            <label>Weight 3 <input type="number" step="0.001" id="qc1-weight3" placeholder="0.000" inputmode="decimal"></label>
+                        </div>
+                    </div>
                     <label>Defect Description <textarea id="qc1-defect" rows="3"
                             placeholder="Describe defect..."></textarea></label>
                     <div class="grid-2">
@@ -789,6 +846,26 @@
                     <label>Action Taken <textarea id="qc1-action" rows="2"
                             placeholder="Action taken..."></textarea></label>
                     <button class="primary" onclick="submitQC1()">Submit Report</button>
+                </div>
+            </section>
+
+            <!-- QC FORM: First Piece Approval -->
+            <section id="sec-qc-fpa" class="page card hidden">
+                <h2 style="margin-bottom:10px">First Piece Approval (FPA)</h2>
+                <div id="fpa-context" style="margin-bottom:12px"></div>
+                <div class="row">
+                    <label>Date <select id="fpa-date"></select></label>
+                    <label>Shift <select id="fpa-shift" onchange="updateFPASlots()">
+                            <option>Day</option>
+                            <option>Night</option>
+                        </select></label>
+                    <label>Hour Slot <select id="fpa-slot"></select></label>
+                    <label>FPA Form Image <input type="file" id="fpa-form-image" accept="image/*" capture="environment"></label>
+                    <label>Product Reference Images (minimum 2) <input type="file" id="fpa-product-images" accept="image/*" capture="environment" multiple></label>
+                    <label>Remarks <textarea id="fpa-remarks" rows="2" placeholder="Optional remarks..."></textarea></label>
+                    <div id="fpa-preview" class="fpa-preview"></div>
+                    <button class="primary" onclick="submitFPA()">Submit FPA</button>
+                    <span id="fpa-msg" class="muted"></span>
                 </div>
             </section>
 
@@ -1611,7 +1688,7 @@
                 const res = await fetch('/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify({ username, password, requested_app: 'qc_supervisor_app' })
                 });
 
                 const data = await res.json();
@@ -1660,7 +1737,7 @@
                 let line = session.line;
                 if (!line || line === 'undefined' || line === 'null') line = '';
 
-                const res = await fetch('/api/machines?line=' + encodeURIComponent(line));
+                const res = await fetch('/api/machines?process=Moulding&line=' + encodeURIComponent(line));
                 const data = await res.json();
 
                 dd.innerHTML = '';
@@ -1838,7 +1915,7 @@
                         return a.originalIndex - b.originalIndex;
                     });
 
-                    // ✅ NEW: first visible row is ALWAYS the active job
+                    // Default to first visible row, but every job can be selected for QC/FPA.
                     const activeIndex = 0;
                     session.activeJob = mapped[activeIndex].job || null;
 
@@ -1886,10 +1963,11 @@
               </div>
             </div>
 
-            ${isActiveFirst
-                                ? '<button class="small primary" onclick="goQCCheck()">QC Check</button>'
-                                : `<span class="muted">${statusLabel || 'Waiting'}</span>`
-                            }
+            <div class="qc-action-row">
+              <span class="muted" style="font-size:12px">${statusLabel || 'Waiting'}</span>
+              <button class="small primary" onclick="selectJobAndOpenQC(${idx})">QC Check</button>
+              <button class="small ghost" onclick="selectJobAndOpenFPA(${idx})">FPA</button>
+            </div>
           </div>
 
           <div class="grid-2" style="font-size:var(--fs-sm);margin-top:8px">
@@ -1898,6 +1976,8 @@
           </div>
         `;
 
+                        card.dataset.queueIndex = String(idx);
+                        card._qcJob = job;
                         frag.appendChild(card);
                     });
 
@@ -1930,6 +2010,27 @@
             }
         }
 
+        function getQueuedJobByIndex(idx) {
+            const card = document.querySelector(`.job[data-queue-index="${idx}"]`);
+            return card && card._qcJob ? card._qcJob : null;
+        }
+
+        function selectJobAndOpenQC(idx) {
+            const job = getQueuedJobByIndex(idx);
+            if (!job) return alert('Job not found. Refresh queue.');
+            session.activeJob = job;
+            renderJobSummary(job, 'qc1-context');
+            openQCForm('sec-qc-online');
+        }
+
+        function selectJobAndOpenFPA(idx) {
+            const job = getQueuedJobByIndex(idx);
+            if (!job) return alert('Job not found. Refresh queue.');
+            session.activeJob = job;
+            renderJobSummary(job, 'fpa-context');
+            openQCForm('sec-qc-fpa');
+        }
+
         function openQCForm(formId) {
             showPage(formId);
             // Auto-fill Data from Session & Active Job
@@ -1958,6 +2059,7 @@
             populateDate('qc1-date');
             populateDate('qc2-date');
             populateDate('qc3-date');
+            populateDate('fpa-date');
 
             // Keep qc4-valid as date picker (future dates allowed)
             try { el('qc4-valid').valueAsDate = new Date(); } catch (_) { }
@@ -1968,6 +2070,14 @@
                 el('qc1-mould').value = mouldName;
                 el('qc1-shift').value = getShiftFromTime();
                 updateQCSlots(); // New: Populate slots based on shift
+            }
+
+            if (formId === 'sec-qc-fpa') {
+                renderJobSummary(job, 'fpa-context');
+                el('fpa-shift').value = getShiftFromTime();
+                updateFPASlots();
+                el('fpa-msg').textContent = '';
+                el('fpa-preview').innerHTML = '';
             }
 
             // QC 2 Auto-fill
@@ -1991,23 +2101,29 @@
         }
 
         /* New: Update Hour Slots based on Shift */
+        function qcSlotsForShift(sh) {
+            return sh === 'Day'
+                ? ['06:00-10:00', '10:00-14:00', '14:00-18:00']
+                : ['18:00-22:00', '22:00-02:00', '02:00-06:00'];
+        }
+
         function updateQCSlots() {
             const sh = el('qc1-shift').value;
             const sel = el('qc1-slot');
             sel.innerHTML = '';
-
-            let slots = [];
-            if (sh === 'Day') {
-                slots = ['06:00-08:00', '08:00-10:00', '10:00-12:00', '12:00-14:00', '14:00-16:00', '16:00-18:00'];
-            } else {
-                slots = ['18:00-20:00', '20:00-22:00', '22:00-00:00', '00:00-02:00', '02:00-04:00', '04:00-06:00'];
-            }
-
-            slots.forEach(s => sel.add(new Option(s, s)));
+            qcSlotsForShift(sh).forEach(s => sel.add(new Option(s, s)));
 
             // Attempt to auto-select current slot
             const h = new Date().getHours();
             // Logic for current slot selection can be added here if needed
+        }
+
+        function updateFPASlots() {
+            const sh = el('fpa-shift') ? el('fpa-shift').value : getShiftFromTime();
+            const sel = el('fpa-slot');
+            if (!sel) return;
+            sel.innerHTML = '';
+            qcSlotsForShift(sh).forEach(s => sel.add(new Option(s, s)));
         }
 
         function renderJobSummary(job, targetId) {
@@ -2766,15 +2882,34 @@
         }
 
         /* QC 1: Online Report */
+        function activeJobPayload() {
+            const job = session.activeJob || {};
+            const all = job._all || {};
+            return {
+                plan_id: String(job.PlanID || all.PlanID || all['Plan ID'] || ''),
+                job_card_no: getJobCardNo(job),
+                order_no: String(job.OrderNo || all['Order No'] || all.OrderNo || ''),
+                item_name: String(all['SFG Name'] || all['Item Name'] || all.SFG || ''),
+                mould_name: String(job.Mould || all.Mould || all['Mould Name'] || all['SFG Name'] || '')
+            };
+        }
+
         function submitQC1() {
+            const jobInfo = activeJobPayload();
             const data = {
                 date: el('qc1-date').value,
                 shift: el('qc1-shift').value,
                 hour_slot: el('qc1-slot').value,
                 line: session.line,
                 machine: session.machine,
+                plan_id: jobInfo.plan_id,
+                job_card_no: jobInfo.job_card_no,
+                order_no: jobInfo.order_no,
                 item_name: el('qc1-item').value,
                 mould_name: el('qc1-mould').value,
+                qc_weight_1: el('qc1-weight1').value,
+                qc_weight_2: el('qc1-weight2').value,
+                qc_weight_3: el('qc1-weight3').value,
                 defect_description: el('qc1-defect').value,
                 qty_checked: Number(el('qc1-checked').value || 0),
                 qty_rejected: Number(el('qc1-rejected').value || 0),
@@ -2792,6 +2927,52 @@
                 if (r.ok) { alert('Report Submitted!'); showPage('sec-queue'); }
                 else alert('Error: ' + r.error);
             });
+        }
+
+        async function submitFPA() {
+            if (!session.activeJob) return alert('Select a job first.');
+            const formFile = el('fpa-form-image').files[0];
+            const productFiles = Array.from(el('fpa-product-images').files || []);
+            if (!formFile) return alert('Upload FPA Form image.');
+            if (productFiles.length < 2) return alert('Upload minimum 2 product reference images.');
+
+            const jobInfo = activeJobPayload();
+            el('fpa-msg').textContent = 'Uploading FPA images...';
+            try {
+                const formImage = await fileToBase64(formFile);
+                const productImages = [];
+                for (const file of productFiles.slice(0, 8)) {
+                    productImages.push(await fileToBase64(file));
+                }
+                const data = {
+                    date: el('fpa-date').value,
+                    shift: el('fpa-shift').value,
+                    hour_slot: el('fpa-slot').value,
+                    line: session.line,
+                    machine: session.machine,
+                    plan_id: jobInfo.plan_id,
+                    job_card_no: jobInfo.job_card_no,
+                    order_no: jobInfo.order_no,
+                    item_name: jobInfo.item_name,
+                    mould_name: jobInfo.mould_name,
+                    fpa_form_image: formImage,
+                    product_images: productImages,
+                    remarks: el('fpa-remarks').value,
+                    supervisor: session.username
+                };
+
+                const res = await fetch('/api/qc/fpa', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                }).then(r => r.json());
+                if (!res.ok) throw new Error(res.error || 'FPA save failed');
+                el('fpa-msg').innerHTML = '<span class="ok">FPA saved.</span>';
+                el('fpa-preview').innerHTML = [formImage, ...productImages].map(src => `<img src="${src}" alt="FPA image">`).join('');
+                loadRecent();
+            } catch (err) {
+                el('fpa-msg').innerHTML = `<span class="err">${String(err.message || err)}</span>`;
+            }
         }
 
         /* QC 2: Issue Memo */
