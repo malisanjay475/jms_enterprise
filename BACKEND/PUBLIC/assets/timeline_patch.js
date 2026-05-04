@@ -3,7 +3,7 @@
 // This script overrides the timeline logic and improves filtering with robust matching.
 
 (function () {
-    console.log('[TimelinePatch] Initializing v55 (Card Actions)...');
+    console.log('[TimelinePatch] Initializing v56 (Reorder Ripple + Load)...');
 
     // CSS Injection (Timeline + Modal Styles)
     const style = document.createElement('style');
@@ -409,8 +409,32 @@
                 const isRunB = (b.status || '').toLowerCase() === 'running';
                 if (isRunA && !isRunB) return -1;
                 if (!isRunA && isRunB) return 1;
-                return (a.seq || 0) - (b.seq || 0);
+                const seqDiff = (Number(a.seq || 0) - Number(b.seq || 0));
+                if (seqDiff) return seqDiff;
+                const startA = a.startDate ? new Date(a.startDate).getTime() : 0;
+                const startB = b.startDate ? new Date(b.startDate).getTime() : 0;
+                if (startA !== startB) return startA - startB;
+                return Number(a.id || 0) - Number(b.id || 0);
             });
+
+            window.timelineGroups[m.code] = mPlans;
+
+            const formatLoadDuration = (ms) => {
+                if (!Number.isFinite(ms) || ms <= 0) return '0m';
+                const d = Math.floor(ms / 86400000);
+                const h = Math.floor((ms % 86400000) / 3600000);
+                const mi = Math.floor((ms % 3600000) / 60000);
+                if (d > 0) return `${d}d ${h}h`;
+                if (h > 0) return `${h}h ${mi}m`;
+                return `${Math.max(1, mi)}m`;
+            };
+
+            const totalLoadMs = mPlans.reduce((sum, p) => {
+                const start = p._rippledStartRaw ? p._rippledStartRaw.getTime() : NaN;
+                const end = p._rippledEndRaw ? p._rippledEndRaw.getTime() : NaN;
+                if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return sum;
+                return sum + (end - start);
+            }, 0);
 
             // ROW
             const row = document.createElement('div');
@@ -561,6 +585,7 @@
                      <div style="font-size: 0.95rem; font-weight: 700; color: #fff; line-height:1.1; word-wrap:break-word; max-width:100%">${displayName}</div>
                      <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 600; text-transform: uppercase;">${line} • ${building}</div>
                      <div style="margin-top:4px; font-size: 0.7rem; font-weight: 800; color: #0f172a; background: #e2e8f0; padding: 2px 8px; border-radius: 12px;">${mPlans.length} PLANS</div>
+                     <div style="font-size: 0.68rem; font-weight: 900; color: #075985; background: #e0f2fe; border:1px solid #7dd3fc; padding: 2px 8px; border-radius: 12px;">LOAD ${formatLoadDuration(totalLoadMs)}</div>
                  </div>
 
                  <div class="timeline-track" 
@@ -742,6 +767,18 @@
                 byMach[bucketCode].push(p);
             });
             Object.keys(byMach).forEach(m => {
+                byMach[m].sort((a, b) => {
+                    const isRunA = (a.status || '').toUpperCase() === 'RUNNING';
+                    const isRunB = (b.status || '').toUpperCase() === 'RUNNING';
+                    if (isRunA && !isRunB) return -1;
+                    if (!isRunA && isRunB) return 1;
+                    const seqDiff = Number(a.seq || 0) - Number(b.seq || 0);
+                    if (seqDiff) return seqDiff;
+                    const startA = a.startDate ? new Date(a.startDate).getTime() : 0;
+                    const startB = b.startDate ? new Date(b.startDate).getTime() : 0;
+                    if (startA !== startB) return startA - startB;
+                    return Number(a.id || 0) - Number(b.id || 0);
+                });
                 let cursor = Date.now();
                 byMach[m].forEach((p, i) => {
                     const st = (p.status || '').toUpperCase(); const isRun = st === 'RUNNING';

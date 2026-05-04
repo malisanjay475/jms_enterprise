@@ -1,9 +1,13 @@
 {
   "name": "backend",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "",
   "main": "index.js",
   "scripts": {
+    "setup:local:v1": "node scripts/create-local-v1-env.js",
+    "check:config": "node scripts/print-runtime-config.js",
+    "mcp:stitch": "node scripts/stitch-mcp-server.js",
+    "stitch:push:qc": "node scripts/push-qc-design-to-stitch.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js"
   },
@@ -21,8 +25,10 @@
     "express": "^5.2.1",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
+    "mammoth": "^1.12.0",
     "multer": "^2.0.2",
     "node-fetch": "^2.6.1",
+    "pdf-parse": "^2.4.5",
     "pg": "^8.16.3",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6"

@@ -1,5 +1,9 @@
 # Final Enterprise SaaS Multi-Factory Architecture Plan (10/10 Edition)
 
+Current repo note:
+For the implementation path that matches the existing Node/Express repository and current VPS deployment, use [LOCAL_SERVER_PLATFORM_BLUEPRINT.md](LOCAL_SERVER_PLATFORM_BLUEPRINT.md).
+This file remains a future-state architecture direction, not the direct build order for the current codebase.
+
 This is the finalized, production-ready blueprint for upgrading the Job Management System (JMS) into a world-class, multi-tenant distributed ERP platform.
 
 ## 1. Improved Architecture Changes
