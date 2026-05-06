@@ -18135,19 +18135,6 @@ machine,
 });
 */
 
-// ------------------------------------------------------------------
-// JOB ANALYSIS & REPORTING
-// ------------------------------------------------------------------
-app.get('/api/analyze/order/:orderNo', async (req, res) => {
-  try {
-    const data = await buildDprOrderAnalysis(req);
-    res.json({ ok: true, data });
-  } catch (e) {
-    console.error('/api/analyze/order error', e);
-    res.status(e.statusCode || 500).json({ ok: false, error: String(e.message || e) });
-  }
-});
-
 /* ============================================================
    DPR SUMMARY MATRIX (Live Dashboard)
    - Tonnage Trends

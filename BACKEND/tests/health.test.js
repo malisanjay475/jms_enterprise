@@ -11,11 +11,13 @@ const request = require('supertest');
 const { createTestApp } = require('./helpers/createTestApp');
 
 describe('Health endpoints', () => {
-  let app;
+  let app, restoreEnv;
 
   beforeAll(() => {
-    ({ app } = createTestApp());
+    ({ app, restoreEnv } = createTestApp());
   });
+
+  afterAll(() => restoreEnv());
 
   describe('GET /health', () => {
     it('returns 200', async () => {

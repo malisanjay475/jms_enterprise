@@ -3,7 +3,9 @@
 const express = require('express');
 
 function createTestApp() {
-  // Set test env before loading config — no real DB needed
+  // Snapshot env before mutation so it can be restored in afterAll
+  const _originalEnv = { ...process.env };
+
   Object.assign(process.env, {
     NODE_ENV: 'test',
     PORT: '3099',
@@ -22,13 +24,11 @@ function createTestApp() {
 
   const config = loadConfig();
 
-  // Mock DB pool — no real Postgres connection
   const pool = {
     query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
     end: jest.fn().mockResolvedValue(undefined)
   };
 
-  // Mock all services with empty Express routers
   const mockRouter = express.Router();
   mockRouter.use((req, res) => res.status(404).json({ ok: false }));
 
@@ -46,7 +46,16 @@ function createTestApp() {
   };
 
   const { app } = createApp({ config, pool, services });
-  return { app, pool, config };
+
+  // Call this in afterAll() to prevent env leaking between test suites
+  function restoreEnv() {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in _originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, _originalEnv);
+  }
+
+  return { app, pool, config, restoreEnv };
 }
 
 module.exports = { createTestApp };
