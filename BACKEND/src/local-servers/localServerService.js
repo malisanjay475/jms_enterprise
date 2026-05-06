@@ -34,9 +34,11 @@ function createNodeSecret() {
 
 function normalizeNodeCode(value, fallbackFactoryId) {
   const raw = String(value || '')
+    .slice(0, 200)        // cap before regex to prevent ReDoS on huge inputs
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/[^a-z0-9]/g, '-')   // replace each non-alphanumeric char individually (no + quantifier)
+    .replace(/--+/g, '-')          // collapse consecutive dashes (operates on already-sanitised data)
     .replace(/^-+/, '')
     .replace(/-+$/, '')
     .slice(0, 60);

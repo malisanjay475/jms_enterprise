@@ -6,9 +6,9 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-const CORS_ORIGINS = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
-  : true; // allow all when not configured (factory intranet default)
+// Parse and validate CORS origins — only accept http(s):// URLs from the env var
+const _rawOrigins = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+const ALLOWED_ORIGINS = _rawOrigins.filter(o => /^https?:\/\/[^/]+$/.test(o));
 
 // 300 requests/minute per IP — generous for factory intranet, blocks bots/scrapers
 const apiLimiter = rateLimit({
@@ -21,9 +21,18 @@ const apiLimiter = rateLimit({
 
 function registerCoreMiddleware(app) {
   app.use(helmet({
-    contentSecurityPolicy: false // HTML pages use inline scripts; enable per-page CSP when ready
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],   // legacy HTML pages use inline scripts
+        styleSrc: ["'self'", "'unsafe-inline'", 'https:'],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: ["'self'", 'https:'],
+        fontSrc: ["'self'", 'https:', 'data:']
+      }
+    }
   }));
-  app.use(cors({ origin: CORS_ORIGINS, credentials: true }));
+  app.use(cors({ origin: ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : false, credentials: true }));
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: false, limit: '10mb' }));
   app.use(compression({
