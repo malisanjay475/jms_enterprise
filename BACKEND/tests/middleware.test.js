@@ -10,11 +10,13 @@ const request = require('supertest');
 const { createTestApp } = require('./helpers/createTestApp');
 
 describe('Core middleware', () => {
-  let app;
+  let app, restoreEnv;
 
   beforeAll(() => {
-    ({ app } = createTestApp());
+    ({ app, restoreEnv } = createTestApp());
   });
+
+  afterAll(() => restoreEnv());
 
   describe('CORS', () => {
     it('responds to OPTIONS preflight', async () => {

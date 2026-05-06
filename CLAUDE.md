@@ -18,18 +18,18 @@
 ## Repo Location (Claude Code working directory)
 
 ```
-C:\Users\SanjayMali\Documents\Codex\2026-04-19-github-plugin-github-openai-curated-hostinger\jms_enterprise-git
+<your-codex-workspace>/jms_enterprise-git
 ```
 
 Start Claude Code from this directory:
 ```bash
-cd "C:\Users\SanjayMali\Documents\Codex\...\jms_enterprise-git"
+cd "<your-codex-workspace>/jms_enterprise-git"
 claude
 ```
 
 Local backend copy (live factory server — sync target):
 ```
-C:\Users\SanjayMali\Downloads\jms-local-server-jms-01\JMS_LOCAL_SERVER_jms-01\BACKEND
+<local-downloads>/jms-local-server-jms-01/JMS_LOCAL_SERVER_jms-01/BACKEND
 ```
 
 ---
