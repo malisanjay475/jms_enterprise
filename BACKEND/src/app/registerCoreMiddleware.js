@@ -9,6 +9,9 @@ const rateLimit = require('express-rate-limit');
 // Parse and validate CORS origins — only accept http(s):// URLs from the env var
 const _rawOrigins = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 const ALLOWED_ORIGINS = _rawOrigins.filter(o => /^https?:\/\/[^/]+$/.test(o));
+if (!ALLOWED_ORIGINS.length) {
+  console.warn('[middleware] CORS_ORIGINS not set — all cross-origin requests will be rejected.');
+}
 
 // 300 requests/minute per IP — generous for factory intranet, blocks bots/scrapers
 const apiLimiter = rateLimit({

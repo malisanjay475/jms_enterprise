@@ -2,6 +2,8 @@ const fetch = require('node-fetch');
 const express = require('express');
 
 const router = express.Router();
+// Sync payloads can be large (1000 rows × multiple tables) — override global 10mb limit
+router.use(express.json({ limit: '50mb' }));
 
 let pool;
 let SERVER_TYPE = 'STANDALONE';

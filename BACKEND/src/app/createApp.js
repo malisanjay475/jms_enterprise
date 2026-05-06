@@ -8,6 +8,9 @@ const { requestHandler, setupErrorHandler } = require('../monitoring/sentry');
 function createApp(deps) {
   const app = express();
 
+  // Trust one nginx hop so req.ip = real client IP for rate limiting and IP whitelisting
+  app.set('trust proxy', 1);
+
   app.locals.config = deps.config;
   app.locals.pool = deps.pool;
 

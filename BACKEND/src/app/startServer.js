@@ -82,11 +82,14 @@ async function startServer() {
   // Graceful shutdown — allows in-flight requests to complete before Docker stop
   function shutdown(signal) {
     console.log(`[shutdown] ${signal} received — closing server`);
-    server.close(async () => {
-      try { await pool.end(); } catch (_) {}
-      console.log('[shutdown] clean exit');
-      process.exit(0);
-    });
+    const closables = [server];
+    if (httpsRuntime?.httpsServer) closables.push(httpsRuntime.httpsServer);
+    Promise.all(closables.map(s => new Promise(resolve => s.close(resolve))))
+      .then(async () => {
+        try { await pool.end(); } catch (_) {}
+        console.log('[shutdown] clean exit');
+        process.exit(0);
+      });
     // Force exit after 15 s if requests don't drain
     setTimeout(() => { console.error('[shutdown] force exit after timeout'); process.exit(1); }, 15000).unref();
   }

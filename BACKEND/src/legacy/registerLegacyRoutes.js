@@ -7071,21 +7071,25 @@ async function buildDprOrderAnalysis(req) {
   const logParams = [decodedOrder];
   const where = ['TRIM(dh.order_no) = $1'];
   if (planId) {
+    // Explicit planId from caller — scope logs to that specific plan
     logParams.push(planId);
     where.push(`(dh.plan_id = $${logParams.length} OR dh.plan_id = (SELECT pb.plan_id FROM plan_board pb WHERE pb.id::text = $${logParams.length} LIMIT 1))`);
-  } else if (info.plan_id) {
-    logParams.push(String(info.plan_id));
-    where.push(`(dh.plan_id = $${logParams.length} OR dh.plan_id IS NULL OR dh.plan_id = '')`);
   }
+  // No else: when planId is not provided aggregate ALL plan_board rows for the order
   if (machine) {
     logParams.push(machine);
     where.push(`TRIM(COALESCE(dh.machine, '')) = TRIM($${logParams.length})`);
   }
   if (mode === 'current' && date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const err = new Error('Invalid date');
+      err.statusCode = 400;
+      throw err;
+    }
     logParams.push(date);
     where.push(`dh.dpr_date = $${logParams.length}::date`);
   }
-  if (mode === 'current' && shift && !/^all|both$/i.test(shift)) {
+  if (mode === 'current' && shift && !/^(all|both)$/i.test(shift)) {
     logParams.push(shift);
     where.push(`TRIM(COALESCE(dh.shift, '')) = TRIM($${logParams.length})`);
   }
