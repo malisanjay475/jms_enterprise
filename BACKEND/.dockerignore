@@ -9,3 +9,7 @@ runtime
 .env
 .env.*
 *.md
+tests
+coverage
+.cursor
+.claude
