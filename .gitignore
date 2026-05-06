@@ -59,7 +59,7 @@ seed/*.backup
 *.7z
 *.rar
 
-# IDEs
+# IDEs & Editor Local Config
 .vscode/
 !.vscode/settings.json
 !.vscode/tasks.json
@@ -68,6 +68,8 @@ seed/*.backup
 .idea/
 *.swp
 *.swo
+.cursor/
+.claude/
 
 # Project Specific
 v11.zip

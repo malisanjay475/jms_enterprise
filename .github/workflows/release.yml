@@ -1,0 +1,62 @@
+name: Create Release
+
+# Runs every time something is pushed/merged into main.
+# Reads the version from BACKEND/package.json.
+# If a tag for that version does not exist yet → creates a GitHub Release with auto-generated notes.
+# To release a new version:
+#   1. Run: cd BACKEND && npm run version:patch  (or :minor / :major)
+#   2. Commit the package.json bump
+#   3. Merge develop → main via PR
+#   4. This workflow automatically creates the release tag and GitHub Release.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version from package.json
+        id: pkg
+        working-directory: BACKEND
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Check if release tag already exists
+        id: tag_check
+        run: |
+          if git ls-remote --tags origin "refs/tags/v${{ steps.pkg.outputs.version }}" | grep -q .; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.pkg.outputs.version }} already exists — skipping release."
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag v${{ steps.pkg.outputs.version }} is new — will create release."
+          fi
+
+      - name: Create GitHub Release
+        if: steps.tag_check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.pkg.outputs.version }}
+          name: "JMS Enterprise v${{ steps.pkg.outputs.version }}"
+          generate_release_notes: true
+          make_latest: true
+          body: |
+            ## JMS Enterprise v${{ steps.pkg.outputs.version }}
+
+            Auto-generated release from `main` branch merge.
+
+            See the full changelog below (auto-generated from merged PRs).

@@ -2,6 +2,7 @@
 
 require('dotenv').config();
 
+const { initSentry } = require('../monitoring/sentry');
 const fs = require('fs');
 const https = require('https');
 const path = require('path');
@@ -32,11 +33,8 @@ function createHttpsServerIfConfigured(app, config) {
 }
 
 async function startServer() {
-  console.log('-----------------------------------------');
-  console.log('SERVER RELOADED WITH FIX (cleanEAN)');
-  console.log('-----------------------------------------');
-
   const config = loadConfig();
+  initSentry(config.sentryDsn);
   const pool = createDbPool(config);
   const services = createServices();
   const { app, legacyRuntime } = createApp({ config, pool, services });
@@ -80,6 +78,20 @@ async function startServer() {
   if (services.localNodeAgent?.init) {
     await services.localNodeAgent.init({ pool, config });
   }
+
+  // Graceful shutdown — allows in-flight requests to complete before Docker stop
+  function shutdown(signal) {
+    console.log(`[shutdown] ${signal} received — closing server`);
+    server.close(async () => {
+      try { await pool.end(); } catch (_) {}
+      console.log('[shutdown] clean exit');
+      process.exit(0);
+    });
+    // Force exit after 15 s if requests don't drain
+    setTimeout(() => { console.error('[shutdown] force exit after timeout'); process.exit(1); }, 15000).unref();
+  }
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
 
   return { app, pool, server, httpsServer: httpsRuntime?.httpsServer || null, config };
 }

@@ -8,14 +8,23 @@
     "check:config": "node scripts/print-runtime-config.js",
     "mcp:stitch": "node scripts/stitch-mcp-server.js",
     "stitch:push:qc": "node scripts/push-qc-design-to-stitch.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "start": "node server.js",
+    "version:patch": "npm version patch --no-git-tag-version",
+    "version:minor": "npm version minor --no-git-tag-version",
+    "version:major": "npm version major --no-git-tag-version"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.2.2"
+  },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@sentry/node": "^10.51.0",
     "adm-zip": "^0.5.16",
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.1",
@@ -23,6 +32,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.5.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "mammoth": "^1.12.0",
