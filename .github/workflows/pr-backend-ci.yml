@@ -42,6 +42,20 @@ jobs:
         working-directory: BACKEND
         run: npm ci
 
+      - name: Run automated tests
+        working-directory: BACKEND
+        env:
+          NODE_ENV: test
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: jpsms
+          SERVER_TYPE: STANDALONE
+          LOCAL_FACTORY_ID: "1"
+          SYNC_API_KEY: pr-ci
+        run: npm test
+
       - name: Validate backend boot and health
         shell: bash
         working-directory: BACKEND
