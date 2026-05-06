@@ -119,7 +119,7 @@ function loadConfig(env = process.env) {
       host: values.DB_HOST || values.PGHOST || 'localhost',
       port: values.DB_PORT || values.PGPORT || 5432,
       user: values.DB_USER || values.PGUSER || (allowLegacyDbDefaults ? 'postgres' : 'jms_v1'),
-      password: values.DB_PASSWORD || values.PGPASSWORD || (allowLegacyDbDefaults ? 'Sanjay@541##' : ''),
+      password: values.DB_PASSWORD || values.PGPASSWORD || '',
       database: values.DB_NAME || values.PGDATABASE || (allowLegacyDbDefaults ? 'jpsms' : 'jms_v1')
     }
   };

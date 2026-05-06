@@ -16,7 +16,8 @@ function createTestApp() {
     DB_NAME: 'test_jms',
     SERVER_TYPE: 'STANDALONE',
     LOCAL_FACTORY_ID: '1',
-    SYNC_API_KEY: 'test-key'
+    SYNC_API_KEY: 'test-key',
+    CORS_ORIGINS: 'http://localhost:3000'
   });
 
   const loadConfig = require('../../src/config/loadConfig');

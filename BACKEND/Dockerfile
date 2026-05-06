@@ -19,6 +19,10 @@ COPY . .
 
 RUN chmod +x /app/docker-entrypoint.sh
 
+# Run as non-root user for security
+RUN addgroup -S jms && adduser -S jms -G jms && chown -R jms:jms /app
+USER jms
+
 # Environment Variables (Defaults)
 ENV PORT=3000
 ENV NODE_ENV=production
