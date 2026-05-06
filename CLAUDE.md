@@ -165,12 +165,15 @@ The deploy script auto-rolls back if health check fails. Manual rollback: re-run
 
 ---
 
-## Current State (as of 2026-05-06)
+## Current Branch & PR Status
 
-- **develop** is 86 commits ahead of **main** — production is behind
-- PR #44 merged: DPR summary detail improvements (last feature)
-- PR #45 open: .gitignore fix for .cursor/.claude dirs
-- **Next step**: After PR #45 merges, create develop → main PR, then deploy to live
+For live branch status and open PRs, always check the repo directly:
+
+```bash
+git log --oneline -10          # recent commits
+gh pr list                     # open pull requests
+gh run list --limit 5          # recent CI runs
+```
 
 ---
 

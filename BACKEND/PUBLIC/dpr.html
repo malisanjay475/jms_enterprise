@@ -2552,14 +2552,13 @@
             const qs = new URLSearchParams();
             qs.set('mode', jobDetailState.mode || 'overall');
             if (machine) qs.set('machine', machine);
-            if (headerDetails.plan_id || headerDetails.id) qs.set('planId', headerDetails.plan_id || headerDetails.id);
+            if (headerDetails.plan_id || headerDetails.PlanID) qs.set('planId', headerDetails.plan_id || headerDetails.PlanID);
             if (jobDetailState.mode === 'current') {
                 const scope = getJobSummaryScope();
                 if (scope.date) qs.set('date', scope.date);
-                if (scope.shift) qs.set('shift', scope.shift);
+                if (scope.shift && scope.shift !== 'Both') qs.set('shift', scope.shift);
             }
-            const r2 = await fetch(`/api/analyze/order/${encodeURIComponent(orderNo)}?${qs.toString()}`);
-            const ans = await r2.json();
+            const ans = await window.JPSMS.api.get(`/analyze/order/${encodeURIComponent(orderNo)}?${qs.toString()}`);
 
             if (ans.ok && ans.data) {
                 jobDetailState.data = ans.data;

@@ -226,7 +226,9 @@ const BRAND_NAME = 'JMS OCEAN';
     function normalizeAppPath(pathname = '') {
         const raw = String(pathname || '').trim().toLowerCase();
         if (!raw || raw === '/') return 'index.html';
-        const stripped = raw.replace(/^\//, '');
+        const withoutHash = raw.split('#')[0];
+        const withoutQuery = withoutHash.split('?')[0];
+        const stripped = withoutQuery.replace(/^\//, '');
         return stripped || 'index.html';
     }
 
