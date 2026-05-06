@@ -21,6 +21,7 @@ const EnvSchema = z.object({
   HTTPS_PFX_PATH: z.string().optional(),
   HTTPS_PFX_PASSPHRASE: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  SENTRY_DSN: z.string().optional(),
   APP_GIT_SHA: z.string().optional(),
   ALLOW_LEGACY_DB_DEFAULTS: z.string().optional(),
   LOCAL_FACTORY_ID: z.string().optional(),
@@ -102,6 +103,7 @@ function loadConfig(env = process.env) {
       pfxPassphrase: values.HTTPS_PFX_PASSPHRASE || ''
     },
     geminiApiKey: values.GEMINI_API_KEY || '',
+    sentryDsn: values.SENTRY_DSN || '',
     appGitSha: runtimeRelease.commit || values.APP_GIT_SHA || '',
     localFactoryId: values.LOCAL_FACTORY_ID || null,
     serverType: values.SERVER_TYPE || '',

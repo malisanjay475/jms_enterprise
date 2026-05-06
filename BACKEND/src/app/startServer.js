@@ -2,6 +2,7 @@
 
 require('dotenv').config();
 
+const { initSentry } = require('../monitoring/sentry');
 const fs = require('fs');
 const https = require('https');
 const path = require('path');
@@ -37,6 +38,7 @@ async function startServer() {
   console.log('-----------------------------------------');
 
   const config = loadConfig();
+  initSentry(config.sentryDsn);
   const pool = createDbPool(config);
   const services = createServices();
   const { app, legacyRuntime } = createApp({ config, pool, services });
