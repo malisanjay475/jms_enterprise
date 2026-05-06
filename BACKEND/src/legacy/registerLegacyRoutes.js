@@ -6903,104 +6903,313 @@ app.post('/api/notifications/mark-all-read', async (req, res) => {
 
 
 
+function toDprNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function parseDprJson(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch (_) {
+    return null;
+  }
+}
+
+function addDprReason(target, reason, qty) {
+  const amount = toDprNumber(qty);
+  if (amount <= 0) return;
+  const key = String(reason || 'Unspecified').trim() || 'Unspecified';
+  target[key] = toDprNumber(target[key]) + amount;
+}
+
+function getDprColourName(row) {
+  return String(
+    row?.colour ||
+    row?.color ||
+    row?.colour_name ||
+    row?.color_name ||
+    row?.colourName ||
+    row?.colorName ||
+    row?.name ||
+    row?.item_colour ||
+    row?.itemColour ||
+    row?.itemName ||
+    row?.item_name ||
+    'Unknown'
+  ).trim() || 'Unknown';
+}
+
+function getDprColourPlanQty(row) {
+  return toDprNumber(
+    row?.plan_qty ??
+    row?.planQty ??
+    row?.colour_plan_qty ??
+    row?.colorPlanQty ??
+    row?.colourPlanQty ??
+    row?.use_qty ??
+    row?.useQty ??
+    row?.batchQty ??
+    row?.batch_qty ??
+    row?.qty ??
+    row?.quantity ??
+    row?.mould_item_qty
+  );
+}
+
+function extractDprColourPlanRows(colourDetails) {
+  const parsed = parseDprJson(colourDetails);
+  if (!parsed) return [];
+  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed.rows)) return parsed.rows;
+  if (Array.isArray(parsed.colours)) return parsed.colours;
+  if (Array.isArray(parsed.colors)) return parsed.colors;
+  if (parsed.colour || parsed.color || parsed.item_name || parsed.itemName) return [parsed];
+  return Object.entries(parsed).map(([name, qty]) => (
+    typeof qty === 'object' ? { name, ...qty } : { name, qty }
+  ));
+}
+
+async function buildDprOrderAnalysis(req) {
+  const { orderNo } = req.params;
+  const decodedOrder = decodeURIComponent(orderNo || '').trim();
+  const mode = String(req.query.mode || 'overall').toLowerCase() === 'current' ? 'current' : 'overall';
+  const date = String(req.query.date || '').trim();
+  const shift = String(req.query.shift || '').trim();
+  const machine = String(req.query.machine || '').trim();
+  const planId = String(req.query.planId || '').trim();
+
+  if (!decodedOrder) {
+    const err = new Error('Order No required');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const summaryParams = [decodedOrder];
+  let planFilter = '';
+  if (planId) {
+    summaryParams.push(planId);
+    planFilter = `AND (pb.plan_id = $${summaryParams.length} OR pb.id::text = $${summaryParams.length})`;
+  }
+
+  const summary = await q(`
+    SELECT
+      pb.id,
+      pb.plan_id,
+      pb.plant,
+      pb.line,
+      pb.machine,
+      pb.status,
+      pb.plan_qty,
+      pb.bal_qty,
+      pb.batch_no,
+      pb.batch_qty,
+      pb.mould_item_qty,
+      pb.consumption_ratio_qty,
+      pb.colour_details,
+      pb.start_date,
+      pb.end_date,
+      pb.item_code,
+      pb.item_name,
+      pb.mould_name,
+      pb.mould_code,
+      COALESCE(o.client_name, ojr.client_name) as client_name,
+      o.priority,
+      COALESCE(o.item_name, ojr.product_name, pb.item_name) as product_name,
+      COALESCE(o.qty, ojr.or_qty, pb.plan_qty) as or_qty,
+      ojr.or_jr_date,
+      ojr.job_card_no,
+      ojr.job_card_date,
+      std.article_act as act_weight,
+      std.cavity_act as act_cavity,
+      std.cycle_act as act_cycle,
+      COALESCE(m.std_wt_kg, m2.std_wt_kg) as std_weight,
+      COALESCE(m.cycle_time, m2.cycle_time) as std_cycle,
+      COALESCE(m.no_of_cav, m2.no_of_cav) as std_cavity,
+      COALESCE(m.mould_number, m2.mould_number, pb.mould_code, pb.item_code) as mould_number
+    FROM plan_board pb
+    LEFT JOIN orders o ON TRIM(o.order_no) = TRIM(pb.order_no)
+    LEFT JOIN LATERAL (
+      SELECT rpt.*
+      FROM or_jr_report rpt
+      WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no)
+      ORDER BY rpt.job_card_date DESC NULLS LAST, rpt.id DESC
+      LIMIT 1
+    ) ojr ON true
+    LEFT JOIN LATERAL (
+      SELECT sa.*
+      FROM std_actual sa
+      WHERE (
+        sa.plan_id = pb.plan_id
+        OR sa.plan_id = pb.id::text
+        OR TRIM(COALESCE(sa.order_no, '')) = TRIM(pb.order_no)
+      )
+      ORDER BY sa.created_at DESC NULLS LAST, sa.id DESC
+      LIMIT 1
+    ) std ON true
+    LEFT JOIN moulds m ON TRIM(m.mould_name) = TRIM(pb.mould_name)
+    LEFT JOIN moulds m2 ON TRIM(m2.mould_number) = TRIM(COALESCE(pb.mould_code, pb.item_code))
+    WHERE TRIM(pb.order_no) = $1
+      ${planFilter}
+    ORDER BY pb.created_at DESC NULLS LAST, pb.id DESC
+    LIMIT 1
+  `, summaryParams);
+
+  let info = summary[0] || {};
+  if (!summary.length) {
+    const orderCheck = await q(`SELECT * FROM orders WHERE TRIM(order_no) = $1 LIMIT 1`, [decodedOrder]);
+    if (!orderCheck.length) {
+      const err = new Error('Order not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    info = { ...orderCheck[0], status: 'Not Planned' };
+  }
+
+  const logParams = [decodedOrder];
+  const where = ['TRIM(dh.order_no) = $1'];
+  if (planId) {
+    logParams.push(planId);
+    where.push(`(dh.plan_id = $${logParams.length} OR dh.plan_id = (SELECT pb.plan_id FROM plan_board pb WHERE pb.id::text = $${logParams.length} LIMIT 1))`);
+  } else if (info.plan_id) {
+    logParams.push(String(info.plan_id));
+    where.push(`(dh.plan_id = $${logParams.length} OR dh.plan_id IS NULL OR dh.plan_id = '')`);
+  }
+  if (machine) {
+    logParams.push(machine);
+    where.push(`TRIM(COALESCE(dh.machine, '')) = TRIM($${logParams.length})`);
+  }
+  if (mode === 'current' && date) {
+    logParams.push(date);
+    where.push(`dh.dpr_date = $${logParams.length}::date`);
+  }
+  if (mode === 'current' && shift && !/^all|both$/i.test(shift)) {
+    logParams.push(shift);
+    where.push(`TRIM(COALESCE(dh.shift, '')) = TRIM($${logParams.length})`);
+  }
+
+  const logs = await q(`
+    SELECT
+      dh.id,
+      dh.dpr_date::text as date,
+      dh.shift,
+      dh.hour_slot,
+      dh.machine,
+      dh.line,
+      dh.plan_id,
+      dh.order_no,
+      dh.mould_no,
+      dh.jobcard_no,
+      dh.colour,
+      dh.good_qty,
+      dh.reject_qty,
+      dh.downtime_min,
+      dh.reject_breakup,
+      dh.downtime_breakup,
+      dh.entry_type,
+      dh.created_by,
+      dh.updated_by,
+      dh.created_at,
+      u.username as "userName",
+      u.role_code as "userRole"
+    FROM dpr_hourly dh
+    LEFT JOIN users u ON LOWER(TRIM(u.username)) = LOWER(TRIM(COALESCE(dh.created_by, '')))
+    WHERE ${where.join(' AND ')}
+    ORDER BY dh.dpr_date ASC NULLS LAST, dh.shift ASC NULLS LAST, dh.hour_slot ASC NULLS LAST, dh.created_at ASC NULLS LAST
+  `, logParams);
+
+  const colourStats = {};
+  const history = {};
+  const downtimeStats = {};
+  const rejectionStats = {};
+  let seededPlanQty = 0;
+  let totalGood = 0;
+  let totalRej = 0;
+  let totalDT = 0;
+
+  extractDprColourPlanRows(info.colour_details).forEach(row => {
+    const colour = getDprColourName(row);
+    const plan = getDprColourPlanQty(row);
+    if (!colourStats[colour]) colourStats[colour] = { plan: 0, good: 0, rej: 0 };
+    colourStats[colour].plan += plan;
+    seededPlanQty += plan;
+  });
+
+  logs.forEach(l => {
+    const colour = String(l.colour || 'Unknown').trim() || 'Unknown';
+    if (!colourStats[colour]) colourStats[colour] = { plan: 0, good: 0, rej: 0 };
+
+    const good = toDprNumber(l.good_qty);
+    const rej = toDprNumber(l.reject_qty);
+    const dt = toDprNumber(l.downtime_min);
+    colourStats[colour].good += good;
+    colourStats[colour].rej += rej;
+    totalGood += good;
+    totalRej += rej;
+    totalDT += dt;
+
+    if (!history[colour]) history[colour] = [];
+    history[colour].push({
+      date: l.date,
+      shift: l.shift,
+      hour_slot: l.hour_slot,
+      machine: l.machine,
+      line: l.line,
+      good,
+      reject: rej,
+      downtime: dt,
+      by: l.userName || l.created_by || '-',
+      created_at: l.created_at
+    });
+
+    const dtMap = parseDprJson(l.downtime_breakup);
+    if (dtMap && typeof dtMap === 'object') {
+      Object.entries(dtMap).forEach(([reason, minutes]) => addDprReason(downtimeStats, reason, minutes));
+    } else {
+      addDprReason(downtimeStats, 'Unspecified', dt);
+    }
+
+    const rejMap = parseDprJson(l.reject_breakup);
+    if (rejMap && typeof rejMap === 'object') {
+      Object.entries(rejMap).forEach(([reason, qty]) => addDprReason(rejectionStats, reason, qty));
+    } else {
+      addDprReason(rejectionStats, 'Unspecified', rej);
+    }
+  });
+
+  const totalPlan = seededPlanQty || toDprNumber(info.plan_qty) || toDprNumber(info.batch_qty);
+  if (!Object.keys(colourStats).length && totalPlan > 0) {
+    colourStats.Unknown = { plan: totalPlan, good: totalGood, rej: totalRej };
+  }
+
+  return {
+    info,
+    logs,
+    history,
+    colour_stats: colourStats,
+    downtime_stats: downtimeStats,
+    rejection_stats: rejectionStats,
+    totals: {
+      plan: totalPlan,
+      good: totalGood,
+      rej: totalRej,
+      dt: totalDT
+    },
+    scope: { mode, date, shift, machine, planId }
+  };
+}
+
 // GET /api/analyze/order/:orderNo
 // Detailed analysis of a specific Order
 app.get('/api/analyze/order/:orderNo', async (req, res) => {
   try {
-    const { orderNo } = req.params;
-    if (!orderNo) return res.status(400).json({ ok: false, error: 'Order No required' });
-
-    // 1. Fetch Plan & Order Summary
-    const summary = await q(
-      `
-      SELECT
-        pb.id, pb.plan_id, pb.plant, pb.line, pb.machine, pb.status,
-        pb.plan_qty, pb.bal_qty, pb.start_date, pb.end_date,
-        pb.item_code, pb.item_name,
-        o.client_name, o.priority,
-        COALESCE(pb.mould_name, m.mould_name) as "mouldName",
-        mps.jr_qty, mps.mould_item_qty, mps.tonnage, mps.cavity,
-        mps.uom,
-        mMaster.cycle_time as "cycleTime",
-        mps.mould_no as "mouldNo",
-        ojr.job_card_no as "jcNo"
-      FROM plan_board pb
-      LEFT JOIN orders o ON o.order_no = pb.order_no
-      LEFT JOIN moulds m ON m.mould_name = pb.mould_name
-      LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
-      LEFT JOIN moulds mMaster ON TRIM(mMaster.mould_number) = TRIM(mps.mould_no)
-      LEFT JOIN LATERAL (
-         SELECT job_card_no 
-         FROM or_jr_report rpt 
-         WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no) 
-           AND rpt.job_card_no IS NOT NULL 
-           AND rpt.job_card_no <> ''
-           AND (rpt.jr_close IS NULL OR rpt.jr_close != 'Yes')
-         LIMIT 1
-      ) ojr ON true
-      WHERE pb.order_no = $1
-      LIMIT 1
-      `, [orderNo]
-    );
-
-    let info = {};
-    if (summary.length > 0) {
-      info = summary[0];
-    } else {
-      // Fallback: Check if it exists in Orders but not planned yet
-      const orderCheck = await q(`SELECT * FROM orders WHERE order_no = $1`, [orderNo]);
-      if (orderCheck.length === 0) {
-        return res.status(404).json({ ok: false, error: 'Order not found' });
-      }
-      info = { ...orderCheck[0], status: 'Not Planned' };
-    }
-
-    // 2. Fetch Detailed DPR Logs
-    const logs = await q(
-      `
-      SELECT 
-        dh.id, dh.dpr_date as date, dh.shift, dh.machine, dh.good_qty, dh.reject_qty, 
-        ROUND((60 - COALESCE(dh.downtime_min, 0))::numeric / 60.0, 2) as "run_hours",
-        dh.created_at, dh.created_by,
-        u.username as "userName", u.role_code as "userRole"
-      FROM dpr_hourly dh
-      LEFT JOIN users u ON u.username = dh.created_by
-      WHERE dh.order_no = $1 AND dh.is_deleted = false
-      ORDER BY dh.dpr_date DESC, dh.created_at DESC
-      `, [orderNo]
-    );
-
-    // 3. Calculate Stats
-    const totalGood = logs.reduce((sum, l) => sum + (l.good_qty || 0), 0);
-    const totalReject = logs.reduce((sum, l) => sum + (l.reject_qty || 0), 0);
-    const totalHours = logs.reduce((sum, l) => sum + (l.run_hours || 0), 0);
-
-    // Efficiency (Rough Calc: Actual / Target)
-    // Target = (Total Hours * 3600) / CycleTime * Cavity
-    let target = 0;
-    if (info.cycleTime && info.cavity && totalHours > 0) {
-      target = Math.round(((totalHours * 3600) / info.cycleTime) * info.cavity);
-    }
-    const eff = target > 0 ? ((totalGood / target) * 100).toFixed(1) : 0;
-
-    res.json({
-      ok: true,
-      data: {
-        info,
-        logs,
-        stats: {
-          totalGood,
-          totalReject,
-          totalHours,
-          efficiency: eff + '%',
-          target
-        }
-      }
-    });
-
+    const data = await buildDprOrderAnalysis(req);
+    res.json({ ok: true, data });
   } catch (e) {
     console.error('analyze/order', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    res.status(e.statusCode || 500).json({ ok: false, error: String(e.message || e) });
   }
 });
 
@@ -17931,93 +18140,11 @@ machine,
 // ------------------------------------------------------------------
 app.get('/api/analyze/order/:orderNo', async (req, res) => {
   try {
-    const { orderNo } = req.params;
-    if (!orderNo) return res.status(400).json({ ok: false, error: 'Order No required' });
-
-    const decodedOrder = decodeURIComponent(orderNo).trim();
-
-    // 1. Get Plan & Standard Info
-    const infoRows = await q(`
-SELECT
-pb.plan_qty,
-  pb.item_code,
-  s.article_act as act_weight,
-  COALESCE(m.std_wt_kg, m2.std_wt_kg) as std_weight,
-  COALESCE(m.cycle_time, m2.cycle_time) as std_cycle,
-  COALESCE(m.no_of_cav, m2.no_of_cav) as std_cavity
-      FROM plan_board pb 
-      LEFT JOIN std_actual s ON s.plan_id = pb.plan_id
-      LEFT JOIN moulds m ON m.mould_name = pb.mould_name
-      LEFT JOIN moulds m2 ON m2.mould_name = pb.mould_name
-      WHERE TRIM(pb.order_no) = $1
-      LIMIT 1
-  `, [decodedOrder]);
-
-    const info = infoRows[0] || {};
-
-    // 2. Get Production Logs (DPR Hourly)
-    const logs = await q(`
-SELECT
-colour,
-  good_qty,
-  reject_qty,
-  downtime_min,
-  downtime_breakup
-      FROM dpr_hourly 
-      WHERE TRIM(order_no) = $1
-  `, [decodedOrder]);
-
-    // 3. Aggregate Data
-    const colourStats = {};
-    const downtimeStats = {};
-    let totalGood = 0;
-    let totalRej = 0;
-    let totalDT = 0;
-
-    logs.forEach(l => {
-      // Colour Breakdown
-      const c = l.colour || 'Unknown';
-      if (!colourStats[c]) colourStats[c] = { good: 0, rej: 0 };
-      colourStats[c].good += Number(l.good_qty || 0);
-      colourStats[c].rej += Number(l.reject_qty || 0);
-
-      // Totals
-      totalGood += Number(l.good_qty || 0);
-      totalRej += Number(l.reject_qty || 0);
-      totalDT += Number(l.downtime_min || 0);
-
-      // Downtime Breakdown
-      if (l.downtime_breakup) {
-        try {
-          const dtMap = (typeof l.downtime_breakup === 'string') ? JSON.parse(l.downtime_breakup) : l.downtime_breakup;
-          if (dtMap && typeof dtMap === 'object') {
-            Object.keys(dtMap).forEach(k => {
-              const min = Number(dtMap[k]);
-              if (min > 0) downtimeStats[k] = (downtimeStats[k] || 0) + min;
-            });
-          }
-        } catch (e) { }
-      }
-    });
-
-    res.json({
-      ok: true,
-      data: {
-        info,
-        logs, // Send raw logs if needed, but summary is better
-        colour_stats: colourStats,
-        downtime_stats: downtimeStats,
-        totals: {
-          good: totalGood,
-          rej: totalRej,
-          dt: totalDT
-        }
-      }
-    });
-
+    const data = await buildDprOrderAnalysis(req);
+    res.json({ ok: true, data });
   } catch (e) {
     console.error('/api/analyze/order error', e);
-    res.status(500).json({ ok: false, error: String(e) });
+    res.status(e.statusCode || 500).json({ ok: false, error: String(e.message || e) });
   }
 });
 
