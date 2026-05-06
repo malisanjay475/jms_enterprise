@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@sentry/node": "^10.51.0",
     "adm-zip": "^0.5.16",
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.1",
