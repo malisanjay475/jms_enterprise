@@ -46,7 +46,7 @@ const BRAND_NAME = 'JMS OCEAN';
             <i class="bi bi-calendar-event"></i>
             <span>Plan</span>
         </a>
-        <a href="/dpr.html" class="nav-item ${window.location.pathname.includes('dpr') ? 'active' : ''}">
+        <a href="/dpr.html?view=summary" class="nav-item ${window.location.pathname.includes('dpr') ? 'active' : ''}">
              <i class="bi bi-pencil-square"></i>
             <span>DPR</span>
         </a>
@@ -74,7 +74,7 @@ const BRAND_NAME = 'JMS OCEAN';
         { id: 'planning', label: 'Planning Board', href: 'planning.html' },
         { id: 'analyze', label: 'Analyze', href: 'analyze.html' },
         { id: 'raw_material', label: 'Raw Material', href: 'raw_material_jobwise.html' },
-        { id: 'dpr', label: 'DPR', href: 'dpr.html' },
+        { id: 'dpr', label: 'DPR', href: 'dpr.html?view=summary' },
         { id: 'purchase', label: 'Purchase', href: 'purchase_orders.html' },
         { id: 'masters', label: 'Masters', href: 'masters.html' },
         { id: 'quality', label: 'Quality', href: 'Quality.html' },
@@ -1133,7 +1133,7 @@ const BRAND_NAME = 'JMS OCEAN';
             id: 'dpr',
             label: 'DPR',
             icon: 'bi-file-earmark-bar-graph',
-            href: 'dpr.html',
+            href: 'dpr.html?view=summary',
             items: [
                 { id: 'dpr_hourly', label: 'DPR Hourly', icon: 'bi-clock-history', href: 'dpr.html?view=hourly' },
                 { id: 'dpr_summary', label: 'Compliance Summary', icon: 'bi-calendar-check', href: 'dpr.html?view=summary' },
