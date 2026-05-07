@@ -814,7 +814,8 @@ router.post('/:id/download-package', async (req, res) => {
     const { buffer, fileName } = buildProvisioningPackage({
       localServer: buildLocalServerRow({ ...existing, is_connected: false }),
       nodeKey,
-      mainServerUrl
+      mainServerUrl,
+      syncApiKey: process.env.SYNC_API_KEY || ''
     });
 
     res.setHeader('Content-Type', 'application/zip');

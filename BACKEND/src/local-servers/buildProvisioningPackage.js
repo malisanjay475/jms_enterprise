@@ -83,7 +83,7 @@ function addDirectory(zip, sourceDir, zipDir) {
   }
 }
 
-function buildBackendEnv({ localServer, nodeKey, mainServerUrl }) {
+function buildBackendEnv({ localServer, nodeKey, mainServerUrl, syncApiKey }) {
   return [
     'NODE_ENV=production',
     'PORT=3000',
@@ -99,7 +99,7 @@ function buildBackendEnv({ localServer, nodeKey, mainServerUrl }) {
     'SERVER_TYPE=LOCAL',
     `MAIN_SERVER_URL=${mainServerUrl}`,
     `LOCAL_FACTORY_ID=${localServer.factoryId}`,
-    'SYNC_API_KEY=',
+    `SYNC_API_KEY=${syncApiKey || ''}`,
     'GEMINI_API_KEY=',
     `APP_GIT_SHA=${process.env.APP_GIT_SHA || ''}`,
     '',
@@ -128,11 +128,19 @@ function buildReadme({ localServer, mainServerUrl }) {
     '4. The installer will ask for the local PostgreSQL details and save BACKEND/.env for you.',
     '5. Create or restore the local jms_v1 PostgreSQL database for this factory if it is not ready yet.',
     '6. Run START_LOCAL_SERVER.bat.',
+    '7. (Recommended) Run REGISTER_AUTOSTART.bat as Administrator so the server starts on every reboot.',
+    '',
+    '## Auto-update',
+    '- The server checks the main site for code updates every 5 minutes and restarts itself automatically.',
+    '- Database migrations run automatically on every startup — no manual SQL needed.',
+    '',
+    '## Auto-restart',
+    '- If the server crashes, the supervisor restarts it within 3 seconds.',
+    '- After running REGISTER_AUTOSTART.bat, it also starts automatically on Windows reboot.',
     '',
     '## Result',
     '- The local server will register itself to the main site automatically.',
     '- The Local Servers screen on the main site will show IP, heartbeat, and version after registration.',
-    '- START_LOCAL_SERVER.bat launches a supervisor so backend updates can restart automatically after download.',
     '',
     '## Important',
     '- This package contains the node registration key for this local server.',
@@ -362,7 +370,55 @@ function buildInstallerJs() {
   ].join('\r\n');
 }
 
-function buildProvisioningPackage({ localServer, nodeKey, mainServerUrl }) {
+function buildAutostartBat() {
+  return [
+    '@echo off',
+    'setlocal',
+    'cd /d "%~dp0"',
+    'echo ================================================',
+    'echo     JMS LOCAL SERVER - REGISTER AUTOSTART',
+    'echo ================================================',
+    'echo.',
+    'echo This will register JMS Local Server to start automatically',
+    'echo when Windows starts, even after a reboot.',
+    'echo.',
+    'echo IMPORTANT: Run this as Administrator for best results.',
+    'echo.',
+    ':: Get full path of node.exe',
+    'for /f "tokens=*" %%i in (\'where node 2^>nul\') do set "NODE_EXE=%%i" & goto :found_node',
+    ':found_node',
+    'if not defined NODE_EXE (',
+    '  echo [ERROR] Node.js not found in PATH. Install Node.js LTS first.',
+    '  pause',
+    '  exit /b 1',
+    ')',
+    ':: Full path to supervisor script',
+    'set "SUPERVISOR=%~dp0LOCAL_SERVER_SUPERVISOR.js"',
+    'if not exist "%SUPERVISOR%" (',
+    '  echo [ERROR] LOCAL_SERVER_SUPERVISOR.js not found.',
+    '  pause',
+    '  exit /b 1',
+    ')',
+    ':: Register Task Scheduler entry',
+    'schtasks /create /tn "JMS Local Server" /tr "\"%NODE_EXE%\" \"%SUPERVISOR%\"" /sc onlogon /rl highest /f',
+    'if errorlevel 1 (',
+    '  echo.',
+    '  echo [WARN] Task Scheduler registration failed. Trying startup folder fallback...',
+    '  set "STARTUP=%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"',
+    '  echo @echo off > "%STARTUP%\\JMS_Local_Server.bat"',
+    '  echo start "" /b "%NODE_EXE%" "%SUPERVISOR%" >> "%STARTUP%\\JMS_Local_Server.bat"',
+    '  echo [OK] Added to Windows Startup folder: %STARTUP%\\JMS_Local_Server.bat',
+    ') else (',
+    '  echo.',
+    '  echo [OK] Registered as Windows Task Scheduler task "JMS Local Server".',
+    '  echo      The server will start automatically on next Windows login/reboot.',
+    ')',
+    'echo.',
+    'pause'
+  ].join('\r\n');
+}
+
+function buildProvisioningPackage({ localServer, nodeKey, mainServerUrl, syncApiKey }) {
   const zip = new AdmZip();
   const packageRoot = `JMS_LOCAL_SERVER_${sanitizeFilePart(localServer.nodeCode || localServer.nodeName, `node-${localServer.id}`)}`;
 
@@ -380,7 +436,7 @@ function buildProvisioningPackage({ localServer, nodeKey, mainServerUrl }) {
 
   zip.addFile(
     path.posix.join(packageRoot, 'BACKEND', '.env'),
-    Buffer.from(buildBackendEnv({ localServer, nodeKey, mainServerUrl }), 'utf8')
+    Buffer.from(buildBackendEnv({ localServer, nodeKey, mainServerUrl, syncApiKey }), 'utf8')
   );
   zip.addFile(
     path.posix.join(packageRoot, 'README_LOCAL_SERVER.md'),
@@ -401,6 +457,10 @@ function buildProvisioningPackage({ localServer, nodeKey, mainServerUrl }) {
   zip.addFile(
     path.posix.join(packageRoot, 'LOCAL_SERVER_SUPERVISOR.js'),
     Buffer.from(buildSupervisorJs(), 'utf8')
+  );
+  zip.addFile(
+    path.posix.join(packageRoot, 'REGISTER_AUTOSTART.bat'),
+    Buffer.from(buildAutostartBat(), 'utf8')
   );
 
   return {
