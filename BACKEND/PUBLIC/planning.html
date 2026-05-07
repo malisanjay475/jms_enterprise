@@ -2780,6 +2780,96 @@
       font-weight: 700;
     }
 
+    .planning-overview-card {
+      padding: 22px;
+      border-radius: 28px;
+      background:
+        radial-gradient(circle at top left, rgba(1, 168, 221, 0.08), transparent 24%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(247, 252, 255, 0.96) 100%);
+      border: 1px solid rgba(188, 213, 227, 0.9);
+      box-shadow: 0 18px 42px rgba(2, 76, 129, 0.08);
+    }
+
+    .planning-overview-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .planning-overview-card .chip,
+    .map-wrap .chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 32px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      border: 1px solid rgba(188, 213, 227, 0.95);
+      background: rgba(255, 255, 255, 0.9);
+      color: #15384d;
+      font-size: 0.82rem;
+      font-weight: 700;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .planning-overview-card .chip span,
+    .map-wrap .chip span {
+      display: inline-block;
+      max-width: 360px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .planning-focus-grid {
+      display: grid;
+      grid-template-columns: minmax(240px, 1.25fr) minmax(240px, 1.25fr) repeat(4, minmax(128px, 0.65fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .planning-focus-tile {
+      min-height: 88px;
+      padding: 15px 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(212, 230, 239, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    }
+
+    .planning-focus-tile.mini {
+      min-height: 88px;
+      text-align: center;
+    }
+
+    .planning-focus-label {
+      margin-bottom: 7px;
+      color: #7891a2;
+      font-size: 0.72rem;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .planning-focus-value {
+      color: #14384d;
+      font-size: 0.9rem;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+
+    .planning-focus-count {
+      color: #024c81;
+      font-size: 1.8rem;
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
     .planning-action-buttons {
       display: flex;
       flex-wrap: wrap;
@@ -2850,7 +2940,35 @@
     }
 
     .map-actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
       gap: 10px;
+    }
+
+    .days-filter {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px;
+      border-radius: 999px;
+      background: rgba(232, 245, 252, 0.82);
+      border: 1px solid rgba(188, 213, 227, 0.9);
+    }
+
+    .days-filter .chip {
+      min-width: 36px;
+      min-height: 28px;
+      padding: 6px 9px;
+      cursor: pointer;
+      box-shadow: none;
+    }
+
+    .days-filter .chip.active {
+      background: linear-gradient(135deg, #024c81 0%, #01a8dd 100%);
+      border-color: transparent;
+      color: #ffffff !important;
+      outline: none;
     }
 
     #machineGrid {
@@ -2913,6 +3031,14 @@
         grid-template-columns: 1fr 1fr;
       }
 
+      .planning-overview-header {
+        flex-direction: column;
+      }
+
+      .planning-focus-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
       .planning-hero-actions,
       .planning-action-buttons {
         flex-direction: column;
@@ -2954,7 +3080,7 @@
   <div id="app"></div>
 
   <!-- App shell -->
-  <script defer src="/assets/app.js?v=8" onerror="alert('Failed to load /assets/app.js');"></script>
+  <script defer src="/assets/app.js?v=20260507-planning" onerror="alert('Failed to load /assets/app.js');"></script>
 
   <script>
     // --- Boot Routing Logic ---
@@ -3305,13 +3431,32 @@
       }
     };
 
+    const waitForJmsShell = async (timeoutMs = 3000) => {
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < timeoutMs) {
+        if (window.JPSMS && typeof window.JPSMS.renderShell === 'function') {
+          return window.JPSMS;
+        }
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      return null;
+    };
+
     window.addEventListener('DOMContentLoaded', async () => {
       // alert('DEBUG: Script started');
-      if (!window.JPSMS || typeof window.JPSMS.renderShell !== 'function') {
-        alert('JMS OCEAN shell not loaded'); return;
+      const jmsShell = await waitForJmsShell();
+      if (!jmsShell) {
+        console.error('[Planning] JMS OCEAN shell not loaded', {
+          hasJPSMS: Boolean(window.JPSMS),
+          jpsmsKeys: window.JPSMS ? Object.keys(window.JPSMS) : [],
+          appScript: document.querySelector('script[src*="/assets/app.js"]')?.src || null,
+          readyState: document.readyState
+        });
+        alert('JMS OCEAN shell not loaded. Please hard refresh once, then reopen Planning Board.');
+        return;
       }
       try {
-        const { renderShell, api, toast, store, auth } = window.JPSMS;
+        const { renderShell, api, toast, store, auth } = jmsShell;
         window.toast = toast || ((m) => alert(m)); // Expose global
 
         // Auth Check
