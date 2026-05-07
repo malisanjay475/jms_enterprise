@@ -157,8 +157,10 @@ fi
 backup_before_deploy
 
 $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" pull app || true
-$DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" up -d db
-$DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" up -d app
+# Remove any stale containers with conflicting names (orphans from aborted deploys)
+docker ps -a --filter "name=${DEPLOY_PROJECT}-app" --format "{{.ID}}" | xargs -r docker rm -f || true
+$DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" up -d --remove-orphans db
+$DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" up -d --remove-orphans app
 
 if wait_for_app_health "$DC" "$DEPLOY_COMPOSE_FILE" "$DEPLOY_PROJECT"; then
   printf '%s\n' "$APP_IMAGE" > "$DEPLOY_META_DIR/last_successful_app_image"
@@ -175,7 +177,7 @@ if [[ -n "$PREVIOUS_IMAGE" && "$PREVIOUS_IMAGE" != "$APP_IMAGE" ]]; then
   echo "[deploy] attempting rollback to $PREVIOUS_IMAGE"
   write_env_file "$PREVIOUS_IMAGE"
   $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" pull app || true
-  $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" up -d app
+  $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" up -d --remove-orphans app
 
   if wait_for_app_health "$DC" "$DEPLOY_COMPOSE_FILE" "$DEPLOY_PROJECT" 24 10; then
     echo "[deploy] rollback succeeded"
