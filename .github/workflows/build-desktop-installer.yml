@@ -21,6 +21,9 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 30
+    outputs:
+      version: ${{ env.VERSION }}
+      installer_name: ${{ env.INSTALLER_NAME }}
 
     steps:
       - name: Checkout
@@ -87,7 +90,33 @@ jobs:
           path: DESKTOP_APP/dist/*.exe
           retention-days: 30
 
-      - name: Copy installer to VPS for download
+  deploy-to-vps:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: success()
+
+    steps:
+      - name: Download installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: JMS-Local-Server-Setup-v${{ needs.build.outputs.version }}
+          path: ./installer
+
+      - name: Copy installer to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
+          port: 22
+          source: installer/*.exe
+          target: /var/jms-downloads/
+          strip_components: 1
+        continue-on-error: true
+
+      - name: Write version metadata on VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HOSTINGER_SSH_HOST }}
@@ -101,19 +130,6 @@ jobs:
             echo "$VERSION" > /var/jms-downloads/latest-version.txt
             echo "$INSTALLER_NAME" > /var/jms-downloads/latest-filename.txt
         env:
-          VERSION: ${{ env.VERSION }}
-          INSTALLER_NAME: ${{ env.INSTALLER_NAME }}
-        continue-on-error: true
-
-      - name: Upload to VPS via SCP
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.HOSTINGER_SSH_HOST }}
-          username: ${{ secrets.HOSTINGER_SSH_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
-          port: 22
-          source: DESKTOP_APP/dist/*.exe
-          target: /var/jms-downloads/
-          strip_components: 2
+          VERSION: ${{ needs.build.outputs.version }}
+          INSTALLER_NAME: ${{ needs.build.outputs.installer_name }}
         continue-on-error: true
