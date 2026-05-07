@@ -24,10 +24,10 @@ function registerCoreMiddleware(app) {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],   // legacy HTML pages use inline scripts
+        scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net', 'https://cdnjs.cloudflare.com'],
         styleSrc: ["'self'", "'unsafe-inline'", 'https:'],
         imgSrc: ["'self'", 'data:', 'https:'],
-        connectSrc: ["'self'", 'https:'],
+        connectSrc: ["'self'", 'https:', 'wss:', 'ws:'],
         fontSrc: ["'self'", 'https:', 'data:']
       }
     }
