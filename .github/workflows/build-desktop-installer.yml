@@ -1,0 +1,120 @@
+name: Build Desktop Installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'DESKTOP_APP/**'
+      - 'BACKEND/**'
+      - '.github/workflows/build-desktop-installer.yml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version override (e.g. 1.2.0) — leave blank to use package.json'
+        required: false
+
+concurrency:
+  group: build-desktop-installer
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: DESKTOP_APP/package.json
+
+      - name: Bump version if input provided
+        if: github.event.inputs.version != ''
+        working-directory: DESKTOP_APP
+        shell: pwsh
+        run: |
+          $pkg = Get-Content package.json | ConvertFrom-Json
+          $pkg.version = "${{ github.event.inputs.version }}"
+          $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json
+          echo "VERSION=${{ github.event.inputs.version }}" >> $env:GITHUB_ENV
+
+      - name: Read version
+        if: github.event.inputs.version == ''
+        working-directory: DESKTOP_APP
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          echo "VERSION=$v" >> $env:GITHUB_ENV
+
+      - name: Install DESKTOP_APP dependencies
+        working-directory: DESKTOP_APP
+        run: npm install --prefer-offline
+
+      - name: Generate icons
+        working-directory: DESKTOP_APP
+        run: node scripts/generate-icons.js
+
+      - name: Build Windows installer
+        working-directory: DESKTOP_APP
+        run: npm run build:ci
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rename installer with version
+        working-directory: DESKTOP_APP
+        shell: pwsh
+        run: |
+          $src = Get-ChildItem dist\*.exe | Select-Object -First 1
+          if ($src) {
+            $dest = "dist\JMS-Local-Server-Setup-v${{ env.VERSION }}.exe"
+            Move-Item $src.FullName $dest -Force
+            echo "INSTALLER_PATH=$dest" >> $env:GITHUB_ENV
+            echo "INSTALLER_NAME=JMS-Local-Server-Setup-v${{ env.VERSION }}.exe" >> $env:GITHUB_ENV
+          } else {
+            echo "No .exe found in dist/"
+            exit 1
+          }
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JMS-Local-Server-Setup-v${{ env.VERSION }}
+          path: DESKTOP_APP/dist/*.exe
+          retention-days: 30
+
+      - name: Copy installer to VPS for download
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
+          port: 22
+        env:
+          VERSION: ${{ env.VERSION }}
+          INSTALLER_NAME: ${{ env.INSTALLER_NAME }}
+        with:
+          envs: VERSION,INSTALLER_NAME
+          script: |
+            mkdir -p /var/jms-downloads
+            echo "$VERSION" > /var/jms-downloads/latest-version.txt
+            echo "$INSTALLER_NAME" > /var/jms-downloads/latest-filename.txt
+        continue-on-error: true
+
+      - name: Upload to VPS via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
+          port: 22
+          source: DESKTOP_APP/dist/*.exe
+          target: /var/jms-downloads/
+          strip_components: 2
+        continue-on-error: true
