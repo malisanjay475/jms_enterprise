@@ -944,6 +944,45 @@ router.post('/:id/sync-status', async (req, res) => {
   }
 });
 
+// ── Desktop installer download ────────────────────────────────────────────────
+// GET /api/local-servers/desktop-installer/latest  — returns metadata
+// GET /api/local-servers/desktop-installer/download — streams the .exe
+
+const fs   = require('fs');
+const path = require('path');
+const DOWNLOADS_DIR = process.env.JMS_DOWNLOADS_DIR || '/var/jms-downloads';
+
+router.get('/desktop-installer/latest', (req, res) => {
+  try {
+    const vFile = path.join(DOWNLOADS_DIR, 'latest-version.txt');
+    const nFile = path.join(DOWNLOADS_DIR, 'latest-filename.txt');
+    if (!fs.existsSync(vFile)) return res.json({ available: false });
+    const version  = fs.readFileSync(vFile, 'utf8').trim();
+    const filename = fs.existsSync(nFile) ? fs.readFileSync(nFile, 'utf8').trim() : `JMS-Local-Server-Setup-v${version}.exe`;
+    const filePath = path.join(DOWNLOADS_DIR, filename);
+    const size     = fs.existsSync(filePath) ? fs.statSync(filePath).size : null;
+    res.json({ available: !!size, version, filename, size });
+  } catch {
+    res.json({ available: false });
+  }
+});
+
+router.get('/desktop-installer/download', (req, res) => {
+  try {
+    const nFile = path.join(DOWNLOADS_DIR, 'latest-filename.txt');
+    if (!fs.existsSync(nFile)) return res.status(404).json({ ok: false, error: 'No installer available yet.' });
+    const filename = fs.readFileSync(nFile, 'utf8').trim();
+    const filePath = path.join(DOWNLOADS_DIR, filename);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ ok: false, error: 'Installer file not found on server.' });
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', fs.statSync(filePath).size);
+    fs.createReadStream(filePath).pipe(res);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 async function init(dbPool) {
   pool = dbPool;
   await ensureSchema();

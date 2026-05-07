@@ -1,0 +1,68 @@
+{
+  "name": "jms-local-server",
+  "productName": "JMS Local Server",
+  "version": "1.0.0",
+  "description": "JMS Enterprise Factory Local Server",
+  "main": "main.js",
+  "scripts": {
+    "generate-icons": "node scripts/generate-icons.js",
+    "start": "electron .",
+    "build:win": "npm run generate-icons && electron-builder --win --x64",
+    "build:ci": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.jmsenterprise.localserver",
+    "productName": "JMS Local Server",
+    "copyright": "JMS Enterprise",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../BACKEND",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!node_modules/**",
+          "!uploads/**",
+          "!*.log",
+          "!.env",
+          "!.env.*",
+          "!tmp/**",
+          "!BACKUPS/**",
+          "!.deploy/**"
+        ]
+      }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "JMS Local Server",
+      "runAfterFinish": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeader": "assets/icon.ico"
+    },
+    "publish": null
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}

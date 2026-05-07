@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<title>JMS Local Server Setup</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    background: #f0f2f5;
+    color: #1a1a2e;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%);
+    color: white;
+    padding: 20px 28px 16px;
+    flex-shrink: 0;
+  }
+  .header-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  .logo-box {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: rgba(255,255,255,0.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 800; letter-spacing: -1px;
+  }
+  .header h1 { font-size: 17px; font-weight: 700; }
+  .header p  { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+
+  /* Steps */
+  .steps { display: flex; gap: 0; padding: 0 28px; background: white; border-bottom: 1px solid #e5e7eb; flex-shrink: 0; }
+  .step {
+    flex: 1; padding: 10px 0; font-size: 11px; font-weight: 600; text-align: center;
+    color: #9ca3af; position: relative; cursor: default;
+    border-bottom: 2px solid transparent;
+  }
+  .step.active   { color: #1d4ed8; border-bottom-color: #1d4ed8; }
+  .step.done     { color: #16a34a; }
+  .step .num     { display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: #e5e7eb; color: #6b7280; font-size: 10px; line-height: 18px; text-align: center; margin-right: 5px; }
+  .step.active .num { background: #1d4ed8; color: white; }
+  .step.done .num   { background: #16a34a; color: white; }
+
+  /* Content */
+  .content { flex: 1; overflow-y: auto; padding: 20px 28px; }
+  .page { display: none; }
+  .page.active { display: block; }
+
+  h2 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+  .sub { font-size: 13px; color: #6b7280; margin-bottom: 18px; line-height: 1.5; }
+
+  /* Form */
+  .field { margin-bottom: 14px; }
+  label { display: block; font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 5px; }
+  input, select {
+    width: 100%; padding: 8px 11px; border: 1.5px solid #d1d5db;
+    border-radius: 7px; font-size: 13px; color: #111827;
+    background: white; outline: none; transition: border-color .15s;
+  }
+  input:focus, select:focus { border-color: #1d4ed8; }
+  input::placeholder { color: #9ca3af; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .hint { font-size: 11px; color: #9ca3af; margin-top: 4px; }
+
+  /* Check item */
+  .check-list { display: flex; flex-direction: column; gap: 9px; margin-bottom: 18px; }
+  .check-item {
+    display: flex; align-items: center; gap: 11px;
+    padding: 11px 14px; border-radius: 9px; background: white;
+    border: 1.5px solid #e5e7eb; font-size: 13px;
+  }
+  .check-item .dot {
+    width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 12px;
+  }
+  .dot-ok     { background: #dcfce7; color: #16a34a; }
+  .dot-fail   { background: #fee2e2; color: #dc2626; }
+  .dot-spin   { background: #dbeafe; color: #1d4ed8; font-size: 14px; }
+  .spin       { display: inline-block; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Footer */
+  .footer {
+    padding: 14px 28px; background: white; border-top: 1px solid #e5e7eb;
+    display: flex; justify-content: flex-end; gap: 10px; flex-shrink: 0;
+  }
+  .btn {
+    padding: 8px 20px; border-radius: 7px; font-size: 13px; font-weight: 600;
+    cursor: pointer; border: none; outline: none;
+  }
+  .btn-primary { background: #1d4ed8; color: white; }
+  .btn-primary:hover { background: #1e40af; }
+  .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+  .btn-ghost { background: transparent; color: #6b7280; }
+  .btn-ghost:hover { background: #f3f4f6; }
+
+  /* Progress bar */
+  .progress-wrap { background: #e5e7eb; border-radius: 99px; height: 6px; margin: 16px 0; overflow: hidden; }
+  .progress-bar  { height: 100%; background: #1d4ed8; border-radius: 99px; transition: width .4s; width: 0; }
+  .log-box {
+    background: #0f172a; color: #86efac; border-radius: 8px; padding: 12px 14px;
+    font-family: 'Consolas', monospace; font-size: 11px; height: 120px;
+    overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+  }
+
+  /* Alert */
+  .alert { padding: 10px 13px; border-radius: 8px; font-size: 12px; margin-bottom: 12px; line-height: 1.5; }
+  .alert-info    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+  .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; }
+  .alert-error   { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">
+    <div class="logo-box">J</div>
+    <div>
+      <div style="font-size:15px;font-weight:700;">JMS Local Server</div>
+      <div style="font-size:11px;opacity:.75;">Factory Setup Wizard</div>
+    </div>
+  </div>
+</div>
+
+<div class="steps" id="stepBar">
+  <div class="step active" id="stp-1"><span class="num">1</span>Welcome</div>
+  <div class="step"        id="stp-2"><span class="num">2</span>Prerequisites</div>
+  <div class="step"        id="stp-3"><span class="num">3</span>Database</div>
+  <div class="step"        id="stp-4"><span class="num">4</span>Server</div>
+  <div class="step"        id="stp-5"><span class="num">5</span>Install</div>
+</div>
+
+<div class="content">
+
+  <!-- Page 1: Welcome -->
+  <div class="page active" id="page-1">
+    <h2>Welcome to JMS Local Server</h2>
+    <p class="sub">This wizard will set up the JMS factory server on this computer in a few steps. The server connects your factory floor to the main JMS site automatically.</p>
+    <div class="alert alert-info">
+      <strong>Before you start, make sure:</strong><br>
+      • Node.js LTS is installed on this computer<br>
+      • PostgreSQL 14+ is installed and running<br>
+      • You have your Factory ID and Node Key (from the main site → Local Servers)
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:white;border-radius:9px;border:1.5px solid #e5e7eb;">
+      <div style="font-size:22px;">🏭</div>
+      <div>
+        <div style="font-size:13px;font-weight:600;">What this does</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px;">Runs a background server that syncs factory data with the main JMS site every 15 seconds. It starts automatically when Windows starts.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Page 2: Prerequisites -->
+  <div class="page" id="page-2">
+    <h2>Checking Prerequisites</h2>
+    <p class="sub">Making sure this computer has everything needed.</p>
+    <div class="check-list" id="checkList">
+      <div class="check-item" id="chk-node">
+        <div class="dot dot-spin"><span class="spin">⟳</span></div>
+        <div><strong>Node.js</strong><br><span style="font-size:11px;color:#6b7280;" id="nodeVer">Checking…</span></div>
+      </div>
+      <div class="check-item" id="chk-pg">
+        <div class="dot dot-spin"><span class="spin">⟳</span></div>
+        <div><strong>PostgreSQL</strong><br><span style="font-size:11px;color:#6b7280;" id="pgStatus">Checking port 5432…</span></div>
+      </div>
+    </div>
+    <div id="prereqNote" style="display:none;"></div>
+  </div>
+
+  <!-- Page 3: Database -->
+  <div class="page" id="page-3">
+    <h2>Database Connection</h2>
+    <p class="sub">Enter the local PostgreSQL details for this factory computer.</p>
+    <div class="row">
+      <div class="field">
+        <label>Host</label>
+        <input id="dbHost" value="localhost" placeholder="localhost">
+      </div>
+      <div class="field">
+        <label>Port</label>
+        <input id="dbPort" value="5432" placeholder="5432" type="number">
+      </div>
+    </div>
+    <div class="field">
+      <label>Database Name</label>
+      <input id="dbName" value="jms_v1" placeholder="jms_v1">
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Username</label>
+        <input id="dbUser" value="jms_v1" placeholder="jms_v1">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="dbPassword" type="password" placeholder="Enter DB password">
+      </div>
+    </div>
+    <p class="hint">The database must already exist. If it doesn't, create it in pgAdmin first, or restore from a backup.</p>
+  </div>
+
+  <!-- Page 4: Server Config -->
+  <div class="page" id="page-4">
+    <h2>Connect to Main Site</h2>
+    <p class="sub">Enter the details shown on your main JMS site under Settings → Local Servers.</p>
+    <div class="field">
+      <label>Main Site URL</label>
+      <input id="mainUrl" placeholder="http://your-vps-ip:9092">
+      <p class="hint">The URL of your JMS production site (the one on Hostinger VPS).</p>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Factory ID</label>
+        <input id="factoryId" type="number" placeholder="1">
+      </div>
+      <div class="field">
+        <label>Server Port</label>
+        <input id="serverPort" type="number" value="3000">
+      </div>
+    </div>
+    <div class="field">
+      <label>Node Key <span style="color:#6b7280;font-weight:400;">(from Download Package page)</span></label>
+      <input id="nodeKey" placeholder="Paste the node key here">
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Node ID</label>
+        <input id="nodeId" placeholder="Numeric ID from main site">
+      </div>
+      <div class="field">
+        <label>Sync API Key <span style="color:#9ca3af;font-weight:400;">(optional)</span></label>
+        <input id="syncApiKey" placeholder="Leave blank if unsure">
+      </div>
+    </div>
+  </div>
+
+  <!-- Page 5: Install -->
+  <div class="page" id="page-5">
+    <h2>Installing & Starting</h2>
+    <p class="sub" id="installSub">Saving your configuration and starting the server…</p>
+    <div class="progress-wrap"><div class="progress-bar" id="progBar"></div></div>
+    <div class="log-box" id="installLog">Initializing…</div>
+    <div id="installResult" style="display:none;margin-top:12px;"></div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <button class="btn btn-ghost" id="btnBack" onclick="goBack()" style="display:none;">Back</button>
+  <button class="btn btn-primary" id="btnNext" onclick="goNext()">Get Started</button>
+</div>
+
+<script>
+let currentPage = 1;
+const TOTAL = 5;
+let prereqOk = false;
+let existingConfig = null;
+
+window.addEventListener('DOMContentLoaded', async () => {
+  existingConfig = await window.jms.getConfig();
+  if (existingConfig) {
+    document.getElementById('dbHost').value     = existingConfig.dbHost     || 'localhost';
+    document.getElementById('dbPort').value     = existingConfig.dbPort     || '5432';
+    document.getElementById('dbName').value     = existingConfig.dbName     || 'jms_v1';
+    document.getElementById('dbUser').value     = existingConfig.dbUser     || 'jms_v1';
+    document.getElementById('dbPassword').value = existingConfig.dbPassword || '';
+    document.getElementById('mainUrl').value    = existingConfig.mainServerUrl || '';
+    document.getElementById('factoryId').value  = existingConfig.factoryId  || '';
+    document.getElementById('serverPort').value = existingConfig.port        || '3000';
+    document.getElementById('nodeKey').value    = existingConfig.nodeKey    || '';
+    document.getElementById('nodeId').value     = existingConfig.nodeId     || '';
+    document.getElementById('syncApiKey').value = existingConfig.syncApiKey || '';
+  }
+});
+
+function setStep(n) {
+  for (let i = 1; i <= TOTAL; i++) {
+    const el = document.getElementById('stp-' + i);
+    el.className = 'step' + (i < n ? ' done' : i === n ? ' active' : '');
+    document.getElementById('page-' + i).className = 'page' + (i === n ? ' active' : '');
+  }
+  document.getElementById('btnBack').style.display = n > 1 ? '' : 'none';
+  document.getElementById('btnNext').textContent = n === TOTAL ? 'Install & Start' : n === TOTAL - 1 ? 'Install' : 'Next';
+  currentPage = n;
+}
+
+async function goNext() {
+  if (currentPage === 1) { setStep(2); runPrereqs(); return; }
+  if (currentPage === 2) {
+    if (!prereqOk) { alert('Please fix the prerequisites before continuing.'); return; }
+    setStep(3); return;
+  }
+  if (currentPage === 3) {
+    if (!document.getElementById('dbPassword').value) { alert('Please enter the database password.'); return; }
+    setStep(4); return;
+  }
+  if (currentPage === 4) {
+    if (!document.getElementById('mainUrl').value)  { alert('Please enter the main site URL.'); return; }
+    if (!document.getElementById('factoryId').value) { alert('Please enter the Factory ID.'); return; }
+    if (!document.getElementById('nodeKey').value)  { alert('Please enter the Node Key.'); return; }
+    setStep(5); runInstall(); return;
+  }
+}
+
+function goBack() { if (currentPage > 1) setStep(currentPage - 1); }
+
+// ── Prerequisites check ───────────────────────────────────────────────────────
+async function runPrereqs() {
+  document.getElementById('btnNext').disabled = true;
+  let allOk = true;
+
+  // Node.js check (always ok since we're running in Electron/Node)
+  const nodeEl = document.getElementById('chk-node');
+  nodeEl.querySelector('.dot').className = 'dot dot-ok';
+  nodeEl.querySelector('.dot').textContent = '✓';
+  document.getElementById('nodeVer').textContent = 'v' + (typeof process !== 'undefined' ? '24.x' : 'detected');
+
+  // PostgreSQL check
+  const pgOk = await window.jms.checkPostgres();
+  const pgEl  = document.getElementById('chk-pg');
+  if (pgOk) {
+    pgEl.querySelector('.dot').className   = 'dot dot-ok';
+    pgEl.querySelector('.dot').textContent = '✓';
+    document.getElementById('pgStatus').textContent = 'Running on port 5432';
+  } else {
+    pgEl.querySelector('.dot').className   = 'dot dot-fail';
+    pgEl.querySelector('.dot').textContent = '✗';
+    document.getElementById('pgStatus').textContent = 'Not detected on port 5432';
+    const note = document.getElementById('prereqNote');
+    note.innerHTML = `<div class="alert alert-error"><strong>PostgreSQL not found.</strong> Install PostgreSQL 14+ and make sure it is running, then click Back and try again. Download from <a href="#" onclick="return false;">postgresql.org/download</a></div>`;
+    note.style.display = '';
+    allOk = false;
+  }
+
+  prereqOk = allOk;
+  document.getElementById('btnNext').disabled = false;
+}
+
+// ── Install ───────────────────────────────────────────────────────────────────
+async function runInstall() {
+  document.getElementById('btnNext').disabled = true;
+  document.getElementById('btnBack').disabled = true;
+
+  const log   = document.getElementById('installLog');
+  const prog  = document.getElementById('progBar');
+  const sub   = document.getElementById('installSub');
+  const result = document.getElementById('installResult');
+
+  function addLog(msg) { log.textContent += '\n' + msg; log.scrollTop = log.scrollHeight; }
+  function setProgress(pct) { prog.style.width = pct + '%'; }
+
+  const cfg = {
+    dbHost:        document.getElementById('dbHost').value.trim(),
+    dbPort:        parseInt(document.getElementById('dbPort').value) || 5432,
+    dbName:        document.getElementById('dbName').value.trim(),
+    dbUser:        document.getElementById('dbUser').value.trim(),
+    dbPassword:    document.getElementById('dbPassword').value,
+    mainServerUrl: document.getElementById('mainUrl').value.trim().replace(/\/$/, ''),
+    factoryId:     parseInt(document.getElementById('factoryId').value) || 1,
+    port:          parseInt(document.getElementById('serverPort').value) || 3000,
+    nodeKey:       document.getElementById('nodeKey').value.trim(),
+    nodeId:        parseInt(document.getElementById('nodeId').value) || 0,
+    syncApiKey:    document.getElementById('syncApiKey').value.trim(),
+  };
+
+  addLog('Saving configuration…');
+  setProgress(20);
+  sub.textContent = 'Saving configuration…';
+
+  try {
+    await window.jms.installAndStart(cfg);
+    setProgress(100);
+    sub.textContent = 'Done! Server is starting…';
+    addLog('Configuration saved.');
+    addLog('Starting backend server…');
+    addLog('');
+    addLog('✓  JMS Local Server is running!');
+    addLog('   Double-click the tray icon to open dashboard.');
+
+    result.innerHTML = '<div class="alert alert-success"><strong>✓ Setup complete!</strong> The server is running in the system tray. Double-click the tray icon to open the dashboard.</div>';
+    result.style.display = '';
+    document.getElementById('btnNext').textContent = 'Done';
+    document.getElementById('btnNext').disabled = false;
+    document.getElementById('btnNext').onclick = () => window.close();
+  } catch (e) {
+    addLog('ERROR: ' + e.message);
+    result.innerHTML = `<div class="alert alert-error"><strong>Setup failed:</strong> ${e.message}</div>`;
+    result.style.display = '';
+    document.getElementById('btnBack').disabled = false;
+    document.getElementById('btnNext').disabled = false;
+    document.getElementById('btnNext').textContent = 'Retry';
+    document.getElementById('btnNext').onclick = runInstall;
+  }
+}
+</script>
+</body>
+</html>

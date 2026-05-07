@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JMS Local Server — Download</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    background: #f0f2f5;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .card {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.10);
+    padding: 40px 44px;
+    max-width: 480px;
+    width: 100%;
+    text-align: center;
+  }
+  .logo {
+    width: 64px; height: 64px; border-radius: 16px;
+    background: linear-gradient(135deg, #1e3a8a, #1d4ed8);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 20px;
+    font-size: 28px; font-weight: 900; color: white; letter-spacing: -2px;
+  }
+  h1 { font-size: 22px; font-weight: 800; color: #111827; margin-bottom: 8px; }
+  .sub { font-size: 14px; color: #6b7280; line-height: 1.6; margin-bottom: 28px; }
+  .version-badge {
+    display: inline-block; background: #eff6ff; color: #1d4ed8;
+    border-radius: 99px; padding: 4px 12px; font-size: 12px; font-weight: 700;
+    margin-bottom: 24px;
+  }
+  .btn-download {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    background: linear-gradient(135deg, #1d4ed8, #1e40af);
+    color: white; border: none; border-radius: 10px;
+    padding: 14px 28px; font-size: 16px; font-weight: 700;
+    cursor: pointer; width: 100%; text-decoration: none;
+    transition: opacity .15s;
+    margin-bottom: 12px;
+  }
+  .btn-download:hover { opacity: .9; }
+  .btn-download:disabled { opacity: .5; cursor: not-allowed; }
+  .size-note { font-size: 12px; color: #9ca3af; margin-bottom: 28px; }
+  .steps {
+    background: #f8fafc; border-radius: 10px; padding: 18px 20px;
+    text-align: left; border: 1px solid #e5e7eb;
+  }
+  .steps h3 { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 12px; }
+  .steps ol { padding-left: 18px; }
+  .steps li { font-size: 13px; color: #4b5563; line-height: 1.7; }
+  .steps li strong { color: #111827; }
+  .unavailable { color: #6b7280; font-size: 14px; padding: 20px; background: #f9fafb; border-radius: 10px; }
+  .spinner { display: inline-block; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">J</div>
+  <h1>JMS Local Server</h1>
+  <p class="sub">Desktop software for factory computers. Connects your factory floor to the main JMS site and syncs data automatically.</p>
+
+  <div id="content">
+    <div style="color:#9ca3af;font-size:14px;padding:20px;">
+      <span class="spinner">⟳</span> Checking for latest version…
+    </div>
+  </div>
+
+  <div class="steps" style="margin-top:24px;">
+    <h3>📋 Installation Steps</h3>
+    <ol>
+      <li>Click <strong>Download</strong> and run the installer</li>
+      <li>Follow the setup wizard (takes ~2 minutes)</li>
+      <li>Enter your <strong>Factory ID</strong> and <strong>Node Key</strong><br>
+          <span style="font-size:12px;color:#9ca3af;">(Get these from the main site → Settings → Local Servers)</span></li>
+      <li>Click <strong>Install &amp; Start</strong> — done!</li>
+      <li>Run <strong>REGISTER_AUTOSTART.bat</strong> (in install folder) as Administrator so it starts on reboot</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+async function loadInfo() {
+  const el = document.getElementById('content');
+  try {
+    const res = await fetch('/api/local-servers/desktop-installer/latest');
+    const data = await res.json();
+    if (!data.available) {
+      el.innerHTML = '<div class="unavailable">⏳ No installer available yet.<br>The build pipeline runs automatically when code is updated.</div>';
+      return;
+    }
+    const mb = data.size ? (data.size / 1024 / 1024).toFixed(1) + ' MB' : '';
+    el.innerHTML = `
+      <div class="version-badge">v${data.version}</div><br>
+      <a class="btn-download" href="/api/local-servers/desktop-installer/download">
+        <span>⬇</span> Download JMS Local Server
+      </a>
+      <div class="size-note">${data.filename}${mb ? ' &nbsp;·&nbsp; ' + mb : ''} &nbsp;·&nbsp; Windows 64-bit</div>
+    `;
+  } catch {
+    el.innerHTML = '<div class="unavailable">Could not load installer info. Make sure the server is running.</div>';
+  }
+}
+loadInfo();
+</script>
+</body>
+</html>
