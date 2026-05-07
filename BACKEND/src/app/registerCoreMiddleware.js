@@ -38,6 +38,8 @@ function registerCoreMiddleware(app) {
         imgSrc: ["'self'", 'data:', 'https:', 'http:'],
         connectSrc: ["'self'", 'https:', 'http:', 'wss:', 'ws:'],
         fontSrc: ["'self'", 'https:', 'http:', 'data:'],
+        // Allow inline onclick/onkeydown attrs — whole app uses them extensively
+        scriptSrcAttr: ["'unsafe-inline'"],
         // Disable upgrade-insecure-requests — app is intentionally served over HTTP
         upgradeInsecureRequests: null
       }
