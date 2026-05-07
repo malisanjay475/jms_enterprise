@@ -33,6 +33,8 @@ out/
 
 # Database / Storage
 *.sql
+# But track migration files — they are source code, not generated dumps
+!BACKEND/migrations/*.sql
 *.db
 *.db-journal
 uploads/

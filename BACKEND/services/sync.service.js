@@ -7,7 +7,7 @@ let pool;
 let SERVER_TYPE = 'STANDALONE';
 let MAIN_SERVER_URL = '';
 let LOCAL_FACTORY_ID = 1;
-let API_KEY = 'jpsms-sync-key';
+let API_KEY = process.env.SYNC_API_KEY || 'jpsms-sync-key';
 
 const SYNC_INTERVAL_MS = 15 * 1000; // 15s — was 60s
 const DELETE_BATCH_LIMIT = 1000;
@@ -364,7 +364,8 @@ async function init(dbPool) {
         if (config.SERVER_TYPE) SERVER_TYPE = config.SERVER_TYPE;
         if (config.MAIN_SERVER_URL) MAIN_SERVER_URL = config.MAIN_SERVER_URL;
         if (config.LOCAL_FACTORY_ID) LOCAL_FACTORY_ID = parseInt(config.LOCAL_FACTORY_ID, 10);
-        if (config.SYNC_API_KEY) API_KEY = config.SYNC_API_KEY;
+        // env var wins; server_config is only a fallback for legacy LOCAL servers without .env entry
+        if (!process.env.SYNC_API_KEY && config.SYNC_API_KEY) API_KEY = config.SYNC_API_KEY;
 
         console.log(`[Sync] Init. Type: ${SERVER_TYPE}, Factory: ${LOCAL_FACTORY_ID}, Main: ${MAIN_SERVER_URL}`);
         console.log('[Sync] Service Version: v4.5 (Delete Sync)');
