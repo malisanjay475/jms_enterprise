@@ -21,14 +21,18 @@ const apiLimiter = rateLimit({
 
 function registerCoreMiddleware(app) {
   app.use(helmet({
+    // HSTS must be off — server runs plain HTTP on factory intranet and VPS port
+    strictTransportSecurity: false,
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net', 'https://cdnjs.cloudflare.com'],
         styleSrc: ["'self'", "'unsafe-inline'", 'https:'],
-        imgSrc: ["'self'", 'data:', 'https:'],
-        connectSrc: ["'self'", 'https:', 'wss:', 'ws:'],
-        fontSrc: ["'self'", 'https:', 'data:']
+        imgSrc: ["'self'", 'data:', 'https:', 'http:'],
+        connectSrc: ["'self'", 'https:', 'http:', 'wss:', 'ws:'],
+        fontSrc: ["'self'", 'https:', 'http:', 'data:'],
+        // Disable upgrade-insecure-requests — app is intentionally served over HTTP
+        upgradeInsecureRequests: null
       }
     }
   }));
