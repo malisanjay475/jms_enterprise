@@ -13551,45 +13551,49 @@ app.get('/api/planning/kpis', async (req, res) => {
   try {
     const factoryId = getFactoryId(req);
 
+    const safeQ = async (sql, params) => {
+      try { return await q(sql, params); } catch { return [{ c: 0 }]; }
+    };
+
     const [pendingAllRes, pendingDelayedRes, inProgRes, todayCompletedRes, upcomingRes] = await Promise.all([
-      q(
+      safeQ(
         `SELECT COUNT(*)::int AS c
          FROM orders
          WHERE COALESCE(TRIM(status), '') NOT IN ('Completed', 'Cancelled', 'Canceled')
-           AND (factory_id = $1 OR ($1 IS NULL AND factory_id IS NULL))`,
+           AND (factory_id = $1::integer OR ($1::integer IS NULL AND factory_id IS NULL))`,
         [factoryId]
       ),
-      q(
+      safeQ(
         `SELECT COUNT(*)::int AS c
          FROM orders
          WHERE COALESCE(TRIM(status), '') NOT IN ('Completed', 'Cancelled', 'Canceled')
            AND due_date::date < CURRENT_DATE
-           AND (factory_id = $1 OR ($1 IS NULL AND factory_id IS NULL))`,
+           AND (factory_id = $1::integer OR ($1::integer IS NULL AND factory_id IS NULL))`,
         [factoryId]
       ),
-      q(
+      safeQ(
         `SELECT COUNT(DISTINCT pb.id)::int AS c
          FROM plan_board pb
          LEFT JOIN orders o ON o.order_no = pb.order_no
          WHERE UPPER(COALESCE(pb.status, '')) = 'RUNNING'
-           AND ($1 IS NULL OR o.factory_id = $1 OR o.factory_id IS NULL)`,
+           AND ($1::integer IS NULL OR o.factory_id = $1::integer OR o.factory_id IS NULL)`,
         [factoryId]
       ),
-      q(
+      safeQ(
         `SELECT COUNT(DISTINCT pb.order_no)::int AS c
          FROM plan_board pb
          LEFT JOIN orders o ON o.order_no = pb.order_no
          WHERE UPPER(COALESCE(pb.status, '')) = 'COMPLETED'
            AND pb.completed_at::date = CURRENT_DATE
-           AND ($1 IS NULL OR o.factory_id = $1 OR o.factory_id IS NULL)`,
+           AND ($1::integer IS NULL OR o.factory_id = $1::integer OR o.factory_id IS NULL)`,
         [factoryId]
       ),
-      q(
+      safeQ(
         `SELECT COUNT(*)::int AS c
          FROM orders
          WHERE COALESCE(TRIM(status), '') NOT IN ('Completed', 'Cancelled', 'Canceled')
            AND due_date::date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '3 days')
-           AND (factory_id = $1 OR ($1 IS NULL AND factory_id IS NULL))`,
+           AND (factory_id = $1::integer OR ($1::integer IS NULL AND factory_id IS NULL))`,
         [factoryId]
       )
     ]);
