@@ -95,15 +95,14 @@ jobs:
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
           passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
           port: 22
-        env:
-          VERSION: ${{ env.VERSION }}
-          INSTALLER_NAME: ${{ env.INSTALLER_NAME }}
-        with:
           envs: VERSION,INSTALLER_NAME
           script: |
             mkdir -p /var/jms-downloads
             echo "$VERSION" > /var/jms-downloads/latest-version.txt
             echo "$INSTALLER_NAME" > /var/jms-downloads/latest-filename.txt
+        env:
+          VERSION: ${{ env.VERSION }}
+          INSTALLER_NAME: ${{ env.INSTALLER_NAME }}
         continue-on-error: true
 
       - name: Upload to VPS via SCP
