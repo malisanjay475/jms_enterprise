@@ -41,4 +41,8 @@ CREATE TABLE IF NOT EXISTS jc_details (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_jc_details_unique_jc_no
   ON jc_details ((data->>'job_card_no'));
 
-ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS erp_ref_id VARCHAR(255);
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'plan_board') THEN
+    ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS erp_ref_id VARCHAR(255);
+  END IF;
+END $$;
