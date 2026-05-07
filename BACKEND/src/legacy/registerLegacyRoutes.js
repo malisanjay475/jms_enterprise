@@ -883,6 +883,11 @@ const PUBLIC_DIR = path.join(
 );
 const PRIMARY_UPLOADS_DIR = path.join(STATIC_PUBLIC_DIR, 'uploads');
 const LEGACY_UPLOADS_DIR = path.join(BACKEND_ROOT, 'public', 'uploads');
+// Force revalidation for app.js so version badge and UI changes are never served stale
+app.use('/assets/app.js', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  next();
+});
 app.use(express.static(PUBLIC_DIR));
 app.use('/uploads', express.static(PRIMARY_UPLOADS_DIR));
 if (path.normalize(LEGACY_UPLOADS_DIR) !== path.normalize(PRIMARY_UPLOADS_DIR)) {
