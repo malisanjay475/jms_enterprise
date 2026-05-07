@@ -3517,7 +3517,7 @@ async function bootstrapFreshCoreTables() {
   try {
     const uname = String(process.env.DEFAULT_SUPERADMIN_USERNAME || 'admin').trim() || 'admin';
     const pw = String(process.env.DEFAULT_SUPERADMIN_PASSWORD || 'ChangeMeNow123!');
-    const hash = await bcrypt.hash(pw, 10);
+    const hash = await bcrypt.hash(pw, 8);
     const resUser = await pool.query(
       `INSERT INTO users (username, password, line, role_code, permissions, is_active, global_access)
        VALUES ($1, $2, '', 'superadmin', '{}'::jsonb, TRUE, TRUE)
@@ -4218,6 +4218,11 @@ app.post('/api/login', async (req, res) => {
 
     if (u.password.startsWith('$2')) {
       valid = await bcrypt.compare(password, u.password);
+      // Downgrade cost factor >8 to 8 for faster logins on low-spec VPS
+      if (valid) {
+        const rounds = parseInt((u.password.split('$')[2] || '10'), 10);
+        if (rounds > 8) needsRehash = true;
+      }
     } else {
       if (u.password === password) {
         valid = true;
@@ -4242,10 +4247,11 @@ app.post('/api/login', async (req, res) => {
       }
     }
 
-    // 3. Auto-Rehash if needed
+    // 3. Auto-Rehash if needed (non-blocking — don't delay login response)
     if (needsRehash) {
-      const hash = await bcrypt.hash(password, 10);
-      await q('UPDATE users SET password=$1 WHERE username=$2', [hash, u.username]);
+      bcrypt.hash(password, 8).then(hash =>
+        q('UPDATE users SET password=$1 WHERE username=$2', [hash, u.username])
+      ).catch(() => {});
     }
 
     // 4. Fetch Allowed Factories
@@ -4432,7 +4438,7 @@ app.post('/api/users/save', async (req, res) => {
       // UPDATE
       let hash = '';
       if (password) {
-        hash = await bcrypt.hash(password, 10);
+        hash = await bcrypt.hash(password, 8);
       }
 
       await q(
@@ -4455,7 +4461,7 @@ app.post('/api/users/save', async (req, res) => {
       // INSERT
       if (!password) return res.json({ ok: false, error: 'Password required for new user' });
 
-      const hash = await bcrypt.hash(password, 10);
+      const hash = await bcrypt.hash(password, 8);
 
       const resInsert = await pool.query( // Use pool.query to get RETURNING id
         `INSERT INTO users (username, password, line, role_code, permissions, is_active, global_access)
@@ -4526,7 +4532,7 @@ app.post('/api/users/password', async (req, res) => {
     if (isSuperadminRole(targetUser) && !isSuperadminRole(actor)) {
       return res.status(403).json({ ok: false, error: 'Only superadmin can change a superadmin password' });
     }
-    const hash = await bcrypt.hash(password, 10);
+    const hash = await bcrypt.hash(password, 8);
     await q('UPDATE users SET password=$1 WHERE username=$2', [hash, username]);
     res.json({ ok: true });
   } catch (e) {
