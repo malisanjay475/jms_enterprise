@@ -1303,7 +1303,7 @@ module.exports = function registerHrPerformanceRoutes({ app, pool }) {
         await Promise.all(updates);
 
         if (password) {
-          const hash = await bcrypt.hash(password, 10);
+          const hash = await bcrypt.hash(password, 8);
           await client.query(`UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2`, [hash, userId]);
         }
       } else {
@@ -1327,7 +1327,7 @@ module.exports = function registerHrPerformanceRoutes({ app, pool }) {
           await client.query('ROLLBACK');
           return res.status(400).json({ ok: false, error: 'Employee code already exists' });
         }
-        const hash = await bcrypt.hash(password, 10);
+        const hash = await bcrypt.hash(password, 8);
         const insertedUser = (await client.query(
           `INSERT INTO users(username, password, line, role_code, permissions, is_active, global_access, updated_at)
            VALUES($1, $2, $3, $4, '{}'::jsonb, TRUE, FALSE, NOW())
