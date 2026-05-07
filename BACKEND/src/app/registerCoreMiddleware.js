@@ -26,8 +26,15 @@ function registerCoreMiddleware(app) {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net', 'https://cdnjs.cloudflare.com'],
-        styleSrc: ["'self'", "'unsafe-inline'", 'https:'],
+        scriptSrc: [
+          "'self'", "'unsafe-inline'",
+          'https://cdn.jsdelivr.net',
+          'https://cdnjs.cloudflare.com',
+          'https://code.jquery.com',
+          'https://cdn.datatables.net',
+          'https://unpkg.com'
+        ],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://cdn.datatables.net', 'https:'],
         imgSrc: ["'self'", 'data:', 'https:', 'http:'],
         connectSrc: ["'self'", 'https:', 'http:', 'wss:', 'ws:'],
         fontSrc: ["'self'", 'https:', 'http:', 'data:'],
