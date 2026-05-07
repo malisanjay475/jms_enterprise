@@ -1,7 +1,13 @@
 'use strict';
 
+const path = require('path');
 const registerLegacyRoutes = require('../legacy/registerLegacyRoutes');
 const { getFactoryId } = require('./requestContext');
+
+const _pkg = (() => {
+  try { return require(path.join(__dirname, '../../package.json')); } catch { return {}; }
+})();
+const APP_VERSION = process.env.APP_VERSION || _pkg.version || '0.0.0';
 
 async function ensureJmsPlanReportSchema(query) {
   const planBoardColumns = [
@@ -131,6 +137,15 @@ function registerRoutes(app, deps) {
       service: 'jms-backend',
       status: 'healthy',
       env: config.nodeEnv
+    });
+  });
+
+  app.get('/api/version', (req, res) => {
+    res.json({
+      version: APP_VERSION,
+      gitSha: process.env.APP_GIT_SHA || null,
+      buildDate: process.env.APP_BUILD_DATE || null,
+      serverType: process.env.SERVER_TYPE || 'MAIN',
     });
   });
 

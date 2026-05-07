@@ -1464,6 +1464,9 @@ const BRAND_NAME = 'JMS OCEAN';
             </button>
           </div>
       </div>
+      <div id="jms-version-badge" style="padding:10px 16px 14px;text-align:center;font-size:11px;color:rgba(255,255,255,0.35);letter-spacing:0.3px;user-select:none;">
+        JMS &nbsp;·&nbsp; <span id="jms-version-text">…</span>
+      </div>
     `;
 
         const sidebar = document.createElement('div');
@@ -1507,6 +1510,16 @@ const BRAND_NAME = 'JMS OCEAN';
         document.body.prepend(sidebar);
         ensureMobileSidebarControls();
         applyViewportLayoutMode();
+
+        // Populate version badge
+        fetch('/api/version').then(r => r.json()).then(v => {
+            const el = document.getElementById('jms-version-text');
+            if (!el) return;
+            const sha = v.gitSha ? v.gitSha.slice(0, 7) : null;
+            const type = v.serverType === 'LOCAL' ? ' · LOCAL' : '';
+            el.textContent = `v${v.version}${sha ? ' (' + sha + ')' : ''}${type}`;
+            el.title = v.buildDate ? 'Built: ' + v.buildDate : '';
+        }).catch(() => {});
 
         // Inject Hamburger if Header Exists
         setTimeout(() => {
