@@ -8,6 +8,7 @@ const https = require('https');
 const path = require('path');
 const loadConfig = require('../config/loadConfig');
 const createDbPool = require('../db/createDbPool');
+const runMigrations = require('./runMigrations');
 const createServices = require('../services/createServices');
 const createApp = require('./createApp');
 
@@ -36,6 +37,7 @@ async function startServer() {
   const config = loadConfig();
   initSentry(config.sentryDsn);
   const pool = createDbPool(config);
+  await runMigrations(pool);
   const services = createServices();
   const { app, legacyRuntime } = createApp({ config, pool, services });
 
