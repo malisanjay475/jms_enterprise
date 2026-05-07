@@ -14,7 +14,7 @@ const {
 
 const router = express.Router();
 
-const DEFAULT_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const DEFAULT_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 min — was 60 min, too slow for factory deployments
 const DEFAULT_STARTUP_DELAY_MS = 30000;
 const RUNTIME_RELEASE_PATH = path.join(__dirname, '..', 'runtime-release.json');
 

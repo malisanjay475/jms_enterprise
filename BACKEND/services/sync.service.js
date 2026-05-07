@@ -9,7 +9,7 @@ let MAIN_SERVER_URL = '';
 let LOCAL_FACTORY_ID = 1;
 let API_KEY = 'jpsms-sync-key';
 
-const SYNC_INTERVAL_MS = 60 * 1000;
+const SYNC_INTERVAL_MS = 15 * 1000; // 15s — was 60s
 const DELETE_BATCH_LIMIT = 1000;
 
 const SYNC_ALL = [
@@ -705,7 +705,7 @@ async function upsertData(table, data) {
 
                 if (table === 'plan_board') {
                     whereClause += ` AND NOT (${table}.status = 'Running' AND EXCLUDED.status IN ('Planned', 'Stopped', 'Pending'))`;
-                    whereClause += ` AND (${table}.updated_at < NOW() - INTERVAL '60 seconds' OR ${table}.updated_at IS NULL)`;
+                    whereClause += ` AND (${table}.updated_at < NOW() - INTERVAL '15 seconds' OR ${table}.updated_at IS NULL)`;
                 }
 
                 const sql = `
