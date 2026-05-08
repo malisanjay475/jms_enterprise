@@ -3095,6 +3095,7 @@
         'view-main',
         'masterView',
         'timelineView',
+        'excelTimelineView',
         'printJCView',
         'pendingPlanApprovalView',
         'productionCompletionReport',
@@ -3190,6 +3191,7 @@
         'view-main',
         'masterView',
         'timelineView',
+        'excelTimelineView',
         'printJCView',
         'productionCompletionReport',
         'mouldChangeReport',
@@ -3234,6 +3236,12 @@
         document.getElementById('timelineView').style.display = 'block';
         if (typeof loadTimeline === 'function') loadTimeline();
         window.view = 'timeline';
+      }
+      else if (viewName === 'excel_timeline') {
+        const etv = document.getElementById('excelTimelineView');
+        if (etv) etv.style.display = 'block';
+        if (typeof window.loadExcelTimeline === 'function') window.loadExcelTimeline();
+        window.view = 'excel_timeline';
       }
       else if (viewName === 'prod_complete' || viewName === 'completed') {
         document.getElementById('productionCompletionReport').style.display = 'block';
@@ -3560,7 +3568,8 @@
                 </div>
                 <div class="planning-action-buttons">
                     <button class="btn" id="btnToggleMap"><i class="bi bi-eye-slash"></i> Hide Machine Grid</button>
-                  <button class="btn" type="button" onclick="window.switchView('timeline')"><i class="bi bi-bar-chart-steps"></i> Timeline</button>
+                  <button class="btn" type="button" onclick="window.switchView('timeline')"><i class="bi bi-bar-chart-steps"></i> Machine Timeline</button>
+                  <button class="btn" type="button" onclick="window.switchView('excel_timeline')" style="background:linear-gradient(135deg,#eff6ff,#dbeafe); color:#1d4ed8; border-color:#bfdbfe; font-weight:700;"><i class="bi bi-grid-3x3-gap-fill"></i> Excel View Timeline</button>
                   <button class="btn" type="button" onclick="window.switchView('master')"><i class="bi bi-table"></i> Master Plan</button>
                   <button class="btn" id="btnBalance" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-shuffle"></i> Balance Load</button>
                   <button class="btn primary" id="btnAutoP1" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-lightning-charge"></i> Auto-Assign P1</button>
@@ -3693,6 +3702,14 @@
         <div id="timelineContainer" class="timeline-container">
            <!-- Rows will go here -->
         </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════════
+           EXCEL VIEW TIMELINE
+           Compact spreadsheet: machines = rows, plan slots = columns
+           ═══════════════════════════════════════════════════════════════ -->
+      <div id="excelTimelineView" style="display:none; padding-bottom:80px;">
+        <!-- Filter bar + grid rendered dynamically by loadExcelTimeline() -->
       </div>
 
       <!-- Completed Plans View -->
@@ -8312,13 +8329,14 @@
           const dashboardToolbar = document.getElementById('dashboardToolbar');
           const masterView = document.getElementById('masterView');
           const timelineView = document.getElementById('timelineView');
+          const excelTimelineView = document.getElementById('excelTimelineView');
           const pcr = document.getElementById('productionCompletionReport');
           const cv = document.getElementById('completedView');
           const mouldChangeView = document.getElementById('mouldChangeReport');
           const printView = document.getElementById('printJCView');
           const approvalView = document.getElementById('pendingPlanApprovalView');
 
-          [masterView, timelineView, pcr, cv, mouldChangeView, printView, approvalView].forEach((el) => {
+          [masterView, timelineView, excelTimelineView, pcr, cv, mouldChangeView, printView, approvalView].forEach((el) => {
             if (el) el.style.display = 'none';
           });
           if (dashboard) dashboard.style.display = 'none';
@@ -8334,6 +8352,9 @@
             if (timelineView) timelineView.style.display = 'block';
             if (typeof window.superLoadTimeline === 'function') window.superLoadTimeline();
             else loadTimeline();
+          } else if (viewName === 'excel_timeline') {
+            if (excelTimelineView) excelTimelineView.style.display = 'block';
+            if (typeof window.loadExcelTimeline === 'function') window.loadExcelTimeline();
           } else if (viewName === 'prod_complete') {
             if (pcr) {
               pcr.style.display = 'block';
@@ -10776,12 +10797,13 @@
       const mapWrap = document.getElementById('mapWrap');
       const masterView = document.getElementById('masterView');
       const timelineView = document.getElementById('timelineView');
+      const excelTimelineViewEl = document.getElementById('excelTimelineView');
       const productionView = document.getElementById('productionCompletionReport');
       const mouldChangeView = document.getElementById('mouldChangeReport');
       const printView = document.getElementById('printJCView');
       const approvalView = document.getElementById('pendingPlanApprovalView');
 
-      [masterView, timelineView, productionView, mouldChangeView, printView, approvalView].forEach(el => {
+      [masterView, timelineView, excelTimelineViewEl, productionView, mouldChangeView, printView, approvalView].forEach(el => {
         if (el) el.style.display = 'none';
       });
 
@@ -10796,6 +10818,9 @@
       } else if (viewName === 'timeline') {
         if (timelineView) timelineView.style.display = 'block';
         if (typeof loadTimeline === 'function') loadTimeline();
+      } else if (viewName === 'excel_timeline') {
+        if (excelTimelineViewEl) excelTimelineViewEl.style.display = 'block';
+        if (typeof window.loadExcelTimeline === 'function') window.loadExcelTimeline();
       } else if (viewName === 'prod_complete' || viewName === 'completed') {
         if (productionView) productionView.style.display = 'block';
         if (typeof window.loadProductionCompletionReport === 'function') window.loadProductionCompletionReport();
@@ -11425,6 +11450,838 @@
 
 
   <script src="assets/timeline_patch.js?v=release56"></script>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       EXCEL VIEW TIMELINE  — compact spreadsheet for maximum machine density
+       Machines = rows · Plan queue slots = columns
+       Reuses the same API calls as Machine Timeline (no new endpoints)
+       ═══════════════════════════════════════════════════════════════════ -->
+  <script>
+  (function () {
+    'use strict';
+
+    /* ── CSS ─────────────────────────────────────────────────────────── */
+    const css = `
+      #etv-wrap {
+        font-family: -apple-system, "Segoe UI Variable", Inter, "Segoe UI", sans-serif;
+        background: #f1f5f9;
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 4px 24px rgba(15,23,42,.08);
+      }
+
+      /* ── Sticky filter bar ── */
+      #etv-filters {
+        position: sticky;
+        top: 0;
+        z-index: 200;
+        background: #fff;
+        border-bottom: 2px solid #e2e8f0;
+        padding: 10px 14px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        box-shadow: 0 4px 12px rgba(15,23,42,.07);
+      }
+      #etv-filters .etv-title {
+        font-size: .75rem;
+        font-weight: 900;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        color: #1d4ed8;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 10px;
+        flex-shrink: 0;
+      }
+      #etv-filters input,
+      #etv-filters select {
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 7px 10px;
+        font-size: .875rem;
+        color: #334155;
+        background: #fff;
+        outline: none;
+        transition: border-color .15s, box-shadow .15s;
+        height: 36px;
+      }
+      #etv-filters input:focus,
+      #etv-filters select:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+      }
+      #etv-filters .etv-search-wrap {
+        position: relative;
+        flex: 1;
+        min-width: 200px;
+        max-width: 320px;
+      }
+      #etv-filters .etv-search-wrap i {
+        position: absolute;
+        left: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #94a3b8;
+        font-size: .875rem;
+        pointer-events: none;
+      }
+      #etv-filters .etv-search-wrap input {
+        width: 100%;
+        padding-left: 32px;
+      }
+      .etv-btn {
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        color: #475569;
+        border-radius: 8px;
+        padding: 0 12px;
+        height: 36px;
+        font-size: .875rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        transition: all .15s;
+        flex-shrink: 0;
+      }
+      .etv-btn:hover { background: #f8fafc; border-color: #94a3b8; }
+      .etv-btn.primary {
+        background: #2563eb;
+        color: #fff;
+        border-color: transparent;
+        box-shadow: 0 2px 8px rgba(37,99,235,.25);
+      }
+      .etv-btn.primary:hover { background: #1d4ed8; }
+      #etv-count {
+        margin-left: auto;
+        font-size: .8rem;
+        font-weight: 700;
+        color: #475569;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        padding: 5px 12px;
+        border-radius: 20px;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      /* ── Scroll wrapper ── */
+      #etv-scroll {
+        overflow-x: auto;
+        overflow-y: auto;
+        max-height: calc(100vh - 180px);
+      }
+      #etv-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+      #etv-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
+      #etv-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+      #etv-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+      /* ── Excel table ── */
+      #etv-table {
+        border-collapse: collapse;
+        width: 100%;
+        min-width: max-content;
+        table-layout: fixed;
+        background: #fff;
+      }
+
+      /* ── Group header row (Building / Line label) ── */
+      .etv-group-hdr td {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        color: #94a3b8;
+        font-size: .65rem;
+        font-weight: 900;
+        letter-spacing: .14em;
+        text-transform: uppercase;
+        padding: 6px 10px;
+        border-bottom: 2px solid #3b82f6;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+
+      /* ── Column header row ── */
+      .etv-col-hdr th {
+        background: #f8fafc;
+        border-bottom: 2px solid #e2e8f0;
+        border-right: 1px solid #f1f5f9;
+        padding: 0;
+        height: 40px;
+        vertical-align: middle;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        white-space: nowrap;
+      }
+      .etv-col-hdr th.etv-mach-col {
+        min-width: 130px;
+        width: 130px;
+        background: #0f172a;
+        position: sticky;
+        left: 0;
+        z-index: 20;
+      }
+      .etv-col-hdr th.etv-seq-col {
+        min-width: 155px;
+        width: 155px;
+      }
+      .etv-col-inner {
+        padding: 6px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      .etv-col-seq-label {
+        font-size: .68rem;
+        font-weight: 900;
+        letter-spacing: .1em;
+        text-transform: uppercase;
+        color: #64748b;
+      }
+      .etv-col-seq-sub {
+        font-size: .6rem;
+        color: #94a3b8;
+        font-weight: 600;
+      }
+
+      /* ── Machine name cell (frozen left column) ── */
+      .etv-mach-cell {
+        background: #0f172a;
+        color: #fff;
+        min-width: 130px;
+        width: 130px;
+        padding: 0;
+        position: sticky;
+        left: 0;
+        z-index: 5;
+        border-right: 3px solid #3b82f6;
+        vertical-align: middle;
+        cursor: pointer;
+      }
+      .etv-mach-cell:hover { background: #1e293b; }
+      .etv-mach-inner {
+        padding: 6px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-height: 52px;
+        justify-content: center;
+      }
+      .etv-mach-code {
+        font-size: .9rem;
+        font-weight: 800;
+        color: #60a5fa;
+        line-height: 1.1;
+        word-break: break-all;
+      }
+      .etv-mach-meta {
+        font-size: .62rem;
+        color: #475569;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+      }
+      .etv-mach-load {
+        font-size: .6rem;
+        font-weight: 800;
+        color: #0f172a;
+        background: #e0f2fe;
+        border: 1px solid #7dd3fc;
+        padding: 1px 5px;
+        border-radius: 8px;
+        display: inline-block;
+        margin-top: 2px;
+      }
+
+      /* ── Plan cell ── */
+      .etv-plan-cell {
+        min-width: 155px;
+        width: 155px;
+        vertical-align: top;
+        padding: 3px 4px;
+        border-right: 1px solid #f1f5f9;
+        border-bottom: 1px solid #f1f5f9;
+        background: #fff;
+        cursor: pointer;
+        transition: background .12s;
+      }
+      .etv-plan-cell:hover { background: #f8fafc; }
+      .etv-plan-cell.etv-empty {
+        background: #fcfcfd;
+        cursor: default;
+      }
+      .etv-plan-cell.etv-empty:hover { background: #fcfcfd; }
+
+      /* ── Plan card inside cell ── */
+      .etv-card {
+        border-radius: 7px;
+        padding: 5px 7px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        border-left: 4px solid #94a3b8;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-left-width: 4px;
+        min-height: 48px;
+        position: relative;
+        transition: box-shadow .12s;
+      }
+      .etv-plan-cell:hover .etv-card { box-shadow: 0 4px 12px rgba(15,23,42,.1); }
+
+      .etv-card.running  { border-left-color: #16a34a; background: #f0fdf4; border-color: #bbf7d0; border-left-width:4px; }
+      .etv-card.stopped  { border-left-color: #dc2626; background: #fef2f2; border-color: #fecaca; border-left-width:4px; }
+      .etv-card.planned  { border-left-color: #2563eb; background: #eff6ff; border-color: #bfdbfe; border-left-width:4px; }
+      .etv-card.completed{ border-left-color: #7c3aed; background: #f5f3ff; border-color: #ddd6fe; border-left-width:4px; }
+      .etv-card.chg      { border-left-color: #ea580c; background: #fff7ed; border-color: #fed7aa; border-left-width:4px; }
+
+      .etv-card-row1 {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 4px;
+      }
+      .etv-card-order {
+        font-size: .75rem;
+        font-weight: 800;
+        color: #0f172a;
+        line-height: 1.1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+        min-width: 0;
+      }
+      .etv-card-status {
+        font-size: .58rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        padding: 1px 5px;
+        border-radius: 4px;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .etv-card-status.running  { background: #dcfce7; color: #15803d; }
+      .etv-card-status.stopped  { background: #fee2e2; color: #991b1b; }
+      .etv-card-status.planned  { background: #dbeafe; color: #1e40af; }
+      .etv-card-status.completed{ background: #ede9fe; color: #5b21b6; }
+
+      .etv-card-mould {
+        font-size: .68rem;
+        color: #475569;
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        line-height: 1.2;
+      }
+      .etv-card-qty {
+        display: flex;
+        gap: 6px;
+        font-size: .65rem;
+        font-weight: 700;
+        color: #64748b;
+        margin-top: 1px;
+      }
+      .etv-card-qty .bal-pos  { color: #d97706; }
+      .etv-card-qty .bal-done { color: #16a34a; }
+      .etv-card-chg-badge {
+        position: absolute;
+        top: 3px;
+        right: 4px;
+        font-size: .55rem;
+        font-weight: 900;
+        background: #ffedd5;
+        color: #c2410c;
+        padding: 1px 4px;
+        border-radius: 3px;
+      }
+      .etv-card-time {
+        font-size: .6rem;
+        color: #2563eb;
+        font-weight: 700;
+        margin-top: 1px;
+        display: flex;
+        align-items: center;
+        gap: 3px;
+      }
+
+      /* ── Empty cell placeholder ── */
+      .etv-empty-inner {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #e2e8f0;
+        font-size: .75rem;
+        font-weight: 700;
+        letter-spacing: .04em;
+      }
+
+      /* ── Machine row zebra ── */
+      #etv-table tbody tr:nth-child(even) .etv-plan-cell,
+      #etv-table tbody tr:nth-child(even) .etv-plan-cell.etv-empty { background: #fafbff; }
+      #etv-table tbody tr:nth-child(even) .etv-plan-cell:hover { background: #f1f5f9; }
+
+      /* ── Legend ── */
+      #etv-legend {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        padding: 8px 14px;
+        background: #fff;
+        border-top: 1px solid #e2e8f0;
+        flex-wrap: wrap;
+      }
+      .etv-legend-dot {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: .75rem;
+        font-weight: 600;
+        color: #475569;
+      }
+      .etv-legend-dot::before {
+        content: '';
+        display: block;
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+      }
+      .etv-legend-dot.running::before  { background: #16a34a; }
+      .etv-legend-dot.stopped::before  { background: #dc2626; }
+      .etv-legend-dot.planned::before  { background: #2563eb; }
+      .etv-legend-dot.chg::before      { background: #ea580c; }
+      .etv-legend-dot.empty::before    { background: #e2e8f0; }
+    `;
+    const styleEl = document.createElement('style');
+    styleEl.id = 'etv-style';
+    styleEl.textContent = css;
+    document.head.appendChild(styleEl);
+
+    /* ── Helpers ─────────────────────────────────────────────────────── */
+    const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const fmt = ms => {
+      if (!Number.isFinite(ms) || ms <= 0) return '';
+      const d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000), m = Math.floor((ms % 3600000) / 60000);
+      if (d > 0) return `${d}d ${h}h`; if (h > 0) return `${h}h ${m}m`; return `${Math.max(1,m)}m`;
+    };
+    const fmtQty = n => Number(n || 0).toLocaleString();
+    const getProcFilter = () => (typeof window.getPlanningProcessFilter === 'function') ? window.getPlanningProcessFilter() : 'Moulding';
+    const getApi = () => (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+
+    /* ── State ───────────────────────────────────────────────────────── */
+    let etvMachines = [];  // [{code, _finalBuilding, _finalLine, ...}]
+    let etvGroups   = {};  // { machineCode: plans[] }
+
+    /* ── Main loader ─────────────────────────────────────────────────── */
+    window.loadExcelTimeline = async function () {
+      const wrap = document.getElementById('excelTimelineView');
+      if (!wrap) return;
+
+      // Render skeleton immediately
+      wrap.innerHTML = `
+        <div id="etv-wrap">
+          <div id="etv-filters" style="justify-content:center; padding:20px;">
+            <div class="spinner-border text-primary spinner-border-sm"></div>
+            <span style="margin-left:10px; color:#64748b; font-size:.9rem; font-weight:600">Loading Excel View…</span>
+          </div>
+        </div>`;
+
+      try {
+        const api = getApi();
+        const proc = getProcFilter();
+        const q = `process=${encodeURIComponent(proc)}`;
+        const [mRes, pRes] = await Promise.all([
+          api.get(`/masters/machines?${q}`),
+          api.get(`/planning/board?${q}`)
+        ]);
+
+        /* ── Reuse superLoadTimeline data if already loaded ── */
+        if (window.timelineMachines && window.timelineMachines.length &&
+            window.timelineGroups && Object.keys(window.timelineGroups).length) {
+          etvMachines = window.timelineMachines;
+          etvGroups   = window.timelineGroups;
+        } else {
+          /* ── Build from scratch (same logic as superLoadTimeline) ── */
+          const rawMachines = ((mRes && mRes.data) ? mRes.data : []);
+          const plans = ((pRes && pRes.data && pRes.data.plans) ? pRes.data.plans : []);
+
+          const simplify = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+          const machMap = {};
+          rawMachines.forEach(m => {
+            const code = m.machine || m.code || '';
+            machMap[code] = { code, building: m.building || proc, line: m.line || 'Machines', machine_process: m.machine_process || proc, is_active: m.is_active !== false };
+          });
+
+          /* group plans */
+          const byMach = {};
+          plans.filter(p => p.machine && p.machine.trim() !== '-').forEach(p => {
+            const raw = String(p.machine||'').trim();
+            const parts = raw.split('>');
+            const mName = parts.pop().trim();
+            const simM = simplify(mName);
+            let key = '';
+            for (const k of Object.keys(machMap)) {
+              if (simplify(k) === simM || simplify(k) === simplify(raw)) { key = k; break; }
+            }
+            if (!key) { key = mName; if (!machMap[key]) machMap[key] = { code:key, building:'?', line:'?', machine_process:proc }; }
+            p._excelMachKey = key;
+            if (!byMach[key]) byMach[key] = [];
+            byMach[key].push(p);
+          });
+
+          /* ripple dates */
+          const now = Date.now();
+          Object.keys(byMach).forEach(code => {
+            byMach[code].sort((a,b) => {
+              if ((a.status||'').toUpperCase()==='RUNNING') return -1;
+              if ((b.status||'').toUpperCase()==='RUNNING') return 1;
+              return (Number(a.seq||0)-Number(b.seq||0)) || (Number(a.id||0)-Number(b.id||0));
+            });
+            let cursor = now;
+            byMach[code].forEach((p,i) => {
+              const st=(p.status||'').toUpperCase(); const isRun=st==='RUNNING';
+              const ct=Number(p.cycleTime||120), cav=Number(p.cavity||1);
+              const pcsHr=(ct>0)?(3600/ct)*cav:30;
+              const qty=Number(p.planQty||0), bal=Math.max(0,qty-Number(p.producedQty||0));
+              p.balQty=bal;
+              const durMs=((isRun?bal:qty)*3600000)/pcsHr;
+              let start, end;
+              if(isRun){start=p.firstDprEntry?new Date(p.firstDprEntry).getTime():(p.startDate?new Date(p.startDate).getTime():now);end=now+durMs;}
+              else{start=(i===0)?now:cursor;end=start+durMs;}
+              p._rippledStartRaw=new Date(start); p._rippledEndRaw=new Date(end); cursor=end;
+            });
+          });
+
+          etvGroups = byMach;
+          etvMachines = Object.values(machMap).map(m => {
+            /* infer building/line from code */
+            const lMatch = m.code.match(/\bL[-\s]?(\d+)\b/i);
+            const bMatch = /^[A-F][- ]/.test(m.code) ? m.code.charAt(0).toUpperCase() : null;
+            return {
+              code: m.code,
+              building: (m.building && m.building !== '?') ? m.building : (bMatch || proc),
+              line: (m.line && m.line !== '?') ? m.line : (lMatch ? 'L'+lMatch[1] : 'Machines'),
+              machine_process: m.machine_process,
+              is_active: m.is_active,
+              _finalBuilding: String(m.building || bMatch || proc || '?').trim().toUpperCase(),
+              _finalLine: String(m.line || (lMatch?'L'+lMatch[1]:'MACHINES')).trim().toUpperCase()
+            };
+          });
+        }
+
+        renderExcelView(wrap);
+      } catch (e) {
+        console.error('[ExcelTimeline]', e);
+        document.getElementById('excelTimelineView').innerHTML =
+          `<div style="padding:40px;text-align:center;color:#dc2626;font-weight:700"><i class="bi bi-exclamation-triangle-fill"></i> Failed to load: ${esc(e.message)}</div>`;
+      }
+    };
+
+    /* ── Render full view ────────────────────────────────────────────── */
+    function renderExcelView(wrap) {
+      /* Build filter dropdowns from machines */
+      const bldgs = new Set(), lines = new Set();
+      etvMachines.forEach(m => {
+        if (m._finalBuilding && m._finalBuilding !== '?') bldgs.add(m._finalBuilding);
+        if (m._finalLine    && m._finalLine    !== '?') lines.add(m._finalLine);
+      });
+      const proc = getProcFilter();
+
+      wrap.innerHTML = `
+        <div id="etv-wrap">
+          <!-- Filter bar -->
+          <div id="etv-filters">
+            <div class="etv-title"><i class="bi bi-grid-3x3-gap-fill"></i> Excel View Timeline</div>
+
+            <div class="etv-search-wrap">
+              <i class="bi bi-search"></i>
+              <input id="etv-search" type="text" placeholder="Search machine, order, mould, client…" oninput="window.etvFilter()">
+            </div>
+
+            <!-- Process pills -->
+            <div id="etv-proc" style="display:flex;gap:6px;flex-shrink:0;"></div>
+
+            <select id="etv-bldg" onchange="window.etvUpdateLines()" style="min-width:130px">
+              <option value="">All ${proc === 'Moulding' ? 'Buildings' : proc}</option>
+              ${[...bldgs].sort().map(b=>`<option value="${esc(b)}">${proc==='Moulding'?'Bldg '+b:b}</option>`).join('')}
+            </select>
+            <select id="etv-line" onchange="window.etvFilter()" style="min-width:110px">
+              <option value="">All Lines</option>
+              ${[...lines].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true})).map(l=>`<option value="${esc(l)}">${l==='MACHINES'?'Machines':'Line '+l}</option>`).join('')}
+            </select>
+            <select id="etv-status" onchange="window.etvFilter()" style="min-width:130px">
+              <option value="">All Statuses</option>
+              <option value="Running">🟢 Running</option>
+              <option value="Stopped">🔴 Stopped</option>
+              <option value="Planned">🔵 Has Plans</option>
+              <option value="Empty">⬜ No Plans</option>
+              <option value="MouldChange">🟠 Mould Change</option>
+            </select>
+
+            <button class="etv-btn" onclick="window.loadExcelTimeline()" title="Refresh">
+              <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+            <button class="etv-btn" onclick="window.etvReset()" title="Reset filters">
+              <i class="bi bi-x-circle"></i> Reset
+            </button>
+            <button class="etv-btn" onclick="window.switchView('timeline')" title="Switch to Machine Timeline">
+              <i class="bi bi-bar-chart-steps"></i> Timeline
+            </button>
+            <button class="etv-btn" onclick="window.switchView(null)" title="Back to Dashboard">
+              <i class="bi bi-grid-1x2"></i>
+            </button>
+
+            <div id="etv-count">0 machines</div>
+          </div>
+
+          <!-- Scrollable table area -->
+          <div id="etv-scroll">
+            <table id="etv-table">
+              <thead id="etv-thead"></thead>
+              <tbody id="etv-tbody"></tbody>
+            </table>
+          </div>
+
+          <!-- Legend -->
+          <div id="etv-legend">
+            <span style="font-size:.72rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-right:4px">Legend:</span>
+            <span class="etv-legend-dot running">Running</span>
+            <span class="etv-legend-dot stopped">Stopped</span>
+            <span class="etv-legend-dot planned">Planned</span>
+            <span class="etv-legend-dot chg">Mould Change</span>
+            <span class="etv-legend-dot empty">Empty Slot</span>
+          </div>
+        </div>`;
+
+      /* Process pills */
+      const procDiv = document.getElementById('etv-proc');
+      if (procDiv) {
+        ['Moulding','Printing','Tuffting'].forEach(opt => {
+          const active = opt === proc;
+          const btn = document.createElement('button');
+          btn.className = 'etv-btn' + (active ? ' primary' : '');
+          btn.textContent = opt;
+          btn.onclick = () => window.setPlanningProcessFilter && window.setPlanningProcessFilter(opt);
+          procDiv.appendChild(btn);
+        });
+      }
+
+      window.etvFilter();
+    }
+
+    /* ── Filter ──────────────────────────────────────────────────────── */
+    window.etvFilter = function () {
+      const q     = ((document.getElementById('etv-search')?.value || '')).toLowerCase();
+      const bVal  = document.getElementById('etv-bldg')?.value   || '';
+      const lVal  = document.getElementById('etv-line')?.value   || '';
+      const sVal  = document.getElementById('etv-status')?.value || '';
+      const norm  = v => String(v||'').trim().toUpperCase();
+
+      const filtered = etvMachines.filter(m => {
+        const b = m._finalBuilding || '?';
+        const l = m._finalLine    || '?';
+        if (bVal && norm(b) !== norm(bVal)) return false;
+        if (lVal && norm(l) !== norm(lVal)) return false;
+
+        const mPlans = etvGroups[m.code] || [];
+
+        if (sVal === 'Running'     && !mPlans.some(p=>(p.status||'').toLowerCase()==='running')) return false;
+        if (sVal === 'Stopped'     && mPlans.length > 0) return false;
+        if (sVal === 'Planned'     && mPlans.length === 0) return false;
+        if (sVal === 'Empty'       && mPlans.length > 0) return false;
+        if (sVal === 'MouldChange' && !mPlans.some((p,i)=>i>0&&(p.mouldNo||''!==(mPlans[i-1].mouldNo||'')))) return false;
+
+        if (q) {
+          if (m.code.toLowerCase().includes(q)) return true;
+          return mPlans.some(p =>
+            (p.orderNo||'').toLowerCase().includes(q) ||
+            (p.mouldName||'').toLowerCase().includes(q) ||
+            (p.mouldNo||'').toLowerCase().includes(q) ||
+            (p.clientName||'').toLowerCase().includes(q) ||
+            (p.jcNo||p.job_card_no||'').toLowerCase().includes(q)
+          );
+        }
+        return true;
+      });
+
+      renderExcelGrid(filtered);
+    };
+
+    window.etvUpdateLines = function () {
+      const bVal = document.getElementById('etv-bldg')?.value || '';
+      const lSel = document.getElementById('etv-line');
+      if (!lSel) return;
+      const norm = v => String(v||'').trim().toUpperCase();
+      const lines = new Set();
+      etvMachines.forEach(m => {
+        if (bVal && norm(m._finalBuilding) !== norm(bVal)) return;
+        if (m._finalLine && m._finalLine !== '?' && m._finalLine !== 'NULL') lines.add(m._finalLine);
+      });
+      const cur = lSel.value;
+      lSel.innerHTML = '<option value="">All Lines</option>' +
+        [...lines].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}))
+                  .map(l=>`<option value="${esc(l)}">${l==='MACHINES'?'Machines':'Line '+l}</option>`).join('');
+      if ([...lines].includes(cur)) lSel.value = cur;
+      window.etvFilter();
+    };
+
+    window.etvReset = function () {
+      ['etv-search','etv-bldg','etv-line','etv-status'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      window.etvFilter();
+    };
+
+    /* ── Grid renderer ───────────────────────────────────────────────── */
+    function renderExcelGrid(machines) {
+      const thead = document.getElementById('etv-thead');
+      const tbody = document.getElementById('etv-tbody');
+      const countEl = document.getElementById('etv-count');
+      if (!thead || !tbody) return;
+
+      if (countEl) countEl.textContent = machines.length + ' machine' + (machines.length===1?'':'s');
+
+      if (machines.length === 0) {
+        thead.innerHTML = '';
+        tbody.innerHTML = `<tr><td colspan="2" style="padding:40px;text-align:center;color:#94a3b8;font-weight:600;font-size:.9rem"><i class="bi bi-search" style="font-size:1.5rem;display:block;margin-bottom:8px;opacity:.4"></i>No machines match the filters</td></tr>`;
+        return;
+      }
+
+      /* sort: building → line → machine code */
+      machines.sort((a,b) => {
+        const ba = a._finalBuilding||'?', bb = b._finalBuilding||'?';
+        if (ba !== bb) return ba.localeCompare(bb, undefined, {numeric:true});
+        const la = a._finalLine||'?', lb = b._finalLine||'?';
+        if (la !== lb) return la.localeCompare(lb, undefined, {numeric:true});
+        return (a.code||'').localeCompare(b.code||'', undefined, {numeric:true});
+      });
+
+      /* max plan slots */
+      const maxSlots = Math.max(0, ...machines.map(m => (etvGroups[m.code]||[]).length));
+      const cols = Math.max(maxSlots, 1); /* at least 1 empty col */
+
+      /* ── THEAD ── */
+      thead.innerHTML = `
+        <tr class="etv-col-hdr">
+          <th class="etv-mach-col">
+            <div class="etv-col-inner" style="color:#94a3b8; font-size:.65rem; font-weight:900; letter-spacing:.1em; text-transform:uppercase">MACHINE</div>
+          </th>
+          ${Array.from({length: cols}, (_,i) => `
+            <th class="etv-seq-col">
+              <div class="etv-col-inner">
+                <span class="etv-col-seq-label">Slot ${i+1}</span>
+                <span class="etv-col-seq-sub">${i===0 ? '▶ Current / Next' : `Queue #${i+1}`}</span>
+              </div>
+            </th>`).join('')}
+        </tr>`;
+
+      /* ── TBODY ── */
+      let lastGroup = null;
+      const rows = [];
+
+      machines.forEach(m => {
+        const group = `${m._finalBuilding||'?'} · Line ${m._finalLine||'?'}`;
+        if (group !== lastGroup) {
+          lastGroup = group;
+          const proc = getProcFilter();
+          const label = proc === 'Moulding'
+            ? `Building ${m._finalBuilding||'?'}  ·  Line ${m._finalLine||'?'}`
+            : `${m._finalBuilding||'?'}  ·  ${m._finalLine||'?'}`;
+          rows.push(`<tr class="etv-group-hdr"><td colspan="${cols+1}">
+            <i class="bi bi-building" style="margin-right:6px; color:#3b82f6"></i>${esc(label)}
+          </td></tr>`);
+        }
+
+        const plans = etvGroups[m.code] || [];
+
+        /* load calc */
+        const totalMs = plans.reduce((s,p) => {
+          const st = p._rippledStartRaw ? p._rippledStartRaw.getTime() : NaN;
+          const en = p._rippledEndRaw   ? p._rippledEndRaw.getTime()   : NaN;
+          return (Number.isFinite(st) && Number.isFinite(en) && en>st) ? s+(en-st) : s;
+        }, 0);
+        const loadLabel = fmt(totalMs);
+
+        /* machine cell */
+        const machCell = `
+          <td class="etv-mach-cell" onclick="window.etvMachineClick('${esc(m.code)}')" title="${esc(m.code)} — click to filter">
+            <div class="etv-mach-inner">
+              <div class="etv-mach-code">${esc(m.code)}</div>
+              <div class="etv-mach-meta">${esc(m._finalBuilding||'?')} · ${esc(m._finalLine||'?')}</div>
+              ${plans.length > 0 ? `<div style="font-size:.62rem;color:#94a3b8;font-weight:700;margin-top:1px">${plans.length} plan${plans.length>1?'s':''}</div>` : ''}
+              ${loadLabel ? `<div class="etv-mach-load">⏱ ${esc(loadLabel)}</div>` : ''}
+            </div>
+          </td>`;
+
+        /* plan slot cells */
+        const planCells = Array.from({length: cols}, (_,i) => {
+          const p = plans[i];
+          if (!p) return `<td class="etv-plan-cell etv-empty"><div class="etv-empty-inner">—</div></td>`;
+
+          const st   = (p.status||'').toLowerCase();
+          const isPrevMould = i > 0 && (p.mouldNo||'') !== (plans[i-1].mouldNo||'');
+          const cardClass = isPrevMould ? 'chg' : (st==='running'?'running':st==='stopped'?'stopped':st==='completed'?'completed':'planned');
+          const statusClass = st==='running'?'running':st==='stopped'?'stopped':st==='completed'?'completed':'planned';
+
+          /* time remaining badge */
+          let timeBadge = '';
+          if (p._rippledEndRaw) {
+            const msDiff = p._rippledEndRaw.getTime() - Date.now();
+            const tStr   = fmt(Math.abs(msDiff));
+            if (tStr) {
+              const col = (st==='running') ? (msDiff<0?'#dc2626':'#16a34a') : '#2563eb';
+              const pfx = (st==='running' && msDiff<0) ? 'OD ' : '';
+              timeBadge = `<div class="etv-card-time" style="color:${col}"><i class="bi bi-clock" style="font-size:.6rem"></i>${pfx}${tStr}</div>`;
+            }
+          }
+
+          const orderDisp = (p.orderNo||'-').length > 14 ? (p.orderNo||'-').slice(0,13)+'…' : (p.orderNo||'-');
+          const mouldDisp = (p.mouldName||'-').length > 20 ? (p.mouldName||'-').slice(0,19)+'…' : (p.mouldName||'-');
+
+          return `
+            <td class="etv-plan-cell" onclick="window.openOrderModal('${esc(p.orderNo)}')" title="OR: ${esc(p.orderNo)} | ${esc(p.mouldName)} | ${esc(p.clientName)}">
+              <div class="etv-card ${cardClass}">
+                ${isPrevMould ? '<span class="etv-card-chg-badge">CHG</span>' : ''}
+                <div class="etv-card-row1">
+                  <div class="etv-card-order" title="${esc(p.orderNo)}">${esc(orderDisp)}</div>
+                  <div class="etv-card-status ${statusClass}">${esc(st)}</div>
+                </div>
+                <div class="etv-card-mould" title="${esc(p.mouldName)}">${esc(mouldDisp)}</div>
+                <div class="etv-card-qty">
+                  <span>Qty: <strong>${fmtQty(p.planQty)}</strong></span>
+                  <span class="${p.balQty > 0 ? 'bal-pos' : 'bal-done'}">Bal: <strong>${fmtQty(p.balQty)}</strong></span>
+                </div>
+                ${timeBadge}
+              </div>
+            </td>`;
+        }).join('');
+
+        rows.push(`<tr>${machCell}${planCells}</tr>`);
+      });
+
+      tbody.innerHTML = rows.join('');
+    }
+
+    /* ── Click machine name to search ───────────────────────────────── */
+    window.etvMachineClick = function (code) {
+      const inp = document.getElementById('etv-search');
+      if (inp) { inp.value = code; window.etvFilter(); }
+    };
+
+  })();
+  </script>
 </body>
 
 </html>

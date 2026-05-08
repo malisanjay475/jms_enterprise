@@ -1467,7 +1467,7 @@ const BRAND_NAME = 'JMS OCEAN';
       <div id="jms-version-badge" style="padding:10px 16px 6px;text-align:center;font-size:11px;color:rgba(255,255,255,0.35);letter-spacing:0.3px;user-select:none;">
         JMS &nbsp;·&nbsp; <span id="jms-version-text">…</span>
       </div>
-      <div style="padding:0 16px 14px;text-align:center;font-size:10px;color:rgba(255,255,255,0.7);user-select:none;line-height:1.5;">
+      <div style="padding:0 16px 14px;text-align:center;font-size:10px;color:rgba(255,255,255,0.22);user-select:none;line-height:1.5;">
         &copy; 2026 Joyo Plastics. All rights reserved.
       </div>
     `;
