@@ -1518,9 +1518,8 @@ const BRAND_NAME = 'JMS OCEAN';
         fetch('/api/version').then(r => r.json()).then(v => {
             const el = document.getElementById('jms-version-text');
             if (!el) return;
-            const sha = v.gitSha ? v.gitSha.slice(0, 7) : null;
             const type = v.serverType === 'LOCAL' ? ' · LOCAL' : '';
-            el.textContent = `v${v.version}${sha ? ' (' + sha + ')' : ''}${type}`;
+            el.textContent = `v${v.version}${type}`;
             el.title = v.buildDate ? 'Built: ' + v.buildDate : '';
         }).catch(() => {});
 
