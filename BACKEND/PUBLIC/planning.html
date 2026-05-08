@@ -11460,58 +11460,71 @@
   (function () {
     'use strict';
 
+    /* ── column constants (keep in sync with JS below) ── */
+    const MACH_W = 185; /* machine column px */
+    const SLOT_W = 158; /* each slot column px */
+
     /* ── CSS ─────────────────────────────────────────────────────────── */
     const css = `
+      /* ════════════════════════════════════════════════════════════════
+         EXCEL VIEW TIMELINE  —  Premium Spreadsheet Design v3
+         Width fix: table pixel width set in JS (MACH_W + N*SLOT_W)
+         so table-layout:fixed always uses declared col widths.
+      ════════════════════════════════════════════════════════════════ */
+
       #etv-wrap {
         font-family: -apple-system, "Segoe UI Variable", Inter, "Segoe UI", sans-serif;
-        background: #f1f5f9;
+        background: #f0f4f9;
         border-radius: 14px;
         overflow: hidden;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 4px 24px rgba(15,23,42,.08);
+        border: 1px solid #d8e0ec;
+        box-shadow: 0 6px 32px rgba(15,23,42,.12);
       }
 
-      /* ── Sticky filter bar ── */
+      /* ── Filter bar ── */
       #etv-filters {
         position: sticky;
         top: 0;
         z-index: 200;
         background: #fff;
-        border-bottom: 2px solid #e2e8f0;
-        padding: 10px 14px;
+        border-bottom: 2px solid #e4eaf4;
+        padding: 7px 12px;
         display: flex;
-        gap: 8px;
+        gap: 5px;
         align-items: center;
-        flex-wrap: wrap;
-        box-shadow: 0 4px 12px rgba(15,23,42,.07);
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        box-shadow: 0 2px 10px rgba(15,23,42,.08);
       }
+      #etv-filters::-webkit-scrollbar { height: 0; }
       #etv-filters .etv-title {
-        font-size: .75rem;
+        font-size: .66rem;
         font-weight: 900;
-        letter-spacing: .12em;
+        letter-spacing: .11em;
         text-transform: uppercase;
         color: #1d4ed8;
         white-space: nowrap;
         display: flex;
         align-items: center;
-        gap: 6px;
-        padding: 6px 12px;
-        background: #eff6ff;
-        border: 1px solid #bfdbfe;
-        border-radius: 10px;
+        gap: 5px;
+        padding: 4px 10px;
+        background: linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);
+        border: 1.5px solid #93c5fd;
+        border-radius: 7px;
         flex-shrink: 0;
       }
       #etv-filters input,
       #etv-filters select {
-        border: 1px solid #cbd5e1;
-        border-radius: 8px;
-        padding: 7px 10px;
-        font-size: .875rem;
-        color: #334155;
+        border: 1px solid #d1d9e6;
+        border-radius: 6px;
+        padding: 0 8px;
+        font-size: .78rem;
+        color: #1e293b;
         background: #fff;
         outline: none;
+        height: 30px;
         transition: border-color .15s, box-shadow .15s;
-        height: 36px;
+        flex-shrink: 0;
       }
       #etv-filters input:focus,
       #etv-filters select:focus {
@@ -11520,348 +11533,345 @@
       }
       #etv-filters .etv-search-wrap {
         position: relative;
-        flex: 1;
-        min-width: 200px;
-        max-width: 320px;
+        width: 220px;
+        flex-shrink: 0;
       }
       #etv-filters .etv-search-wrap i {
         position: absolute;
-        left: 10px;
+        left: 8px;
         top: 50%;
         transform: translateY(-50%);
         color: #94a3b8;
-        font-size: .875rem;
+        font-size: .75rem;
         pointer-events: none;
       }
-      #etv-filters .etv-search-wrap input {
-        width: 100%;
-        padding-left: 32px;
-      }
+      #etv-filters .etv-search-wrap input { width: 100%; padding-left: 26px; }
       .etv-btn {
-        border: 1px solid #cbd5e1;
+        border: 1px solid #d1d9e6;
         background: #fff;
         color: #475569;
-        border-radius: 8px;
-        padding: 0 12px;
-        height: 36px;
-        font-size: .875rem;
+        border-radius: 6px;
+        padding: 0 9px;
+        height: 30px;
+        font-size: .74rem;
         font-weight: 600;
         cursor: pointer;
         display: inline-flex;
         align-items: center;
-        gap: 5px;
-        transition: all .15s;
+        gap: 4px;
+        transition: all .14s;
         flex-shrink: 0;
+        white-space: nowrap;
       }
-      .etv-btn:hover { background: #f8fafc; border-color: #94a3b8; }
+      .etv-btn:hover { background: #f1f5f9; border-color: #94a3b8; color: #0f172a; }
       .etv-btn.primary {
         background: #2563eb;
         color: #fff;
         border-color: transparent;
-        box-shadow: 0 2px 8px rgba(37,99,235,.25);
+        box-shadow: 0 1px 6px rgba(37,99,235,.28);
       }
       .etv-btn.primary:hover { background: #1d4ed8; }
       #etv-count {
         margin-left: auto;
-        font-size: .8rem;
+        font-size: .7rem;
         font-weight: 700;
-        color: #475569;
+        color: #334155;
         background: #f1f5f9;
         border: 1px solid #e2e8f0;
-        padding: 5px 12px;
+        padding: 3px 10px;
         border-radius: 20px;
         white-space: nowrap;
         flex-shrink: 0;
       }
 
-      /* ── Scroll wrapper ── */
+      /* ── Scroll area ── */
       #etv-scroll {
-        overflow-x: auto;
-        overflow-y: auto;
-        max-height: calc(100vh - 180px);
+        overflow: auto;
+        max-height: calc(100vh - 155px);
       }
       #etv-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
-      #etv-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
-      #etv-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-      #etv-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+      #etv-scroll::-webkit-scrollbar-track { background: #f0f4f9; }
+      #etv-scroll::-webkit-scrollbar-thumb { background: #b8c4d4; border-radius: 4px; }
+      #etv-scroll::-webkit-scrollbar-thumb:hover { background: #8fa0b8; }
 
-      /* ── Excel table ── */
+      /* ══════════════════════════════════════════════════════════════
+         TABLE: width is set in JS as (MACH_W + cols * SLOT_W) px
+         so table-layout:fixed ALWAYS uses the declared column widths.
+         DO NOT set width:100% or width:auto here — JS owns the width.
+      ══════════════════════════════════════════════════════════════ */
       #etv-table {
         border-collapse: collapse;
-        width: 100%;
-        min-width: max-content;
         table-layout: fixed;
         background: #fff;
+        /* width injected by renderExcelGrid() */
       }
 
-      /* ── Group header row (Building / Line label) ── */
+      /* ── Building / Line group header ── */
       .etv-group-hdr td {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        color: #94a3b8;
-        font-size: .65rem;
+        background: linear-gradient(90deg, #0d1526 0%, #172245 50%, #1a2a40 100%);
+        color: #7ab8f5;
+        font-size: .59rem;
         font-weight: 900;
-        letter-spacing: .14em;
+        letter-spacing: .16em;
         text-transform: uppercase;
-        padding: 6px 10px;
-        border-bottom: 2px solid #3b82f6;
-        position: sticky;
-        top: 0;
-        z-index: 5;
+        padding: 4px 14px;
+        border-bottom: 2px solid #2563eb;
       }
 
-      /* ── Column header row ── */
+      /* ── Sticky column header row ── */
       .etv-col-hdr th {
-        background: #f8fafc;
-        border-bottom: 2px solid #e2e8f0;
-        border-right: 1px solid #f1f5f9;
+        background: #182337;
+        border-bottom: 2px solid #253550;
+        border-right: 1px solid #253550;
         padding: 0;
-        height: 40px;
+        height: 38px;
         vertical-align: middle;
         position: sticky;
         top: 0;
         z-index: 10;
-        white-space: nowrap;
       }
       .etv-col-hdr th.etv-mach-col {
-        min-width: 130px;
-        width: 130px;
-        background: #0f172a;
+        background: #0d1526;
         position: sticky;
         left: 0;
         z-index: 20;
-      }
-      .etv-col-hdr th.etv-seq-col {
-        min-width: 155px;
-        width: 155px;
+        border-right: 3px solid #2563eb;
       }
       .etv-col-inner {
-        padding: 6px 10px;
+        padding: 4px 10px;
         display: flex;
         flex-direction: column;
         gap: 1px;
       }
       .etv-col-seq-label {
-        font-size: .68rem;
+        font-size: .62rem;
         font-weight: 900;
-        letter-spacing: .1em;
+        letter-spacing: .07em;
         text-transform: uppercase;
-        color: #64748b;
+        color: #7ab8f5;
       }
       .etv-col-seq-sub {
-        font-size: .6rem;
-        color: #94a3b8;
+        font-size: .54rem;
+        color: #4a6080;
         font-weight: 600;
       }
 
-      /* ── Machine name cell (frozen left column) ── */
+      /* ── Frozen machine name column ── */
       .etv-mach-cell {
         background: #0f172a;
-        color: #fff;
-        min-width: 130px;
-        width: 130px;
         padding: 0;
         position: sticky;
         left: 0;
         z-index: 5;
-        border-right: 3px solid #3b82f6;
+        border-right: 3px solid #2563eb;
+        border-bottom: 1px solid #182337;
         vertical-align: middle;
         cursor: pointer;
+        transition: background .12s;
+        overflow: hidden;
       }
-      .etv-mach-cell:hover { background: #1e293b; }
+      .etv-mach-cell:hover { background: #162040; }
       .etv-mach-inner {
-        padding: 6px 8px;
+        padding: 5px 9px;
         display: flex;
         flex-direction: column;
-        gap: 2px;
-        min-height: 52px;
+        gap: 1px;
+        min-height: 50px;
         justify-content: center;
       }
       .etv-mach-code {
-        font-size: .9rem;
+        font-size: .76rem;
         font-weight: 800;
         color: #60a5fa;
-        line-height: 1.1;
-        word-break: break-all;
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .etv-mach-meta {
-        font-size: .62rem;
-        color: #475569;
-        font-weight: 600;
+        font-size: .56rem;
+        color: #3d566e;
+        font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: .06em;
+        letter-spacing: .07em;
+      }
+      .etv-mach-plans {
+        font-size: .55rem;
+        color: #4a6080;
+        font-weight: 600;
       }
       .etv-mach-load {
-        font-size: .6rem;
-        font-weight: 800;
-        color: #0f172a;
-        background: #e0f2fe;
-        border: 1px solid #7dd3fc;
-        padding: 1px 5px;
-        border-radius: 8px;
         display: inline-block;
         margin-top: 2px;
+        font-size: .55rem;
+        font-weight: 800;
+        color: #0c4a6e;
+        background: #dbeafe;
+        border: 1px solid #93c5fd;
+        padding: 1px 5px;
+        border-radius: 4px;
+        max-width: calc(100% - 4px);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
-      /* ── Plan cell ── */
+      /* ── Plan data cell ── */
       .etv-plan-cell {
-        min-width: 155px;
-        width: 155px;
         vertical-align: top;
-        padding: 3px 4px;
-        border-right: 1px solid #f1f5f9;
-        border-bottom: 1px solid #f1f5f9;
+        padding: 3px;
+        border-right: 1px solid #eaeff6;
+        border-bottom: 1px solid #eaeff6;
         background: #fff;
         cursor: pointer;
-        transition: background .12s;
+        transition: background .1s;
+        overflow: hidden;
       }
-      .etv-plan-cell:hover { background: #f8fafc; }
-      .etv-plan-cell.etv-empty {
-        background: #fcfcfd;
-        cursor: default;
-      }
-      .etv-plan-cell.etv-empty:hover { background: #fcfcfd; }
+      .etv-plan-cell:hover { background: #edf4ff; }
+      .etv-plan-cell.etv-empty { background: #f8fafb; cursor: default; }
+      .etv-plan-cell.etv-empty:hover { background: #f8fafb; }
 
-      /* ── Plan card inside cell ── */
+      /* ── Plan card ── */
       .etv-card {
-        border-radius: 7px;
-        padding: 5px 7px;
+        border-radius: 5px;
+        padding: 4px 6px;
         display: flex;
         flex-direction: column;
         gap: 2px;
-        border-left: 4px solid #94a3b8;
-        background: #f8fafc;
         border: 1px solid #e2e8f0;
-        border-left-width: 4px;
-        min-height: 48px;
+        border-left: 3px solid #94a3b8;
+        background: #f8fafc;
+        min-height: 46px;
         position: relative;
-        transition: box-shadow .12s;
+        transition: box-shadow .12s, transform .1s;
       }
-      .etv-plan-cell:hover .etv-card { box-shadow: 0 4px 12px rgba(15,23,42,.1); }
-
-      .etv-card.running  { border-left-color: #16a34a; background: #f0fdf4; border-color: #bbf7d0; border-left-width:4px; }
-      .etv-card.stopped  { border-left-color: #dc2626; background: #fef2f2; border-color: #fecaca; border-left-width:4px; }
-      .etv-card.planned  { border-left-color: #2563eb; background: #eff6ff; border-color: #bfdbfe; border-left-width:4px; }
-      .etv-card.completed{ border-left-color: #7c3aed; background: #f5f3ff; border-color: #ddd6fe; border-left-width:4px; }
-      .etv-card.chg      { border-left-color: #ea580c; background: #fff7ed; border-color: #fed7aa; border-left-width:4px; }
-
-      .etv-card-row1 {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 4px;
-      }
+      .etv-plan-cell:hover .etv-card { box-shadow: 0 3px 12px rgba(15,23,42,.14); transform: translateY(-1px); }
+      .etv-card.running   { border-left-color: #16a34a; background: #f0fdf4; border-color: #86efac; }
+      .etv-card.stopped   { border-left-color: #dc2626; background: #fef2f2; border-color: #fca5a5; }
+      .etv-card.planned   { border-left-color: #2563eb; background: #eff6ff; border-color: #93c5fd; }
+      .etv-card.completed { border-left-color: #7c3aed; background: #f5f3ff; border-color: #c4b5fd; }
+      .etv-card.chg       { border-left-color: #ea580c; background: #fff7ed; border-color: #fdba74; }
+      .etv-card-row1 { display:flex; justify-content:space-between; align-items:flex-start; gap:3px; }
       .etv-card-order {
-        font-size: .75rem;
+        font-size: .7rem;
         font-weight: 800;
         color: #0f172a;
-        line-height: 1.1;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         flex: 1;
         min-width: 0;
+        line-height: 1.3;
       }
       .etv-card-status {
-        font-size: .58rem;
+        font-size: .52rem;
         font-weight: 800;
         text-transform: uppercase;
-        padding: 1px 5px;
-        border-radius: 4px;
+        padding: 1px 4px;
+        border-radius: 3px;
         white-space: nowrap;
         flex-shrink: 0;
+        letter-spacing: .03em;
       }
-      .etv-card-status.running  { background: #dcfce7; color: #15803d; }
-      .etv-card-status.stopped  { background: #fee2e2; color: #991b1b; }
-      .etv-card-status.planned  { background: #dbeafe; color: #1e40af; }
-      .etv-card-status.completed{ background: #ede9fe; color: #5b21b6; }
-
+      .etv-card-status.running   { background: #bbf7d0; color: #14532d; }
+      .etv-card-status.stopped   { background: #fecaca; color: #7f1d1d; }
+      .etv-card-status.planned   { background: #bfdbfe; color: #1e3a8a; }
+      .etv-card-status.completed { background: #ddd6fe; color: #4c1d95; }
       .etv-card-mould {
-        font-size: .68rem;
-        color: #475569;
+        font-size: .64rem;
+        color: #374151;
         font-weight: 600;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         line-height: 1.2;
       }
+      .etv-card-client {
+        font-size: .59rem;
+        color: #6b7280;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 500;
+      }
       .etv-card-qty {
         display: flex;
         gap: 6px;
-        font-size: .65rem;
-        font-weight: 700;
+        font-size: .59rem;
+        font-weight: 600;
         color: #64748b;
         margin-top: 1px;
       }
-      .etv-card-qty .bal-pos  { color: #d97706; }
-      .etv-card-qty .bal-done { color: #16a34a; }
+      .etv-card-qty .bal-pos  { color: #92400e; }
+      .etv-card-qty .bal-done { color: #14532d; }
       .etv-card-chg-badge {
         position: absolute;
-        top: 3px;
-        right: 4px;
-        font-size: .55rem;
+        top: 2px;
+        right: 3px;
+        font-size: .5rem;
         font-weight: 900;
-        background: #ffedd5;
-        color: #c2410c;
-        padding: 1px 4px;
+        background: #fed7aa;
+        color: #9a3412;
+        padding: 1px 3px;
         border-radius: 3px;
+        letter-spacing: .04em;
       }
       .etv-card-time {
-        font-size: .6rem;
-        color: #2563eb;
+        font-size: .57rem;
         font-weight: 700;
-        margin-top: 1px;
         display: flex;
         align-items: center;
-        gap: 3px;
+        gap: 2px;
+        margin-top: 1px;
       }
-
-      /* ── Empty cell placeholder ── */
       .etv-empty-inner {
-        height: 48px;
+        min-height: 46px;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #e2e8f0;
-        font-size: .75rem;
-        font-weight: 700;
-        letter-spacing: .04em;
+        color: #d0d8e4;
+        font-size: .55rem;
+        letter-spacing: .1em;
+        font-weight: 600;
       }
 
-      /* ── Machine row zebra ── */
-      #etv-table tbody tr:nth-child(even) .etv-plan-cell,
-      #etv-table tbody tr:nth-child(even) .etv-plan-cell.etv-empty { background: #fafbff; }
-      #etv-table tbody tr:nth-child(even) .etv-plan-cell:hover { background: #f1f5f9; }
+      /* ── Zebra stripes ── */
+      #etv-table tbody tr:nth-child(even) .etv-plan-cell       { background: #f6f9fd; }
+      #etv-table tbody tr:nth-child(even) .etv-plan-cell.etv-empty { background: #f4f7fa; }
+      #etv-table tbody tr:nth-child(even) .etv-mach-cell        { background: #0a1020; }
+      #etv-table tbody tr:nth-child(even) .etv-plan-cell:hover  { background: #e5f0ff; }
 
       /* ── Legend ── */
       #etv-legend {
         display: flex;
         gap: 14px;
         align-items: center;
-        padding: 8px 14px;
+        padding: 6px 14px;
         background: #fff;
-        border-top: 1px solid #e2e8f0;
+        border-top: 1px solid #e4eaf4;
         flex-wrap: wrap;
       }
       .etv-legend-dot {
         display: inline-flex;
         align-items: center;
-        gap: 5px;
-        font-size: .75rem;
+        gap: 4px;
+        font-size: .68rem;
         font-weight: 600;
         color: #475569;
       }
       .etv-legend-dot::before {
         content: '';
         display: block;
-        width: 10px;
-        height: 10px;
-        border-radius: 3px;
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        flex-shrink: 0;
       }
       .etv-legend-dot.running::before  { background: #16a34a; }
       .etv-legend-dot.stopped::before  { background: #dc2626; }
       .etv-legend-dot.planned::before  { background: #2563eb; }
       .etv-legend-dot.chg::before      { background: #ea580c; }
-      .etv-legend-dot.empty::before    { background: #e2e8f0; }
+      .etv-legend-dot.empty::before    { background: #d0d8e4; border: 1px solid #b8c4d4; }
     `;
     const styleEl = document.createElement('style');
     styleEl.id = 'etv-style';
@@ -12048,6 +12058,7 @@
           <!-- Scrollable table area -->
           <div id="etv-scroll">
             <table id="etv-table">
+              <colgroup id="etv-colgroup"></colgroup>
               <thead id="etv-thead"></thead>
               <tbody id="etv-tbody"></tbody>
             </table>
@@ -12172,17 +12183,35 @@
       const maxSlots = Math.max(0, ...machines.map(m => (etvGroups[m.code]||[]).length));
       const cols = Math.max(maxSlots, 1); /* at least 1 empty col */
 
+      /* ── DEFINITIVE WIDTH FIX ──────────────────────────────────────────
+         table-layout:fixed only works correctly with an explicit pixel
+         width. Without it the browser falls back to proportional sizing
+         (container width ÷ columns) which balloons the machine column.
+         We own the width here: machineCol + N slotCols.
+      ────────────────────────────────────────────────────────────────── */
+      const tableEl = document.getElementById('etv-table');
+      if (tableEl) tableEl.style.width = (MACH_W + cols * SLOT_W) + 'px';
+
+      /* ── COLGROUP (belt-and-suspenders column sizing) ── */
+      const cgEl = document.getElementById('etv-colgroup');
+      if (cgEl) cgEl.innerHTML =
+        `<col style="width:${MACH_W}px">` +
+        Array.from({length: cols}, () => `<col style="width:${SLOT_W}px">`).join('');
+
       /* ── THEAD ── */
       thead.innerHTML = `
         <tr class="etv-col-hdr">
           <th class="etv-mach-col">
-            <div class="etv-col-inner" style="color:#94a3b8; font-size:.65rem; font-weight:900; letter-spacing:.1em; text-transform:uppercase">MACHINE</div>
+            <div class="etv-col-inner">
+              <span style="color:#4a6080;font-size:.59rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase">MACHINE</span>
+              <span style="color:#2d3f55;font-size:.53rem;font-weight:600">${machines.length} shown</span>
+            </div>
           </th>
           ${Array.from({length: cols}, (_,i) => `
             <th class="etv-seq-col">
               <div class="etv-col-inner">
-                <span class="etv-col-seq-label">Slot ${i+1}</span>
-                <span class="etv-col-seq-sub">${i===0 ? '▶ Current / Next' : `Queue #${i+1}`}</span>
+                <span class="etv-col-seq-label">${i===0 ? '▶ Current' : `Slot ${i+1}`}</span>
+                <span class="etv-col-seq-sub">${i===0 ? 'Active / next plan' : `Queue #${i+1}`}</span>
               </div>
             </th>`).join('')}
         </tr>`;
@@ -12199,8 +12228,8 @@
           const label = proc === 'Moulding'
             ? `Building ${m._finalBuilding||'?'}  ·  Line ${m._finalLine||'?'}`
             : `${m._finalBuilding||'?'}  ·  ${m._finalLine||'?'}`;
-          rows.push(`<tr class="etv-group-hdr"><td colspan="${cols+1}">
-            <i class="bi bi-building" style="margin-right:6px; color:#3b82f6"></i>${esc(label)}
+          rows.push(`<tr class="etv-group-hdr"><td colspan="${cols+1}" style="padding:5px 14px">
+            <span style="color:#3b82f6;margin-right:7px"><i class="bi bi-building-fill"></i></span>${esc(label)}<span style="margin-left:10px;color:#4a6080;font-size:.55rem;font-weight:600;letter-spacing:.08em">${machines.filter(x=>(x._finalBuilding||'?')===m._finalBuilding&&(x._finalLine||'?')===m._finalLine).length} machines</span>
           </td></tr>`);
         }
 
@@ -12218,17 +12247,17 @@
         const machCell = `
           <td class="etv-mach-cell" onclick="window.etvMachineClick('${esc(m.code)}')" title="${esc(m.code)} — click to filter">
             <div class="etv-mach-inner">
-              <div class="etv-mach-code">${esc(m.code)}</div>
-              <div class="etv-mach-meta">${esc(m._finalBuilding||'?')} · ${esc(m._finalLine||'?')}</div>
-              ${plans.length > 0 ? `<div style="font-size:.62rem;color:#94a3b8;font-weight:700;margin-top:1px">${plans.length} plan${plans.length>1?'s':''}</div>` : ''}
-              ${loadLabel ? `<div class="etv-mach-load">⏱ ${esc(loadLabel)}</div>` : ''}
+              <div class="etv-mach-code" title="${esc(m.code)}">${esc(m.code)}</div>
+              <div class="etv-mach-meta">${esc(m._finalBuilding||'?')} · Line ${esc(m._finalLine||'?')}</div>
+              ${plans.length > 0 ? `<div class="etv-mach-plans">${plans.length} plan${plans.length>1?'s':''} queued</div>` : `<div class="etv-mach-plans" style="color:#2d3f55">No plans</div>`}
+              ${loadLabel ? `<div class="etv-mach-load"><i class="bi bi-clock" style="font-size:.5rem"></i> ${esc(loadLabel)}</div>` : ''}
             </div>
           </td>`;
 
         /* plan slot cells */
         const planCells = Array.from({length: cols}, (_,i) => {
           const p = plans[i];
-          if (!p) return `<td class="etv-plan-cell etv-empty"><div class="etv-empty-inner">—</div></td>`;
+          if (!p) return `<td class="etv-plan-cell etv-empty"><div class="etv-empty-inner"><span style="letter-spacing:.05em;opacity:.5">empty</span></div></td>`;
 
           const st   = (p.status||'').toLowerCase();
           const isPrevMould = i > 0 && (p.mouldNo||'') !== (plans[i-1].mouldNo||'');
@@ -12247,21 +12276,24 @@
             }
           }
 
-          const orderDisp = (p.orderNo||'-').length > 14 ? (p.orderNo||'-').slice(0,13)+'…' : (p.orderNo||'-');
-          const mouldDisp = (p.mouldName||'-').length > 20 ? (p.mouldName||'-').slice(0,19)+'…' : (p.mouldName||'-');
+          const orderDisp = (p.orderNo||'-').length > 16 ? (p.orderNo||'-').slice(0,15)+'…' : (p.orderNo||'-');
+          const mouldDisp = (p.mouldName||'-').length > 22 ? (p.mouldName||'-').slice(0,21)+'…' : (p.mouldName||'-');
+          const clientDisp = (p.clientName||'').length > 18 ? (p.clientName||'').slice(0,17)+'…' : (p.clientName||'');
+          const stLabel = st === 'running' ? 'RUN' : st === 'stopped' ? 'STOP' : st === 'completed' ? 'DONE' : 'PLAN';
 
           return `
-            <td class="etv-plan-cell" onclick="window.openOrderModal('${esc(p.orderNo)}')" title="OR: ${esc(p.orderNo)} | ${esc(p.mouldName)} | ${esc(p.clientName)}">
+            <td class="etv-plan-cell" onclick="window.openOrderModal('${esc(p.orderNo)}')" title="Order: ${esc(p.orderNo)}&#10;Mould: ${esc(p.mouldName)}&#10;Client: ${esc(p.clientName)}&#10;Qty: ${fmtQty(p.planQty)} | Bal: ${fmtQty(p.balQty)}">
               <div class="etv-card ${cardClass}">
                 ${isPrevMould ? '<span class="etv-card-chg-badge">CHG</span>' : ''}
                 <div class="etv-card-row1">
-                  <div class="etv-card-order" title="${esc(p.orderNo)}">${esc(orderDisp)}</div>
-                  <div class="etv-card-status ${statusClass}">${esc(st)}</div>
+                  <div class="etv-card-order">${esc(orderDisp)}</div>
+                  <div class="etv-card-status ${statusClass}">${stLabel}</div>
                 </div>
-                <div class="etv-card-mould" title="${esc(p.mouldName)}">${esc(mouldDisp)}</div>
+                <div class="etv-card-mould">${esc(mouldDisp)}</div>
+                ${clientDisp ? `<div style="font-size:.6rem;color:#64748b;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(clientDisp)}</div>` : ''}
                 <div class="etv-card-qty">
-                  <span>Qty: <strong>${fmtQty(p.planQty)}</strong></span>
-                  <span class="${p.balQty > 0 ? 'bal-pos' : 'bal-done'}">Bal: <strong>${fmtQty(p.balQty)}</strong></span>
+                  <span>P:<strong>${fmtQty(p.planQty)}</strong></span>
+                  <span class="${p.balQty > 0 ? 'bal-pos' : 'bal-done'}">B:<strong>${fmtQty(p.balQty)}</strong></span>
                 </div>
                 ${timeBadge}
               </div>
