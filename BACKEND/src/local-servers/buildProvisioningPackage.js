@@ -4,8 +4,13 @@ const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
-const BACKEND_ROOT = path.join(REPO_ROOT, 'BACKEND');
+// In development:  __dirname = .../jms_enterprise/BACKEND/src/local-servers
+//                  2 levels up = .../jms_enterprise/BACKEND  ✓
+// In Docker:       __dirname = /app/src/local-servers  (BACKEND contents copied to /app)
+//                  2 levels up = /app  ✓
+// OLD code used 3 levels up + joined 'BACKEND' → resolved to /BACKEND in Docker (missing)
+const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
+const REPO_ROOT = path.resolve(BACKEND_ROOT, '..');
 const CLIENT_BRIDGE_ROOT = path.join(REPO_ROOT, 'CLIENT_BRIDGE');
 
 const BACKEND_DIRECTORIES = [
