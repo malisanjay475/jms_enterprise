@@ -438,8 +438,14 @@
           <input type="text" id="filterSearch" class="form-input" placeholder="Order No, Item, Mould...">
         </div>
 
-        <div style="display:flex; align-items:flex-end">
+        <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap;">
           <button class="btn-action" onclick="loadMasterData()">Apply Filters</button>
+          <!-- Superadmin-only: Confirm All pending orders -->
+          <button id="confirmAllBtn"
+            style="display:none; background:linear-gradient(135deg,#16a34a,#15803d); color:#fff; border:none; border-radius:7px; padding:7px 14px; font-size:.82rem; font-weight:700; cursor:pointer; gap:5px; align-items:center; box-shadow:0 2px 8px rgba(22,163,74,.30);"
+            onclick="confirmAllOrders()" title="Confirm all orders that are awaiting completion — Superadmin only">
+            <i class="bi bi-check2-all"></i> Confirm All
+          </button>
         </div>
 
         <div id="filterDateHint" style="display:none; width:100%; font-size:0.74rem; color:#64748b; margin-top:4px;">
@@ -1154,6 +1160,50 @@
       } catch (e) {
         JPSMS.toast(e.message, 'error');
       }
+    }
+
+    /* ── Superadmin: Confirm ALL pending orders at once ── */
+    async function confirmAllOrders() {
+      if (!JPSMS.auth.isSuperadmin()) return;
+      if (!ensureSingleFactoryScope('confirm all orders')) return;
+
+      // Gather all rows currently awaiting confirmation from the table
+      const pending = [];
+      if (masterTable) {
+        masterTable.rows().every(function () {
+          const d = this.data();
+          if (d && d.completion_confirmation_required === true) {
+            pending.push({ orderNo: d.or_jr_no || d.order_no || '', factoryId: d.factory_id || null });
+          }
+        });
+      }
+
+      if (pending.length === 0) {
+        JPSMS.toast('No orders awaiting confirmation.', 'info');
+        return;
+      }
+
+      if (!confirm(`Confirm ALL ${pending.length} pending order${pending.length > 1 ? 's' : ''} at once?\n\nThis will mark all of them as completed and remove them from the active Order Master list.`)) return;
+
+      const btn = document.getElementById('confirmAllBtn');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Confirming…'; }
+
+      let done = 0, failed = 0;
+      for (const { orderNo, factoryId } of pending) {
+        try {
+          const res = await JPSMS.api.post('/orders/confirm-completion', { order_no: orderNo, factory_id: factoryId });
+          if (res.ok) done++; else failed++;
+        } catch { failed++; }
+      }
+
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check2-all"></i> Confirm All'; }
+
+      if (failed === 0) {
+        JPSMS.toast(`✅ ${done} order${done > 1 ? 's' : ''} confirmed successfully.`, 'success');
+      } else {
+        JPSMS.toast(`Confirmed ${done}, failed ${failed}. Reload to check.`, 'warning');
+      }
+      loadMasterData();
     }
 
     async function restoreOrderCompletion(historyId) {
@@ -2014,6 +2064,12 @@
         window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
       }
       JPSMS.renderShell(params.get('context') || 'masters');
+
+      /* Show "Confirm All" button only for Superadmin on Orders view */
+      const confirmAllBtn = document.getElementById('confirmAllBtn');
+      if (confirmAllBtn && currentType === 'orders' && JPSMS.auth.isSuperadmin()) {
+        confirmAllBtn.style.display = 'inline-flex';
+      }
 
       setupUI(currentType, currentView);
       await initializeFactoryScope();

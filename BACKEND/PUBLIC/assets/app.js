@@ -1102,6 +1102,7 @@ const BRAND_NAME = 'JMS OCEAN';
                 { id: 'plan_create', label: 'Create Plan', icon: 'bi-plus-circle', href: 'planning.html?action=create' },
                 { id: 'plan_master', label: 'Master Plan', icon: 'bi-table', href: 'planning.html?view=master' },
                 { id: 'plan_timeline', label: 'Machine Timeline', icon: 'bi-clock-history', href: 'planning.html?view=timeline' },
+                { id: 'plan_excel_timeline', label: 'Excel View Timeline', icon: 'bi-grid-3x3-gap-fill', href: 'planning.html?view=excel_timeline' },
                 { id: 'plan_map', label: 'Machine Grid', icon: 'bi-grid-3x3', href: 'planning.html?view=map' },
                 { id: 'plan_jc_approval', label: 'Pending Plan Approval', icon: 'bi-shield-check', href: 'planning.html#view=pending_plan_approval' },
                 { id: 'plan_print_jc', label: 'Print JobCard', icon: 'bi-printer', href: 'planning.html#view=print_jc' },
