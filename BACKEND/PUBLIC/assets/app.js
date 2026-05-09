@@ -1102,6 +1102,7 @@ const BRAND_NAME = 'JMS OCEAN';
                 { id: 'plan_create', label: 'Create Plan', icon: 'bi-plus-circle', href: 'planning.html?action=create' },
                 { id: 'plan_master', label: 'Master Plan', icon: 'bi-table', href: 'planning.html?view=master' },
                 { id: 'plan_timeline', label: 'Machine Timeline', icon: 'bi-clock-history', href: 'planning.html?view=timeline' },
+                { id: 'plan_excel_timeline', label: 'Excel View Timeline', icon: 'bi-grid-3x3-gap-fill', href: 'planning.html?view=excel_timeline' },
                 { id: 'plan_map', label: 'Machine Grid', icon: 'bi-grid-3x3', href: 'planning.html?view=map' },
                 { id: 'plan_jc_approval', label: 'Pending Plan Approval', icon: 'bi-shield-check', href: 'planning.html#view=pending_plan_approval' },
                 { id: 'plan_print_jc', label: 'Print JobCard', icon: 'bi-printer', href: 'planning.html#view=print_jc' },
@@ -1518,9 +1519,8 @@ const BRAND_NAME = 'JMS OCEAN';
         fetch('/api/version').then(r => r.json()).then(v => {
             const el = document.getElementById('jms-version-text');
             if (!el) return;
-            const sha = v.gitSha ? v.gitSha.slice(0, 7) : null;
             const type = v.serverType === 'LOCAL' ? ' · LOCAL' : '';
-            el.textContent = `v${v.version}${sha ? ' (' + sha + ')' : ''}${type}`;
+            el.textContent = `v${v.version}${type}`;
             el.title = v.buildDate ? 'Built: ' + v.buildDate : '';
         }).catch(() => {});
 
