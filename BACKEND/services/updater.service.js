@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
-const fetch = require('node-fetch');
+// fetch is available globally in Node.js 18+ — no require needed
 const AdmZip = require('adm-zip');
 const {
   PACKAGE_ROOT,

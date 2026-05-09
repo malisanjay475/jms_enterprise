@@ -2,7 +2,7 @@
 
 const os = require('os');
 const path = require('path');
-const fetch = require('node-fetch');
+// fetch is available globally in Node.js 18+ — no require needed
 
 const packageJson = require(path.resolve(__dirname, '..', '..', 'package.json'));
 
