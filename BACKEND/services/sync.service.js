@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+// fetch is available globally in Node.js 18+ — no require needed
 const express = require('express');
 
 const router = express.Router();
