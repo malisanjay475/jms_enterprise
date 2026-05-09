@@ -182,7 +182,7 @@ function startServer() {
   };
 
   if (!fs.existsSync(modulesDir)) {
-    const install = spawn(npm, ['ci', '--prefer-offline', '--no-audit'], { cwd: BACKEND_DEST, stdio: 'ignore', shell: false });
+    const install = spawn(npm, ['install', '--omit=dev', '--no-audit', '--prefer-offline'], { cwd: BACKEND_DEST, stdio: 'ignore', shell: false });
     install.on('exit', code => { if (code === 0) doStart(); else setTrayStatus('error'); });
   } else {
     doStart();

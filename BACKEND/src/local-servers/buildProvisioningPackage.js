@@ -157,9 +157,12 @@ function buildInstallBat() {
     'echo         JMS LOCAL SERVER INSTALLER',
     'echo ================================================',
     'echo.',
+    'echo TIP: Open SETUP.html in your browser for a visual step-by-step guide.',
+    'echo.',
     'where node >nul 2>nul',
     'if errorlevel 1 (',
     '  echo [ERROR] Node.js is not installed. Install Node.js LTS first.',
+    '  echo         Download from: https://nodejs.org',
     '  pause',
     '  exit /b 1',
     ')',
@@ -170,10 +173,14 @@ function buildInstallBat() {
     ')',
     'node INSTALL_LOCAL_SERVER.js',
     'if errorlevel 1 (',
-    '  echo [ERROR] Installer failed.',
+    '  echo.',
+    '  echo [ERROR] Installer failed. See message above for details.',
+    '  echo         Open SETUP.html for troubleshooting tips.',
     '  pause',
     '  exit /b 1',
     ')',
+    'echo.',
+    'echo [SUCCESS] Installation complete. Run START_LOCAL_SERVER.bat to start the server.',
     'pause'
   ].join('\r\n');
 }
@@ -344,14 +351,14 @@ function buildInstallerJs() {
     '',
     '    if (await askYesNo(rl, \'Install backend dependencies now?\', true)) {',
     "      console.log('');",
-    "      console.log('[INFO] Installing backend dependencies...');",
-    "      runCommand(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['ci'], backendDir);",
+    "      console.log('[INFO] Installing backend dependencies (this may take a minute)...');",
+    "      runCommand(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--production', '--no-audit'], backendDir);",
     '    }',
     '',
     "    if (fs.existsSync(path.join(clientBridgeDir, 'package.json')) && await askYesNo(rl, 'Install client bridge dependencies too?', true)) {",
     "      console.log('');",
     "      console.log('[INFO] Installing client bridge dependencies...');",
-    "      runCommand(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['ci'], clientBridgeDir);",
+    "      runCommand(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--production', '--no-audit'], clientBridgeDir);",
     '    }',
     '',
     "    console.log('');",
@@ -418,6 +425,490 @@ function buildAutostartBat() {
   ].join('\r\n');
 }
 
+function buildOpenSetupBat() {
+  return [
+    '@echo off',
+    'cd /d "%~dp0"',
+    'start "" "%~dp0SETUP.html"',
+    'exit /b 0'
+  ].join('\r\n');
+}
+
+function buildInstallerHtml({ localServer, mainServerUrl }) {
+  const factoryName = localServer.factoryName || localServer.factoryId || 'Factory';
+  const nodeName    = localServer.nodeName || localServer.nodeCode || localServer.id;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>JMS Local Server Setup — ${factoryName}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'Segoe UI', Arial, sans-serif;
+    background: #f0f4f8;
+    color: #1a202c;
+    min-height: 100vh;
+  }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+    color: white;
+    padding: 28px 40px 24px;
+  }
+  .header-row { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+  .logo-box {
+    width: 48px; height: 48px; border-radius: 12px;
+    background: rgba(255,255,255,0.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 900; letter-spacing: -1px;
+    flex-shrink: 0;
+  }
+  .header h1 { font-size: 22px; font-weight: 700; }
+  .header .sub { font-size: 13px; opacity: 0.8; margin-top: 4px; }
+  .badge-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .badge {
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  /* Steps */
+  .steps-bar {
+    background: white;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 0 40px;
+    display: flex;
+    gap: 0;
+  }
+  .step-tab {
+    padding: 14px 20px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #94a3b8;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color .15s, border-color .15s;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .step-tab.active { color: #1d4ed8; border-bottom-color: #1d4ed8; }
+  .step-tab.done { color: #16a34a; border-bottom-color: #16a34a; }
+  .step-num {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #e2e8f0; color: #64748b;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .step-tab.active .step-num { background: #1d4ed8; color: white; }
+  .step-tab.done   .step-num { background: #16a34a; color: white; }
+
+  /* Content */
+  .content { max-width: 780px; margin: 0 auto; padding: 32px 24px; }
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* Cards */
+  .card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    padding: 24px 28px;
+    margin-bottom: 20px;
+  }
+  .card h2 { font-size: 16px; font-weight: 700; margin-bottom: 4px; color: #1e293b; }
+  .card .desc { font-size: 13px; color: #64748b; margin-bottom: 18px; line-height: 1.55; }
+
+  /* Checklist */
+  .check-list { list-style: none; }
+  .check-item {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .check-item:last-child { border-bottom: none; }
+  .check-icon {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; flex-shrink: 0; margin-top: 1px;
+  }
+  .check-icon.ok   { background: #dcfce7; color: #16a34a; }
+  .check-icon.warn { background: #fef9c3; color: #b45309; }
+  .check-icon.info { background: #dbeafe; color: #1d4ed8; }
+  .check-label { font-size: 14px; font-weight: 600; color: #1e293b; }
+  .check-sub   { font-size: 12px; color: #64748b; margin-top: 2px; line-height: 1.4; }
+
+  /* Steps list */
+  .steps-list { counter-reset: steps; }
+  .step-item {
+    counter-increment: steps;
+    display: flex; gap: 16px;
+    margin-bottom: 20px;
+  }
+  .step-item::before {
+    content: counter(steps);
+    min-width: 28px; height: 28px; border-radius: 50%;
+    background: #dbeafe; color: #1d4ed8;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700;
+    flex-shrink: 0; margin-top: 1px;
+  }
+  .step-item h3 { font-size: 14px; font-weight: 700; color: #1e293b; margin-bottom: 4px; }
+  .step-item p  { font-size: 13px; color: #475569; line-height: 1.5; }
+
+  /* Code box */
+  .code {
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 13px;
+    margin: 10px 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+    position: relative;
+  }
+  .copy-btn {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #94a3b8;
+    border-radius: 5px;
+    padding: 3px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .copy-btn:hover { background: rgba(255,255,255,0.2); color: white; }
+
+  /* Info box */
+  .info-box {
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 12px 0;
+  }
+  .info-box.blue { background: #eff6ff; border-left: 3px solid #2563eb; color: #1e40af; }
+  .info-box.green { background: #f0fdf4; border-left: 3px solid #16a34a; color: #166534; }
+  .info-box.yellow { background: #fffbeb; border-left: 3px solid #f59e0b; color: #92400e; }
+
+  /* Field display */
+  .field-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f1f5f9; }
+  .field-row:last-child { border-bottom: none; }
+  .field-label { font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .05em; }
+  .field-val   { font-size: 13px; font-weight: 600; color: #1e293b; font-family: 'Consolas', monospace; }
+
+  /* Buttons */
+  .btn-row { display: flex; gap: 10px; margin-top: 20px; }
+  .btn {
+    padding: 10px 22px; border-radius: 8px;
+    font-size: 14px; font-weight: 600;
+    border: none; cursor: pointer;
+    transition: opacity .15s;
+    text-decoration: none;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: linear-gradient(135deg, #1d4ed8, #2563eb); color: white; }
+  .btn-secondary { background: #e2e8f0; color: #475569; }
+  .btn-success { background: linear-gradient(135deg, #16a34a, #15803d); color: white; }
+
+  /* Nav */
+  .nav-row { display: flex; justify-content: space-between; align-items: center; margin-top: 28px; }
+
+  /* Footer */
+  .footer { text-align: center; padding: 24px; font-size: 12px; color: #94a3b8; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-row">
+    <div class="logo-box">JM</div>
+    <div>
+      <h1>JMS Local Server Setup</h1>
+      <div class="sub">Factory setup wizard — follow each step to install the local server</div>
+    </div>
+  </div>
+  <div class="badge-row">
+    <span class="badge">🏭 ${factoryName}</span>
+    <span class="badge">🖥 Node: ${nodeName}</span>
+    <span class="badge">🌐 ${mainServerUrl}</span>
+  </div>
+</div>
+
+<div class="steps-bar">
+  <div class="step-tab active" id="tab-1" onclick="goStep(1)">
+    <span class="step-num">1</span> Prerequisites
+  </div>
+  <div class="step-tab" id="tab-2" onclick="goStep(2)">
+    <span class="step-num">2</span> Install
+  </div>
+  <div class="step-tab" id="tab-3" onclick="goStep(3)">
+    <span class="step-num">3</span> Configure DB
+  </div>
+  <div class="step-tab" id="tab-4" onclick="goStep(4)">
+    <span class="step-num">4</span> Start &amp; Verify
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- PAGE 1: Prerequisites -->
+  <div class="page active" id="page-1">
+    <div class="card">
+      <h2>Check Prerequisites</h2>
+      <p class="desc">Before installing, make sure these are set up on this computer.</p>
+      <ul class="check-list">
+        <li class="check-item">
+          <div class="check-icon info">🟦</div>
+          <div>
+            <div class="check-label">Node.js LTS (v18 or newer)</div>
+            <div class="check-sub">Download from <strong>nodejs.org</strong> — choose the LTS version. After install, verify by opening CMD and typing: <code>node --version</code></div>
+          </div>
+        </li>
+        <li class="check-item">
+          <div class="check-icon info">🐘</div>
+          <div>
+            <div class="check-label">PostgreSQL 14 or newer</div>
+            <div class="check-sub">Download from <strong>postgresql.org/download/windows</strong>. During setup, note the password you set for the <strong>postgres</strong> user — you'll need it to create the JMS database.</div>
+          </div>
+        </li>
+        <li class="check-item">
+          <div class="check-icon info">🗄</div>
+          <div>
+            <div class="check-label">JMS database created in PostgreSQL</div>
+            <div class="check-sub">
+              Open <strong>pgAdmin</strong> (installed with PostgreSQL) and create:<br>
+              • User: <code>jms_v1</code>&nbsp; Password: (your choice)<br>
+              • Database: <code>jms_v1</code>&nbsp; Owner: <code>jms_v1</code><br>
+              Or run the SQL commands on Step 3 of this guide.
+            </div>
+          </div>
+        </li>
+        <li class="check-item">
+          <div class="check-icon ok">✓</div>
+          <div>
+            <div class="check-label">This package extracted completely</div>
+            <div class="check-sub">You're reading this file, so the ZIP was extracted correctly. Make sure all files are in the same folder.</div>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Quick Check Commands</h2>
+      <p class="desc">Open <strong>Command Prompt</strong> (press Win+R → type <code>cmd</code> → Enter) and run:</p>
+      <div class="code">node --version<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+      <div class="code">npm --version<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+      <div class="info-box blue">If you see version numbers like <strong>v20.x.x</strong> and <strong>10.x.x</strong>, Node.js is ready. If you see an error, install Node.js first.</div>
+    </div>
+
+    <div class="nav-row">
+      <span></span>
+      <button class="btn btn-primary" onclick="goStep(2)">Next: Install →</button>
+    </div>
+  </div>
+
+  <!-- PAGE 2: Install -->
+  <div class="page" id="page-2">
+    <div class="card">
+      <h2>Run the Installer</h2>
+      <p class="desc">The installer will ask for your local PostgreSQL password and install required packages automatically.</p>
+      <div class="steps-list">
+        <div class="step-item">
+          <div>
+            <h3>Double-click INSTALL_LOCAL_SERVER.bat</h3>
+            <p>Find the file <strong>INSTALL_LOCAL_SERVER.bat</strong> in the same folder as this HTML file. Double-click it.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div>
+            <h3>Answer the questions</h3>
+            <p>The installer will ask for your local PostgreSQL host, port, user, database name, and password. Use the defaults (press Enter) for most unless you changed them.</p>
+            <div class="info-box yellow">⚠ The <strong>password</strong> is the one you set for <code>jms_v1</code> user in PostgreSQL — not the Windows password.</div>
+          </div>
+        </div>
+        <div class="step-item">
+          <div>
+            <h3>Wait for package install to finish</h3>
+            <p>It will run <code>npm install</code> to download backend packages. This takes 1-3 minutes on first run. A green <strong>[DONE]</strong> message confirms success.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>If INSTALL_LOCAL_SERVER.bat flashes and closes</h2>
+      <p class="desc">Open CMD manually and run the installer from the command line to see the error:</p>
+      <div class="code">cd /d "C:\\Path\\To\\This\\Folder"<br>node INSTALL_LOCAL_SERVER.js<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+      <div class="info-box blue">Replace <code>C:\\Path\\To\\This\\Folder</code> with the actual path of this folder. You can copy the path from the address bar in Windows Explorer.</div>
+    </div>
+    <div class="nav-row">
+      <button class="btn btn-secondary" onclick="goStep(1)">← Back</button>
+      <button class="btn btn-primary" onclick="goStep(3)">Next: Configure DB →</button>
+    </div>
+  </div>
+
+  <!-- PAGE 3: Configure DB -->
+  <div class="page" id="page-3">
+    <div class="card">
+      <h2>Database Setup</h2>
+      <p class="desc">If you haven't created the PostgreSQL database yet, use these SQL commands in <strong>pgAdmin</strong> or <strong>psql</strong>.</p>
+      <div class="code">-- Run as postgres superuser:
+CREATE USER jms_v1 WITH PASSWORD 'your_password_here';
+CREATE DATABASE jms_v1 OWNER jms_v1;
+GRANT ALL PRIVILEGES ON DATABASE jms_v1 TO jms_v1;<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+      <div class="info-box yellow">⚠ Replace <code>your_password_here</code> with the password you want. Remember it — you'll need it in <code>BACKEND/.env</code>.</div>
+    </div>
+    <div class="card">
+      <h2>Your Server Details</h2>
+      <p class="desc">These are pre-configured in your <code>BACKEND/.env</code> file from this package.</p>
+      <div class="field-row">
+        <span class="field-label">Main Server URL</span>
+        <span class="field-val">${mainServerUrl}</span>
+      </div>
+      <div class="field-row">
+        <span class="field-label">Factory</span>
+        <span class="field-val">${factoryName}</span>
+      </div>
+      <div class="field-row">
+        <span class="field-label">Node Name</span>
+        <span class="field-val">${nodeName}</span>
+      </div>
+      <div class="field-row">
+        <span class="field-label">Default DB Host</span>
+        <span class="field-val">localhost</span>
+      </div>
+      <div class="field-row">
+        <span class="field-label">Default DB Port</span>
+        <span class="field-val">5432</span>
+      </div>
+      <div class="field-row">
+        <span class="field-label">Default DB Name</span>
+        <span class="field-val">jms_v1</span>
+      </div>
+      <div class="info-box green">✓ To change any setting, open <code>BACKEND/.env</code> in Notepad and edit the values there.</div>
+    </div>
+    <div class="nav-row">
+      <button class="btn btn-secondary" onclick="goStep(2)">← Back</button>
+      <button class="btn btn-primary" onclick="goStep(4)">Next: Start Server →</button>
+    </div>
+  </div>
+
+  <!-- PAGE 4: Start & Verify -->
+  <div class="page" id="page-4">
+    <div class="card">
+      <h2>Start the Local Server</h2>
+      <p class="desc">Once the database is ready and packages are installed:</p>
+      <div class="steps-list">
+        <div class="step-item">
+          <div>
+            <h3>Double-click START_LOCAL_SERVER.bat</h3>
+            <p>This opens the supervisor window which keeps the server running. Leave that window open.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div>
+            <h3>Open the dashboard in your browser</h3>
+            <p>After 15-20 seconds, visit:</p>
+            <div class="code">http://localhost:3000<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <p>If you see the JMS login page, the server is running correctly.</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div>
+            <h3>(Optional) Register auto-start</h3>
+            <p>To start the server automatically on every Windows reboot, right-click <strong>REGISTER_AUTOSTART.bat</strong> → <em>Run as Administrator</em>.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Verify Connection to Main Site</h2>
+      <p class="desc">After the server starts, check that it connected to the main JMS server.</p>
+      <div class="info-box blue">
+        Go to <strong>${mainServerUrl}</strong> → Settings → Local Servers.<br>
+        This node (<strong>${nodeName}</strong>) should appear with a green heartbeat indicator within 2 minutes.
+      </div>
+      <div class="info-box green">✅ If everything works, the local server is ready for factory use!</div>
+    </div>
+    <div class="card">
+      <h2>Troubleshooting</h2>
+      <ul class="check-list">
+        <li class="check-item">
+          <div class="check-icon warn">!</div>
+          <div>
+            <div class="check-label">Server not starting</div>
+            <div class="check-sub">Check that PostgreSQL is running and the password in <code>BACKEND/.env</code> is correct. Look for error messages in the supervisor window.</div>
+          </div>
+        </li>
+        <li class="check-item">
+          <div class="check-icon warn">!</div>
+          <div>
+            <div class="check-label">Can't connect to main site</div>
+            <div class="check-sub">Check internet connection. Make sure <code>MAIN_SERVER_URL</code> in <code>BACKEND/.env</code> is correct and the main site is running.</div>
+          </div>
+        </li>
+        <li class="check-item">
+          <div class="check-icon warn">!</div>
+          <div>
+            <div class="check-label">npm install errors</div>
+            <div class="check-sub">Ensure Node.js is installed correctly. Try running <code>npm install --production</code> manually inside the <code>BACKEND</code> folder.</div>
+          </div>
+        </li>
+      </ul>
+    </div>
+    <div class="nav-row">
+      <button class="btn btn-secondary" onclick="goStep(3)">← Back</button>
+      <span class="btn btn-success">✓ Setup Complete</span>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">JMS Enterprise · Local Server Installer · ${factoryName} — ${nodeName}</div>
+
+<script>
+  var currentStep = 1;
+  function goStep(n) {
+    document.getElementById('page-' + currentStep).classList.remove('active');
+    document.getElementById('tab-' + currentStep).classList.remove('active');
+    if (n < currentStep) {
+      // going back — don't mark as done
+    } else {
+      document.getElementById('tab-' + currentStep).classList.add('done');
+    }
+    currentStep = n;
+    document.getElementById('page-' + n).classList.add('active');
+    document.getElementById('tab-' + n).classList.add('active');
+    window.scrollTo(0, 0);
+  }
+  function copyCode(btn) {
+    var code = btn.parentElement.cloneNode(true);
+    var copyBtnEl = code.querySelector('.copy-btn');
+    if (copyBtnEl) copyBtnEl.remove();
+    var text = code.textContent.trim();
+    navigator.clipboard.writeText(text).then(function() {
+      var orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(function() { btn.textContent = orig; }, 1500);
+    });
+  }
+</script>
+</body>
+</html>`;
+}
+
 function buildProvisioningPackage({ localServer, nodeKey, mainServerUrl, syncApiKey }) {
   const zip = new AdmZip();
   const packageRoot = `JMS_LOCAL_SERVER_${sanitizeFilePart(localServer.nodeCode || localServer.nodeName, `node-${localServer.id}`)}`;
@@ -441,6 +932,14 @@ function buildProvisioningPackage({ localServer, nodeKey, mainServerUrl, syncApi
   zip.addFile(
     path.posix.join(packageRoot, 'README_LOCAL_SERVER.md'),
     Buffer.from(buildReadme({ localServer, mainServerUrl }), 'utf8')
+  );
+  zip.addFile(
+    path.posix.join(packageRoot, 'SETUP.html'),
+    Buffer.from(buildInstallerHtml({ localServer, mainServerUrl }), 'utf8')
+  );
+  zip.addFile(
+    path.posix.join(packageRoot, 'OPEN_SETUP.bat'),
+    Buffer.from(buildOpenSetupBat(), 'utf8')
   );
   zip.addFile(
     path.posix.join(packageRoot, 'INSTALL_LOCAL_SERVER.bat'),
