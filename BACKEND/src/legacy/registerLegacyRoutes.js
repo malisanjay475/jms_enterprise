@@ -1382,6 +1382,30 @@ async function migrateOrjrWiseMasterSchema() {
       USING NULLIF(regexp_replace(COALESCE(${column}::text, ''), '[^0-9.+-]+', '', 'g'), '')::numeric
     `).catch(err => console.warn(`[DB] mould_planning_summary ${column} type migration skipped:`, err.message));
   }
+
+  /* ── Fix: unique index for ON CONFLICT upsert ──────────────────────
+     Without this index, ON CONFLICT (or_jr_no, mould_no, plan_date)
+     has no constraint to target → PostgreSQL errors / falls through
+     to a plain INSERT that hits the serial pkey conflict.
+     COALESCE handles NULL plan_date (NULL != NULL in unique indexes,
+     so two NULLs would not conflict without COALESCE).
+  ────────────────────────────────────────────────────────────────── */
+  await q(`
+    CREATE UNIQUE INDEX IF NOT EXISTS mould_planning_summary_upsert_idx
+    ON mould_planning_summary(or_jr_no, mould_no, COALESCE(plan_date, '1970-01-01'::date))
+  `).catch(err => console.warn('[DB] mould_planning_summary unique index skipped:', err.message));
+
+  /* ── Fix: reset serial sequence to max(id) to prevent pkey conflicts
+     after DB restore / sync from production pushes IDs higher than
+     the current sequence value.
+  ────────────────────────────────────────────────────────────────── */
+  await q(`
+    SELECT setval(
+      'mould_planning_summary_id_seq',
+      COALESCE((SELECT MAX(id) FROM mould_planning_summary), 0) + 1,
+      false
+    )
+  `).catch(err => console.warn('[DB] mould_planning_summary sequence reset skipped:', err.message));
 }
 
 async function migrateOrJrReportNumericSchema() {
@@ -12472,7 +12496,7 @@ VALUES($1, 'CREATE', '{"message": "Created via Bulk Upload"}', 'BulkUpload')
               $8, $9, $10, $11, $12, $13, $14,
               $15, $16, 'BulkUpload', NOW(), 'BulkUpload', NOW(), $17, NOW()
             )
-            ON CONFLICT (or_jr_no, mould_no, plan_date)
+            ON CONFLICT (or_jr_no, mould_no, COALESCE(plan_date, '1970-01-01'::date))
             DO UPDATE SET
               or_jr_date = EXCLUDED.or_jr_date,
               item_code = EXCLUDED.item_code,
@@ -12480,6 +12504,7 @@ VALUES($1, 'CREATE', '{"message": "Created via Bulk Upload"}', 'BulkUpload')
               product_name = EXCLUDED.product_name,
               jr_qty = EXCLUDED.jr_qty,
               uom = EXCLUDED.uom,
+              plan_date = EXCLUDED.plan_date,
               plan_qty = EXCLUDED.plan_qty,
               mould_name = EXCLUDED.mould_name,
               mould_item_qty = EXCLUDED.mould_item_qty,
