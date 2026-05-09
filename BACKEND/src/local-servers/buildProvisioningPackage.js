@@ -429,8 +429,43 @@ function buildOpenSetupBat() {
   return [
     '@echo off',
     'cd /d "%~dp0"',
-    'start "" "%~dp0SETUP.html"',
+    'echo Starting JMS Setup...',
+    'where node >nul 2>nul',
+    'if errorlevel 1 (',
+    '  echo Node.js not found - opening HTML directly...',
+    '  start "" "%~dp0SETUP.html"',
+    '  exit /b 0',
+    ')',
+    'node "%~dp0OPEN_SETUP.js"',
     'exit /b 0'
+  ].join('\r\n');
+}
+
+function buildOpenSetupJs() {
+  return [
+    "'use strict';",
+    "const http = require('http');",
+    "const fs   = require('fs');",
+    "const path = require('path');",
+    "const { exec } = require('child_process');",
+    '',
+    "const htmlFile = path.join(__dirname, 'SETUP.html');",
+    "const server = http.createServer((req, res) => {",
+    "  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });",
+    "  fs.createReadStream(htmlFile).pipe(res);",
+    '});',
+    '',
+    'server.listen(0, "127.0.0.1", () => {',
+    "  const port = server.address().port;",
+    "  const url  = 'http://127.0.0.1:' + port + '/setup';",
+    "  console.log('[JMS Setup] Opening ' + url);",
+    "  const cmd = process.platform === 'win32'",
+    "    ? 'start \"\" \"' + url + '\"'",
+    "    : process.platform === 'darwin' ? 'open \"' + url + '\"' : 'xdg-open \"' + url + '\"';",
+    '  exec(cmd);',
+    "  console.log('[JMS Setup] Browser opened. Press Ctrl+C to close this window when done.');",
+    '});',
+    ''
   ].join('\r\n');
 }
 
@@ -439,6 +474,7 @@ function buildInstallerHtml({ localServer, mainServerUrl }) {
   const nodeName    = localServer.nodeName || localServer.nodeCode || localServer.id;
 
   return `<!DOCTYPE html>
+<!-- saved from url=(0014)about:internet -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -974,6 +1010,10 @@ function buildProvisioningPackage({ localServer, nodeKey, mainServerUrl, syncApi
   zip.addFile(
     path.posix.join(packageRoot, 'OPEN_SETUP.bat'),
     Buffer.from(buildOpenSetupBat(), 'utf8')
+  );
+  zip.addFile(
+    path.posix.join(packageRoot, 'OPEN_SETUP.js'),
+    Buffer.from(buildOpenSetupJs(), 'utf8')
   );
   zip.addFile(
     path.posix.join(packageRoot, 'INSTALL_LOCAL_SERVER.bat'),
