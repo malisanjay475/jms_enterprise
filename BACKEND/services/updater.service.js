@@ -315,13 +315,10 @@ async function downloadAndApply(mainUrl, remote) {
       throw new Error(`Download failed: ${response.status} ${response.statusText}`);
     }
 
-    await new Promise((resolve, reject) => {
-      const stream = fs.createWriteStream(tmpPath);
-      response.body.pipe(stream);
-      response.body.on('error', reject);
-      stream.on('error', reject);
-      stream.on('finish', resolve);
-    });
+    // Native fetch returns a Web Streams ReadableStream, not a Node.js stream.
+    // Use arrayBuffer() to read the entire response body into memory, then write to disk.
+    const buffer = Buffer.from(await response.arrayBuffer());
+    fs.writeFileSync(tmpPath, buffer);
 
     console.log('[Updater] Download complete. Extracting release...');
     const zip = new AdmZip(tmpPath);
