@@ -870,10 +870,35 @@ GRANT ALL PRIVILEGES ON DATABASE jms_v1 TO jms_v1;<button class="copy-btn" oncli
     </div>
     <div class="nav-row">
       <button class="btn btn-secondary" onclick="goStep(3)">← Back</button>
-      <span class="btn btn-success">✓ Setup Complete</span>
+      <button class="btn btn-success" onclick="goComplete()">✓ Mark as Complete</button>
     </div>
   </div>
 
+</div>
+
+<!-- Completion overlay -->
+<div id="complete-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:999; align-items:center; justify-content:center;">
+  <div style="background:white; border-radius:16px; padding:40px 36px; max-width:420px; width:90%; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="width:72px; height:72px; border-radius:50%; background:#dcfce7; display:flex; align-items:center; justify-content:center; margin:0 auto 20px; font-size:36px;">✅</div>
+    <h2 style="font-size:22px; font-weight:800; color:#1e293b; margin-bottom:8px;">Setup Complete!</h2>
+    <p style="font-size:14px; color:#64748b; line-height:1.6; margin-bottom:24px;">
+      <strong>${factoryName}</strong> local server is configured.<br>
+      Open your browser and visit <strong>http://localhost:3000</strong> to confirm the server is running.
+    </p>
+    <div style="background:#f0fdf4; border-radius:10px; padding:14px 18px; margin-bottom:24px; text-align:left;">
+      <div style="font-size:12px; font-weight:700; color:#16a34a; text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px;">Next steps</div>
+      <div style="font-size:13px; color:#166534; line-height:1.7;">
+        1. Run <strong>START_LOCAL_SERVER.bat</strong> if not done yet<br>
+        2. Visit <strong>http://localhost:3000</strong> — should show JMS login<br>
+        3. Check the main site → Local Servers to see heartbeat<br>
+        4. Run <strong>REGISTER_AUTOSTART.bat</strong> as Administrator for auto-start on reboot
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+      <button onclick="document.getElementById('complete-overlay').style.display='none'" style="padding:10px 20px; border-radius:8px; border:1px solid #e2e8f0; background:white; color:#475569; font-size:14px; font-weight:600; cursor:pointer;">Close</button>
+      <button onclick="window.open('http://localhost:3000','_blank')" style="padding:10px 22px; border-radius:8px; border:none; background:linear-gradient(135deg,#1d4ed8,#2563eb); color:white; font-size:14px; font-weight:600; cursor:pointer;">Open Local Server →</button>
+    </div>
+  </div>
 </div>
 
 <div class="footer">JMS Enterprise · Local Server Installer · ${factoryName} — ${nodeName}</div>
@@ -892,6 +917,15 @@ GRANT ALL PRIVILEGES ON DATABASE jms_v1 TO jms_v1;<button class="copy-btn" oncli
     document.getElementById('page-' + n).classList.add('active');
     document.getElementById('tab-' + n).classList.add('active');
     window.scrollTo(0, 0);
+  }
+  function goComplete() {
+    // Mark all tabs as done
+    for (var i = 1; i <= 4; i++) {
+      document.getElementById('tab-' + i).classList.remove('active');
+      document.getElementById('tab-' + i).classList.add('done');
+    }
+    var overlay = document.getElementById('complete-overlay');
+    overlay.style.display = 'flex';
   }
   function copyCode(btn) {
     var code = btn.parentElement.cloneNode(true);
