@@ -1526,11 +1526,13 @@ async function migrateOrderCompletionWorkflowSchema() {
       order_no VARCHAR(255) UNIQUE NOT NULL,
       item_code VARCHAR(255),
       item_name VARCHAR(255),
+      client_name TEXT,
       mould_code VARCHAR(255),
       qty NUMERIC DEFAULT 0,
       balance NUMERIC DEFAULT 0,
       status VARCHAR(50) DEFAULT 'Pending',
       priority VARCHAR(50) DEFAULT 'Normal',
+      factory_id INTEGER,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
@@ -1554,6 +1556,8 @@ async function migrateOrderCompletionWorkflowSchema() {
   `);
 
   const ensureColumns = [
+    ['client_name', 'TEXT'],
+    ['factory_id', 'INTEGER'],
     ['completion_confirmation_required', 'BOOLEAN DEFAULT FALSE'],
     ['completion_change_field', 'TEXT'],
     ['completion_change_to', 'TEXT'],
@@ -3523,11 +3527,13 @@ async function bootstrapFreshCoreTables() {
       order_no VARCHAR(255) UNIQUE NOT NULL,
       item_code VARCHAR(255),
       item_name VARCHAR(255),
+      client_name TEXT,
       mould_code VARCHAR(255),
       qty NUMERIC DEFAULT 0,
       balance NUMERIC DEFAULT 0,
       status VARCHAR(50) DEFAULT 'Pending',
       priority VARCHAR(50) DEFAULT 'Normal',
+      factory_id INTEGER,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
