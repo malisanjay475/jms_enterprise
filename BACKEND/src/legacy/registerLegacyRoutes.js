@@ -3662,7 +3662,7 @@ async function initializeLegacyRuntime() {
             INSERT INTO server_config (key, value) VALUES ('MAIN_SERVER_URL', '${process.env.MAIN_SERVER_URL || ''}') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
             
             INSERT INTO server_config (key, value) VALUES ('LOCAL_FACTORY_ID', '${process.env.LOCAL_FACTORY_ID || '1'}') ON CONFLICT (key) DO NOTHING;
-            INSERT INTO server_config (key, value) VALUES ('SYNC_API_KEY', '${process.env.SYNC_API_KEY || 'jpsms-sync-key'}') ON CONFLICT (key) DO NOTHING;
+            INSERT INTO server_config (key, value) VALUES ('SYNC_API_KEY', '${process.env.SYNC_API_KEY || 'jpsms-sync-key'}') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 
             CREATE TABLE IF NOT EXISTS ai_memory (
                 id SERIAL PRIMARY KEY,
