@@ -1373,6 +1373,12 @@ async function migrateOrjrWiseMasterSchema() {
   `);
   await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS mould_item_code TEXT`);
   await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS mould_item_name TEXT`);
+  await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS factory_id INTEGER`);
+  await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS last_updated_at TIMESTAMP`);
+  await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+  await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS global_id UUID`);
+  await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS sync_status TEXT`);
+  await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid()`);
 
   const numericColumns = ['jr_qty', 'plan_qty', 'mould_item_qty', 'tonnage'];
   for (const column of numericColumns) {
