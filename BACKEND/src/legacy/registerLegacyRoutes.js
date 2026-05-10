@@ -1575,6 +1575,19 @@ async function migrateOrderCompletionWorkflowSchema() {
     .catch(err => console.warn('[DB] order completion history order index skipped:', err.message));
   await q(`CREATE INDEX IF NOT EXISTS idx_order_completion_history_factory ON order_completion_history(factory_id, changed_at DESC)`)
     .catch(err => console.warn('[DB] order completion history factory index skipped:', err.message));
+
+  // Sync columns
+  await q(`ALTER TABLE order_completion_history ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+  await q(`ALTER TABLE order_completion_history ADD COLUMN IF NOT EXISTS last_updated_at TIMESTAMP`);
+  await q(`ALTER TABLE order_completion_history ADD COLUMN IF NOT EXISTS sync_status TEXT`);
+  await q(`ALTER TABLE order_completion_history ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid()`);
+  await q(`ALTER TABLE order_completion_history ADD COLUMN IF NOT EXISTS global_id UUID`);
+
+  // Unique index required for ON CONFLICT (factory_id, order_no, action_type, changed_at) upsert
+  await q(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_order_completion_history_sync
+    ON order_completion_history(factory_id, order_no, action_type, changed_at)
+  `).catch(err => console.warn('[DB] order_completion_history unique index skipped:', err.message));
 }
 
 async function migrateWipStockMasterSchema() {

@@ -144,6 +144,7 @@ const SYNC_CONFLICT_INDEXES = {
 };
 
 const SYNC_ID_REQUIRED_TABLES = ['notifications'];
+const tableColumnCache = new Map();
 
 function getDeterministicNotificationSyncIdSql(tableAlias = '') {
     const prefix = tableAlias ? `${tableAlias}.` : '';
@@ -458,6 +459,14 @@ async function pushChanges() {
     for (const table of TABLES_TO_PUSH) {
         let rows;
         try {
+            if (!(await tableExistsPublic(table))) {
+                console.warn(`[Sync] Push skipped ${table}: table does not exist locally`);
+                continue;
+            }
+            if (!(await tableHasColumn(table, 'updated_at'))) {
+                console.warn(`[Sync] Push skipped ${table}: updated_at column is missing`);
+                continue;
+            }
             const hasFactoryId = await tableHasColumn(table, 'factory_id');
             const sql = hasFactoryId
                 ? `
@@ -552,6 +561,10 @@ async function pullChanges() {
 
     for (const table of TABLES_TO_PULL) {
         try {
+            if (!(await tableExistsPublic(table))) {
+                console.warn(`[Sync] Pull skipped ${table}: table does not exist locally`);
+                continue;
+            }
             const response = await fetch(`${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(lastPull)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`);
             if (!response.ok) continue;
 
@@ -669,6 +682,12 @@ async function upsertData(table, data) {
     const MAX_RETRIES = 3;
     let attempt = 0;
     const stats = { created: 0, updated: 0, failed: 0 };
+    const tableColumns = await getTableColumns(table);
+    const hasUpdatedAtColumn = tableColumns.has('updated_at');
+    if (tableColumns.size === 0) {
+        console.warn(`[Sync] Upsert skipped ${table}: table does not exist`);
+        return { created: 0, updated: 0, failed: data.length };
+    }
 
     while (attempt < MAX_RETRIES) {
         const client = await pool.connect();
@@ -691,22 +710,42 @@ async function upsertData(table, data) {
                     row = TRANSFORMERS[table](row);
                 }
 
+                row = Object.fromEntries(
+                    Object.entries(row).filter(([key]) => tableColumns.has(key))
+                );
+
                 const conflictColumns = getConflictColumns(table, row);
+                const missingConflictColumns = conflictColumns.filter((column) => !tableColumns.has(column));
+                if (missingConflictColumns.length) {
+                    console.warn(`[Sync] Skipping ${table} row: conflict column(s) missing in schema: ${missingConflictColumns.join(', ')}`);
+                    stats.failed += 1;
+                    continue;
+                }
+
                 if (row && row.sync_id && Object.prototype.hasOwnProperty.call(row, 'id') && !conflictColumns.includes('id')) {
                     delete row.id;
                 }
 
                 const keys = Object.keys(row);
                 const vals = Object.values(row);
+                if (keys.length === 0) {
+                    stats.failed += 1;
+                    continue;
+                }
                 const idx = keys.map((_, i) => `$${i + 1}`);
                 const setClause = keys.map((k) => `${k} = EXCLUDED.${k}`).join(', ');
                 const conflictKey = conflictColumns.join(', ');
 
-                let whereClause = `WHERE (EXCLUDED.updated_at > ${table}.updated_at OR ${table}.updated_at IS NULL)`;
+                let whereClause = hasUpdatedAtColumn
+                    ? `WHERE (EXCLUDED.updated_at > ${table}.updated_at OR ${table}.updated_at IS NULL)`
+                    : '';
 
                 if (table === 'plan_board') {
-                    whereClause += ` AND NOT (${table}.status = 'Running' AND EXCLUDED.status IN ('Planned', 'Stopped', 'Pending'))`;
-                    whereClause += ` AND (${table}.updated_at < NOW() - INTERVAL '15 seconds' OR ${table}.updated_at IS NULL)`;
+                    whereClause += whereClause ? ' AND ' : 'WHERE ';
+                    whereClause += `NOT (${table}.status = 'Running' AND EXCLUDED.status IN ('Planned', 'Stopped', 'Pending'))`;
+                    if (hasUpdatedAtColumn) {
+                        whereClause += ` AND (${table}.updated_at < NOW() - INTERVAL '15 seconds' OR ${table}.updated_at IS NULL)`;
+                    }
                 }
 
                 const sql = `
@@ -781,12 +820,16 @@ async function upsertData(table, data) {
 }
 
 async function getChanges(table, since, targetFactoryId) {
+    if (!(await tableExistsPublic(table))) {
+        return [];
+    }
+
     let sql = `SELECT * FROM ${table}`;
     const params = [];
     const where = [];
     const normalizedSince = normalizeSyncTimestampInput(since);
 
-    if (normalizedSince) {
+    if (normalizedSince && await tableHasColumn(table, 'updated_at')) {
         params.push(normalizedSince);
         where.push(`updated_at > $${params.length}`);
     }
@@ -1007,16 +1050,17 @@ async function ensureSyncUpdatedAtSchema() {
 
     for (const table of SYNC_ALL) {
         try {
+            if (!(await tableExistsPublic(table))) {
+                console.warn(`[Sync] updated_at tracking skipped for ${table}: table does not exist`);
+                continue;
+            }
             const sourceColumn = SYNC_UPDATED_AT_SOURCE_COLUMNS[table];
             const hasUpdatedAt = await tableHasColumn(table, 'updated_at');
             const hasSourceColumn = sourceColumn ? await tableHasColumn(table, sourceColumn) : false;
 
-            if (!hasUpdatedAt && !sourceColumn) {
-                continue;
-            }
-
             if (!hasUpdatedAt) {
                 await pool.query(`ALTER TABLE ${table} ADD COLUMN updated_at TIMESTAMPTZ`);
+                tableColumnCache.delete(table);
             }
 
             if (hasSourceColumn) {
@@ -1055,9 +1099,14 @@ async function ensureSyncIdSchema() {
 
     for (const table of SYNC_ID_REQUIRED_TABLES) {
         try {
+            if (!(await tableExistsPublic(table))) {
+                console.warn(`[Sync] sync_id schema skipped for ${table}: table does not exist`);
+                continue;
+            }
             const hasSyncId = await tableHasColumn(table, 'sync_id');
             if (!hasSyncId) {
                 await pool.query(`ALTER TABLE ${table} ADD COLUMN sync_id UUID`);
+                tableColumnCache.delete(table);
             }
 
             if (table === 'notifications') {
@@ -1082,6 +1131,10 @@ async function ensureSyncConflictIndexes() {
     for (const [table, columns] of Object.entries(SYNC_CONFLICT_INDEXES)) {
         const indexName = `uq_sync_conflict_${table}`;
         try {
+            if (!(await tableExistsPublic(table))) {
+                console.warn(`[Sync] conflict index skipped for ${table}: table does not exist`);
+                continue;
+            }
             await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS ${indexName} ON ${table} (${columns})`);
         } catch (e) {
             console.warn(`[Sync] conflict index skipped for ${table}:`, e.message);
@@ -1091,7 +1144,34 @@ async function ensureSyncConflictIndexes() {
     console.log('[Sync] conflict indexes ready');
 }
 
+async function tableExistsPublic(table) {
+    const result = await pool.query(`
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = $1
+        LIMIT 1
+    `, [table]);
+
+    return result.rows.length > 0;
+}
+
+async function getTableColumns(table) {
+    if (tableColumnCache.has(table)) return tableColumnCache.get(table);
+
+    const result = await pool.query(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = $1
+    `, [table]);
+    const columns = new Set(result.rows.map((row) => row.column_name));
+    tableColumnCache.set(table, columns);
+    return columns;
+}
+
 async function tableHasColumn(table, column) {
+    const columns = await getTableColumns(table);
+    if (columns.size > 0) return columns.has(column);
+
     const result = await pool.query(`
         SELECT 1
         FROM information_schema.columns
@@ -1111,6 +1191,14 @@ async function countPendingChanges() {
 
     for (const table of TABLES_TO_PUSH) {
         try {
+            if (!(await tableExistsPublic(table))) {
+                console.warn(`[Sync] Pending count skipped for ${table}: table does not exist`);
+                continue;
+            }
+            if (!(await tableHasColumn(table, 'updated_at'))) {
+                console.warn(`[Sync] Pending count skipped for ${table}: updated_at column is missing`);
+                continue;
+            }
             const hasFactoryId = await tableHasColumn(table, 'factory_id');
             const query = hasFactoryId
                 ? `SELECT COUNT(*)::int AS count FROM ${table} WHERE updated_at > $1 AND factory_id = $2`
