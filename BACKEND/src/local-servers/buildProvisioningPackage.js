@@ -132,7 +132,7 @@ function buildReadme({ localServer, mainServerUrl }) {
     '2. Make sure Node.js LTS and PostgreSQL 14+ are installed on that computer.',
     '3. Run INSTALL_LOCAL_SERVER.bat.',
     '4. The installer will ask for the local PostgreSQL details and save BACKEND/.env for you.',
-    '5. If another app already uses port 3000, keep the default local JMS port 3001 or enter any free port.',
+    '5. The default local JMS port is 3001. If another app already uses it, enter any free port.',
     '6. Create or restore the local jms_v1 PostgreSQL database for this factory if it is not ready yet.',
     '7. Run START_LOCAL_SERVER.bat.',
     '8. (Recommended) Run REGISTER_AUTOSTART.bat as Administrator so the server starts on every reboot.',
@@ -315,6 +315,11 @@ function buildInstallerJs() {
     '  }));',
     '}',
     '',
+    'function normalizePort(value, fallback) {',
+    "  const n = Number(String(value || '').trim());",
+    '  return Number.isInteger(n) && n >= 1 && n <= 65535 ? String(n) : fallback;',
+    '}',
+    '',
     'function askYesNo(rl, label, defaultYes = true) {',
     "  const hint = defaultYes ? ' [Y/n]: ' : ' [y/N]: ';",
     "  return new Promise(resolve => rl.question(label + hint, answer => {",
@@ -352,8 +357,8 @@ function buildInstallerJs() {
     "    envMap.set('DB_USER', await askQuestion(rl, 'Local PostgreSQL user', envMap.get('DB_USER') || 'jms_v1'));",
     "    envMap.set('DB_NAME', await askQuestion(rl, 'Local PostgreSQL database name', envMap.get('DB_NAME') || 'jms_v1'));",
     "    envMap.set('DB_PASSWORD', await askQuestion(rl, 'Local PostgreSQL password', envMap.get('DB_PASSWORD') || ''));",
-    "    envMap.set('PORT', await askQuestion(rl, 'Local JMS app port', envMap.get('PORT') || '3001'));",
-    "    envMap.set('HTTPS_PORT', await askQuestion(rl, 'Local JMS HTTPS port (only used when HTTPS is enabled)', envMap.get('HTTPS_PORT') || '3444'));",
+    "    envMap.set('PORT', normalizePort(await askQuestion(rl, 'Local JMS app port', envMap.get('PORT') || '3001'), '3001'));",
+    "    envMap.set('HTTPS_PORT', normalizePort(await askQuestion(rl, 'Local JMS HTTPS port (only used when HTTPS is enabled)', envMap.get('HTTPS_PORT') || '3444'), '3444'));",
     "    envMap.set('MAIN_SERVER_URL', await askQuestion(rl, 'Main site URL', envMap.get('MAIN_SERVER_URL') || ''));",
     "    envMap.set('LOCAL_FACTORY_ID', await askQuestion(rl, 'Factory ID', envMap.get('LOCAL_FACTORY_ID') || ''));",
     "    saveEnv(backendEnvPath, envMap);",
@@ -868,7 +873,7 @@ GRANT ALL PRIVILEGES ON DATABASE jms_v1 TO jms_v1;<button class="copy-btn" oncli
           <div>
             <h3>Open the dashboard in your browser</h3>
             <p>After 15-20 seconds, visit:</p>
-            <div class="code">http://localhost:3000<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
+            <div class="code">http://localhost:3001<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>
             <p>If you see the JMS login page, the server is running correctly.</p>
           </div>
         </div>
@@ -930,20 +935,20 @@ GRANT ALL PRIVILEGES ON DATABASE jms_v1 TO jms_v1;<button class="copy-btn" oncli
     <h2 style="font-size:22px; font-weight:800; color:#1e293b; margin-bottom:8px;">Setup Complete!</h2>
     <p style="font-size:14px; color:#64748b; line-height:1.6; margin-bottom:24px;">
       <strong>${factoryName}</strong> local server is configured.<br>
-      Open your browser and visit <strong>http://localhost:3000</strong> to confirm the server is running.
+      Open your browser and visit <strong>http://localhost:3001</strong> to confirm the server is running.
     </p>
     <div style="background:#f0fdf4; border-radius:10px; padding:14px 18px; margin-bottom:24px; text-align:left;">
       <div style="font-size:12px; font-weight:700; color:#16a34a; text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px;">Next steps</div>
       <div style="font-size:13px; color:#166534; line-height:1.7;">
         1. Run <strong>START_LOCAL_SERVER.bat</strong> if not done yet<br>
-        2. Visit <strong>http://localhost:3000</strong> — should show JMS login<br>
+        2. Visit <strong>http://localhost:3001</strong> — should show JMS login<br>
         3. Check the main site → Local Servers to see heartbeat<br>
         4. Run <strong>REGISTER_AUTOSTART.bat</strong> as Administrator for auto-start on reboot
       </div>
     </div>
     <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
       <button onclick="document.getElementById('complete-overlay').style.display='none'" style="padding:10px 20px; border-radius:8px; border:1px solid #e2e8f0; background:white; color:#475569; font-size:14px; font-weight:600; cursor:pointer;">Close</button>
-      <button onclick="window.open('http://localhost:3000','_blank')" style="padding:10px 22px; border-radius:8px; border:none; background:linear-gradient(135deg,#1d4ed8,#2563eb); color:white; font-size:14px; font-weight:600; cursor:pointer;">Open Local Server →</button>
+      <button onclick="window.open('http://localhost:3001','_blank')" style="padding:10px 22px; border-radius:8px; border:none; background:linear-gradient(135deg,#1d4ed8,#2563eb); color:white; font-size:14px; font-weight:600; cursor:pointer;">Open Local Server →</button>
     </div>
   </div>
 </div>
