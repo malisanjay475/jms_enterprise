@@ -1,0 +1,22 @@
+name: Debug — Read SYNC_API_KEY from VPS DB
+
+on:
+  workflow_dispatch:
+
+jobs:
+  read-key:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query SYNC_API_KEY from VPS database
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          script: |
+            docker exec $(docker ps --filter name=jms --format '{{.Names}}' | grep -v postgres | head -1) \
+              node -e "
+                const { Pool } = require('pg');
+                const pool = new Pool({ connectionString: process.env.DATABASE_URL || undefined, user: process.env.DB_USER, password: process.env.DB_PASSWORD, database: process.env.DB_NAME, host: process.env.DB_HOST || 'localhost' });
+                pool.query(\"SELECT value FROM server_config WHERE key = 'SYNC_API_KEY'\").then(r => { console.log('SYNC_API_KEY=' + (r.rows[0]?.value || 'NOT FOUND')); pool.end(); }).catch(e => { console.error(e.message); pool.end(); });
+              "
