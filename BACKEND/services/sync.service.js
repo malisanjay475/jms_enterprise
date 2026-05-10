@@ -758,35 +758,54 @@ async function upsertData(table, data) {
                     RETURNING (xmax = 0) AS inserted
                 `;
 
+                let savepointActive = false;
                 try {
                     await client.query('SAVEPOINT sync_row_upsert');
+                    savepointActive = true;
                     const result = await client.query(sql, vals);
                     await client.query('RELEASE SAVEPOINT sync_row_upsert');
+                    savepointActive = false;
                     if (result.rows.length && result.rows[0].inserted === true) {
                         stats.created += 1;
                     } else if (result.rows.length) {
                         stats.updated += 1;
                     }
                     } catch (innerErr) {
-                        try {
-                            await client.query('ROLLBACK TO SAVEPOINT sync_row_upsert');
-                            await client.query('RELEASE SAVEPOINT sync_row_upsert');
-                        } catch (savepointErr) {
-                        console.error(`[Sync] Savepoint rollback failed for ${table}:`, savepointErr.message);
-                        throw savepointErr;
+                        if (savepointActive) {
+                            try {
+                                await client.query('ROLLBACK TO SAVEPOINT sync_row_upsert');
+                                await client.query('RELEASE SAVEPOINT sync_row_upsert');
+                            } catch (savepointErr) {
+                                console.error(`[Sync] Savepoint rollback failed for ${table}:`, savepointErr.message);
+                                throw savepointErr;
+                            }
+                            savepointActive = false;
                         }
                         if (innerErr.code === '40P01') {
                             throw innerErr;
                         }
 
                         if (table === 'notifications' && innerErr.constraint === 'uq_sync_conflict_notifications') {
+                            let legacySavepointActive = false;
                             try {
+                                await client.query('SAVEPOINT sync_legacy_notif');
+                                legacySavepointActive = true;
                                 const resolved = await tryResolveLegacyNotificationConflict(client, row, keys, vals);
+                                await client.query('RELEASE SAVEPOINT sync_legacy_notif');
+                                legacySavepointActive = false;
                                 if (resolved) {
                                     stats.updated += 1;
                                     continue;
                                 }
                             } catch (legacyErr) {
+                                if (legacySavepointActive) {
+                                    try {
+                                        await client.query('ROLLBACK TO SAVEPOINT sync_legacy_notif');
+                                        await client.query('RELEASE SAVEPOINT sync_legacy_notif');
+                                    } catch (cleanupErr) {
+                                        console.error('[Sync] Legacy savepoint rollback failed:', cleanupErr.message);
+                                    }
+                                }
                                 console.error('[Sync] Legacy notification conflict fallback failed:', legacyErr.message);
                             }
                         }
