@@ -498,11 +498,18 @@ async function pushChanges() {
                 apiKey: API_KEY
             };
 
-            const response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+            let response;
+            try {
+                response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } catch (error) {
+                console.error(`[Sync] Push Request Failed ${table}:`, error.message);
+                stats.failed += rows.rows.length;
+                continue;
+            }
 
             if (!response.ok) {
                 const text = await response.text();
@@ -533,11 +540,18 @@ async function pushDeletionChanges() {
 
     if (deletions.length > 0) {
         console.log(`[Sync] Pushing ${deletions.length} deletions...`);
-        const response = await fetch(`${MAIN_SERVER_URL}/api/sync/push-deletions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ deletions, apiKey: API_KEY })
-        });
+        let response;
+        try {
+            response = await fetch(`${MAIN_SERVER_URL}/api/sync/push-deletions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deletions, apiKey: API_KEY })
+            });
+        } catch (error) {
+            console.error('[Sync] Push Deletions Request Failed:', error.message);
+            stats.failed += deletions.length;
+            return stats;
+        }
 
         if (!response.ok) {
             const text = await response.text();
@@ -1131,9 +1145,33 @@ async function ensureSyncIdSchema() {
                 tableColumnCache.delete(table);
             }
 
-            await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
-
             if (table === 'notifications') {
+                await pool.query(`
+                    WITH source AS (
+                        SELECT id,
+                               md5(concat_ws('|',
+                                   COALESCE(target_user, ''),
+                                   COALESCE(type, ''),
+                                   COALESCE(title, ''),
+                                   COALESCE(message, ''),
+                                   COALESCE(link, ''),
+                                   COALESCE(created_by, ''),
+                                   COALESCE(created_at::text, '')
+                               )) AS seed
+                          FROM ${table}
+                         WHERE sync_id IS NULL
+                    )
+                    UPDATE ${table} n
+                       SET sync_id = (
+                           substr(source.seed, 1, 8) || '-' ||
+                           substr(source.seed, 9, 4) || '-' ||
+                           substr(source.seed, 13, 4) || '-' ||
+                           substr(source.seed, 17, 4) || '-' ||
+                           substr(source.seed, 21, 12)
+                       )::uuid
+                      FROM source
+                     WHERE n.id = source.id
+                `);
                 // Older local packages generated the same deterministic sync_id for duplicate
                 // notification rows. Repair only duplicates so valid IDs stay stable.
                 await pool.query(`
@@ -1149,6 +1187,8 @@ async function ensureSyncIdSchema() {
                      WHERE n.id = r.id
                        AND r.rn > 1
                 `);
+            } else {
+                await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
             }
 
             await pool.query(`ALTER TABLE ${table} ALTER COLUMN sync_id SET DEFAULT gen_random_uuid()`);
