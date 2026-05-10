@@ -508,7 +508,9 @@ async function pushChanges() {
                 const text = await response.text();
                 console.error(`[Sync] Push Failed Details for ${table}:`, text);
                 stats.failed += rows.rows.length;
-                throw new Error(`Push failed: ${response.status} ${response.statusText} - ${text}`);
+                // Keep the cycle moving so a bad optional table (for example old
+                // notification duplicates) cannot block pulling users/masters.
+                continue;
             }
             stats.pushed += rows.rows.length;
         }
@@ -541,7 +543,7 @@ async function pushDeletionChanges() {
             const text = await response.text();
             console.error('[Sync] Push Deletions Failed:', text);
             stats.failed += deletions.length;
-            throw new Error(`Push deletions failed: ${response.status} ${response.statusText} - ${text}`);
+            return stats;
         }
         stats.deleted += deletions.length;
     }
