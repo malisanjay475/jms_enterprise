@@ -1129,14 +1129,26 @@ async function ensureSyncIdSchema() {
                 tableColumnCache.delete(table);
             }
 
+            await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
+
             if (table === 'notifications') {
+                // Older local packages generated the same deterministic sync_id for duplicate
+                // notification rows. Repair only duplicates so valid IDs stay stable.
                 await pool.query(`
-                    UPDATE ${table}
-                       SET sync_id = ${getDeterministicNotificationSyncIdSql()}
+                    WITH ranked AS (
+                        SELECT id,
+                               ROW_NUMBER() OVER (PARTITION BY sync_id ORDER BY id) AS rn
+                          FROM ${table}
+                         WHERE sync_id IS NOT NULL
+                    )
+                    UPDATE ${table} n
+                       SET sync_id = gen_random_uuid()
+                      FROM ranked r
+                     WHERE n.id = r.id
+                       AND r.rn > 1
                 `);
-            } else {
-                await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
             }
+
             await pool.query(`ALTER TABLE ${table} ALTER COLUMN sync_id SET DEFAULT gen_random_uuid()`);
             await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_sync_id_${table} ON ${table} (sync_id)`);
         } catch (e) {
