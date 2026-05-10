@@ -85,6 +85,7 @@ const CONFLICT_KEYS = {
     purchase_order_items: 'id',
     purchase_orders: 'id',
     user_factories: 'user_id, factory_id',
+    or_jr_report: 'or_jr_no',
     dpr_reasons: 'id',
     mould_planning_report: 'id',
     mould_planning_summary: 'id',

@@ -4176,29 +4176,30 @@ async function initializeLegacyRuntime() {
     try {
       // Fix Constraint to CASCADE for easier deletion
       await q(`ALTER TABLE wip_outward_logs DROP CONSTRAINT IF EXISTS wip_outward_logs_wip_inventory_id_fkey`);
-      await q(`ALTER TABLE wip_outward_logs ADD CONSTRAINT wip_outward_logs_wip_inventory_id_fkey 
+      await q(`ALTER TABLE wip_outward_logs ADD CONSTRAINT wip_outward_logs_wip_inventory_id_fkey
                FOREIGN KEY (wip_inventory_id) REFERENCES wip_inventory(id) ON DELETE CASCADE`);
       console.log('[DB] Constraint fixed to CASCADE');
+    } catch (e) {
+      console.warn('[DB] wip_outward_logs constraint fix skipped:', e.message);
+    }
 
+    try {
       // --- MIGRATION: Fix OR-JR Report PK (Composite: OR/JR + Plan Date + Job Card) ---
       // 1. Remove Strict PK on just or_jr_no
       await q(`ALTER TABLE or_jr_report DROP CONSTRAINT IF EXISTS or_jr_report_pkey`);
-      // 1.1 Remove potential unique index from previous logic
-      await q(`DROP INDEX IF EXISTS idx_or_jr_report_unique_no`);
       // 2. Add Composite Constraint (Unique Index for Upsert)
       // Using COALESCE to treat NULL as a distinct value for uniqueness
       await q(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_composite_unique 
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_composite_unique
         ON or_jr_report (
-            or_jr_no, 
-            COALESCE(plan_date, '1970-01-01'::date), 
+            or_jr_no,
+            COALESCE(plan_date, '1970-01-01'::date),
             COALESCE(job_card_no, '')
         )
       `);
-      console.log('[DB] OR-JR Report Unique Index Updated to (OR+Date+JC)');
-
+      console.log('[DB] OR-JR Report Composite Unique Index ensured');
     } catch (e) {
-      console.error('[DB] Constraint/Migration fix warning:', e.message);
+      console.warn('[DB] or_jr_report composite migration skipped:', e.message);
     }
 
     console.log('[DB] Indexes ensured for performance.');
