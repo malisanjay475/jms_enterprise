@@ -1507,6 +1507,25 @@ async function migrateOrJrReportNumericSchema() {
       USING NULLIF(regexp_replace(COALESCE(${column}::text, ''), '[^0-9.+-]+', '', 'g'), '')::numeric
     `).catch(err => console.warn(`[DB] or_jr_report ${column} type migration skipped:`, err.message));
   }
+
+  // Ensure close/reopen tracking columns exist (added after initial schema)
+  const orJrExtraColumns = [
+    ['factory_id', 'INTEGER'],
+    ['is_closed', 'BOOLEAN DEFAULT FALSE'],
+    ['manual_closed_at', 'TIMESTAMPTZ'],
+    ['manual_closed_by', 'TEXT'],
+    ['manual_closed_by_name', 'TEXT'],
+    ['manual_reopened_at', 'TIMESTAMPTZ'],
+    ['manual_reopened_by', 'TEXT'],
+    ['manual_reopened_by_name', 'TEXT'],
+    ['sync_id', 'UUID DEFAULT gen_random_uuid()'],
+    ['sync_status', 'TEXT'],
+    ['updated_at', 'TIMESTAMPTZ DEFAULT NOW()']
+  ];
+  for (const [colName, colType] of orJrExtraColumns) {
+    await q(`ALTER TABLE or_jr_report ADD COLUMN IF NOT EXISTS ${colName} ${colType}`)
+      .catch(err => console.warn(`[DB] or_jr_report ${colName} migration skipped:`, err.message));
+  }
 }
 
 async function migrateOrjrWiseDetailSchema() {
