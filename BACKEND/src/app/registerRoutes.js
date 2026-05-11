@@ -20,6 +20,7 @@ async function ensureJmsPlanReportSchema(query) {
     ['colour_details', 'JSONB'],
     ['created_by', 'TEXT'],
     ['created_at', 'TIMESTAMPTZ DEFAULT NOW()'],
+    ['job_card_given', 'BOOLEAN DEFAULT false'],
     ['factory_id', 'INTEGER']
   ];
   for (const [name, typeSql] of planBoardColumns) {

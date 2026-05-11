@@ -1343,6 +1343,47 @@ async function migrateMouldMasterSchema() {
   await q(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_trim ON moulds(TRIM(mould_number))`);
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_moulds_factory_mould_number_unique ON moulds ((LOWER(mould_number)), (COALESCE(factory_id, 0)))`)
     .catch(err => console.warn('[DB] idx_moulds_factory_mould_number_unique skipped (duplicate mould numbers in data):', err.message));
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS mould_audit_logs (
+      id SERIAL PRIMARY KEY,
+      mould_id TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      changed_fields JSONB DEFAULT '{}'::jsonb,
+      changed_by TEXT,
+      changed_at TIMESTAMPTZ DEFAULT NOW(),
+      factory_id INTEGER,
+      sync_id UUID DEFAULT gen_random_uuid(),
+      sync_status TEXT
+    )
+  `);
+
+  await q(`ALTER TABLE mould_audit_logs ADD COLUMN IF NOT EXISTS factory_id INTEGER`);
+  await q(`ALTER TABLE mould_audit_logs ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid()`);
+  await q(`ALTER TABLE mould_audit_logs ADD COLUMN IF NOT EXISTS sync_status TEXT`);
+  await q(`UPDATE mould_audit_logs SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
+  await q(`CREATE INDEX IF NOT EXISTS idx_mould_audit_mould_id_changed_at ON mould_audit_logs(mould_id, changed_at DESC)`);
+  await q(`CREATE INDEX IF NOT EXISTS idx_mould_audit_sync_id ON mould_audit_logs(sync_id)`);
+
+  // Local/main sync can insert explicit audit IDs. Keep the serial sequence ahead
+  // of existing rows so future Mould Master uploads never reuse an old primary key.
+  await q(`
+    DO $$
+    DECLARE
+      seq_name text;
+      max_id bigint;
+    BEGIN
+      SELECT pg_get_serial_sequence('public.mould_audit_logs', 'id') INTO seq_name;
+      IF seq_name IS NULL THEN
+        CREATE SEQUENCE IF NOT EXISTS mould_audit_logs_id_seq;
+        ALTER TABLE mould_audit_logs ALTER COLUMN id SET DEFAULT nextval('mould_audit_logs_id_seq');
+        seq_name := 'public.mould_audit_logs_id_seq';
+      END IF;
+
+      SELECT COALESCE(MAX(id), 0) FROM mould_audit_logs INTO max_id;
+      PERFORM setval(seq_name, GREATEST(max_id, 1), max_id > 0);
+    END $$;
+  `);
 }
 
 async function migrateOrjrWiseMasterSchema() {
@@ -3365,6 +3406,7 @@ async function bootstrapFreshCoreTables() {
       colour_details JSONB,
       created_by TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW(),
+      job_card_given BOOLEAN DEFAULT false,
       start_date TIMESTAMP,
       end_date TIMESTAMP,
       status VARCHAR(50) DEFAULT 'PLANNED',
@@ -3752,6 +3794,7 @@ async function initializeLegacyRuntime() {
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS jc_rejected_by TEXT;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS jc_rejected_at TIMESTAMPTZ;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS jc_rejection_stage TEXT;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS job_card_given BOOLEAN DEFAULT false;
 
             CREATE TABLE IF NOT EXISTS plan_job_card_approval_history (
                 id SERIAL PRIMARY KEY,
@@ -10470,6 +10513,7 @@ async function ensureJmsPlanReportSchema() {
     ['colour_details', 'JSONB'],
     ['created_by', 'TEXT'],
     ['created_at', 'TIMESTAMPTZ DEFAULT NOW()'],
+    ['job_card_given', 'BOOLEAN DEFAULT false'],
     ['factory_id', 'INTEGER']
   ];
   for (const [name, typeSql] of planBoardColumns) {
@@ -12457,9 +12501,9 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
 
               // Log
               await client.query(`
-                  INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by)
-VALUES($1, 'UPDATE', $2, 'BulkUpload')
-  `, [code, JSON.stringify(changed)]);
+                INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+                VALUES($1, 'UPDATE', $2, 'BulkUpload', $3)
+              `, [code, JSON.stringify(changed), rowFactoryId]);
               count++;
             }
 
@@ -12469,13 +12513,13 @@ VALUES($1, 'UPDATE', $2, 'BulkUpload')
             await client.query(`
               INSERT INTO moulds(${insertFields.join(', ')})
               VALUES(${insertFields.map((_, index) => `$${index + 1}`).join(', ')})
-    `, [...MOULD_MASTER_FIELDS.map(field => newVal[field]), rowFactoryId]);
+            `, [...MOULD_MASTER_FIELDS.map(field => newVal[field]), rowFactoryId]);
 
             // Log
             await client.query(`
-              INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by)
-VALUES($1, 'CREATE', '{"message": "Created via Bulk Upload"}', 'BulkUpload')
-  `, [code]);
+              INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+              VALUES($1, 'CREATE', '{"message": "Created via Bulk Upload"}', 'BulkUpload', $2)
+            `, [code, rowFactoryId]);
             count++;
           }
         }
@@ -14529,9 +14573,9 @@ app.post('/api/moulds', async (req, res) => {
 
       // 2. Audit Log (CREATE)
       await client.query(`
-        INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by)
-        VALUES($1, 'CREATE', '{"message": "Created new mould"}', $2)
-          `, [payload.mould_number, actor]);
+        INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+        VALUES($1, 'CREATE', '{"message": "Created new mould"}', $2, $3)
+          `, [payload.mould_number, actor, factoryId]);
 
       await client.query('COMMIT');
       res.json({ ok: true, message: 'Mould created' });
@@ -14614,9 +14658,9 @@ app.put('/api/moulds/:id', async (req, res) => {
 
       // 4. Audit Log
       await client.query(`
-        INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by)
-  VALUES($1, 'UPDATE', $2, $3)
-      `, [nextMouldNumber, JSON.stringify(changed), actor]);
+        INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+  VALUES($1, 'UPDATE', $2, $3, $4)
+      `, [nextMouldNumber, JSON.stringify(changed), actor, factoryId]);
 
       await client.query('COMMIT');
       res.json({ ok: true, message: 'Mould updated' });

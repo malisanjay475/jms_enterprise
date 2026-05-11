@@ -54,10 +54,12 @@ async function createTables() {
         start_date TIMESTAMP,
         end_date TIMESTAMP,
         status VARCHAR(50) DEFAULT 'PLANNED',
+        job_card_given BOOLEAN DEFAULT false,
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
         console.log('Created plan_board table');
+        await client.query(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS job_card_given BOOLEAN DEFAULT false;`);
 
         // 4. Jobs Queue Table
         await client.query(`
