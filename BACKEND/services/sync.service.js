@@ -75,6 +75,11 @@ const SYNC_ALL = [
 const TABLES_TO_PUSH = [...SYNC_ALL];
 const TABLES_TO_PULL = [...SYNC_ALL];
 
+// Tables that LOCAL servers must NEVER push to MAIN.
+// These are auth/identity tables where the VPS (MAIN) is the authoritative source.
+// Pushing them from LOCAL would overwrite VPS user credentials with local seed data.
+const LOCAL_NO_PUSH_TABLES = ['users', 'roles'];
+
 const CONFLICT_KEYS = {
     users: 'id',
     roles: 'code',
@@ -460,6 +465,11 @@ async function pushChanges() {
     for (const table of TABLES_TO_PUSH) {
         let rows;
         try {
+            if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.includes(table)) {
+                // Auth tables are MAIN-authoritative. Never push from LOCAL to avoid
+                // overwriting VPS user credentials with locally-seeded data.
+                continue;
+            }
             if (!(await tableExistsPublic(table))) {
                 console.warn(`[Sync] Push skipped ${table}: table does not exist locally`);
                 continue;
@@ -536,7 +546,12 @@ async function pushDeletionChanges() {
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_DELETE_PUSH'`);
     const lastPush = res.rows.length ? res.rows[0].value : '1970-01-01';
     const cycleWatermark = await getDatabaseNowIso();
-    const deletions = await getDeletionChanges(lastPush, LOCAL_FACTORY_ID);
+    let deletions = await getDeletionChanges(lastPush, LOCAL_FACTORY_ID);
+
+    // On LOCAL servers, never push deletions for auth-authoritative tables.
+    if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.length) {
+        deletions = deletions.filter((d) => !LOCAL_NO_PUSH_TABLES.includes(d.table));
+    }
 
     if (deletions.length > 0) {
         console.log(`[Sync] Pushing ${deletions.length} deletions...`);
@@ -1265,6 +1280,7 @@ async function countPendingChanges() {
 
     for (const table of TABLES_TO_PUSH) {
         try {
+            if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.includes(table)) continue;
             if (!(await tableExistsPublic(table))) {
                 console.warn(`[Sync] Pending count skipped for ${table}: table does not exist`);
                 continue;
