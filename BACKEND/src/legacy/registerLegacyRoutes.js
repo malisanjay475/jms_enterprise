@@ -1362,6 +1362,8 @@ async function migrateMouldMasterSchema() {
   await q(`ALTER TABLE mould_audit_logs ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid()`);
   await q(`ALTER TABLE mould_audit_logs ADD COLUMN IF NOT EXISTS sync_status TEXT`);
   await q(`UPDATE mould_audit_logs SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
+  await q(`CREATE INDEX IF NOT EXISTS idx_mould_audit_mould_id_changed_at ON mould_audit_logs(mould_id, changed_at DESC)`);
+  await q(`CREATE INDEX IF NOT EXISTS idx_mould_audit_sync_id ON mould_audit_logs(sync_id)`);
 
   // Local/main sync can insert explicit audit IDs. Keep the serial sequence ahead
   // of existing rows so future Mould Master uploads never reuse an old primary key.
@@ -12499,9 +12501,9 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
 
               // Log
               await client.query(`
-                  INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
-VALUES($1, 'UPDATE', $2, 'BulkUpload', $3)
-  `, [code, JSON.stringify(changed), rowFactoryId]);
+                INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+                VALUES($1, 'UPDATE', $2, 'BulkUpload', $3)
+              `, [code, JSON.stringify(changed), rowFactoryId]);
               count++;
             }
 
@@ -12511,13 +12513,13 @@ VALUES($1, 'UPDATE', $2, 'BulkUpload', $3)
             await client.query(`
               INSERT INTO moulds(${insertFields.join(', ')})
               VALUES(${insertFields.map((_, index) => `$${index + 1}`).join(', ')})
-    `, [...MOULD_MASTER_FIELDS.map(field => newVal[field]), rowFactoryId]);
+            `, [...MOULD_MASTER_FIELDS.map(field => newVal[field]), rowFactoryId]);
 
             // Log
             await client.query(`
               INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
-VALUES($1, 'CREATE', '{"message": "Created via Bulk Upload"}', 'BulkUpload', $2)
-  `, [code, rowFactoryId]);
+              VALUES($1, 'CREATE', '{"message": "Created via Bulk Upload"}', 'BulkUpload', $2)
+            `, [code, rowFactoryId]);
             count++;
           }
         }
