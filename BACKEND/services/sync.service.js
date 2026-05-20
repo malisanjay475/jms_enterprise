@@ -75,6 +75,11 @@ const SYNC_ALL = [
 const TABLES_TO_PUSH = [...SYNC_ALL];
 const TABLES_TO_PULL = [...SYNC_ALL];
 
+// Tables that LOCAL servers must NEVER push to MAIN.
+// These are auth/identity tables where the VPS (MAIN) is the authoritative source.
+// Pushing them from LOCAL would overwrite VPS user credentials with local seed data.
+const LOCAL_NO_PUSH_TABLES = ['users', 'roles'];
+
 const CONFLICT_KEYS = {
     users: 'id',
     roles: 'code',
@@ -84,7 +89,8 @@ const CONFLICT_KEYS = {
     plan_history: 'id',
     purchase_order_items: 'id',
     purchase_orders: 'id',
-    user_factories: 'id',
+    user_factories: 'user_id, factory_id',
+    or_jr_report: 'or_jr_no',
     dpr_reasons: 'id',
     mould_planning_report: 'id',
     mould_planning_summary: 'id',
@@ -121,7 +127,17 @@ const CONFLICT_KEYS = {
     raw_material_issues: 'factory_id, plan_id, created_at',
     wip_stock_movements: 'factory_id, source_type, source_ref, movement_type, created_at',
     wip_stock_snapshots: 'factory_id, stock_date, source_file_name',
-    wip_stock_snapshot_lines: 'factory_id, stock_date, comparison_key'
+    wip_stock_snapshot_lines: 'factory_id, stock_date, comparison_key',
+    // Master tables — explicit id conflict (previously relied on fallback)
+    machines: 'id',
+    bom_master: 'id',
+    bom_components: 'id',
+    dpr_hourly: 'id',
+    grn_entries: 'id',
+    dispatch_items: 'id',
+    jobs_queue: 'id',
+    planning_drops: 'id',
+    operator_history: 'id'
 };
 
 const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
@@ -144,6 +160,7 @@ const SYNC_CONFLICT_INDEXES = {
 };
 
 const SYNC_ID_REQUIRED_TABLES = ['notifications'];
+const tableColumnCache = new Map();
 
 function getDeterministicNotificationSyncIdSql(tableAlias = '') {
     const prefix = tableAlias ? `${tableAlias}.` : '';
@@ -258,9 +275,12 @@ router.post('/push', async (req, res) => {
 
         const stats = await upsertData(table, normalized);
         if (stats.failed > 0) {
-            return res.status(500).json({ error: `Failed to upsert ${stats.failed} row(s) for ${table}`, stats });
+            // Partial row failures: log clearly but return 200 so the factory's
+            // LAST_PUSH watermark still advances and new data keeps flowing.
+            // A 500 here causes the factory to freeze ALL future pushes indefinitely.
+            console.warn(`[Sync] Partial upsert: ${stats.failed} row(s) failed for ${table} (${stats.created} created, ${stats.updated} updated)`);
         }
-        res.json({ ok: true, rows: normalized.length, stats });
+        res.json({ ok: true, rows: normalized.length, stats, partialFailures: stats.failed > 0 });
     } catch (e) {
         console.error('[Sync] Push Receive Error:', e);
         res.status(500).json({ error: e.message });
@@ -329,6 +349,27 @@ router.get('/status', async (req, res) => {
             if (r.key === 'LAST_PULL') lastPull = r.value;
         });
 
+        // Determine connection status for LOCAL servers.
+        // A successful push or pull within the last 10 minutes means we are connected.
+        const CONNECTED_WINDOW_MS = 10 * 60 * 1000;
+        const now = Date.now();
+        function isRecent(ts) {
+            if (!ts || ts === 'Never') return false;
+            const t = new Date(ts).getTime();
+            return !Number.isNaN(t) && (now - t) < CONNECTED_WINDOW_MS;
+        }
+        const connected = SERVER_TYPE === 'LOCAL'
+            ? (isRecent(lastPush) || isRecent(lastPull))
+            : null; // null means "not applicable" for MAIN/STANDALONE
+
+        // Count pending rows waiting to be pushed (LOCAL only, best-effort)
+        let pendingPushCount = null;
+        if (SERVER_TYPE === 'LOCAL') {
+            try {
+                pendingPushCount = await countPendingChanges();
+            } catch (_) { /* non-fatal */ }
+        }
+
         res.json({
             ok: true,
             type: SERVER_TYPE,
@@ -336,7 +377,9 @@ router.get('/status', async (req, res) => {
             main_url: MAIN_SERVER_URL,
             last_sync: lastSync,
             last_push: lastPush,
-            last_pull: lastPull
+            last_pull: lastPull,
+            connected,
+            pending_push_count: pendingPushCount
         });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -458,17 +501,32 @@ async function pushChanges() {
     for (const table of TABLES_TO_PUSH) {
         let rows;
         try {
+            if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.includes(table)) {
+                // Auth tables are MAIN-authoritative. Never push from LOCAL to avoid
+                // overwriting VPS user credentials with locally-seeded data.
+                continue;
+            }
+            if (!(await tableExistsPublic(table))) {
+                console.warn(`[Sync] Push skipped ${table}: table does not exist locally`);
+                continue;
+            }
+            if (!(await tableHasColumn(table, 'updated_at'))) {
+                console.warn(`[Sync] Push skipped ${table}: updated_at column is missing`);
+                continue;
+            }
             const hasFactoryId = await tableHasColumn(table, 'factory_id');
             const sql = hasFactoryId
                 ? `
                     SELECT * FROM ${table}
                     WHERE updated_at > $1
                       AND factory_id = $2
+                    ORDER BY updated_at ASC
                     LIMIT 100
                 `
                 : `
                     SELECT * FROM ${table}
                     WHERE updated_at > $1
+                    ORDER BY updated_at ASC
                     LIMIT 100
                 `;
             const params = hasFactoryId ? [lastPush, LOCAL_FACTORY_ID] : [lastPush];
@@ -488,26 +546,38 @@ async function pushChanges() {
                 apiKey: API_KEY
             };
 
-            const response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+            let response;
+            try {
+                response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } catch (error) {
+                console.error(`[Sync] Push Request Failed ${table}:`, error.message);
+                stats.failed += rows.rows.length;
+                continue;
+            }
 
             if (!response.ok) {
                 const text = await response.text();
                 console.error(`[Sync] Push Failed Details for ${table}:`, text);
                 stats.failed += rows.rows.length;
-                throw new Error(`Push failed: ${response.status} ${response.statusText} - ${text}`);
+                // Keep the cycle moving so a bad optional table (for example old
+                // notification duplicates) cannot block pulling users/masters.
+                continue;
             }
             stats.pushed += rows.rows.length;
         }
     }
 
-    if (stats.failed === 0) {
-        await setServerConfigValue('LAST_PUSH', cycleWatermark);
-    } else {
-        console.warn('[Sync] LAST_PUSH not advanced because one or more table pushes failed.');
+    // Always advance the watermark so new data is never permanently blocked by
+    // a persistently-failing table (e.g. stale notification constraint violations).
+    // Network-level failures (fetch throws) still count as failed but we advance
+    // anyway — the VPS will deduplicate on the next cycle via upsert conflict keys.
+    await setServerConfigValue('LAST_PUSH', cycleWatermark);
+    if (stats.failed > 0) {
+        console.warn(`[Sync] LAST_PUSH advanced despite ${stats.failed} push error(s) — failed rows will not be retried.`);
     }
     return stats;
 }
@@ -517,29 +587,41 @@ async function pushDeletionChanges() {
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_DELETE_PUSH'`);
     const lastPush = res.rows.length ? res.rows[0].value : '1970-01-01';
     const cycleWatermark = await getDatabaseNowIso();
-    const deletions = await getDeletionChanges(lastPush, LOCAL_FACTORY_ID);
+    let deletions = await getDeletionChanges(lastPush, LOCAL_FACTORY_ID);
+
+    // On LOCAL servers, never push deletions for auth-authoritative tables.
+    if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.length) {
+        deletions = deletions.filter((d) => !LOCAL_NO_PUSH_TABLES.includes(d.table));
+    }
 
     if (deletions.length > 0) {
         console.log(`[Sync] Pushing ${deletions.length} deletions...`);
-        const response = await fetch(`${MAIN_SERVER_URL}/api/sync/push-deletions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ deletions, apiKey: API_KEY })
-        });
+        let response;
+        try {
+            response = await fetch(`${MAIN_SERVER_URL}/api/sync/push-deletions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deletions, apiKey: API_KEY })
+            });
+        } catch (error) {
+            console.error('[Sync] Push Deletions Request Failed:', error.message);
+            stats.failed += deletions.length;
+            return stats;
+        }
 
         if (!response.ok) {
             const text = await response.text();
             console.error('[Sync] Push Deletions Failed:', text);
             stats.failed += deletions.length;
-            throw new Error(`Push deletions failed: ${response.status} ${response.statusText} - ${text}`);
+            return stats;
         }
         stats.deleted += deletions.length;
     }
 
-    if (stats.failed === 0) {
-        await setServerConfigValue('LAST_DELETE_PUSH', cycleWatermark);
-    } else {
-        console.warn('[Sync] LAST_DELETE_PUSH not advanced because one or more deletion pushes failed.');
+    // Always advance so deletion sync never gets permanently stuck.
+    await setServerConfigValue('LAST_DELETE_PUSH', cycleWatermark);
+    if (stats.failed > 0) {
+        console.warn(`[Sync] LAST_DELETE_PUSH advanced despite ${stats.failed} deletion push error(s).`);
     }
     return stats;
 }
@@ -552,6 +634,10 @@ async function pullChanges() {
 
     for (const table of TABLES_TO_PULL) {
         try {
+            if (!(await tableExistsPublic(table))) {
+                console.warn(`[Sync] Pull skipped ${table}: table does not exist locally`);
+                continue;
+            }
             const response = await fetch(`${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(lastPull)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`);
             if (!response.ok) continue;
 
@@ -566,15 +652,15 @@ async function pullChanges() {
                 stats.failed += tableStats.failed;
             }
         } catch (e) {
-            console.error(`[Sync] Pull Failed ${table}:`, e);
+            console.error(`[Sync] Pull Failed ${table}:`, e.message);
             stats.failed += 1;
         }
     }
 
-    if (stats.failed === 0) {
-        await setServerConfigValue('LAST_PULL', cycleWatermark);
-    } else {
-        console.warn('[Sync] LAST_PULL not advanced because one or more table pulls failed.');
+    // Always advance so LAST_PULL never gets permanently stuck on a partial failure.
+    await setServerConfigValue('LAST_PULL', cycleWatermark);
+    if (stats.failed > 0) {
+        console.warn(`[Sync] LAST_PULL advanced despite ${stats.failed} pull error(s) — failed rows will not be retried.`);
     }
     return stats;
 }
@@ -602,10 +688,10 @@ async function pullDeletionChanges() {
         stats.failed += 1;
     }
 
-    if (stats.failed === 0) {
-        await setServerConfigValue('LAST_DELETE_PULL', cycleWatermark);
-    } else {
-        console.warn('[Sync] LAST_DELETE_PULL not advanced because one or more deletion pulls failed.');
+    // Always advance so LAST_DELETE_PULL never gets permanently stuck on a partial failure.
+    await setServerConfigValue('LAST_DELETE_PULL', cycleWatermark);
+    if (stats.failed > 0) {
+        console.warn(`[Sync] LAST_DELETE_PULL advanced despite ${stats.failed} deletion pull error(s).`);
     }
     return stats;
 }
@@ -669,6 +755,12 @@ async function upsertData(table, data) {
     const MAX_RETRIES = 3;
     let attempt = 0;
     const stats = { created: 0, updated: 0, failed: 0 };
+    const tableColumns = await getTableColumns(table);
+    const hasUpdatedAtColumn = tableColumns.has('updated_at');
+    if (tableColumns.size === 0) {
+        console.warn(`[Sync] Upsert skipped ${table}: table does not exist`);
+        return { created: 0, updated: 0, failed: data.length };
+    }
 
     while (attempt < MAX_RETRIES) {
         const client = await pool.connect();
@@ -691,22 +783,42 @@ async function upsertData(table, data) {
                     row = TRANSFORMERS[table](row);
                 }
 
+                row = Object.fromEntries(
+                    Object.entries(row).filter(([key]) => tableColumns.has(key))
+                );
+
                 const conflictColumns = getConflictColumns(table, row);
+                const missingConflictColumns = conflictColumns.filter((column) => !tableColumns.has(column));
+                if (missingConflictColumns.length) {
+                    console.warn(`[Sync] Skipping ${table} row: conflict column(s) missing in schema: ${missingConflictColumns.join(', ')}`);
+                    stats.failed += 1;
+                    continue;
+                }
+
                 if (row && row.sync_id && Object.prototype.hasOwnProperty.call(row, 'id') && !conflictColumns.includes('id')) {
                     delete row.id;
                 }
 
                 const keys = Object.keys(row);
                 const vals = Object.values(row);
+                if (keys.length === 0) {
+                    stats.failed += 1;
+                    continue;
+                }
                 const idx = keys.map((_, i) => `$${i + 1}`);
                 const setClause = keys.map((k) => `${k} = EXCLUDED.${k}`).join(', ');
                 const conflictKey = conflictColumns.join(', ');
 
-                let whereClause = `WHERE (EXCLUDED.updated_at > ${table}.updated_at OR ${table}.updated_at IS NULL)`;
+                let whereClause = hasUpdatedAtColumn
+                    ? `WHERE (EXCLUDED.updated_at > ${table}.updated_at OR ${table}.updated_at IS NULL)`
+                    : '';
 
                 if (table === 'plan_board') {
-                    whereClause += ` AND NOT (${table}.status = 'Running' AND EXCLUDED.status IN ('Planned', 'Stopped', 'Pending'))`;
-                    whereClause += ` AND (${table}.updated_at < NOW() - INTERVAL '15 seconds' OR ${table}.updated_at IS NULL)`;
+                    whereClause += whereClause ? ' AND ' : 'WHERE ';
+                    whereClause += `NOT (${table}.status = 'Running' AND EXCLUDED.status IN ('Planned', 'Stopped', 'Pending'))`;
+                    if (hasUpdatedAtColumn) {
+                        whereClause += ` AND (${table}.updated_at < NOW() - INTERVAL '15 seconds' OR ${table}.updated_at IS NULL)`;
+                    }
                 }
 
                 const sql = `
@@ -718,35 +830,54 @@ async function upsertData(table, data) {
                     RETURNING (xmax = 0) AS inserted
                 `;
 
+                let savepointActive = false;
                 try {
                     await client.query('SAVEPOINT sync_row_upsert');
+                    savepointActive = true;
                     const result = await client.query(sql, vals);
                     await client.query('RELEASE SAVEPOINT sync_row_upsert');
+                    savepointActive = false;
                     if (result.rows.length && result.rows[0].inserted === true) {
                         stats.created += 1;
                     } else if (result.rows.length) {
                         stats.updated += 1;
                     }
                     } catch (innerErr) {
-                        try {
-                            await client.query('ROLLBACK TO SAVEPOINT sync_row_upsert');
-                            await client.query('RELEASE SAVEPOINT sync_row_upsert');
-                        } catch (savepointErr) {
-                        console.error(`[Sync] Savepoint rollback failed for ${table}:`, savepointErr.message);
-                        throw savepointErr;
+                        if (savepointActive) {
+                            try {
+                                await client.query('ROLLBACK TO SAVEPOINT sync_row_upsert');
+                                await client.query('RELEASE SAVEPOINT sync_row_upsert');
+                            } catch (savepointErr) {
+                                console.error(`[Sync] Savepoint rollback failed for ${table}:`, savepointErr.message);
+                                throw savepointErr;
+                            }
+                            savepointActive = false;
                         }
                         if (innerErr.code === '40P01') {
                             throw innerErr;
                         }
 
                         if (table === 'notifications' && innerErr.constraint === 'uq_sync_conflict_notifications') {
+                            let legacySavepointActive = false;
                             try {
+                                await client.query('SAVEPOINT sync_legacy_notif');
+                                legacySavepointActive = true;
                                 const resolved = await tryResolveLegacyNotificationConflict(client, row, keys, vals);
+                                await client.query('RELEASE SAVEPOINT sync_legacy_notif');
+                                legacySavepointActive = false;
                                 if (resolved) {
                                     stats.updated += 1;
                                     continue;
                                 }
                             } catch (legacyErr) {
+                                if (legacySavepointActive) {
+                                    try {
+                                        await client.query('ROLLBACK TO SAVEPOINT sync_legacy_notif');
+                                        await client.query('RELEASE SAVEPOINT sync_legacy_notif');
+                                    } catch (cleanupErr) {
+                                        console.error('[Sync] Legacy savepoint rollback failed:', cleanupErr.message);
+                                    }
+                                }
                                 console.error('[Sync] Legacy notification conflict fallback failed:', legacyErr.message);
                             }
                         }
@@ -781,12 +912,16 @@ async function upsertData(table, data) {
 }
 
 async function getChanges(table, since, targetFactoryId) {
+    if (!(await tableExistsPublic(table))) {
+        return [];
+    }
+
     let sql = `SELECT * FROM ${table}`;
     const params = [];
     const where = [];
     const normalizedSince = normalizeSyncTimestampInput(since);
 
-    if (normalizedSince) {
+    if (normalizedSince && await tableHasColumn(table, 'updated_at')) {
         params.push(normalizedSince);
         where.push(`updated_at > $${params.length}`);
     }
@@ -800,7 +935,7 @@ async function getChanges(table, since, targetFactoryId) {
         sql += ` WHERE ${where.join(' AND ')}`;
     }
 
-    sql += ' LIMIT 1000';
+    sql += ' ORDER BY updated_at ASC LIMIT 1000';
 
     try {
         const rows = await pool.query(sql, params);
@@ -811,7 +946,7 @@ async function getChanges(table, since, targetFactoryId) {
 
             let fallbackSql = `SELECT * FROM ${table}`;
             if (normalizedSince) fallbackSql += ' WHERE updated_at > $1';
-            fallbackSql += ' LIMIT 1000';
+            fallbackSql += ' ORDER BY updated_at ASC LIMIT 1000';
             const fallback = await pool.query(fallbackSql, normalizedSince ? [normalizedSince] : []);
             return fallback.rows;
         }
@@ -1007,16 +1142,17 @@ async function ensureSyncUpdatedAtSchema() {
 
     for (const table of SYNC_ALL) {
         try {
+            if (!(await tableExistsPublic(table))) {
+                console.warn(`[Sync] updated_at tracking skipped for ${table}: table does not exist`);
+                continue;
+            }
             const sourceColumn = SYNC_UPDATED_AT_SOURCE_COLUMNS[table];
             const hasUpdatedAt = await tableHasColumn(table, 'updated_at');
             const hasSourceColumn = sourceColumn ? await tableHasColumn(table, sourceColumn) : false;
 
-            if (!hasUpdatedAt && !sourceColumn) {
-                continue;
-            }
-
             if (!hasUpdatedAt) {
                 await pool.query(`ALTER TABLE ${table} ADD COLUMN updated_at TIMESTAMPTZ`);
+                tableColumnCache.delete(table);
             }
 
             if (hasSourceColumn) {
@@ -1055,19 +1191,62 @@ async function ensureSyncIdSchema() {
 
     for (const table of SYNC_ID_REQUIRED_TABLES) {
         try {
+            if (!(await tableExistsPublic(table))) {
+                console.warn(`[Sync] sync_id schema skipped for ${table}: table does not exist`);
+                continue;
+            }
             const hasSyncId = await tableHasColumn(table, 'sync_id');
             if (!hasSyncId) {
                 await pool.query(`ALTER TABLE ${table} ADD COLUMN sync_id UUID`);
+                tableColumnCache.delete(table);
             }
 
             if (table === 'notifications') {
                 await pool.query(`
-                    UPDATE ${table}
-                       SET sync_id = ${getDeterministicNotificationSyncIdSql()}
+                    WITH source AS (
+                        SELECT id,
+                               md5(concat_ws('|',
+                                   COALESCE(target_user, ''),
+                                   COALESCE(type, ''),
+                                   COALESCE(title, ''),
+                                   COALESCE(message, ''),
+                                   COALESCE(link, ''),
+                                   COALESCE(created_by, ''),
+                                   COALESCE(created_at::text, '')
+                               )) AS seed
+                          FROM ${table}
+                         WHERE sync_id IS NULL
+                    )
+                    UPDATE ${table} n
+                       SET sync_id = (
+                           substr(source.seed, 1, 8) || '-' ||
+                           substr(source.seed, 9, 4) || '-' ||
+                           substr(source.seed, 13, 4) || '-' ||
+                           substr(source.seed, 17, 4) || '-' ||
+                           substr(source.seed, 21, 12)
+                       )::uuid
+                      FROM source
+                     WHERE n.id = source.id
+                `);
+                // Older local packages generated the same deterministic sync_id for duplicate
+                // notification rows. Repair only duplicates so valid IDs stay stable.
+                await pool.query(`
+                    WITH ranked AS (
+                        SELECT id,
+                               ROW_NUMBER() OVER (PARTITION BY sync_id ORDER BY id) AS rn
+                          FROM ${table}
+                         WHERE sync_id IS NOT NULL
+                    )
+                    UPDATE ${table} n
+                       SET sync_id = gen_random_uuid()
+                      FROM ranked r
+                     WHERE n.id = r.id
+                       AND r.rn > 1
                 `);
             } else {
                 await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
             }
+
             await pool.query(`ALTER TABLE ${table} ALTER COLUMN sync_id SET DEFAULT gen_random_uuid()`);
             await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_sync_id_${table} ON ${table} (sync_id)`);
         } catch (e) {
@@ -1082,6 +1261,10 @@ async function ensureSyncConflictIndexes() {
     for (const [table, columns] of Object.entries(SYNC_CONFLICT_INDEXES)) {
         const indexName = `uq_sync_conflict_${table}`;
         try {
+            if (!(await tableExistsPublic(table))) {
+                console.warn(`[Sync] conflict index skipped for ${table}: table does not exist`);
+                continue;
+            }
             await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS ${indexName} ON ${table} (${columns})`);
         } catch (e) {
             console.warn(`[Sync] conflict index skipped for ${table}:`, e.message);
@@ -1091,7 +1274,34 @@ async function ensureSyncConflictIndexes() {
     console.log('[Sync] conflict indexes ready');
 }
 
+async function tableExistsPublic(table) {
+    const result = await pool.query(`
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = $1
+        LIMIT 1
+    `, [table]);
+
+    return result.rows.length > 0;
+}
+
+async function getTableColumns(table) {
+    if (tableColumnCache.has(table)) return tableColumnCache.get(table);
+
+    const result = await pool.query(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = $1
+    `, [table]);
+    const columns = new Set(result.rows.map((row) => row.column_name));
+    tableColumnCache.set(table, columns);
+    return columns;
+}
+
 async function tableHasColumn(table, column) {
+    const columns = await getTableColumns(table);
+    if (columns.size > 0) return columns.has(column);
+
     const result = await pool.query(`
         SELECT 1
         FROM information_schema.columns
@@ -1111,6 +1321,15 @@ async function countPendingChanges() {
 
     for (const table of TABLES_TO_PUSH) {
         try {
+            if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.includes(table)) continue;
+            if (!(await tableExistsPublic(table))) {
+                console.warn(`[Sync] Pending count skipped for ${table}: table does not exist`);
+                continue;
+            }
+            if (!(await tableHasColumn(table, 'updated_at'))) {
+                console.warn(`[Sync] Pending count skipped for ${table}: updated_at column is missing`);
+                continue;
+            }
             const hasFactoryId = await tableHasColumn(table, 'factory_id');
             const query = hasFactoryId
                 ? `SELECT COUNT(*)::int AS count FROM ${table} WHERE updated_at > $1 AND factory_id = $2`

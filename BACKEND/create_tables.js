@@ -54,10 +54,12 @@ async function createTables() {
         start_date TIMESTAMP,
         end_date TIMESTAMP,
         status VARCHAR(50) DEFAULT 'PLANNED',
+        job_card_given BOOLEAN DEFAULT false,
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
         console.log('Created plan_board table');
+        await client.query(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS job_card_given BOOLEAN DEFAULT false;`);
 
         // 4. Jobs Queue Table
         await client.query(`
@@ -138,10 +140,13 @@ async function createTables() {
         geo_lat NUMERIC,
         geo_lng NUMERIC,
         geo_acc NUMERIC,
+        is_deleted BOOLEAN DEFAULT false,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
+        await client.query(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`);
+        await client.query(`UPDATE dpr_hourly SET is_deleted = false WHERE is_deleted IS NULL`);
         console.log('Created dpr_hourly table');
 
         console.log('All tables created successfully!');

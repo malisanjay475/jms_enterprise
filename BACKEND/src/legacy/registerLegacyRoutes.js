@@ -894,6 +894,28 @@ if (path.normalize(LEGACY_UPLOADS_DIR) !== path.normalize(PRIMARY_UPLOADS_DIR)) 
   app.use('/uploads', express.static(LEGACY_UPLOADS_DIR));
 }
 
+// On LOCAL servers: if a file under /uploads/ doesn't exist locally, proxy it from the MAIN
+// server so machine icons (and other uploaded assets) are still visible on factory floor PCs.
+if (String(config.serverType || '').toUpperCase() === 'LOCAL' && config.mainServerUrl) {
+  const _mainUrlBase = config.mainServerUrl.replace(/\/$/, '');
+  app.get('/uploads/*path', async (req, res) => {
+    // express.static already called next() — file not found locally, try MAIN
+    try {
+      const remoteUrl = `${_mainUrlBase}${req.path}`;
+      const upstream = await fetch(remoteUrl, { signal: AbortSignal.timeout(8000) });
+      if (!upstream.ok) return res.status(upstream.status).end();
+      const ct = upstream.headers.get('content-type') || 'application/octet-stream';
+      res.setHeader('Content-Type', ct);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      const { Readable } = require('stream');
+      Readable.fromWeb(upstream.body).pipe(res);
+    } catch (e) {
+      console.error('[Uploads Proxy] Failed:', req.path, e.message);
+      res.status(502).end();
+    }
+  });
+}
+
 /* ============================================================
    DPR DASHBOARD MATRIX (New Endpoint for Production Dashboard)
    Renamed to avoid conflict with existing dpr.html summary-matrix
@@ -1343,6 +1365,47 @@ async function migrateMouldMasterSchema() {
   await q(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_trim ON moulds(TRIM(mould_number))`);
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_moulds_factory_mould_number_unique ON moulds ((LOWER(mould_number)), (COALESCE(factory_id, 0)))`)
     .catch(err => console.warn('[DB] idx_moulds_factory_mould_number_unique skipped (duplicate mould numbers in data):', err.message));
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS mould_audit_logs (
+      id SERIAL PRIMARY KEY,
+      mould_id TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      changed_fields JSONB DEFAULT '{}'::jsonb,
+      changed_by TEXT,
+      changed_at TIMESTAMPTZ DEFAULT NOW(),
+      factory_id INTEGER,
+      sync_id UUID DEFAULT gen_random_uuid(),
+      sync_status TEXT
+    )
+  `);
+
+  await q(`ALTER TABLE mould_audit_logs ADD COLUMN IF NOT EXISTS factory_id INTEGER`);
+  await q(`ALTER TABLE mould_audit_logs ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid()`);
+  await q(`ALTER TABLE mould_audit_logs ADD COLUMN IF NOT EXISTS sync_status TEXT`);
+  await q(`UPDATE mould_audit_logs SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
+  await q(`CREATE INDEX IF NOT EXISTS idx_mould_audit_mould_id_changed_at ON mould_audit_logs(mould_id, changed_at DESC)`);
+  await q(`CREATE INDEX IF NOT EXISTS idx_mould_audit_sync_id ON mould_audit_logs(sync_id)`);
+
+  // Local/main sync can insert explicit audit IDs. Keep the serial sequence ahead
+  // of existing rows so future Mould Master uploads never reuse an old primary key.
+  await q(`
+    DO $$
+    DECLARE
+      seq_name text;
+      max_id bigint;
+    BEGIN
+      SELECT pg_get_serial_sequence('public.mould_audit_logs', 'id') INTO seq_name;
+      IF seq_name IS NULL THEN
+        CREATE SEQUENCE IF NOT EXISTS mould_audit_logs_id_seq;
+        ALTER TABLE mould_audit_logs ALTER COLUMN id SET DEFAULT nextval('mould_audit_logs_id_seq');
+        seq_name := 'public.mould_audit_logs_id_seq';
+      END IF;
+
+      SELECT COALESCE(MAX(id), 0) FROM mould_audit_logs INTO max_id;
+      PERFORM setval(seq_name, GREATEST(max_id, 1), max_id > 0);
+    END $$;
+  `);
 }
 
 async function migrateOrjrWiseMasterSchema() {
@@ -1373,6 +1436,12 @@ async function migrateOrjrWiseMasterSchema() {
   `);
   await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS mould_item_code TEXT`);
   await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS mould_item_name TEXT`);
+  await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS factory_id INTEGER`);
+  await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS last_updated_at TIMESTAMP`);
+  await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+  await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS global_id UUID`);
+  await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS sync_status TEXT`);
+  await q(`ALTER TABLE mould_planning_summary ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid()`);
 
   const numericColumns = ['jr_qty', 'plan_qty', 'mould_item_qty', 'tonnage'];
   for (const column of numericColumns) {
@@ -1460,6 +1529,25 @@ async function migrateOrJrReportNumericSchema() {
       USING NULLIF(regexp_replace(COALESCE(${column}::text, ''), '[^0-9.+-]+', '', 'g'), '')::numeric
     `).catch(err => console.warn(`[DB] or_jr_report ${column} type migration skipped:`, err.message));
   }
+
+  // Ensure close/reopen tracking columns exist (added after initial schema)
+  const orJrExtraColumns = [
+    ['factory_id', 'INTEGER'],
+    ['is_closed', 'BOOLEAN DEFAULT FALSE'],
+    ['manual_closed_at', 'TIMESTAMPTZ'],
+    ['manual_closed_by', 'TEXT'],
+    ['manual_closed_by_name', 'TEXT'],
+    ['manual_reopened_at', 'TIMESTAMPTZ'],
+    ['manual_reopened_by', 'TEXT'],
+    ['manual_reopened_by_name', 'TEXT'],
+    ['sync_id', 'UUID DEFAULT gen_random_uuid()'],
+    ['sync_status', 'TEXT'],
+    ['updated_at', 'TIMESTAMPTZ DEFAULT NOW()']
+  ];
+  for (const [colName, colType] of orJrExtraColumns) {
+    await q(`ALTER TABLE or_jr_report ADD COLUMN IF NOT EXISTS ${colName} ${colType}`)
+      .catch(err => console.warn(`[DB] or_jr_report ${colName} migration skipped:`, err.message));
+  }
 }
 
 async function migrateOrjrWiseDetailSchema() {
@@ -1520,11 +1608,13 @@ async function migrateOrderCompletionWorkflowSchema() {
       order_no VARCHAR(255) UNIQUE NOT NULL,
       item_code VARCHAR(255),
       item_name VARCHAR(255),
+      client_name TEXT,
       mould_code VARCHAR(255),
       qty NUMERIC DEFAULT 0,
       balance NUMERIC DEFAULT 0,
       status VARCHAR(50) DEFAULT 'Pending',
       priority VARCHAR(50) DEFAULT 'Normal',
+      factory_id INTEGER,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
@@ -1548,6 +1638,8 @@ async function migrateOrderCompletionWorkflowSchema() {
   `);
 
   const ensureColumns = [
+    ['client_name', 'TEXT'],
+    ['factory_id', 'INTEGER'],
     ['completion_confirmation_required', 'BOOLEAN DEFAULT FALSE'],
     ['completion_change_field', 'TEXT'],
     ['completion_change_to', 'TEXT'],
@@ -1569,6 +1661,19 @@ async function migrateOrderCompletionWorkflowSchema() {
     .catch(err => console.warn('[DB] order completion history order index skipped:', err.message));
   await q(`CREATE INDEX IF NOT EXISTS idx_order_completion_history_factory ON order_completion_history(factory_id, changed_at DESC)`)
     .catch(err => console.warn('[DB] order completion history factory index skipped:', err.message));
+
+  // Sync columns
+  await q(`ALTER TABLE order_completion_history ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+  await q(`ALTER TABLE order_completion_history ADD COLUMN IF NOT EXISTS last_updated_at TIMESTAMP`);
+  await q(`ALTER TABLE order_completion_history ADD COLUMN IF NOT EXISTS sync_status TEXT`);
+  await q(`ALTER TABLE order_completion_history ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid()`);
+  await q(`ALTER TABLE order_completion_history ADD COLUMN IF NOT EXISTS global_id UUID`);
+
+  // Unique index required for ON CONFLICT (factory_id, order_no, action_type, changed_at) upsert
+  await q(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_order_completion_history_sync
+    ON order_completion_history(factory_id, order_no, action_type, changed_at)
+  `).catch(err => console.warn('[DB] order_completion_history unique index skipped:', err.message));
 }
 
 async function migrateWipStockMasterSchema() {
@@ -3342,6 +3447,7 @@ async function bootstrapFreshCoreTables() {
       colour_details JSONB,
       created_by TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW(),
+      job_card_given BOOLEAN DEFAULT false,
       start_date TIMESTAMP,
       end_date TIMESTAMP,
       status VARCHAR(50) DEFAULT 'PLANNED',
@@ -3423,10 +3529,13 @@ async function bootstrapFreshCoreTables() {
       geo_lat NUMERIC,
       geo_lng NUMERIC,
       geo_acc NUMERIC,
+      is_deleted BOOLEAN DEFAULT false,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`);
+  await q(`UPDATE dpr_hourly SET is_deleted = false WHERE is_deleted IS NULL`);
 
   await q(`
     CREATE TABLE IF NOT EXISTS or_jr_report (
@@ -3504,11 +3613,13 @@ async function bootstrapFreshCoreTables() {
       order_no VARCHAR(255) UNIQUE NOT NULL,
       item_code VARCHAR(255),
       item_name VARCHAR(255),
+      client_name TEXT,
       mould_code VARCHAR(255),
       qty NUMERIC DEFAULT 0,
       balance NUMERIC DEFAULT 0,
       status VARCHAR(50) DEFAULT 'Pending',
       priority VARCHAR(50) DEFAULT 'Normal',
+      factory_id INTEGER,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
@@ -3727,6 +3838,7 @@ async function initializeLegacyRuntime() {
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS jc_rejected_by TEXT;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS jc_rejected_at TIMESTAMPTZ;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS jc_rejection_stage TEXT;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS job_card_given BOOLEAN DEFAULT false;
 
             CREATE TABLE IF NOT EXISTS plan_job_card_approval_history (
                 id SERIAL PRIMARY KEY,
@@ -4157,29 +4269,30 @@ async function initializeLegacyRuntime() {
     try {
       // Fix Constraint to CASCADE for easier deletion
       await q(`ALTER TABLE wip_outward_logs DROP CONSTRAINT IF EXISTS wip_outward_logs_wip_inventory_id_fkey`);
-      await q(`ALTER TABLE wip_outward_logs ADD CONSTRAINT wip_outward_logs_wip_inventory_id_fkey 
+      await q(`ALTER TABLE wip_outward_logs ADD CONSTRAINT wip_outward_logs_wip_inventory_id_fkey
                FOREIGN KEY (wip_inventory_id) REFERENCES wip_inventory(id) ON DELETE CASCADE`);
       console.log('[DB] Constraint fixed to CASCADE');
+    } catch (e) {
+      console.warn('[DB] wip_outward_logs constraint fix skipped:', e.message);
+    }
 
+    try {
       // --- MIGRATION: Fix OR-JR Report PK (Composite: OR/JR + Plan Date + Job Card) ---
       // 1. Remove Strict PK on just or_jr_no
       await q(`ALTER TABLE or_jr_report DROP CONSTRAINT IF EXISTS or_jr_report_pkey`);
-      // 1.1 Remove potential unique index from previous logic
-      await q(`DROP INDEX IF EXISTS idx_or_jr_report_unique_no`);
       // 2. Add Composite Constraint (Unique Index for Upsert)
       // Using COALESCE to treat NULL as a distinct value for uniqueness
       await q(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_composite_unique 
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_composite_unique
         ON or_jr_report (
-            or_jr_no, 
-            COALESCE(plan_date, '1970-01-01'::date), 
+            or_jr_no,
+            COALESCE(plan_date, '1970-01-01'::date),
             COALESCE(job_card_no, '')
         )
       `);
-      console.log('[DB] OR-JR Report Unique Index Updated to (OR+Date+JC)');
-
+      console.log('[DB] OR-JR Report Composite Unique Index ensured');
     } catch (e) {
-      console.error('[DB] Constraint/Migration fix warning:', e.message);
+      console.warn('[DB] or_jr_report composite migration skipped:', e.message);
     }
 
     console.log('[DB] Indexes ensured for performance.');
@@ -10444,6 +10557,7 @@ async function ensureJmsPlanReportSchema() {
     ['colour_details', 'JSONB'],
     ['created_by', 'TEXT'],
     ['created_at', 'TIMESTAMPTZ DEFAULT NOW()'],
+    ['job_card_given', 'BOOLEAN DEFAULT false'],
     ['factory_id', 'INTEGER']
   ];
   for (const [name, typeSql] of planBoardColumns) {
@@ -12431,9 +12545,9 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
 
               // Log
               await client.query(`
-                  INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by)
-VALUES($1, 'UPDATE', $2, 'BulkUpload')
-  `, [code, JSON.stringify(changed)]);
+                INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+                VALUES($1, 'UPDATE', $2, 'BulkUpload', $3)
+              `, [code, JSON.stringify(changed), rowFactoryId]);
               count++;
             }
 
@@ -12443,13 +12557,13 @@ VALUES($1, 'UPDATE', $2, 'BulkUpload')
             await client.query(`
               INSERT INTO moulds(${insertFields.join(', ')})
               VALUES(${insertFields.map((_, index) => `$${index + 1}`).join(', ')})
-    `, [...MOULD_MASTER_FIELDS.map(field => newVal[field]), rowFactoryId]);
+            `, [...MOULD_MASTER_FIELDS.map(field => newVal[field]), rowFactoryId]);
 
             // Log
             await client.query(`
-              INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by)
-VALUES($1, 'CREATE', '{"message": "Created via Bulk Upload"}', 'BulkUpload')
-  `, [code]);
+              INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+              VALUES($1, 'CREATE', '{"message": "Created via Bulk Upload"}', 'BulkUpload', $2)
+            `, [code, rowFactoryId]);
             count++;
           }
         }
@@ -14503,9 +14617,9 @@ app.post('/api/moulds', async (req, res) => {
 
       // 2. Audit Log (CREATE)
       await client.query(`
-        INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by)
-        VALUES($1, 'CREATE', '{"message": "Created new mould"}', $2)
-          `, [payload.mould_number, actor]);
+        INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+        VALUES($1, 'CREATE', '{"message": "Created new mould"}', $2, $3)
+          `, [payload.mould_number, actor, factoryId]);
 
       await client.query('COMMIT');
       res.json({ ok: true, message: 'Mould created' });
@@ -14588,9 +14702,9 @@ app.put('/api/moulds/:id', async (req, res) => {
 
       // 4. Audit Log
       await client.query(`
-        INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by)
-  VALUES($1, 'UPDATE', $2, $3)
-      `, [nextMouldNumber, JSON.stringify(changed), actor]);
+        INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+  VALUES($1, 'UPDATE', $2, $3, $4)
+      `, [nextMouldNumber, JSON.stringify(changed), actor, factoryId]);
 
       await client.query('COMMIT');
       res.json({ ok: true, message: 'Mould updated' });
