@@ -1,5 +1,6 @@
 // fetch is available globally in Node.js 18+ — no require needed
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 
 const router = express.Router();
 
@@ -246,6 +247,43 @@ function normalizeSyncTimestampInput(value) {
 /* ============================================================
    ROUTER DEFINITIONS (Mounted at /api/sync)
    ============================================================ */
+
+// Rate limiter: max 60 asset uploads per IP per minute (well above any real LOCAL server need).
+const uploadAssetLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests' }
+});
+
+// Upload an asset file (e.g. machine icon) from a LOCAL server so it exists on MAIN too.
+// LOCAL calls this after saving the file locally — keeps icons in sync across servers.
+router.post('/upload-asset', uploadAssetLimiter, async (req, res) => {
+    try {
+        const { apiKey, folder, filename, data } = req.body || {};
+        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+
+        // Validate inputs
+        const safeFolder = String(folder || '').replace(/[^a-zA-Z0-9_-]/g, '');
+        const safeFilename = String(filename || '').replace(/[^a-zA-Z0-9_.\-]/g, '');
+        if (!safeFolder || !safeFilename) return res.status(400).json({ error: 'Invalid folder or filename' });
+        if (!data || typeof data !== 'string') return res.status(400).json({ error: 'Missing data' });
+
+        const fs = require('fs');
+        const path = require('path');
+        const uploadsDir = path.join(__dirname, '..', 'PUBLIC', 'uploads', safeFolder);
+        fs.mkdirSync(uploadsDir, { recursive: true });
+        const filePath = path.join(uploadsDir, safeFilename);
+        fs.writeFileSync(filePath, Buffer.from(data, 'base64'));
+
+        console.log(`[Sync] Asset uploaded from LOCAL: /uploads/${safeFolder}/${safeFilename}`);
+        res.json({ ok: true, path: `/uploads/${safeFolder}/${safeFilename}` });
+    } catch (e) {
+        console.error('[Sync] upload-asset failed:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
 
 router.post('/push', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
