@@ -1285,7 +1285,7 @@
                                             let overrideTriggeredThisSlot = false;
 
                                              // Check purely special Entry Types (Quick Actions)
-                                             const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial'].includes(e.entry_type));
+                                             const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial', 'PowerCut'].includes(e.entry_type));
 
                                              if (spEntry) {
                                                  if (spEntry.entry_type === 'Maintenance') activeOverrideStatus = '🏭 Machine Maintenance';
@@ -1294,6 +1294,7 @@
                                                  else if (spEntry.entry_type === 'MouldMaintenance') activeOverrideStatus = 'MOULD MAINT';
                                                  else if (spEntry.entry_type === 'NoPlan') activeOverrideStatus = 'NO PLAN';
                                                  else if (spEntry.entry_type === 'MouldTrial') activeOverrideStatus = 'MOULD TRIAL';
+                                                 else if (spEntry.entry_type === 'PowerCut') activeOverrideStatus = '⚡ POWER CUT';
                                                  overrideTriggeredThisSlot = true;
                                              } else {
                                                 // Check manually entered Main types where downtime is >= 45m and 0 production
@@ -1304,6 +1305,7 @@
                                                      else if (brk['2']) { activeOverrideStatus = 'Mould Changeover'; overrideTriggeredThisSlot = true; }
                                                      else if (brk['5']) { activeOverrideStatus = '🏭 Machine Maintenance'; overrideTriggeredThisSlot = true; }
                                                      else if (brk['7']) { activeOverrideStatus = 'MOULD MAINT'; overrideTriggeredThisSlot = true; }
+                                                     else if (brk['8']) { activeOverrideStatus = '⚡ POWER CUT'; overrideTriggeredThisSlot = true; }
                                                      else if (brk['11']) { activeOverrideStatus = 'MOULD TRIAL'; overrideTriggeredThisSlot = true; }
                                                      else if (brk['13']) { activeOverrideStatus = 'NO PLAN'; overrideTriggeredThisSlot = true; }
                                                  }
@@ -1327,6 +1329,7 @@
                                                  if (activeOverrideStatus === 'NO PLAN') { bg = '#fff1f2'; border = '1px solid #fda4af'; content = `<div style="color:#e11d48; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
                                                  else if (activeOverrideStatus === 'MOULD MAINT') { bg = '#fefce8'; border = '1px solid #fde047'; content = `<div style="color:#a16207; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
                                                  else if (activeOverrideStatus === 'MOULD TRIAL') { bg = '#f5f3ff'; border = '1px solid #ddd6fe'; content = `<div style="color:#7c3aed; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
+                                                 else if (activeOverrideStatus === '⚡ POWER CUT') { bg = '#eff6ff'; border = '1px solid #bfdbfe'; content = `<div style="color:#1e40af; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
                                                  else { bg = '#fee2e2'; border = '1px solid #fca5a5'; content = `<div style="color:#b91c1c; font-weight:700; font-size:0.75rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
 
                                             } else if (entries.length > 0) {
@@ -1500,7 +1503,7 @@
 
                                                  // --- FEATURE: Auto-Fill Summary Integration ---
                                                  let hasOverrideThisSlot = false;
-                                                 const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial'].includes(e.entry_type));
+                                                 const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial', 'PowerCut'].includes(e.entry_type));
                                                  if (spEntry) {
                                                      if (spEntry.entry_type === 'Maintenance') sumActiveOverride = '🏭 Machine Maintenance';
                                                      else if (spEntry.entry_type.includes('MouldChange')) sumActiveOverride = 'Mould Changeover';
@@ -1508,6 +1511,7 @@
                                                      else if (spEntry.entry_type === 'MouldMaintenance') sumActiveOverride = 'MOULD MAINT';
                                                      else if (spEntry.entry_type === 'NoPlan') sumActiveOverride = 'NO PLAN';
                                                      else if (spEntry.entry_type === 'MouldTrial') sumActiveOverride = 'MOULD TRIAL';
+                                                     else if (spEntry.entry_type === 'PowerCut') sumActiveOverride = '⚡ POWER CUT';
                                                      hasOverrideThisSlot = true;
                                                  } else {
                                                     const dEntry = entries.find(e => e.entry_type === 'Main' && Number(e.downtime_min) >= 45 && Number(e.good_qty || 0) === 0);
@@ -1516,6 +1520,7 @@
                                                          else if (brk['2']) { sumActiveOverride = 'Mould Changeover'; hasOverrideThisSlot = true; }
                                                          else if (brk['5']) { sumActiveOverride = '🏭 Machine Maintenance'; hasOverrideThisSlot = true; }
                                                          else if (brk['7']) { sumActiveOverride = 'MOULD MAINT'; hasOverrideThisSlot = true; }
+                                                         else if (brk['8']) { sumActiveOverride = '⚡ POWER CUT'; hasOverrideThisSlot = true; }
                                                          else if (brk['11']) { sumActiveOverride = 'MOULD TRIAL'; hasOverrideThisSlot = true; }
                                                          else if (brk['13']) { sumActiveOverride = 'NO PLAN'; hasOverrideThisSlot = true; }
                                                      }
@@ -1537,6 +1542,7 @@
                                                     if (sumActiveOverride === 'Man Power Shortage') rCode = '1';
                                                     else if (sumActiveOverride === 'Mould Changeover') rCode = '2';
                                                     else if (sumActiveOverride === 'MOULD MAINT') rCode = '7';
+                                                    else if (sumActiveOverride === '⚡ POWER CUT') rCode = '8';
                                                     else if (sumActiveOverride === 'MOULD TRIAL') rCode = '11';
                                                     else if (sumActiveOverride === 'NO PLAN') rCode = '13';
                                                      rowAggDt[rCode] = (rowAggDt[rCode] || 0) + 60;
@@ -1644,42 +1650,37 @@
                                             });
                                         }
 
-                                        // Efficiency (Gross Efficiency - Total Time based)
-                                        let rowEff = 0, estPcs = 0;
+                                        // Efficiency & OEE
+                                        let rowEff = 0, estPcs = 0;       // OEE — gross scheduled time
+                                        let rowEffNet = 0, estPcsNet = 0;  // EFF — net run time (available − downtime)
                                         if (hasEntries && maxSlotIdx >= minSlotIdx && !m.is_dummy) {
                                             const availSlots = maxSlotIdx - minSlotIdx + 1;
                                             const availMins = availSlots * 60;
-
-                                            // Gross Efficiency = (Actual / (StdRate * TotalTime))
-                                            // We do NOT subtract Downtime for Capacity Utilization view usually requested by management.
-                                            // However, to be "Perfect" match to floor reality:
-                                            // Let's use Net Run Time but Cap it safely.
-                                            // const actProdTime = Math.max(0, availMins - sumDt); 
-
-                                            // CHANGE: Use Gross Time to avoid >100% artifacts from bad DT entries
-                                            // If user wants OEE Performance, they use the other report.
-                                            // For Compliance Summary, we compare against Shift Time.
-                                            const actProdTime = availMins;
+                                            // Net run time: cap downtime at available minutes to avoid negatives
+                                            const runTimeMins = Math.max(0, availMins - Math.min(sumDt, availMins));
 
                                             const std = parseFloat(m.std) || 0;
                                             if (std > 0) {
-                                                estPcs = Math.round(std * (actProdTime / 60.0));
-                                                // Cap Efficiency at 100%? No, show truth but maybe highlight >100.
-                                                // If EstPcs is very low (due to short time) but produced is high -> abnormal.
+                                                // OEE = Good / (Std × Total Scheduled Hours)
+                                                estPcs = Math.round(std * (availMins / 60.0));
                                                 if (estPcs > 0) rowEff = (sumGood / estPcs) * 100;
-                                            } else {
-                                                // Try to fallback if Std is missing but we have Cycle Time
-                                                // This is handled in addMould upstream now
+
+                                                // EFF = Good / (Std × Net Run Time Hours)
+                                                estPcsNet = Math.round(std * (runTimeMins / 60.0));
+                                                if (estPcsNet > 0) rowEffNet = (sumGood / estPcsNet) * 100;
                                             }
                                         }
 
-                                        // Summary HTML (Same as before)
-                                        // Summary HTML (Same as before)
-                                        const effColor = rowEff >= 80 ? '#166534' : '#b45309';
+                                        // Summary HTML — format: Std / TotalPcs (Good+Rej) / DT / Wt Std / Tot Kg / EFF / OEE
+                                        const totalPcs = sumGood + sumRej;
+                                        const wtStdGrams = rowSetupWeight > 0 ? Math.round(rowSetupWeight * 1000) : 0;
+                                        const totKg = sumTonnage + sumRejTonnage;
+                                        const effColor  = rowEffNet >= 80 ? '#166534' : rowEffNet >= 60 ? '#b45309' : '#dc2626';
+                                        const oeeColor  = rowEff    >= 80 ? '#166534' : rowEff    >= 60 ? '#b45309' : '#dc2626';
 
                                         const summaryClickScript = `showSummaryDetails('${machine}', '${rowShift}', '${lineName}', ${sumGood}, ${sumRej}, ${sumDt}, ${sumAutoDt}, ${Math.round(sumStd)}, '${encodeURIComponent(JSON.stringify(rowAggRej))}', '${encodeURIComponent(JSON.stringify(rowAggDt))}')`;
 
-                                        let summaryH = !m.is_dummy ? `<div style="text-align:left; cursor:pointer" onclick="${summaryClickScript}"><div style="font-size:0.75rem; font-weight:700; color:#0369a1; margin-bottom:2px">Std: ${Math.round(sumStd)}</div><div style="font-size:0.8rem"><span style="font-weight:700; color:#166534">${sumGood}</span>${sumRej > 0 ? `<span style="color:#dc2626; font-weight:600"> | ${sumRej}®</span>` : ''}</div>${sumDt > 0 ? `<div style="font-size:0.8rem; color:#db2777; font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="font-size:0.75rem; color:#be185d; font-weight:700; background:#fce7f3; padding:1px 3px; border-radius:3px; display:inline-block; margin-top:2px">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${(sumTonnage + sumRejTonnage) > 0 ? `<div style="font-size:0.75rem; font-weight:800; color:#7c3aed; margin-top:2px; padding-top:2px; border-top:1px dashed #ddd6fe; background:#faf5ff; padding:2px 4px; border-radius:3px; display:inline-block" title="Overall Tonnage (Good + Reject Kg)">Overall: ${(sumTonnage + sumRejTonnage).toFixed(2)} Kg</div>` : ''}<div title="W: ${rowSetupWeight}g (Est)" style="font-size:0.75rem; color:#475569; font-weight:600; margin-top:2px; border-top:1px dashed #cbd5e1; padding-top:2px; cursor:help">Kg: ${sumTonnage.toFixed(2)}${sumRejTonnage > 0 ? `<div style="color:#dc2626; font-size:0.7rem">Rej: ${sumRejTonnage.toFixed(2)}</div>` : ''}</div>${rowEff > 0 ? `<div style="font-size:0.75rem; font-weight:700; color:${effColor}; margin-top:2px; padding-top:2px; border-top:1px dashed #e2e8f0" title="Est: ${estPcs}">Eff: ${rowEff.toFixed(1)}%</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
+                                        let summaryH = !m.is_dummy ? `<div style="text-align:left; cursor:pointer; line-height:1.6" onclick="${summaryClickScript}"><div style="font-size:0.72rem; font-weight:700; color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-size:0.8rem; font-weight:700; color:#166534">${totalPcs}<span style="font-size:0.7rem; font-weight:500; color:#475569"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="font-size:0.72rem; color:#db2777; font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${wtStdGrams > 0 ? `<div style="font-size:0.72rem; color:#475569; font-weight:600">Wt Std: ${wtStdGrams}g</div>` : ''}<div style="font-size:0.72rem; color:#7c3aed; font-weight:700">Tot Kg: ${totKg.toFixed(2)}</div>${rowEffNet > 0 ? `<div style="font-size:0.72rem; font-weight:700; color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-size:0.72rem; font-weight:700; color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
 
                                         lineTotalTonnage += sumTonnage;
                                         lineTotalRejTonnage += sumRejTonnage;
