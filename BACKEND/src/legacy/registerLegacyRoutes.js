@@ -1599,6 +1599,18 @@ async function migrateOrjrWiseDetailSchema() {
   await q(`CREATE INDEX IF NOT EXISTS idx_mould_planning_report_factory_id ON mould_planning_report(factory_id)`);
   await q(`CREATE INDEX IF NOT EXISTS idx_mpr_order ON mould_planning_report(or_jr_no)`);
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS mould_report_date_uniq_idx ON mould_planning_report(or_jr_no, mould_no, mould_item_code, plan_date)`);
+
+  /* ── Fix: reset serial sequence to max(id) to prevent pkey conflicts
+     after DB restore / sync from production pushes IDs higher than
+     the current sequence value.
+  ────────────────────────────────────────────────────────────────── */
+  await q(`
+    SELECT setval(
+      'mould_planning_report_id_seq',
+      COALESCE((SELECT MAX(id) FROM mould_planning_report), 0) + 1,
+      false
+    )
+  `).catch(err => console.warn('[DB] mould_planning_report sequence reset skipped:', err.message));
 }
 
 async function migrateOrderCompletionWorkflowSchema() {
@@ -12679,6 +12691,9 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
         }
 
       } else if (type === 'orjrwise') {
+        // Reset sequence to MAX(id) so synced rows with explicit IDs don't cause pkey conflicts.
+        await client.query(`SELECT setval('mould_planning_summary_id_seq', COALESCE((SELECT MAX(id) FROM mould_planning_summary), 0) + 1, false)`);
+
         const rowsToUpsert = data.map(row => {
           const jrDate = toDate(row.jr_date);
           const planDate = toDate(row.plan_date) || jrDate || null;
@@ -12748,6 +12763,9 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
           count++;
         }
       } else if (type === 'orjrwisedetail') {
+        // Reset sequence to MAX(id) so synced rows with explicit IDs don't cause pkey conflicts.
+        await client.query(`SELECT setval('mould_planning_report_id_seq', COALESCE((SELECT MAX(id) FROM mould_planning_report), 0) + 1, false)`);
+
         const rowsToUpsert = data.map(row => {
           const jrDate = toIsoDateText(row.jr_date);
           const planDate = toIsoDateText(row.plan_date) || jrDate || null;
@@ -12913,6 +12931,9 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
           count++;
         }
       } else if (type === 'boplanningdetail') {
+        // Reset sequence to MAX(id) so synced rows with explicit IDs don't cause pkey conflicts.
+        await client.query(`SELECT setval('mould_planning_report_id_seq', COALESCE((SELECT MAX(id) FROM mould_planning_report), 0) + 1, false)`);
+
         const rowsToUpsert = data.map(row => {
           const jrDate = toIsoDateText(row.jr_date);
           const planDate = toIsoDateText(row.plan_date) || jrDate || null;
