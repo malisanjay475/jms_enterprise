@@ -265,9 +265,12 @@ router.post('/push', async (req, res) => {
 
         const stats = await upsertData(table, normalized);
         if (stats.failed > 0) {
-            return res.status(500).json({ error: `Failed to upsert ${stats.failed} row(s) for ${table}`, stats });
+            // Partial row failures: log clearly but return 200 so the factory's
+            // LAST_PUSH watermark still advances and new data keeps flowing.
+            // A 500 here causes the factory to freeze ALL future pushes indefinitely.
+            console.warn(`[Sync] Partial upsert: ${stats.failed} row(s) failed for ${table} (${stats.created} created, ${stats.updated} updated)`);
         }
-        res.json({ ok: true, rows: normalized.length, stats });
+        res.json({ ok: true, rows: normalized.length, stats, partialFailures: stats.failed > 0 });
     } catch (e) {
         console.error('[Sync] Push Receive Error:', e);
         res.status(500).json({ error: e.message });
@@ -484,11 +487,13 @@ async function pushChanges() {
                     SELECT * FROM ${table}
                     WHERE updated_at > $1
                       AND factory_id = $2
+                    ORDER BY updated_at ASC
                     LIMIT 100
                 `
                 : `
                     SELECT * FROM ${table}
                     WHERE updated_at > $1
+                    ORDER BY updated_at ASC
                     LIMIT 100
                 `;
             const params = hasFactoryId ? [lastPush, LOCAL_FACTORY_ID] : [lastPush];
@@ -533,10 +538,13 @@ async function pushChanges() {
         }
     }
 
-    if (stats.failed === 0) {
-        await setServerConfigValue('LAST_PUSH', cycleWatermark);
-    } else {
-        console.warn('[Sync] LAST_PUSH not advanced because one or more table pushes failed.');
+    // Always advance the watermark so new data is never permanently blocked by
+    // a persistently-failing table (e.g. stale notification constraint violations).
+    // Network-level failures (fetch throws) still count as failed but we advance
+    // anyway — the VPS will deduplicate on the next cycle via upsert conflict keys.
+    await setServerConfigValue('LAST_PUSH', cycleWatermark);
+    if (stats.failed > 0) {
+        console.warn(`[Sync] LAST_PUSH advanced despite ${stats.failed} push error(s) — failed rows will not be retried.`);
     }
     return stats;
 }
@@ -577,10 +585,10 @@ async function pushDeletionChanges() {
         stats.deleted += deletions.length;
     }
 
-    if (stats.failed === 0) {
-        await setServerConfigValue('LAST_DELETE_PUSH', cycleWatermark);
-    } else {
-        console.warn('[Sync] LAST_DELETE_PUSH not advanced because one or more deletion pushes failed.');
+    // Always advance so deletion sync never gets permanently stuck.
+    await setServerConfigValue('LAST_DELETE_PUSH', cycleWatermark);
+    if (stats.failed > 0) {
+        console.warn(`[Sync] LAST_DELETE_PUSH advanced despite ${stats.failed} deletion push error(s).`);
     }
     return stats;
 }
