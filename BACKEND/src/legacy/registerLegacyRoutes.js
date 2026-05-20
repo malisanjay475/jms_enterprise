@@ -3304,6 +3304,69 @@ function saveDataUrlImage(dataUrl, folderName, prefix) {
   return relativePath;
 }
 
+// Scans PUBLIC/uploads/ and pushes every image file to MAIN.
+// Called at startup (delayed) so pre-existing icons reach the VPS even before any edit.
+// Also exposed as POST /api/sync/push-uploads for manual re-trigger.
+async function pushAllUploadsToMain() {
+  const serverType = String(process.env.SERVER_TYPE || '').toUpperCase();
+  if (serverType !== 'LOCAL') return;
+
+  const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
+  const syncKey = String(process.env.SYNC_API_KEY || '').trim();
+  if (!mainUrl || !syncKey) {
+    console.warn('[Uploads] pushAllUploadsToMain: MAIN_SERVER_URL or SYNC_API_KEY not set — skipping.');
+    return;
+  }
+
+  const uploadsDir = path.join(STATIC_PUBLIC_DIR, 'uploads');
+  if (!fs.existsSync(uploadsDir)) return;
+
+  // Collect all image files under uploads/
+  const IMAGE_EXT = /\.(jpg|jpeg|png|gif|webp|svg)$/i;
+  const files = [];
+  function scanDir(dir, folder) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        scanDir(path.join(dir, entry.name), entry.name);
+      } else if (entry.isFile() && IMAGE_EXT.test(entry.name)) {
+        files.push({ dir, folder, filename: entry.name });
+      }
+    }
+  }
+  scanDir(uploadsDir, '');
+
+  if (files.length === 0) return;
+  console.log(`[Uploads] Syncing ${files.length} existing file(s) to MAIN...`);
+
+  let pushed = 0;
+  let skipped = 0;
+  for (const f of files) {
+    try {
+      const data = fs.readFileSync(path.join(f.dir, f.filename)).toString('base64');
+      const r = await fetch(`${mainUrl}/api/sync/upload-asset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: syncKey, folder: f.folder, filename: f.filename, data }),
+        signal: AbortSignal.timeout(15000)
+      });
+      if (r.ok) {
+        pushed++;
+      } else {
+        skipped++;
+        console.warn(`[Uploads] MAIN rejected ${f.folder}/${f.filename}: HTTP ${r.status}`);
+      }
+    } catch (e) {
+      skipped++;
+      console.warn(`[Uploads] Could not push ${f.folder}/${f.filename}: ${e.message}`);
+    }
+    // Small delay so we don't flood MAIN's rate limiter (60 req/min = 1/s max safe)
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+  console.log(`[Uploads] Bulk sync done. Pushed: ${pushed}, Skipped/Failed: ${skipped}`);
+}
+
 function formatMachineAuditValue(value) {
   if (value === undefined || value === null) return '';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
@@ -3348,6 +3411,18 @@ async function logMachineAudit(db, { machineId, actionType, changedFields, chang
 /* ============================================================
    HEALTH CHECK
 ============================================================ */
+// Manual trigger: push all LOCAL uploads to MAIN right now.
+// Only works when SERVER_TYPE=LOCAL. Returns immediately; sync runs in background.
+app.post('/api/sync/push-uploads', async (_req, res) => {
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() !== 'LOCAL') {
+    return res.status(400).json({ ok: false, error: 'Only available on LOCAL servers' });
+  }
+  res.json({ ok: true, message: 'Bulk upload sync started in background — check server logs.' });
+  pushAllUploadsToMain().catch(e =>
+    console.warn('[Uploads] Manual bulk sync failed:', e.message)
+  );
+});
+
 app.get('/api/legacy-health', async (_req, res) => {
   try {
     const r = await q('SELECT NOW() AS now', []);
@@ -4351,6 +4426,15 @@ async function initializeLegacyRuntime() {
         syncService.init(pool);
         updaterService.init(pool);
       }, 5000);
+      // On LOCAL: push all existing upload files to MAIN 2 min after startup so
+      // icons saved before the push fix are not permanently missing on VPS.
+      if (String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL') {
+        setTimeout(() => {
+          pushAllUploadsToMain().catch(e =>
+            console.warn('[Uploads] Startup bulk sync failed:', e.message)
+          );
+        }, 2 * 60 * 1000);
+      }
     }
   };
 }

@@ -166,7 +166,17 @@
             <span class="value" id="pendingCount">...</span>
         </div>
 
-        <button class="refresh-btn" onclick="checkStatus()">Refresh Status</button>
+        <div id="syncIconsRow" style="display:none; margin-top:12px; padding:10px 0; border-top:1px solid #e5e7eb;">
+            <span class="label">Icons on Main Server</span>
+            <span class="value">
+                <button class="refresh-btn" id="syncIconsBtn" onclick="syncIcons()" style="background:#10b981; margin:0;">
+                    Push All Icons → Main
+                </button>
+                <span id="syncIconsStatus" style="margin-left:8px; font-size:12px; color:#6b7280;"></span>
+            </span>
+        </div>
+
+        <button class="refresh-btn" onclick="checkStatus()" style="margin-top:12px;">Refresh Status</button>
         <div id="last-auto-refresh">Auto-refreshing...</div>
     </div>
 
@@ -202,6 +212,13 @@
                         }
                     } else {
                         document.getElementById('connectionRow').style.display = 'none';
+                    }
+
+                    // Show "Push Icons" button only on LOCAL
+                    if (data.type === 'LOCAL') {
+                        document.getElementById('syncIconsRow').style.display = '';
+                    } else {
+                        document.getElementById('syncIconsRow').style.display = 'none';
                     }
 
                     // Pending push count — only for LOCAL
@@ -246,6 +263,31 @@
             const h = Math.floor(m / 60);
             if (h < 24) return h + 'h ' + (m % 60) + 'm';
             return Math.floor(h / 24) + 'd';
+        }
+
+        async function syncIcons() {
+            const btn = document.getElementById('syncIconsBtn');
+            const status = document.getElementById('syncIconsStatus');
+            btn.disabled = true;
+            btn.textContent = 'Pushing…';
+            status.textContent = '';
+            try {
+                const res = await fetch('/api/sync/push-uploads', { method: 'POST' });
+                const data = await res.json();
+                if (data.ok) {
+                    status.textContent = '✓ Started — check server logs for progress.';
+                    status.style.color = '#10b981';
+                } else {
+                    status.textContent = '✗ ' + (data.error || 'Failed');
+                    status.style.color = '#ef4444';
+                }
+            } catch (e) {
+                status.textContent = '✗ ' + e.message;
+                status.style.color = '#ef4444';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Push All Icons → Main';
+            }
         }
 
         // Init
