@@ -1846,13 +1846,13 @@ async function getAccessibleFactoriesForUser(userOrUsername) {
   const factories = canSelectAllFactories
     ? await q(`SELECT id, name, code, location, 'all' as user_role FROM factories WHERE is_active = true ORDER BY id`)
     : await q(
-      `SELECT f.id, f.name, f.code, f.location, uf.role_code as user_role
+      `SELECT f.id, f.name, f.code, f.location, $2::text as user_role
          FROM factories f
          JOIN user_factories uf ON uf.factory_id = f.id
         WHERE uf.user_id = $1
           AND f.is_active = true
         ORDER BY f.id`,
-      [user.id]
+      [user.id, role || 'member']
     );
 
   return { user, factories, canSelectAllFactories };
