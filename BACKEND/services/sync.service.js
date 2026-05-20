@@ -1,5 +1,6 @@
 // fetch is available globally in Node.js 18+ — no require needed
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 
 const router = express.Router();
 
@@ -247,9 +248,18 @@ function normalizeSyncTimestampInput(value) {
    ROUTER DEFINITIONS (Mounted at /api/sync)
    ============================================================ */
 
+// Rate limiter: max 60 asset uploads per IP per minute (well above any real LOCAL server need).
+const uploadAssetLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests' }
+});
+
 // Upload an asset file (e.g. machine icon) from a LOCAL server so it exists on MAIN too.
 // LOCAL calls this after saving the file locally — keeps icons in sync across servers.
-router.post('/upload-asset', async (req, res) => {
+router.post('/upload-asset', uploadAssetLimiter, async (req, res) => {
     try {
         const { apiKey, folder, filename, data } = req.body || {};
         if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
