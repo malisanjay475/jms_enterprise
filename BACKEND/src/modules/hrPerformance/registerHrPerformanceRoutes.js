@@ -189,9 +189,13 @@ module.exports = function registerHrPerformanceRoutes({ app, pool }) {
       CREATE TABLE IF NOT EXISTS user_factories (
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         factory_id INTEGER NOT NULL REFERENCES factories(id) ON DELETE CASCADE,
+        role_code VARCHAR(50) DEFAULT 'member',
         PRIMARY KEY (user_id, factory_id)
       );
     `);
+    await exec(`ALTER TABLE user_factories ADD COLUMN IF NOT EXISTS role_code VARCHAR(50) DEFAULT 'member';`);
+    await exec(`ALTER TABLE user_factories ALTER COLUMN role_code SET DEFAULT 'member';`);
+    await exec(`UPDATE user_factories SET role_code = 'member' WHERE role_code IS NULL;`);
 
     await exec(`
       CREATE TABLE IF NOT EXISTS hr_employee_profiles (
