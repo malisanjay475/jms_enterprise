@@ -1650,37 +1650,37 @@
                                             });
                                         }
 
-                                        // Efficiency & OEE
-                                        let rowEff = 0, estPcs = 0;       // OEE — gross scheduled time
-                                        let rowEffNet = 0, estPcsNet = 0;  // EFF — net run time (available − downtime)
+                                        // Efficiency — OEE (gross scheduled time) and EFF (net run time after DT)
+                                        let rowEff = 0, estPcs = 0;
+                                        let rowEffNet = 0, estPcsNet = 0;
                                         if (hasEntries && maxSlotIdx >= minSlotIdx && !m.is_dummy) {
                                             const availSlots = maxSlotIdx - minSlotIdx + 1;
                                             const availMins = availSlots * 60;
-                                            // Net run time: cap downtime at available minutes to avoid negatives
                                             const runTimeMins = Math.max(0, availMins - Math.min(sumDt, availMins));
-
                                             const std = parseFloat(m.std) || 0;
                                             if (std > 0) {
-                                                // OEE = Good / (Std × Total Scheduled Hours)
+                                                // OEE = Good / (Std × Scheduled Hours)
                                                 estPcs = Math.round(std * (availMins / 60.0));
                                                 if (estPcs > 0) rowEff = (sumGood / estPcs) * 100;
-
-                                                // EFF = Good / (Std × Net Run Time Hours)
+                                                // EFF = Good / (Std × Net Run Hours)
                                                 estPcsNet = Math.round(std * (runTimeMins / 60.0));
                                                 if (estPcsNet > 0) rowEffNet = (sumGood / estPcsNet) * 100;
                                             }
                                         }
 
-                                        // Summary HTML — format: Std / TotalPcs (Good+Rej) / DT / Wt Std / Tot Kg / EFF / OEE
+                                        // Summary cell variables
                                         const totalPcs = sumGood + sumRej;
-                                        const wtStdGrams = rowSetupWeight > 0 ? Math.round(rowSetupWeight * 1000) : 0;
-                                        const totKg = sumTonnage + sumRejTonnage;
-                                        const effColor  = rowEffNet >= 80 ? '#166534' : rowEffNet >= 60 ? '#b45309' : '#dc2626';
-                                        const oeeColor  = rowEff    >= 80 ? '#166534' : rowEff    >= 60 ? '#b45309' : '#dc2626';
+                                        const stdWeightRaw = parseFloat(m.details?.std_weight || 0);
+                                        const stdWeightKg  = stdWeightRaw >= 10 ? stdWeightRaw / 1000 : stdWeightRaw;
+                                        const wtStdGrams   = stdWeightKg > 0 ? Math.round(stdWeightKg * 1000) : 0;
+                                        const wtActGrams   = rowSetupWeight > 0 ? Math.round(rowSetupWeight * 1000) : 0;
+                                        const totKg        = sumTonnage + sumRejTonnage;
+                                        const effColor     = rowEffNet >= 80 ? '#166534' : rowEffNet >= 60 ? '#b45309' : '#dc2626';
+                                        const oeeColor     = rowEff    >= 80 ? '#166534' : rowEff    >= 60 ? '#b45309' : '#dc2626';
 
                                         const summaryClickScript = `showSummaryDetails('${machine}', '${rowShift}', '${lineName}', ${sumGood}, ${sumRej}, ${sumDt}, ${sumAutoDt}, ${Math.round(sumStd)}, '${encodeURIComponent(JSON.stringify(rowAggRej))}', '${encodeURIComponent(JSON.stringify(rowAggDt))}')`;
 
-                                        let summaryH = !m.is_dummy ? `<div style="text-align:left; cursor:pointer; line-height:1.6" onclick="${summaryClickScript}"><div style="font-size:0.72rem; font-weight:700; color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-size:0.8rem; font-weight:700; color:#166534">${totalPcs}<span style="font-size:0.7rem; font-weight:500; color:#475569"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="font-size:0.72rem; color:#db2777; font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${wtStdGrams > 0 ? `<div style="font-size:0.72rem; color:#475569; font-weight:600">Wt Std: ${wtStdGrams}g</div>` : ''}<div style="font-size:0.72rem; color:#7c3aed; font-weight:700">Tot Kg: ${totKg.toFixed(2)}</div>${rowEffNet > 0 ? `<div style="font-size:0.72rem; font-weight:700; color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-size:0.72rem; font-weight:700; color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
+                                        let summaryH = !m.is_dummy ? `<div style="text-align:left;cursor:pointer;font-size:0.72rem;line-height:1.7;padding:2px 0" onclick="${summaryClickScript}"><div style="font-weight:700;color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-weight:800;color:#166534;font-size:0.8rem">${totalPcs}<span style="font-weight:500;color:#64748b;font-size:0.68rem"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="color:#db2777;font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="color:#be185d;font-weight:600">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${(wtStdGrams > 0 || wtActGrams > 0) ? `<div style="display:flex;justify-content:space-between;color:#64748b;font-weight:600"><span>Wt Std:</span><span>${wtStdGrams > 0 ? wtStdGrams + 'g' : '-'}</span></div><div style="display:flex;justify-content:space-between;color:#64748b;font-weight:600"><span>Wt Act:</span><span>${wtActGrams > 0 ? wtActGrams + 'g' : '-'}</span></div>` : ''}<div style="font-weight:700;color:#7c3aed">Tot Kg: ${totKg.toFixed(1)}</div>${rowEffNet > 0 ? `<div style="font-weight:700;color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-weight:700;color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
 
                                         lineTotalTonnage += sumTonnage;
                                         lineTotalRejTonnage += sumRejTonnage;
