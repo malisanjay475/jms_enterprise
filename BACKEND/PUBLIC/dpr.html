@@ -1650,42 +1650,37 @@
                                             });
                                         }
 
-                                        // Efficiency (Gross Efficiency - Total Time based)
-                                        let rowEff = 0, estPcs = 0;
+                                        // Efficiency & OEE
+                                        let rowEff = 0, estPcs = 0;       // OEE — gross scheduled time
+                                        let rowEffNet = 0, estPcsNet = 0;  // EFF — net run time (available − downtime)
                                         if (hasEntries && maxSlotIdx >= minSlotIdx && !m.is_dummy) {
                                             const availSlots = maxSlotIdx - minSlotIdx + 1;
                                             const availMins = availSlots * 60;
-
-                                            // Gross Efficiency = (Actual / (StdRate * TotalTime))
-                                            // We do NOT subtract Downtime for Capacity Utilization view usually requested by management.
-                                            // However, to be "Perfect" match to floor reality:
-                                            // Let's use Net Run Time but Cap it safely.
-                                            // const actProdTime = Math.max(0, availMins - sumDt); 
-
-                                            // CHANGE: Use Gross Time to avoid >100% artifacts from bad DT entries
-                                            // If user wants OEE Performance, they use the other report.
-                                            // For Compliance Summary, we compare against Shift Time.
-                                            const actProdTime = availMins;
+                                            // Net run time: cap downtime at available minutes to avoid negatives
+                                            const runTimeMins = Math.max(0, availMins - Math.min(sumDt, availMins));
 
                                             const std = parseFloat(m.std) || 0;
                                             if (std > 0) {
-                                                estPcs = Math.round(std * (actProdTime / 60.0));
-                                                // Cap Efficiency at 100%? No, show truth but maybe highlight >100.
-                                                // If EstPcs is very low (due to short time) but produced is high -> abnormal.
+                                                // OEE = Good / (Std × Total Scheduled Hours)
+                                                estPcs = Math.round(std * (availMins / 60.0));
                                                 if (estPcs > 0) rowEff = (sumGood / estPcs) * 100;
-                                            } else {
-                                                // Try to fallback if Std is missing but we have Cycle Time
-                                                // This is handled in addMould upstream now
+
+                                                // EFF = Good / (Std × Net Run Time Hours)
+                                                estPcsNet = Math.round(std * (runTimeMins / 60.0));
+                                                if (estPcsNet > 0) rowEffNet = (sumGood / estPcsNet) * 100;
                                             }
                                         }
 
-                                        // Summary HTML (Same as before)
-                                        // Summary HTML (Same as before)
-                                        const effColor = rowEff >= 80 ? '#166534' : '#b45309';
+                                        // Summary HTML — format: Std / TotalPcs (Good+Rej) / DT / Wt Std / Tot Kg / EFF / OEE
+                                        const totalPcs = sumGood + sumRej;
+                                        const wtStdGrams = rowSetupWeight > 0 ? Math.round(rowSetupWeight * 1000) : 0;
+                                        const totKg = sumTonnage + sumRejTonnage;
+                                        const effColor  = rowEffNet >= 80 ? '#166534' : rowEffNet >= 60 ? '#b45309' : '#dc2626';
+                                        const oeeColor  = rowEff    >= 80 ? '#166534' : rowEff    >= 60 ? '#b45309' : '#dc2626';
 
                                         const summaryClickScript = `showSummaryDetails('${machine}', '${rowShift}', '${lineName}', ${sumGood}, ${sumRej}, ${sumDt}, ${sumAutoDt}, ${Math.round(sumStd)}, '${encodeURIComponent(JSON.stringify(rowAggRej))}', '${encodeURIComponent(JSON.stringify(rowAggDt))}')`;
 
-                                        let summaryH = !m.is_dummy ? `<div style="text-align:left; cursor:pointer" onclick="${summaryClickScript}"><div style="font-size:0.75rem; font-weight:700; color:#0369a1; margin-bottom:2px">Std: ${Math.round(sumStd)}</div><div style="font-size:0.8rem"><span style="font-weight:700; color:#166534">${sumGood}</span>${sumRej > 0 ? `<span style="color:#dc2626; font-weight:600"> | ${sumRej}®</span>` : ''}</div>${sumDt > 0 ? `<div style="font-size:0.8rem; color:#db2777; font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="font-size:0.75rem; color:#be185d; font-weight:700; background:#fce7f3; padding:1px 3px; border-radius:3px; display:inline-block; margin-top:2px">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${(sumTonnage + sumRejTonnage) > 0 ? `<div style="font-size:0.75rem; font-weight:800; color:#7c3aed; margin-top:2px; padding-top:2px; border-top:1px dashed #ddd6fe; background:#faf5ff; padding:2px 4px; border-radius:3px; display:inline-block" title="Overall Tonnage (Good + Reject Kg)">Overall: ${(sumTonnage + sumRejTonnage).toFixed(2)} Kg</div>` : ''}<div title="W: ${rowSetupWeight}g (Est)" style="font-size:0.75rem; color:#475569; font-weight:600; margin-top:2px; border-top:1px dashed #cbd5e1; padding-top:2px; cursor:help">Kg: ${sumTonnage.toFixed(2)}${sumRejTonnage > 0 ? `<div style="color:#dc2626; font-size:0.7rem">Rej: ${sumRejTonnage.toFixed(2)}</div>` : ''}</div>${rowEff > 0 ? `<div style="font-size:0.75rem; font-weight:700; color:${effColor}; margin-top:2px; padding-top:2px; border-top:1px dashed #e2e8f0" title="Est: ${estPcs}">Eff: ${rowEff.toFixed(1)}%</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
+                                        let summaryH = !m.is_dummy ? `<div style="text-align:left; cursor:pointer; line-height:1.6" onclick="${summaryClickScript}"><div style="font-size:0.72rem; font-weight:700; color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-size:0.8rem; font-weight:700; color:#166534">${totalPcs}<span style="font-size:0.7rem; font-weight:500; color:#475569"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="font-size:0.72rem; color:#db2777; font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${wtStdGrams > 0 ? `<div style="font-size:0.72rem; color:#475569; font-weight:600">Wt Std: ${wtStdGrams}g</div>` : ''}<div style="font-size:0.72rem; color:#7c3aed; font-weight:700">Tot Kg: ${totKg.toFixed(2)}</div>${rowEffNet > 0 ? `<div style="font-size:0.72rem; font-weight:700; color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-size:0.72rem; font-weight:700; color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
 
                                         lineTotalTonnage += sumTonnage;
                                         lineTotalRejTonnage += sumRejTonnage;
