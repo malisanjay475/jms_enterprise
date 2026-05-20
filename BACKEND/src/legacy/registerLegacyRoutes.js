@@ -3279,7 +3279,29 @@ function saveDataUrlImage(dataUrl, folderName, prefix) {
   const filename = `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
   const fullPath = path.join(uploadsDir, filename);
   fs.writeFileSync(fullPath, Buffer.from(payload, 'base64'));
-  return `/uploads/${folderName}/${filename}`;
+  const relativePath = `/uploads/${folderName}/${filename}`;
+
+  // On LOCAL servers: fire-and-forget push the file to MAIN so it appears there too.
+  // Without this, machine icons uploaded on LOCAL would never reach the VPS.
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL') {
+    const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
+    const syncKey = String(process.env.SYNC_API_KEY || '').trim();
+    if (mainUrl && syncKey) {
+      fetch(`${mainUrl}/api/sync/upload-asset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: syncKey, folder: folderName, filename, data: payload }),
+        signal: AbortSignal.timeout(10000)
+      }).then(r => {
+        if (!r.ok) console.warn(`[Uploads] MAIN rejected asset upload: ${r.status}`);
+        else console.log(`[Uploads] Asset pushed to MAIN: ${relativePath}`);
+      }).catch(err => {
+        console.warn(`[Uploads] Failed to push asset to MAIN: ${err.message}`);
+      });
+    }
+  }
+
+  return relativePath;
 }
 
 function formatMachineAuditValue(value) {
