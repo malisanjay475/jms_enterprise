@@ -3758,6 +3758,12 @@ async function bootstrapFreshCoreTables() {
     console.warn('[DB] Bootstrap factory seed skipped:', factorySeedErr.message);
   }
 
+  // One-time rename: update factory 1 to correct display name and location.
+  await q(
+    `UPDATE factories SET name = 'Dungra Plant 1', location = 'Dungra, Vapi', updated_at = NOW()
+     WHERE id = 1 AND (name IS DISTINCT FROM 'Dungra Plant 1' OR location IS DISTINCT FROM 'Dungra, Vapi')`
+  ).catch(err => console.warn('[DB] Factory 1 rename skipped:', err.message));
+
   if (process.env.SEED_DEFAULT_SUPERADMIN === '0') {
     return;
   }
@@ -4109,6 +4115,12 @@ async function initializeLegacyRuntime() {
     } catch (factorySeedError) {
       console.warn('[DB] Default factory seed skipped:', factorySeedError.message);
     }
+
+    // One-time rename: update factory 1 to correct display name and location.
+    await q(
+      `UPDATE factories SET name = 'Dungra Plant 1', location = 'Dungra, Vapi', updated_at = NOW()
+       WHERE id = 1 AND (name IS DISTINCT FROM 'Dungra Plant 1' OR location IS DISTINCT FROM 'Dungra, Vapi')`
+    ).catch(err => console.warn('[DB] Factory 1 rename skipped:', err.message));
 
     // [FIX] Universal Schema Fix for Sync
     // Ensure ALL sync tables have sync_id, factory_id, and UNIQUE INDEX on sync_id
