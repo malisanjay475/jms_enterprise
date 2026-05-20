@@ -1273,6 +1273,9 @@
         <button onclick="handleQuickAction('MouldMaintenance')"
           style="height:60px; font-size:1.15rem; font-weight:700; border-radius:12px; background:#fefce8; border:2px solid #fef08a; color:#854d0e; display:flex; align-items:center; padding:0 20px">🏗️
           Mould Maint.</button>
+        <button onclick="handleQuickAction('PowerCut')"
+          style="height:60px; font-size:1.15rem; font-weight:700; border-radius:12px; background:#eff6ff; border:2px solid #bfdbfe; color:#1e40af; display:flex; align-items:center; padding:0 20px">⚡
+          Power Cut</button>
         <button onclick="handleQuickAction('NoPlan')"
           style="height:60px; font-size:1.15rem; font-weight:700; border-radius:12px; background:#fff1f2; border:2px solid #fecdd3; color:#9f1239; display:flex; align-items:center; padding:0 20px">🚫
           No Plan</button>
@@ -5098,6 +5101,8 @@
         if (f) reasonCode = f[0];
       } else if (type === 'MouldMaintenance') {
         reasonCode = '7'; // Mapped to Mould Problem
+      } else if (type === 'PowerCut') {
+        reasonCode = '8'; // Mapped to Power Failure/Pre Heating
       } else if (type === 'NoPlan') {
         reasonCode = '13'; // Now mapped to 13
       }
