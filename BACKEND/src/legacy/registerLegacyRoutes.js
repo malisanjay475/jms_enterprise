@@ -898,7 +898,7 @@ if (path.normalize(LEGACY_UPLOADS_DIR) !== path.normalize(PRIMARY_UPLOADS_DIR)) 
 // server so machine icons (and other uploaded assets) are still visible on factory floor PCs.
 if (String(config.serverType || '').toUpperCase() === 'LOCAL' && config.mainServerUrl) {
   const _mainUrlBase = config.mainServerUrl.replace(/\/$/, '');
-  app.get('/uploads/*', async (req, res) => {
+  app.get('/uploads/*path', async (req, res) => {
     // express.static already called next() — file not found locally, try MAIN
     try {
       const remoteUrl = `${_mainUrlBase}${req.path}`;
