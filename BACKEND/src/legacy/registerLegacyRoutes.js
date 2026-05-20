@@ -9392,35 +9392,93 @@ async function resolveJobCardFromOrJrRemarks(orderNo, ourCode, planId, factorySc
   const u = String(ourCode || '').trim().toLowerCase();
   const p = String(planId || '').trim().toLowerCase();
   if (!o || (!u && !p)) return null;
-  const params = [o];
-  let cond = `TRIM(COALESCE(or_jr_no, '')) = TRIM($1)`;
-  let idx = 2;
-  const posConds = [];
-  if (u) {
-    params.push(u);
-    posConds.push(`POSITION($${idx} IN LOWER(COALESCE(remarks_all, ''))) > 0`);
-    idx += 1;
-  }
-  if (p) {
-    params.push(p);
-    posConds.push(`POSITION($${idx} IN LOWER(COALESCE(remarks_all, ''))) > 0`);
-    idx += 1;
-  }
-  cond += ` AND (${posConds.join(' OR ')})`;
+
+  // Build factory condition
+  const factoryParams = [];
+  let factoryCond = '';
   if (factoryScopeId != null && factoryScopeId !== '') {
-    params.push(factoryScopeId);
-    cond += ` AND (factory_id = $${idx} OR factory_id IS NULL)`;
+    factoryParams.push(factoryScopeId);
+    factoryCond = ` AND (factory_id = $${factoryParams.length + 1} OR factory_id IS NULL)`;
   }
-  const rows = await q(
+
+  // Step 1: find ALL rows for this OR number (with factory scope)
+  const allRows = await q(
     `SELECT id, job_card_no, job_card_date, remarks_all, or_jr_no
        FROM or_jr_report
-      WHERE ${cond}
-      ORDER BY edited_date DESC NULLS LAST, id DESC
-      LIMIT 1`,
-    params
+      WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM($1)
+      ${factoryScopeId != null && factoryScopeId !== '' ? `AND (factory_id = $2 OR factory_id IS NULL)` : ''}
+      ORDER BY
+        CASE WHEN COALESCE(job_card_no, '') <> '' THEN 0 ELSE 1 END,
+        edited_date DESC NULLS LAST, id DESC`,
+    factoryScopeId != null && factoryScopeId !== '' ? [o, factoryScopeId] : [o]
   );
-  return rows[0] || null;
+
+  if (allRows.length === 0) return null;
+
+  // Step 2: among all rows, prefer one that (a) has job_card_no AND (b) remarks match
+  // Fall back to: remarks match without job_card_no, then any row with job_card_no
+  const remarkMatch = (row) => {
+    const r = String(row.remarks_all || '').toLowerCase();
+    return (u && r.includes(u)) || (p && r.includes(p));
+  };
+
+  // Priority 1: has job_card_no AND remarks match
+  const best = allRows.find(r => r.job_card_no && remarkMatch(r));
+  if (best) return best;
+
+  // Priority 2: remarks match (even without job_card_no — still useful for "found but no JC yet")
+  const remarksOnly = allRows.find(r => remarkMatch(r));
+  if (remarksOnly) return remarksOnly;
+
+  // Priority 3: has job_card_no (remarks may not match but OR number matches)
+  const jcOnly = allRows.find(r => r.job_card_no);
+  if (jcOnly) return jcOnly;
+
+  return allRows[0] || null;
 }
+
+// Debug: show what or_jr_report rows exist for a given order_no + what the plan has
+app.get('/api/planning/debug-jc-link', async (req, res) => {
+  try {
+    const { order_no, our_code, plan_id } = req.query;
+    const factoryId = getFactoryId(req);
+    if (!order_no) return res.status(400).json({ ok: false, error: 'order_no required' });
+
+    const rows = await q(
+      `SELECT id, or_jr_no, job_card_no, job_card_date,
+              LEFT(remarks_all, 200) AS remarks_all_preview,
+              factory_id, edited_date
+         FROM or_jr_report
+        WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM($1)
+        ORDER BY edited_date DESC NULLS LAST, id DESC
+        LIMIT 20`,
+      [order_no]
+    );
+
+    const u = String(our_code || '').trim().toLowerCase();
+    const p = String(plan_id || '').trim().toLowerCase();
+
+    const annotated = rows.map(r => ({
+      ...r,
+      has_job_card_no: !!r.job_card_no,
+      remarks_contains_our_code: u ? String(r.remarks_all_preview || '').toLowerCase().includes(u) : null,
+      remarks_contains_plan_id: p ? String(r.remarks_all_preview || '').toLowerCase().includes(p) : null,
+      would_be_linked: !!(r.job_card_no && (
+        (u && String(r.remarks_all_preview || '').toLowerCase().includes(u)) ||
+        (p && String(r.remarks_all_preview || '').toLowerCase().includes(p))
+      ))
+    }));
+
+    res.json({
+      ok: true,
+      search: { order_no, our_code, plan_id, factory_id: factoryId },
+      rows_found: rows.length,
+      rows: annotated
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
 
 // Plans from plan_board for Print Job Card (date-wise; batch id ↔ OR-JR remarks)
 app.get('/api/planning/print-jc-plans', async (req, res) => {
