@@ -894,6 +894,28 @@ if (path.normalize(LEGACY_UPLOADS_DIR) !== path.normalize(PRIMARY_UPLOADS_DIR)) 
   app.use('/uploads', express.static(LEGACY_UPLOADS_DIR));
 }
 
+// On LOCAL servers: if a file under /uploads/ doesn't exist locally, proxy it from the MAIN
+// server so machine icons (and other uploaded assets) are still visible on factory floor PCs.
+if (String(config.serverType || '').toUpperCase() === 'LOCAL' && config.mainServerUrl) {
+  const _mainUrlBase = config.mainServerUrl.replace(/\/$/, '');
+  app.get('/uploads/*', async (req, res) => {
+    // express.static already called next() — file not found locally, try MAIN
+    try {
+      const remoteUrl = `${_mainUrlBase}${req.path}`;
+      const upstream = await fetch(remoteUrl, { signal: AbortSignal.timeout(8000) });
+      if (!upstream.ok) return res.status(upstream.status).end();
+      const ct = upstream.headers.get('content-type') || 'application/octet-stream';
+      res.setHeader('Content-Type', ct);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      const { Readable } = require('stream');
+      Readable.fromWeb(upstream.body).pipe(res);
+    } catch (e) {
+      console.error('[Uploads Proxy] Failed:', req.path, e.message);
+      res.status(502).end();
+    }
+  });
+}
+
 /* ============================================================
    DPR DASHBOARD MATRIX (New Endpoint for Production Dashboard)
    Renamed to avoid conflict with existing dpr.html summary-matrix

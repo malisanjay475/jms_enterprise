@@ -127,7 +127,17 @@ const CONFLICT_KEYS = {
     raw_material_issues: 'factory_id, plan_id, created_at',
     wip_stock_movements: 'factory_id, source_type, source_ref, movement_type, created_at',
     wip_stock_snapshots: 'factory_id, stock_date, source_file_name',
-    wip_stock_snapshot_lines: 'factory_id, stock_date, comparison_key'
+    wip_stock_snapshot_lines: 'factory_id, stock_date, comparison_key',
+    // Master tables — explicit id conflict (previously relied on fallback)
+    machines: 'id',
+    bom_master: 'id',
+    bom_components: 'id',
+    dpr_hourly: 'id',
+    grn_entries: 'id',
+    dispatch_items: 'id',
+    jobs_queue: 'id',
+    planning_drops: 'id',
+    operator_history: 'id'
 };
 
 const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
@@ -339,6 +349,27 @@ router.get('/status', async (req, res) => {
             if (r.key === 'LAST_PULL') lastPull = r.value;
         });
 
+        // Determine connection status for LOCAL servers.
+        // A successful push or pull within the last 10 minutes means we are connected.
+        const CONNECTED_WINDOW_MS = 10 * 60 * 1000;
+        const now = Date.now();
+        function isRecent(ts) {
+            if (!ts || ts === 'Never') return false;
+            const t = new Date(ts).getTime();
+            return !Number.isNaN(t) && (now - t) < CONNECTED_WINDOW_MS;
+        }
+        const connected = SERVER_TYPE === 'LOCAL'
+            ? (isRecent(lastPush) || isRecent(lastPull))
+            : null; // null means "not applicable" for MAIN/STANDALONE
+
+        // Count pending rows waiting to be pushed (LOCAL only, best-effort)
+        let pendingPushCount = null;
+        if (SERVER_TYPE === 'LOCAL') {
+            try {
+                pendingPushCount = await countPendingChanges();
+            } catch (_) { /* non-fatal */ }
+        }
+
         res.json({
             ok: true,
             type: SERVER_TYPE,
@@ -346,7 +377,9 @@ router.get('/status', async (req, res) => {
             main_url: MAIN_SERVER_URL,
             last_sync: lastSync,
             last_push: lastPush,
-            last_pull: lastPull
+            last_pull: lastPull,
+            connected,
+            pending_push_count: pendingPushCount
         });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -619,15 +652,15 @@ async function pullChanges() {
                 stats.failed += tableStats.failed;
             }
         } catch (e) {
-            console.error(`[Sync] Pull Failed ${table}:`, e);
+            console.error(`[Sync] Pull Failed ${table}:`, e.message);
             stats.failed += 1;
         }
     }
 
-    if (stats.failed === 0) {
-        await setServerConfigValue('LAST_PULL', cycleWatermark);
-    } else {
-        console.warn('[Sync] LAST_PULL not advanced because one or more table pulls failed.');
+    // Always advance so LAST_PULL never gets permanently stuck on a partial failure.
+    await setServerConfigValue('LAST_PULL', cycleWatermark);
+    if (stats.failed > 0) {
+        console.warn(`[Sync] LAST_PULL advanced despite ${stats.failed} pull error(s) — failed rows will not be retried.`);
     }
     return stats;
 }
@@ -655,10 +688,10 @@ async function pullDeletionChanges() {
         stats.failed += 1;
     }
 
-    if (stats.failed === 0) {
-        await setServerConfigValue('LAST_DELETE_PULL', cycleWatermark);
-    } else {
-        console.warn('[Sync] LAST_DELETE_PULL not advanced because one or more deletion pulls failed.');
+    // Always advance so LAST_DELETE_PULL never gets permanently stuck on a partial failure.
+    await setServerConfigValue('LAST_DELETE_PULL', cycleWatermark);
+    if (stats.failed > 0) {
+        console.warn(`[Sync] LAST_DELETE_PULL advanced despite ${stats.failed} deletion pull error(s).`);
     }
     return stats;
 }
@@ -902,7 +935,7 @@ async function getChanges(table, since, targetFactoryId) {
         sql += ` WHERE ${where.join(' AND ')}`;
     }
 
-    sql += ' LIMIT 1000';
+    sql += ' ORDER BY updated_at ASC LIMIT 1000';
 
     try {
         const rows = await pool.query(sql, params);
@@ -913,7 +946,7 @@ async function getChanges(table, since, targetFactoryId) {
 
             let fallbackSql = `SELECT * FROM ${table}`;
             if (normalizedSince) fallbackSql += ' WHERE updated_at > $1';
-            fallbackSql += ' LIMIT 1000';
+            fallbackSql += ' ORDER BY updated_at ASC LIMIT 1000';
             const fallback = await pool.query(fallbackSql, normalizedSince ? [normalizedSince] : []);
             return fallback.rows;
         }
