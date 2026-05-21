@@ -11721,7 +11721,7 @@ app.get('/api/reports/orjr-wise-detail', async (req, res) => {
         MAX(d.mould_item_name) AS mould_item_name,
         d.mould_no,
         MAX(d.mould_name) AS mould,
-        SUM(COALESCE(d.mould_item_qty, 0)) AS mould_item_qty,
+        SUM(COALESCE(NULLIF(TRIM(d.mould_item_qty), ''), '0')::numeric) AS mould_item_qty,
         MAX(d.tonnage) AS tonnage,
         MAX(d.machine_name) AS machine,
         MAX(d.cycle_time) AS cycle_time,
