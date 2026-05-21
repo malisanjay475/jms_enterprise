@@ -7990,14 +7990,19 @@ async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, opti
       groupedRows.set(key, nextRow);
       return;
     }
+    // SUM qty fields across duplicate rows (same colour+mould, different plan_date)
+    const summedReqQty = (existing.reqQty || 0) + (nextRow.reqQty || 0);
+    const summedPlanQty = (existing.planQty || 0) + (nextRow.planQty || 0);
+    const summedUseQty = (existing.useQty || 0) + (nextRow.useQty || 0);
     groupedRows.set(key, {
       ...existing,
-      reqQty: Math.max(existing.reqQty || 0, nextRow.reqQty || 0),
-      useQty: Math.max(existing.useQty || 0, nextRow.useQty || 0),
-      reqBalQty: Math.max(existing.reqBalQty || 0, nextRow.reqBalQty || 0),
+      mouldItemQty: (existing.mouldItemQty || 0) + (nextRow.mouldItemQty || 0),
+      reqQty: summedReqQty,
+      planQty: summedPlanQty,
+      useQty: summedUseQty,
+      reqBalQty: Math.max(summedReqQty - summedUseQty, 0),
       wipQty: Math.max(existing.wipQty || 0, nextRow.wipQty || 0),
       wipBalQty: Math.max(existing.wipBalQty || 0, nextRow.wipBalQty || 0),
-      planQty: Math.max(existing.planQty || 0, nextRow.planQty || 0),
       wipStockDate: existing.wipStockDate || nextRow.wipStockDate || null
     });
   });
