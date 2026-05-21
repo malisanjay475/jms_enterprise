@@ -7579,15 +7579,37 @@ function sortPlanningMouldRows(rows) {
 
 async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
   const rawRows = await queryFn(`
-    SELECT 
-      TRIM(r.or_jr_no) AS or_jr_no,
+    -- Pre-aggregate mould_planning_summary by (or_jr_no, mould_no) so that
+    -- multiple rows for the same mould with different plan_dates are combined
+    -- into one row with SUMmed mould_item_qty (colour-wise same mould totalled).
+    WITH r AS (
+      SELECT
+        TRIM(or_jr_no)                                         AS or_jr_no,
+        MIN(or_jr_date)                                        AS or_jr_date,
+        TRIM(COALESCE(MAX(item_code), ''))                     AS item_code,
+        TRIM(mould_no)                                         AS mould_no,
+        TRIM(COALESCE(MAX(NULLIF(TRIM(mould_name),'')),''))    AS mould_name,
+        SUM(COALESCE(mould_item_qty, 0))                       AS mould_item_qty,
+        TRIM(COALESCE(MAX(NULLIF(TRIM(product_name),'')),''))  AS product_name,
+        MAX(tonnage)                                           AS tonnage,
+        MAX(cycle_time)                                        AS cycle_time,
+        MAX(cavity)                                            AS cavity,
+        TRIM(COALESCE(MAX(machine_name), ''))                  AS machine_name,
+        factory_id
+      FROM mould_planning_summary
+      WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM($1)
+        AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+      GROUP BY TRIM(or_jr_no), TRIM(mould_no), factory_id
+    )
+    SELECT
+      r.or_jr_no,
       r.or_jr_date,
-      TRIM(COALESCE(r.item_code, '')) AS item_code,
-      TRIM(COALESCE(r.mould_no, '')) AS mould_no,
-      COALESCE(NULLIF(TRIM(COALESCE(r.mould_name, '')), ''), regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', '')) AS mould_name,
+      r.item_code,
+      r.mould_no,
+      COALESCE(NULLIF(r.mould_name, ''), regexp_replace(r.mould_no, '\\s+\\d+$', '')) AS mould_name,
       r.mould_item_qty AS plan_qty,
-      regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', '') AS mould_family,
-      COALESCE(r.product_name, o.item_name) AS product_name,
+      regexp_replace(r.mould_no, '\\s+\\d+$', '') AS mould_family,
+      COALESCE(NULLIF(r.product_name,''), o.item_name) AS product_name,
       COALESCE(o.client_name, '') AS client_name,
       r.tonnage AS "reportTonnage",
       r.cycle_time AS "reportCycleTime",
@@ -7607,9 +7629,9 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       pb.status AS existing_plan_status,
       COALESCE(pb_sum.planned_qty, 0)::numeric AS existing_planned_qty,
       COALESCE(pb_sum.plan_count, 0)::int AS existing_plan_count
-    FROM mould_planning_summary r
+    FROM r
     LEFT JOIN orders o
-      ON TRIM(o.order_no) = TRIM(r.or_jr_no)
+      ON TRIM(o.order_no) = r.or_jr_no
      AND ($2::int IS NULL OR o.factory_id = $2 OR o.factory_id IS NULL)
     LEFT JOIN LATERAL (
       SELECT
@@ -7663,12 +7685,10 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       ORDER BY pb0.updated_at DESC NULLS LAST, pb0.id DESC
       LIMIT 1
     ) pb ON true
-    WHERE TRIM(COALESCE(r.or_jr_no, '')) = TRIM($1)
-      AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
     ORDER BY
-      regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', ''),
-      TRIM(COALESCE(r.mould_no, '')),
-      TRIM(COALESCE(r.mould_name, ''))
+      regexp_replace(r.mould_no, '\\s+\\d+$', ''),
+      r.mould_no,
+      r.mould_name
   `, [orderNo, factoryId]);
   const rows = Array.isArray(rawRows) ? rawRows : (Array.isArray(rawRows?.rows) ? rawRows.rows : []);
 
