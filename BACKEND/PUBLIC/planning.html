@@ -10219,7 +10219,16 @@
                 <div><b>${esc(r.client_name || '-')}</b><br><span class="muted">Client</span></div>
                 <div><b>${esc(r.our_code || '-')}</b><br><span class="muted">${esc(r.plan_id || '-')} / Batch ${esc(r.batch_no || '-')}</span></div>
                 <div><b>${esc(r.mould_name || r.mould_code || '-')}</b><br><span class="muted">${esc(r.machine || '-')}</span></div>
-                <div><b>${linked ? esc(r.job_card_no) : ''}</b><br><span class="muted">${linked ? esc(jcDate) : 'Batch ID not linked in OR-JR Remarks'}</span><br><span style="display:inline-flex; margin-top:5px; border:1px solid; border-radius:999px; padding:4px 9px; font-size:.72rem; font-weight:950; ${stageTone}">${esc(stageLabel)}</span></div>
+                <div><b>${linked ? esc(r.job_card_no) : ''}</b><br>
+                  <span class="muted">${linked ? esc(jcDate) : `<span style="color:#b45309; font-weight:700">Not linked in OR-JR</span>`}</span>
+                  ${!linked ? `<div style="margin-top:4px; font-size:0.72rem; background:#fef3c7; border:1px solid #fde68a; border-radius:6px; padding:4px 7px; color:#92400e; line-height:1.5">
+                    <b>OR No:</b> ${esc(r.order_no)}<br>
+                    <b>Remarks must contain:</b> <code style="background:#fef9c3; padding:1px 4px; border-radius:3px">${esc(r.our_code || r.plan_id || '-')}</code>
+                    ${r.plan_id && r.our_code ? `<span style="color:#78350f"> or </span><code style="background:#fef9c3; padding:1px 4px; border-radius:3px">${esc(r.plan_id)}</code>` : ''}
+                    <br><b>Also need:</b> Job Card No filled in OR-JR
+                    <a href="/api/planning/debug-jc-link?order_no=${encodeURIComponent(r.order_no)}&our_code=${encodeURIComponent(r.our_code||'')}&plan_id=${encodeURIComponent(r.plan_id||'')}" target="_blank" style="display:inline-block; margin-top:4px; color:#1d4ed8; text-decoration:underline; font-size:0.7rem">🔍 Debug Link</a>
+                  </div>` : ''}
+                  <br><span style="display:inline-flex; margin-top:5px; border:1px solid; border-radius:999px; padding:4px 9px; font-size:.72rem; font-weight:950; ${stageTone}">${esc(stageLabel)}</span></div>
                 <div>
                   <button type="button" class="btn ${canApprove ? 'primary' : ''}" ${canApprove ? '' : 'disabled'} onclick="window.openJcApproval(${Number(r.id)})" style="border-radius:12px; ${canApprove ? '' : 'opacity:.55; cursor:not-allowed'}">
                     <i class="bi ${linked ? 'bi-shield-check' : 'bi-link-45deg'}"></i> ${esc(buttonLabel)}

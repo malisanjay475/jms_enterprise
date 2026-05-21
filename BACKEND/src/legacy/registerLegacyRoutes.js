@@ -1599,6 +1599,18 @@ async function migrateOrjrWiseDetailSchema() {
   await q(`CREATE INDEX IF NOT EXISTS idx_mould_planning_report_factory_id ON mould_planning_report(factory_id)`);
   await q(`CREATE INDEX IF NOT EXISTS idx_mpr_order ON mould_planning_report(or_jr_no)`);
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS mould_report_date_uniq_idx ON mould_planning_report(or_jr_no, mould_no, mould_item_code, plan_date)`);
+
+  /* ── Fix: reset serial sequence to max(id) to prevent pkey conflicts
+     after DB restore / sync from production pushes IDs higher than
+     the current sequence value.
+  ────────────────────────────────────────────────────────────────── */
+  await q(`
+    SELECT setval(
+      'mould_planning_report_id_seq',
+      COALESCE((SELECT MAX(id) FROM mould_planning_report), 0) + 1,
+      false
+    )
+  `).catch(err => console.warn('[DB] mould_planning_report sequence reset skipped:', err.message));
 }
 
 async function migrateOrderCompletionWorkflowSchema() {
@@ -1846,13 +1858,13 @@ async function getAccessibleFactoriesForUser(userOrUsername) {
   const factories = canSelectAllFactories
     ? await q(`SELECT id, name, code, location, 'all' as user_role FROM factories WHERE is_active = true ORDER BY id`)
     : await q(
-      `SELECT f.id, f.name, f.code, f.location, uf.role_code as user_role
+      `SELECT f.id, f.name, f.code, f.location, $2::text as user_role
          FROM factories f
          JOIN user_factories uf ON uf.factory_id = f.id
         WHERE uf.user_id = $1
           AND f.is_active = true
         ORDER BY f.id`,
-      [user.id]
+      [user.id, role || 'member']
     );
 
   return { user, factories, canSelectAllFactories };
@@ -3279,7 +3291,92 @@ function saveDataUrlImage(dataUrl, folderName, prefix) {
   const filename = `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
   const fullPath = path.join(uploadsDir, filename);
   fs.writeFileSync(fullPath, Buffer.from(payload, 'base64'));
-  return `/uploads/${folderName}/${filename}`;
+  const relativePath = `/uploads/${folderName}/${filename}`;
+
+  // On LOCAL servers: fire-and-forget push the file to MAIN so it appears there too.
+  // Without this, machine icons uploaded on LOCAL would never reach the VPS.
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL') {
+    const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
+    const syncKey = String(process.env.SYNC_API_KEY || '').trim();
+    if (mainUrl && syncKey) {
+      fetch(`${mainUrl}/api/sync/upload-asset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: syncKey, folder: folderName, filename, data: payload }),
+        signal: AbortSignal.timeout(10000)
+      }).then(r => {
+        if (!r.ok) console.warn(`[Uploads] MAIN rejected asset upload: ${r.status}`);
+        else console.log(`[Uploads] Asset pushed to MAIN: ${relativePath}`);
+      }).catch(err => {
+        console.warn(`[Uploads] Failed to push asset to MAIN: ${err.message}`);
+      });
+    }
+  }
+
+  return relativePath;
+}
+
+// Scans PUBLIC/uploads/ and pushes every image file to MAIN.
+// Called at startup (delayed) so pre-existing icons reach the VPS even before any edit.
+// Also exposed as POST /api/sync/push-uploads for manual re-trigger.
+async function pushAllUploadsToMain() {
+  const serverType = String(process.env.SERVER_TYPE || '').toUpperCase();
+  if (serverType !== 'LOCAL') return;
+
+  const mainUrl = String(process.env.MAIN_SERVER_URL || '').trim().replace(/\/$/, '');
+  const syncKey = String(process.env.SYNC_API_KEY || '').trim();
+  if (!mainUrl || !syncKey) {
+    console.warn('[Uploads] pushAllUploadsToMain: MAIN_SERVER_URL or SYNC_API_KEY not set — skipping.');
+    return;
+  }
+
+  const uploadsDir = path.join(STATIC_PUBLIC_DIR, 'uploads');
+  if (!fs.existsSync(uploadsDir)) return;
+
+  // Collect all image files under uploads/
+  const IMAGE_EXT = /\.(jpg|jpeg|png|gif|webp|svg)$/i;
+  const files = [];
+  function scanDir(dir, folder) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        scanDir(path.join(dir, entry.name), entry.name);
+      } else if (entry.isFile() && IMAGE_EXT.test(entry.name)) {
+        files.push({ dir, folder, filename: entry.name });
+      }
+    }
+  }
+  scanDir(uploadsDir, '');
+
+  if (files.length === 0) return;
+  console.log(`[Uploads] Syncing ${files.length} existing file(s) to MAIN...`);
+
+  let pushed = 0;
+  let skipped = 0;
+  for (const f of files) {
+    try {
+      const data = fs.readFileSync(path.join(f.dir, f.filename)).toString('base64');
+      const r = await fetch(`${mainUrl}/api/sync/upload-asset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: syncKey, folder: f.folder, filename: f.filename, data }),
+        signal: AbortSignal.timeout(15000)
+      });
+      if (r.ok) {
+        pushed++;
+      } else {
+        skipped++;
+        console.warn(`[Uploads] MAIN rejected ${f.folder}/${f.filename}: HTTP ${r.status}`);
+      }
+    } catch (e) {
+      skipped++;
+      console.warn(`[Uploads] Could not push ${f.folder}/${f.filename}: ${e.message}`);
+    }
+    // Small delay so we don't flood MAIN's rate limiter (60 req/min = 1/s max safe)
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+  console.log(`[Uploads] Bulk sync done. Pushed: ${pushed}, Skipped/Failed: ${skipped}`);
 }
 
 function formatMachineAuditValue(value) {
@@ -3326,6 +3423,18 @@ async function logMachineAudit(db, { machineId, actionType, changedFields, chang
 /* ============================================================
    HEALTH CHECK
 ============================================================ */
+// Manual trigger: push all LOCAL uploads to MAIN right now.
+// Only works when SERVER_TYPE=LOCAL. Returns immediately; sync runs in background.
+app.post('/api/sync/push-uploads', async (_req, res) => {
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() !== 'LOCAL') {
+    return res.status(400).json({ ok: false, error: 'Only available on LOCAL servers' });
+  }
+  res.json({ ok: true, message: 'Bulk upload sync started in background — check server logs.' });
+  pushAllUploadsToMain().catch(e =>
+    console.warn('[Uploads] Manual bulk sync failed:', e.message)
+  );
+});
+
 app.get('/api/legacy-health', async (_req, res) => {
   try {
     const r = await q('SELECT NOW() AS now', []);
@@ -3396,9 +3505,13 @@ async function bootstrapFreshCoreTables() {
     CREATE TABLE IF NOT EXISTS user_factories (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       factory_id INTEGER NOT NULL REFERENCES factories(id) ON DELETE CASCADE,
+      role_code VARCHAR(50) DEFAULT 'member',
       PRIMARY KEY (user_id, factory_id)
     );
   `);
+  await q(`ALTER TABLE user_factories ADD COLUMN IF NOT EXISTS role_code VARCHAR(50) DEFAULT 'member'`);
+  await q(`ALTER TABLE user_factories ALTER COLUMN role_code SET DEFAULT 'member'`);
+  await q(`UPDATE user_factories SET role_code = 'member' WHERE role_code IS NULL`);
 
   await q(`
     CREATE TABLE IF NOT EXISTS machines (
@@ -3644,6 +3757,12 @@ async function bootstrapFreshCoreTables() {
   } catch (factorySeedErr) {
     console.warn('[DB] Bootstrap factory seed skipped:', factorySeedErr.message);
   }
+
+  // One-time rename: update factory 1 to correct display name and location.
+  await q(
+    `UPDATE factories SET name = 'Dungra Plant 1', location = 'Dungra, Vapi', updated_at = NOW()
+     WHERE id = 1 AND (name IS DISTINCT FROM 'Dungra Plant 1' OR location IS DISTINCT FROM 'Dungra, Vapi')`
+  ).catch(err => console.warn('[DB] Factory 1 rename skipped:', err.message));
 
   if (process.env.SEED_DEFAULT_SUPERADMIN === '0') {
     return;
@@ -3941,7 +4060,28 @@ async function initializeLegacyRuntime() {
                 UNIQUE (dpr_date, plant, shift, factory_id)
             );
 
+            CREATE TABLE IF NOT EXISTS plan_audit_logs (
+                id SERIAL PRIMARY KEY,
+                plan_id INT,
+                action VARCHAR(50),
+                details JSONB,
+                user_name VARCHAR(100),
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_plan_audit_logs_created ON plan_audit_logs(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_plan_audit_logs_plan_id ON plan_audit_logs(plan_id);
+
         `);
+
+    // Fix: reset plan_audit_logs serial sequence to MAX(id)+1 to prevent pkey conflicts
+    // after DB restore / sync pushes explicit IDs higher than the current sequence value.
+    await q(`
+      SELECT setval(
+        'plan_audit_logs_id_seq',
+        COALESCE((SELECT MAX(id) FROM plan_audit_logs), 0) + 1,
+        false
+      )
+    `).catch(err => console.warn('[DB] plan_audit_logs sequence reset skipped:', err.message));
 
     // MISSING TABLE: std_actual
     await q(`
@@ -3996,6 +4136,12 @@ async function initializeLegacyRuntime() {
     } catch (factorySeedError) {
       console.warn('[DB] Default factory seed skipped:', factorySeedError.message);
     }
+
+    // One-time rename: update factory 1 to correct display name and location.
+    await q(
+      `UPDATE factories SET name = 'Dungra Plant 1', location = 'Dungra, Vapi', updated_at = NOW()
+       WHERE id = 1 AND (name IS DISTINCT FROM 'Dungra Plant 1' OR location IS DISTINCT FROM 'Dungra, Vapi')`
+    ).catch(err => console.warn('[DB] Factory 1 rename skipped:', err.message));
 
     // [FIX] Universal Schema Fix for Sync
     // Ensure ALL sync tables have sync_id, factory_id, and UNIQUE INDEX on sync_id
@@ -4325,6 +4471,15 @@ async function initializeLegacyRuntime() {
         syncService.init(pool);
         updaterService.init(pool);
       }, 5000);
+      // On LOCAL: push all existing upload files to MAIN 2 min after startup so
+      // icons saved before the push fix are not permanently missing on VPS.
+      if (String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL') {
+        setTimeout(() => {
+          pushAllUploadsToMain().catch(e =>
+            console.warn('[Uploads] Startup bulk sync failed:', e.message)
+          );
+        }, 2 * 60 * 1000);
+      }
     }
   };
 }
@@ -9258,35 +9413,93 @@ async function resolveJobCardFromOrJrRemarks(orderNo, ourCode, planId, factorySc
   const u = String(ourCode || '').trim().toLowerCase();
   const p = String(planId || '').trim().toLowerCase();
   if (!o || (!u && !p)) return null;
-  const params = [o];
-  let cond = `TRIM(COALESCE(or_jr_no, '')) = TRIM($1)`;
-  let idx = 2;
-  const posConds = [];
-  if (u) {
-    params.push(u);
-    posConds.push(`POSITION($${idx} IN LOWER(COALESCE(remarks_all, ''))) > 0`);
-    idx += 1;
-  }
-  if (p) {
-    params.push(p);
-    posConds.push(`POSITION($${idx} IN LOWER(COALESCE(remarks_all, ''))) > 0`);
-    idx += 1;
-  }
-  cond += ` AND (${posConds.join(' OR ')})`;
+
+  // Build factory condition
+  const factoryParams = [];
+  let factoryCond = '';
   if (factoryScopeId != null && factoryScopeId !== '') {
-    params.push(factoryScopeId);
-    cond += ` AND (factory_id = $${idx} OR factory_id IS NULL)`;
+    factoryParams.push(factoryScopeId);
+    factoryCond = ` AND (factory_id = $${factoryParams.length + 1} OR factory_id IS NULL)`;
   }
-  const rows = await q(
+
+  // Step 1: find ALL rows for this OR number (with factory scope)
+  const allRows = await q(
     `SELECT id, job_card_no, job_card_date, remarks_all, or_jr_no
        FROM or_jr_report
-      WHERE ${cond}
-      ORDER BY edited_date DESC NULLS LAST, id DESC
-      LIMIT 1`,
-    params
+      WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM($1)
+      ${factoryScopeId != null && factoryScopeId !== '' ? `AND (factory_id = $2 OR factory_id IS NULL)` : ''}
+      ORDER BY
+        CASE WHEN COALESCE(job_card_no, '') <> '' THEN 0 ELSE 1 END,
+        edited_date DESC NULLS LAST, id DESC`,
+    factoryScopeId != null && factoryScopeId !== '' ? [o, factoryScopeId] : [o]
   );
-  return rows[0] || null;
+
+  if (allRows.length === 0) return null;
+
+  // Step 2: among all rows, prefer one that (a) has job_card_no AND (b) remarks match
+  // Fall back to: remarks match without job_card_no, then any row with job_card_no
+  const remarkMatch = (row) => {
+    const r = String(row.remarks_all || '').toLowerCase();
+    return (u && r.includes(u)) || (p && r.includes(p));
+  };
+
+  // Priority 1: has job_card_no AND remarks match
+  const best = allRows.find(r => r.job_card_no && remarkMatch(r));
+  if (best) return best;
+
+  // Priority 2: remarks match (even without job_card_no — still useful for "found but no JC yet")
+  const remarksOnly = allRows.find(r => remarkMatch(r));
+  if (remarksOnly) return remarksOnly;
+
+  // Priority 3: has job_card_no (remarks may not match but OR number matches)
+  const jcOnly = allRows.find(r => r.job_card_no);
+  if (jcOnly) return jcOnly;
+
+  return allRows[0] || null;
 }
+
+// Debug: show what or_jr_report rows exist for a given order_no + what the plan has
+app.get('/api/planning/debug-jc-link', async (req, res) => {
+  try {
+    const { order_no, our_code, plan_id } = req.query;
+    const factoryId = getFactoryId(req);
+    if (!order_no) return res.status(400).json({ ok: false, error: 'order_no required' });
+
+    const rows = await q(
+      `SELECT id, or_jr_no, job_card_no, job_card_date,
+              LEFT(remarks_all, 200) AS remarks_all_preview,
+              factory_id, edited_date
+         FROM or_jr_report
+        WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM($1)
+        ORDER BY edited_date DESC NULLS LAST, id DESC
+        LIMIT 20`,
+      [order_no]
+    );
+
+    const u = String(our_code || '').trim().toLowerCase();
+    const p = String(plan_id || '').trim().toLowerCase();
+
+    const annotated = rows.map(r => ({
+      ...r,
+      has_job_card_no: !!r.job_card_no,
+      remarks_contains_our_code: u ? String(r.remarks_all_preview || '').toLowerCase().includes(u) : null,
+      remarks_contains_plan_id: p ? String(r.remarks_all_preview || '').toLowerCase().includes(p) : null,
+      would_be_linked: !!(r.job_card_no && (
+        (u && String(r.remarks_all_preview || '').toLowerCase().includes(u)) ||
+        (p && String(r.remarks_all_preview || '').toLowerCase().includes(p))
+      ))
+    }));
+
+    res.json({
+      ok: true,
+      search: { order_no, our_code, plan_id, factory_id: factoryId },
+      rows_found: rows.length,
+      rows: annotated
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
 
 // Plans from plan_board for Print Job Card (date-wise; batch id ↔ OR-JR remarks)
 app.get('/api/planning/print-jc-plans', async (req, res) => {
@@ -12569,6 +12782,9 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
         }
 
       } else if (type === 'orjrwise') {
+        // Reset sequence to MAX(id) so synced rows with explicit IDs don't cause pkey conflicts.
+        await client.query(`SELECT setval('mould_planning_summary_id_seq', COALESCE((SELECT MAX(id) FROM mould_planning_summary), 0) + 1, false)`);
+
         const rowsToUpsert = data.map(row => {
           const jrDate = toDate(row.jr_date);
           const planDate = toDate(row.plan_date) || jrDate || null;
@@ -12638,6 +12854,9 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
           count++;
         }
       } else if (type === 'orjrwisedetail') {
+        // Reset sequence to MAX(id) so synced rows with explicit IDs don't cause pkey conflicts.
+        await client.query(`SELECT setval('mould_planning_report_id_seq', COALESCE((SELECT MAX(id) FROM mould_planning_report), 0) + 1, false)`);
+
         const rowsToUpsert = data.map(row => {
           const jrDate = toIsoDateText(row.jr_date);
           const planDate = toIsoDateText(row.plan_date) || jrDate || null;
@@ -12803,6 +13022,9 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
           count++;
         }
       } else if (type === 'boplanningdetail') {
+        // Reset sequence to MAX(id) so synced rows with explicit IDs don't cause pkey conflicts.
+        await client.query(`SELECT setval('mould_planning_report_id_seq', COALESCE((SELECT MAX(id) FROM mould_planning_report), 0) + 1, false)`);
+
         const rowsToUpsert = data.map(row => {
           const jrDate = toIsoDateText(row.jr_date);
           const planDate = toIsoDateText(row.plan_date) || jrDate || null;

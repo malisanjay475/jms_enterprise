@@ -514,11 +514,29 @@
                       </select>
                     </div>
                     <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">View Mode</label>
-                      <div class="form-check form-switch" style="display:flex; align-items:center; gap:8px; background:white; padding:6px 12px; border:1px solid #cbd5e1; border-radius:4px; height:37px">
-                         <input class="form-check-input" type="checkbox" id="chkLowEff" style="cursor:pointer">
-                         <label class="form-check-label" for="chkLowEff" style="font-size:0.8rem; cursor:pointer; user-select:none">Low Efficiency</label>
-                      </div>
+                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Factory</label>
+                      <select id="s-factory" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:150px">
+                        <option value="">All Factories</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Line Filter</label>
+                      <select id="s-line" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:130px">
+                        <option value="">All Lines</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">View Filter</label>
+                      <select id="s-eff-filter" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:160px">
+                        <option value="">All</option>
+                        <option value="LowEff">Low EFF</option>
+                        <option value="ManPowerShortage">MP Shortage</option>
+                        <option value="MouldMaintenance">Mould Maintenance</option>
+                        <option value="PowerCut">Power Cut</option>
+                        <option value="NoPlan">No Plan</option>
+                        <option value="MachineMaintenance">Machine Maintenance</option>
+                        <option value="MouldTrial">Mould Trial</option>
+                      </select>
                     </div>
                     <div style="display:flex; gap:10px">
                       <button id="btn-s-apply" class="btn btn-primary" style="padding:7px 15px; background:#3b82f6; color:white; border:none; border-radius:4px; font-weight:600; cursor:pointer">Apply</button>
@@ -565,6 +583,9 @@
                     const shiftMode = document.getElementById('s-shift').value; // 'Day', 'Night', 'Both'
                     const container = document.getElementById('summary-container');
                     const processQuery = `&process=${encodeURIComponent(dprProcess)}`;
+                    const selectedFactory = document.getElementById('s-factory')?.value || '';
+                    const selectedLine = document.getElementById('s-line')?.value || '';
+                    const filterMode = document.getElementById('s-eff-filter')?.value || '';
 
                     localStorage.setItem('jpsms_dpr_process', dprProcess);
 
@@ -595,7 +616,11 @@
                         if (!resDayMat.ok) throw new Error(resDayMat.error || 'Day Fetch Failed');
                         if (!resNightMat.ok) throw new Error(resNightMat.error || 'Night Fetch Failed');
 
-                        const allowedMachines = new Set((scopedMachinesRes.data || []).map(machine => machine.machine));
+                        let scopedMachinesList = scopedMachinesRes.data || [];
+                        if (selectedFactory) {
+                            scopedMachinesList = scopedMachinesList.filter(m => String(m.factory_id) === String(selectedFactory));
+                        }
+                        const allowedMachines = new Set(scopedMachinesList.map(machine => machine.machine));
                         const filterMatrixResponse = (matrixRes) => {
                             const matrixData = matrixRes.data || {};
                             const filteredDates = {};
@@ -639,7 +664,23 @@
                         const nightClosed = resNightMat.data.closedPlants || [];
 
                         const allDates = Array.from(new Set([...Object.keys(dayDatesMap), ...Object.keys(nightDatesMap)])).sort().reverse();
-                        
+
+                        // Populate Lines dropdown from machine data
+                        const allLineKeys = new Set();
+                        (machines || []).forEach(m => allLineKeys.add(m.line || m.building || m.machine_process || 'General'));
+                        const lineDropdown = document.getElementById('s-line');
+                        if (lineDropdown) {
+                            const prevLineVal = lineDropdown.value;
+                            lineDropdown.innerHTML = '<option value="">All Lines</option>';
+                            Array.from(allLineKeys).sort().forEach(lk => {
+                                const opt = document.createElement('option');
+                                opt.value = lk;
+                                opt.textContent = lk;
+                                if (lk === prevLineVal) opt.selected = true;
+                                lineDropdown.appendChild(opt);
+                            });
+                        }
+
                         if (allDates.length === 0) {
                             container.innerHTML = '<div style="padding:40px; text-align:center; color:#64748b">No data found for this range.</div>';
                             return;
@@ -655,6 +696,13 @@
                                 </div>
                                 <div style="display:flex; gap:24px">
                                     <div style="text-align:right">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#7c3aed; text-transform:uppercase">Overall Tonnage</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#7c3aed">
+                                            <span id="grand-total-overall">0.00</span> <span style="font-size:0.9rem">Kg</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right">
                                         <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Tonnage</div>
                                         <div style="font-size:1.4rem; font-weight:800; color:#2563eb">
                                             <span id="grand-total-tonnage">0.00</span> <span style="font-size:0.9rem">Kg</span>
@@ -668,10 +716,17 @@
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Efficiency</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#16a34a">
+                                    <div style="text-align:right" title="OEE (Scheduled Time)">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#0369a1; text-transform:uppercase">OEE</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#0369a1">
                                             <span id="grand-total-eff">0.0</span> <span style="font-size:0.9rem">%</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="EFF (Net Run Time after Downtime)">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#16a34a; text-transform:uppercase">EFF</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#16a34a">
+                                            <span id="grand-total-effnet">0.0</span> <span style="font-size:0.9rem">%</span>
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
@@ -747,6 +802,13 @@
                                 return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
                             });
                         });
+
+                        // Apply line filter — only keep the selected line
+                        if (selectedLine) {
+                            Object.keys(lines).forEach(k => {
+                                if (k !== selectedLine) delete lines[k];
+                            });
+                        }
 
                         // Standard Slots (12 cols)
                         // Standard Slots (12 cols) - Shift starts 08:00
@@ -851,8 +913,9 @@
                                 </div>
                             `;
 
-                        const showLowEff = document.getElementById('chkLowEff') && document.getElementById('chkLowEff').checked;
+                        const flatMode = !!filterMode;
                         const lineBuffer = [];
+                        const globalMachineBuffer = [];
 
                         Object.keys(lines).forEach(lineName => {
                             let lineInnerHtml = '';
@@ -864,7 +927,7 @@
                             }
                             const acc = lineAccumulators[lineName];
                             
-                            let lineTotalTonnage = 0, lineTotalRejTonnage = 0, lineTotalGoodPcs = 0, lineTotalEstPcs = 0;
+                            let lineTotalTonnage = 0, lineTotalRejTonnage = 0, lineTotalGoodPcs = 0, lineTotalEstPcs = 0, lineTotalEstPcsNet = 0;
                             let lineTotalDt = 0, lineTotalAutoDt = 0, lineTotalCC = 0, lineTotalMC = 0, lineTotalJC = 0;
 
                             // Shift Team Display
@@ -894,14 +957,20 @@
                                         <div style="display:flex; justify-content:space-between; align-items:center">
                                             <span style="font-weight:700; color:#0f172a; font-size:1rem">${lineName}</span>
                                             <div style="display:flex; gap:12px; align-items:center">
-                                                <div style="font-weight:700; color:#0f172a; font-size:0.9rem">
+                                                <div style="font-weight:700; color:#7c3aed; font-size:0.9rem">
+                                                    Overall: <span id="line-total-overall-${lineName.replace(/\s/g, '')}">0.00</span> Kg
+                                                </div>
+                                                <div style="font-weight:700; color:#0f172a; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
                                                     Total: <span id="line-total-tonnage-${lineName.replace(/\s/g, '')}">0.00</span> Kg
                                                 </div>
                                                 <div style="font-weight:700; color:#dc2626; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
                                                     Rej: <span id="line-total-rej-${lineName.replace(/\s/g, '')}">0.00</span> Kg
                                                 </div>
-                                                <div style="font-weight:700; color:#16a34a; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
-                                                    Eff: <span id="line-total-eff-${lineName.replace(/\s/g, '')}">0.0</span>%
+                                                <div style="font-weight:700; color:#0369a1; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px" title="OEE (Scheduled Time)">
+                                                    OEE: <span id="line-total-eff-${lineName.replace(/\s/g, '')}">0.0</span>%
+                                                </div>
+                                                <div style="font-weight:700; color:#16a34a; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px" title="EFF (Net Run Time after Downtime)">
+                                                    EFF: <span id="line-total-effnet-${lineName.replace(/\s/g, '')}">0.0</span>%
                                                 </div>
                                                 <div style="font-weight:700; color:#db2777; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
                                                     DT: <span id="line-total-dt-${lineName.replace(/\s/g, '')}">0.0</span> Hrs
@@ -1226,7 +1295,7 @@
                                             let overrideTriggeredThisSlot = false;
 
                                              // Check purely special Entry Types (Quick Actions)
-                                             const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial'].includes(e.entry_type));
+                                             const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial', 'PowerCut'].includes(e.entry_type));
 
                                              if (spEntry) {
                                                  if (spEntry.entry_type === 'Maintenance') activeOverrideStatus = '🏭 Machine Maintenance';
@@ -1235,6 +1304,7 @@
                                                  else if (spEntry.entry_type === 'MouldMaintenance') activeOverrideStatus = 'MOULD MAINT';
                                                  else if (spEntry.entry_type === 'NoPlan') activeOverrideStatus = 'NO PLAN';
                                                  else if (spEntry.entry_type === 'MouldTrial') activeOverrideStatus = 'MOULD TRIAL';
+                                                 else if (spEntry.entry_type === 'PowerCut') activeOverrideStatus = '⚡ POWER CUT';
                                                  overrideTriggeredThisSlot = true;
                                              } else {
                                                 // Check manually entered Main types where downtime is >= 45m and 0 production
@@ -1245,6 +1315,7 @@
                                                      else if (brk['2']) { activeOverrideStatus = 'Mould Changeover'; overrideTriggeredThisSlot = true; }
                                                      else if (brk['5']) { activeOverrideStatus = '🏭 Machine Maintenance'; overrideTriggeredThisSlot = true; }
                                                      else if (brk['7']) { activeOverrideStatus = 'MOULD MAINT'; overrideTriggeredThisSlot = true; }
+                                                     else if (brk['8']) { activeOverrideStatus = '⚡ POWER CUT'; overrideTriggeredThisSlot = true; }
                                                      else if (brk['11']) { activeOverrideStatus = 'MOULD TRIAL'; overrideTriggeredThisSlot = true; }
                                                      else if (brk['13']) { activeOverrideStatus = 'NO PLAN'; overrideTriggeredThisSlot = true; }
                                                  }
@@ -1268,6 +1339,7 @@
                                                  if (activeOverrideStatus === 'NO PLAN') { bg = '#fff1f2'; border = '1px solid #fda4af'; content = `<div style="color:#e11d48; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
                                                  else if (activeOverrideStatus === 'MOULD MAINT') { bg = '#fefce8'; border = '1px solid #fde047'; content = `<div style="color:#a16207; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
                                                  else if (activeOverrideStatus === 'MOULD TRIAL') { bg = '#f5f3ff'; border = '1px solid #ddd6fe'; content = `<div style="color:#7c3aed; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
+                                                 else if (activeOverrideStatus === '⚡ POWER CUT') { bg = '#eff6ff'; border = '1px solid #bfdbfe'; content = `<div style="color:#1e40af; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
                                                  else { bg = '#fee2e2'; border = '1px solid #fca5a5'; content = `<div style="color:#b91c1c; font-weight:700; font-size:0.75rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
 
                                             } else if (entries.length > 0) {
@@ -1286,41 +1358,54 @@
                                                         if (slotEndTime > 0 && entryTime > (slotEndTime + 2700000)) isLate = true;
                                                     }
 
-                                                    // Backgrounds
+                                                    // Background: yellow for late entries, green for on-time
                                                     const blockBg = isLate ? '#fef9c3' : '#dcfce7';
-                                                    const qtyColor = isLate ? '#b45309' : '#15803d';
+                                                    // Good qty: always green (late entries still flagged via yellow bg)
+                                                    const qtyColor = '#15803d';
 
-                                                    // Divider logic: Add border-bottom to all except last
+                                                    // Divider between stacked entries
                                                     const separator = (idx < entries.length - 1) ? 'border-bottom:1px solid rgba(0,0,0,0.1);' : '';
 
-                                                    const colName = entry.colour || '-';
+                                                    const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+                                                    const colName = _esc(entry.colour || '');
                                                     const isCC = (entry.entry_type === 'ColourChange');
 
                                                     const lineAccess = (entry.creator_line_access || '').toLowerCase();
                                                     const isAllAccess = lineAccess === 'all' || (entry.user_name || '').toLowerCase().includes('admin');
 
                                                     const isAuto = (entry.remarks || '').includes('[Auto-Filled]');
-                                                    const ppcBadge = isAllAccess ? `<span style="font-size:0.6rem; color:#fff; background:#6366f1; padding:0 3px; border-radius:2px; font-weight:600; margin-left:2px">PPC</span>` : '';
-                                                    const autoBadge = isAuto ? `<span style="font-size:0.6rem; color:#fff; background:#94a3b8; padding:0 3px; border-radius:2px; font-weight:600; margin-left:2px" title="Auto-Filled by System">AUTO</span>` : '';
+
+                                                    // DT display: auto-filled entries show "Auto DT: Xm", manual show "X.Xh"
+                                                    const dtMins = Number(entry.downtime_min || 0);
+                                                    const manualDtStr = (!isAuto && dtMins > 0) ? `${(dtMins / 60).toFixed(1)}h` : '';
+                                                    const autoDtStr  = (isAuto  && dtMins > 0) ? `Auto DT: ${Math.round(dtMins)}m` : '';
+
+                                                    const ppcBadge  = isAllAccess ? `<span style="font-size:0.58rem;color:#fff;background:#6366f1;padding:1px 3px;border-radius:2px;font-weight:700">PPC</span>` : '';
+                                                    const autoBadge = isAuto      ? `<span style="font-size:0.58rem;color:#fff;background:#94a3b8;padding:1px 3px;border-radius:2px;font-weight:700" title="Auto-Filled">AUTO</span>` : '';
+                                                    const ccBadge   = isCC        ? `<span style="font-size:0.58rem;color:#c2410c;background:#fff7ed;border:1px solid #ffedd5;padding:1px 3px;border-radius:2px;font-weight:700">CC</span>` : '';
+
+                                                    const timeStr = entry.created_at ? new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
                                                     content += `
-                                                        <div onclick='showEntryDetails(${JSON.stringify(entry).replace(/'/g, "&apos;")})' style="cursor:pointer; flex:1; background:${blockBg}; ${separator} padding:2px 4px; text-align:left; display:flex; flex-direction:column; justify-content:center; transition:background 0.2s" onmouseover="this.style.filter='brightness(0.95)'" onmouseout="this.style.filter='none'">
-                                                            <div style="display:flex; justify-content:space-between; align-items:flex-start; line-height:1.1">
-                                                                <span style="font-weight:700; font-size:0.9rem; color:${qtyColor}">${entry.good_qty}</span>
-                                                                <span style="font-size:0.65rem; color:#64748b; font-weight:600">${entry.created_at ? new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
-                                                            </div>
-                                                            
-                                                            <div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-top:1px">
-                                                                ${entry.reject_qty > 0 ? `<span style="font-size:0.75rem; color:#ef4444; font-weight:700">Rej:${entry.reject_qty}</span>` : ''}
-                                                                ${entry.downtime_min > 0 ? `<span style="font-size:0.75rem; color:#db2777; font-weight:700">${(entry.downtime_min / 60).toFixed(1)}h</span>` : ''}
+                                                        <div onclick='showEntryDetails(${JSON.stringify(entry).replace(/'/g, "&apos;")})' style="cursor:pointer;flex:1;background:${blockBg};${separator}padding:3px 4px;display:flex;flex-direction:column;gap:1px;transition:background 0.2s" onmouseover="this.style.filter='brightness(0.94)'" onmouseout="this.style.filter='none'">
+
+                                                            <!-- Row 1: Good Qty (green) + Time (small, right) -->
+                                                            <div style="display:flex;justify-content:space-between;align-items:flex-start;line-height:1">
+                                                                <span style="font-weight:800;font-size:0.95rem;color:${qtyColor};line-height:1">${entry.good_qty}</span>
+                                                                <span style="font-size:0.6rem;color:#64748b;font-weight:600;line-height:1.3;white-space:nowrap;margin-left:2px">${timeStr}</span>
                                                             </div>
 
-                                                            <div style="margin-top:1px; line-height:1; display:flex; align-items:center; gap:2px">
-                                                                <span style="font-size:0.75rem; color:#334155; font-weight:600; line-height:1.1; word-break:break-word" title="${colName}">${colName}</span>
-                                                                ${isCC ? `<span style="font-size:0.6rem; color:#c2410c; background:#fff7ed; border:1px solid #ffedd5; padding:0 2px; border-radius:2px; font-weight:600">CC</span>` : ''}
-                                                                ${ppcBadge}
-                                                                ${autoBadge}
-                                                            </div>
+                                                            <!-- Row 2: Rejection (red) -->
+                                                            ${Number(entry.reject_qty || 0) > 0 ? `<div style="font-size:0.72rem;color:#dc2626;font-weight:700;line-height:1">Rej: ${entry.reject_qty}</div>` : ''}
+
+                                                            <!-- Row 3: DT — manual 0.2h  |  Auto DT: 9m -->
+                                                            ${(manualDtStr || autoDtStr) ? `<div style="display:flex;gap:3px;align-items:center;flex-wrap:nowrap;line-height:1">${manualDtStr ? `<span style="font-size:0.7rem;color:#db2777;font-weight:700">${manualDtStr}</span>` : ''}${autoDtStr ? `<span style="font-size:0.68rem;color:#be185d;font-weight:600">${autoDtStr}</span>` : ''}</div>` : ''}
+
+                                                            <!-- Row 4: Colour name — full text, breaks at word boundaries only, up to 3 lines -->
+                                                            ${colName ? `<div style="font-size:0.68rem;color:#334155;font-weight:600;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;word-break:normal;overflow-wrap:normal;margin-top:1px" title="${colName}">${colName}</div>` : ''}
+
+                                                            <!-- Row 5: Badges (CC / PPC / AUTO) -->
+                                                            ${(ccBadge || ppcBadge || autoBadge) ? `<div style="display:flex;gap:2px;flex-wrap:wrap;margin-top:1px">${ccBadge}${ppcBadge}${autoBadge}</div>` : ''}
 
                                                         </div>
                                                     `;
@@ -1441,7 +1526,7 @@
 
                                                  // --- FEATURE: Auto-Fill Summary Integration ---
                                                  let hasOverrideThisSlot = false;
-                                                 const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial'].includes(e.entry_type));
+                                                 const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial', 'PowerCut'].includes(e.entry_type));
                                                  if (spEntry) {
                                                      if (spEntry.entry_type === 'Maintenance') sumActiveOverride = '🏭 Machine Maintenance';
                                                      else if (spEntry.entry_type.includes('MouldChange')) sumActiveOverride = 'Mould Changeover';
@@ -1449,6 +1534,7 @@
                                                      else if (spEntry.entry_type === 'MouldMaintenance') sumActiveOverride = 'MOULD MAINT';
                                                      else if (spEntry.entry_type === 'NoPlan') sumActiveOverride = 'NO PLAN';
                                                      else if (spEntry.entry_type === 'MouldTrial') sumActiveOverride = 'MOULD TRIAL';
+                                                     else if (spEntry.entry_type === 'PowerCut') sumActiveOverride = '⚡ POWER CUT';
                                                      hasOverrideThisSlot = true;
                                                  } else {
                                                     const dEntry = entries.find(e => e.entry_type === 'Main' && Number(e.downtime_min) >= 45 && Number(e.good_qty || 0) === 0);
@@ -1457,6 +1543,7 @@
                                                          else if (brk['2']) { sumActiveOverride = 'Mould Changeover'; hasOverrideThisSlot = true; }
                                                          else if (brk['5']) { sumActiveOverride = '🏭 Machine Maintenance'; hasOverrideThisSlot = true; }
                                                          else if (brk['7']) { sumActiveOverride = 'MOULD MAINT'; hasOverrideThisSlot = true; }
+                                                         else if (brk['8']) { sumActiveOverride = '⚡ POWER CUT'; hasOverrideThisSlot = true; }
                                                          else if (brk['11']) { sumActiveOverride = 'MOULD TRIAL'; hasOverrideThisSlot = true; }
                                                          else if (brk['13']) { sumActiveOverride = 'NO PLAN'; hasOverrideThisSlot = true; }
                                                      }
@@ -1478,6 +1565,7 @@
                                                     if (sumActiveOverride === 'Man Power Shortage') rCode = '1';
                                                     else if (sumActiveOverride === 'Mould Changeover') rCode = '2';
                                                     else if (sumActiveOverride === 'MOULD MAINT') rCode = '7';
+                                                    else if (sumActiveOverride === '⚡ POWER CUT') rCode = '8';
                                                     else if (sumActiveOverride === 'MOULD TRIAL') rCode = '11';
                                                     else if (sumActiveOverride === 'NO PLAN') rCode = '13';
                                                      rowAggDt[rCode] = (rowAggDt[rCode] || 0) + 60;
@@ -1585,47 +1673,45 @@
                                             });
                                         }
 
-                                        // Efficiency (Gross Efficiency - Total Time based)
+                                        // Efficiency — OEE (gross scheduled time) and EFF (net run time after DT)
                                         let rowEff = 0, estPcs = 0;
+                                        let rowEffNet = 0, estPcsNet = 0;
                                         if (hasEntries && maxSlotIdx >= minSlotIdx && !m.is_dummy) {
                                             const availSlots = maxSlotIdx - minSlotIdx + 1;
                                             const availMins = availSlots * 60;
-
-                                            // Gross Efficiency = (Actual / (StdRate * TotalTime))
-                                            // We do NOT subtract Downtime for Capacity Utilization view usually requested by management.
-                                            // However, to be "Perfect" match to floor reality:
-                                            // Let's use Net Run Time but Cap it safely.
-                                            // const actProdTime = Math.max(0, availMins - sumDt); 
-
-                                            // CHANGE: Use Gross Time to avoid >100% artifacts from bad DT entries
-                                            // If user wants OEE Performance, they use the other report.
-                                            // For Compliance Summary, we compare against Shift Time.
-                                            const actProdTime = availMins;
-
+                                            const runTimeMins = Math.max(0, availMins - Math.min(sumDt, availMins));
                                             const std = parseFloat(m.std) || 0;
                                             if (std > 0) {
-                                                estPcs = Math.round(std * (actProdTime / 60.0));
-                                                // Cap Efficiency at 100%? No, show truth but maybe highlight >100.
-                                                // If EstPcs is very low (due to short time) but produced is high -> abnormal.
+                                                // OEE = Good / (Std × Scheduled Hours)
+                                                estPcs = Math.round(std * (availMins / 60.0));
                                                 if (estPcs > 0) rowEff = (sumGood / estPcs) * 100;
-                                            } else {
-                                                // Try to fallback if Std is missing but we have Cycle Time
-                                                // This is handled in addMould upstream now
+                                                // EFF = Good / (Std × Net Run Hours)
+                                                estPcsNet = Math.round(std * (runTimeMins / 60.0));
+                                                if (estPcsNet > 0) rowEffNet = (sumGood / estPcsNet) * 100;
                                             }
                                         }
 
-                                        // Summary HTML (Same as before)
-                                        // Summary HTML (Same as before)
-                                        const effColor = rowEff >= 80 ? '#166534' : '#b45309';
+                                        // Summary cell variables
+                                        const totalPcs = sumGood + sumRej;
+                                        const stdWeightRaw = parseFloat(m.details?.std_weight || 0);
+                                        const stdWeightKg  = stdWeightRaw >= 10 ? stdWeightRaw / 1000 : stdWeightRaw;
+                                        const wtStdGrams   = stdWeightKg > 0 ? Math.round(stdWeightKg * 1000) : 0;
+                                        // Wt Act: prefer actual production (good tonnage ÷ good pieces), fallback to setup entry
+                                        const wtActKgPerPcs = (sumGood > 0 && sumTonnage > 0) ? (sumTonnage / sumGood) : (rowSetupWeight > 0 ? rowSetupWeight : 0);
+                                        const wtActGrams   = wtActKgPerPcs > 0 ? Math.round(wtActKgPerPcs * 1000) : 0;
+                                        const totKg        = sumTonnage + sumRejTonnage;
+                                        const effColor     = rowEffNet >= 80 ? '#166534' : rowEffNet >= 60 ? '#b45309' : '#dc2626';
+                                        const oeeColor     = rowEff    >= 80 ? '#166534' : rowEff    >= 60 ? '#b45309' : '#dc2626';
 
                                         const summaryClickScript = `showSummaryDetails('${machine}', '${rowShift}', '${lineName}', ${sumGood}, ${sumRej}, ${sumDt}, ${sumAutoDt}, ${Math.round(sumStd)}, '${encodeURIComponent(JSON.stringify(rowAggRej))}', '${encodeURIComponent(JSON.stringify(rowAggDt))}')`;
 
-                                        let summaryH = !m.is_dummy ? `<div style="text-align:left; cursor:pointer" onclick="${summaryClickScript}"><div style="font-size:0.75rem; font-weight:700; color:#0369a1; margin-bottom:2px">Std: ${Math.round(sumStd)}</div><div style="font-size:0.8rem"><span style="font-weight:700; color:#166534">${sumGood}</span>${sumRej > 0 ? `<span style="color:#dc2626; font-weight:600"> | ${sumRej}®</span>` : ''}</div>${sumDt > 0 ? `<div style="font-size:0.8rem; color:#db2777; font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="font-size:0.75rem; color:#be185d; font-weight:700; background:#fce7f3; padding:1px 3px; border-radius:3px; display:inline-block; margin-top:2px">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}<div title="W: ${rowSetupWeight}g (Est)" style="font-size:0.75rem; color:#475569; font-weight:600; margin-top:2px; border-top:1px dashed #cbd5e1; padding-top:2px; cursor:help">Kg: ${sumTonnage.toFixed(2)}${sumRejTonnage > 0 ? `<div style="color:#dc2626; font-size:0.7rem">Rej: ${sumRejTonnage.toFixed(2)}</div>` : ''}</div>${rowEff > 0 ? `<div style="font-size:0.75rem; font-weight:700; color:${effColor}; margin-top:2px; padding-top:2px; border-top:1px dashed #e2e8f0" title="Est: ${estPcs}">Eff: ${rowEff.toFixed(1)}%</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
+                                        let summaryH = !m.is_dummy ? `<div style="text-align:left;cursor:pointer;font-size:0.72rem;line-height:1.7;padding:2px 0" onclick="${summaryClickScript}"><div style="font-weight:700;color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-weight:800;color:#166534;font-size:0.8rem">${totalPcs}<span style="font-weight:500;color:#64748b;font-size:0.68rem"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="color:#db2777;font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="color:#be185d;font-weight:600">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${(wtStdGrams > 0 || wtActGrams > 0) ? `<div style="display:flex;justify-content:space-between;color:#64748b;font-weight:600"><span>Wt Std:</span><span>${wtStdGrams > 0 ? wtStdGrams + 'g' : '-'}</span></div><div style="display:flex;justify-content:space-between;color:#64748b;font-weight:600"><span>Wt Act:</span><span>${wtActGrams > 0 ? wtActGrams + 'g' : '-'}</span></div>` : ''}<div style="font-weight:700;color:#7c3aed">Tot Kg: ${totKg.toFixed(1)}</div>${rowEffNet > 0 ? `<div style="font-weight:700;color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-weight:700;color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
 
                                         lineTotalTonnage += sumTonnage;
                                         lineTotalRejTonnage += sumRejTonnage;
                                         lineTotalGoodPcs += sumGood;
                                         lineTotalEstPcs += estPcs;
+                                        lineTotalEstPcsNet += estPcsNet;
                                         lineTotalDt += sumDt;
                                         lineTotalAutoDt += sumAutoDt; // Accumulate Auto DT
                                         machineGood += sumGood;
@@ -1643,27 +1729,27 @@
                                     machineRowHtml = machineRowHtml.replace('<td style="padding:10px; text-align:left;', '<td class="blink-alert" style="padding:10px; text-align:left;');
                                 }
 
-                                machineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine });
+                                if (flatMode) {
+                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine });
+                                } else {
+                                    machineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine });
+                                }
                             }); // End machines loop
 
-                            // Sort Machines (if Toggle ON)
-                            if (showLowEff) {
-                                machineBuffer.sort((a, b) => a.eff - b.eff);
-                            }
-
-                            // Append to Line Inner HTML
+                            // Append to Line Inner HTML (always, even in flatMode — line totals still update)
                             lineInnerHtml += machineBuffer.map(m => m.html).join('');
                             lineInnerHtml += `</tbody></table></div></div>`;
 
                             // Store Totals for this line (Accumulate across dates)
                             if (!window.lineTheTonnages[lineName]) {
-                                window.lineTheTonnages[lineName] = { good: 0, rej: 0, effGood: 0, effEst: 0, dt: 0, autoDt: 0, cc: 0, mc: 0, jc: 0 };
+                                window.lineTheTonnages[lineName] = { good: 0, rej: 0, effGood: 0, effEst: 0, netEst: 0, dt: 0, autoDt: 0, cc: 0, mc: 0, jc: 0 };
                             }
                             const t = window.lineTheTonnages[lineName];
                             t.good += lineTotalTonnage;
                             t.rej += lineTotalRejTonnage;
                             t.effGood += lineTotalGoodPcs;
                             t.effEst += lineTotalEstPcs;
+                            t.netEst  = (t.netEst || 0) + lineTotalEstPcsNet;
                             t.dt += lineTotalDt;
                             t.autoDt += lineTotalAutoDt;
                             t.cc += lineTotalCC;
@@ -1676,33 +1762,53 @@
                                 const el = document.getElementById(`line-total-${suffix}-${lineId}`);
                                 if (el) el.textContent = typeof val === 'number' ? val.toFixed(fixed) : val;
                             };
+                            updateEl('overall', t.good + t.rej);
                             updateEl('tonnage', t.good);
                             updateEl('rej', t.rej);
-                            updateEl('eff', t.effEst > 0 ? (t.effGood / t.effEst * 100) : 0, 1);
+                            updateEl('eff',    t.effEst > 0        ? (t.effGood / t.effEst        * 100) : 0, 1); // OEE
+                            updateEl('effnet', (t.netEst || 0) > 0 ? (t.effGood / (t.netEst || 0) * 100) : 0, 1); // EFF
                             updateEl('dt', t.dt / 60, 1);
                             updateEl('autodt', t.autoDt, 0);
                             updateEl('mc', t.mc, 0);
                             updateEl('cc', t.cc, 0);
                             updateEl('jc', t.jc, 0);
 
-                            // Capture for Line Sorting
+                            // Capture for Line Sorting (only in normal mode)
                             let calcEff = (lineTotalEstPcs > 0) ? (lineTotalGoodPcs / lineTotalEstPcs) * 100 : 0;
-                            lineBuffer.push({
-                                html: lineInnerHtml,
-                                name: lineName,
-                                eff: calcEff
-                            });
+                            if (!flatMode) {
+                                lineBuffer.push({
+                                    html: lineInnerHtml,
+                                    name: lineName,
+                                    eff: calcEff
+                                });
+                            }
                         }); // END lineName loop
 
-                        // Sort Lines for this date
-                        if (showLowEff) {
-                            lineBuffer.sort((a, b) => a.eff - b.eff);
+                        if (flatMode) {
+                            // Flat mode: render all machines globally sorted by efficiency ascending (lowest first)
+                            globalMachineBuffer.sort((a, b) => a.eff - b.eff);
+                            masterHtml += `
+                                <div style="margin-bottom:24px; background:white; border:1px solid #cbd5e1; border-radius:0 0 12px 12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-top:-1px">
+                                    <div style="overflow-x:auto">
+                                        <table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
+                                            <colgroup>
+                                                <col style="width:220px; min-width:220px">
+                                                <col style="width:45px; min-width:45px">
+                                                ${slots.map(() => '<col style="width:65px; min-width:65px">').join('')}
+                                                <col style="width:140px; min-width:140px">
+                                            </colgroup>
+                                            <tbody>
+                                                ${globalMachineBuffer.map(m => m.html).join('')}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            `;
                         } else {
+                            // Normal mode: sort lines alphabetically
                             lineBuffer.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
-                        }
-
-                            // Append to Date HTML
                             masterHtml += lineBuffer.map(x => x.html).join('');
+                        }
                         }); // END allDates.forEach
 
                         if (!masterHtml) {
@@ -1747,25 +1853,40 @@
                             let grandTotalRej = 0;
                             let grandTotalGoodPcs = 0;
                             let grandTotalEstPcs = 0;
+                            let grandTotalNetPcs  = 0;
 
                             Object.entries(window.lineTheTonnages).forEach(([name, data]) => {
                                 const goodVal = (typeof data === 'number') ? data : (data.good || 0);
                                 const rejVal = (data.rej || 0);
                                 const eGood = (data.effGood || 0);
                                 const eEst = (data.effEst || 0);
+                                const eNet  = (data.netEst  || 0);
 
                                 const elId = `line-total-tonnage-${name.replace(/\s/g, '')}`;
                                 const el = document.getElementById(elId);
                                 if (el) el.textContent = goodVal.toFixed(2);
 
+                                const elOverallId = `line-total-overall-${name.replace(/\s/g, '')}`;
+                                const elOverall = document.getElementById(elOverallId);
+                                if (elOverall) elOverall.textContent = (goodVal + rejVal).toFixed(2);
+
                                 const elRejId = `line-total-rej-${name.replace(/\s/g, '')}`;
                                 const elRej = document.getElementById(elRejId);
                                 if (elRej) elRej.textContent = rejVal.toFixed(2);
 
-                                const lineEff = (eEst > 0) ? ((eGood / eEst) * 100) : 0;
+                                // OEE (scheduled time) — shown in line-total-eff span (label changed to "OEE")
+                                const lineOee = (eEst > 0) ? ((eGood / eEst) * 100) : 0;
                                 const elEffId = `line-total-eff-${name.replace(/\s/g, '')}`;
                                 const elEff = document.getElementById(elEffId);
-                                if (elEff) elEff.textContent = lineEff.toFixed(1);
+                                if (elEff) elEff.textContent = lineOee.toFixed(1);
+
+                                // EFF (net run time = scheduled − downtime)
+                                const lineEffNet = (eNet > 0) ? ((eGood / eNet) * 100) : 0;
+                                const elEffNetId = `line-total-effnet-${name.replace(/\s/g, '')}`;
+                                const elEffNet = document.getElementById(elEffNetId);
+                                if (elEffNet) elEffNet.textContent = lineEffNet.toFixed(1);
+
+                                grandTotalNetPcs += eNet;
 
                                 const dtVal = (data.dt || 0);
                                 const elDtId = `line-total-dt-${name.replace(/\s/g, '')}`;
@@ -1790,6 +1911,9 @@
                                 grandTotalEstPcs += eEst;
                             });
 
+                            const gtOverallEl = document.getElementById('grand-total-overall');
+                            if (gtOverallEl) gtOverallEl.textContent = (grandTotal + grandTotalRej).toFixed(2);
+
                             const gtEl = document.getElementById('grand-total-tonnage');
                             if (gtEl) gtEl.textContent = grandTotal.toFixed(2);
 
@@ -1807,10 +1931,18 @@
 
                             // Counter Update Done.
 
+                            // Overall OEE (scheduled time)
                             const gtEffEl = document.getElementById('grand-total-eff');
                             if (gtEffEl) {
-                                const gEff = (grandTotalEstPcs > 0) ? ((grandTotalGoodPcs / grandTotalEstPcs) * 100) : 0;
-                                gtEffEl.textContent = gEff.toFixed(1);
+                                const gOee = (grandTotalEstPcs > 0) ? ((grandTotalGoodPcs / grandTotalEstPcs) * 100) : 0;
+                                gtEffEl.textContent = gOee.toFixed(1);
+                            }
+
+                            // Overall EFF (net run time)
+                            const gtEffNetEl = document.getElementById('grand-total-effnet');
+                            if (gtEffNetEl) {
+                                const gEffNet = (grandTotalNetPcs > 0) ? ((grandTotalGoodPcs / grandTotalNetPcs) * 100) : 0;
+                                gtEffNetEl.textContent = gEffNet.toFixed(1);
                             }
 
                             if (window.lineTheTonnages) {
@@ -1835,8 +1967,20 @@
                 };
 
                 document.getElementById('btn-s-apply').onclick = loadSummary;
-                const toggleLow = document.getElementById('chkLowEff');
-                if (toggleLow) toggleLow.onchange = loadSummary;
+                document.getElementById('s-eff-filter')?.addEventListener('change', loadSummary);
+                document.getElementById('s-factory')?.addEventListener('change', loadSummary);
+
+                // Load factories into the factory dropdown
+                J.api.get('/factories').then(r => {
+                    const sel = document.getElementById('s-factory');
+                    if (!sel || !r.ok) return;
+                    (r.data || []).forEach(f => {
+                        const opt = document.createElement('option');
+                        opt.value = String(f.id);
+                        opt.textContent = f.name + (f.location ? ` — ${f.location}` : '');
+                        sel.appendChild(opt);
+                    });
+                }).catch(() => {});
 
                 loadSummary();
 

@@ -37,6 +37,9 @@ services:
       - "${V1_HTTP_PORT:-9091}:3000"
     volumes:
       - ./seed:/seed:ro
+      # Persist uploaded files (machine icons, operator photos, etc.) across Docker deploys.
+      # Without this volume, every deploy wipes PUBLIC/uploads/ and all icons are lost.
+      - jms_v1_uploads:/app/PUBLIC/uploads
     environment:
       PORT: "3000"
       DB_HOST: db
@@ -77,3 +80,4 @@ networks:
 
 volumes:
   jms_v1_pg_data:
+  jms_v1_uploads:

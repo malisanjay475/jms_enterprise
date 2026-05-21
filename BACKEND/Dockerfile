@@ -2,7 +2,7 @@
 FROM node:20-alpine
 
 # pg_restore / psql / dropdb for optional AUTO_IMPORT_DB_PATH (see scripts/auto-import-db-if-needed.js)
-RUN apk add --no-cache postgresql-client
+RUN apk add --no-cache postgresql-client su-exec
 
 # Install PM2 globally so it is available on $PATH for all users
 RUN npm install -g pm2@5
@@ -22,9 +22,8 @@ COPY . .
 
 RUN chmod +x /app/docker-entrypoint.sh
 
-# Run as non-root user for security
+# Create non-root user; entrypoint will drop privileges via su-exec after fixing volume ownership.
 RUN addgroup -S jms && adduser -S jms -G jms && chown -R jms:jms /app
-USER jms
 
 # Environment Variables (Defaults)
 ENV PORT=3000
