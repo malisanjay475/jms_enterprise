@@ -2673,8 +2673,15 @@
                 </div>
                 ${fpaImages.length ? `
                     <div style="font-size:0.85rem; color:#334155; font-weight:800; margin:14px 0 8px">FPA Images</div>
-                    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(95px,1fr)); gap:8px">
-                        ${fpaImages.map((src, i) => `<button type="button" onclick="openJobImage(decodeURIComponent('${encodeURIComponent(src)}'))" style="padding:0; border:0; background:transparent; cursor:zoom-in"><img src="${dprEsc(src)}" alt="FPA image ${i + 1}" style="width:100%; height:92px; object-fit:cover; border-radius:10px; border:1px solid #e2e8f0"></button>`).join('')}
+                    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px">
+                        ${fpaImages.map((src, i) => `
+                        <button type="button" onclick="openJobImage(decodeURIComponent('${encodeURIComponent(src)}'))"
+                            style="display:block;padding:0;border:2px solid #e2e8f0;background:#f8fafc;cursor:zoom-in;border-radius:10px;overflow:hidden;transition:border-color 0.2s,transform 0.2s;width:100%"
+                            onmouseover="this.style.borderColor='#93c5fd';this.style.transform='scale(1.02)'"
+                            onmouseout="this.style.borderColor='#e2e8f0';this.style.transform='scale(1)'">
+                            <img src="${dprEsc(src)}" alt="FPA image ${i + 1}"
+                                style="width:100%;aspect-ratio:4/3;object-fit:cover;display:block;border-radius:8px">
+                        </button>`).join('')}
                     </div>
                 ` : '<div style="color:#64748b; font-size:0.82rem; margin-top:10px">No FPA images saved for this job yet.</div>'}
             `;
