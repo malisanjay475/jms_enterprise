@@ -27,8 +27,17 @@ const SYNC_ALL = [
     'factories',
     'grinding_logs',
     'grn_entries',
+    'hr_employee_profiles',
+    'hr_interviews',
+    'hr_interview_scores',
+    'hr_kra_assignment_items',
+    'hr_kra_assignments',
+    'hr_kra_daily_entries',
+    'hr_kra_template_items',
+    'hr_kra_templates',
     'jc_details',
     'jc_summaries',
+    'job_card_label_print_log',
     'job_cards',
     'jobs_queue',
     'machine_audit_logs',
@@ -47,6 +56,7 @@ const SYNC_ALL = [
     'plan_audit_logs',
     'plan_board',
     'plan_history',
+    'plan_job_card_approval_history',
     'planning_drops',
     'purchase_order_items',
     'purchase_orders',
@@ -138,7 +148,20 @@ const CONFLICT_KEYS = {
     dispatch_items: 'id',
     jobs_queue: 'id',
     planning_drops: 'id',
-    operator_history: 'id'
+    operator_history: 'id',
+    // HR Performance tables
+    hr_employee_profiles: 'id',
+    hr_kra_templates: 'id',
+    hr_kra_template_items: 'id',
+    hr_kra_assignments: 'id',
+    hr_kra_assignment_items: 'id',
+    hr_kra_daily_entries: 'employee_user_id, assignment_item_id, entry_date',
+    // Interview Panel tables
+    hr_interviews: 'id',
+    hr_interview_scores: 'id',
+    // Job card / planning tables
+    job_card_label_print_log: 'label_uid',
+    plan_job_card_approval_history: 'id'
 };
 
 const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
@@ -147,7 +170,10 @@ const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
     notifications: 'created_at',
     order_completion_history: 'changed_at',
     raw_material_issues: 'created_at',
-    wip_stock_movements: 'created_at'
+    wip_stock_movements: 'created_at',
+    // job_card_label_print_log has no updated_at — use printed_at as the source column
+    // so existing rows get updated_at = printed_at (not just NOW())
+    job_card_label_print_log: 'printed_at'
 };
 
 const SYNC_CONFLICT_INDEXES = {
@@ -157,7 +183,9 @@ const SYNC_CONFLICT_INDEXES = {
     shift_teams: 'line, shift_date, shift',
     wip_stock_movements: 'factory_id, source_type, source_ref, movement_type, created_at',
     wip_stock_snapshots: 'factory_id, stock_date, source_file_name',
-    wip_stock_snapshot_lines: 'factory_id, stock_date, comparison_key'
+    wip_stock_snapshot_lines: 'factory_id, stock_date, comparison_key',
+    // HR daily entries have a natural unique constraint used as conflict identity
+    hr_kra_daily_entries: 'employee_user_id, assignment_item_id, entry_date'
 };
 
 const SYNC_ID_REQUIRED_TABLES = ['notifications'];
@@ -449,7 +477,7 @@ async function init(dbPool) {
         if (!process.env.SYNC_API_KEY && config.SYNC_API_KEY) API_KEY = config.SYNC_API_KEY;
 
         console.log(`[Sync] Init. Type: ${SERVER_TYPE}, Factory: ${LOCAL_FACTORY_ID}, Main: ${MAIN_SERVER_URL}`);
-        console.log('[Sync] Service Version: v4.5 (Delete Sync)');
+        console.log('[Sync] Service Version: v4.6 (HR+JC Tables, Pull Error Logging)');
 
         if (SERVER_TYPE === 'LOCAL') {
             startSchedule();
@@ -677,7 +705,12 @@ async function pullChanges() {
                 continue;
             }
             const response = await fetch(`${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(lastPull)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`);
-            if (!response.ok) continue;
+            if (!response.ok) {
+                const errText = await response.text().catch(() => '');
+                console.error(`[Sync] Pull ${table} failed HTTP ${response.status}: ${errText.slice(0, 200)}`);
+                stats.failed += 1;
+                continue;
+            }
 
             const json = await response.json();
             const data = json.data || [];
