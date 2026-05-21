@@ -716,10 +716,17 @@
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Efficiency</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#16a34a">
+                                    <div style="text-align:right" title="OEE (Scheduled Time)">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#0369a1; text-transform:uppercase">OEE</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#0369a1">
                                             <span id="grand-total-eff">0.0</span> <span style="font-size:0.9rem">%</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="EFF (Net Run Time after Downtime)">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#16a34a; text-transform:uppercase">EFF</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#16a34a">
+                                            <span id="grand-total-effnet">0.0</span> <span style="font-size:0.9rem">%</span>
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
@@ -920,7 +927,7 @@
                             }
                             const acc = lineAccumulators[lineName];
                             
-                            let lineTotalTonnage = 0, lineTotalRejTonnage = 0, lineTotalGoodPcs = 0, lineTotalEstPcs = 0;
+                            let lineTotalTonnage = 0, lineTotalRejTonnage = 0, lineTotalGoodPcs = 0, lineTotalEstPcs = 0, lineTotalEstPcsNet = 0;
                             let lineTotalDt = 0, lineTotalAutoDt = 0, lineTotalCC = 0, lineTotalMC = 0, lineTotalJC = 0;
 
                             // Shift Team Display
@@ -959,8 +966,11 @@
                                                 <div style="font-weight:700; color:#dc2626; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
                                                     Rej: <span id="line-total-rej-${lineName.replace(/\s/g, '')}">0.00</span> Kg
                                                 </div>
-                                                <div style="font-weight:700; color:#16a34a; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
-                                                    Eff: <span id="line-total-eff-${lineName.replace(/\s/g, '')}">0.0</span>%
+                                                <div style="font-weight:700; color:#0369a1; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px" title="OEE (Scheduled Time)">
+                                                    OEE: <span id="line-total-eff-${lineName.replace(/\s/g, '')}">0.0</span>%
+                                                </div>
+                                                <div style="font-weight:700; color:#16a34a; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px" title="EFF (Net Run Time after Downtime)">
+                                                    EFF: <span id="line-total-effnet-${lineName.replace(/\s/g, '')}">0.0</span>%
                                                 </div>
                                                 <div style="font-weight:700; color:#db2777; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
                                                     DT: <span id="line-total-dt-${lineName.replace(/\s/g, '')}">0.0</span> Hrs
@@ -1348,41 +1358,59 @@
                                                         if (slotEndTime > 0 && entryTime > (slotEndTime + 2700000)) isLate = true;
                                                     }
 
-                                                    // Backgrounds
+                                                    // Background: yellow for late entries, green for on-time
                                                     const blockBg = isLate ? '#fef9c3' : '#dcfce7';
-                                                    const qtyColor = isLate ? '#b45309' : '#15803d';
+                                                    // Good qty: always green (late entries still flagged via yellow bg)
+                                                    const qtyColor = '#15803d';
 
-                                                    // Divider logic: Add border-bottom to all except last
+                                                    // Divider between stacked entries
                                                     const separator = (idx < entries.length - 1) ? 'border-bottom:1px solid rgba(0,0,0,0.1);' : '';
 
-                                                    const colName = entry.colour || '-';
+                                                    const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+                                                    const colName = _esc(entry.colour || '');
                                                     const isCC = (entry.entry_type === 'ColourChange');
 
                                                     const lineAccess = (entry.creator_line_access || '').toLowerCase();
                                                     const isAllAccess = lineAccess === 'all' || (entry.user_name || '').toLowerCase().includes('admin');
 
                                                     const isAuto = (entry.remarks || '').includes('[Auto-Filled]');
-                                                    const ppcBadge = isAllAccess ? `<span style="font-size:0.6rem; color:#fff; background:#6366f1; padding:0 3px; border-radius:2px; font-weight:600; margin-left:2px">PPC</span>` : '';
-                                                    const autoBadge = isAuto ? `<span style="font-size:0.6rem; color:#fff; background:#94a3b8; padding:0 3px; border-radius:2px; font-weight:600; margin-left:2px" title="Auto-Filled by System">AUTO</span>` : '';
+
+                                                    // DT display: auto-filled entries show "Auto DT: Xm", manual show "X.Xh"
+                                                    const dtMins = Number(entry.downtime_min || 0);
+                                                    const manualDtStr = (!isAuto && dtMins > 0) ? `${(dtMins / 60).toFixed(1)}h` : '';
+                                                    const autoDtStr  = (isAuto  && dtMins > 0) ? `Auto DT: ${Math.round(dtMins)}m` : '';
+
+                                                    const ppcBadge  = isAllAccess ? `<span style="font-size:0.58rem;color:#fff;background:#6366f1;padding:1px 3px;border-radius:2px;font-weight:700">PPC</span>` : '';
+                                                    const autoBadge = isAuto      ? `<span style="font-size:0.58rem;color:#fff;background:#94a3b8;padding:1px 3px;border-radius:2px;font-weight:700" title="Auto-Filled">AUTO</span>` : '';
+                                                    const ccBadge   = isCC        ? `<span style="font-size:0.58rem;color:#c2410c;background:#fff7ed;border:1px solid #ffedd5;padding:1px 3px;border-radius:2px;font-weight:700">CC</span>` : '';
+
+                                                    const timeStr = entry.created_at ? new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+                                                    const rejQty = Number(entry.reject_qty || 0);
 
                                                     content += `
-                                                        <div onclick='showEntryDetails(${JSON.stringify(entry).replace(/'/g, "&apos;")})' style="cursor:pointer; flex:1; background:${blockBg}; ${separator} padding:2px 4px; text-align:left; display:flex; flex-direction:column; justify-content:center; transition:background 0.2s" onmouseover="this.style.filter='brightness(0.95)'" onmouseout="this.style.filter='none'">
-                                                            <div style="display:flex; justify-content:space-between; align-items:flex-start; line-height:1.1">
-                                                                <span style="font-weight:700; font-size:0.9rem; color:${qtyColor}">${entry.good_qty}</span>
-                                                                <span style="font-size:0.65rem; color:#64748b; font-weight:600">${entry.created_at ? new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
-                                                            </div>
-                                                            
-                                                            <div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-top:1px">
-                                                                ${entry.reject_qty > 0 ? `<span style="font-size:0.75rem; color:#ef4444; font-weight:700">Rej:${entry.reject_qty}</span>` : ''}
-                                                                ${entry.downtime_min > 0 ? `<span style="font-size:0.75rem; color:#db2777; font-weight:700">${(entry.downtime_min / 60).toFixed(1)}h</span>` : ''}
+                                                        <div onclick='showEntryDetails(${JSON.stringify(entry).replace(/'/g, "&apos;")})' style="cursor:pointer;flex:1;min-width:0;width:100%;background:${blockBg};${separator}padding:3px 4px;display:flex;flex-direction:column;gap:2px;transition:background 0.2s" onmouseover="this.style.filter='brightness(0.94)'" onmouseout="this.style.filter='none'">
+
+                                                            <!-- Row 1: 90 | 10  (good green | rej red, no label) -->
+                                                            <div style="display:flex;align-items:baseline;gap:3px;line-height:1;min-width:0">
+                                                                <span style="font-weight:800;font-size:0.95rem;color:#15803d;line-height:1">${entry.good_qty}</span>
+                                                                ${rejQty > 0 ? `<span style="font-size:0.78rem;color:#9ca3af;font-weight:600;line-height:1">|</span><span style="font-weight:800;font-size:0.85rem;color:#dc2626;line-height:1">${rejQty}</span>` : ''}
                                                             </div>
 
-                                                            <div style="margin-top:1px; line-height:1; display:flex; align-items:center; gap:2px">
-                                                                <span style="font-size:0.75rem; color:#334155; font-weight:600; line-height:1.1; word-break:break-word" title="${colName}">${colName}</span>
-                                                                ${isCC ? `<span style="font-size:0.6rem; color:#c2410c; background:#fff7ed; border:1px solid #ffedd5; padding:0 2px; border-radius:2px; font-weight:600">CC</span>` : ''}
-                                                                ${ppcBadge}
-                                                                ${autoBadge}
-                                                            </div>
+                                                            <!-- Row 2: Time -->
+                                                            ${timeStr ? `<div style="font-size:0.62rem;color:#64748b;font-weight:600;line-height:1">${timeStr}</div>` : ''}
+
+                                                            <!-- Row 3: Supervisor DT (manual) -->
+                                                            ${manualDtStr ? `<div style="font-size:0.7rem;color:#db2777;font-weight:700;line-height:1">${manualDtStr}</div>` : ''}
+
+                                                            <!-- Row 4: Auto DT -->
+                                                            ${autoDtStr ? `<div style="font-size:0.68rem;color:#be185d;font-weight:600;line-height:1">${autoDtStr}</div>` : ''}
+
+                                                            <!-- Row 5: Colour name — plain block, wraps at word boundaries, max 3 lines -->
+                                                            ${colName ? `<div style="font-size:0.68rem;color:#334155;font-weight:600;line-height:1.3;overflow:hidden;max-height:3.9em;width:100%;word-break:normal;overflow-wrap:anywhere;white-space:normal" title="${colName}">${colName}</div>` : ''}
+
+                                                            <!-- Row 6: Badges only if present (CC / PPC / AUTO) -->
+                                                            ${(ccBadge || ppcBadge || autoBadge) ? `<div style="display:flex;gap:2px;flex-wrap:wrap">${ccBadge}${ppcBadge}${autoBadge}</div>` : ''}
 
                                                         </div>
                                                     `;
@@ -1650,42 +1678,45 @@
                                             });
                                         }
 
-                                        // Efficiency & OEE
-                                        let rowEff = 0, estPcs = 0;       // OEE — gross scheduled time
-                                        let rowEffNet = 0, estPcsNet = 0;  // EFF — net run time (available − downtime)
+                                        // Efficiency — OEE (gross scheduled time) and EFF (net run time after DT)
+                                        let rowEff = 0, estPcs = 0;
+                                        let rowEffNet = 0, estPcsNet = 0;
                                         if (hasEntries && maxSlotIdx >= minSlotIdx && !m.is_dummy) {
                                             const availSlots = maxSlotIdx - minSlotIdx + 1;
                                             const availMins = availSlots * 60;
-                                            // Net run time: cap downtime at available minutes to avoid negatives
                                             const runTimeMins = Math.max(0, availMins - Math.min(sumDt, availMins));
-
                                             const std = parseFloat(m.std) || 0;
                                             if (std > 0) {
-                                                // OEE = Good / (Std × Total Scheduled Hours)
+                                                // OEE = Good / (Std × Scheduled Hours)
                                                 estPcs = Math.round(std * (availMins / 60.0));
                                                 if (estPcs > 0) rowEff = (sumGood / estPcs) * 100;
-
-                                                // EFF = Good / (Std × Net Run Time Hours)
+                                                // EFF = Good / (Std × Net Run Hours)
                                                 estPcsNet = Math.round(std * (runTimeMins / 60.0));
                                                 if (estPcsNet > 0) rowEffNet = (sumGood / estPcsNet) * 100;
                                             }
                                         }
 
-                                        // Summary HTML — format: Std / TotalPcs (Good+Rej) / DT / Wt Std / Tot Kg / EFF / OEE
+                                        // Summary cell variables
                                         const totalPcs = sumGood + sumRej;
-                                        const wtStdGrams = rowSetupWeight > 0 ? Math.round(rowSetupWeight * 1000) : 0;
-                                        const totKg = sumTonnage + sumRejTonnage;
-                                        const effColor  = rowEffNet >= 80 ? '#166534' : rowEffNet >= 60 ? '#b45309' : '#dc2626';
-                                        const oeeColor  = rowEff    >= 80 ? '#166534' : rowEff    >= 60 ? '#b45309' : '#dc2626';
+                                        const stdWeightRaw = parseFloat(m.details?.std_weight || 0);
+                                        const stdWeightKg  = stdWeightRaw >= 10 ? stdWeightRaw / 1000 : stdWeightRaw;
+                                        const wtStdGrams   = stdWeightKg > 0 ? Math.round(stdWeightKg * 1000) : 0;
+                                        // Wt Act: prefer actual production (good tonnage ÷ good pieces), fallback to setup entry
+                                        const wtActKgPerPcs = (sumGood > 0 && sumTonnage > 0) ? (sumTonnage / sumGood) : (rowSetupWeight > 0 ? rowSetupWeight : 0);
+                                        const wtActGrams   = wtActKgPerPcs > 0 ? Math.round(wtActKgPerPcs * 1000) : 0;
+                                        const totKg        = sumTonnage + sumRejTonnage;
+                                        const effColor     = rowEffNet >= 80 ? '#166534' : rowEffNet >= 60 ? '#b45309' : '#dc2626';
+                                        const oeeColor     = rowEff    >= 80 ? '#166534' : rowEff    >= 60 ? '#b45309' : '#dc2626';
 
                                         const summaryClickScript = `showSummaryDetails('${machine}', '${rowShift}', '${lineName}', ${sumGood}, ${sumRej}, ${sumDt}, ${sumAutoDt}, ${Math.round(sumStd)}, '${encodeURIComponent(JSON.stringify(rowAggRej))}', '${encodeURIComponent(JSON.stringify(rowAggDt))}')`;
 
-                                        let summaryH = !m.is_dummy ? `<div style="text-align:left; cursor:pointer; line-height:1.6" onclick="${summaryClickScript}"><div style="font-size:0.72rem; font-weight:700; color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-size:0.8rem; font-weight:700; color:#166534">${totalPcs}<span style="font-size:0.7rem; font-weight:500; color:#475569"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="font-size:0.72rem; color:#db2777; font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${wtStdGrams > 0 ? `<div style="font-size:0.72rem; color:#475569; font-weight:600">Wt Std: ${wtStdGrams}g</div>` : ''}<div style="font-size:0.72rem; color:#7c3aed; font-weight:700">Tot Kg: ${totKg.toFixed(2)}</div>${rowEffNet > 0 ? `<div style="font-size:0.72rem; font-weight:700; color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-size:0.72rem; font-weight:700; color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
+                                        let summaryH = !m.is_dummy ? `<div style="text-align:left;cursor:pointer;font-size:0.72rem;line-height:1.7;padding:2px 0" onclick="${summaryClickScript}"><div style="font-weight:700;color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-weight:800;color:#166534;font-size:0.8rem">${totalPcs}<span style="font-weight:500;color:#64748b;font-size:0.68rem"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="color:#db2777;font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="color:#be185d;font-weight:600">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${(wtStdGrams > 0 || wtActGrams > 0) ? `<div style="display:flex;justify-content:space-between;color:#64748b;font-weight:600"><span>Wt Std:</span><span>${wtStdGrams > 0 ? wtStdGrams + 'g' : '-'}</span></div><div style="display:flex;justify-content:space-between;color:#64748b;font-weight:600"><span>Wt Act:</span><span>${wtActGrams > 0 ? wtActGrams + 'g' : '-'}</span></div>` : ''}<div style="font-weight:700;color:#7c3aed">Tot Kg: ${totKg.toFixed(1)}</div>${rowEffNet > 0 ? `<div style="font-weight:700;color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-weight:700;color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
 
                                         lineTotalTonnage += sumTonnage;
                                         lineTotalRejTonnage += sumRejTonnage;
                                         lineTotalGoodPcs += sumGood;
                                         lineTotalEstPcs += estPcs;
+                                        lineTotalEstPcsNet += estPcsNet;
                                         lineTotalDt += sumDt;
                                         lineTotalAutoDt += sumAutoDt; // Accumulate Auto DT
                                         machineGood += sumGood;
@@ -1716,13 +1747,14 @@
 
                             // Store Totals for this line (Accumulate across dates)
                             if (!window.lineTheTonnages[lineName]) {
-                                window.lineTheTonnages[lineName] = { good: 0, rej: 0, effGood: 0, effEst: 0, dt: 0, autoDt: 0, cc: 0, mc: 0, jc: 0 };
+                                window.lineTheTonnages[lineName] = { good: 0, rej: 0, effGood: 0, effEst: 0, netEst: 0, dt: 0, autoDt: 0, cc: 0, mc: 0, jc: 0 };
                             }
                             const t = window.lineTheTonnages[lineName];
                             t.good += lineTotalTonnage;
                             t.rej += lineTotalRejTonnage;
                             t.effGood += lineTotalGoodPcs;
                             t.effEst += lineTotalEstPcs;
+                            t.netEst  = (t.netEst || 0) + lineTotalEstPcsNet;
                             t.dt += lineTotalDt;
                             t.autoDt += lineTotalAutoDt;
                             t.cc += lineTotalCC;
@@ -1738,7 +1770,8 @@
                             updateEl('overall', t.good + t.rej);
                             updateEl('tonnage', t.good);
                             updateEl('rej', t.rej);
-                            updateEl('eff', t.effEst > 0 ? (t.effGood / t.effEst * 100) : 0, 1);
+                            updateEl('eff',    t.effEst > 0        ? (t.effGood / t.effEst        * 100) : 0, 1); // OEE
+                            updateEl('effnet', (t.netEst || 0) > 0 ? (t.effGood / (t.netEst || 0) * 100) : 0, 1); // EFF
                             updateEl('dt', t.dt / 60, 1);
                             updateEl('autodt', t.autoDt, 0);
                             updateEl('mc', t.mc, 0);
@@ -1825,12 +1858,14 @@
                             let grandTotalRej = 0;
                             let grandTotalGoodPcs = 0;
                             let grandTotalEstPcs = 0;
+                            let grandTotalNetPcs  = 0;
 
                             Object.entries(window.lineTheTonnages).forEach(([name, data]) => {
                                 const goodVal = (typeof data === 'number') ? data : (data.good || 0);
                                 const rejVal = (data.rej || 0);
                                 const eGood = (data.effGood || 0);
                                 const eEst = (data.effEst || 0);
+                                const eNet  = (data.netEst  || 0);
 
                                 const elId = `line-total-tonnage-${name.replace(/\s/g, '')}`;
                                 const el = document.getElementById(elId);
@@ -1844,10 +1879,19 @@
                                 const elRej = document.getElementById(elRejId);
                                 if (elRej) elRej.textContent = rejVal.toFixed(2);
 
-                                const lineEff = (eEst > 0) ? ((eGood / eEst) * 100) : 0;
+                                // OEE (scheduled time) — shown in line-total-eff span (label changed to "OEE")
+                                const lineOee = (eEst > 0) ? ((eGood / eEst) * 100) : 0;
                                 const elEffId = `line-total-eff-${name.replace(/\s/g, '')}`;
                                 const elEff = document.getElementById(elEffId);
-                                if (elEff) elEff.textContent = lineEff.toFixed(1);
+                                if (elEff) elEff.textContent = lineOee.toFixed(1);
+
+                                // EFF (net run time = scheduled − downtime)
+                                const lineEffNet = (eNet > 0) ? ((eGood / eNet) * 100) : 0;
+                                const elEffNetId = `line-total-effnet-${name.replace(/\s/g, '')}`;
+                                const elEffNet = document.getElementById(elEffNetId);
+                                if (elEffNet) elEffNet.textContent = lineEffNet.toFixed(1);
+
+                                grandTotalNetPcs += eNet;
 
                                 const dtVal = (data.dt || 0);
                                 const elDtId = `line-total-dt-${name.replace(/\s/g, '')}`;
@@ -1892,10 +1936,18 @@
 
                             // Counter Update Done.
 
+                            // Overall OEE (scheduled time)
                             const gtEffEl = document.getElementById('grand-total-eff');
                             if (gtEffEl) {
-                                const gEff = (grandTotalEstPcs > 0) ? ((grandTotalGoodPcs / grandTotalEstPcs) * 100) : 0;
-                                gtEffEl.textContent = gEff.toFixed(1);
+                                const gOee = (grandTotalEstPcs > 0) ? ((grandTotalGoodPcs / grandTotalEstPcs) * 100) : 0;
+                                gtEffEl.textContent = gOee.toFixed(1);
+                            }
+
+                            // Overall EFF (net run time)
+                            const gtEffNetEl = document.getElementById('grand-total-effnet');
+                            if (gtEffNetEl) {
+                                const gEffNet = (grandTotalNetPcs > 0) ? ((grandTotalGoodPcs / grandTotalNetPcs) * 100) : 0;
+                                gtEffNetEl.textContent = gEffNet.toFixed(1);
                             }
 
                             if (window.lineTheTonnages) {
@@ -2621,8 +2673,15 @@
                 </div>
                 ${fpaImages.length ? `
                     <div style="font-size:0.85rem; color:#334155; font-weight:800; margin:14px 0 8px">FPA Images</div>
-                    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(95px,1fr)); gap:8px">
-                        ${fpaImages.map((src, i) => `<button type="button" onclick="openJobImage(decodeURIComponent('${encodeURIComponent(src)}'))" style="padding:0; border:0; background:transparent; cursor:zoom-in"><img src="${dprEsc(src)}" alt="FPA image ${i + 1}" style="width:100%; height:92px; object-fit:cover; border-radius:10px; border:1px solid #e2e8f0"></button>`).join('')}
+                    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px">
+                        ${fpaImages.map((src, i) => `
+                        <button type="button" onclick="openJobImage(decodeURIComponent('${encodeURIComponent(src)}'))"
+                            style="display:block;padding:0;border:2px solid #e2e8f0;background:#f8fafc;cursor:zoom-in;border-radius:10px;overflow:hidden;transition:border-color 0.2s,transform 0.2s;width:100%"
+                            onmouseover="this.style.borderColor='#93c5fd';this.style.transform='scale(1.02)'"
+                            onmouseout="this.style.borderColor='#e2e8f0';this.style.transform='scale(1)'">
+                            <img src="${dprEsc(src)}" alt="FPA image ${i + 1}"
+                                style="width:100%;aspect-ratio:4/3;object-fit:cover;display:block;border-radius:8px">
+                        </button>`).join('')}
                     </div>
                 ` : '<div style="color:#64748b; font-size:0.82rem; margin-top:10px">No FPA images saved for this job yet.</div>'}
             `;
