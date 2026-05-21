@@ -716,10 +716,17 @@
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Efficiency</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#16a34a">
+                                    <div style="text-align:right" title="OEE (Scheduled Time)">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#0369a1; text-transform:uppercase">OEE</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#0369a1">
                                             <span id="grand-total-eff">0.0</span> <span style="font-size:0.9rem">%</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="EFF (Net Run Time after Downtime)">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#16a34a; text-transform:uppercase">EFF</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#16a34a">
+                                            <span id="grand-total-effnet">0.0</span> <span style="font-size:0.9rem">%</span>
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
@@ -920,7 +927,7 @@
                             }
                             const acc = lineAccumulators[lineName];
                             
-                            let lineTotalTonnage = 0, lineTotalRejTonnage = 0, lineTotalGoodPcs = 0, lineTotalEstPcs = 0;
+                            let lineTotalTonnage = 0, lineTotalRejTonnage = 0, lineTotalGoodPcs = 0, lineTotalEstPcs = 0, lineTotalEstPcsNet = 0;
                             let lineTotalDt = 0, lineTotalAutoDt = 0, lineTotalCC = 0, lineTotalMC = 0, lineTotalJC = 0;
 
                             // Shift Team Display
@@ -959,8 +966,11 @@
                                                 <div style="font-weight:700; color:#dc2626; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
                                                     Rej: <span id="line-total-rej-${lineName.replace(/\s/g, '')}">0.00</span> Kg
                                                 </div>
-                                                <div style="font-weight:700; color:#16a34a; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
-                                                    Eff: <span id="line-total-eff-${lineName.replace(/\s/g, '')}">0.0</span>%
+                                                <div style="font-weight:700; color:#0369a1; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px" title="OEE (Scheduled Time)">
+                                                    OEE: <span id="line-total-eff-${lineName.replace(/\s/g, '')}">0.0</span>%
+                                                </div>
+                                                <div style="font-weight:700; color:#16a34a; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px" title="EFF (Net Run Time after Downtime)">
+                                                    EFF: <span id="line-total-effnet-${lineName.replace(/\s/g, '')}">0.0</span>%
                                                 </div>
                                                 <div style="font-weight:700; color:#db2777; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
                                                     DT: <span id="line-total-dt-${lineName.replace(/\s/g, '')}">0.0</span> Hrs
@@ -1673,7 +1683,9 @@
                                         const stdWeightRaw = parseFloat(m.details?.std_weight || 0);
                                         const stdWeightKg  = stdWeightRaw >= 10 ? stdWeightRaw / 1000 : stdWeightRaw;
                                         const wtStdGrams   = stdWeightKg > 0 ? Math.round(stdWeightKg * 1000) : 0;
-                                        const wtActGrams   = rowSetupWeight > 0 ? Math.round(rowSetupWeight * 1000) : 0;
+                                        // Wt Act: prefer actual production (good tonnage ÷ good pieces), fallback to setup entry
+                                        const wtActKgPerPcs = (sumGood > 0 && sumTonnage > 0) ? (sumTonnage / sumGood) : (rowSetupWeight > 0 ? rowSetupWeight : 0);
+                                        const wtActGrams   = wtActKgPerPcs > 0 ? Math.round(wtActKgPerPcs * 1000) : 0;
                                         const totKg        = sumTonnage + sumRejTonnage;
                                         const effColor     = rowEffNet >= 80 ? '#166534' : rowEffNet >= 60 ? '#b45309' : '#dc2626';
                                         const oeeColor     = rowEff    >= 80 ? '#166534' : rowEff    >= 60 ? '#b45309' : '#dc2626';
@@ -1686,6 +1698,7 @@
                                         lineTotalRejTonnage += sumRejTonnage;
                                         lineTotalGoodPcs += sumGood;
                                         lineTotalEstPcs += estPcs;
+                                        lineTotalEstPcsNet += estPcsNet;
                                         lineTotalDt += sumDt;
                                         lineTotalAutoDt += sumAutoDt; // Accumulate Auto DT
                                         machineGood += sumGood;
@@ -1716,13 +1729,14 @@
 
                             // Store Totals for this line (Accumulate across dates)
                             if (!window.lineTheTonnages[lineName]) {
-                                window.lineTheTonnages[lineName] = { good: 0, rej: 0, effGood: 0, effEst: 0, dt: 0, autoDt: 0, cc: 0, mc: 0, jc: 0 };
+                                window.lineTheTonnages[lineName] = { good: 0, rej: 0, effGood: 0, effEst: 0, netEst: 0, dt: 0, autoDt: 0, cc: 0, mc: 0, jc: 0 };
                             }
                             const t = window.lineTheTonnages[lineName];
                             t.good += lineTotalTonnage;
                             t.rej += lineTotalRejTonnage;
                             t.effGood += lineTotalGoodPcs;
                             t.effEst += lineTotalEstPcs;
+                            t.netEst  = (t.netEst || 0) + lineTotalEstPcsNet;
                             t.dt += lineTotalDt;
                             t.autoDt += lineTotalAutoDt;
                             t.cc += lineTotalCC;
@@ -1738,7 +1752,8 @@
                             updateEl('overall', t.good + t.rej);
                             updateEl('tonnage', t.good);
                             updateEl('rej', t.rej);
-                            updateEl('eff', t.effEst > 0 ? (t.effGood / t.effEst * 100) : 0, 1);
+                            updateEl('eff',    t.effEst > 0        ? (t.effGood / t.effEst        * 100) : 0, 1); // OEE
+                            updateEl('effnet', (t.netEst || 0) > 0 ? (t.effGood / (t.netEst || 0) * 100) : 0, 1); // EFF
                             updateEl('dt', t.dt / 60, 1);
                             updateEl('autodt', t.autoDt, 0);
                             updateEl('mc', t.mc, 0);
@@ -1825,12 +1840,14 @@
                             let grandTotalRej = 0;
                             let grandTotalGoodPcs = 0;
                             let grandTotalEstPcs = 0;
+                            let grandTotalNetPcs  = 0;
 
                             Object.entries(window.lineTheTonnages).forEach(([name, data]) => {
                                 const goodVal = (typeof data === 'number') ? data : (data.good || 0);
                                 const rejVal = (data.rej || 0);
                                 const eGood = (data.effGood || 0);
                                 const eEst = (data.effEst || 0);
+                                const eNet  = (data.netEst  || 0);
 
                                 const elId = `line-total-tonnage-${name.replace(/\s/g, '')}`;
                                 const el = document.getElementById(elId);
@@ -1844,10 +1861,19 @@
                                 const elRej = document.getElementById(elRejId);
                                 if (elRej) elRej.textContent = rejVal.toFixed(2);
 
-                                const lineEff = (eEst > 0) ? ((eGood / eEst) * 100) : 0;
+                                // OEE (scheduled time) — shown in line-total-eff span (label changed to "OEE")
+                                const lineOee = (eEst > 0) ? ((eGood / eEst) * 100) : 0;
                                 const elEffId = `line-total-eff-${name.replace(/\s/g, '')}`;
                                 const elEff = document.getElementById(elEffId);
-                                if (elEff) elEff.textContent = lineEff.toFixed(1);
+                                if (elEff) elEff.textContent = lineOee.toFixed(1);
+
+                                // EFF (net run time = scheduled − downtime)
+                                const lineEffNet = (eNet > 0) ? ((eGood / eNet) * 100) : 0;
+                                const elEffNetId = `line-total-effnet-${name.replace(/\s/g, '')}`;
+                                const elEffNet = document.getElementById(elEffNetId);
+                                if (elEffNet) elEffNet.textContent = lineEffNet.toFixed(1);
+
+                                grandTotalNetPcs += eNet;
 
                                 const dtVal = (data.dt || 0);
                                 const elDtId = `line-total-dt-${name.replace(/\s/g, '')}`;
@@ -1892,10 +1918,18 @@
 
                             // Counter Update Done.
 
+                            // Overall OEE (scheduled time)
                             const gtEffEl = document.getElementById('grand-total-eff');
                             if (gtEffEl) {
-                                const gEff = (grandTotalEstPcs > 0) ? ((grandTotalGoodPcs / grandTotalEstPcs) * 100) : 0;
-                                gtEffEl.textContent = gEff.toFixed(1);
+                                const gOee = (grandTotalEstPcs > 0) ? ((grandTotalGoodPcs / grandTotalEstPcs) * 100) : 0;
+                                gtEffEl.textContent = gOee.toFixed(1);
+                            }
+
+                            // Overall EFF (net run time)
+                            const gtEffNetEl = document.getElementById('grand-total-effnet');
+                            if (gtEffNetEl) {
+                                const gEffNet = (grandTotalNetPcs > 0) ? ((grandTotalGoodPcs / grandTotalNetPcs) * 100) : 0;
+                                gtEffNetEl.textContent = gEffNet.toFixed(1);
                             }
 
                             if (window.lineTheTonnages) {
