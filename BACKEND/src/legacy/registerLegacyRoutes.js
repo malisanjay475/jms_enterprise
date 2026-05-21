@@ -11705,27 +11705,27 @@ app.get('/api/reports/orjr-wise-detail', async (req, res) => {
       }
     }
 
-    // GROUP BY (or_jr_no, mould_no, mould_item_code) + SUM mould_item_qty so that
-    // multiple rows with different plan_date for the same colour+mould are merged into one row.
+    // Aggregate rows so that multiple upload rows for the same colour+mould
+    // with different plan_date are merged into one row with the correct total qty.
     let query = `
       SELECT
         d.factory_id,
         d.or_jr_no,
-        MAX(d.or_jr_date) AS jr_date,
-        MAX(d.item_code) AS our_code,
-        MAX(d.bom_type) AS bom_type,
-        MAX(d.product_name) AS jr_item_name,
-        MAX(d.jr_qty) AS jr_qty,
-        MAX(d.uom) AS uom,
+        MAX(d.or_jr_date)      AS jr_date,
+        MAX(d.item_code)       AS our_code,
+        MAX(d.bom_type)        AS bom_type,
+        MAX(d.product_name)    AS jr_item_name,
+        MAX(d.jr_qty)          AS jr_qty,
+        MAX(d.uom)             AS uom,
         d.mould_item_code,
         MAX(d.mould_item_name) AS mould_item_name,
         d.mould_no,
-        MAX(d.mould_name) AS mould,
-        SUM(COALESCE(NULLIF(TRIM(d.mould_item_qty), ''), '0')::numeric) AS mould_item_qty,
-        MAX(d.tonnage) AS tonnage,
-        MAX(d.machine_name) AS machine,
-        MAX(d.cycle_time) AS cycle_time,
-        MAX(d.cavity) AS cavity
+        MAX(d.mould_name)      AS mould,
+        SUM(COALESCE(NULLIF(TRIM(d.mould_item_qty::text), ''), '0')::numeric)::text AS mould_item_qty,
+        MAX(d.tonnage)         AS tonnage,
+        MAX(d.machine_name)    AS machine,
+        MAX(d.cycle_time)      AS cycle_time,
+        MAX(d.cavity)          AS cavity
       FROM mould_planning_report d
     `;
 
@@ -11734,7 +11734,7 @@ app.get('/api/reports/orjr-wise-detail', async (req, res) => {
     }
 
     query += ` GROUP BY d.factory_id, d.or_jr_no, d.mould_no, d.mould_item_code`;
-    query += ` ORDER BY NULLIF(TRIM(MAX(d.or_jr_date)), '')::date DESC NULLS LAST, d.or_jr_no ASC, d.mould_no ASC, d.mould_item_code ASC LIMIT 50000`;
+    query += ` ORDER BY MAX(d.or_jr_date) DESC NULLS LAST, d.or_jr_no ASC, d.mould_no ASC, d.mould_item_code ASC LIMIT 50000`;
 
     const rows = await q(query, params);
     res.json({ ok: true, data: await attachFactoryNames(rows) });
