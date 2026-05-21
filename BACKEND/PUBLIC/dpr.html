@@ -1366,7 +1366,8 @@
                                                     // Divider between stacked entries
                                                     const separator = (idx < entries.length - 1) ? 'border-bottom:1px solid rgba(0,0,0,0.1);' : '';
 
-                                                    const colName = entry.colour || '';
+                                                    const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+                                                    const colName = _esc(entry.colour || '');
                                                     const isCC = (entry.entry_type === 'ColourChange');
 
                                                     const lineAccess = (entry.creator_line_access || '').toLowerCase();
@@ -1400,8 +1401,8 @@
                                                             <!-- Row 3: DT — manual 0.2h  |  Auto DT: 9m -->
                                                             ${(manualDtStr || autoDtStr) ? `<div style="display:flex;gap:3px;align-items:center;flex-wrap:nowrap;line-height:1">${manualDtStr ? `<span style="font-size:0.7rem;color:#db2777;font-weight:700">${manualDtStr}</span>` : ''}${autoDtStr ? `<span style="font-size:0.68rem;color:#be185d;font-weight:600">${autoDtStr}</span>` : ''}</div>` : ''}
 
-                                                            <!-- Row 4: Colour name — full text, breaks at word boundaries, up to 3 lines -->
-                                                            ${colName ? `<div style="font-size:0.68rem;color:#334155;font-weight:600;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;word-break:normal;overflow-wrap:break-word;margin-top:1px" title="${colName}">${colName}</div>` : ''}
+                                                            <!-- Row 4: Colour name — full text, breaks at word boundaries only, up to 3 lines -->
+                                                            ${colName ? `<div style="font-size:0.68rem;color:#334155;font-weight:600;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;word-break:normal;overflow-wrap:normal;margin-top:1px" title="${colName}">${colName}</div>` : ''}
 
                                                             <!-- Row 5: Badges (CC / PPC / AUTO) -->
                                                             ${(ccBadge || ppcBadge || autoBadge) ? `<div style="display:flex;gap:2px;flex-wrap:wrap;margin-top:1px">${ccBadge}${ppcBadge}${autoBadge}</div>` : ''}
