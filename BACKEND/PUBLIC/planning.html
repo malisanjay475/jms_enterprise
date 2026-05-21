@@ -7229,7 +7229,7 @@
           modal.setAttribute('aria-hidden', 'false');
           modal.style.display = 'flex';
           modal.innerHTML = `
-            <div class="modal-card" style="width:min(1320px, 98vw); height:min(92vh, 840px); max-height:92vh; display:flex; flex-direction:column; overflow:hidden">
+            <div class="modal-card" style="width:min(1320px, 98vw); height:95vh; max-height:95vh; display:flex; flex-direction:column; overflow:hidden">
               <div class="modal-head" style="flex-shrink:0; padding:14px 18px; gap:14px">
                 <div>
                   <div style="font-size:.78rem; color:#0284c7; font-weight:900; letter-spacing:.12em; text-transform:uppercase">Colour Wise Mould Plan</div>
@@ -7244,7 +7244,7 @@
                 </div>
                 <button class="btn icon ghost" type="button" onclick="closeCpColourPlanModal()"><i class="bi bi-x-lg"></i></button>
               </div>
-              <div id="cpColourPlanPopupBody" style="padding:14px 18px; overflow-y:auto; min-height:0; flex:1 1 auto; background:linear-gradient(180deg,#f8fbff,#ffffff); display:flex; flex-direction:column; gap:14px">
+              <div id="cpColourPlanPopupBody" style="padding:14px 18px; overflow-y:auto; min-height:0; flex:1 1 auto; background:linear-gradient(180deg,#f8fbff,#ffffff); display:flex; flex-direction:column; gap:10px">
                 <div class="muted">Loading OR/JR Wise Detail and machine availability...</div>
               </div>
               <div class="modal-actions" style="flex-shrink:0; padding:12px 18px; background:#fff; border-top:1px solid #e2e8f0">
@@ -7286,115 +7286,116 @@
             const savedBatchQty = getCpQueuedBatchQtyByMould().get(modalMouldKey) || 0;
 
             body.innerHTML = `
-              <div style="display:grid; grid-template-columns:repeat(4, minmax(160px, 1fr)); gap:10px">
-                <div style="border:1px solid #bfdbfe; border-radius:16px; padding:12px 14px; background:#eff6ff">
-                  <div class="mini muted">OR Number</div>
-                  <div style="font-weight:900; color:#0f172a; margin-top:4px">${esc(window.cpSelectedOrder?.orderNo || '-')}</div>
+              <!-- KPI strip — compact single row -->
+              <div style="display:grid; grid-template-columns:repeat(4, minmax(140px, 1fr)); gap:8px; flex-shrink:0">
+                <div style="border:1px solid #bfdbfe; border-radius:12px; padding:8px 12px; background:#eff6ff; display:flex; align-items:center; gap:10px">
+                  <div><div class="mini muted">OR Number</div><div style="font-weight:900; color:#0f172a; font-size:0.85rem">${esc(window.cpSelectedOrder?.orderNo || '-')}</div></div>
                 </div>
-                <div style="border:1px solid #cbd5e1; border-radius:16px; padding:12px 14px; background:#fff">
-                  <div class="mini muted">Client Name</div>
-                  <div style="font-weight:900; color:#0f172a; margin-top:4px">${esc(window.cpSelectedOrder?.partyName || window.cpSelectedOrder?.clientName || '-')}</div>
+                <div style="border:1px solid #cbd5e1; border-radius:12px; padding:8px 12px; background:#fff; display:flex; align-items:center; gap:10px">
+                  <div><div class="mini muted">Client Name</div><div style="font-weight:900; color:#0f172a; font-size:0.85rem">${esc(window.cpSelectedOrder?.partyName || window.cpSelectedOrder?.clientName || '-')}</div></div>
                 </div>
-                <div style="border:1px solid #fed7aa; border-radius:16px; padding:12px 14px; background:#fff7ed">
-                  <div class="mini muted">OR Qty</div>
-                  <div style="font-weight:900; color:#c2410c; margin-top:4px">${esc(formatCpQty(window.cpSelectedOrder?.orQty || window.cpSelectedOrder?.qty || 0))}</div>
+                <div style="border:1px solid #fed7aa; border-radius:12px; padding:8px 12px; background:#fff7ed; display:flex; align-items:center; gap:10px">
+                  <div><div class="mini muted">OR Qty</div><div style="font-weight:900; color:#c2410c; font-size:0.85rem">${esc(formatCpQty(window.cpSelectedOrder?.orQty || window.cpSelectedOrder?.qty || 0))}</div></div>
                 </div>
-                <div style="border:1px solid #bbf7d0; border-radius:16px; padding:12px 14px; background:#f0fdf4">
-                  <div class="mini muted">Batch Qty Per Mould / This Mould Remaining</div>
-                  <div style="font-weight:900; color:#166534; margin-top:4px">${esc(formatCpQty(activeBatchQty))} / ${esc(formatCpQty(Math.max(activeBatchQty - savedBatchQty, 0)))}</div>
+                <div style="border:1px solid #bbf7d0; border-radius:12px; padding:8px 12px; background:#f0fdf4; display:flex; align-items:center; gap:10px">
+                  <div><div class="mini muted">Batch Qty / Remaining</div><div style="font-weight:900; color:#166534; font-size:0.85rem">${esc(formatCpQty(activeBatchQty))} / ${esc(formatCpQty(Math.max(activeBatchQty - savedBatchQty, 0)))}</div></div>
                 </div>
               </div>
 
-              <div style="border:1px solid #dbeafe; border-radius:18px; padding:14px; background:#fff">
-                <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap">
-                  <div>
-                    <div class="mini muted">Item Name</div>
-                    <div style="font-weight:900; color:#0f172a; margin-top:4px">${esc(modalItemName)}</div>
-                    <div class="mini muted" style="margin-top:8px">Mould Name</div>
-                    <div style="font-weight:900; color:#0f172a; margin-top:4px">${esc(modalMouldName)}</div>
-                    <div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap">
-                      <span class="tag" style="font-family:monospace">${esc(mould.mould_no || mould.item_code || '-')}</span>
-                      <span class="tag">Sqn. ${esc(mould.mouldingSqn || mould.moulding_sqn || '-')}</span>
-                      <span class="tag">Target ${esc(formatCpQty(familySnapshot.targetQty || 0))}</span>
-                      <span class="tag">Planned ${esc(formatCpQty(familySnapshot.adjustedPlannedQty || 0))}</span>
-                      <span class="tag">Balance ${esc(formatCpQty(familySnapshot.remainingQty || 0))}</span>
-                      <span class="tag">Cycle ${esc(mould.masterCycleTime || mould.cycle_time || '-')}</span>
-                      <span class="tag">Weight ${esc(mould.masterStdWeight || mould.std_wt_kg || '-')}</span>
-                      <span class="tag">Cavity ${esc(mould.masterCavity || mould.no_of_cavity || '-')}</span>
-                    </div>
+              <!-- Mould info — single compact row -->
+              <div style="border:1px solid #dbeafe; border-radius:14px; padding:10px 14px; background:#fff; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap">
+                <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; min-width:0">
+                  <div style="min-width:0">
+                    <span style="font-size:0.72rem; color:#94a3b8; font-weight:700; text-transform:uppercase">Item</span>
+                    <span style="font-weight:900; color:#0f172a; margin-left:6px; font-size:0.9rem">${esc(modalItemName)}</span>
                   </div>
-                  <div style="text-align:right">
-                    <div class="mini muted">WIP Snapshot</div>
-                    <div style="font-weight:900; color:#0f766e; margin-top:4px">${esc(wipDate)}</div>
+                  <div style="min-width:0">
+                    <span style="font-size:0.72rem; color:#94a3b8; font-weight:700; text-transform:uppercase">Mould</span>
+                    <span style="font-weight:900; color:#0f172a; margin-left:6px; font-size:0.9rem">${esc(modalMouldName)}</span>
                   </div>
+                  <div style="display:flex; gap:6px; flex-wrap:wrap">
+                    <span class="tag" style="font-family:monospace; font-size:0.72rem">${esc(mould.mould_no || mould.item_code || '-')}</span>
+                    <span class="tag" style="font-size:0.72rem">Sqn. ${esc(mould.mouldingSqn || mould.moulding_sqn || '-')}</span>
+                    <span class="tag" style="font-size:0.72rem">Target ${esc(formatCpQty(familySnapshot.targetQty || 0))}</span>
+                    <span class="tag" style="font-size:0.72rem">Planned ${esc(formatCpQty(familySnapshot.adjustedPlannedQty || 0))}</span>
+                    <span class="tag" style="font-size:0.72rem">Balance ${esc(formatCpQty(familySnapshot.remainingQty || 0))}</span>
+                    <span class="tag" style="font-size:0.72rem">Cycle ${esc(mould.masterCycleTime || mould.cycle_time || '-')}</span>
+                    <span class="tag" style="font-size:0.72rem">Weight ${esc(mould.masterStdWeight || mould.std_wt_kg || '-')}</span>
+                    <span class="tag" style="font-size:0.72rem">Cavity ${esc(mould.masterCavity || mould.no_of_cavity || '-')}</span>
+                  </div>
+                </div>
+                <div style="text-align:right; flex-shrink:0">
+                  <div class="mini muted">WIP Snapshot</div>
+                  <div style="font-weight:900; color:#0f766e; font-size:0.85rem">${esc(wipDate)}</div>
                 </div>
               </div>
 
-              <div style="border:1px solid #cbd5e1; border-radius:18px; overflow:hidden; background:#fff; flex:0 0 auto">
-                <div style="padding:12px 14px; background:#f8fafc; display:flex; justify-content:space-between; gap:10px; align-items:center">
+              <!-- Colour table — flex-grow to fill ALL remaining space, no max-height cap -->
+              <div style="border:1px solid #cbd5e1; border-radius:14px; overflow:hidden; background:#fff; flex:1 1 auto; display:flex; flex-direction:column; min-height:0">
+                <div style="padding:9px 14px; background:#f8fafc; display:flex; justify-content:space-between; gap:10px; align-items:center; flex-shrink:0">
                   <strong style="color:#0f172a">OR/JR Wise Detail Colours</strong>
                   <span class="tag">${esc(colourRows.length)} Rows</span>
                 </div>
-                <div style="overflow:auto; max-height:clamp(210px, 30vh, 330px); border-top:1px solid #e2e8f0">
+                <div style="overflow:auto; flex:1 1 auto; min-height:0; border-top:1px solid #e2e8f0">
                   <table style="width:100%; min-width:1180px; border-collapse:collapse">
                     <thead>
                       <tr style="background:#f8fafc">
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Item Code</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Item Name / Colour</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Consumption Ratio Qty</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Mould Item Qty</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Batch Qty</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Req. Bal</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">WIP Qty</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Consume From WIP</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">WIP Bal</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:right">Plan Qty</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Mould</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:10px 8px; border-bottom:1px solid #e2e8f0; text-align:left">Machine (Primary first)</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:left; font-size:0.75rem">Item Code</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:left; font-size:0.75rem">Item Name / Colour</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">Cons. Ratio</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">Mould Item Qty</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">Batch Qty</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">Req. Bal</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">WIP Qty</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">Consume WIP</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">WIP Bal</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">Plan Qty</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:left; font-size:0.75rem">Mould</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:left; font-size:0.75rem">Machine</th>
                       </tr>
                     </thead>
                     <tbody>
                       ${colourRows.length ? colourRows.map((row, index) => `
                         <tr>
-                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; font-family:monospace; font-weight:800">${esc(row.itemCode)}</td>
-                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; min-width:260px">
-                            <div style="font-weight:800; color:#0f172a">${esc(row.itemName)}</div>
-                            ${row.itemColour ? `<div style="margin-top:4px; font-size:.82rem; color:#4338ca; font-weight:700">Colour: ${esc(row.itemColour)}</div>` : ''}
+                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; font-family:monospace; font-weight:800; font-size:0.78rem">${esc(row.itemCode)}</td>
+                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; min-width:220px">
+                            <div style="font-weight:800; color:#0f172a; font-size:0.82rem">${esc(row.itemName)}</div>
+                            ${row.itemColour ? `<div style="font-size:0.76rem; color:#4338ca; font-weight:700">Colour: ${esc(row.itemColour)}</div>` : ''}
                           </td>
-                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:900; color:${row.consumptionRatioQty == null ? '#be123c' : '#0f172a'}" data-colour-cell="consumptionRatioQty-${index}">${row.consumptionRatioQty == null ? 'Fill in Mould Master' : esc(formatCpQty(row.consumptionRatioQty))}</td>
-                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:800">${esc(formatCpQty(row.reqQty))}</td>
-                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right">
-                            <input class="cp-colour-use-input" data-row-index="${index}" type="number" min="0" step="1" value="${esc(row.useQty)}" style="width:110px; border:1px solid #bfdbfe; border-radius:10px; padding:8px 10px; text-align:right; font-weight:900; color:#0f172a">
+                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:900; font-size:0.82rem; color:${row.consumptionRatioQty == null ? '#be123c' : '#0f172a'}" data-colour-cell="consumptionRatioQty-${index}">${row.consumptionRatioQty == null ? 'Fill in Master' : esc(formatCpQty(row.consumptionRatioQty))}</td>
+                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:800; font-size:0.82rem">${esc(formatCpQty(row.reqQty))}</td>
+                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right">
+                            <input class="cp-colour-use-input" data-row-index="${index}" type="number" min="0" step="1" value="${esc(row.useQty)}" style="width:90px; border:1px solid #bfdbfe; border-radius:8px; padding:5px 8px; text-align:right; font-weight:900; color:#0f172a; font-size:0.85rem">
                           </td>
-                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right" data-colour-cell="reqBalQty-${index}">${esc(formatCpQty(row.reqBalQty))}</td>
-                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:800">${esc(formatCpQty(row.wipQty))}</td>
-                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right" data-colour-cell="consumeFromWip-${index}">${esc(formatCpQty(row.consumeFromWip))}</td>
-                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:#0f766e; font-weight:800" data-colour-cell="wipBalQty-${index}">${esc(formatCpQty(row.wipBalQty))}</td>
-                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:900" data-colour-cell="planQty-${index}">${esc(formatCpQty(row.planQty))}</td>
-                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9">
-                            <select class="cp-colour-mould-select" data-row-index="${index}" onchange="window.onCpColourMouldChange(${index}, this.value)" style="width:220px; border:1px solid #bfdbfe; border-radius:10px; padding:8px 10px; font-weight:800">
+                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-size:0.82rem" data-colour-cell="reqBalQty-${index}">${esc(formatCpQty(row.reqBalQty))}</td>
+                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:800; font-size:0.82rem">${esc(formatCpQty(row.wipQty))}</td>
+                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-size:0.82rem" data-colour-cell="consumeFromWip-${index}">${esc(formatCpQty(row.consumeFromWip))}</td>
+                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:#0f766e; font-weight:800; font-size:0.82rem" data-colour-cell="wipBalQty-${index}">${esc(formatCpQty(row.wipBalQty))}</td>
+                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:900; font-size:0.82rem" data-colour-cell="planQty-${index}">${esc(formatCpQty(row.planQty))}</td>
+                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9">
+                            <select class="cp-colour-mould-select" data-row-index="${index}" onchange="window.onCpColourMouldChange(${index}, this.value)" style="width:200px; border:1px solid #bfdbfe; border-radius:8px; padding:5px 8px; font-weight:800; font-size:0.82rem">
                               ${(row.availableMoulds || []).map((m) => `<option value="${esc(m.code)}" ${m.code === row.selectedMouldCode ? 'selected' : ''}>${esc(`${m.code}${m.mouldingSqn ? ` (Sqn ${m.mouldingSqn})` : ''}`)}</option>`).join('')}
                             </select>
                           </td>
-                          <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9">
-                            <select class="cp-colour-machine-select" data-row-index="${index}" onchange="window.onCpColourMachineChange(${index}, this.value)" style="width:320px; border:1px solid #bfdbfe; border-radius:10px; padding:8px 10px; font-weight:700"></select>
+                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9">
+                            <select class="cp-colour-machine-select" data-row-index="${index}" onchange="window.onCpColourMachineChange(${index}, this.value)" style="width:280px; border:1px solid #bfdbfe; border-radius:8px; padding:5px 8px; font-weight:700; font-size:0.82rem"></select>
                           </td>
                         </tr>
                       `).join('') : `<tr><td colspan="12" style="padding:18px; text-align:center; color:#64748b">No OR/JR Wise Detail rows found for this mould.</td></tr>`}
                     </tbody>
                     <tfoot>
                       <tr style="background:#f8fafc">
-                        <td colspan="2" style="padding:10px 8px; border-top:1px solid #e2e8f0; font-weight:900">Total</td>
-                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="consumptionRatioQty">-</td>
-                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="reqQty">-</td>
-                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="useQty">-</td>
-                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="reqBalQty">-</td>
-                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="wipQty">-</td>
-                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="consumeFromWip">-</td>
-                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="wipBalQty">-</td>
-                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900" data-colour-total="planQty">-</td>
-                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0"></td>
-                        <td style="padding:10px 8px; border-top:1px solid #e2e8f0"></td>
+                        <td colspan="2" style="padding:7px 8px; border-top:1px solid #e2e8f0; font-weight:900; font-size:0.82rem">Total</td>
+                        <td style="padding:7px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900; font-size:0.82rem" data-colour-total="consumptionRatioQty">-</td>
+                        <td style="padding:7px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900; font-size:0.82rem" data-colour-total="reqQty">-</td>
+                        <td style="padding:7px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900; font-size:0.82rem" data-colour-total="useQty">-</td>
+                        <td style="padding:7px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900; font-size:0.82rem" data-colour-total="reqBalQty">-</td>
+                        <td style="padding:7px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900; font-size:0.82rem" data-colour-total="wipQty">-</td>
+                        <td style="padding:7px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900; font-size:0.82rem" data-colour-total="consumeFromWip">-</td>
+                        <td style="padding:7px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900; font-size:0.82rem" data-colour-total="wipBalQty">-</td>
+                        <td style="padding:7px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900; font-size:0.82rem" data-colour-total="planQty">-</td>
+                        <td style="padding:7px 8px; border-top:1px solid #e2e8f0"></td>
+                        <td style="padding:7px 8px; border-top:1px solid #e2e8f0"></td>
                       </tr>
                     </tfoot>
                   </table>
