@@ -245,12 +245,12 @@
 
         .login-page .input-shell input.form-control {
             width: 100%;
-            height: 56px;
+            height: 56px !important;
             max-width: 100%;
-            padding: 0 58px 0 48px;
-            border-radius: 17px;
-            border: 1px solid #d3e4ec;
-            background: linear-gradient(180deg, #ffffff 0%, #f8fcfd 100%);
+            padding: 0 58px 0 48px !important;
+            border-radius: 17px !important;
+            border: 1px solid #d3e4ec !important;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fcfd 100%) !important;
             color: var(--text-main);
             font-size: 16px;
             transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
@@ -260,8 +260,16 @@
 
         .login-page .input-shell input.form-control:focus {
             outline: none;
-            border-color: rgba(1, 168, 221, 0.7);
-            box-shadow: 0 0 0 4px rgba(1, 168, 221, 0.14);
+            border-color: rgba(1, 168, 221, 0.7) !important;
+            box-shadow: 0 0 0 4px rgba(1, 168, 221, 0.14) !important;
+        }
+
+        /* Prevent Chrome/Safari autofill from overriding background */
+        .login-page .input-shell input.form-control:-webkit-autofill,
+        .login-page .input-shell input.form-control:-webkit-autofill:hover,
+        .login-page .input-shell input.form-control:-webkit-autofill:focus {
+            -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+            -webkit-text-fill-color: var(--text-main) !important;
         }
 
         .input-shell .toggle-btn {
@@ -530,12 +538,12 @@
 
             .login-page .input-shell input.form-control,
             .sign-in-btn {
-                height: 50px;
-                border-radius: 14px;
+                height: 50px !important;
+                border-radius: 14px !important;
             }
 
             .login-page .input-shell input.form-control {
-                padding: 0 48px 0 42px;
+                padding: 0 48px 0 42px !important;
                 font-size: 0.94rem;
             }
 
