@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const express = require('express');
 // fetch is available globally in Node.js 18+ — no require needed
 const AdmZip = require('adm-zip');
@@ -17,6 +18,44 @@ const router = express.Router();
 const DEFAULT_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 min — was 60 min, too slow for factory deployments
 const DEFAULT_STARTUP_DELAY_MS = 30000;
 const RUNTIME_RELEASE_PATH = path.join(__dirname, '..', 'runtime-release.json');
+const CLIENT_BRIDGE_DIR = path.resolve(PACKAGE_ROOT, 'CLIENT_BRIDGE');
+
+// ---------------------------------------------------------------------------
+// Self-heal CLIENT_BRIDGE node_modules (ws and friends).
+//
+// WHY THIS EXISTS HERE (and not only in the supervisor):
+//   The supervisor script fix (ensureClientBridgeDeps inside LOCAL_SERVER_SUPERVISOR.js)
+//   only works for newly-provisioned servers or after the supervisor process itself
+//   is restarted.  When an auto-update arrives, BACKEND/server.js gets replaced on
+//   disk AND process.exit(0) is called — but the running supervisor process is NOT
+//   reloaded; it keeps running the OLD code from before the fix.  So the old
+//   supervisor never calls npm install and CLIENT_BRIDGE keeps crashing.
+//
+//   The BACKEND process IS always restarted on every auto-update and on every
+//   supervisor-triggered crash-restart, so calling ensureClientBridgeDeps() here
+//   guarantees ws gets installed without requiring a supervisor restart.
+// ---------------------------------------------------------------------------
+function ensureClientBridgeDeps() {
+  const wsModule = path.join(CLIENT_BRIDGE_DIR, 'node_modules', 'ws');
+  if (fs.existsSync(wsModule)) return; // already installed — nothing to do
+
+  const pkgJson = path.join(CLIENT_BRIDGE_DIR, 'package.json');
+  if (!fs.existsSync(pkgJson)) return; // no CLIENT_BRIDGE on this machine
+
+  console.log('[Updater] CLIENT_BRIDGE node_modules missing — running npm install...');
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const result = spawnSync(npm, ['install', '--production', '--no-audit'], {
+    cwd: CLIENT_BRIDGE_DIR,
+    stdio: 'inherit',
+    shell: false
+  });
+
+  if (result.status !== 0) {
+    console.error(`[Updater] CLIENT_BRIDGE npm install failed (exit code ${result.status}).`);
+  } else {
+    console.log('[Updater] CLIENT_BRIDGE deps installed successfully.');
+  }
+}
 
 let pool = null;
 let configMap = {};
@@ -192,6 +231,10 @@ async function init(dbPool) {
   pool = dbPool;
   await loadServerConfig();
 
+  // Heal CLIENT_BRIDGE deps on every BACKEND boot — works even if old supervisor
+  // is still running in memory (pre-fix servers auto-heal on next BACKEND restart).
+  ensureClientBridgeDeps();
+
   const serverType = getConfigValue('SERVER_TYPE', 'MAIN');
   const mainUrl = getConfigValue('MAIN_SERVER_URL', '');
 
@@ -323,6 +366,11 @@ async function downloadAndApply(mainUrl, remote) {
     console.log('[Updater] Download complete. Extracting release...');
     const zip = new AdmZip(tmpPath);
     zip.extractAllTo(packageRoot, true);
+
+    // After extracting new CLIENT_BRIDGE source files, ensure ws is installed
+    // before we restart.  Critical for servers with old supervisors in memory —
+    // the supervisor won't run its own ensureClientBridgeDeps, so we do it here.
+    ensureClientBridgeDeps();
 
     await setUpdaterState({
       LOCAL_UPDATE_CURRENT_RELEASE: remote.releaseId,
