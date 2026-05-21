@@ -1387,22 +1387,22 @@
                                                     const timeStr = entry.created_at ? new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
                                                     content += `
-                                                        <div onclick='showEntryDetails(${JSON.stringify(entry).replace(/'/g, "&apos;")})' style="cursor:pointer;flex:1;background:${blockBg};${separator}padding:3px 4px;display:flex;flex-direction:column;gap:1px;transition:background 0.2s" onmouseover="this.style.filter='brightness(0.94)'" onmouseout="this.style.filter='none'">
+                                                        <div onclick='showEntryDetails(${JSON.stringify(entry).replace(/'/g, "&apos;")})' style="cursor:pointer;flex:1;min-width:0;width:100%;background:${blockBg};${separator}padding:3px 4px;display:flex;flex-direction:column;gap:1px;transition:background 0.2s" onmouseover="this.style.filter='brightness(0.94)'" onmouseout="this.style.filter='none'">
 
                                                             <!-- Row 1: Good Qty (green) + Time (small, right) -->
-                                                            <div style="display:flex;justify-content:space-between;align-items:flex-start;line-height:1">
-                                                                <span style="font-weight:800;font-size:0.95rem;color:${qtyColor};line-height:1">${entry.good_qty}</span>
-                                                                <span style="font-size:0.6rem;color:#64748b;font-weight:600;line-height:1.3;white-space:nowrap;margin-left:2px">${timeStr}</span>
+                                                            <div style="display:flex;justify-content:space-between;align-items:flex-start;line-height:1;min-width:0">
+                                                                <span style="font-weight:800;font-size:0.95rem;color:${qtyColor};line-height:1;flex-shrink:0">${entry.good_qty}</span>
+                                                                <span style="font-size:0.6rem;color:#64748b;font-weight:600;line-height:1.3;white-space:nowrap;margin-left:2px;flex-shrink:0">${timeStr}</span>
                                                             </div>
 
                                                             <!-- Row 2: Rejection (red) -->
                                                             ${Number(entry.reject_qty || 0) > 0 ? `<div style="font-size:0.72rem;color:#dc2626;font-weight:700;line-height:1">Rej: ${entry.reject_qty}</div>` : ''}
 
                                                             <!-- Row 3: DT — manual 0.2h  |  Auto DT: 9m -->
-                                                            ${(manualDtStr || autoDtStr) ? `<div style="display:flex;gap:3px;align-items:center;flex-wrap:nowrap;line-height:1">${manualDtStr ? `<span style="font-size:0.7rem;color:#db2777;font-weight:700">${manualDtStr}</span>` : ''}${autoDtStr ? `<span style="font-size:0.68rem;color:#be185d;font-weight:600">${autoDtStr}</span>` : ''}</div>` : ''}
+                                                            ${(manualDtStr || autoDtStr) ? `<div style="display:flex;gap:3px;align-items:center;flex-wrap:nowrap;line-height:1;min-width:0">${manualDtStr ? `<span style="font-size:0.7rem;color:#db2777;font-weight:700;flex-shrink:0">${manualDtStr}</span>` : ''}${autoDtStr ? `<span style="font-size:0.68rem;color:#be185d;font-weight:600;flex-shrink:0">${autoDtStr}</span>` : ''}</div>` : ''}
 
-                                                            <!-- Row 4: Colour name — full text, breaks at word boundaries only, up to 3 lines -->
-                                                            ${colName ? `<div style="font-size:0.68rem;color:#334155;font-weight:600;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;word-break:normal;overflow-wrap:normal;margin-top:1px" title="${colName}">${colName}</div>` : ''}
+                                                            <!-- Row 4: Colour name — plain block, word-wrap at spaces, max 3 lines via max-height -->
+                                                            ${colName ? `<div style="font-size:0.68rem;color:#334155;font-weight:600;line-height:1.3;overflow:hidden;max-height:3.9em;width:100%;word-break:normal;overflow-wrap:anywhere;white-space:normal;margin-top:1px" title="${colName}">${colName}</div>` : ''}
 
                                                             <!-- Row 5: Badges (CC / PPC / AUTO) -->
                                                             ${(ccBadge || ppcBadge || autoBadge) ? `<div style="display:flex;gap:2px;flex-wrap:wrap;margin-top:1px">${ccBadge}${ppcBadge}${autoBadge}</div>` : ''}
