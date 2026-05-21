@@ -1161,6 +1161,11 @@
       z-index: 10;
     }
 
+    .machine.is-flipped {
+      height: 290px;
+      min-height: 290px;
+    }
+
     .machine.s-unplanned {
       --machine-accent: #cbd5e1;
       --machine-accent-soft: rgba(203, 213, 225, 0.74);
@@ -5597,11 +5602,12 @@
             ${activePlan ? `
             <button type="button"
               onclick="event.stopPropagation(); openPlanJobDetail(${JSON.stringify(activePlan.orderNo||'').replace(/"/g,'&quot;')}, ${JSON.stringify(m.code||m.name||'').replace(/"/g,'&quot;')}, ${JSON.stringify(String(activePlan.id||'')).replace(/"/g,'&quot;')}, ${JSON.stringify(activePlan.itemName||activePlan.mouldName||'').replace(/"/g,'&quot;')}, ${JSON.stringify(activePlan.clientName||'').replace(/"/g,'&quot;')})"
-              style="margin-top:6px;width:100%;padding:6px 0;background:linear-gradient(135deg,#0ea5e9,#0369a1);color:#fff;border:none;border-radius:7px;font-size:0.72rem;font-weight:800;cursor:pointer;letter-spacing:0.04em;transition:opacity 0.15s"
-              onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+              style="width:100%;padding:5px 0;background:linear-gradient(135deg,#0ea5e9,#0369a1);color:#fff;border:none;border-radius:7px;font-size:0.7rem;font-weight:800;cursor:pointer;letter-spacing:0.03em;flex-shrink:0"
+              onmouseover="this.style.opacity='0.82'" onmouseout="this.style.opacity='1'">
               &#128269; View Full Details
-            </button>` : ''}
-            <div class="flip-note">Click to flip back</div>
+            </button>
+            <div class="flip-note" style="font-size:0.58rem;margin-top:1px">Tap card to flip back</div>`
+            : '<div class="flip-note">Click to flip back</div>'}
           </div>
         </div>
         `;
