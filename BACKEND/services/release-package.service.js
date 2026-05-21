@@ -8,6 +8,15 @@ const AdmZip = require('adm-zip');
 const APP_ROOT = path.resolve(__dirname, '..');
 const PACKAGE_ROOT = path.resolve(APP_ROOT, '..');
 const RELEASES_DIR = path.join(APP_ROOT, 'updates');
+const CLIENT_BRIDGE_ROOT = path.resolve(APP_ROOT, '..', 'CLIENT_BRIDGE');
+
+const CLIENT_BRIDGE_FILES = [
+  'bridge.js',
+  'find_scanner.js',
+  'scan_ports.js',
+  'package.json',
+  'package-lock.json'
+];
 
 const BACKEND_DIRECTORIES = [
   'PUBLIC',
@@ -103,27 +112,51 @@ function buildSupervisorScript() {
     '',
     "const fs = require('fs');",
     "const path = require('path');",
-    "const { spawn } = require('child_process');",
+    "const { spawn, spawnSync } = require('child_process');",
     '',
     "const rootDir = __dirname;",
     "const backendDir = path.join(rootDir, 'BACKEND');",
     "const clientBridgeDir = path.join(rootDir, 'CLIENT_BRIDGE');",
-    "const restartDelayMs = 3000;",
+    "const RESTART_DELAY_MS = 3000;",
+    "const BACKOFF_AFTER = 5;       // after this many fast crashes, slow down",
+    "const BACKOFF_DELAY_MS = 30000; // 30 s between retries once in backoff",
+    '',
+    '// Auto-install CLIENT_BRIDGE node_modules if ws (or any dep) is missing.',
+    '// This handles: fresh install without running INSTALL_LOCAL_SERVER.bat,',
+    '// and the first boot after an auto-update that added a new package.',
+    'function ensureClientBridgeDeps() {',
+    "  const wsModule = path.join(clientBridgeDir, 'node_modules', 'ws');",
+    '  if (fs.existsSync(wsModule)) return true;',
+    "  console.log('[Supervisor] CLIENT_BRIDGE node_modules missing — running npm install...');",
+    "  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';",
+    "  const result = spawnSync(npm, ['install', '--production', '--no-audit'], {",
+    "    cwd: clientBridgeDir, stdio: 'inherit', shell: false",
+    '  });',
+    '  if (result.status !== 0) {',
+    "    console.error('[Supervisor] npm install for CLIENT_BRIDGE failed — bridge disabled until next restart.');",
+    '    return false;',
+    '  }',
+    "  console.log('[Supervisor] CLIENT_BRIDGE deps installed successfully.');",
+    '  return true;',
+    '}',
     '',
     'function startManagedProcess(label, cwd, scriptName, enabled) {',
-    '  if (!enabled) return null;',
-    '  const child = spawn(process.execPath, [scriptName], {',
-    '    cwd,',
-    "    stdio: 'inherit',",
-    '    detached: false',
-    '  });',
-    '',
-    "  child.on('exit', code => {",
-    "    console.log('[' + label + '] exited with code ' + code + '. Restarting in ' + restartDelayMs + 'ms...');",
-    "    setTimeout(() => startManagedProcess(label, cwd, scriptName, enabled), restartDelayMs);",
-    '  });',
-    '',
-    '  return child;',
+    '  if (!enabled) return;',
+    '  var failCount = 0;',
+    '  function launch() {',
+    '    var child = spawn(process.execPath, [scriptName], {',
+    '      cwd: cwd,',
+    "      stdio: 'inherit',",
+    '      detached: false',
+    '    });',
+    "    child.on('exit', function(code) {",
+    '      failCount++;',
+    '      var delay = failCount >= BACKOFF_AFTER ? BACKOFF_DELAY_MS : RESTART_DELAY_MS;',
+    "      console.log('[' + label + '] exited (code ' + code + '). Restart #' + failCount + ' in ' + (delay / 1000) + 's...');",
+    '      setTimeout(launch, delay);',
+    '    });',
+    '  }',
+    '  launch();',
     '}',
     '',
     'if (!fs.existsSync(path.join(backendDir, "server.js"))) {',
@@ -133,7 +166,12 @@ function buildSupervisorScript() {
     '',
     "console.log('[Supervisor] Starting JMS local services...');",
     "startManagedProcess('Backend', backendDir, 'server.js', true);",
-    "startManagedProcess('Client Bridge', clientBridgeDir, 'bridge.js', fs.existsSync(path.join(clientBridgeDir, 'bridge.js')));",
+    '',
+    "var bridgeEnabled = fs.existsSync(path.join(clientBridgeDir, 'bridge.js'));",
+    'if (bridgeEnabled) {',
+    '  bridgeEnabled = ensureClientBridgeDeps();',
+    '}',
+    "startManagedProcess('Client Bridge', clientBridgeDir, 'bridge.js', bridgeEnabled);",
     ''
   ].join('\r\n');
 }
@@ -189,6 +227,13 @@ function buildCurrentReleasePackage(options = {}) {
 
     for (const dir of BACKEND_DIRECTORIES) {
       addDirectory(zip, path.join(APP_ROOT, dir), path.posix.join('BACKEND', dir));
+    }
+
+    // Include CLIENT_BRIDGE source files so auto-updates cover the bridge too.
+    // node_modules are intentionally excluded — the supervisor auto-installs them
+    // on first boot after update if the ws package is missing.
+    for (const file of CLIENT_BRIDGE_FILES) {
+      addFile(zip, path.join(CLIENT_BRIDGE_ROOT, file), path.posix.join('CLIENT_BRIDGE', file));
     }
 
     zip.addFile(
