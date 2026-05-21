@@ -140,6 +140,7 @@ const CONFLICT_KEYS = {
     wip_stock_snapshots: 'factory_id, stock_date, source_file_name',
     wip_stock_snapshot_lines: 'factory_id, stock_date, comparison_key',
     // Master tables — explicit id conflict (previously relied on fallback)
+    moulds: 'id',
     machines: 'id',
     bom_master: 'id',
     bom_components: 'id',
@@ -187,6 +188,15 @@ const SYNC_CONFLICT_INDEXES = {
     // HR daily entries have a natural unique constraint used as conflict identity
     hr_kra_daily_entries: 'employee_user_id, assignment_item_id, entry_date'
 };
+
+// Tables that represent global master/reference data shared across ALL factories.
+// These are pulled from MAIN in full — no factory_id filter is applied.
+// Without this, LOCAL servers only receive rows where factory_id = LOCAL_FACTORY_ID
+// (or factory_id IS NULL), permanently missing master records that belong to other
+// factories on MAIN (e.g. moulds imported under factory_id = 2 when LOCAL is factory 1).
+const GLOBAL_MASTER_TABLES = new Set([
+    'moulds'        // Mould master — company-wide reference, not factory-scoped
+]);
 
 const SYNC_ID_REQUIRED_TABLES = ['notifications'];
 const tableColumnCache = new Map();
@@ -452,6 +462,29 @@ router.get('/status', async (req, res) => {
     }
 });
 
+// Admin: reset pull watermarks so the next sync cycle fetches ALL rows from MAIN again.
+// Use this to recover missing master data (e.g. moulds that were synced before pagination
+// was added, or moulds with historical updated_at values that slipped behind the watermark).
+// Only available on LOCAL servers. Authenticate with SYNC_API_KEY.
+router.post('/admin/full-pull-reset', async (req, res) => {
+    if (!pool) return res.status(503).json({ error: 'Service initializing' });
+    try {
+        const { apiKey } = req.body || {};
+        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        if (SERVER_TYPE !== 'LOCAL') return res.status(400).json({ error: 'Only available on LOCAL servers' });
+
+        await setServerConfigValue('LAST_PULL', '1970-01-01T00:00:00.000Z');
+        await setServerConfigValue('LAST_DELETE_PULL', '1970-01-01T00:00:00.000Z');
+
+        console.log('[Sync] Admin: LAST_PULL reset to 1970-01-01. Full re-pull will start in 1s...');
+        setTimeout(() => runSyncCycle().catch((e) => console.error('[Sync] Admin-triggered cycle failed:', e)), 1000);
+
+        res.json({ ok: true, message: 'LAST_PULL reset. Full re-pull starting in 1 second. Check supervisor window for progress.' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 /* ============================================================
    CORE SYNC LOGIC
    ============================================================ */
@@ -477,7 +510,7 @@ async function init(dbPool) {
         if (!process.env.SYNC_API_KEY && config.SYNC_API_KEY) API_KEY = config.SYNC_API_KEY;
 
         console.log(`[Sync] Init. Type: ${SERVER_TYPE}, Factory: ${LOCAL_FACTORY_ID}, Main: ${MAIN_SERVER_URL}`);
-        console.log('[Sync] Service Version: v4.6 (HR+JC Tables, Pull Error Logging)');
+        console.log('[Sync] Service Version: v4.7 (Global Master Tables, Paginated Pull, Moulds Full Sync)');
 
         if (SERVER_TYPE === 'LOCAL') {
             startSchedule();
@@ -692,6 +725,49 @@ async function pushDeletionChanges() {
     return stats;
 }
 
+// Fetch ALL changed rows for a table from MAIN, handling pagination automatically.
+//
+// WHY PAGINATION MATTERS:
+//   getChanges() on MAIN returns at most 1000 rows per request (ORDER BY updated_at ASC LIMIT 1000).
+//   pullChanges() then advances LAST_PULL to NOW().  Any rows with updated_at < NOW() that
+//   were not in the first 1000 are permanently behind the new watermark and NEVER synced.
+//   Example: MAIN has 1318 moulds → only 1000 get synced → 318 are lost forever.
+//
+//   This function pages through in batches of 1000 using the last returned row's updated_at
+//   as the new 'since' for each subsequent request, until fewer than 1000 rows are returned.
+async function pullTableAllPages(table, since) {
+    const PAGE_LIMIT = 1000; // must match LIMIT in getChanges() on MAIN
+    const allData = [];
+    let currentSince = since;
+    let pageNum = 0;
+
+    while (true) {
+        pageNum += 1;
+        const url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            const errText = await response.text().catch(() => '');
+            throw new Error(`Pull ${table} page ${pageNum} HTTP ${response.status}: ${errText.slice(0, 200)}`);
+        }
+
+        const json = await response.json();
+        const rows = json.data || [];
+        allData.push(...rows);
+
+        if (rows.length < PAGE_LIMIT) break; // this was the last page
+
+        // Advance 'since' to the last row's updated_at so the next page starts after it.
+        const lastUpdatedAt = rows[rows.length - 1]?.updated_at;
+        if (!lastUpdatedAt || lastUpdatedAt <= currentSince) break; // safety: no forward progress
+
+        console.log(`[Sync] Pull ${table} page ${pageNum} (${rows.length} rows). Fetching more since ${lastUpdatedAt}...`);
+        currentSince = lastUpdatedAt;
+    }
+
+    return allData;
+}
+
 async function pullChanges() {
     const stats = { created: 0, updated: 0, failed: 0 };
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_PULL'`);
@@ -704,16 +780,8 @@ async function pullChanges() {
                 console.warn(`[Sync] Pull skipped ${table}: table does not exist locally`);
                 continue;
             }
-            const response = await fetch(`${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(lastPull)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`);
-            if (!response.ok) {
-                const errText = await response.text().catch(() => '');
-                console.error(`[Sync] Pull ${table} failed HTTP ${response.status}: ${errText.slice(0, 200)}`);
-                stats.failed += 1;
-                continue;
-            }
 
-            const json = await response.json();
-            const data = json.data || [];
+            const data = await pullTableAllPages(table, lastPull);
 
             if (data.length > 0) {
                 console.log(`[Sync] Pulled ${data.length} rows for ${table}...`);
@@ -997,7 +1065,9 @@ async function getChanges(table, since, targetFactoryId) {
         where.push(`updated_at > $${params.length}`);
     }
 
-    if (targetFactoryId) {
+    // Global master tables are NOT scoped to a factory — every LOCAL server should
+    // receive the complete set regardless of factory_id assignment.
+    if (targetFactoryId && !GLOBAL_MASTER_TABLES.has(table)) {
         params.push(targetFactoryId);
         where.push(`(factory_id = $${params.length} OR factory_id IS NULL)`);
     }
