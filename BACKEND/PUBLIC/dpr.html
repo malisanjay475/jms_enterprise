@@ -1358,41 +1358,53 @@
                                                         if (slotEndTime > 0 && entryTime > (slotEndTime + 2700000)) isLate = true;
                                                     }
 
-                                                    // Backgrounds
+                                                    // Background: yellow for late entries, green for on-time
                                                     const blockBg = isLate ? '#fef9c3' : '#dcfce7';
-                                                    const qtyColor = isLate ? '#b45309' : '#15803d';
+                                                    // Good qty: always green (late entries still flagged via yellow bg)
+                                                    const qtyColor = '#15803d';
 
-                                                    // Divider logic: Add border-bottom to all except last
+                                                    // Divider between stacked entries
                                                     const separator = (idx < entries.length - 1) ? 'border-bottom:1px solid rgba(0,0,0,0.1);' : '';
 
-                                                    const colName = entry.colour || '-';
+                                                    const colName = entry.colour || '';
                                                     const isCC = (entry.entry_type === 'ColourChange');
 
                                                     const lineAccess = (entry.creator_line_access || '').toLowerCase();
                                                     const isAllAccess = lineAccess === 'all' || (entry.user_name || '').toLowerCase().includes('admin');
 
                                                     const isAuto = (entry.remarks || '').includes('[Auto-Filled]');
-                                                    const ppcBadge = isAllAccess ? `<span style="font-size:0.6rem; color:#fff; background:#6366f1; padding:0 3px; border-radius:2px; font-weight:600; margin-left:2px">PPC</span>` : '';
-                                                    const autoBadge = isAuto ? `<span style="font-size:0.6rem; color:#fff; background:#94a3b8; padding:0 3px; border-radius:2px; font-weight:600; margin-left:2px" title="Auto-Filled by System">AUTO</span>` : '';
+
+                                                    // DT display: auto-filled entries show "Auto DT: Xm", manual show "X.Xh"
+                                                    const dtMins = Number(entry.downtime_min || 0);
+                                                    const manualDtStr = (!isAuto && dtMins > 0) ? `${(dtMins / 60).toFixed(1)}h` : '';
+                                                    const autoDtStr  = (isAuto  && dtMins > 0) ? `Auto DT: ${Math.round(dtMins)}m` : '';
+
+                                                    const ppcBadge  = isAllAccess ? `<span style="font-size:0.58rem;color:#fff;background:#6366f1;padding:1px 3px;border-radius:2px;font-weight:700">PPC</span>` : '';
+                                                    const autoBadge = isAuto      ? `<span style="font-size:0.58rem;color:#fff;background:#94a3b8;padding:1px 3px;border-radius:2px;font-weight:700" title="Auto-Filled">AUTO</span>` : '';
+                                                    const ccBadge   = isCC        ? `<span style="font-size:0.58rem;color:#c2410c;background:#fff7ed;border:1px solid #ffedd5;padding:1px 3px;border-radius:2px;font-weight:700">CC</span>` : '';
+
+                                                    const timeStr = entry.created_at ? new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
                                                     content += `
-                                                        <div onclick='showEntryDetails(${JSON.stringify(entry).replace(/'/g, "&apos;")})' style="cursor:pointer; flex:1; background:${blockBg}; ${separator} padding:2px 4px; text-align:left; display:flex; flex-direction:column; justify-content:center; transition:background 0.2s" onmouseover="this.style.filter='brightness(0.95)'" onmouseout="this.style.filter='none'">
-                                                            <div style="display:flex; justify-content:space-between; align-items:flex-start; line-height:1.1">
-                                                                <span style="font-weight:700; font-size:0.9rem; color:${qtyColor}">${entry.good_qty}</span>
-                                                                <span style="font-size:0.65rem; color:#64748b; font-weight:600">${entry.created_at ? new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
-                                                            </div>
-                                                            
-                                                            <div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin-top:1px">
-                                                                ${entry.reject_qty > 0 ? `<span style="font-size:0.75rem; color:#ef4444; font-weight:700">Rej:${entry.reject_qty}</span>` : ''}
-                                                                ${entry.downtime_min > 0 ? `<span style="font-size:0.75rem; color:#db2777; font-weight:700">${(entry.downtime_min / 60).toFixed(1)}h</span>` : ''}
+                                                        <div onclick='showEntryDetails(${JSON.stringify(entry).replace(/'/g, "&apos;")})' style="cursor:pointer;flex:1;background:${blockBg};${separator}padding:3px 4px;display:flex;flex-direction:column;gap:1px;transition:background 0.2s" onmouseover="this.style.filter='brightness(0.94)'" onmouseout="this.style.filter='none'">
+
+                                                            <!-- Row 1: Good Qty (green) + Time (small, right) -->
+                                                            <div style="display:flex;justify-content:space-between;align-items:flex-start;line-height:1">
+                                                                <span style="font-weight:800;font-size:0.95rem;color:${qtyColor};line-height:1">${entry.good_qty}</span>
+                                                                <span style="font-size:0.6rem;color:#64748b;font-weight:600;line-height:1.3;white-space:nowrap;margin-left:2px">${timeStr}</span>
                                                             </div>
 
-                                                            <div style="margin-top:1px; line-height:1; display:flex; align-items:center; gap:2px">
-                                                                <span style="font-size:0.75rem; color:#334155; font-weight:600; line-height:1.1; word-break:break-word" title="${colName}">${colName}</span>
-                                                                ${isCC ? `<span style="font-size:0.6rem; color:#c2410c; background:#fff7ed; border:1px solid #ffedd5; padding:0 2px; border-radius:2px; font-weight:600">CC</span>` : ''}
-                                                                ${ppcBadge}
-                                                                ${autoBadge}
-                                                            </div>
+                                                            <!-- Row 2: Rejection (red) -->
+                                                            ${Number(entry.reject_qty || 0) > 0 ? `<div style="font-size:0.72rem;color:#dc2626;font-weight:700;line-height:1">Rej: ${entry.reject_qty}</div>` : ''}
+
+                                                            <!-- Row 3: DT — manual 0.2h  |  Auto DT: 9m -->
+                                                            ${(manualDtStr || autoDtStr) ? `<div style="display:flex;gap:3px;align-items:center;flex-wrap:nowrap;line-height:1">${manualDtStr ? `<span style="font-size:0.7rem;color:#db2777;font-weight:700">${manualDtStr}</span>` : ''}${autoDtStr ? `<span style="font-size:0.68rem;color:#be185d;font-weight:600">${autoDtStr}</span>` : ''}</div>` : ''}
+
+                                                            <!-- Row 4: Colour name — full text, breaks at word boundaries, up to 3 lines -->
+                                                            ${colName ? `<div style="font-size:0.68rem;color:#334155;font-weight:600;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;word-break:normal;overflow-wrap:break-word;margin-top:1px" title="${colName}">${colName}</div>` : ''}
+
+                                                            <!-- Row 5: Badges (CC / PPC / AUTO) -->
+                                                            ${(ccBadge || ppcBadge || autoBadge) ? `<div style="display:flex;gap:2px;flex-wrap:wrap;margin-top:1px">${ccBadge}${ppcBadge}${autoBadge}</div>` : ''}
 
                                                         </div>
                                                     `;
