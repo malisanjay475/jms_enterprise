@@ -157,43 +157,27 @@
         }
 
         .brand-mark {
-            position: relative;
-            width: 168px;
-            height: 168px;
+            width: 148px;
+            height: 148px;
             display: grid;
             place-items: center;
-            border-radius: 38px;
-            overflow: hidden;
-        }
-
-        .brand-ring {
-            position: absolute;
-            inset: 0;
-            border-radius: 38px;
-            background: linear-gradient(145deg, rgba(2, 76, 129, 0.16), rgba(1, 168, 221, 0.14));
+            border-radius: 34px;
+            background: #ffffff;
             box-shadow:
-                0 24px 46px rgba(2, 76, 129, 0.16),
-                inset 0 1px 0 rgba(255, 255, 255, 0.38);
-            overflow: hidden;
+                0 20px 44px rgba(2, 76, 129, 0.18),
+                0 0 0 6px rgba(2, 76, 129, 0.10),
+                0 0 0 11px rgba(1, 168, 221, 0.07);
         }
 
-        .brand-ring::after {
-            content: '';
-            position: absolute;
-            inset: 12px;
-            border-radius: 30px;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(241, 249, 252, 0.96));
-            z-index: 0;
-        }
+        /* brand-ring span kept in HTML for compatibility but hidden */
+        .brand-ring { display: none; }
 
         .auth-brand img {
-            position: relative;
-            z-index: 2;
-            width: 116px;
-            height: 116px;
+            width: 112px;
+            height: 112px;
             object-fit: contain;
-            border-radius: 0;
-            filter: drop-shadow(0 4px 10px rgba(2, 76, 129, 0.18));
+            border-radius: 20px;
+            filter: drop-shadow(0 3px 8px rgba(2, 76, 129, 0.15));
         }
 
         .brand-name {
@@ -261,12 +245,12 @@
 
         .login-page .input-shell input.form-control {
             width: 100%;
-            height: 56px;
+            height: 56px !important;
             max-width: 100%;
-            padding: 0 58px 0 48px;
-            border-radius: 17px;
-            border: 1px solid #d3e4ec;
-            background: linear-gradient(180deg, #ffffff 0%, #f8fcfd 100%);
+            padding: 0 58px 0 48px !important;
+            border-radius: 17px !important;
+            border: 1px solid #d3e4ec !important;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fcfd 100%) !important;
             color: var(--text-main);
             font-size: 16px;
             transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
@@ -276,8 +260,16 @@
 
         .login-page .input-shell input.form-control:focus {
             outline: none;
-            border-color: rgba(1, 168, 221, 0.7);
-            box-shadow: 0 0 0 4px rgba(1, 168, 221, 0.14);
+            border-color: rgba(1, 168, 221, 0.7) !important;
+            box-shadow: 0 0 0 4px rgba(1, 168, 221, 0.14) !important;
+        }
+
+        /* Prevent Chrome/Safari autofill from overriding background */
+        .login-page .input-shell input.form-control:-webkit-autofill,
+        .login-page .input-shell input.form-control:-webkit-autofill:hover,
+        .login-page .input-shell input.form-control:-webkit-autofill:focus {
+            -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+            -webkit-text-fill-color: var(--text-main) !important;
         }
 
         .input-shell .toggle-btn {
@@ -470,13 +462,14 @@
             }
 
             .brand-mark {
-                width: 136px;
-                height: 136px;
+                width: 120px;
+                height: 120px;
+                border-radius: 28px;
             }
 
             .auth-brand img {
-                width: 98px;
-                height: 98px;
+                width: 90px;
+                height: 90px;
             }
 
             .auth-heading {
@@ -514,13 +507,14 @@
             }
 
             .brand-mark {
-                width: 112px;
-                height: 112px;
+                width: 96px;
+                height: 96px;
+                border-radius: 22px;
             }
 
             .auth-brand img {
-                width: 78px;
-                height: 78px;
+                width: 72px;
+                height: 72px;
             }
 
             .brand-name {
@@ -544,12 +538,12 @@
 
             .login-page .input-shell input.form-control,
             .sign-in-btn {
-                height: 50px;
-                border-radius: 14px;
+                height: 50px !important;
+                border-radius: 14px !important;
             }
 
             .login-page .input-shell input.form-control {
-                padding: 0 48px 0 42px;
+                padding: 0 48px 0 42px !important;
                 font-size: 0.94rem;
             }
 
