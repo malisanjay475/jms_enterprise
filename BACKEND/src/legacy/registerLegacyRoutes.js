@@ -4060,7 +4060,28 @@ async function initializeLegacyRuntime() {
                 UNIQUE (dpr_date, plant, shift, factory_id)
             );
 
+            CREATE TABLE IF NOT EXISTS plan_audit_logs (
+                id SERIAL PRIMARY KEY,
+                plan_id INT,
+                action VARCHAR(50),
+                details JSONB,
+                user_name VARCHAR(100),
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_plan_audit_logs_created ON plan_audit_logs(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_plan_audit_logs_plan_id ON plan_audit_logs(plan_id);
+
         `);
+
+    // Fix: reset plan_audit_logs serial sequence to MAX(id)+1 to prevent pkey conflicts
+    // after DB restore / sync pushes explicit IDs higher than the current sequence value.
+    await q(`
+      SELECT setval(
+        'plan_audit_logs_id_seq',
+        COALESCE((SELECT MAX(id) FROM plan_audit_logs), 0) + 1,
+        false
+      )
+    `).catch(err => console.warn('[DB] plan_audit_logs sequence reset skipped:', err.message));
 
     // MISSING TABLE: std_actual
     await q(`
