@@ -6250,11 +6250,16 @@
 
         function getCpFamilySnapshotByRows(rows, familyCode, includeDraft = true) {
           const safeRows = Array.isArray(rows) ? rows : [];
-          const targetList = safeRows.map((row) => Math.max(0, parseCpNumber(row.targetPlanQty ?? row.plan_qty) ?? 0));
+          // Only active (non-dropped) rows contribute to target and planned qty.
+          // Dropped moulds' saved plans must not count — otherwise a dropped mould with
+          // prior plans would make the family appear "fully covered" and block planning
+          // of the remaining active mould.
+          const activeRows = safeRows.filter((row) => !row.isDropped);
+          const targetList = activeRows.map((row) => Math.max(0, parseCpNumber(row.targetPlanQty ?? row.plan_qty) ?? 0));
           const targetSum = targetList.reduce((sum, qty) => sum + qty, 0);
           const targetMax = targetList.reduce((max, qty) => Math.max(max, qty), 0);
           const targetQty = targetMax > 0 ? targetMax : targetSum;
-          const plannedQty = safeRows.reduce((sum, row) => sum + (Math.max(0, parseCpNumber(row.plannedQty) ?? 0)), 0);
+          const plannedQty = activeRows.reduce((sum, row) => sum + (Math.max(0, parseCpNumber(row.plannedQty) ?? 0)), 0);
           const draftQty = includeDraft ? (getCpDraftFamilyQtyMap().get(normalizeCpFamilyCode(familyCode)) || 0) : 0;
           const adjustedPlannedQty = plannedQty + draftQty;
           const remainingQty = Math.max(0, targetQty - adjustedPlannedQty);
