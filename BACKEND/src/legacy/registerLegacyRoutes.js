@@ -7579,15 +7579,37 @@ function sortPlanningMouldRows(rows) {
 
 async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
   const rawRows = await queryFn(`
-    SELECT 
-      TRIM(r.or_jr_no) AS or_jr_no,
+    -- Pre-aggregate mould_planning_summary by (or_jr_no, mould_no) so that
+    -- multiple rows for the same mould with different plan_dates are combined
+    -- into one row with SUMmed mould_item_qty (colour-wise same mould totalled).
+    WITH r AS (
+      SELECT
+        TRIM(or_jr_no)                                         AS or_jr_no,
+        MIN(or_jr_date)                                        AS or_jr_date,
+        TRIM(COALESCE(MAX(item_code), ''))                     AS item_code,
+        TRIM(mould_no)                                         AS mould_no,
+        TRIM(COALESCE(MAX(NULLIF(TRIM(mould_name),'')),''))    AS mould_name,
+        SUM(COALESCE(mould_item_qty, 0))                       AS mould_item_qty,
+        TRIM(COALESCE(MAX(NULLIF(TRIM(product_name),'')),''))  AS product_name,
+        MAX(tonnage)                                           AS tonnage,
+        MAX(cycle_time)                                        AS cycle_time,
+        MAX(cavity)                                            AS cavity,
+        TRIM(COALESCE(MAX(machine_name), ''))                  AS machine_name,
+        factory_id
+      FROM mould_planning_summary
+      WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM($1)
+        AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+      GROUP BY TRIM(or_jr_no), TRIM(mould_no), factory_id
+    )
+    SELECT
+      r.or_jr_no,
       r.or_jr_date,
-      TRIM(COALESCE(r.item_code, '')) AS item_code,
-      TRIM(COALESCE(r.mould_no, '')) AS mould_no,
-      COALESCE(NULLIF(TRIM(COALESCE(r.mould_name, '')), ''), regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', '')) AS mould_name,
+      r.item_code,
+      r.mould_no,
+      COALESCE(NULLIF(r.mould_name, ''), regexp_replace(r.mould_no, '\\s+\\d+$', '')) AS mould_name,
       r.mould_item_qty AS plan_qty,
-      regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', '') AS mould_family,
-      COALESCE(r.product_name, o.item_name) AS product_name,
+      regexp_replace(r.mould_no, '\\s+\\d+$', '') AS mould_family,
+      COALESCE(NULLIF(r.product_name,''), o.item_name) AS product_name,
       COALESCE(o.client_name, '') AS client_name,
       r.tonnage AS "reportTonnage",
       r.cycle_time AS "reportCycleTime",
@@ -7607,9 +7629,9 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       pb.status AS existing_plan_status,
       COALESCE(pb_sum.planned_qty, 0)::numeric AS existing_planned_qty,
       COALESCE(pb_sum.plan_count, 0)::int AS existing_plan_count
-    FROM mould_planning_summary r
+    FROM r
     LEFT JOIN orders o
-      ON TRIM(o.order_no) = TRIM(r.or_jr_no)
+      ON TRIM(o.order_no) = r.or_jr_no
      AND ($2::int IS NULL OR o.factory_id = $2 OR o.factory_id IS NULL)
     LEFT JOIN LATERAL (
       SELECT
@@ -7663,12 +7685,10 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       ORDER BY pb0.updated_at DESC NULLS LAST, pb0.id DESC
       LIMIT 1
     ) pb ON true
-    WHERE TRIM(COALESCE(r.or_jr_no, '')) = TRIM($1)
-      AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
     ORDER BY
-      regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', ''),
-      TRIM(COALESCE(r.mould_no, '')),
-      TRIM(COALESCE(r.mould_name, ''))
+      regexp_replace(r.mould_no, '\\s+\\d+$', ''),
+      r.mould_no,
+      r.mould_name
   `, [orderNo, factoryId]);
   const rows = Array.isArray(rawRows) ? rawRows : (Array.isArray(rawRows?.rows) ? rawRows.rows : []);
 
@@ -7970,14 +7990,19 @@ async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, opti
       groupedRows.set(key, nextRow);
       return;
     }
+    // SUM qty fields across duplicate rows (same colour+mould, different plan_date)
+    const summedReqQty = (existing.reqQty || 0) + (nextRow.reqQty || 0);
+    const summedPlanQty = (existing.planQty || 0) + (nextRow.planQty || 0);
+    const summedUseQty = (existing.useQty || 0) + (nextRow.useQty || 0);
     groupedRows.set(key, {
       ...existing,
-      reqQty: Math.max(existing.reqQty || 0, nextRow.reqQty || 0),
-      useQty: Math.max(existing.useQty || 0, nextRow.useQty || 0),
-      reqBalQty: Math.max(existing.reqBalQty || 0, nextRow.reqBalQty || 0),
+      mouldItemQty: (existing.mouldItemQty || 0) + (nextRow.mouldItemQty || 0),
+      reqQty: summedReqQty,
+      planQty: summedPlanQty,
+      useQty: summedUseQty,
+      reqBalQty: Math.max(summedReqQty - summedUseQty, 0),
       wipQty: Math.max(existing.wipQty || 0, nextRow.wipQty || 0),
       wipBalQty: Math.max(existing.wipBalQty || 0, nextRow.wipBalQty || 0),
-      planQty: Math.max(existing.planQty || 0, nextRow.planQty || 0),
       wipStockDate: existing.wipStockDate || nextRow.wipStockDate || null
     });
   });
@@ -11680,12 +11705,14 @@ app.get('/api/reports/orjr-wise-detail', async (req, res) => {
       }
     }
 
+    // Fetch raw rows then aggregate in JS: group by (or_jr_no, mould_no, mould_item_code)
+    // and SUM mould_item_qty so that multiple rows with different plan_date are merged.
     let query = `
       SELECT
         d.factory_id,
         d.or_jr_no,
-        d.or_jr_date AS jr_date,
-        d.item_code AS our_code,
+        d.or_jr_date   AS jr_date,
+        d.item_code    AS our_code,
         d.bom_type,
         d.product_name AS jr_item_name,
         d.jr_qty,
@@ -11693,7 +11720,7 @@ app.get('/api/reports/orjr-wise-detail', async (req, res) => {
         d.mould_item_code,
         d.mould_item_name,
         d.mould_no,
-        d.mould_name AS mould,
+        d.mould_name   AS mould,
         d.mould_item_qty,
         d.tonnage,
         d.machine_name AS machine,
@@ -11706,9 +11733,27 @@ app.get('/api/reports/orjr-wise-detail', async (req, res) => {
       query += ` WHERE ${conditions.join(' AND ')} `;
     }
 
-    query += ` ORDER BY NULLIF(TRIM(d.or_jr_date), '')::date DESC NULLS LAST, d.or_jr_no ASC, d.mould_no ASC, d.mould_item_code ASC LIMIT 50000`;
+    // No LIMIT here — LIMIT on raw rows would silently truncate groups before JS aggregation.
+    // The aggregated result set is bounded by unique (or_jr_no, mould_no, mould_item_code) groups.
+    query += ` ORDER BY d.or_jr_date DESC NULLS LAST, d.or_jr_no ASC, d.mould_no ASC, d.mould_item_code ASC`;
 
-    const rows = await q(query, params);
+    const rawRows = await q(query, params);
+
+    // JS aggregation: merge rows with same (or_jr_no, mould_no, mould_item_code)
+    const grouped = new Map();
+    for (const row of (Array.isArray(rawRows) ? rawRows : (rawRows?.rows || []))) {
+      const key = `${row.or_jr_no || ''}|${row.mould_no || ''}|${row.mould_item_code || ''}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, { ...row });
+      } else {
+        const ex = grouped.get(key);
+        const prevQty = parseFloat(ex.mould_item_qty) || 0;
+        const addQty  = parseFloat(row.mould_item_qty) || 0;
+        ex.mould_item_qty = String(prevQty + addQty);
+      }
+    }
+    const rows = Array.from(grouped.values());
+
     res.json({ ok: true, data: await attachFactoryNames(rows) });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -12889,7 +12934,34 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
           await ensureFactoryIdsExist(rowFactoryIds, client, 'ORJR Wise Detail upload factory');
         }
 
+        // Pre-aggregate: group by (or_jr_no, mould_no, mould_item_code) and SUM mould_item_qty + plan_qty.
+        // Multiple Excel rows for same colour+mould with different plan_date are collapsed
+        // into ONE row with the correct total qty before being written to the DB.
+        const aggMap = new Map();
         for (const row of rowsToUpsert) {
+          const key = `${row.or_jr_no}|${row.mould_no}|${row.mould_item_code}`;
+          if (!aggMap.has(key)) {
+            aggMap.set(key, { ...row });
+          } else {
+            const ex = aggMap.get(key);
+            ex.mould_item_qty = normalizeOptionalText((parseFloat(ex.mould_item_qty) || 0) + (parseFloat(row.mould_item_qty) || 0));
+            ex.plan_qty       = normalizeOptionalText((parseFloat(ex.plan_qty) || 0) + (parseFloat(row.plan_qty) || 0));
+          }
+        }
+        const aggregatedRows = Array.from(aggMap.values());
+
+        for (const row of aggregatedRows) {
+          const fid = row.factory_id ?? requestFactoryId;
+          // Delete all existing rows for this colour+mould (any plan_date) so we store
+          // exactly one summed row per (or_jr_no, mould_no, mould_item_code).
+          await client.query(`
+            DELETE FROM mould_planning_report
+            WHERE TRIM(COALESCE(or_jr_no, ''))       = TRIM($1)
+              AND TRIM(COALESCE(mould_no, ''))        = TRIM($2)
+              AND TRIM(COALESCE(mould_item_code, '')) = TRIM($3)
+              AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+          `, [row.or_jr_no, row.mould_no, row.mould_item_code, fid]);
+
           await client.query(`
             INSERT INTO mould_planning_report(
               or_jr_no, or_jr_date, item_code, bom_type, product_name, jr_qty, uom,
@@ -12900,30 +12972,10 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
               $8, $9, $10, $11, $12, $13, $14, $15, $16,
               $17, $18, NULL, 'BulkUpload', NOW(), 'BulkUpload', NOW(), $19, NOW()
             )
-            ON CONFLICT (or_jr_no, mould_no, mould_item_code, plan_date)
-            DO UPDATE SET
-              or_jr_date = EXCLUDED.or_jr_date,
-              item_code = EXCLUDED.item_code,
-              bom_type = EXCLUDED.bom_type,
-              product_name = EXCLUDED.product_name,
-              jr_qty = EXCLUDED.jr_qty,
-              uom = EXCLUDED.uom,
-              plan_qty = EXCLUDED.plan_qty,
-              mould_item_name = EXCLUDED.mould_item_name,
-              mould_name = EXCLUDED.mould_name,
-              mould_item_qty = EXCLUDED.mould_item_qty,
-              tonnage = EXCLUDED.tonnage,
-              machine_name = EXCLUDED.machine_name,
-              cycle_time = EXCLUDED.cycle_time,
-              cavity = EXCLUDED.cavity,
-              edited_by = 'BulkUpload',
-              edited_date = NOW(),
-              factory_id = EXCLUDED.factory_id,
-              updated_at = NOW()
           `, [
             row.or_jr_no, row.or_jr_date, row.item_code, row.bom_type, row.product_name, row.jr_qty, row.uom,
             row.plan_date, row.plan_qty, row.mould_item_code, row.mould_item_name, row.mould_no, row.mould_name, row.mould_item_qty, row.tonnage, row.machine_name,
-            row.cycle_time, row.cavity, row.factory_id
+            row.cycle_time, row.cavity, fid
           ]);
           count++;
         }
