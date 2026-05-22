@@ -3,6 +3,44 @@
 const path = require('path');
 const registerLegacyRoutes = require('../legacy/registerLegacyRoutes');
 const { getFactoryId } = require('./requestContext');
+const sseManager = require('./sseManager');
+
+// ---------------------------------------------------------------------------
+// SSE helpers
+// ---------------------------------------------------------------------------
+
+/** Map an API path to a frontend module name, or null to suppress broadcast. */
+function ssePathToModule(reqPath) {
+  if (/^\/api\/planning/.test(reqPath))                                     return 'planning';
+  if (/^\/api\/(dpr|job|shifting|std-actual|rm)/.test(reqPath))             return 'dpr';
+  if (/^\/api\/wip/.test(reqPath))                                           return 'dpr';
+  if (/^\/api\/qc/.test(reqPath))                                            return 'qc';
+  if (/^\/api\/(machines|moulds)|^\/(api\/)?upload/.test(reqPath))          return 'masters';
+  if (/^\/api\/hr/.test(reqPath))                                            return 'hr';
+  if (/^\/api\/assembly/.test(reqPath))                                      return 'assembly';
+  return null;
+}
+
+/**
+ * Middleware: after any successful POST/PUT/DELETE/PATCH response, broadcast
+ * a lightweight "refresh" event to all connected SSE clients so that other
+ * open tabs can reload the affected module without a manual page refresh.
+ */
+function sseBroadcastMiddleware(req, res, next) {
+  if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) return next();
+  const module = ssePathToModule(req.path);
+  if (!module) return next();
+
+  const origJson = res.json.bind(res);
+  res.json = function (body) {
+    // Only broadcast when the handler reports success (ok: true or no ok field)
+    if (body && body.ok !== false) {
+      sseManager.broadcast({ type: 'refresh', module, path: req.path, ts: Date.now() });
+    }
+    return origJson(body);
+  };
+  next();
+}
 
 const _pkg = (() => {
   try { return require(path.join(__dirname, '../../package.json')); } catch { return {}; }
@@ -131,6 +169,29 @@ function registerJmsPlanReportRoute(app, pool) {
 
 function registerRoutes(app, deps) {
   const { config, pool, services } = deps;
+
+  // -----------------------------------------------------------------------
+  // SSE: register broadcast middleware early so it covers all routes below
+  // -----------------------------------------------------------------------
+  app.use(sseBroadcastMiddleware);
+
+  // SSE endpoint — clients connect here to receive live-update push events
+  app.get('/api/events', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // prevent Nginx from buffering SSE
+    res.flushHeaders();
+    // Send an initial connected event so the client knows the stream is live
+    res.write('data: {"type":"connected"}\n\n');
+    sseManager.addClient(res);
+    // Heartbeat every 20 s keeps the connection alive through idle periods
+    // and prevents proxies / load-balancers from closing it due to inactivity.
+    const hb = setInterval(() => {
+      try { res.write(': hb\n\n'); } catch (_e) { clearInterval(hb); }
+    }, 20000);
+    req.on('close', () => clearInterval(hb));
+  });
 
   app.get('/health', (req, res) => {
     res.json({
