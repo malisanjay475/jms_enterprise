@@ -105,9 +105,22 @@ function getConfigValue(key, fallback = '') {
 
 function getCurrentLocalRelease() {
   const runtimeRelease = readRuntimeRelease();
+  // If runtime-release.json exists and has a releaseId, trust it completely.
+  // Do NOT fall back to APP_GIT_SHA — that env var reflects the initial install,
+  // not the currently-running code after an auto-update.  Using it would cause an
+  // infinite download loop: every restart would look out-of-date because the .env
+  // is never overwritten by the zip.
+  if (runtimeRelease.releaseId) {
+    return getCurrentReleaseInfo({
+      version: runtimeRelease.version,
+      commit: runtimeRelease.commit || ''
+    });
+  }
+  // No runtime-release.json yet (initial install from provisioning package).
+  // Fall back to APP_GIT_SHA so the factory reports its installed version.
   return getCurrentReleaseInfo({
-    version: runtimeRelease.version,
-    commit: runtimeRelease.commit || process.env.APP_GIT_SHA || runtimeRelease.releaseId || ''
+    version: undefined,
+    commit: process.env.APP_GIT_SHA || ''
   });
 }
 
