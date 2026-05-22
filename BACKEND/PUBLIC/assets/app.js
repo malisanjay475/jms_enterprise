@@ -1634,3 +1634,77 @@ const BRAND_NAME = 'JMS OCEAN';
     };
 
 })(window.JPSMS);
+
+// =============================================================================
+// Live Tab Sync — Server-Sent Events client
+// When any tab saves data the server broadcasts a "refresh" event.
+// All other open tabs receive it and reload the relevant section automatically.
+// =============================================================================
+(function initJpsmsLiveSync() {
+  'use strict';
+  if (typeof EventSource === 'undefined') return; // old browser
+
+  var es = null;
+  var reconnectDelay = 2000;
+  var reconnectTimer = null;
+  // Per-module debounce timers so rapid back-to-back mutations only trigger one reload
+  var debounceTimers = {};
+
+  function scheduleRefresh(module) {
+    clearTimeout(debounceTimers[module]);
+    debounceTimers[module] = setTimeout(function () {
+      window.dispatchEvent(new CustomEvent('jpsms:live-refresh', { detail: { module: module } }));
+    }, 800);
+  }
+
+  function connect() {
+    if (es) { try { es.close(); } catch (_e) {} }
+    es = new EventSource('/api/events');
+
+    es.addEventListener('message', function (e) {
+      try {
+        var data = JSON.parse(e.data);
+        if (data.type === 'refresh' && data.module) {
+          scheduleRefresh(data.module);
+        }
+        if (data.type === 'connected') {
+          reconnectDelay = 2000; // reset back-off on successful connect
+        }
+      } catch (_err) {}
+    });
+
+    es.addEventListener('error', function () {
+      es.close();
+      es = null;
+      if (!reconnectTimer) {
+        reconnectTimer = setTimeout(function () {
+          reconnectTimer = null;
+          reconnectDelay = Math.min(reconnectDelay * 1.5, 30000); // exponential back-off, max 30 s
+          connect();
+        }, reconnectDelay);
+      }
+    });
+  }
+
+  // Only connect when the user is authenticated (token present)
+  function maybeConnect() {
+    var token = (typeof localStorage !== 'undefined') ? localStorage.getItem('token') : null;
+    if (token) connect();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', maybeConnect);
+  } else {
+    maybeConnect();
+  }
+
+  // Reconnect when the tab becomes visible again after being backgrounded
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && (!es || es.readyState === EventSource.CLOSED)) {
+      connect();
+    }
+  });
+
+  window.JPSMS = window.JPSMS || {};
+  window.JPSMS.liveSync = { connect: connect };
+}());
