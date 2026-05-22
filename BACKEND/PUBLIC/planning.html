@@ -6186,10 +6186,17 @@
           const saveBtn = document.getElementById('cpSaveBtn');
           if (saveBtn) saveBtn.disabled = true;
 
-          // Clear Queue on Order Switch
-          if (!preserveQueue && typeof updateQueueUI === 'function') {
-            cpDraftQueue.length = 0;
-            updateQueueUI();
+          // Restore saved draft OR clear queue on order switch
+          if (!preserveQueue) {
+            const savedDraft = loadCpDraftForOrder(order.orderNo);
+            if (savedDraft && Array.isArray(savedDraft.queue) && savedDraft.queue.length > 0) {
+              cpDraftQueue.length = 0;
+              savedDraft.queue.forEach((item) => cpDraftQueue.push(item));
+              if (savedDraft.batchQty != null) window.cpCurrentBatchQty = savedDraft.batchQty;
+            } else {
+              cpDraftQueue.length = 0;
+            }
+            if (typeof updateQueueUI === 'function') updateQueueUI();
           }
 
           try {
@@ -6494,7 +6501,6 @@
             }, null);
             group.hasDropped = group.rows.some((row) => !!row.isDropped);
             group.hasPlanned = group.rows.some((row) => !!row.hasAnyPlan);
-            group.hasFullyPlanned = group.rows.every((row) => !!row.isDropped || !!row.isFullyPlanned);
             group.hasMissingSqn = group.rows.some((row) => !Number.isFinite(parseCpSqn(row.mouldingSqn || row.moulding_sqn)));
             const snapshot = getCpFamilySnapshotByRows(group.rows, group.family, true);
             group.targetPlanQty = snapshot.targetQty;
@@ -6503,6 +6509,10 @@
             group.draftQty = snapshot.draftQty;
             group.adjustedPlannedQty = snapshot.adjustedPlannedQty;
             group.adjustedRemainingQty = snapshot.remainingQty;
+            // Family is fully planned if every individual row is done OR if the
+            // combined planned qty (any variant) already covers the full target.
+            group.hasFullyPlanned = group.rows.every((row) => !!row.isDropped || !!row.isFullyPlanned)
+              || (group.targetPlanQty > 0 && group.remainingQty <= 0);
             return group;
           }).sort((a, b) => {
             const aSqn = Number.isFinite(a.minSqn) ? a.minSqn : Number.MAX_SAFE_INTEGER;
@@ -7565,13 +7575,49 @@
 
         const cpDraftQueue = []; // Global Queue
 
+        // ------- Draft persistence (survive page refresh) -------
+        const CP_DRAFT_STORAGE_KEY = 'jpsms_cp_draft_v1';
+
+        function saveCpDraft() {
+          try {
+            const orderNo = window.cpSelectedOrder?.orderNo || '';
+            if (!orderNo) { localStorage.removeItem(CP_DRAFT_STORAGE_KEY); return; }
+            localStorage.setItem(CP_DRAFT_STORAGE_KEY, JSON.stringify({
+              orderNo,
+              batchQty: window.cpCurrentBatchQty || null,
+              queue: Array.isArray(cpDraftQueue) ? cpDraftQueue.slice() : []
+            }));
+          } catch (e) { /* ignore storage quota errors */ }
+        }
+
+        function loadCpDraftForOrder(orderNo) {
+          try {
+            const raw = localStorage.getItem(CP_DRAFT_STORAGE_KEY);
+            if (!raw) return null;
+            const data = JSON.parse(raw);
+            return (data && data.orderNo === orderNo) ? data : null;
+          } catch (e) { return null; }
+        }
+
+        function clearCpDraftStorage() {
+          try { localStorage.removeItem(CP_DRAFT_STORAGE_KEY); } catch (e) { /* ignore */ }
+        }
+        // --------------------------------------------------------
+
         function normalizeCpMouldKey(value) {
           return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
         }
 
         function getCpRequiredBatchMoulds() {
-          const required = (Array.isArray(window.cpOrderMoulds) ? window.cpOrderMoulds : [])
-            .filter((row) => !row.isDropped && !row.isFullyPlanned);
+          const orderRows = Array.isArray(window.cpOrderMoulds) ? window.cpOrderMoulds : [];
+          const required = orderRows.filter((row) => {
+            if (row.isDropped || row.isFullyPlanned) return false;
+            // Also skip if the entire mould family's qty is already covered
+            // by another variant (or the same one) — including drafts in queue.
+            const familySnapshot = getCpFamilySnapshotForMould(row, true);
+            if (familySnapshot.targetQty > 0 && familySnapshot.remainingQty <= 0) return false;
+            return true;
+          });
           const seen = new Set();
           return required.map((row) => {
             const code = row.mouldNo || row.mould_no || row.item_code || row.mouldName || row.mould_name;
@@ -7690,6 +7736,7 @@
             saveBtn.disabled = true;
           }
           renderCpBatchSetup(cpSelectedOrder);
+          saveCpDraft();
         }
 
         function buildCpColourPlanPayloads() {
@@ -7800,6 +7847,7 @@
         function clearQueue() {
           if (!confirm('Clear all drafted plans?')) return;
           cpDraftQueue.length = 0;
+          clearCpDraftStorage();
           updateQueueUI();
         }
         window.clearQueue = clearQueue;
@@ -7914,6 +7962,7 @@
               if (res && res.ok) {
                 toast(`Successfully created ${res.count || payload.length} plans!`, 'success');
                 cpDraftQueue.length = 0; // Clear
+                clearCpDraftStorage();
                 closeModal('newCreatePlanModal');
                 loadMasterPlan();
               } else {
