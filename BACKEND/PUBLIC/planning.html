@@ -6509,10 +6509,12 @@
             group.draftQty = snapshot.draftQty;
             group.adjustedPlannedQty = snapshot.adjustedPlannedQty;
             group.adjustedRemainingQty = snapshot.remainingQty;
-            // Family is fully planned if every individual row is done OR if the
-            // combined planned qty (any variant) already covers the full target.
+            // hasFullyPlanned must only reflect SAVED plans (not the draft queue).
+            // If we used remainingQty (which includes draft), a mould in the queue
+            // would wrongly show "fully planned" and the Create button would be disabled.
+            const snapshotSaved = getCpFamilySnapshotByRows(group.rows, group.family, false);
             group.hasFullyPlanned = group.rows.every((row) => !!row.isDropped || !!row.isFullyPlanned)
-              || (group.targetPlanQty > 0 && group.remainingQty <= 0);
+              || (snapshotSaved.targetQty > 0 && snapshotSaved.remainingQty <= 0);
             return group;
           }).sort((a, b) => {
             const aSqn = Number.isFinite(a.minSqn) ? a.minSqn : Number.MAX_SAFE_INTEGER;
@@ -7612,9 +7614,11 @@
           const orderRows = Array.isArray(window.cpOrderMoulds) ? window.cpOrderMoulds : [];
           const required = orderRows.filter((row) => {
             if (row.isDropped || row.isFullyPlanned) return false;
-            // Also skip if the entire mould family's qty is already covered
-            // by another variant (or the same one) — including drafts in queue.
-            const familySnapshot = getCpFamilySnapshotForMould(row, true);
+            // Skip if another variant already has all qty SAVED to DB.
+            // Must use includeDraft=false here: if we included draft qty, a mould that
+            // is just in the queue (not yet saved) would also make remainingQty=0 and
+            // incorrectly exclude itself from required[], making complete=false.
+            const familySnapshot = getCpFamilySnapshotForMould(row, false);
             if (familySnapshot.targetQty > 0 && familySnapshot.remainingQty <= 0) return false;
             return true;
           });
