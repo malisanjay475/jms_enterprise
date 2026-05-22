@@ -2920,6 +2920,44 @@
         document.getElementById('jobDetailModal').style.display = 'none';
         closeJobImage();
     }
+
+    /* ---- Live Tab Sync -------------------------------------------------- */
+    (function () {
+      var banner = null;
+      var pendingMod = null;
+
+      function showRefreshBanner(mod) {
+        pendingMod = mod;
+        if (banner) return; // already showing
+        banner = document.createElement('div');
+        banner.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9999;' +
+          'background:#1d4ed8;color:#fff;padding:10px 20px;border-radius:999px;font-weight:700;font-size:.9rem;' +
+          'box-shadow:0 4px 20px rgba(15,23,42,.25);cursor:pointer;display:flex;align-items:center;gap:8px;' +
+          'animation:jpsmsSlideDown .3s ease';
+        banner.innerHTML = '<i class="bi bi-arrow-clockwise"></i> New data available — tap to refresh';
+        banner.onclick = function () {
+          if (banner) { banner.remove(); banner = null; }
+          location.reload();
+        };
+        // Auto-dismiss after 8 s without reloading
+        setTimeout(function () {
+          if (banner) { banner.remove(); banner = null; }
+        }, 8000);
+        document.body.appendChild(banner);
+        if (!document.getElementById('jpsms-slide-down-style')) {
+          var s = document.createElement('style');
+          s.id = 'jpsms-slide-down-style';
+          s.textContent = '@keyframes jpsmsSlideDown{from{opacity:0;transform:translateX(-50%) translateY(-12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}';
+          document.head.appendChild(s);
+        }
+      }
+
+      window.addEventListener('jpsms:live-refresh', function (e) {
+        var mod = (e.detail || {}).module;
+        if (mod === 'dpr' || mod === 'planning') showRefreshBanner(mod);
+      });
+    }());
+    /* --------------------------------------------------------------------- */
 </script>
 
 <!-- JOB DETAIL MODAL -->

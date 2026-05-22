@@ -3682,6 +3682,17 @@
         btn.innerHTML = originalText;
       }
     }
+
+    /* ---- Live Tab Sync -------------------------------------------------- */
+    window.addEventListener('jpsms:live-refresh', function (e) {
+      var mod = (e.detail || {}).module;
+      if (mod !== 'masters') return;
+      // Don't reload if a modal is open (user might be mid-edit)
+      var openModal = document.querySelector('.modal[style*="flex"], .modal.show');
+      if (openModal) return;
+      if (typeof loadMasterData === 'function') loadMasterData();
+    });
+    /* --------------------------------------------------------------------- */
   </script>
 
   <!-- Machine CRUD Modal -->

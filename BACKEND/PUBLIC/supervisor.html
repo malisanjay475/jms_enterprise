@@ -5131,6 +5131,14 @@
     window.addEventListener('error', e => {
       const s = el('submit-errors'); if (s) { s.textContent = 'Script error: ' + e.message; }
     });
+
+    /* ---- Live Tab Sync -------------------------------------------------- */
+    window.addEventListener('jpsms:live-refresh', function (e) {
+      var mod = (e.detail || {}).module;
+      if (['planning', 'dpr', 'qc'].indexOf(mod) === -1) return;
+      if (typeof loadMachines === 'function') loadMachines();
+    });
+    /* --------------------------------------------------------------------- */
   </script>
 
 </body>
