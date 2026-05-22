@@ -12934,7 +12934,34 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
           await ensureFactoryIdsExist(rowFactoryIds, client, 'ORJR Wise Detail upload factory');
         }
 
+        // Pre-aggregate: group by (or_jr_no, mould_no, mould_item_code) and SUM mould_item_qty + plan_qty.
+        // Multiple Excel rows for same colour+mould with different plan_date are collapsed
+        // into ONE row with the correct total qty before being written to the DB.
+        const aggMap = new Map();
         for (const row of rowsToUpsert) {
+          const key = `${row.or_jr_no}|${row.mould_no}|${row.mould_item_code}`;
+          if (!aggMap.has(key)) {
+            aggMap.set(key, { ...row });
+          } else {
+            const ex = aggMap.get(key);
+            ex.mould_item_qty = normalizeOptionalText((parseFloat(ex.mould_item_qty) || 0) + (parseFloat(row.mould_item_qty) || 0));
+            ex.plan_qty       = normalizeOptionalText((parseFloat(ex.plan_qty) || 0) + (parseFloat(row.plan_qty) || 0));
+          }
+        }
+        const aggregatedRows = Array.from(aggMap.values());
+
+        for (const row of aggregatedRows) {
+          const fid = row.factory_id ?? requestFactoryId;
+          // Delete all existing rows for this colour+mould (any plan_date) so we store
+          // exactly one summed row per (or_jr_no, mould_no, mould_item_code).
+          await client.query(`
+            DELETE FROM mould_planning_report
+            WHERE TRIM(COALESCE(or_jr_no, ''))       = TRIM($1)
+              AND TRIM(COALESCE(mould_no, ''))        = TRIM($2)
+              AND TRIM(COALESCE(mould_item_code, '')) = TRIM($3)
+              AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+          `, [row.or_jr_no, row.mould_no, row.mould_item_code, fid]);
+
           await client.query(`
             INSERT INTO mould_planning_report(
               or_jr_no, or_jr_date, item_code, bom_type, product_name, jr_qty, uom,
@@ -12945,30 +12972,10 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
               $8, $9, $10, $11, $12, $13, $14, $15, $16,
               $17, $18, NULL, 'BulkUpload', NOW(), 'BulkUpload', NOW(), $19, NOW()
             )
-            ON CONFLICT (or_jr_no, mould_no, mould_item_code, plan_date)
-            DO UPDATE SET
-              or_jr_date = EXCLUDED.or_jr_date,
-              item_code = EXCLUDED.item_code,
-              bom_type = EXCLUDED.bom_type,
-              product_name = EXCLUDED.product_name,
-              jr_qty = EXCLUDED.jr_qty,
-              uom = EXCLUDED.uom,
-              plan_qty = EXCLUDED.plan_qty,
-              mould_item_name = EXCLUDED.mould_item_name,
-              mould_name = EXCLUDED.mould_name,
-              mould_item_qty = EXCLUDED.mould_item_qty,
-              tonnage = EXCLUDED.tonnage,
-              machine_name = EXCLUDED.machine_name,
-              cycle_time = EXCLUDED.cycle_time,
-              cavity = EXCLUDED.cavity,
-              edited_by = 'BulkUpload',
-              edited_date = NOW(),
-              factory_id = EXCLUDED.factory_id,
-              updated_at = NOW()
           `, [
             row.or_jr_no, row.or_jr_date, row.item_code, row.bom_type, row.product_name, row.jr_qty, row.uom,
             row.plan_date, row.plan_qty, row.mould_item_code, row.mould_item_name, row.mould_no, row.mould_name, row.mould_item_qty, row.tonnage, row.machine_name,
-            row.cycle_time, row.cavity, row.factory_id
+            row.cycle_time, row.cavity, fid
           ]);
           count++;
         }
