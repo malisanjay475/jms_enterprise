@@ -1469,6 +1469,7 @@
     });
 
     let masterTable;
+    let masterDataLoading = false;
 
     let pendingUploadData = [];
     let pendingUploadMode = null;
@@ -2310,6 +2311,8 @@
     }
 
     async function loadMasterData() {
+      if (masterDataLoading) return;
+      masterDataLoading = true;
       const from = document.getElementById('filterFrom').value;
       const to = document.getElementById('filterTo').value;
       const search = (document.getElementById('filterSearch') ? document.getElementById('filterSearch').value : '').trim();
@@ -2967,6 +2970,8 @@
       } catch (e) {
         console.error(e);
         document.querySelector('#masterTable tbody').innerHTML = `<tr><td style="color:red" colspan="5">Error: ${e.message}</td></tr>`;
+      } finally {
+        masterDataLoading = false;
       }
     }
 
