@@ -6250,11 +6250,16 @@
 
         function getCpFamilySnapshotByRows(rows, familyCode, includeDraft = true) {
           const safeRows = Array.isArray(rows) ? rows : [];
-          const targetList = safeRows.map((row) => Math.max(0, parseCpNumber(row.targetPlanQty ?? row.plan_qty) ?? 0));
+          // Only active (non-dropped) rows contribute to target and planned qty.
+          // Dropped moulds' saved plans must not count — otherwise a dropped mould with
+          // prior plans would make the family appear "fully covered" and block planning
+          // of the remaining active mould.
+          const activeRows = safeRows.filter((row) => !row.isDropped);
+          const targetList = activeRows.map((row) => Math.max(0, parseCpNumber(row.targetPlanQty ?? row.plan_qty) ?? 0));
           const targetSum = targetList.reduce((sum, qty) => sum + qty, 0);
           const targetMax = targetList.reduce((max, qty) => Math.max(max, qty), 0);
           const targetQty = targetMax > 0 ? targetMax : targetSum;
-          const plannedQty = safeRows.reduce((sum, row) => sum + (Math.max(0, parseCpNumber(row.plannedQty) ?? 0)), 0);
+          const plannedQty = activeRows.reduce((sum, row) => sum + (Math.max(0, parseCpNumber(row.plannedQty) ?? 0)), 0);
           const draftQty = includeDraft ? (getCpDraftFamilyQtyMap().get(normalizeCpFamilyCode(familyCode)) || 0) : 0;
           const adjustedPlannedQty = plannedQty + draftQty;
           const remainingQty = Math.max(0, targetQty - adjustedPlannedQty);
@@ -6509,12 +6514,11 @@
             group.draftQty = snapshot.draftQty;
             group.adjustedPlannedQty = snapshot.adjustedPlannedQty;
             group.adjustedRemainingQty = snapshot.remainingQty;
-            // hasFullyPlanned must only reflect SAVED plans (not the draft queue).
-            // If we used remainingQty (which includes draft), a mould in the queue
-            // would wrongly show "fully planned" and the Create button would be disabled.
-            const snapshotSaved = getCpFamilySnapshotByRows(group.rows, group.family, false);
+            // hasFullyPlanned uses the draft-inclusive snapshot so that adding any variant
+            // to the queue immediately greys out the whole family group in the UI.
+            // (The Create Plan button is guarded separately via getCpRequiredBatchMoulds.)
             group.hasFullyPlanned = group.rows.every((row) => !!row.isDropped || !!row.isFullyPlanned)
-              || (snapshotSaved.targetQty > 0 && snapshotSaved.remainingQty <= 0);
+              || (snapshot.targetQty > 0 && snapshot.remainingQty <= 0);
             return group;
           }).sort((a, b) => {
             const aSqn = Number.isFinite(a.minSqn) ? a.minSqn : Number.MAX_SAFE_INTEGER;
@@ -7612,14 +7616,25 @@
 
         function getCpRequiredBatchMoulds() {
           const orderRows = Array.isArray(window.cpOrderMoulds) ? window.cpOrderMoulds : [];
+          // Keys of moulds already in the draft queue
+          const queuedKeys = new Set(
+            (Array.isArray(cpDraftQueue) ? cpDraftQueue : [])
+              .map((item) => normalizeCpMouldKey(item.mouldCode || item.itemCode || item.mouldName))
+              .filter(Boolean)
+          );
           const required = orderRows.filter((row) => {
             if (row.isDropped || row.isFullyPlanned) return false;
-            // Skip if another variant already has all qty SAVED to DB.
-            // Must use includeDraft=false here: if we included draft qty, a mould that
-            // is just in the queue (not yet saved) would also make remainingQty=0 and
-            // incorrectly exclude itself from required[], making complete=false.
-            const familySnapshot = getCpFamilySnapshotForMould(row, false);
-            if (familySnapshot.targetQty > 0 && familySnapshot.remainingQty <= 0) return false;
+            // Skip if family is fully covered by DB-saved plans from a prior batch.
+            const savedSnapshot = getCpFamilySnapshotForMould(row, false);
+            if (savedSnapshot.targetQty > 0 && savedSnapshot.remainingQty <= 0) return false;
+            // If this variant is NOT in the queue but another queued variant already
+            // covers the full family qty (draft-inclusive), skip it.  The queued
+            // variant stays in required so required.length > 0 and the button can enable.
+            const rowKey = normalizeCpMouldKey(row.mouldNo || row.mould_no || row.item_code || row.mouldName || row.mould_name);
+            if (!queuedKeys.has(rowKey)) {
+              const draftSnapshot = getCpFamilySnapshotForMould(row, true);
+              if (draftSnapshot.targetQty > 0 && draftSnapshot.remainingQty <= 0) return false;
+            }
             return true;
           });
           const seen = new Set();
