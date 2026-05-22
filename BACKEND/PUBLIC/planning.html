@@ -12536,6 +12536,17 @@
     };
 
   })();
+
+  /* ---- Live Tab Sync ---------------------------------------------------- */
+  window.addEventListener('jpsms:live-refresh', function (e) {
+    var mod = (e.detail || {}).module;
+    if (mod !== 'planning' && mod !== 'dpr') return;
+    // Don't reload if the Create Plan modal is open — would disrupt an in-progress plan
+    var cpModal = document.getElementById('newCreatePlanModal');
+    if (cpModal && cpModal.classList && cpModal.classList.contains('show')) return;
+    if (typeof window.loadMasterPlan === 'function') window.loadMasterPlan();
+  });
+  /* ----------------------------------------------------------------------- */
   </script>
 
 <!-- PLAN JOB DETAIL MODAL -->
