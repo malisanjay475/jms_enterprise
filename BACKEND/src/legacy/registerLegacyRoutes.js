@@ -11733,7 +11733,9 @@ app.get('/api/reports/orjr-wise-detail', async (req, res) => {
       query += ` WHERE ${conditions.join(' AND ')} `;
     }
 
-    query += ` ORDER BY d.or_jr_date DESC NULLS LAST, d.or_jr_no ASC, d.mould_no ASC, d.mould_item_code ASC LIMIT 50000`;
+    // No LIMIT here — LIMIT on raw rows would silently truncate groups before JS aggregation.
+    // The aggregated result set is bounded by unique (or_jr_no, mould_no, mould_item_code) groups.
+    query += ` ORDER BY d.or_jr_date DESC NULLS LAST, d.or_jr_no ASC, d.mould_no ASC, d.mould_item_code ASC`;
 
     const rawRows = await q(query, params);
 
