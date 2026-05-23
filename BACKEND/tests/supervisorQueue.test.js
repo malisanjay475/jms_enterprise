@@ -167,4 +167,119 @@ describe('Supervisor queue', () => {
     expect(sql).toContain('factory_id =');
     expect(params).toEqual(['Line 1>M-1', 'PLAN-1', 'JC-1', '2026-05-23', 'Day', 2, 50]);
   });
+
+  it('marks alternate mould variants complete when one variant covers the full family qty', async () => {
+    const { app, pool } = createApp();
+    pool.query.mockResolvedValueOnce({
+      rows: [
+        {
+          or_jr_no: 'OR-1',
+          item_code: 'ITEM-1',
+          mould_no: 'MOULD 1',
+          mould_name: 'MOULD 1',
+          mould_family: 'MOULD',
+          plan_qty: 100,
+          existing_planned_qty: 100,
+          existing_plan_count: 1,
+          existing_plan_id: 'PLN-1',
+          existing_plan_status: 'PLANNED',
+          mouldingSqn: '1'
+        },
+        {
+          or_jr_no: 'OR-1',
+          item_code: 'ITEM-1',
+          mould_no: 'MOULD 2',
+          mould_name: 'MOULD 2',
+          mould_family: 'MOULD',
+          plan_qty: 100,
+          existing_planned_qty: 0,
+          existing_plan_count: 0,
+          mouldingSqn: '1'
+        }
+      ]
+    });
+
+    const res = await request(app)
+      .get('/api/planning/orders/OR-1/details')
+      .set('x-factory-id', '1');
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data).toHaveLength(2);
+    expect(res.body.data[0]).toMatchObject({
+      mould_no: 'MOULD 1',
+      familyTargetQty: 100,
+      familyPlannedQty: 100,
+      familyRemainingQty: 0,
+      isFamilyFullyPlanned: true,
+      isAlreadyPlanned: true
+    });
+    expect(res.body.data[1]).toMatchObject({
+      mould_no: 'MOULD 2',
+      familyTargetQty: 100,
+      familyPlannedQty: 100,
+      familyRemainingQty: 0,
+      isFamilyFullyPlanned: true,
+      isAlreadyPlanned: true
+    });
+    expect(res.body.sequenceMeta.nextRequiredSqn).toBeNull();
+    expect(res.body.sequenceMeta.requiredRows).toEqual([]);
+  });
+
+  it('keeps alternate mould variants pending when the family qty is only partially planned', async () => {
+    const { app, pool } = createApp();
+    pool.query.mockResolvedValueOnce({
+      rows: [
+        {
+          or_jr_no: 'OR-1',
+          item_code: 'ITEM-1',
+          mould_no: 'MOULD 1',
+          mould_name: 'MOULD 1',
+          mould_family: 'MOULD',
+          plan_qty: 100,
+          existing_planned_qty: 40,
+          existing_plan_count: 1,
+          existing_plan_id: 'PLN-1',
+          existing_plan_status: 'PLANNED',
+          mouldingSqn: '1'
+        },
+        {
+          or_jr_no: 'OR-1',
+          item_code: 'ITEM-1',
+          mould_no: 'MOULD 2',
+          mould_name: 'MOULD 2',
+          mould_family: 'MOULD',
+          plan_qty: 100,
+          existing_planned_qty: 0,
+          existing_plan_count: 0,
+          mouldingSqn: '1'
+        }
+      ]
+    });
+
+    const res = await request(app)
+      .get('/api/planning/orders/OR-1/details')
+      .set('x-factory-id', '1');
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.data[0]).toMatchObject({
+      mould_no: 'MOULD 1',
+      familyTargetQty: 100,
+      familyPlannedQty: 40,
+      familyRemainingQty: 60,
+      hasFamilyPlan: true,
+      isAlreadyPlanned: false
+    });
+    expect(res.body.data[1]).toMatchObject({
+      mould_no: 'MOULD 2',
+      familyTargetQty: 100,
+      familyPlannedQty: 40,
+      familyRemainingQty: 60,
+      hasFamilyPlan: true,
+      isAlreadyPlanned: false
+    });
+    expect(res.body.sequenceMeta.nextRequiredSqn).toBe(1);
+    expect(res.body.sequenceMeta.requiredRows.map((row) => row.mouldNo)).toEqual(['MOULD 1', 'MOULD 2']);
+  });
 });

@@ -6227,8 +6227,59 @@
         }
         window.selectCpOrder = selectCpOrder;
 
+        function isCpWhitespaceChar(ch) {
+          return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f' || ch === '\v';
+        }
+
+        function collapseCpWhitespace(value) {
+          const raw = String(value || '').trim();
+          let out = '';
+          let pendingSpace = false;
+          for (const ch of raw) {
+            if (isCpWhitespaceChar(ch)) {
+              pendingSpace = out.length > 0;
+              continue;
+            }
+            if (pendingSpace) out += ' ';
+            out += ch;
+            pendingSpace = false;
+          }
+          return out.trim();
+        }
+
+        function stripCpTrailingSpaceNumber(value) {
+          let end = value.length - 1;
+          while (end >= 0 && value[end] >= '0' && value[end] <= '9') end -= 1;
+          if (end === value.length - 1) return value;
+          let spaceEnd = end;
+          while (spaceEnd >= 0 && isCpWhitespaceChar(value[spaceEnd])) spaceEnd -= 1;
+          return spaceEnd < end ? value.slice(0, spaceEnd + 1).trim() : value;
+        }
+
         function normalizeCpFamilyCode(value) {
-          return String(value || '').trim().replace(/\s+\d+$/, '').trim();
+          return stripCpTrailingSpaceNumber(collapseCpWhitespace(value)).toUpperCase();
+        }
+
+        function getCpMouldFamilyValue(row) {
+          return row?.mouldFamily || row?.mould_family || row?.mould_no || row?.mouldNo || row?.item_code || row?.itemCode || row?.mould_name || row?.mouldName || '';
+        }
+
+        function getCpMouldDisplayCode(row) {
+          return row?.mouldNo || row?.mould_no || row?.item_code || row?.itemCode || row?.mouldName || row?.mould_name || '';
+        }
+
+        function getCpPayloadFamilyCode(item) {
+          const persistedFamily = item?.normalizedFamily || item?.familyCode || item?.mouldFamily || item?.mould_family;
+          if (persistedFamily) return normalizeCpFamilyCode(persistedFamily);
+          const payloadCode = item?.mouldCode || item?.itemCode || item?.mouldName || '';
+          const payloadKey = normalizeCpMouldKey(payloadCode);
+          const orderRows = Array.isArray(window.cpOrderMoulds) ? window.cpOrderMoulds : [];
+          const matched = orderRows.find((row) => {
+            const rowKey = normalizeCpMouldKey(getCpMouldDisplayCode(row));
+            const rowNameKey = normalizeCpMouldKey(row.mouldName || row.mould_name);
+            return payloadKey && (payloadKey === rowKey || payloadKey === rowNameKey);
+          });
+          return normalizeCpFamilyCode(matched ? getCpMouldFamilyValue(matched) : payloadCode);
         }
 
         function parseCpSqn(value) {
@@ -6237,10 +6288,10 @@
           return match ? Number(match[1]) : null;
         }
 
-        function getCpDraftFamilyQtyMap() {
+        function getCpDraftFamilyQtyMap(extraPayloads = []) {
           const map = new Map();
-          (Array.isArray(cpDraftQueue) ? cpDraftQueue : []).forEach((item) => {
-            const family = normalizeCpFamilyCode(item.mouldCode || item.mouldName || '');
+          getCpMergedQueueAndExtraPayloads(extraPayloads).forEach((item) => {
+            const family = getCpPayloadFamilyCode(item);
             const qty = parseCpNumber(item.planQty) ?? 0;
             if (!family || qty <= 0) return;
             map.set(family, (map.get(family) || 0) + qty);
@@ -6251,10 +6302,10 @@
         function getCpFamilyRowsByValue(value) {
           const family = normalizeCpFamilyCode(value);
           const orderRows = Array.isArray(window.cpOrderMoulds) ? window.cpOrderMoulds : [];
-          return orderRows.filter((row) => normalizeCpFamilyCode(row.mouldFamily || row.mould_family || row.mould_no || row.item_code || row.mould_name) === family);
+          return orderRows.filter((row) => normalizeCpFamilyCode(getCpMouldFamilyValue(row)) === family);
         }
 
-        function getCpFamilySnapshotByRows(rows, familyCode, includeDraft = true) {
+        function getCpFamilySnapshotByRows(rows, familyCode, includeDraft = true, extraPayloads = []) {
           const safeRows = Array.isArray(rows) ? rows : [];
           // Only active (non-dropped) rows contribute to target and planned qty.
           // Dropped moulds' saved plans must not count — otherwise a dropped mould with
@@ -6266,19 +6317,19 @@
           const targetMax = targetList.reduce((max, qty) => Math.max(max, qty), 0);
           const targetQty = targetMax > 0 ? targetMax : targetSum;
           const plannedQty = activeRows.reduce((sum, row) => sum + (Math.max(0, parseCpNumber(row.plannedQty) ?? 0)), 0);
-          const draftQty = includeDraft ? (getCpDraftFamilyQtyMap().get(normalizeCpFamilyCode(familyCode)) || 0) : 0;
+          const draftQty = includeDraft ? (getCpDraftFamilyQtyMap(extraPayloads).get(normalizeCpFamilyCode(familyCode)) || 0) : 0;
           const adjustedPlannedQty = plannedQty + draftQty;
           const remainingQty = Math.max(0, targetQty - adjustedPlannedQty);
           return { targetQty, plannedQty, draftQty, adjustedPlannedQty, remainingQty };
         }
 
-        function getCpFamilySnapshotForMould(mould, includeDraft = true) {
-          const family = normalizeCpFamilyCode(mould?.mouldFamily || mould?.mould_family || mould?.mould_no || mould?.item_code || mould?.mould_name);
+        function getCpFamilySnapshotForMould(mould, includeDraft = true, extraPayloads = []) {
+          const family = normalizeCpFamilyCode(getCpMouldFamilyValue(mould));
           const rows = getCpFamilyRowsByValue(family);
           return {
             family,
             rows,
-            ...getCpFamilySnapshotByRows(rows, family, includeDraft)
+            ...getCpFamilySnapshotByRows(rows, family, includeDraft, extraPayloads)
           };
         }
 
@@ -6489,7 +6540,7 @@
         function buildCpMouldGroups(moulds) {
           const groups = new Map();
           moulds.forEach((mould) => {
-            const family = normalizeCpFamilyCode(mould.mouldFamily || mould.mould_family || mould.mould_no || mould.item_code || mould.mould_name);
+            const family = normalizeCpFamilyCode(getCpMouldFamilyValue(mould));
             if (!groups.has(family)) {
               groups.set(family, {
                 family,
@@ -6644,6 +6695,17 @@
 
         function openCpMouldChooser(group) {
           closeCpMouldChooser();
+          const queuedKeys = new Set(getCpMergedQueueAndExtraPayloads().map((item) => normalizeCpMouldKey(item.mouldCode || item.itemCode || item.mouldName)).filter(Boolean));
+          const remainingQty = Math.max(0, parseCpNumber(group.adjustedRemainingQty) ?? 0);
+          const unusedRows = (group.rows || []).filter((row) => {
+            if (row.isDropped || row.isFullyPlanned || row.isAlreadyPlanned) return false;
+            const key = normalizeCpMouldKey(getCpMouldDisplayCode(row));
+            return key && !queuedKeys.has(key) && !row.hasAnyPlan;
+          });
+          const chooserRows = (group.rows || []).length > 1 && remainingQty > 0 && unusedRows.length
+            ? unusedRows
+            : (group.rows || []);
+          const hiddenUsedCount = Math.max(0, (group.rows || []).length - chooserRows.length);
           const modal = document.createElement('div');
           modal.id = 'cpMouldChooserModal';
           modal.className = 'modal show';
@@ -6665,10 +6727,10 @@
                 <div><div class="mini muted">Required Sqn.</div><strong>${esc(window.cpOrderSequenceMeta?.nextRequiredSqn ?? '-')}</strong></div>
               </div>
               <div style="padding:10px 18px; border-bottom:1px solid var(--border); background:#eff6ff; color:#1d4ed8; font-weight:800; font-size:.84rem">
-                Shared Family Balance Applied: planning one variant updates balance for all variants in this family.
+                Shared Family Balance Applied: planning one variant updates balance for all variants in this family.${hiddenUsedCount ? ` Showing only unused variant(s) while balance remains.` : ''}
               </div>
               <div style="padding:18px; overflow:auto; display:flex; flex-direction:column; gap:12px">
-                ${group.rows.map((row, index) => `
+                ${chooserRows.map((row, index) => `
                   <div style="border:1px solid rgba(203,213,225,.95); border-radius:18px; padding:16px; background:linear-gradient(180deg, #ffffff, #f8fbff); box-shadow:0 14px 30px rgba(15,23,42,.06)">
                     <div style="display:grid; grid-template-columns:minmax(0, 1.4fr) repeat(4, minmax(110px, .7fr)) auto; gap:12px; align-items:center">
                       <div>
@@ -6695,7 +6757,7 @@
             </div>
           `;
           document.body.appendChild(modal);
-          window.cpChooserRows = group.rows.slice();
+          window.cpChooserRows = chooserRows.slice();
         }
 
         window.selectCpMouldVariant = function(index) {
@@ -7110,9 +7172,9 @@
             } else if (missingMachine) {
               footer.textContent = `Select machine for each colour row with Batch Qty > 0 | Per mould limit: ${formatCpQty(targetBatchQty)}`;
             } else if (!batchStatus.complete) {
-              footer.textContent = `${getCpBatchBlockMessage(currentPayloads)} Use Save Plan, then plan pending mould(s).`;
+              footer.textContent = `${getCpBatchBlockMessage(currentPayloads)} Use Save Plan, then plan another variant only when balance remains.`;
             } else {
-              footer.textContent = `Batch is complete. Create Plan will save all moulds with one unique batch code. Per mould Batch Qty limit: ${formatCpQty(targetBatchQty)} | Plan Qty: ${formatCpQty(totals.planQty)}`;
+              footer.textContent = `Batch is complete. Create Plan will save the selected mould variant(s) with one unique batch code. Per mould Batch Qty limit: ${formatCpQty(targetBatchQty)} | Plan Qty: ${formatCpQty(totals.planQty)}`;
             }
           }
 
@@ -7280,7 +7342,17 @@
 
           const body = modal.querySelector('#cpColourPlanPopupBody');
           try {
-            const familyMoulds = familySnapshot.rows.map((row) => ({
+            const selectedMouldKey = normalizeCpMouldKey(getCpMouldDisplayCode(mould));
+            const queuedMouldKeys = new Set(getCpMergedQueueAndExtraPayloads().map((item) => normalizeCpMouldKey(item.mouldCode || item.itemCode || item.mouldName)).filter(Boolean));
+            const availableFamilyRows = familySnapshot.rows.filter((row) => {
+              if (row.isDropped || row.isFullyPlanned || row.isAlreadyPlanned) return false;
+              const key = normalizeCpMouldKey(getCpMouldDisplayCode(row));
+              return key && (key === selectedMouldKey || (!queuedMouldKeys.has(key) && !row.hasAnyPlan));
+            });
+            const modalFamilyRows = familySnapshot.rows.length > 1 && familySnapshot.remainingQty > 0 && availableFamilyRows.length
+              ? availableFamilyRows
+              : familySnapshot.rows;
+            const familyMoulds = modalFamilyRows.map((row) => ({
               code: row.mould_no || row.item_code || '',
               name: row.mould_name || row.mouldName || row.product_name || row.mould_no || '-',
               mouldingSqn: row.mouldingSqn || row.moulding_sqn || null,
@@ -7620,45 +7692,58 @@
           return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
         }
 
-        function getCpRequiredBatchMoulds() {
+        function getCpRequiredBatchMoulds(extraPayloads = []) {
           const orderRows = Array.isArray(window.cpOrderMoulds) ? window.cpOrderMoulds : [];
-          // Keys of moulds already in the draft queue
+          // Keys of moulds already saved in the queue or represented by the current modal payload.
           const queuedKeys = new Set(
-            (Array.isArray(cpDraftQueue) ? cpDraftQueue : [])
+            getCpMergedQueueAndExtraPayloads(extraPayloads)
               .map((item) => normalizeCpMouldKey(item.mouldCode || item.itemCode || item.mouldName))
               .filter(Boolean)
           );
-          const required = orderRows.filter((row) => {
-            if (row.isDropped || row.isFullyPlanned) return false;
-            // Skip if family is fully covered by DB-saved plans from a prior batch.
-            const savedSnapshot = getCpFamilySnapshotForMould(row, false);
-            if (savedSnapshot.targetQty > 0 && savedSnapshot.remainingQty <= 0) return false;
-            // If this variant is NOT in the queue but another queued variant already
-            // covers the full family qty (draft-inclusive), skip it.  The queued
-            // variant stays in required so required.length > 0 and the button can enable.
-            const rowKey = normalizeCpMouldKey(row.mouldNo || row.mould_no || row.item_code || row.mouldName || row.mould_name);
-            if (!queuedKeys.has(rowKey)) {
-              const draftSnapshot = getCpFamilySnapshotForMould(row, true);
-              if (draftSnapshot.targetQty > 0 && draftSnapshot.remainingQty <= 0) return false;
-            }
-            return true;
+          const groups = new Map();
+          orderRows.forEach((row) => {
+            if (row.isDropped) return;
+            const family = normalizeCpFamilyCode(getCpMouldFamilyValue(row));
+            if (!family) return;
+            if (!groups.has(family)) groups.set(family, []);
+            groups.get(family).push(row);
           });
-          const seen = new Set();
-          return required.map((row) => {
-            const code = row.mouldNo || row.mould_no || row.item_code || row.mouldName || row.mould_name;
+
+          const requiredByKey = new Map();
+          const addRequired = (row, family) => {
+            const code = getCpMouldDisplayCode(row);
             const key = normalizeCpMouldKey(code);
-            if (!key || seen.has(key)) return null;
-            seen.add(key);
-            return {
+            if (!key || requiredByKey.has(key)) return;
+            requiredByKey.set(key, {
               key,
+              family,
               code: code || '-',
               name: row.mouldName || row.mould_name || code || '-'
-            };
-          }).filter(Boolean);
+            });
+          };
+
+          groups.forEach((rows, family) => {
+            const activeRows = rows.filter((row) => !row.isDropped && !row.isFullyPlanned);
+            if (!activeRows.length) return;
+
+            const savedSnapshot = getCpFamilySnapshotByRows(rows, family, false);
+            if (savedSnapshot.targetQty > 0 && savedSnapshot.remainingQty <= 0) return;
+
+            const queuedRows = activeRows.filter((row) => queuedKeys.has(normalizeCpMouldKey(getCpMouldDisplayCode(row))));
+            queuedRows.forEach((row) => addRequired(row, family));
+
+            const draftSnapshot = getCpFamilySnapshotByRows(rows, family, true, extraPayloads);
+            if (draftSnapshot.targetQty > 0 && draftSnapshot.remainingQty <= 0) return;
+
+            const nextRow = activeRows.find((row) => !queuedKeys.has(normalizeCpMouldKey(getCpMouldDisplayCode(row)))) || activeRows[0];
+            if (nextRow) addRequired(nextRow, family);
+          });
+
+          return Array.from(requiredByKey.values());
         }
 
         function getCpBatchCompleteness(extraPayloads = []) {
-          const required = getCpRequiredBatchMoulds();
+          const required = getCpRequiredBatchMoulds(extraPayloads);
           const payloads = getCpMergedQueueAndExtraPayloads(extraPayloads);
           const plannedKeys = new Set(payloads.map((item) => normalizeCpMouldKey(item.mouldCode || item.itemCode || item.mouldName)).filter(Boolean));
           const missing = required.filter((row) => !plannedKeys.has(row.key));
@@ -7701,7 +7786,7 @@
             return `Batch Qty per mould cannot exceed ${formatCpQty(status.targetBatchQty)}. Over limit: ${over || 'selected mould'}.`;
           }
           if (status.missing.length) {
-            return `Save Plan for all moulds in this batch first. Pending moulds: ${status.missing.map((row) => row.code).join(', ')}.`;
+            return `Save Plan for remaining mould variant(s) first. Pending moulds: ${status.missing.map((row) => row.code).join(', ')}.`;
           }
           return '';
         }
@@ -7776,6 +7861,11 @@
             const consumptionRatioQty = parseCpNumber(row.consumptionRatioQty);
             if (!mouldCode || !machine) return;
             const mouldVariant = (row.availableMoulds || []).find((m) => m.code === mouldCode) || null;
+            const normalizedFamily = getCpPayloadFamilyCode({
+              mouldCode,
+              itemCode: mouldVariant?.item_code || cpSelectedMould?.item_code || mouldCode,
+              mouldName: mouldVariant?.name || cpSelectedMould?.mould_name || cpSelectedMould?.mouldName || mouldCode
+            });
             const key = `${mouldCode}__${machine}`;
             if (!byKey.has(key)) {
               byKey.set(key, {
@@ -7786,6 +7876,8 @@
                 itemName: cpSelectedOrder.productName,
                 mouldName: mouldVariant?.name || cpSelectedMould?.mould_name || cpSelectedMould?.mouldName || mouldCode,
                 mouldCode,
+                normalizedFamily,
+                mouldFamily: normalizedFamily,
                 mouldingSqn: mouldVariant?.mouldingSqn || cpSelectedMould?.mouldingSqn || cpSelectedMould?.moulding_sqn || null,
                 planQty: 0,
                 balQty: 0,
@@ -7828,6 +7920,8 @@
             itemName: cpSelectedOrder.productName,
             mouldName: cpSelectedMould.mould_name || cpSelectedMould.mouldName,
             mouldCode: cpSelectedMould.mould_no || cpSelectedMould.item_code,
+            normalizedFamily: normalizeCpFamilyCode(getCpMouldFamilyValue(cpSelectedMould)),
+            mouldFamily: normalizeCpFamilyCode(getCpMouldFamilyValue(cpSelectedMould)),
             mouldingSqn: cpSelectedMould.mouldingSqn || cpSelectedMould.moulding_sqn || null,
             planQty: cpSelectedMould.plan_qty,
             balQty: cpSelectedMould.plan_qty,
