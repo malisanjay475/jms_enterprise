@@ -51,13 +51,18 @@
         * { box-sizing: border-box }
 
         html, body {
-            min-height: 100%;
+            height: auto !important;
+            min-height: 100% !important;
             width: 100%;
-            overflow-x: hidden;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
         }
 
         body {
             margin: 0;
+            display: block !important;
+            min-height: 100dvh;
+            padding: 0 !important;
             background:
                 radial-gradient(ellipse at top left, rgba(37,99,235,0.07) 0%, transparent 40%),
                 radial-gradient(ellipse at bottom right, rgba(99,102,241,0.05) 0%, transparent 40%),
@@ -70,6 +75,11 @@
             text-rendering: optimizeLegibility;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
+        }
+
+        #view-login, #view-app {
+            width: 100%;
+            min-height: 100dvh;
         }
 
         .input-error {
@@ -131,7 +141,7 @@
         .shell {
             width: min(100vw, var(--phone));
             margin: 0 auto;
-            padding: 14px 12px 28px;
+            padding: calc(14px + env(safe-area-inset-top)) 12px calc(28px + env(safe-area-inset-bottom));
         }
 
         /* ── Cards ── */
@@ -463,17 +473,24 @@
             position: fixed;
             inset: 0;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             justify-content: center;
             background: rgba(15,23,42,0.5);
             z-index: 50;
+            overflow-y: auto;
+            padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
             -webkit-backdrop-filter: saturate(150%) blur(8px);
             backdrop-filter: saturate(150%) blur(8px);
         }
 
         .modal.hidden { display: none !important }
 
-        .panel { width: min(100vw, var(--phone)); max-height: 90vh; overflow: auto }
+        .panel {
+            width: min(100%, var(--phone));
+            max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+            overflow: auto;
+            margin: auto 0;
+        }
 
         .panel::-webkit-scrollbar { width: 6px }
         .panel::-webkit-scrollbar-track { background: transparent }
