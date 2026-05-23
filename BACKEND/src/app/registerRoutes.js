@@ -47,7 +47,13 @@ const _pkg = (() => {
 })();
 const APP_VERSION = process.env.APP_VERSION || _pkg.version || '0.0.0';
 
+let _jmsPlanSchemaPromise = null;
 async function ensureJmsPlanReportSchema(query) {
+  if (_jmsPlanSchemaPromise) return _jmsPlanSchemaPromise;
+  _jmsPlanSchemaPromise = _doEnsureJmsPlanReportSchema(query);
+  return _jmsPlanSchemaPromise;
+}
+async function _doEnsureJmsPlanReportSchema(query) {
   const planBoardColumns = [
     ['mould_code', 'VARCHAR(255)'],
     ['our_code', 'TEXT'],

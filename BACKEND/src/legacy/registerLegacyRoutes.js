@@ -883,12 +883,20 @@ const PUBLIC_DIR = path.join(
 );
 const PRIMARY_UPLOADS_DIR = path.join(STATIC_PUBLIC_DIR, 'uploads');
 const LEGACY_UPLOADS_DIR = path.join(BACKEND_ROOT, 'public', 'uploads');
-// Force revalidation for app.js so version badge and UI changes are never served stale
-app.use('/assets/app.js', (req, res, next) => {
-  res.setHeader('Cache-Control', 'no-cache');
-  next();
-});
-app.use(express.static(PUBLIC_DIR));
+app.use(express.static(PUBLIC_DIR, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      // HTML pages must always revalidate so deployments are picked up immediately
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (path.basename(filePath) === 'app.js') {
+      // app.js carries the version badge — never serve stale
+      res.setHeader('Cache-Control', 'no-cache');
+    } else {
+      // Versioned assets (app.css?v=N, etc.) and images are safe to cache for 7 days
+      res.setHeader('Cache-Control', 'public, max-age=604800');
+    }
+  }
+}));
 app.use('/uploads', express.static(PRIMARY_UPLOADS_DIR));
 if (path.normalize(LEGACY_UPLOADS_DIR) !== path.normalize(PRIMARY_UPLOADS_DIR)) {
   app.use('/uploads', express.static(LEGACY_UPLOADS_DIR));
@@ -3832,15 +3840,20 @@ async function initializeLegacyRuntime() {
     // [FIX] Wait for DB before anything else
     await waitForDb(pool);
     await bootstrapFreshCoreTables();
-    await migrateMouldMasterSchema();
-    await migrateOrjrWiseMasterSchema();
-    await migrateOrJrReportNumericSchema();
-    await migrateOrjrWiseDetailSchema();
-    await migrateOrderCompletionWorkflowSchema();
-    await migrateWipStockMasterSchema();
-    await migrateRawMaterialSchema();
-    if (hrPerformanceRuntime.ensureTables) await hrPerformanceRuntime.ensureTables();
-    if (interviewPanelRuntime.ensureTables) await interviewPanelRuntime.ensureTables();
+    // Run independent schema migrations in parallel — each targets a different table
+    await Promise.all([
+      migrateMouldMasterSchema(),
+      migrateOrjrWiseMasterSchema(),
+      migrateOrJrReportNumericSchema(),
+      migrateOrjrWiseDetailSchema(),
+      migrateOrderCompletionWorkflowSchema(),
+      migrateWipStockMasterSchema(),
+      migrateRawMaterialSchema(),
+    ]);
+    await Promise.all([
+      hrPerformanceRuntime.ensureTables ? hrPerformanceRuntime.ensureTables() : Promise.resolve(),
+      interviewPanelRuntime.ensureTables ? interviewPanelRuntime.ensureTables() : Promise.resolve(),
+    ]);
 
     // Non-blocking index creation
     await pool.query(`
@@ -10927,53 +10940,58 @@ app.patch('/api/masters/or-jr-remarks', async (req, res) => {
 
 
 
+let _planReportSchemaPromise = null;
 async function ensureJmsPlanReportSchema() {
-  const planBoardColumns = [
-    ['mould_code', 'VARCHAR(255)'],
-    ['our_code', 'TEXT'],
-    ['batch_no', 'INTEGER'],
-    ['batch_qty', 'NUMERIC'],
-    ['mould_item_qty', 'NUMERIC'],
-    ['consumption_ratio_qty', 'NUMERIC'],
-    ['colour_details', 'JSONB'],
-    ['created_by', 'TEXT'],
-    ['created_at', 'TIMESTAMPTZ DEFAULT NOW()'],
-    ['job_card_given', 'BOOLEAN DEFAULT false'],
-    ['factory_id', 'INTEGER']
-  ];
-  for (const [name, typeSql] of planBoardColumns) {
-    await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
-  }
+  if (_planReportSchemaPromise) return _planReportSchemaPromise;
+  _planReportSchemaPromise = (async () => {
+    const planBoardColumns = [
+      ['mould_code', 'VARCHAR(255)'],
+      ['our_code', 'TEXT'],
+      ['batch_no', 'INTEGER'],
+      ['batch_qty', 'NUMERIC'],
+      ['mould_item_qty', 'NUMERIC'],
+      ['consumption_ratio_qty', 'NUMERIC'],
+      ['colour_details', 'JSONB'],
+      ['created_by', 'TEXT'],
+      ['created_at', 'TIMESTAMPTZ DEFAULT NOW()'],
+      ['job_card_given', 'BOOLEAN DEFAULT false'],
+      ['factory_id', 'INTEGER']
+    ];
+    for (const [name, typeSql] of planBoardColumns) {
+      await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
+    }
 
-  const mouldReportColumns = [
-    ['or_jr_date', 'TEXT'],
-    ['bom_type', 'TEXT'],
-    ['product_name', 'TEXT'],
-    ['jr_qty', 'TEXT'],
-    ['uom', 'TEXT'],
-    ['mould_no', 'TEXT'],
-    ['mould_name', 'TEXT'],
-    ['mould_item_qty', 'TEXT'],
-    ['tonnage', 'TEXT'],
-    ['cycle_time', 'TEXT'],
-    ['cavity', 'TEXT'],
-    ['factory_id', 'INTEGER']
-  ];
-  for (const [name, typeSql] of mouldReportColumns) {
-    await q(`ALTER TABLE mould_planning_report ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
-  }
+    const mouldReportColumns = [
+      ['or_jr_date', 'TEXT'],
+      ['bom_type', 'TEXT'],
+      ['product_name', 'TEXT'],
+      ['jr_qty', 'TEXT'],
+      ['uom', 'TEXT'],
+      ['mould_no', 'TEXT'],
+      ['mould_name', 'TEXT'],
+      ['mould_item_qty', 'TEXT'],
+      ['tonnage', 'TEXT'],
+      ['cycle_time', 'TEXT'],
+      ['cavity', 'TEXT'],
+      ['factory_id', 'INTEGER']
+    ];
+    for (const [name, typeSql] of mouldReportColumns) {
+      await q(`ALTER TABLE mould_planning_report ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
+    }
 
-  const orJrColumns = [
-    ['or_jr_date', 'DATE'],
-    ['client_name', 'TEXT'],
-    ['product_name', 'TEXT'],
-    ['jr_qty', 'INTEGER'],
-    ['uom', 'TEXT'],
-    ['factory_id', 'INTEGER']
-  ];
-  for (const [name, typeSql] of orJrColumns) {
-    await q(`ALTER TABLE or_jr_report ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
-  }
+    const orJrColumns = [
+      ['or_jr_date', 'DATE'],
+      ['client_name', 'TEXT'],
+      ['product_name', 'TEXT'],
+      ['jr_qty', 'INTEGER'],
+      ['uom', 'TEXT'],
+      ['factory_id', 'INTEGER']
+    ];
+    for (const [name, typeSql] of orJrColumns) {
+      await q(`ALTER TABLE or_jr_report ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
+    }
+  })();
+  return _planReportSchemaPromise;
 }
 
 // GET /api/reports/jms-plan
