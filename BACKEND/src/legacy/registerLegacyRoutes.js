@@ -1532,6 +1532,9 @@ async function migrateOrJrReportNumericSchema() {
 
   // Ensure close/reopen tracking columns exist (added after initial schema)
   const orJrExtraColumns = [
+    ['remarks_all', 'TEXT'],
+    ['or_remarks', 'TEXT'],
+    ['jr_remarks', 'TEXT'],
     ['factory_id', 'INTEGER'],
     ['is_closed', 'BOOLEAN DEFAULT FALSE'],
     ['manual_closed_at', 'TIMESTAMPTZ'],
@@ -15878,7 +15881,7 @@ WITH RankedPlans AS (
     o.item_name as "SFG Name",
     o.item_code as "SFG Code",
     o.priority as "Order Priority",
-    o.remarks as "Or Remarks",
+    COALESCE(NULLIF(r.or_remarks, ''), NULLIF(r.remarks_all, ''), '') as "Or Remarks",
 
     pb.item_code as "FG CODE", 
     COALESCE(mps.mould_no, m.mould_number) as "Mould No", 
