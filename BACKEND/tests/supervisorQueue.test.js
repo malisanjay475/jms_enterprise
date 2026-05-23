@@ -85,9 +85,86 @@ describe('Supervisor queue', () => {
     expect(res.body).toEqual({ ok: true });
 
     const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toContain('WITH updated AS');
     expect(sql).toContain('factory_id');
-    expect(sql).toContain('factory_id          = COALESCE(EXCLUDED.factory_id, s.factory_id)');
+    expect(sql).toContain('factory_id          = COALESCE($20, factory_id)');
+    expect(sql).not.toContain('ON CONFLICT');
     expect(params[19]).toBe(2);
     expect(services.syncService.triggerSync).toHaveBeenCalled();
+  });
+
+  it('submits DPR entries with supervisor fields and triggers sync', async () => {
+    const { app, pool, services } = createApp();
+    pool.query.mockImplementation((sql) => {
+      if (String(sql).includes('INSERT INTO dpr_hourly') && String(sql).includes('RETURNING id')) {
+        return Promise.resolve({ rows: [{ id: 123 }], rowCount: 1 });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+
+    const res = await request(app)
+      .post('/api/dpr/submit')
+      .set('x-factory-id', '2')
+      .send({
+        session: { username: 'supervisor', line: 'Line 1' },
+        entry: {
+          Date: '2026-05-23',
+          Shift: 'Day',
+          HourSlot: '08-09',
+          Shots: 100,
+          GoodQty: 95,
+          RejectQty: 5,
+          DowntimeMin: 0,
+          Remarks: '',
+          PlanID: 'PLAN-1',
+          Machine: 'Line 1>M-1',
+          OrderNo: 'OR-1',
+          MouldNo: 'M-1',
+          JobCardNo: 'JC-1',
+          Colour: 'Blue',
+          RejectBreakup: { A: 5 },
+          DowntimeBreakup: {},
+          EntryType: 'Main',
+          Supervisor: 'Shift Lead'
+        },
+        geo: { lat: 20.1, lng: 72.9, accuracy: 15 }
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, id: 123 });
+
+    const submitCall = pool.query.mock.calls.find(([sql]) =>
+      String(sql).includes('INSERT INTO dpr_hourly') && String(sql).includes('RETURNING id')
+    );
+    expect(submitCall).toBeDefined();
+    expect(submitCall[0]).toContain('supervisor');
+    expect(submitCall[0]).toContain('factory_id');
+    expect(submitCall[1][22]).toBe('Shift Lead');
+    expect(submitCall[1][23]).toBe(2);
+    expect(services.syncService.triggerSync).toHaveBeenCalled();
+  });
+
+  it('filters recent DPR entries by job card, plan, and factory', async () => {
+    const { app, pool } = createApp();
+
+    const res = await request(app)
+      .get('/api/dpr/recent')
+      .query({
+        machine: 'Line 1>M-1',
+        jc_no: 'JC-1',
+        planId: 'PLAN-1',
+        date: '2026-05-23',
+        shift: 'Day'
+      })
+      .set('x-factory-id', '2');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, data: { rows: [] } });
+
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toContain('jobcard_no =');
+    expect(sql).toContain('plan_id =');
+    expect(sql).toContain('factory_id =');
+    expect(params).toEqual(['Line 1>M-1', 'PLAN-1', 'JC-1', '2026-05-23', 'Day', 2, 50]);
   });
 });
