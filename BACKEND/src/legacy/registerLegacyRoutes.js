@@ -7587,8 +7587,37 @@ function normalizePlanningText(value) {
   return String(value || '').trim();
 }
 
+function isPlanningWhitespaceChar(ch) {
+  return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f' || ch === '\v';
+}
+
+function collapsePlanningWhitespace(value) {
+  const raw = normalizePlanningText(value);
+  let out = '';
+  let pendingSpace = false;
+  for (const ch of raw) {
+    if (isPlanningWhitespaceChar(ch)) {
+      pendingSpace = out.length > 0;
+      continue;
+    }
+    if (pendingSpace) out += ' ';
+    out += ch;
+    pendingSpace = false;
+  }
+  return out.trim();
+}
+
+function stripTrailingSpaceNumber(value) {
+  let end = value.length - 1;
+  while (end >= 0 && value[end] >= '0' && value[end] <= '9') end -= 1;
+  if (end === value.length - 1) return value;
+  let spaceEnd = end;
+  while (spaceEnd >= 0 && isPlanningWhitespaceChar(value[spaceEnd])) spaceEnd -= 1;
+  return spaceEnd < end ? value.slice(0, spaceEnd + 1).trim() : value;
+}
+
 function normalizeMouldFamilyCode(value) {
-  return normalizePlanningText(value).replace(/\s+\d+$/, '').trim();
+  return stripTrailingSpaceNumber(collapsePlanningWhitespace(value)).toUpperCase();
 }
 
 function parseMouldingSequenceValue(value) {
@@ -7618,6 +7647,67 @@ function sortPlanningMouldRows(rows) {
     return aNo.localeCompare(bNo, undefined, { numeric: true, sensitivity: 'base' });
   });
   return rows;
+}
+
+function getPlanningMouldFamilyValue(row) {
+  return normalizeMouldFamilyCode(row?.mouldFamily || row?.mould_family || row?.mould_no || row?.item_code || row?.mould_name);
+}
+
+function applyPlanningFamilyCoverage(rows) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const coverage = new Map();
+
+  safeRows.forEach((row) => {
+    if (row.isDropped) return;
+    const family = getPlanningMouldFamilyValue(row);
+    if (!family) return;
+    if (!coverage.has(family)) {
+      coverage.set(family, {
+        targetMax: 0,
+        targetSum: 0,
+        plannedQty: 0,
+        hasAnyPlan: false
+      });
+    }
+    const group = coverage.get(family);
+    const targetQty = Math.max(0, toNum(row.targetPlanQty ?? row.plan_qty) ?? 0);
+    const plannedQty = Math.max(0, toNum(row.plannedQty ?? row.existing_planned_qty) ?? 0);
+    group.targetMax = Math.max(group.targetMax, targetQty);
+    group.targetSum += targetQty;
+    group.plannedQty += plannedQty;
+    group.hasAnyPlan = group.hasAnyPlan || !!row.hasAnyPlan || plannedQty > 0;
+  });
+
+  coverage.forEach((group) => {
+    group.targetQty = group.targetMax > 0 ? group.targetMax : group.targetSum;
+    group.remainingQty = Math.max(group.targetQty - group.plannedQty, 0);
+    group.isFullyPlanned = group.targetQty > 0 && group.remainingQty <= 0;
+  });
+
+  safeRows.forEach((row) => {
+    const family = getPlanningMouldFamilyValue(row);
+    const group = coverage.get(family);
+    if (!group) {
+      row.familyTargetQty = row.targetPlanQty ?? row.plan_qty ?? 0;
+      row.familyPlannedQty = row.plannedQty ?? 0;
+      row.familyRemainingQty = row.remainingQty ?? 0;
+      row.hasFamilyPlan = !!row.hasAnyPlan;
+      row.isFamilyFullyPlanned = !!row.isFullyPlanned;
+      return;
+    }
+    row.familyTargetQty = group.targetQty;
+    row.familyPlannedQty = group.plannedQty;
+    row.familyRemainingQty = group.remainingQty;
+    row.hasFamilyPlan = group.hasAnyPlan;
+    row.isFamilyFullyPlanned = group.isFullyPlanned;
+    if (group.isFullyPlanned) {
+      row.remainingQty = 0;
+      row.isFullyPlanned = true;
+      row.isAlreadyPlanned = true;
+    }
+  });
+
+  return safeRows;
 }
 
 async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
@@ -7769,8 +7859,9 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       existingPlanStatus: normalizePlanningText(row.existing_plan_status).toUpperCase() || null
     };
   }));
+  applyPlanningFamilyCoverage(moulds);
 
-  const unresolved = moulds.filter((row) => !row.isDropped && !row.isAlreadyPlanned);
+  const unresolved = moulds.filter((row) => !row.isDropped && !row.isAlreadyPlanned && !row.isFamilyFullyPlanned);
   const missingSqnMoulds = sortPlanningMouldRows(unresolved.filter((row) => !Number.isFinite(row.mouldingSqnValue)));
 
   const nextRequiredSqn = missingSqnMoulds.length
@@ -7790,7 +7881,7 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       planState = 'DROPPED';
     } else if (row.isAlreadyPlanned) {
       planState = 'PLANNED';
-    } else if (row.hasAnyPlan) {
+    } else if (row.hasAnyPlan || row.hasFamilyPlan) {
       planState = 'PARTIAL';
     } else if (!Number.isFinite(row.mouldingSqnValue)) {
       planState = 'MISSING_SQN';
@@ -7810,6 +7901,11 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       targetPlanQty: row.targetPlanQty,
       plannedQty: row.plannedQty,
       remainingQty: row.remainingQty,
+      familyTargetQty: row.familyTargetQty,
+      familyPlannedQty: row.familyPlannedQty,
+      familyRemainingQty: row.familyRemainingQty,
+      hasFamilyPlan: row.hasFamilyPlan,
+      isFamilyFullyPlanned: row.isFamilyFullyPlanned,
       hasAnyPlan: row.hasAnyPlan,
       isFullyPlanned: row.isFullyPlanned,
       primaryMachine: row.primary_machine || null,
@@ -7842,7 +7938,7 @@ function getPlanningSequenceBlockMessage(bundle, selectedMouldCode, selectedMoul
   const virtualPlannedCodes = new Set((options.virtualPlannedCodes || []).map((code) => normalizePlanningText(code).toUpperCase()).filter(Boolean));
   const moulds = (Array.isArray(bundle?.moulds) ? bundle.moulds : []).map((row) => {
     const rowCode = normalizePlanningText(row.mould_no || row.item_code).toUpperCase();
-    if (!virtualPlannedCodes.has(rowCode)) return row;
+    if (!virtualPlannedCodes.has(rowCode)) return { ...row };
     return {
       ...row,
       plannedQty: row.targetPlanQty || row.plan_qty || row.plannedQty || 0,
@@ -7854,7 +7950,7 @@ function getPlanningSequenceBlockMessage(bundle, selectedMouldCode, selectedMoul
       existingPlanId: row.existingPlanId || 'QUEUE'
     };
   });
-  const unresolved = moulds.filter((row) => !row.isDropped && !row.isAlreadyPlanned);
+  const unresolved = moulds.filter((row) => !row.isDropped && !row.isAlreadyPlanned && !row.isFamilyFullyPlanned);
   const missingSqnMoulds = sortPlanningMouldRows(unresolved.filter((row) => !Number.isFinite(row.mouldingSqnValue)));
   const nextRequiredSqn = missingSqnMoulds.length
     ? null
@@ -7899,11 +7995,15 @@ function getPlanningSequenceBlockMessage(bundle, selectedMouldCode, selectedMoul
   }
 
   if (selected.isAlreadyPlanned) {
-    const plannedQty = toNum(selected.plannedQty) ?? 0;
-    const targetPlanQty = toNum(selected.targetPlanQty ?? selected.plan_qty) ?? 0;
+    const plannedQty = toNum(selected.isFamilyFullyPlanned ? selected.familyPlannedQty : selected.plannedQty) ?? 0;
+    const targetPlanQty = toNum(selected.isFamilyFullyPlanned ? selected.familyTargetQty : (selected.targetPlanQty ?? selected.plan_qty)) ?? 0;
+    const planRef = selected.existingPlanId || (selected.isFamilyFullyPlanned ? 'another variant' : '-');
+    const subject = selected.isFamilyFullyPlanned
+      ? `Mould family '${selected.mouldFamily || selected.mould_name}'`
+      : `Mould '${selected.mould_name}'`;
     return {
       ok: false,
-      error: `Mould '${selected.mould_name}' is already fully planned (${plannedQty} / ${targetPlanQty}) under plan ${selected.existingPlanId || '-'}.`
+      error: `${subject} is already fully planned (${plannedQty} / ${targetPlanQty}) under plan ${planRef}.`
     };
   }
 
@@ -8133,13 +8233,13 @@ app.post('/api/planning/create', async (req, res) => {
         }
 
         const requestedPlanQty = Math.max(0, toNum(p.planQty) ?? 0);
-        const selectedTargetQty = Math.max(0, toNum(validation.selected?.targetPlanQty ?? validation.selected?.plan_qty) ?? 0);
-        const selectedRemainingQty = Math.max(0, toNum(validation.selected?.remainingQty) ?? selectedTargetQty);
+        const selectedTargetQty = Math.max(0, toNum(validation.selected?.familyTargetQty ?? validation.selected?.targetPlanQty ?? validation.selected?.plan_qty) ?? 0);
+        const selectedRemainingQty = Math.max(0, toNum(validation.selected?.familyRemainingQty ?? validation.selected?.remainingQty) ?? selectedTargetQty);
         if (!requestedPlanQty) {
           throw new Error(`Enter a valid Plan Qty for mould '${validation.selected?.mould_name || p.mouldName || '-'}'.`);
         }
         if (selectedTargetQty > 0 && requestedPlanQty > selectedRemainingQty) {
-          throw new Error(`Plan Qty ${requestedPlanQty} cannot be more than balance ${selectedRemainingQty} for mould '${validation.selected?.mould_name || p.mouldName || '-'}'.`);
+          throw new Error(`Plan Qty ${requestedPlanQty} cannot be more than family balance ${selectedRemainingQty} for mould '${validation.selected?.mould_name || p.mouldName || '-'}'.`);
         }
       }
 
