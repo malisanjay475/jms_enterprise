@@ -5062,6 +5062,7 @@ app.post('/api/std-actual/save', async (req, res) => {
       ArticleActual, RunnerActual, CavityActual, CycleActual,
       PcsHrActual, ManActual, EnteredBy, SfgQtyActual, OperatorActivities
     } = payload || {};
+    const factoryId = getFactoryId(req) || 1;
 
     await q(
       `
@@ -5069,14 +5070,14 @@ app.post('/api/std-actual/save', async (req, res) => {
         plan_id, shift, dpr_date, line, machine, order_no, mould_name,
         article_act, runner_act, cavity_act, cycle_act,
         pcshr_act, man_act, entered_by, sfgqty_act, operator_activities,
-        geo_lat, geo_lng, geo_acc,
+        geo_lat, geo_lng, geo_acc, factory_id,
         created_at, updated_at
       )
       VALUES (
         $1,$2,$3,$4,$5,$6,$7,
         $8,$9,$10,$11,
         $12,$13,$14,$15,$16,
-        $17,$18,$19,
+        $17,$18,$19,$20,
         NOW(), NOW()
       )
       ON CONFLICT (plan_id, shift, dpr_date, machine)
@@ -5093,6 +5094,7 @@ app.post('/api/std-actual/save', async (req, res) => {
         geo_lat             = EXCLUDED.geo_lat,
         geo_lng             = EXCLUDED.geo_lng,
         geo_acc             = EXCLUDED.geo_acc,
+        factory_id          = COALESCE(EXCLUDED.factory_id, s.factory_id),
         is_deleted          = false,
         updated_at          = NOW()
       `,
@@ -5100,9 +5102,13 @@ app.post('/api/std-actual/save', async (req, res) => {
         PlanID, Shift, DprDate, session?.line || null, Machine, OrderNo, MouldName,
         toNum(ArticleActual), toNum(RunnerActual), toNum(CavityActual), toNum(CycleActual),
         toNum(PcsHrActual), toNum(ManActual), EnteredBy || null, toNum(SfgQtyActual), OperatorActivities || null,
-        geo?.lat || null, geo?.lng || null, geo?.accuracy || null
+        geo?.lat || null, geo?.lng || null, geo?.accuracy || null, factoryId
       ]
     );
+
+    if (typeof syncService.triggerSync === 'function') {
+      syncService.triggerSync();
+    }
 
     res.json({ ok: true });
   } catch (e) {
