@@ -5560,9 +5560,10 @@
           const detailLine = m.line || '-';
           const detailTonnage = m.tonnage ? `${m.tonnage}T` : '-';
 
-          const btn = document.createElement('button');
-          btn.type = 'button';
+          const btn = document.createElement('div');
           btn.className = `machine ${sClass}`;
+          btn.setAttribute('role', 'button');
+          btn.setAttribute('tabindex', '0');
           btn.setAttribute('aria-pressed', 'false');
           let tooltip = `${m.code}`;
           if (activePlan) tooltip += `\nOrder: ${activePlan.orderNo}\nItem: ${activePlan.itemName}\nStatus: ${activePlan.status}`;
@@ -5617,6 +5618,11 @@
           btn.addEventListener('mouseleave', () => { if (!dialogPinned) hideHover(); });
           btn.addEventListener('click', (ev) => {
             ev.stopPropagation();
+            toggleMachineCardFlip(btn);
+          });
+          btn.addEventListener('keydown', (ev) => {
+            if (ev.key !== 'Enter' && ev.key !== ' ') return;
+            ev.preventDefault();
             toggleMachineCardFlip(btn);
           });
           return btn;
