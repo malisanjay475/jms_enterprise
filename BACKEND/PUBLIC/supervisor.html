@@ -1948,6 +1948,9 @@
     // [FIX] Factory Isolation Wrapper
     async function apiFetch(url, options = {}) {
       options.headers = options.headers || {};
+      if (typeof options.body === 'string' && !options.headers['Content-Type']) {
+        options.headers['Content-Type'] = 'application/json';
+      }
 
       // Inject Factory ID from session
       if (session.factoryId) {
@@ -3229,6 +3232,21 @@
       ) || '';
     }
 
+    function getJobMouldNo(job) {
+      if (!job) return '';
+      const all = job._all || {};
+      return String(
+        job.MouldNo ||
+        job['Mould No'] ||
+        job['Mould Code'] ||
+        all['Mould No'] ||
+        all['Mould Code'] ||
+        all['MouldNo'] ||
+        all['MouldNo '] ||
+        ''
+      ).trim();
+    }
+
     function orderedDetails(job) {
       const all = job ? (job._all || {}) : {};
       let html = '<div class="card" style="padding:8px">';
@@ -4074,7 +4092,7 @@
         PlanID: session.activeJob.PlanID || '',
         Machine: session.activeJob.Machine || '',
         OrderNo: session.activeJob.OrderNo || '',
-        MouldNo: session.activeJob.MouldNo || '',
+        MouldNo: getJobMouldNo(session.activeJob),
         JobCardNo: getJobCardNo(session.activeJob),
 
         Colour: colorSel,
@@ -4406,7 +4424,7 @@
         PlanID: job.PlanID || '',
         Machine: machine,
         OrderNo: job.OrderNo || '',
-        MouldNo: job.MouldNo || '',
+        MouldNo: getJobMouldNo(job),
         JobCardNo: (typeof getJobCardNo === 'function' ? getJobCardNo(job) : '') || '',
 
         Colour: el('d-color').value || '',
@@ -4516,7 +4534,7 @@
       const curDate = el('d-date').value;
       const curShift = el('d-shift').value;
       const curPID = (session.activeJob && session.activeJob.PlanID) || '';
-      const curJC = (session.activeJob && session.activeJob.JobCardNo) || '';
+      const curJC = session.activeJob ? getJobCardNo(session.activeJob) : '';
 
       // URL parameters based on mode
       let url = `/api/dpr/recent?machine=${encodeURIComponent(mach)}&limit=200`; // Fetch more for grouping
@@ -4524,6 +4542,7 @@
       if (currentRecentFilter === 'job') {
         const jcToUse = filterJC || curJC;
         if (jcToUse) url += `&jc_no=${encodeURIComponent(jcToUse)}`;
+        else if (curPID) url += `&planId=${encodeURIComponent(curPID)}`;
         else { wrap.innerHTML = '<div class="no-jobs">No active job selected.</div>'; return; }
       } else if (currentRecentFilter === 'shift' && curDate && curShift) {
         url += `&date=${encodeURIComponent(curDate)}&shift=${encodeURIComponent(curShift)}`;

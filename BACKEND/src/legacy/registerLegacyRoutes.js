@@ -3651,6 +3651,13 @@ async function bootstrapFreshCoreTables() {
     );
   `);
   await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS supervisor VARCHAR(255)`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS reject_breakup JSONB`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS downtime_breakup JSONB`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS entry_type VARCHAR(50) DEFAULT 'MAIN'`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS jobcard_no VARCHAR(255)`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS colour VARCHAR(100)`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS factory_id INTEGER`);
   await q(`UPDATE dpr_hourly SET is_deleted = false WHERE is_deleted IS NULL`);
 
   await q(`
@@ -5066,37 +5073,47 @@ app.post('/api/std-actual/save', async (req, res) => {
 
     await q(
       `
-      INSERT INTO std_actual AS s (
+      WITH updated AS (
+        UPDATE std_actual
+           SET line                = $4,
+               order_no            = $6,
+               mould_name          = $7,
+               article_act         = $8,
+               runner_act          = $9,
+               cavity_act          = $10,
+               cycle_act           = $11,
+               pcshr_act           = $12,
+               man_act             = $13,
+               entered_by          = $14,
+               sfgqty_act          = $15,
+               operator_activities = $16,
+               geo_lat             = $17,
+               geo_lng             = $18,
+               geo_acc             = $19,
+               factory_id          = COALESCE($20, factory_id),
+               is_deleted          = false,
+               updated_at          = NOW()
+         WHERE plan_id = $1
+           AND shift = $2
+           AND dpr_date::date = $3::date
+           AND machine = $5
+           AND ($20::int IS NULL OR factory_id = $20 OR factory_id IS NULL)
+         RETURNING id
+      )
+      INSERT INTO std_actual (
         plan_id, shift, dpr_date, line, machine, order_no, mould_name,
         article_act, runner_act, cavity_act, cycle_act,
         pcshr_act, man_act, entered_by, sfgqty_act, operator_activities,
         geo_lat, geo_lng, geo_acc, factory_id,
         created_at, updated_at
       )
-      VALUES (
+      SELECT
         $1,$2,$3,$4,$5,$6,$7,
         $8,$9,$10,$11,
         $12,$13,$14,$15,$16,
         $17,$18,$19,$20,
         NOW(), NOW()
-      )
-      ON CONFLICT (plan_id, shift, dpr_date, machine)
-      DO UPDATE SET
-        article_act         = EXCLUDED.article_act,
-        runner_act          = EXCLUDED.runner_act,
-        cavity_act          = EXCLUDED.cavity_act,
-        cycle_act           = EXCLUDED.cycle_act,
-        pcshr_act           = EXCLUDED.pcshr_act,
-        man_act             = EXCLUDED.man_act,
-        entered_by          = EXCLUDED.entered_by,
-        sfgqty_act          = EXCLUDED.sfgqty_act,
-        operator_activities = EXCLUDED.operator_activities,
-        geo_lat             = EXCLUDED.geo_lat,
-        geo_lng             = EXCLUDED.geo_lng,
-        geo_acc             = EXCLUDED.geo_acc,
-        factory_id          = COALESCE(EXCLUDED.factory_id, s.factory_id),
-        is_deleted          = false,
-        updated_at          = NOW()
+      WHERE NOT EXISTS (SELECT 1 FROM updated)
       `,
       [
         PlanID, Shift, DprDate, session?.line || null, Machine, OrderNo, MouldName,
@@ -5123,6 +5140,7 @@ app.post('/api/std-actual/save', async (req, res) => {
 app.get('/api/std-actual/status', async (req, res) => {
   try {
     const { planId, shift, date, machine } = req.query;
+    const factoryId = getFactoryId(req);
 
     let rows = [];
     if (planId) {
@@ -5134,9 +5152,10 @@ app.get('/api/std-actual/status', async (req, res) => {
            AND shift   = $2
            AND dpr_date::date = $3::date
            AND machine = $4
+           AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)
          LIMIT 1
         `,
-        [planId, shift, date, machine]
+        [planId, shift, date, machine, factoryId]
       );
     }
 
@@ -5218,6 +5237,7 @@ app.get('/api/dpr/used-slots', async (req, res) => {
   try {
     const { planId, date, shift } = req.query;
     if (!planId || !date) return res.json({ ok: true, used: [], data: [] });
+    const factoryId = getFactoryId(req);
 
     const rows = await q(
       `
@@ -5227,8 +5247,9 @@ app.get('/api/dpr/used-slots', async (req, res) => {
          AND dpr_date = $2
          AND shift = $3
          AND is_deleted = false
+         AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
       `,
-      [planId, date, shift || '']
+      [planId, date, shift || '', factoryId]
     );
 
     const slots = rows.map(r => ({ slot: r.hour_slot, type: r.entry_type || 'MAIN' }));
@@ -5291,8 +5312,9 @@ app.post('/api/dpr/submit', async (req, res) => {
            FROM dpr_hourly 
            WHERE machine = $1 AND dpr_date = $2 AND shift = $3 
            AND is_deleted = false
+           AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
            ORDER BY id DESC LIMIT 1`,
-          [Machine, Date, Shift]
+          [Machine, Date, Shift, factoryId]
         );
 
         if (lastEntries.length > 0) {
@@ -5311,7 +5333,10 @@ app.post('/api/dpr/submit', async (req, res) => {
               for (let i = lastIdx + 1; i < currIdx; i++) {
                 const gapSlot = SHIFT_SLOTS[i];
                 // Check if already filled
-                const exists = await q('SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted = false', [Machine, Date, Shift, gapSlot]);
+                const exists = await q(
+                  'SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted = false AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)',
+                  [Machine, Date, Shift, gapSlot, factoryId]
+                );
                 if (exists.length === 0) {
                   await q(
                     `INSERT INTO dpr_hourly (
@@ -5378,6 +5403,10 @@ app.post('/api/dpr/submit', async (req, res) => {
       } catch (_) { }
     }
 
+    if (typeof syncService.triggerSync === 'function') {
+      syncService.triggerSync();
+    }
+
     res.json({ ok: true, id: rows[0].id });
   } catch (e) {
     console.error('dpr/submit', e);
@@ -5411,6 +5440,7 @@ app.get('/api/dpr/recent', async (req, res) => {
   try {
     const { line, machine, limit, planId, jc_no, date, shift } = req.query;
     const lim = Math.min(Number(limit || 50), 200);
+    const factoryId = getFactoryId(req);
 
     let where = "WHERE machine = $1 AND is_deleted = false";
     const params = [machine];
@@ -5434,6 +5464,10 @@ app.get('/api/dpr/recent', async (req, res) => {
     if (shift) {
       params.push(shift);
       where += ` AND shift = $${params.length}`;
+    }
+    if (factoryId) {
+      params.push(factoryId);
+      where += ` AND (factory_id = $${params.length} OR factory_id IS NULL)`;
     }
 
     const rows = await q(
@@ -15184,17 +15218,23 @@ app.get('/api/dpr/hourly/recent', async (req, res) => {
   try {
     const { machine, limit } = req.query;
     if (!machine) return res.status(400).json({ ok: false, error: 'Missing machine' });
+    const factoryId = getFactoryId(req);
 
-    const sql = `
+    let sql = `
       SELECT dpr_date as plan_date, shift, hour_slot, entry_type
       FROM dpr_hourly
       WHERE machine = $1
       AND is_deleted = false
       AND dpr_date >= CURRENT_DATE - INTERVAL '2 days'
-      ORDER BY dpr_date DESC, created_at DESC
-      LIMIT $2
     `;
-    const rows = await q(sql, [machine, limit || 100]);
+    const params = [machine];
+    if (factoryId) {
+      params.push(factoryId);
+      sql += ` AND (factory_id = $${params.length} OR factory_id IS NULL)`;
+    }
+    params.push(limit || 100);
+    sql += ` ORDER BY dpr_date DESC, created_at DESC LIMIT $${params.length}`;
+    const rows = await q(sql, params);
     res.json({ ok: true, data: rows });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
