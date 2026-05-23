@@ -10,12 +10,20 @@ const rateLimit = require('express-rate-limit');
 const _rawOrigins = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 const ALLOWED_ORIGINS = _rawOrigins.filter(o => /^https?:\/\/[^/]+$/.test(o));
 
-// 300 requests/minute per IP — generous for factory intranet, blocks bots/scrapers
+function shouldSkipApiLimiter(req) {
+  const fullPath = `${req.baseUrl || ''}${req.path || req.url || ''}`;
+  return fullPath.startsWith('/api/sync') || fullPath.startsWith('/sync');
+}
+
+// 300 requests/minute per IP — generous for factory intranet, blocks bots/scrapers.
+// Sync uses API-key auth and pulls many tables in one cycle, so it has its own
+// pacing/retry logic instead of sharing this browser/API limiter.
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: shouldSkipApiLimiter,
   message: { ok: false, error: 'Too many requests, please slow down.' }
 });
 
