@@ -51,13 +51,18 @@
         * { box-sizing: border-box }
 
         html, body {
-            min-height: 100%;
+            height: auto !important;
+            min-height: 100% !important;
             width: 100%;
-            overflow-x: hidden;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
         }
 
         body {
             margin: 0;
+            display: block !important;
+            min-height: 100dvh;
+            padding: 0 !important;
             background:
                 radial-gradient(ellipse at top left, rgba(37,99,235,0.07) 0%, transparent 40%),
                 radial-gradient(ellipse at bottom right, rgba(99,102,241,0.05) 0%, transparent 40%),
@@ -70,6 +75,25 @@
             text-rendering: optimizeLegibility;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
+            overscroll-behavior-y: contain;
+        }
+
+        #view-login, #view-app {
+            position: fixed !important;
+            inset: 0 !important;
+            width: 100% !important;
+            height: 100vh !important;
+            height: 100dvh !important;
+            min-height: 0 !important;
+            overflow-x: hidden !important;
+            overflow-y: scroll !important;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior-y: contain;
+            touch-action: pan-y;
+        }
+
+        #view-login.hidden, #view-app.hidden {
+            display: none !important;
         }
 
         .input-error {
@@ -131,7 +155,7 @@
         .shell {
             width: min(100vw, var(--phone));
             margin: 0 auto;
-            padding: 14px 12px 28px;
+            padding: calc(14px + env(safe-area-inset-top)) 12px calc(28px + env(safe-area-inset-bottom));
         }
 
         /* ── Cards ── */
@@ -463,17 +487,24 @@
             position: fixed;
             inset: 0;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             justify-content: center;
             background: rgba(15,23,42,0.5);
             z-index: 50;
+            overflow-y: auto;
+            padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
             -webkit-backdrop-filter: saturate(150%) blur(8px);
             backdrop-filter: saturate(150%) blur(8px);
         }
 
         .modal.hidden { display: none !important }
 
-        .panel { width: min(100vw, var(--phone)); max-height: 90vh; overflow: auto }
+        .panel {
+            width: min(100%, var(--phone));
+            max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+            overflow: auto;
+            margin: auto 0;
+        }
 
         .panel::-webkit-scrollbar { width: 6px }
         .panel::-webkit-scrollbar-track { background: transparent }
@@ -1107,6 +1138,16 @@
         }
         const show = id => el(id).classList.remove('hidden');
         const hide = id => el(id).classList.add('hidden');
+        function qcScrollRoot() {
+            const app = el('view-app');
+            if (app && !app.classList.contains('hidden')) return app;
+            return el('view-login') || document.scrollingElement || document.documentElement;
+        }
+        function scrollQcToTop() {
+            const root = qcScrollRoot();
+            if (root && typeof root.scrollTo === 'function') root.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+            else if (root) root.scrollTop = 0;
+        }
         const safe = v => (v === null || v === undefined) ? '' : String(v);
         const fmtDT = v => { try { if (!v) return ''; const d = new Date(v); return isNaN(d) ? '' : d.toLocaleString(); } catch (_) { return '' } };
         const fmtD = v => { try { if (!v) return ''; const d = new Date(v); return isNaN(d) ? '' : d.toLocaleDateString(); } catch (_) { return '' } };
@@ -1225,11 +1266,13 @@
             const login = el('view-login'), app = el('view-app');
             if (showing) { login.classList.add('hidden'); app.classList.remove('hidden'); }
             else { app.classList.add('hidden'); login.classList.remove('hidden'); }
+            requestAnimationFrame(scrollQcToTop);
         }
 
         function showPage(id, btn) {
             document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
             el(id).classList.remove('hidden');
+            scrollQcToTop();
             document.querySelectorAll('.tabs button').forEach(b => {
                 b.classList.toggle('active', b === btn);
                 b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
@@ -2802,7 +2845,7 @@
             if (p) {
                 p.classList.remove('hidden');
                 // Auto-scroll to top
-                window.scrollTo({ top: 0, behavior: 'instant' });
+                scrollQcToTop();
             }
 
             // Handle Tab Styling if tabEl is provided

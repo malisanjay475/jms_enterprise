@@ -12,6 +12,11 @@ let API_KEY = process.env.SYNC_API_KEY || 'jpsms-sync-key';
 
 const SYNC_INTERVAL_MS = 15 * 1000; // 15s — was 60s
 const DELETE_BATCH_LIMIT = 1000;
+const PULL_REQUEST_DELAY_MS = parseInt(process.env.SYNC_PULL_REQUEST_DELAY_MS || '', 10)
+    || (process.env.NODE_ENV === 'test' ? 0 : 250);
+const PULL_RETRY_BASE_DELAY_MS = parseInt(process.env.SYNC_PULL_RETRY_BASE_DELAY_MS || '', 10)
+    || (process.env.NODE_ENV === 'test' ? 0 : 1000);
+const PULL_MAX_RETRIES = parseInt(process.env.SYNC_PULL_MAX_RETRIES || '', 10) || 4;
 
 const SYNC_ALL = [
     'app_settings',
@@ -280,6 +285,56 @@ function normalizeSyncTimestampInput(value) {
     }
 
     return raw;
+}
+
+function sleep(ms) {
+    if (!ms || ms <= 0) return Promise.resolve();
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableSyncStatus(status) {
+    return status === 408 || status === 429 || status >= 500;
+}
+
+function parseRetryAfterMs(response, attempt) {
+    const retryAfter = response.headers?.get?.('retry-after');
+    if (retryAfter) {
+        const seconds = Number.parseFloat(retryAfter);
+        if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+
+        const retryDate = new Date(retryAfter).getTime();
+        if (Number.isFinite(retryDate)) return Math.max(0, retryDate - Date.now());
+    }
+
+    return PULL_RETRY_BASE_DELAY_MS * Math.max(1, attempt);
+}
+
+async function fetchWithSyncRetry(url, label, options = {}) {
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= PULL_MAX_RETRIES + 1; attempt += 1) {
+        if (PULL_REQUEST_DELAY_MS > 0) await sleep(PULL_REQUEST_DELAY_MS);
+
+        try {
+            const response = await fetch(url, options);
+            if (response.ok || !isRetryableSyncStatus(response.status) || attempt > PULL_MAX_RETRIES) {
+                return response;
+            }
+
+            const delayMs = parseRetryAfterMs(response, attempt);
+            console.warn(`[Sync] ${label} HTTP ${response.status}; retrying in ${Math.ceil(delayMs / 1000)}s (${attempt}/${PULL_MAX_RETRIES})`);
+            await sleep(delayMs);
+        } catch (error) {
+            lastError = error;
+            if (attempt > PULL_MAX_RETRIES) break;
+
+            const delayMs = PULL_RETRY_BASE_DELAY_MS * Math.max(1, attempt);
+            console.warn(`[Sync] ${label} request failed: ${error.message}. Retrying in ${Math.ceil(delayMs / 1000)}s (${attempt}/${PULL_MAX_RETRIES})`);
+            await sleep(delayMs);
+        }
+    }
+
+    throw lastError || new Error(`${label} request failed after retries`);
 }
 
 /* ============================================================
@@ -744,7 +799,7 @@ async function pullTableAllPages(table, since) {
     while (true) {
         pageNum += 1;
         const url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`;
-        const response = await fetch(url);
+        const response = await fetchWithSyncRetry(url, `Pull ${table} page ${pageNum}`);
 
         if (!response.ok) {
             const errText = await response.text().catch(() => '');
@@ -796,10 +851,10 @@ async function pullChanges() {
         }
     }
 
-    // Always advance so LAST_PULL never gets permanently stuck on a partial failure.
-    await setServerConfigValue('LAST_PULL', cycleWatermark);
-    if (stats.failed > 0) {
-        console.warn(`[Sync] LAST_PULL advanced despite ${stats.failed} pull error(s) — failed rows will not be retried.`);
+    if (stats.failed === 0) {
+        await setServerConfigValue('LAST_PULL', cycleWatermark);
+    } else {
+        console.warn(`[Sync] LAST_PULL kept at ${lastPull} because ${stats.failed} pull error(s) occurred — failed rows will retry next cycle.`);
     }
     return stats;
 }
@@ -811,26 +866,32 @@ async function pullDeletionChanges() {
     const cycleWatermark = await getDatabaseNowIso();
 
     try {
-        const response = await fetch(`${MAIN_SERVER_URL}/api/sync/pull-deletions?since=${encodeURIComponent(lastPull)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`);
-        if (response.ok) {
-            const json = await response.json();
-            const deletions = json.data || [];
-            if (deletions.length > 0) {
-                console.log(`[Sync] Pulled ${deletions.length} deletions...`);
-                const applied = await applyRemoteDeletions(deletions);
-                stats.deleted += applied.deleted;
-                stats.failed += applied.failed;
-            }
+        const response = await fetchWithSyncRetry(
+            `${MAIN_SERVER_URL}/api/sync/pull-deletions?since=${encodeURIComponent(lastPull)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`,
+            'Pull deletions'
+        );
+        if (!response.ok) {
+            const errText = await response.text().catch(() => '');
+            throw new Error(`Pull deletions HTTP ${response.status}: ${errText.slice(0, 200)}`);
+        }
+
+        const json = await response.json();
+        const deletions = json.data || [];
+        if (deletions.length > 0) {
+            console.log(`[Sync] Pulled ${deletions.length} deletions...`);
+            const applied = await applyRemoteDeletions(deletions);
+            stats.deleted += applied.deleted;
+            stats.failed += applied.failed;
         }
     } catch (e) {
         console.error('[Sync] Pull Deletions Failed:', e);
         stats.failed += 1;
     }
 
-    // Always advance so LAST_DELETE_PULL never gets permanently stuck on a partial failure.
-    await setServerConfigValue('LAST_DELETE_PULL', cycleWatermark);
-    if (stats.failed > 0) {
-        console.warn(`[Sync] LAST_DELETE_PULL advanced despite ${stats.failed} deletion pull error(s).`);
+    if (stats.failed === 0) {
+        await setServerConfigValue('LAST_DELETE_PULL', cycleWatermark);
+    } else {
+        console.warn(`[Sync] LAST_DELETE_PULL kept at ${lastPull} because ${stats.failed} deletion pull error(s) occurred.`);
     }
     return stats;
 }
@@ -1499,4 +1560,23 @@ async function countPendingChanges() {
     return pending;
 }
 
-module.exports = { init, router, triggerSync };
+function setRuntimeForTests(patch = {}) {
+    if (Object.prototype.hasOwnProperty.call(patch, 'pool')) pool = patch.pool;
+    if (Object.prototype.hasOwnProperty.call(patch, 'SERVER_TYPE')) SERVER_TYPE = patch.SERVER_TYPE;
+    if (Object.prototype.hasOwnProperty.call(patch, 'MAIN_SERVER_URL')) MAIN_SERVER_URL = patch.MAIN_SERVER_URL;
+    if (Object.prototype.hasOwnProperty.call(patch, 'LOCAL_FACTORY_ID')) LOCAL_FACTORY_ID = patch.LOCAL_FACTORY_ID;
+    if (Object.prototype.hasOwnProperty.call(patch, 'API_KEY')) API_KEY = patch.API_KEY;
+    tableColumnCache.clear();
+}
+
+module.exports = {
+    init,
+    router,
+    triggerSync,
+    __test: {
+        fetchWithSyncRetry,
+        pullChanges,
+        pullTableAllPages,
+        setRuntimeForTests
+    }
+};

@@ -883,12 +883,20 @@ const PUBLIC_DIR = path.join(
 );
 const PRIMARY_UPLOADS_DIR = path.join(STATIC_PUBLIC_DIR, 'uploads');
 const LEGACY_UPLOADS_DIR = path.join(BACKEND_ROOT, 'public', 'uploads');
-// Force revalidation for app.js so version badge and UI changes are never served stale
-app.use('/assets/app.js', (req, res, next) => {
-  res.setHeader('Cache-Control', 'no-cache');
-  next();
-});
-app.use(express.static(PUBLIC_DIR));
+app.use(express.static(PUBLIC_DIR, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      // HTML pages must always revalidate so deployments are picked up immediately
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (path.basename(filePath) === 'app.js') {
+      // app.js carries the version badge — never serve stale
+      res.setHeader('Cache-Control', 'no-cache');
+    } else {
+      // Versioned assets (app.css?v=N, etc.) and images are safe to cache for 7 days
+      res.setHeader('Cache-Control', 'public, max-age=604800');
+    }
+  }
+}));
 app.use('/uploads', express.static(PRIMARY_UPLOADS_DIR));
 if (path.normalize(LEGACY_UPLOADS_DIR) !== path.normalize(PRIMARY_UPLOADS_DIR)) {
   app.use('/uploads', express.static(LEGACY_UPLOADS_DIR));
@@ -1532,6 +1540,9 @@ async function migrateOrJrReportNumericSchema() {
 
   // Ensure close/reopen tracking columns exist (added after initial schema)
   const orJrExtraColumns = [
+    ['remarks_all', 'TEXT'],
+    ['or_remarks', 'TEXT'],
+    ['jr_remarks', 'TEXT'],
     ['factory_id', 'INTEGER'],
     ['is_closed', 'BOOLEAN DEFAULT FALSE'],
     ['manual_closed_at', 'TIMESTAMPTZ'],
@@ -3648,6 +3659,13 @@ async function bootstrapFreshCoreTables() {
     );
   `);
   await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS supervisor VARCHAR(255)`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS reject_breakup JSONB`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS downtime_breakup JSONB`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS entry_type VARCHAR(50) DEFAULT 'MAIN'`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS jobcard_no VARCHAR(255)`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS colour VARCHAR(100)`);
+  await q(`ALTER TABLE dpr_hourly ADD COLUMN IF NOT EXISTS factory_id INTEGER`);
   await q(`UPDATE dpr_hourly SET is_deleted = false WHERE is_deleted IS NULL`);
 
   await q(`
@@ -3822,15 +3840,20 @@ async function initializeLegacyRuntime() {
     // [FIX] Wait for DB before anything else
     await waitForDb(pool);
     await bootstrapFreshCoreTables();
-    await migrateMouldMasterSchema();
-    await migrateOrjrWiseMasterSchema();
-    await migrateOrJrReportNumericSchema();
-    await migrateOrjrWiseDetailSchema();
-    await migrateOrderCompletionWorkflowSchema();
-    await migrateWipStockMasterSchema();
-    await migrateRawMaterialSchema();
-    if (hrPerformanceRuntime.ensureTables) await hrPerformanceRuntime.ensureTables();
-    if (interviewPanelRuntime.ensureTables) await interviewPanelRuntime.ensureTables();
+    // Run independent schema migrations in parallel — each targets a different table
+    await Promise.all([
+      migrateMouldMasterSchema(),
+      migrateOrjrWiseMasterSchema(),
+      migrateOrJrReportNumericSchema(),
+      migrateOrjrWiseDetailSchema(),
+      migrateOrderCompletionWorkflowSchema(),
+      migrateWipStockMasterSchema(),
+      migrateRawMaterialSchema(),
+    ]);
+    await Promise.all([
+      hrPerformanceRuntime.ensureTables ? hrPerformanceRuntime.ensureTables() : Promise.resolve(),
+      interviewPanelRuntime.ensureTables ? interviewPanelRuntime.ensureTables() : Promise.resolve(),
+    ]);
 
     // Non-blocking index creation
     await pool.query(`
@@ -5059,47 +5082,63 @@ app.post('/api/std-actual/save', async (req, res) => {
       ArticleActual, RunnerActual, CavityActual, CycleActual,
       PcsHrActual, ManActual, EnteredBy, SfgQtyActual, OperatorActivities
     } = payload || {};
+    const factoryId = getFactoryId(req) || 1;
 
     await q(
       `
-      INSERT INTO std_actual AS s (
+      WITH updated AS (
+        UPDATE std_actual
+           SET line                = $4,
+               order_no            = $6,
+               mould_name          = $7,
+               article_act         = $8,
+               runner_act          = $9,
+               cavity_act          = $10,
+               cycle_act           = $11,
+               pcshr_act           = $12,
+               man_act             = $13,
+               entered_by          = $14,
+               sfgqty_act          = $15,
+               operator_activities = $16,
+               geo_lat             = $17,
+               geo_lng             = $18,
+               geo_acc             = $19,
+               factory_id          = COALESCE($20, factory_id),
+               is_deleted          = false,
+               updated_at          = NOW()
+         WHERE plan_id = $1
+           AND shift = $2
+           AND dpr_date::date = $3::date
+           AND machine = $5
+           AND ($20::int IS NULL OR factory_id = $20 OR factory_id IS NULL)
+         RETURNING id
+      )
+      INSERT INTO std_actual (
         plan_id, shift, dpr_date, line, machine, order_no, mould_name,
         article_act, runner_act, cavity_act, cycle_act,
         pcshr_act, man_act, entered_by, sfgqty_act, operator_activities,
-        geo_lat, geo_lng, geo_acc,
+        geo_lat, geo_lng, geo_acc, factory_id,
         created_at, updated_at
       )
-      VALUES (
+      SELECT
         $1,$2,$3,$4,$5,$6,$7,
         $8,$9,$10,$11,
         $12,$13,$14,$15,$16,
-        $17,$18,$19,
+        $17,$18,$19,$20,
         NOW(), NOW()
-      )
-      ON CONFLICT (plan_id, shift, dpr_date, machine)
-      DO UPDATE SET
-        article_act         = EXCLUDED.article_act,
-        runner_act          = EXCLUDED.runner_act,
-        cavity_act          = EXCLUDED.cavity_act,
-        cycle_act           = EXCLUDED.cycle_act,
-        pcshr_act           = EXCLUDED.pcshr_act,
-        man_act             = EXCLUDED.man_act,
-        entered_by          = EXCLUDED.entered_by,
-        sfgqty_act          = EXCLUDED.sfgqty_act,
-        operator_activities = EXCLUDED.operator_activities,
-        geo_lat             = EXCLUDED.geo_lat,
-        geo_lng             = EXCLUDED.geo_lng,
-        geo_acc             = EXCLUDED.geo_acc,
-        is_deleted          = false,
-        updated_at          = NOW()
+      WHERE NOT EXISTS (SELECT 1 FROM updated)
       `,
       [
         PlanID, Shift, DprDate, session?.line || null, Machine, OrderNo, MouldName,
         toNum(ArticleActual), toNum(RunnerActual), toNum(CavityActual), toNum(CycleActual),
         toNum(PcsHrActual), toNum(ManActual), EnteredBy || null, toNum(SfgQtyActual), OperatorActivities || null,
-        geo?.lat || null, geo?.lng || null, geo?.accuracy || null
+        geo?.lat || null, geo?.lng || null, geo?.accuracy || null, factoryId
       ]
     );
+
+    if (typeof syncService.triggerSync === 'function') {
+      syncService.triggerSync();
+    }
 
     res.json({ ok: true });
   } catch (e) {
@@ -5114,6 +5153,7 @@ app.post('/api/std-actual/save', async (req, res) => {
 app.get('/api/std-actual/status', async (req, res) => {
   try {
     const { planId, shift, date, machine } = req.query;
+    const factoryId = getFactoryId(req);
 
     let rows = [];
     if (planId) {
@@ -5125,9 +5165,10 @@ app.get('/api/std-actual/status', async (req, res) => {
            AND shift   = $2
            AND dpr_date::date = $3::date
            AND machine = $4
+           AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)
          LIMIT 1
         `,
-        [planId, shift, date, machine]
+        [planId, shift, date, machine, factoryId]
       );
     }
 
@@ -5209,6 +5250,7 @@ app.get('/api/dpr/used-slots', async (req, res) => {
   try {
     const { planId, date, shift } = req.query;
     if (!planId || !date) return res.json({ ok: true, used: [], data: [] });
+    const factoryId = getFactoryId(req);
 
     const rows = await q(
       `
@@ -5218,8 +5260,9 @@ app.get('/api/dpr/used-slots', async (req, res) => {
          AND dpr_date = $2
          AND shift = $3
          AND is_deleted = false
+         AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
       `,
-      [planId, date, shift || '']
+      [planId, date, shift || '', factoryId]
     );
 
     const slots = rows.map(r => ({ slot: r.hour_slot, type: r.entry_type || 'MAIN' }));
@@ -5282,8 +5325,9 @@ app.post('/api/dpr/submit', async (req, res) => {
            FROM dpr_hourly 
            WHERE machine = $1 AND dpr_date = $2 AND shift = $3 
            AND is_deleted = false
+           AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
            ORDER BY id DESC LIMIT 1`,
-          [Machine, Date, Shift]
+          [Machine, Date, Shift, factoryId]
         );
 
         if (lastEntries.length > 0) {
@@ -5302,7 +5346,10 @@ app.post('/api/dpr/submit', async (req, res) => {
               for (let i = lastIdx + 1; i < currIdx; i++) {
                 const gapSlot = SHIFT_SLOTS[i];
                 // Check if already filled
-                const exists = await q('SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted = false', [Machine, Date, Shift, gapSlot]);
+                const exists = await q(
+                  'SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted = false AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)',
+                  [Machine, Date, Shift, gapSlot, factoryId]
+                );
                 if (exists.length === 0) {
                   await q(
                     `INSERT INTO dpr_hourly (
@@ -5369,6 +5416,10 @@ app.post('/api/dpr/submit', async (req, res) => {
       } catch (_) { }
     }
 
+    if (typeof syncService.triggerSync === 'function') {
+      syncService.triggerSync();
+    }
+
     res.json({ ok: true, id: rows[0].id });
   } catch (e) {
     console.error('dpr/submit', e);
@@ -5402,6 +5453,7 @@ app.get('/api/dpr/recent', async (req, res) => {
   try {
     const { line, machine, limit, planId, jc_no, date, shift } = req.query;
     const lim = Math.min(Number(limit || 50), 200);
+    const factoryId = getFactoryId(req);
 
     let where = "WHERE machine = $1 AND is_deleted = false";
     const params = [machine];
@@ -5425,6 +5477,10 @@ app.get('/api/dpr/recent', async (req, res) => {
     if (shift) {
       params.push(shift);
       where += ` AND shift = $${params.length}`;
+    }
+    if (factoryId) {
+      params.push(factoryId);
+      where += ` AND (factory_id = $${params.length} OR factory_id IS NULL)`;
     }
 
     const rows = await q(
@@ -7544,8 +7600,37 @@ function normalizePlanningText(value) {
   return String(value || '').trim();
 }
 
+function isPlanningWhitespaceChar(ch) {
+  return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f' || ch === '\v';
+}
+
+function collapsePlanningWhitespace(value) {
+  const raw = normalizePlanningText(value);
+  let out = '';
+  let pendingSpace = false;
+  for (const ch of raw) {
+    if (isPlanningWhitespaceChar(ch)) {
+      pendingSpace = out.length > 0;
+      continue;
+    }
+    if (pendingSpace) out += ' ';
+    out += ch;
+    pendingSpace = false;
+  }
+  return out.trim();
+}
+
+function stripTrailingSpaceNumber(value) {
+  let end = value.length - 1;
+  while (end >= 0 && value[end] >= '0' && value[end] <= '9') end -= 1;
+  if (end === value.length - 1) return value;
+  let spaceEnd = end;
+  while (spaceEnd >= 0 && isPlanningWhitespaceChar(value[spaceEnd])) spaceEnd -= 1;
+  return spaceEnd < end ? value.slice(0, spaceEnd + 1).trim() : value;
+}
+
 function normalizeMouldFamilyCode(value) {
-  return normalizePlanningText(value).replace(/\s+\d+$/, '').trim();
+  return stripTrailingSpaceNumber(collapsePlanningWhitespace(value)).toUpperCase();
 }
 
 function parseMouldingSequenceValue(value) {
@@ -7575,6 +7660,67 @@ function sortPlanningMouldRows(rows) {
     return aNo.localeCompare(bNo, undefined, { numeric: true, sensitivity: 'base' });
   });
   return rows;
+}
+
+function getPlanningMouldFamilyValue(row) {
+  return normalizeMouldFamilyCode(row?.mouldFamily || row?.mould_family || row?.mould_no || row?.item_code || row?.mould_name);
+}
+
+function applyPlanningFamilyCoverage(rows) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const coverage = new Map();
+
+  safeRows.forEach((row) => {
+    if (row.isDropped) return;
+    const family = getPlanningMouldFamilyValue(row);
+    if (!family) return;
+    if (!coverage.has(family)) {
+      coverage.set(family, {
+        targetMax: 0,
+        targetSum: 0,
+        plannedQty: 0,
+        hasAnyPlan: false
+      });
+    }
+    const group = coverage.get(family);
+    const targetQty = Math.max(0, toNum(row.targetPlanQty ?? row.plan_qty) ?? 0);
+    const plannedQty = Math.max(0, toNum(row.plannedQty ?? row.existing_planned_qty) ?? 0);
+    group.targetMax = Math.max(group.targetMax, targetQty);
+    group.targetSum += targetQty;
+    group.plannedQty += plannedQty;
+    group.hasAnyPlan = group.hasAnyPlan || !!row.hasAnyPlan || plannedQty > 0;
+  });
+
+  coverage.forEach((group) => {
+    group.targetQty = group.targetMax > 0 ? group.targetMax : group.targetSum;
+    group.remainingQty = Math.max(group.targetQty - group.plannedQty, 0);
+    group.isFullyPlanned = group.targetQty > 0 && group.remainingQty <= 0;
+  });
+
+  safeRows.forEach((row) => {
+    const family = getPlanningMouldFamilyValue(row);
+    const group = coverage.get(family);
+    if (!group) {
+      row.familyTargetQty = row.targetPlanQty ?? row.plan_qty ?? 0;
+      row.familyPlannedQty = row.plannedQty ?? 0;
+      row.familyRemainingQty = row.remainingQty ?? 0;
+      row.hasFamilyPlan = !!row.hasAnyPlan;
+      row.isFamilyFullyPlanned = !!row.isFullyPlanned;
+      return;
+    }
+    row.familyTargetQty = group.targetQty;
+    row.familyPlannedQty = group.plannedQty;
+    row.familyRemainingQty = group.remainingQty;
+    row.hasFamilyPlan = group.hasAnyPlan;
+    row.isFamilyFullyPlanned = group.isFullyPlanned;
+    if (group.isFullyPlanned) {
+      row.remainingQty = 0;
+      row.isFullyPlanned = true;
+      row.isAlreadyPlanned = true;
+    }
+  });
+
+  return safeRows;
 }
 
 async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
@@ -7726,8 +7872,9 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       existingPlanStatus: normalizePlanningText(row.existing_plan_status).toUpperCase() || null
     };
   }));
+  applyPlanningFamilyCoverage(moulds);
 
-  const unresolved = moulds.filter((row) => !row.isDropped && !row.isAlreadyPlanned);
+  const unresolved = moulds.filter((row) => !row.isDropped && !row.isAlreadyPlanned && !row.isFamilyFullyPlanned);
   const missingSqnMoulds = sortPlanningMouldRows(unresolved.filter((row) => !Number.isFinite(row.mouldingSqnValue)));
 
   const nextRequiredSqn = missingSqnMoulds.length
@@ -7747,7 +7894,7 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       planState = 'DROPPED';
     } else if (row.isAlreadyPlanned) {
       planState = 'PLANNED';
-    } else if (row.hasAnyPlan) {
+    } else if (row.hasAnyPlan || row.hasFamilyPlan) {
       planState = 'PARTIAL';
     } else if (!Number.isFinite(row.mouldingSqnValue)) {
       planState = 'MISSING_SQN';
@@ -7767,6 +7914,11 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       targetPlanQty: row.targetPlanQty,
       plannedQty: row.plannedQty,
       remainingQty: row.remainingQty,
+      familyTargetQty: row.familyTargetQty,
+      familyPlannedQty: row.familyPlannedQty,
+      familyRemainingQty: row.familyRemainingQty,
+      hasFamilyPlan: row.hasFamilyPlan,
+      isFamilyFullyPlanned: row.isFamilyFullyPlanned,
       hasAnyPlan: row.hasAnyPlan,
       isFullyPlanned: row.isFullyPlanned,
       primaryMachine: row.primary_machine || null,
@@ -7799,7 +7951,7 @@ function getPlanningSequenceBlockMessage(bundle, selectedMouldCode, selectedMoul
   const virtualPlannedCodes = new Set((options.virtualPlannedCodes || []).map((code) => normalizePlanningText(code).toUpperCase()).filter(Boolean));
   const moulds = (Array.isArray(bundle?.moulds) ? bundle.moulds : []).map((row) => {
     const rowCode = normalizePlanningText(row.mould_no || row.item_code).toUpperCase();
-    if (!virtualPlannedCodes.has(rowCode)) return row;
+    if (!virtualPlannedCodes.has(rowCode)) return { ...row };
     return {
       ...row,
       plannedQty: row.targetPlanQty || row.plan_qty || row.plannedQty || 0,
@@ -7811,7 +7963,7 @@ function getPlanningSequenceBlockMessage(bundle, selectedMouldCode, selectedMoul
       existingPlanId: row.existingPlanId || 'QUEUE'
     };
   });
-  const unresolved = moulds.filter((row) => !row.isDropped && !row.isAlreadyPlanned);
+  const unresolved = moulds.filter((row) => !row.isDropped && !row.isAlreadyPlanned && !row.isFamilyFullyPlanned);
   const missingSqnMoulds = sortPlanningMouldRows(unresolved.filter((row) => !Number.isFinite(row.mouldingSqnValue)));
   const nextRequiredSqn = missingSqnMoulds.length
     ? null
@@ -7856,11 +8008,15 @@ function getPlanningSequenceBlockMessage(bundle, selectedMouldCode, selectedMoul
   }
 
   if (selected.isAlreadyPlanned) {
-    const plannedQty = toNum(selected.plannedQty) ?? 0;
-    const targetPlanQty = toNum(selected.targetPlanQty ?? selected.plan_qty) ?? 0;
+    const plannedQty = toNum(selected.isFamilyFullyPlanned ? selected.familyPlannedQty : selected.plannedQty) ?? 0;
+    const targetPlanQty = toNum(selected.isFamilyFullyPlanned ? selected.familyTargetQty : (selected.targetPlanQty ?? selected.plan_qty)) ?? 0;
+    const planRef = selected.existingPlanId || (selected.isFamilyFullyPlanned ? 'another variant' : '-');
+    const subject = selected.isFamilyFullyPlanned
+      ? `Mould family '${selected.mouldFamily || selected.mould_name}'`
+      : `Mould '${selected.mould_name}'`;
     return {
       ok: false,
-      error: `Mould '${selected.mould_name}' is already fully planned (${plannedQty} / ${targetPlanQty}) under plan ${selected.existingPlanId || '-'}.`
+      error: `${subject} is already fully planned (${plannedQty} / ${targetPlanQty}) under plan ${planRef}.`
     };
   }
 
@@ -8090,13 +8246,13 @@ app.post('/api/planning/create', async (req, res) => {
         }
 
         const requestedPlanQty = Math.max(0, toNum(p.planQty) ?? 0);
-        const selectedTargetQty = Math.max(0, toNum(validation.selected?.targetPlanQty ?? validation.selected?.plan_qty) ?? 0);
-        const selectedRemainingQty = Math.max(0, toNum(validation.selected?.remainingQty) ?? selectedTargetQty);
+        const selectedTargetQty = Math.max(0, toNum(validation.selected?.familyTargetQty ?? validation.selected?.targetPlanQty ?? validation.selected?.plan_qty) ?? 0);
+        const selectedRemainingQty = Math.max(0, toNum(validation.selected?.familyRemainingQty ?? validation.selected?.remainingQty) ?? selectedTargetQty);
         if (!requestedPlanQty) {
           throw new Error(`Enter a valid Plan Qty for mould '${validation.selected?.mould_name || p.mouldName || '-'}'.`);
         }
         if (selectedTargetQty > 0 && requestedPlanQty > selectedRemainingQty) {
-          throw new Error(`Plan Qty ${requestedPlanQty} cannot be more than balance ${selectedRemainingQty} for mould '${validation.selected?.mould_name || p.mouldName || '-'}'.`);
+          throw new Error(`Plan Qty ${requestedPlanQty} cannot be more than family balance ${selectedRemainingQty} for mould '${validation.selected?.mould_name || p.mouldName || '-'}'.`);
         }
       }
 
@@ -10784,53 +10940,58 @@ app.patch('/api/masters/or-jr-remarks', async (req, res) => {
 
 
 
+let _planReportSchemaPromise = null;
 async function ensureJmsPlanReportSchema() {
-  const planBoardColumns = [
-    ['mould_code', 'VARCHAR(255)'],
-    ['our_code', 'TEXT'],
-    ['batch_no', 'INTEGER'],
-    ['batch_qty', 'NUMERIC'],
-    ['mould_item_qty', 'NUMERIC'],
-    ['consumption_ratio_qty', 'NUMERIC'],
-    ['colour_details', 'JSONB'],
-    ['created_by', 'TEXT'],
-    ['created_at', 'TIMESTAMPTZ DEFAULT NOW()'],
-    ['job_card_given', 'BOOLEAN DEFAULT false'],
-    ['factory_id', 'INTEGER']
-  ];
-  for (const [name, typeSql] of planBoardColumns) {
-    await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
-  }
+  if (_planReportSchemaPromise) return _planReportSchemaPromise;
+  _planReportSchemaPromise = (async () => {
+    const planBoardColumns = [
+      ['mould_code', 'VARCHAR(255)'],
+      ['our_code', 'TEXT'],
+      ['batch_no', 'INTEGER'],
+      ['batch_qty', 'NUMERIC'],
+      ['mould_item_qty', 'NUMERIC'],
+      ['consumption_ratio_qty', 'NUMERIC'],
+      ['colour_details', 'JSONB'],
+      ['created_by', 'TEXT'],
+      ['created_at', 'TIMESTAMPTZ DEFAULT NOW()'],
+      ['job_card_given', 'BOOLEAN DEFAULT false'],
+      ['factory_id', 'INTEGER']
+    ];
+    for (const [name, typeSql] of planBoardColumns) {
+      await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
+    }
 
-  const mouldReportColumns = [
-    ['or_jr_date', 'TEXT'],
-    ['bom_type', 'TEXT'],
-    ['product_name', 'TEXT'],
-    ['jr_qty', 'TEXT'],
-    ['uom', 'TEXT'],
-    ['mould_no', 'TEXT'],
-    ['mould_name', 'TEXT'],
-    ['mould_item_qty', 'TEXT'],
-    ['tonnage', 'TEXT'],
-    ['cycle_time', 'TEXT'],
-    ['cavity', 'TEXT'],
-    ['factory_id', 'INTEGER']
-  ];
-  for (const [name, typeSql] of mouldReportColumns) {
-    await q(`ALTER TABLE mould_planning_report ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
-  }
+    const mouldReportColumns = [
+      ['or_jr_date', 'TEXT'],
+      ['bom_type', 'TEXT'],
+      ['product_name', 'TEXT'],
+      ['jr_qty', 'TEXT'],
+      ['uom', 'TEXT'],
+      ['mould_no', 'TEXT'],
+      ['mould_name', 'TEXT'],
+      ['mould_item_qty', 'TEXT'],
+      ['tonnage', 'TEXT'],
+      ['cycle_time', 'TEXT'],
+      ['cavity', 'TEXT'],
+      ['factory_id', 'INTEGER']
+    ];
+    for (const [name, typeSql] of mouldReportColumns) {
+      await q(`ALTER TABLE mould_planning_report ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
+    }
 
-  const orJrColumns = [
-    ['or_jr_date', 'DATE'],
-    ['client_name', 'TEXT'],
-    ['product_name', 'TEXT'],
-    ['jr_qty', 'INTEGER'],
-    ['uom', 'TEXT'],
-    ['factory_id', 'INTEGER']
-  ];
-  for (const [name, typeSql] of orJrColumns) {
-    await q(`ALTER TABLE or_jr_report ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
-  }
+    const orJrColumns = [
+      ['or_jr_date', 'DATE'],
+      ['client_name', 'TEXT'],
+      ['product_name', 'TEXT'],
+      ['jr_qty', 'INTEGER'],
+      ['uom', 'TEXT'],
+      ['factory_id', 'INTEGER']
+    ];
+    for (const [name, typeSql] of orJrColumns) {
+      await q(`ALTER TABLE or_jr_report ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
+    }
+  })();
+  return _planReportSchemaPromise;
 }
 
 // GET /api/reports/jms-plan
@@ -15175,17 +15336,23 @@ app.get('/api/dpr/hourly/recent', async (req, res) => {
   try {
     const { machine, limit } = req.query;
     if (!machine) return res.status(400).json({ ok: false, error: 'Missing machine' });
+    const factoryId = getFactoryId(req);
 
-    const sql = `
+    let sql = `
       SELECT dpr_date as plan_date, shift, hour_slot, entry_type
       FROM dpr_hourly
       WHERE machine = $1
       AND is_deleted = false
       AND dpr_date >= CURRENT_DATE - INTERVAL '2 days'
-      ORDER BY dpr_date DESC, created_at DESC
-      LIMIT $2
     `;
-    const rows = await q(sql, [machine, limit || 100]);
+    const params = [machine];
+    if (factoryId) {
+      params.push(factoryId);
+      sql += ` AND (factory_id = $${params.length} OR factory_id IS NULL)`;
+    }
+    params.push(limit || 100);
+    sql += ` ORDER BY dpr_date DESC, created_at DESC LIMIT $${params.length}`;
+    const rows = await q(sql, params);
     res.json({ ok: true, data: rows });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
@@ -15878,7 +16045,7 @@ WITH RankedPlans AS (
     o.item_name as "SFG Name",
     o.item_code as "SFG Code",
     o.priority as "Order Priority",
-    o.remarks as "Or Remarks",
+    COALESCE(NULLIF(r.or_remarks, ''), NULLIF(r.remarks_all, ''), '') as "Or Remarks",
 
     pb.item_code as "FG CODE", 
     COALESCE(mps.mould_no, m.mould_number) as "Mould No", 

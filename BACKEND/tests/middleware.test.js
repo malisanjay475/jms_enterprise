@@ -48,6 +48,16 @@ describe('Core middleware', () => {
     });
   });
 
+  describe('Rate limiting', () => {
+    it('does not apply the browser API limiter to sync endpoints', async () => {
+      const responses = await Promise.all(
+        Array.from({ length: 305 }, () => request(app).get('/api/sync/pull'))
+      );
+
+      expect(responses.some((res) => res.status === 429)).toBe(false);
+    });
+  });
+
   describe('404 handling', () => {
     it('returns 404 for unknown routes', async () => {
       const res = await request(app).get('/this-route-does-not-exist-xyz123');
