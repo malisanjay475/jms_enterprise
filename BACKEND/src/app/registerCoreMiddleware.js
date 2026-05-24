@@ -1,10 +1,18 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const compression = require('compression');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const morgan = require('morgan');
+
+// Ensure log directory exists
+const LOG_DIR = path.join(process.cwd(), 'logs');
+if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+const accessLogStream = fs.createWriteStream(path.join(LOG_DIR, 'access.log'), { flags: 'a' });
 
 // Parse and validate CORS origins — only accept http(s):// URLs from the env var
 const _rawOrigins = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -15,9 +23,7 @@ function shouldSkipApiLimiter(req) {
   return fullPath.startsWith('/api/sync') || fullPath.startsWith('/sync');
 }
 
-// 300 requests/minute per IP — generous for factory intranet, blocks bots/scrapers.
-// Sync uses API-key auth and pulls many tables in one cycle, so it has its own
-// pacing/retry logic instead of sharing this browser/API limiter.
+// 300 requests/minute per IP for general API. Sync routes have their own stricter limiter.
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 300,
@@ -27,7 +33,22 @@ const apiLimiter = rateLimit({
   message: { ok: false, error: 'Too many requests, please slow down.' }
 });
 
+// Sync routes get a separate, more focused limiter — they skip the main apiLimiter but still
+// need protection. 120 req/min covers normal sync cycles without opening an abuse path.
+const syncLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip,
+  message: { ok: false, error: 'Sync rate limit exceeded.' }
+});
+
 function registerCoreMiddleware(app) {
+  // Request logging — combined format to file, dev format to console
+  app.use(morgan('combined', { stream: accessLogStream }));
+  app.use(morgan('dev', { skip: (_req, res) => res.statusCode < 400 }));
+
   app.use(helmet({
     // HSTS must be off — server runs plain HTTP on factory intranet and VPS port
     strictTransportSecurity: false,
@@ -65,6 +86,15 @@ function registerCoreMiddleware(app) {
     }
   }));
   app.use('/api/', apiLimiter);
+  app.use(['/api/sync', '/sync'], syncLimiter);
+
+  // Static asset cache headers — 24h for PUBLIC assets, forces revalidation with ETag
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && /\.(js|css|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf)$/i.test(req.path)) {
+      res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=3600');
+    }
+    next();
+  });
 }
 
 module.exports = registerCoreMiddleware;

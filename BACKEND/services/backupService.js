@@ -1,90 +1,169 @@
+'use strict';
 
-const fs = require('fs');
+/**
+ * Automated PostgreSQL backup service — Linux/Docker compatible.
+ *
+ * Runs pg_dump every 5 minutes inside the container (pg_dump is available because
+ * the Dockerfile installs postgresql-client). Keeps the last 48 dumps (~4 hours).
+ * Dumps are gzip-compressed (.sql.gz) and stored in /app/backups/ which should be
+ * mapped to a persistent volume in docker-compose.
+ *
+ * Start by calling backupService.start() — called automatically from createServices.
+ */
+
+const { execFile } = require('child_process');
+const fs   = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
+const zlib = require('zlib');
 
-const BACKUP_DIR = path.join(__dirname, '../BACKUPS');
-const PG_DUMP_PATH = 'C:\\Program Files\\PostgreSQL\\18\\bin\\pg_dump.exe';
-const MAX_BACKUPS = 12; // Keep last 1 hour (12 * 5min)
+const BACKUP_DIR   = process.env.BACKUP_DIR || path.join(process.cwd(), 'backups');
+const MAX_BACKUPS  = Number(process.env.BACKUP_MAX_COUNT || 48); // 48 × 5 min = 4 hours
+const INTERVAL_MS  = Number(process.env.BACKUP_INTERVAL_MS || 5 * 60 * 1000); // 5 minutes
 
-// Ensure backup dir exists
-if (!fs.existsSync(BACKUP_DIR)) {
-    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+// Resolve pg_dump: prefer the one shipped with PostgreSQL client tools in the Docker image
+const PG_DUMP = (() => {
+  const candidates = [
+    '/usr/bin/pg_dump',
+    '/usr/local/bin/pg_dump',
+    'pg_dump' // fall back to PATH
+  ];
+  for (const c of candidates) {
+    if (c === 'pg_dump') return c; // always try PATH as last resort
+    try { fs.accessSync(c, fs.constants.X_OK); return c; } catch (_) { /* try next */ }
+  }
+  return 'pg_dump';
+})();
+
+function resolveDbConfig() {
+  return {
+    host:     process.env.DB_HOST     || process.env.PGHOST     || 'localhost',
+    port:     process.env.DB_PORT     || process.env.PGPORT     || '5432',
+    user:     process.env.DB_USER     || process.env.PGUSER     || 'jms_v1',
+    password: process.env.DB_PASSWORD || process.env.PGPASSWORD || '',
+    database: process.env.DB_NAME     || process.env.PGDATABASE || 'jms_v1'
+  };
+}
+
+function pad(n) { return String(n).padStart(2, '0'); }
+
+function makeTimestamp() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}`;
+}
+
+function ensureBackupDir() {
+  if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
 }
 
 function runBackup() {
-    const date = new Date();
-    const timestamp = date.getFullYear() + '-' +
-        String(date.getMonth() + 1).padStart(2, '0') + '-' +
-        String(date.getDate()).padStart(2, '0') + '_' +
-        String(date.getHours()).padStart(2, '0') + '-' +
-        String(date.getMinutes()).padStart(2, '0');
+  ensureBackupDir();
+  const db     = resolveDbConfig();
+  const ts     = makeTimestamp();
+  const gzPath = path.join(BACKUP_DIR, `backup_${ts}.sql.gz`);
 
-    const filename = `backup_${timestamp}.sql`;
-    const filePath = path.join(BACKUP_DIR, filename);
+  const env = {
+    ...process.env,
+    PGPASSWORD: db.password
+  };
 
-    console.log(`[Backup] Starting backup: ${filename}`);
+  const args = [
+    '-h', db.host,
+    '-p', db.port,
+    '-U', db.user,
+    '--no-password',
+    '--format=plain',
+    '--no-owner',
+    '--no-acl',
+    db.database
+  ];
 
-    const env = {
-        ...process.env,
-        PGPASSWORD: process.env.PGPASSWORD || 'Sanjay@541##'
-    };
+  console.log(`[Backup] Starting: ${path.basename(gzPath)}`);
 
-    const args = [
-        '-h', process.env.PGHOST || 'localhost',
-        '-p', process.env.PGPORT || '5432',
-        '-U', process.env.PGUSER || 'postgres',
-        '-d', process.env.PGDATABASE || 'jpsms',
-        '-f', filePath
-    ];
-
-    const child = spawn(PG_DUMP_PATH, args, { env });
-
-    child.on('exit', (code) => {
-        if (code === 0) {
-            console.log(`[Backup] Success: ${filename}`);
-            rotateBackups();
-        } else {
-            console.error(`[Backup] Failed with code ${code}`);
+  const child = execFile(PG_DUMP, args, { env, maxBuffer: 512 * 1024 * 1024 }, (err, stdout) => {
+    if (err) {
+      console.error('[Backup] pg_dump failed:', err.message);
+      // Remove empty/partial file if it was created
+      try { if (fs.existsSync(gzPath)) fs.unlinkSync(gzPath); } catch (_) {}
+      return;
+    }
+    // Compress and write
+    zlib.gzip(Buffer.from(stdout), { level: 6 }, (gzErr, compressed) => {
+      if (gzErr) {
+        console.error('[Backup] gzip failed:', gzErr.message);
+        return;
+      }
+      fs.writeFile(gzPath, compressed, (writeErr) => {
+        if (writeErr) {
+          console.error('[Backup] Write failed:', writeErr.message);
+          return;
         }
+        const kb = Math.round(compressed.length / 1024);
+        console.log(`[Backup] Saved: ${path.basename(gzPath)} (${kb} KB)`);
+        rotateBackups();
+      });
     });
+  });
 
-    child.on('error', (err) => {
-        console.error('[Backup] Process Error:', err);
-    });
+  child.on('error', (err) => {
+    console.error('[Backup] Process error (pg_dump not found?):', err.message);
+  });
 }
 
 function rotateBackups() {
-    fs.readdir(BACKUP_DIR, (err, files) => {
-        if (err) return console.error('[Backup] Rotation Error:', err);
+  let files;
+  try { files = fs.readdirSync(BACKUP_DIR); } catch (_) { return; }
 
-        const backups = files.filter(f => f.startsWith('backup_') && f.endsWith('.sql'));
+  const dumps = files
+    .filter(f => f.startsWith('backup_') && f.endsWith('.sql.gz'))
+    .sort(); // ISO timestamp → lexicographic sort = chronological order
 
-        if (backups.length > MAX_BACKUPS) {
-            // Sort by time (oldest first)
-            // Since filename has timestamp YYYY-MM-DD_HH-mm, string sort works
-            backups.sort();
-
-            const toDelete = backups.slice(0, backups.length - MAX_BACKUPS);
-
-            toDelete.forEach(f => {
-                fs.unlink(path.join(BACKUP_DIR, f), (e) => {
-                    if (e) console.error(`[Backup] Failed to delete ${f}:`, e);
-                    else console.log(`[Backup] Rotated/Deleted: ${f}`);
-                });
-            });
-        }
-    });
+  if (dumps.length > MAX_BACKUPS) {
+    const toDelete = dumps.slice(0, dumps.length - MAX_BACKUPS);
+    for (const f of toDelete) {
+      try {
+        fs.unlinkSync(path.join(BACKUP_DIR, f));
+        console.log(`[Backup] Rotated: ${f}`);
+      } catch (err) {
+        console.error(`[Backup] Rotation delete failed for ${f}:`, err.message);
+      }
+    }
+  }
 }
 
-// Export start function
-module.exports = {
-    start: () => {
-        console.log('[Backup] Service Started. Schedule: Every 5 minutes.');
-        // Run immediately on start? Maybe wait 1 min?
-        // Let's run immediately for test, then interval.
-        runBackup();
-        setInterval(runBackup, 5 * 60 * 1000); // 5 minutes
-    }
-};
+/**
+ * List available backups (newest first).
+ * Returns array of { filename, size, createdAt }.
+ */
+function listBackups() {
+  try {
+    const files = fs.readdirSync(BACKUP_DIR);
+    return files
+      .filter(f => f.startsWith('backup_') && f.endsWith('.sql.gz'))
+      .sort()
+      .reverse()
+      .map(f => {
+        const fullPath = path.join(BACKUP_DIR, f);
+        let size = 0;
+        try { size = fs.statSync(fullPath).size; } catch (_) {}
+        return { filename: f, size, path: fullPath };
+      });
+  } catch (_) {
+    return [];
+  }
+}
+
+let _timer = null;
+
+function start() {
+  if (_timer) return; // already started
+  console.log(`[Backup] Service started. Interval: ${INTERVAL_MS / 60000} min. Max dumps: ${MAX_BACKUPS}. Dir: ${BACKUP_DIR}`);
+  runBackup(); // run immediately on start
+  _timer = setInterval(runBackup, INTERVAL_MS);
+  if (_timer.unref) _timer.unref(); // don't keep process alive for backup alone
+}
+
+function stop() {
+  if (_timer) { clearInterval(_timer); _timer = null; }
+}
+
+module.exports = { start, stop, runBackup, listBackups };

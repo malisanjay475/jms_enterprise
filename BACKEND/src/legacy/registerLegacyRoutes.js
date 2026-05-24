@@ -3,7 +3,15 @@ const path = require('path');
 const os = require('os');
 const express = require('express');
 const multer = require('multer');
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({
+  dest: 'uploads/',
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB max for bulk Excel/CSV imports
+  fileFilter(_req, file, cb) {
+    const ALLOWED = /\.(xlsx|xls|csv|txt|pdf|jpg|jpeg|png|gif|webp)$/i;
+    if (ALLOWED.test(file.originalname)) return cb(null, true);
+    cb(new Error(`File type not allowed: ${file.originalname}`), false);
+  }
+});
 const fs = require('fs');
 const xlsx = require('xlsx');
 const bcrypt = require('bcryptjs');
@@ -3794,7 +3802,7 @@ async function bootstrapFreshCoreTables() {
   try {
     const uname = String(process.env.DEFAULT_SUPERADMIN_USERNAME || 'admin').trim() || 'admin';
     const pw = String(process.env.DEFAULT_SUPERADMIN_PASSWORD || 'ChangeMeNow123!');
-    const hash = await bcrypt.hash(pw, 8);
+    const hash = await bcrypt.hash(pw, 12);
     const resUser = await pool.query(
       `INSERT INTO users (username, password, line, role_code, permissions, is_active, global_access)
        VALUES ($1, $2, '', 'superadmin', '{}'::jsonb, TRUE, TRUE)
@@ -4508,8 +4516,62 @@ async function initializeLegacyRuntime() {
 }
 
 /* ============================================================
-   LOGIN
+   BRUTE-FORCE PROTECTION
+   In-memory per-username tracker. 5 failures → 15-min lockout.
+   Resets on successful login. Each PM2 worker has its own map,
+   which is acceptable for factory intranet use — Redis would be
+   needed for perfect cross-worker coordination.
 ============================================================ */
+const _loginAttempts = new Map(); // key: username → { count, lockedUntil }
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
+const LOGIN_WINDOW_MS  = 15 * 60 * 1000; // reset window
+
+function _checkBruteForce(username) {
+  const key = String(username || '').toLowerCase().trim();
+  const now = Date.now();
+  const entry = _loginAttempts.get(key);
+  if (!entry) return null; // no prior failures
+  if (entry.lockedUntil && now < entry.lockedUntil) {
+    const remainingMin = Math.ceil((entry.lockedUntil - now) / 60000);
+    return `Too many failed attempts. Account locked for ${remainingMin} more minute(s).`;
+  }
+  // Lock expired — clear it
+  if (entry.lockedUntil && now >= entry.lockedUntil) {
+    _loginAttempts.delete(key);
+  }
+  return null;
+}
+
+function _recordLoginFailure(username) {
+  const key = String(username || '').toLowerCase().trim();
+  const now = Date.now();
+  let entry = _loginAttempts.get(key) || { count: 0, firstFailAt: now, lockedUntil: null };
+  // Reset window if first failure was long ago
+  if (now - entry.firstFailAt > LOGIN_WINDOW_MS) {
+    entry = { count: 0, firstFailAt: now, lockedUntil: null };
+  }
+  entry.count += 1;
+  if (entry.count >= LOGIN_MAX_ATTEMPTS) {
+    entry.lockedUntil = now + LOGIN_LOCKOUT_MS;
+    console.warn(`[Security] Login locked for "${key}" after ${entry.count} failures.`);
+  }
+  _loginAttempts.set(key, entry);
+}
+
+function _clearLoginFailures(username) {
+  _loginAttempts.delete(String(username || '').toLowerCase().trim());
+}
+
+// Purge stale entries every 30 minutes to prevent memory growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of _loginAttempts) {
+    if (!entry.lockedUntil && now - entry.firstFailAt > LOGIN_WINDOW_MS) _loginAttempts.delete(key);
+    else if (entry.lockedUntil && now > entry.lockedUntil + 60000) _loginAttempts.delete(key);
+  }
+}, 30 * 60 * 1000).unref();
+
 /* ============================================================
    LOGIN (Modified for Multi-Factory)
 ============================================================ */
@@ -4518,6 +4580,10 @@ app.post('/api/login', async (req, res) => {
     const { username, password } = req.body || {};
     const requestedApp = String(req.body?.requested_app || '').trim();
     if (!username || !password) return res.json({ ok: false, error: 'Missing credentials' });
+
+    // Brute-force check — fail fast before any DB query
+    const lockMsg = _checkBruteForce(username);
+    if (lockMsg) return res.status(429).json({ ok: false, error: lockMsg });
 
     // 1. Fetch User
     const rows = await q(
@@ -4529,7 +4595,10 @@ app.post('/api/login', async (req, res) => {
       [username]
     );
 
-    if (!rows.length) return res.json({ ok: false, error: 'User not found' });
+    if (!rows.length) {
+      _recordLoginFailure(username);
+      return res.json({ ok: false, error: 'User not found' });
+    }
     const u = rows[0];
 
     // 2. Validate Password
@@ -4538,10 +4607,10 @@ app.post('/api/login', async (req, res) => {
 
     if (u.password.startsWith('$2')) {
       valid = await bcrypt.compare(password, u.password);
-      // Downgrade cost factor >8 to 8 for faster logins on low-spec VPS
+      // Upgrade cost factor to 12 rounds for stronger password security
       if (valid) {
         const rounds = parseInt((u.password.split('$')[2] || '10'), 10);
-        if (rounds > 8) needsRehash = true;
+        if (rounds < 12) needsRehash = true;
       }
     } else {
       if (u.password === password) {
@@ -4550,7 +4619,11 @@ app.post('/api/login', async (req, res) => {
       }
     }
 
-    if (!valid) return res.json({ ok: false, error: 'Password is Wrong' });
+    if (!valid) {
+      _recordLoginFailure(username);
+      return res.json({ ok: false, error: 'Password is Wrong' });
+    }
+    _clearLoginFailures(username);
 
     if (requestedApp) {
       const roleCode = String(u.role_code || '').toLowerCase();
@@ -4569,7 +4642,7 @@ app.post('/api/login', async (req, res) => {
 
     // 3. Auto-Rehash if needed (non-blocking — don't delay login response)
     if (needsRehash) {
-      bcrypt.hash(password, 8).then(hash =>
+      bcrypt.hash(password, 12).then(hash =>
         q('UPDATE users SET password=$1 WHERE username=$2', [hash, u.username])
       ).catch(() => {});
     }
@@ -4758,7 +4831,7 @@ app.post('/api/users/save', async (req, res) => {
       // UPDATE
       let hash = '';
       if (password) {
-        hash = await bcrypt.hash(password, 8);
+        hash = await bcrypt.hash(password, 12);
       }
 
       await q(
@@ -4781,7 +4854,7 @@ app.post('/api/users/save', async (req, res) => {
       // INSERT
       if (!password) return res.json({ ok: false, error: 'Password required for new user' });
 
-      const hash = await bcrypt.hash(password, 8);
+      const hash = await bcrypt.hash(password, 12);
 
       const resInsert = await pool.query( // Use pool.query to get RETURNING id
         `INSERT INTO users (username, password, line, role_code, permissions, is_active, global_access)
@@ -4852,7 +4925,7 @@ app.post('/api/users/password', async (req, res) => {
     if (isSuperadminRole(targetUser) && !isSuperadminRole(actor)) {
       return res.status(403).json({ ok: false, error: 'Only superadmin can change a superadmin password' });
     }
-    const hash = await bcrypt.hash(password, 8);
+    const hash = await bcrypt.hash(password, 12);
     await q('UPDATE users SET password=$1 WHERE username=$2', [hash, username]);
     res.json({ ok: true });
   } catch (e) {

@@ -17,8 +17,18 @@ services:
       POSTGRES_USER: ${DB_USER:-jms_v1}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-JmsV1DbAuto9x4k2m7n1q5w8r}
       POSTGRES_DB: ${DB_NAME:-jms_v1}
+    # WAL archiving — archives a segment every 5 minutes at most.
+    # Combined with the app's pg_dump backup service, this gives
+    # a ≤5-minute recovery point (RPO) in the worst case.
+    command: >
+      postgres
+      -c wal_level=replica
+      -c archive_mode=on
+      -c archive_command='cp %p /backups/wal/%f'
+      -c archive_timeout=300
     volumes:
       - jms_v1_pg_data:/var/lib/postgresql/data
+      - jms_v1_backups:/backups
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
@@ -40,6 +50,8 @@ services:
       # Persist uploaded files (machine icons, operator photos, etc.) across Docker deploys.
       # Without this volume, every deploy wipes PUBLIC/uploads/ and all icons are lost.
       - jms_v1_uploads:/app/PUBLIC/uploads
+      # App-side pg_dump backups (every 5 min, kept for 4 hours)
+      - jms_v1_backups:/app/backups
     environment:
       PORT: "3000"
       DB_HOST: db
@@ -81,3 +93,5 @@ networks:
 volumes:
   jms_v1_pg_data:
   jms_v1_uploads:
+  # Shared backup volume — pg_dump files from app + WAL archives from db
+  jms_v1_backups:
