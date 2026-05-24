@@ -885,14 +885,13 @@ const PRIMARY_UPLOADS_DIR = path.join(STATIC_PUBLIC_DIR, 'uploads');
 const LEGACY_UPLOADS_DIR = path.join(BACKEND_ROOT, 'public', 'uploads');
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html')) {
-      // HTML pages must always revalidate so deployments are picked up immediately
-      res.setHeader('Cache-Control', 'no-cache');
-    } else if (path.basename(filePath) === 'app.js') {
-      // app.js carries the version badge — never serve stale
+    const ext = path.extname(filePath).toLowerCase();
+    if (['.html', '.js', '.css', '.json'].includes(ext)) {
+      // All code files: revalidate on every request so releases are always picked up.
+      // Browser still serves from cache on 304 — no bandwidth wasted when unchanged.
       res.setHeader('Cache-Control', 'no-cache');
     } else {
-      // Versioned assets (app.css?v=N, etc.) and images are safe to cache for 7 days
+      // Images, fonts, and other binary assets rarely change between releases.
       res.setHeader('Cache-Control', 'public, max-age=604800');
     }
   }
