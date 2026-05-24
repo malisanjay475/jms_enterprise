@@ -1,11 +1,46 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
+// Auto-create .env if missing so the server works out-of-the-box on a fresh install.
+// Uses .env.local-v1.example as the template, with LOCAL-mode defaults applied.
+(function ensureEnvFile() {
+  const envPath = path.join(__dirname, '../../.env');
+  if (!fs.existsSync(envPath)) {
+    const examplePath = path.join(__dirname, '../../.env.local-v1.example');
+    let content;
+    if (fs.existsSync(examplePath)) {
+      content = fs.readFileSync(examplePath, 'utf8')
+        .replace('replace_with_your_local_v1_password', 'jms_v1')
+        .replace('SERVER_TYPE=MAIN', 'SERVER_TYPE=LOCAL')
+        .replace('NODE_ENV=development', 'NODE_ENV=production');
+    } else {
+      content = [
+        'NODE_ENV=production',
+        'PORT=3000',
+        'DB_HOST=localhost',
+        'DB_PORT=5432',
+        'DB_USER=jms_v1',
+        'DB_PASSWORD=jms_v1',
+        'DB_NAME=jms_v1',
+        'SERVER_TYPE=LOCAL',
+        'LOCAL_FACTORY_ID=1',
+        'GEMINI_API_KEY=',
+        'SYNC_API_KEY=',
+        'MAIN_SERVER_URL=',
+      ].join('\n') + '\n';
+    }
+    fs.writeFileSync(envPath, content, 'utf8');
+    console.log('[Setup] Created .env with default LOCAL settings.');
+    console.log('[Setup] If DB connection fails, edit BACKEND/.env and set the correct DB_PASSWORD.');
+  }
+})();
+
 require('dotenv').config();
 
 const { initSentry } = require('../monitoring/sentry');
-const fs = require('fs');
 const https = require('https');
-const path = require('path');
 const loadConfig = require('../config/loadConfig');
 const createDbPool = require('../db/createDbPool');
 const runMigrations = require('./runMigrations');
