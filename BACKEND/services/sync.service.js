@@ -540,6 +540,29 @@ router.post('/admin/full-pull-reset', async (req, res) => {
     }
 });
 
+// Admin: reset push watermarks so the next sync cycle re-pushes ALL local rows to MAIN.
+// Use this after a LOCAL server was offline for a long time and data was lost because
+// the push watermark jumped past rows that were never sent (the 100-row-per-cycle gap).
+// Only available on LOCAL servers. Authenticate with SYNC_API_KEY.
+router.post('/admin/full-push-reset', async (req, res) => {
+    if (!pool) return res.status(503).json({ error: 'Service initializing' });
+    try {
+        const { apiKey } = req.body || {};
+        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        if (SERVER_TYPE !== 'LOCAL') return res.status(400).json({ error: 'Only available on LOCAL servers' });
+
+        await setServerConfigValue('LAST_PUSH', '1970-01-01T00:00:00.000Z');
+        await setServerConfigValue('LAST_DELETE_PUSH', '1970-01-01T00:00:00.000Z');
+
+        console.log('[Sync] Admin: LAST_PUSH reset to 1970-01-01. Full re-push will start in 1s...');
+        setTimeout(() => runSyncCycle().catch((e) => console.error('[Sync] Admin-triggered cycle failed:', e)), 1000);
+
+        res.json({ ok: true, message: 'LAST_PUSH reset. Full re-push starting in 1 second. All local data will be sent to MAIN.' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 /* ============================================================
    CORE SYNC LOGIC
    ============================================================ */
@@ -646,6 +669,81 @@ async function runSyncCycle() {
     syncTimer = setTimeout(runSyncCycle, SYNC_INTERVAL_MS);
 }
 
+// Push all changed rows for a table to MAIN in batches, paging through the full backlog.
+//
+// WHY THIS IS NEEDED:
+//   The old pushChanges() grabbed only 100 rows per table per cycle and then advanced
+//   LAST_PUSH to NOW(). Any rows beyond that 100 had updated_at < NOW() on the next
+//   cycle and were permanently skipped. If LOCAL was offline for hours (e.g. power cut),
+//   only the first 100 rows per table would ever reach MAIN — the rest were silently lost.
+//
+//   This function pages through ALL pending rows in batches of 100 (like pullTableAllPages
+//   does for pull) so no rows are skipped before LAST_PUSH advances.
+async function pushTableAllBatches(table, lastPush) {
+    const PUSH_BATCH_SIZE = 100;
+    const stats = { pushed: 0, failed: 0 };
+    const hasFactoryId = await tableHasColumn(table, 'factory_id');
+    let currentSince = lastPush;
+    let batchNum = 0;
+
+    while (true) {
+        batchNum += 1;
+        let rows;
+        try {
+            const sql = hasFactoryId
+                ? `SELECT * FROM ${table} WHERE updated_at > $1 AND factory_id = $2 ORDER BY updated_at ASC LIMIT ${PUSH_BATCH_SIZE}`
+                : `SELECT * FROM ${table} WHERE updated_at > $1 ORDER BY updated_at ASC LIMIT ${PUSH_BATCH_SIZE}`;
+            const params = hasFactoryId ? [currentSince, LOCAL_FACTORY_ID] : [currentSince];
+            const result = await pool.query(sql, params);
+            rows = result.rows;
+        } catch (err) {
+            console.error(`[Sync] Push query failed ${table} batch ${batchNum}:`, err.message);
+            stats.failed += 1;
+            break;
+        }
+
+        if (rows.length === 0) break;
+
+        if (batchNum > 1) {
+            console.log(`[Sync] Pushing ${rows.length} rows for ${table} (batch ${batchNum}, since=${currentSince})...`);
+        } else {
+            console.log(`[Sync] Pushing ${rows.length} rows for ${table}...`);
+        }
+
+        const payload = { factoryId: LOCAL_FACTORY_ID, table, data: rows, apiKey: API_KEY };
+        let response;
+        try {
+            response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        } catch (err) {
+            console.error(`[Sync] Push request failed ${table} batch ${batchNum}:`, err.message);
+            stats.failed += rows.length;
+            break;
+        }
+
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            console.error(`[Sync] Push HTTP error ${table} batch ${batchNum}:`, text.slice(0, 200));
+            stats.failed += rows.length;
+            // Keep moving so a bad table cannot block the rest of the push cycle.
+            break;
+        }
+
+        stats.pushed += rows.length;
+
+        if (rows.length < PUSH_BATCH_SIZE) break; // last batch — no more rows
+
+        const lastUpdatedAt = rows[rows.length - 1]?.updated_at;
+        if (!lastUpdatedAt || lastUpdatedAt <= currentSince) break; // safety: no forward progress
+        currentSince = lastUpdatedAt;
+    }
+
+    return stats;
+}
+
 async function pushChanges() {
     const stats = { pushed: 0, failed: 0 };
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_PUSH'`);
@@ -653,76 +751,23 @@ async function pushChanges() {
     const cycleWatermark = await getDatabaseNowIso();
 
     for (const table of TABLES_TO_PUSH) {
-        let rows;
-        try {
-            if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.includes(table)) {
-                // Auth tables are MAIN-authoritative. Never push from LOCAL to avoid
-                // overwriting VPS user credentials with locally-seeded data.
-                continue;
-            }
-            if (!(await tableExistsPublic(table))) {
-                console.warn(`[Sync] Push skipped ${table}: table does not exist locally`);
-                continue;
-            }
-            if (!(await tableHasColumn(table, 'updated_at'))) {
-                console.warn(`[Sync] Push skipped ${table}: updated_at column is missing`);
-                continue;
-            }
-            const hasFactoryId = await tableHasColumn(table, 'factory_id');
-            const sql = hasFactoryId
-                ? `
-                    SELECT * FROM ${table}
-                    WHERE updated_at > $1
-                      AND factory_id = $2
-                    ORDER BY updated_at ASC
-                    LIMIT 100
-                `
-                : `
-                    SELECT * FROM ${table}
-                    WHERE updated_at > $1
-                    ORDER BY updated_at ASC
-                    LIMIT 100
-                `;
-            const params = hasFactoryId ? [lastPush, LOCAL_FACTORY_ID] : [lastPush];
-            rows = await pool.query(sql, params);
-        } catch (error) {
-            console.error(`[Sync] Push Query Failed ${table}:`, error.message);
-            stats.failed += 1;
+        if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.includes(table)) {
+            // Auth tables are MAIN-authoritative. Never push from LOCAL to avoid
+            // overwriting VPS user credentials with locally-seeded data.
+            continue;
+        }
+        if (!(await tableExistsPublic(table))) {
+            console.warn(`[Sync] Push skipped ${table}: table does not exist locally`);
+            continue;
+        }
+        if (!(await tableHasColumn(table, 'updated_at'))) {
+            console.warn(`[Sync] Push skipped ${table}: updated_at column is missing`);
             continue;
         }
 
-        if (rows.rows.length > 0) {
-            console.log(`[Sync] Pushing ${rows.rows.length} rows for ${table}...`);
-            const payload = {
-                factoryId: LOCAL_FACTORY_ID,
-                table,
-                data: rows.rows,
-                apiKey: API_KEY
-            };
-
-            let response;
-            try {
-                response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-            } catch (error) {
-                console.error(`[Sync] Push Request Failed ${table}:`, error.message);
-                stats.failed += rows.rows.length;
-                continue;
-            }
-
-            if (!response.ok) {
-                const text = await response.text();
-                console.error(`[Sync] Push Failed Details for ${table}:`, text);
-                stats.failed += rows.rows.length;
-                // Keep the cycle moving so a bad optional table (for example old
-                // notification duplicates) cannot block pulling users/masters.
-                continue;
-            }
-            stats.pushed += rows.rows.length;
-        }
+        const tableStats = await pushTableAllBatches(table, lastPush);
+        stats.pushed += tableStats.pushed;
+        stats.failed += tableStats.failed;
     }
 
     // Always advance the watermark so new data is never permanently blocked by
@@ -965,7 +1010,7 @@ async function upsertData(table, data) {
     while (attempt < MAX_RETRIES) {
         const client = await pool.connect();
         try {
-            console.log(`[Sync] DEBUG: Starting upsert for table=${table} rows=${data.length} (Attempt ${attempt + 1})`);
+            if (attempt > 0) console.log(`[Sync] Upsert retry ${attempt + 1} for ${table} (${data.length} rows)`);
             await client.query('BEGIN');
 
             for (let row of data) {
