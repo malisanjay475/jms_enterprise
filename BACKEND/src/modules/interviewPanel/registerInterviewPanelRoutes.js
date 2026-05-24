@@ -645,9 +645,23 @@ module.exports = function registerInterviewPanelRoutes({ app, pool, config = {} 
       cb(null, `${Date.now()}_${safeName}`);
     }
   });
+  const ALLOWED_RESUME_MIMES = new Set([
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'text/plain'
+  ]);
   const upload = multer({
     storage,
-    limits: { fileSize: 15 * 1024 * 1024 }
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter(_req, file, cb) {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      if (ALLOWED_RESUME_MIMES.has(file.mimetype) || ['.pdf', '.doc', '.docx', '.txt'].includes(ext)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only PDF, DOC, DOCX, or TXT resumes are allowed.'), false);
+      }
+    }
   });
 
   async function q(text, params = []) {
