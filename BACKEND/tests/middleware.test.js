@@ -49,9 +49,12 @@ describe('Core middleware', () => {
   });
 
   describe('Rate limiting', () => {
-    it('does not apply the browser API limiter to sync endpoints', async () => {
+    it('does not apply the 300/min browser API limiter to sync endpoints', async () => {
+      // Sync routes are exempt from the 300/min browser limiter but have their own
+      // 120/min sync limiter. We send 110 requests — below both limits — to confirm
+      // sync traffic is not blocked by the browser limiter.
       const responses = await Promise.all(
-        Array.from({ length: 305 }, () => request(app).get('/api/sync/pull'))
+        Array.from({ length: 110 }, () => request(app).get('/api/sync/pull'))
       );
 
       expect(responses.some((res) => res.status === 429)).toBe(false);

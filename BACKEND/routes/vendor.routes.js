@@ -25,7 +25,11 @@ const upload = multer({
     }
 });
 
-const JWT_SECRET = process.env.JWT_SECRET || 'secret_key_change_this_later';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('[SECURITY] JWT_SECRET env var is not set. Vendor portal JWT tokens are insecure. Set JWT_SECRET in your .env file.');
+  process.exit(1);
+}
 
 // Helper for DB queries (will be passed from server.js or we can require pool here)
 // Better to require pool here to keep it standalone
