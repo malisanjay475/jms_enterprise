@@ -40,7 +40,6 @@ const syncLimiter = rateLimit({
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip,
   message: { ok: false, error: 'Sync rate limit exceeded.' }
 });
 
