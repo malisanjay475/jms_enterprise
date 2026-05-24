@@ -57,6 +57,8 @@ function registerCoreMiddleware(app) {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: false, limit: '10mb' }));
   app.use(compression({
+    level: 6,
+    threshold: 256,
     filter: (req, res) => {
       if (req.path.includes('/api/assembly/events')) return false;
       return compression.filter(req, res);
