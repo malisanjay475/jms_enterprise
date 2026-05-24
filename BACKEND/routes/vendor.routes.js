@@ -25,11 +25,14 @@ const upload = multer({
     }
 });
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  console.error('[SECURITY] JWT_SECRET env var is not set. Vendor portal JWT tokens are insecure. Set JWT_SECRET in your .env file.');
-  process.exit(1);
-}
+const JWT_SECRET = process.env.JWT_SECRET || (() => {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('[SECURITY] JWT_SECRET env var is not set. Set it in your .env / Docker secrets before deploying.');
+    process.exit(1);
+  }
+  console.warn('[SECURITY] JWT_SECRET not set — using insecure dev default. Set JWT_SECRET=<secret> in production.');
+  return 'dev-insecure-jwt-secret-change-in-production';
+})();
 
 // Helper for DB queries (will be passed from server.js or we can require pool here)
 // Better to require pool here to keep it standalone
