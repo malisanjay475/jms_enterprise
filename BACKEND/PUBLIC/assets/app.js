@@ -1636,13 +1636,23 @@ const BRAND_NAME = 'JMS OCEAN';
 })(window.JPSMS);
 
 // =============================================================================
-// Live Tab Sync — Server-Sent Events client
-// When any tab saves data the server broadcasts a "refresh" event.
-// All other open tabs receive it and reload the relevant section automatically.
+// Live Tab Sync — Server-Sent Events client.
+// Disabled by default because automatic refresh can interrupt local operators
+// while they are filling Supervisor, DPR, QC, or Planning forms.
 // =============================================================================
 (function initJpsmsLiveSync() {
   'use strict';
   if (typeof EventSource === 'undefined') return; // old browser
+
+  function liveSyncEnabled() {
+    try {
+      if (window.JPSMS_LIVE_SYNC_ENABLED === true) return true;
+      var stored = localStorage.getItem('jpsms_live_sync');
+      return stored === '1' || stored === 'true';
+    } catch (_err) {
+      return false;
+    }
+  }
 
   var es = null;
   var reconnectDelay = 2000;
@@ -1658,6 +1668,7 @@ const BRAND_NAME = 'JMS OCEAN';
   }
 
   function connect() {
+    if (!liveSyncEnabled()) return;
     if (es) { try { es.close(); } catch (_e) {} }
     es = new EventSource('/api/events');
 
@@ -1688,6 +1699,7 @@ const BRAND_NAME = 'JMS OCEAN';
 
   // Only connect when the user is authenticated (token present)
   function maybeConnect() {
+    if (!liveSyncEnabled()) return;
     var token = (typeof localStorage !== 'undefined') ? localStorage.getItem('token') : null;
     if (token) connect();
   }
@@ -1700,11 +1712,24 @@ const BRAND_NAME = 'JMS OCEAN';
 
   // Reconnect when the tab becomes visible again after being backgrounded
   document.addEventListener('visibilitychange', function () {
+    if (!liveSyncEnabled()) return;
     if (!document.hidden && (!es || es.readyState === EventSource.CLOSED)) {
       connect();
     }
   });
 
   window.JPSMS = window.JPSMS || {};
-  window.JPSMS.liveSync = { connect: connect };
+  window.JPSMS.liveSync = {
+    connect: connect,
+    enabled: liveSyncEnabled,
+    enable: function () {
+      try { localStorage.setItem('jpsms_live_sync', '1'); } catch (_err) {}
+      connect();
+    },
+    disable: function () {
+      try { localStorage.removeItem('jpsms_live_sync'); } catch (_err) {}
+      if (es) { try { es.close(); } catch (_e) {} }
+      es = null;
+    }
+  };
 }());

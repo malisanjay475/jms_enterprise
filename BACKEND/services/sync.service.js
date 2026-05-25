@@ -10,13 +10,43 @@ let MAIN_SERVER_URL = '';
 let LOCAL_FACTORY_ID = 1;
 let API_KEY = process.env.SYNC_API_KEY || 'jpsms-sync-key';
 
-const SYNC_INTERVAL_MS = 15 * 1000; // 15s — was 60s
+function readPositiveIntegerEnv(name, fallback) {
+    const value = Number.parseInt(process.env[name] || '', 10);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function readNonNegativeIntegerEnv(name, fallback) {
+    const value = Number.parseInt(process.env[name] || '', 10);
+    return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+const DEFAULT_SYNC_INTERVAL_MS = process.env.NODE_ENV === 'test' ? 100 : 5 * 60 * 1000;
+const SYNC_INTERVAL_MS = readPositiveIntegerEnv(
+    'SYNC_INTERVAL_MS',
+    readPositiveIntegerEnv('LOCAL_SYNC_INTERVAL_MS', DEFAULT_SYNC_INTERVAL_MS)
+);
+const SYNC_INITIAL_DELAY_MS = readNonNegativeIntegerEnv(
+    'SYNC_INITIAL_DELAY_MS',
+    process.env.NODE_ENV === 'test' ? 0 : 30 * 1000
+);
+const SYNC_TRIGGER_DEBOUNCE_MS = readNonNegativeIntegerEnv(
+    'SYNC_TRIGGER_DEBOUNCE_MS',
+    process.env.NODE_ENV === 'test' ? 0 : 5000
+);
+const PENDING_COUNT_INTERVAL_MS = readNonNegativeIntegerEnv(
+    'SYNC_PENDING_COUNT_INTERVAL_MS',
+    process.env.NODE_ENV === 'test' ? 0 : 5 * 60 * 1000
+);
 const DELETE_BATCH_LIMIT = 1000;
-const PULL_REQUEST_DELAY_MS = parseInt(process.env.SYNC_PULL_REQUEST_DELAY_MS || '', 10)
-    || (process.env.NODE_ENV === 'test' ? 0 : 250);
-const PULL_RETRY_BASE_DELAY_MS = parseInt(process.env.SYNC_PULL_RETRY_BASE_DELAY_MS || '', 10)
-    || (process.env.NODE_ENV === 'test' ? 0 : 1000);
-const PULL_MAX_RETRIES = parseInt(process.env.SYNC_PULL_MAX_RETRIES || '', 10) || 4;
+const PULL_REQUEST_DELAY_MS = readNonNegativeIntegerEnv(
+    'SYNC_PULL_REQUEST_DELAY_MS',
+    process.env.NODE_ENV === 'test' ? 0 : 250
+);
+const PULL_RETRY_BASE_DELAY_MS = readNonNegativeIntegerEnv(
+    'SYNC_PULL_RETRY_BASE_DELAY_MS',
+    process.env.NODE_ENV === 'test' ? 0 : 1000
+);
+const PULL_MAX_RETRIES = readNonNegativeIntegerEnv('SYNC_PULL_MAX_RETRIES', 4);
 
 const SYNC_ALL = [
     'app_settings',
@@ -204,7 +234,10 @@ const GLOBAL_MASTER_TABLES = new Set([
 ]);
 
 const SYNC_ID_REQUIRED_TABLES = ['notifications'];
+const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
+const SYNC_SCHEMA_READY_VERSION = '2026-05-23-local-sync-performance-v1';
 const tableColumnCache = new Map();
+const tableExistsCache = new Map();
 
 function getDeterministicNotificationSyncIdSql(tableAlias = '') {
     const prefix = tableAlias ? `${tableAlias}.` : '';
@@ -497,7 +530,7 @@ router.get('/status', async (req, res) => {
         let pendingPushCount = null;
         if (SERVER_TYPE === 'LOCAL') {
             try {
-                pendingPushCount = await countPendingChanges();
+                pendingPushCount = await getCachedPendingChanges();
             } catch (_) { /* non-fatal */ }
         }
 
@@ -532,7 +565,7 @@ router.post('/admin/full-pull-reset', async (req, res) => {
         await setServerConfigValue('LAST_DELETE_PULL', '1970-01-01T00:00:00.000Z');
 
         console.log('[Sync] Admin: LAST_PULL reset to 1970-01-01. Full re-pull will start in 1s...');
-        setTimeout(() => runSyncCycle().catch((e) => console.error('[Sync] Admin-triggered cycle failed:', e)), 1000);
+        scheduleSyncCycle(1000);
 
         res.json({ ok: true, message: 'LAST_PULL reset. Full re-pull starting in 1 second. Check supervisor window for progress.' });
     } catch (e) {
@@ -570,16 +603,15 @@ router.post('/admin/full-push-reset', async (req, res) => {
 async function init(dbPool) {
     pool = dbPool;
     try {
-        await ensureSyncUpdatedAtSchema();
-        await ensureSyncIdSchema();
-        await ensureSyncConflictIndexes();
-        await ensureDeleteTrackingSchema();
-
-        const res = await pool.query('SELECT key, value FROM server_config');
-        const config = {};
-        res.rows.forEach((r) => {
-            config[r.key] = r.value;
+        let config = await getServerConfigSnapshot().catch((e) => {
+            console.warn('[Sync] Config read before schema check skipped:', e.message);
+            return {};
         });
+
+        await ensureSyncRuntimeSchema(config);
+        if (Object.keys(config).length === 0) {
+            config = await getServerConfigSnapshot().catch(() => ({}));
+        }
 
         if (config.SERVER_TYPE) SERVER_TYPE = config.SERVER_TYPE;
         if (config.MAIN_SERVER_URL) MAIN_SERVER_URL = config.MAIN_SERVER_URL;
@@ -605,10 +637,58 @@ let triggerTimeout = null;
 let lastSyncTime = null;
 let lastPushTime = null;
 let lastPullTime = null;
+let syncInFlight = false;
+let syncRerunRequested = false;
+let lastPendingCountAt = 0;
+let lastPendingCountValue = 0;
+
+async function getServerConfigSnapshot() {
+    const res = await pool.query('SELECT key, value FROM server_config');
+    const config = {};
+    res.rows.forEach((r) => {
+        config[r.key] = r.value;
+    });
+    return config;
+}
+
+function shouldForceSyncSchemaEnsure() {
+    const raw = String(process.env.SYNC_FORCE_SCHEMA_ENSURE || '').trim().toLowerCase();
+    return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+async function ensureSyncRuntimeSchema(config = {}) {
+    if (!shouldForceSyncSchemaEnsure() && config[SYNC_SCHEMA_READY_KEY] === SYNC_SCHEMA_READY_VERSION) {
+        console.log('[Sync] Schema already verified; skipping startup schema sweep.');
+        return;
+    }
+
+    await ensureSyncUpdatedAtSchema();
+    await ensureSyncIdSchema();
+    await ensureSyncConflictIndexes();
+    await ensureDeleteTrackingSchema();
+
+    await setServerConfigValue(SYNC_SCHEMA_READY_KEY, SYNC_SCHEMA_READY_VERSION).catch((e) => {
+        console.warn('[Sync] Could not persist schema version marker:', e.message);
+    });
+}
+
+function installTimer(callback, delayMs) {
+    const timer = setTimeout(callback, Math.max(0, delayMs));
+    if (typeof timer.unref === 'function') timer.unref();
+    return timer;
+}
+
+function scheduleSyncCycle(delayMs = SYNC_INTERVAL_MS) {
+    if (syncTimer) clearTimeout(syncTimer);
+    syncTimer = installTimer(() => {
+        syncTimer = null;
+        runSyncCycle().catch((e) => console.error('[Sync] Scheduled cycle failed:', e));
+    }, delayMs);
+}
 
 function startSchedule() {
-    console.log('[Sync] Starting Schedule...');
-    setTimeout(runSyncCycle, 10000);
+    console.log(`[Sync] Starting Schedule. Interval: ${Math.round(SYNC_INTERVAL_MS / 1000)}s, first run: ${Math.round(SYNC_INITIAL_DELAY_MS / 1000)}s`);
+    scheduleSyncCycle(SYNC_INITIAL_DELAY_MS);
 }
 
 function triggerSync() {
@@ -617,15 +697,33 @@ function triggerSync() {
         return;
     }
     console.log('[Sync] Trigger requested...');
+    if (syncInFlight) {
+        syncRerunRequested = true;
+        console.log('[Sync] Cycle already running; queued one follow-up cycle.');
+        return;
+    }
     if (triggerTimeout) clearTimeout(triggerTimeout);
     triggerTimeout = setTimeout(() => {
-        console.log('[Sync] Triggering Immediate Cycle!');
-        runSyncCycle();
-    }, 2000);
+        triggerTimeout = null;
+        console.log('[Sync] Triggering Cycle!');
+        runSyncCycle().catch((e) => console.error('[Sync] Triggered cycle failed:', e));
+    }, SYNC_TRIGGER_DEBOUNCE_MS);
+    if (typeof triggerTimeout.unref === 'function') triggerTimeout.unref();
 }
 
 async function runSyncCycle() {
     if (!pool || !LOCAL_FACTORY_ID || !MAIN_SERVER_URL) return;
+    if (syncInFlight) {
+        syncRerunRequested = true;
+        console.log('[Sync] Cycle already running; queued one follow-up cycle.');
+        return;
+    }
+    if (triggerTimeout) {
+        clearTimeout(triggerTimeout);
+        triggerTimeout = null;
+    }
+
+    syncInFlight = true;
     console.log('[Sync] Running Cycle...');
     lastSyncTime = new Date();
     const cycleStats = {
@@ -637,36 +735,40 @@ async function runSyncCycle() {
     };
 
     try {
-        if (TABLES_TO_PUSH.length > 0) {
-            const pushStats = await pushChanges();
-            const deletePushStats = await pushDeletionChanges();
-            cycleStats.failed += pushStats.failed + deletePushStats.failed;
-            cycleStats.deleted += deletePushStats.deleted;
-            lastPushTime = new Date();
+        try {
+            if (TABLES_TO_PUSH.length > 0) {
+                const pushStats = await pushChanges();
+                const deletePushStats = await pushDeletionChanges();
+                cycleStats.failed += pushStats.failed + deletePushStats.failed;
+                cycleStats.deleted += deletePushStats.deleted;
+                lastPushTime = new Date();
+            }
+            if (TABLES_TO_PULL.length > 0) {
+                const pullStats = await pullChanges();
+                const deletePullStats = await pullDeletionChanges();
+                cycleStats.created += pullStats.created;
+                cycleStats.updated += pullStats.updated;
+                cycleStats.failed += pullStats.failed + deletePullStats.failed;
+                cycleStats.deleted += deletePullStats.deleted;
+                lastPullTime = new Date();
+            }
+            cycleStats.pending = await getCachedPendingChanges();
+            await setServerConfigValue('LAST_SYNC', await getDatabaseNowIso());
+            await setSyncAuditState(cycleStats);
+        } catch (e) {
+            console.error('[Sync] Cycle Failed:', e);
+            cycleStats.failed += 1;
+            cycleStats.pending = await getCachedPendingChanges().catch(() => cycleStats.pending);
+            await setSyncAuditState(cycleStats).catch((err) => {
+                console.error('[Sync] Failed to persist sync audit state:', err.message);
+            });
         }
-        if (TABLES_TO_PULL.length > 0) {
-            const pullStats = await pullChanges();
-            const deletePullStats = await pullDeletionChanges();
-            cycleStats.created += pullStats.created;
-            cycleStats.updated += pullStats.updated;
-            cycleStats.failed += pullStats.failed + deletePullStats.failed;
-            cycleStats.deleted += deletePullStats.deleted;
-            lastPullTime = new Date();
-        }
-        cycleStats.pending = await countPendingChanges();
-        await setServerConfigValue('LAST_SYNC', await getDatabaseNowIso());
-        await setSyncAuditState(cycleStats);
-    } catch (e) {
-        console.error('[Sync] Cycle Failed:', e);
-        cycleStats.failed += 1;
-        cycleStats.pending = await countPendingChanges().catch(() => cycleStats.pending);
-        await setSyncAuditState(cycleStats).catch((err) => {
-            console.error('[Sync] Failed to persist sync audit state:', err.message);
-        });
+    } finally {
+        syncInFlight = false;
+        const followUpRequested = syncRerunRequested;
+        syncRerunRequested = false;
+        scheduleSyncCycle(followUpRequested ? SYNC_TRIGGER_DEBOUNCE_MS : SYNC_INTERVAL_MS);
     }
-
-    if (syncTimer) clearTimeout(syncTimer);
-    syncTimer = setTimeout(runSyncCycle, SYNC_INTERVAL_MS);
 }
 
 // Push all changed rows for a table to MAIN in batches, paging through the full backlog.
@@ -1528,6 +1630,8 @@ async function ensureSyncConflictIndexes() {
 }
 
 async function tableExistsPublic(table) {
+    if (tableExistsCache.has(table)) return tableExistsCache.get(table);
+
     const result = await pool.query(`
         SELECT 1
         FROM information_schema.tables
@@ -1535,7 +1639,9 @@ async function tableExistsPublic(table) {
         LIMIT 1
     `, [table]);
 
-    return result.rows.length > 0;
+    const exists = result.rows.length > 0;
+    tableExistsCache.set(table, exists);
+    return exists;
 }
 
 async function getTableColumns(table) {
@@ -1552,6 +1658,8 @@ async function getTableColumns(table) {
 }
 
 async function tableHasColumn(table, column) {
+    if (tableExistsCache.get(table) === false) return false;
+
     const columns = await getTableColumns(table);
     if (columns.size > 0) return columns.has(column);
 
@@ -1563,6 +1671,22 @@ async function tableHasColumn(table, column) {
     `, [table, column]);
 
     return result.rows.length > 0;
+}
+
+async function getCachedPendingChanges() {
+    const now = Date.now();
+    if (
+        PENDING_COUNT_INTERVAL_MS > 0
+        && lastPendingCountAt
+        && now - lastPendingCountAt < PENDING_COUNT_INTERVAL_MS
+    ) {
+        return lastPendingCountValue;
+    }
+
+    const pending = await countPendingChanges();
+    lastPendingCountAt = now;
+    lastPendingCountValue = pending;
+    return pending;
 }
 
 async function countPendingChanges() {
@@ -1617,7 +1741,16 @@ function setRuntimeForTests(patch = {}) {
     if (Object.prototype.hasOwnProperty.call(patch, 'MAIN_SERVER_URL')) MAIN_SERVER_URL = patch.MAIN_SERVER_URL;
     if (Object.prototype.hasOwnProperty.call(patch, 'LOCAL_FACTORY_ID')) LOCAL_FACTORY_ID = patch.LOCAL_FACTORY_ID;
     if (Object.prototype.hasOwnProperty.call(patch, 'API_KEY')) API_KEY = patch.API_KEY;
+    if (syncTimer) clearTimeout(syncTimer);
+    if (triggerTimeout) clearTimeout(triggerTimeout);
+    syncTimer = null;
+    triggerTimeout = null;
+    syncInFlight = false;
+    syncRerunRequested = false;
+    lastPendingCountAt = 0;
+    lastPendingCountValue = 0;
     tableColumnCache.clear();
+    tableExistsCache.clear();
 }
 
 module.exports = {
