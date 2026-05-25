@@ -5170,7 +5170,7 @@
       // resets session.activeJob, and hides the DPR form mid-entry.
       // Only refresh the recent-entries panel (non-disruptive) unless a modal is open.
       var dprForm = document.getElementById('dpr-form');
-      var formVisible = dprForm && dprForm.style && dprForm.style.display !== 'none';
+      var formVisible = dprForm && !dprForm.classList.contains('hidden');
       if (!formVisible && typeof loadRecent === 'function') {
         loadRecent();
       }
