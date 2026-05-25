@@ -18,7 +18,56 @@ const router = express.Router();
 const DEFAULT_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 min — frequent enough to get updates, won't restart server mid-shift
 const DEFAULT_STARTUP_DELAY_MS = 30000;
 const RUNTIME_RELEASE_PATH = path.join(__dirname, '..', 'runtime-release.json');
+const BACKEND_DIR = path.resolve(PACKAGE_ROOT, 'BACKEND');
 const CLIENT_BRIDGE_DIR = path.resolve(PACKAGE_ROOT, 'CLIENT_BRIDGE');
+
+function getDependencySignature(rootDir) {
+  const hash = crypto.createHash('sha256');
+  for (const fileName of ['package.json', 'package-lock.json']) {
+    const filePath = path.join(rootDir, fileName);
+    if (fs.existsSync(filePath)) {
+      hash.update(fileName);
+      hash.update(fs.readFileSync(filePath));
+    }
+  }
+  return hash.digest('hex');
+}
+
+function runProductionNpmInstall(label, cwd) {
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const result = spawnSync(npm, ['install', '--production', '--no-audit'], {
+    cwd,
+    stdio: 'inherit',
+    shell: false
+  });
+
+  if (result.status !== 0) {
+    console.error(`[Updater] ${label} npm install failed (exit code ${result.status}).`);
+    return false;
+  }
+
+  console.log(`[Updater] ${label} deps installed successfully.`);
+  return true;
+}
+
+function ensureBackendDeps() {
+  const pkgJson = path.join(BACKEND_DIR, 'package.json');
+  if (!fs.existsSync(pkgJson)) return true;
+
+  const nodeModulesDir = path.join(BACKEND_DIR, 'node_modules');
+  const markerPath = path.join(nodeModulesDir, '.jms-backend-deps.sha256');
+  const signature = getDependencySignature(BACKEND_DIR);
+  const currentMarker = fs.existsSync(markerPath) ? fs.readFileSync(markerPath, 'utf8').trim() : '';
+
+  if (fs.existsSync(nodeModulesDir) && currentMarker === signature) return true;
+
+  console.log('[Updater] BACKEND dependencies changed/missing — running npm install...');
+  if (!runProductionNpmInstall('BACKEND', BACKEND_DIR)) return false;
+
+  fs.mkdirSync(nodeModulesDir, { recursive: true });
+  fs.writeFileSync(markerPath, signature, 'utf8');
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // Self-heal CLIENT_BRIDGE node_modules (ws and friends).
@@ -43,18 +92,7 @@ function ensureClientBridgeDeps() {
   if (!fs.existsSync(pkgJson)) return; // no CLIENT_BRIDGE on this machine
 
   console.log('[Updater] CLIENT_BRIDGE node_modules missing — running npm install...');
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const result = spawnSync(npm, ['install', '--production', '--no-audit'], {
-    cwd: CLIENT_BRIDGE_DIR,
-    stdio: 'inherit',
-    shell: false
-  });
-
-  if (result.status !== 0) {
-    console.error(`[Updater] CLIENT_BRIDGE npm install failed (exit code ${result.status}).`);
-  } else {
-    console.log('[Updater] CLIENT_BRIDGE deps installed successfully.');
-  }
+  runProductionNpmInstall('CLIENT_BRIDGE', CLIENT_BRIDGE_DIR);
 }
 
 let pool = null;
@@ -246,6 +284,7 @@ async function init(dbPool) {
 
   // Heal CLIENT_BRIDGE deps on every BACKEND boot — works even if old supervisor
   // is still running in memory (pre-fix servers auto-heal on next BACKEND restart).
+  ensureBackendDeps();
   ensureClientBridgeDeps();
 
   const serverType = getConfigValue('SERVER_TYPE', 'MAIN');
@@ -380,9 +419,11 @@ async function downloadAndApply(mainUrl, remote) {
     const zip = new AdmZip(tmpPath);
     zip.extractAllTo(packageRoot, true);
 
-    // After extracting new CLIENT_BRIDGE source files, ensure ws is installed
-    // before we restart.  Critical for servers with old supervisors in memory —
-    // the supervisor won't run its own ensureClientBridgeDeps, so we do it here.
+    // After extracting new files, install any newly-added BACKEND/CLIENT_BRIDGE
+    // packages before restart. Old supervisors may still be running in memory.
+    if (!ensureBackendDeps()) {
+      throw new Error('BACKEND npm install failed after update extraction');
+    }
     ensureClientBridgeDeps();
 
     await setUpdaterState({
