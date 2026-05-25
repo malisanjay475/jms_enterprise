@@ -1121,6 +1121,12 @@ async function upsertData(table, data) {
                                         await client.query('RELEASE SAVEPOINT sync_legacy_notif');
                                     } catch (cleanupErr) {
                                         console.error('[Sync] Legacy savepoint rollback failed:', cleanupErr.message);
+                                        // Re-throw so the outer catch can ROLLBACK the transaction.
+                                        // Without this, the transaction stays in an aborted state and
+                                        // every subsequent row in the batch fails with
+                                        // "current transaction is aborted, commands ignored until
+                                        // end of transaction block".
+                                        throw cleanupErr;
                                     }
                                 }
                                 console.error('[Sync] Legacy notification conflict fallback failed:', legacyErr.message);
