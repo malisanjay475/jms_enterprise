@@ -15,7 +15,7 @@ const {
 
 const router = express.Router();
 
-const DEFAULT_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 min — was 60 min, too slow for factory deployments
+const DEFAULT_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 min — frequent enough to get updates, won't restart server mid-shift
 const DEFAULT_STARTUP_DELAY_MS = 30000;
 const RUNTIME_RELEASE_PATH = path.join(__dirname, '..', 'runtime-release.json');
 const CLIENT_BRIDGE_DIR = path.resolve(PACKAGE_ROOT, 'CLIENT_BRIDGE');
