@@ -5152,10 +5152,28 @@
     });
 
     /* ---- Live Tab Sync -------------------------------------------------- */
+    // Throttle: ignore events that arrive within 30 s of the last refresh.
+    // Rapid DPR saves by coworkers used to fire loadMachines() every few seconds,
+    // clearing the machine dropdown and resetting the active job — very disruptive.
+    var _liveRefreshLastAt = 0;
+    var _LIVE_REFRESH_MIN_MS = 30000; // at most once every 30 s
+
     window.addEventListener('jpsms:live-refresh', function (e) {
       var mod = (e.detail || {}).module;
       if (['planning', 'dpr', 'qc'].indexOf(mod) === -1) return;
-      if (typeof loadMachines === 'function') loadMachines();
+
+      var now = Date.now();
+      if (now - _liveRefreshLastAt < _LIVE_REFRESH_MIN_MS) return; // throttle
+      _liveRefreshLastAt = now;
+
+      // Do NOT call loadMachines() — it clears the machine dropdown to "Loading…",
+      // resets session.activeJob, and hides the DPR form mid-entry.
+      // Only refresh the recent-entries panel (non-disruptive) unless a modal is open.
+      var dprForm = document.getElementById('dpr-form');
+      var formVisible = dprForm && dprForm.style && dprForm.style.display !== 'none';
+      if (!formVisible && typeof loadRecent === 'function') {
+        loadRecent();
+      }
     });
     /* --------------------------------------------------------------------- */
   </script>

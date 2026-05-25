@@ -12657,12 +12657,20 @@
   })();
 
   /* ---- Live Tab Sync ---------------------------------------------------- */
+  // Throttle: at most once every 30 s — prevents rapid-fire coworker saves from
+  // reloading the plan board repeatedly and disrupting the current view.
+  var _planLiveRefreshLastAt = 0;
+  var _PLAN_LIVE_REFRESH_MIN_MS = 30000;
+
   window.addEventListener('jpsms:live-refresh', function (e) {
     var mod = (e.detail || {}).module;
     if (mod !== 'planning' && mod !== 'dpr') return;
     // Don't reload if the Create Plan modal is open — would disrupt an in-progress plan
     var cpModal = document.getElementById('newCreatePlanModal');
     if (cpModal && cpModal.classList && cpModal.classList.contains('show')) return;
+    var now = Date.now();
+    if (now - _planLiveRefreshLastAt < _PLAN_LIVE_REFRESH_MIN_MS) return; // throttle
+    _planLiveRefreshLastAt = now;
     if (typeof window.loadMasterPlan === 'function') window.loadMasterPlan();
   });
   /* ----------------------------------------------------------------------- */
