@@ -1004,6 +1004,7 @@
                             lines[lineName].forEach(machine => {
                                 let machineRowHtml = ''; // Shadow inner HTML for buffering
                                 let machineGood = 0, machineEst = 0;
+                                const machineEntryTypes = new Set(); // track special entry_types for View Filter
                                 // Determine Shifts for this Machine Row(s)
                                 const shiftsToRender = (shiftMode === 'Both') ? ['Day', 'Night'] : [shiftMode];
 
@@ -1298,6 +1299,7 @@
                                              const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial', 'PowerCut'].includes(e.entry_type));
 
                                              if (spEntry) {
+                                                 machineEntryTypes.add(spEntry.entry_type); // collect for View Filter
                                                  if (spEntry.entry_type === 'Maintenance') activeOverrideStatus = '🏭 Machine Maintenance';
                                                  else if (spEntry.entry_type.includes('MouldChange')) activeOverrideStatus = 'Mould Changeover';
                                                  else if (spEntry.entry_type === 'ManPowerShortage') activeOverrideStatus = 'Man Power Shortage';
@@ -1735,7 +1737,7 @@
                                 }
 
                                 if (flatMode) {
-                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine });
+                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0 });
                                 } else {
                                     machineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine });
                                 }
@@ -1790,8 +1792,25 @@
                         }); // END lineName loop
 
                         if (flatMode) {
-                            // Flat mode: render all machines globally sorted by efficiency ascending (lowest first)
-                            globalMachineBuffer.sort((a, b) => a.eff - b.eff);
+                            // Apply View Filter — keep only machines matching the selected filter
+                            let filteredMachineBuffer = globalMachineBuffer;
+                            if (filterMode === 'LowEff') {
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.eff > 0 && m.eff < 75);
+                            } else if (filterMode === 'ManPowerShortage') {
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.entryTypes.has('ManPowerShortage'));
+                            } else if (filterMode === 'MouldMaintenance') {
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.entryTypes.has('MouldMaintenance'));
+                            } else if (filterMode === 'PowerCut') {
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.entryTypes.has('PowerCut'));
+                            } else if (filterMode === 'NoPlan') {
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.entryTypes.has('NoPlan') || !m.hasEntries);
+                            } else if (filterMode === 'MachineMaintenance') {
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.entryTypes.has('Maintenance'));
+                            } else if (filterMode === 'MouldTrial') {
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.entryTypes.has('MouldTrial'));
+                            }
+                            // Sort filtered result by efficiency ascending (lowest first)
+                            filteredMachineBuffer.sort((a, b) => a.eff - b.eff);
                             masterHtml += `
                                 <div style="margin-bottom:24px; background:white; border:1px solid #cbd5e1; border-radius:0 0 12px 12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-top:-1px">
                                     <div style="overflow-x:auto">
@@ -1803,7 +1822,7 @@
                                                 <col style="width:140px; min-width:140px">
                                             </colgroup>
                                             <tbody>
-                                                ${globalMachineBuffer.map(m => m.html).join('')}
+                                                ${filteredMachineBuffer.map(m => m.html).join('')}
                                             </tbody>
                                         </table>
                                     </div>
