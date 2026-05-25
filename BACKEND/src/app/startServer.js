@@ -28,7 +28,15 @@ function createHttpsServerIfConfigured(app, config) {
     passphrase: config.https.pfxPassphrase || undefined
   }, app);
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    httpsServer.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.warn(`[HTTPS] Port ${httpsPort} already in use — HTTPS server skipped, HTTP only. Server will NOT crash.`);
+        resolve(null);
+      } else {
+        reject(err);
+      }
+    });
     httpsServer.listen(httpsPort, '0.0.0.0', () => resolve({ httpsServer, httpsPort }));
   });
 }
