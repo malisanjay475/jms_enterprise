@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const AdmZip = require('adm-zip');
 
 // In development:  __dirname = .../jms_enterprise/BACKEND/src/local-servers
@@ -91,6 +92,7 @@ function addDirectory(zip, sourceDir, zipDir) {
 function buildBackendEnv({ localServer, nodeKey, mainServerUrl, syncApiKey }) {
   return [
     'NODE_ENV=production',
+    `JWT_SECRET=${crypto.randomBytes(32).toString('hex')}`,
     'PORT=3001',
     'HTTPS_PORT=3444',
     '',
@@ -329,6 +331,7 @@ function buildInstallerJs() {
     '',
     "const fs = require('fs');",
     "const path = require('path');",
+    "const crypto = require('crypto');",
     "const readline = require('readline');",
     "const { spawnSync } = require('child_process');",
     '',
@@ -353,6 +356,7 @@ function buildInstallerJs() {
     'function saveEnv(filePath, envMap) {',
     '  const lines = [',
     "    'NODE_ENV=' + (envMap.get('NODE_ENV') || 'production'),",
+    "    'JWT_SECRET=' + (envMap.get('JWT_SECRET') || crypto.randomBytes(32).toString('hex')),",
     "    'PORT=' + (envMap.get('PORT') || '3001'),",
     "    'HTTPS_PORT=' + (envMap.get('HTTPS_PORT') || '3444'),",
     "    '',",
