@@ -1245,6 +1245,32 @@ async function upsertData(table, data) {
             }
 
             await client.query('COMMIT');
+
+            // After committing plan_board upserts, enforce the invariant that only
+            // ONE plan per machine can be RUNNING at a time.  A LOCAL server may
+            // have started a plan independently (e.g. via DPR entry) and pushed it
+            // here while MAIN already had a different plan RUNNING on the same
+            // machine.  Keep the most-recently-updated Running plan per machine and
+            // stop the rest.  This runs outside the batch transaction so a failure
+            // here never rolls back the data already committed.
+            if (table === 'plan_board') {
+                try {
+                    await pool.query(`
+                        UPDATE plan_board
+                           SET status = 'Stopped', updated_at = NOW()
+                         WHERE UPPER(status) = 'RUNNING'
+                           AND id NOT IN (
+                               SELECT DISTINCT ON (machine) id
+                                 FROM plan_board
+                                WHERE UPPER(status) = 'RUNNING'
+                                ORDER BY machine, updated_at DESC NULLS LAST
+                           )
+                    `);
+                } catch (dedupErr) {
+                    console.warn('[Sync] plan_board RUNNING dedup failed (non-fatal):', dedupErr.message);
+                }
+            }
+
             return stats;
         } catch (e) {
             await client.query('ROLLBACK');
