@@ -7053,7 +7053,10 @@
             const consumptionRatioQty = parseCpNumber(selectedMould?.consumptionRatioQty);
             const initialUseQty = requestedUseQty == null ? 0 : requestedUseQty;
             const useQty = Math.min(Math.max(initialUseQty, 0), remainingDefaultQty);
-            const planQty = consumptionRatioQty == null ? 0 : Number((useQty * consumptionRatioQty).toFixed(3));
+            const importedPlanQty = parseCpNumber(row.planQty ?? row.plan_qty);
+            const autoPlanQty = consumptionRatioQty == null ? 0 : Number((useQty * consumptionRatioQty).toFixed(3));
+            const requestedPlanQty = importedPlanQty == null ? autoPlanQty : importedPlanQty;
+            const planQty = Math.min(Math.max(requestedPlanQty, 0), reqQty || requestedPlanQty);
             remainingDefaultQty = Math.max(remainingDefaultQty - useQty, 0);
             const consumeFromWip = parseCpNumber(row.consumeFromWip ?? row.consume_from_wip) ?? Math.min(planQty, wipQty);
             return {
@@ -7100,10 +7103,11 @@
           };
           let cappedByReqQty = false;
           let cappedByBatchQty = false;
-          let missingConsumptionRatio = false;
+          let cappedByPlanQty = false;
 
           rows.forEach((row, index) => {
             const input = modal.querySelector(`.cp-colour-use-input[data-row-index="${index}"]`);
+            const planInput = modal.querySelector(`.cp-colour-plan-input[data-row-index="${index}"]`);
             const requestedUseQty = Math.max(0, parseCpNumber(input?.value) ?? 0);
             const rowReqQty = Math.max(0, parseCpNumber(row.mouldItemQty ?? row.reqQty) ?? 0);
             const ratio = parseCpNumber(row.consumptionRatioQty);
@@ -7118,17 +7122,23 @@
             if (cappedToReq < requestedUseQty) cappedByReqQty = true;
             if (cappedToBatch < cappedToReq) cappedByBatchQty = true;
             if (mouldKey) currentBatchQtyByMould.set(mouldKey, currentForMould + useQty);
-            if (useQty > 0 && (ratio == null || ratio <= 0)) missingConsumptionRatio = true;
             if (input && String(parseCpNumber(input.value) ?? '') !== String(useQty)) {
               input.value = String(useQty);
             }
+            const requestedPlanQty = Math.max(0, parseCpNumber(planInput?.value) ?? 0);
+            const rowPlanLimit = rowReqQty > 0 ? rowReqQty : requestedPlanQty;
+            const planQty = Math.min(requestedPlanQty, rowPlanLimit);
+            if (planQty < requestedPlanQty) cappedByPlanQty = true;
+            if (planInput && String(parseCpNumber(planInput.value) ?? '') !== String(planQty)) {
+              planInput.value = String(planQty);
+            }
             row.useQty = useQty;
-            row.planQty = ratio == null || ratio <= 0 ? 0 : Number((useQty * ratio).toFixed(3));
+            row.planQty = planQty;
             row.reqBalQty = Math.max((row.reqQty || 0) - row.planQty, 0);
             row.consumeFromWip = Math.min(row.planQty, Math.max(0, parseCpNumber(row.wipQty) ?? 0));
             row.wipBalQty = Math.max((row.wipQty || 0) - row.consumeFromWip, 0);
 
-            ['consumptionRatioQty', 'reqBalQty', 'consumeFromWip', 'wipBalQty', 'planQty'].forEach((key) => {
+            ['consumptionRatioQty', 'reqBalQty', 'consumeFromWip', 'wipBalQty'].forEach((key) => {
               const cell = modal.querySelector(`[data-colour-cell="${key}-${index}"]`);
               if (cell) cell.textContent = row[key] == null ? 'Fill in Mould Master' : formatCpQty(row[key]);
             });
@@ -7147,7 +7157,7 @@
           const rowsWithPlan = rows.filter((row) => Number(row.planQty || 0) > 0);
           const missingMachine = rowsWithPlan.some((row) => !String(row.selectedMachine || '').trim());
           const missingBatchQty = targetBatchQty <= 0;
-          const canSavePlan = rowsWithPlan.length > 0 && !missingBatchQty && !missingMachine && !missingConsumptionRatio && !exceedsOrderQty;
+          const canSavePlan = rowsWithPlan.length > 0 && !missingBatchQty && !missingMachine && !exceedsOrderQty;
           const currentPayloads = canSavePlan ? buildCpColourPlanPayloads() : [];
           const batchStatus = getCpBatchCompleteness(currentPayloads);
           const canSaveThisPlan = canSavePlan && !batchStatus.exceedsBatchQty;
@@ -7163,10 +7173,10 @@
             } else if (exceedsOrderQty) {
               const overBy = totals.planQty - planQtyLimit;
               footer.textContent = `Total Plan Qty exceeds Mould Item Balance Qty by ${formatCpQty(overBy)} (Limit ${formatCpQty(planQtyLimit || 0)}).`;
-            } else if (missingConsumptionRatio) {
-              footer.textContent = 'Consumption Ratio Qty is missing. Fill it first in Mould Master for selected mould(s).';
+            } else if (cappedByPlanQty) {
+              footer.textContent = 'Plan Qty cannot be more than Mould Item Qty for a colour row.';
             } else if (cappedByReqQty) {
-              footer.textContent = 'Batch Qty cannot create Plan Qty more than Mould Item Qty for a colour row.';
+              footer.textContent = 'Batch Qty cannot be more than Mould Item Qty for a colour row.';
             } else if (cappedByBatchQty) {
               footer.textContent = `One selected mould reached the per-mould Batch Qty limit of ${formatCpQty(targetBatchQty)}.`;
             } else if (missingMachine) {
@@ -7372,7 +7382,11 @@
               machineMap: window.cpVariantMachineMap
             });
             window.cpColourPlanRows = colourRows;
-            const mouldBalanceQty = parseCpNumber(familySnapshot.remainingQty);
+            const colourMouldItemQty = colourRows.reduce((sum, row) => sum + Math.max(0, parseCpNumber(row.mouldItemQty ?? row.reqQty) ?? 0), 0);
+            const alreadyPlannedQty = Math.max(0, parseCpNumber(familySnapshot.adjustedPlannedQty) ?? 0);
+            const colourBalanceQty = colourMouldItemQty > 0 ? Math.max(colourMouldItemQty - alreadyPlannedQty, 0) : 0;
+            const familyBalanceQty = Math.max(0, parseCpNumber(familySnapshot.remainingQty) ?? 0);
+            const mouldBalanceQty = Math.max(familyBalanceQty, colourBalanceQty);
             modal.dataset.planQtyLimit = String(mouldBalanceQty ?? '');
             const wipDate = colourPayload?.meta?.wipStockDate ? formatCpDate(colourPayload.meta.wipStockDate) : '-';
             const activeBatchQty = getCpActiveBatchQty();
@@ -7465,7 +7479,9 @@
                           <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:800; font-size:0.82rem">${esc(formatCpQty(row.wipQty))}</td>
                           <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-size:0.82rem" data-colour-cell="consumeFromWip-${index}">${esc(formatCpQty(row.consumeFromWip))}</td>
                           <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:#0f766e; font-weight:800; font-size:0.82rem" data-colour-cell="wipBalQty-${index}">${esc(formatCpQty(row.wipBalQty))}</td>
-                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:900; font-size:0.82rem" data-colour-cell="planQty-${index}">${esc(formatCpQty(row.planQty))}</td>
+                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9; text-align:right">
+                            <input class="cp-colour-plan-input" data-row-index="${index}" type="number" min="0" step="1" max="${esc(row.reqQty || '')}" value="${esc(row.planQty || '')}" style="width:110px; border:1px solid #93c5fd; border-radius:8px; padding:5px 8px; text-align:right; font-weight:900; color:#0f172a; font-size:0.85rem">
+                          </td>
                           <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9">
                             <select class="cp-colour-mould-select" data-row-index="${index}" onchange="window.onCpColourMouldChange(${index}, this.value)" style="width:200px; border:1px solid #bfdbfe; border-radius:8px; padding:5px 8px; font-weight:800; font-size:0.82rem">
                               ${(row.availableMoulds || []).map((m) => `<option value="${esc(m.code)}" ${m.code === row.selectedMouldCode ? 'selected' : ''}>${esc(`${m.code}${m.mouldingSqn ? ` (Sqn ${m.mouldingSqn})` : ''}`)}</option>`).join('')}
@@ -7498,6 +7514,9 @@
             `;
 
             modal.querySelectorAll('.cp-colour-use-input').forEach((input) => {
+              input.addEventListener('input', recalcCpColourPlanModal);
+            });
+            modal.querySelectorAll('.cp-colour-plan-input').forEach((input) => {
               input.addEventListener('input', recalcCpColourPlanModal);
             });
             colourRows.forEach((row, index) => renderCpColourMachineOptions(modal, row, index));
