@@ -6888,8 +6888,9 @@ app.post('/api/job/complete', async (req, res) => {
       if (nextJobs.length > 0) {
         const nextJob = nextJobs[0];
 
-        // Stop any other running plans on this machine first to prevent overlaps
-        await q(`UPDATE plan_board SET status = 'Stopped' WHERE machine = $1 AND status = 'Running'`, [machine]);
+        // Stop any other running plans on this machine first to prevent overlaps.
+        // Use UPPER() so 'Running', 'RUNNING', etc. are all matched.
+        await q(`UPDATE plan_board SET status = 'Stopped', updated_at = NOW() WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND UPPER(status) = 'RUNNING'`, [machine]);
 
         await q(`
           UPDATE plan_board 
@@ -7867,11 +7868,11 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       FROM moulds mm
       WHERE ($2::int IS NULL OR mm.factory_id = $2 OR mm.factory_id IS NULL)
         AND (
-          TRIM(COALESCE(mm.mould_number, '')) = TRIM(COALESCE(r.mould_no, ''))
-          OR regexp_replace(TRIM(COALESCE(mm.mould_number, '')), '\\s+\\d+$', '') = regexp_replace(TRIM(COALESCE(r.mould_no, '')), '\\s+\\d+$', '')
+          LOWER(TRIM(COALESCE(mm.mould_number, ''))) = LOWER(TRIM(COALESCE(r.mould_no, '')))
+          OR regexp_replace(LOWER(TRIM(COALESCE(mm.mould_number, ''))), '\\s+\\d+$', '') = regexp_replace(LOWER(TRIM(COALESCE(r.mould_no, ''))), '\\s+\\d+$', '')
         )
       ORDER BY
-        CASE WHEN TRIM(COALESCE(mm.mould_number, '')) = TRIM(COALESCE(r.mould_no, '')) THEN 0 ELSE 1 END,
+        CASE WHEN LOWER(TRIM(COALESCE(mm.mould_number, ''))) = LOWER(TRIM(COALESCE(r.mould_no, ''))) THEN 0 ELSE 1 END,
         TRIM(COALESCE(mm.mould_number, ''))
       LIMIT 1
     ) m ON true
@@ -8966,6 +8967,12 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
         scopedResult = primaryBookedFor15Days ? secondaryRows : primaryRows;
       } else if (secondaryRows.length > 0) {
         scopedResult = secondaryRows;
+      } else if (primaryMachineKey || secondaryMachineKeys.length > 0) {
+        // A preferred machine was specified but didn't match any machine name in the machines
+        // table (e.g. case/formatting mismatch between moulds master and machines master).
+        // Fall back to returning ALL compatible machines so the user can still plan,
+        // rather than showing an empty dropdown.
+        scopedResult = result;
       } else {
         scopedResult = [];
       }
@@ -9303,11 +9310,26 @@ app.post('/api/planning/start', async (req, res) => {
     if (!planRes.length) return res.json({ ok: false, error: 'Plan not found' });
     const plan = planRes[0];
 
-    // 2. Validate Machine Status (Optional but good) - For now just force run
-    // Ideally we check if machine is already running something else, but Master Plan allows override usually.
+    // 2. Auto-stop any other Running plans on this machine first.
+    //    Using UPPER() so 'Running', 'RUNNING' etc. are all caught.
+    const stopped = await q(
+      `UPDATE plan_board
+          SET status = 'Stopped', updated_at = NOW()
+        WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
+          AND UPPER(status) = 'RUNNING'
+          AND id != $2
+        RETURNING id, order_no`,
+      [plan.machine, rowId]
+    );
+    for (const s of stopped) {
+      await q(
+        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SWAP_STOP', $2, 'System')",
+        [s.id, JSON.stringify({ reason: `Auto-stopped for Plan ${rowId}`, by_plan_id: rowId })]
+      );
+    }
 
-    // 3. Update 
-    await q("UPDATE plan_board SET status = 'Running', updated_at = NOW() WHERE id = $1", [rowId]);
+    // 3. Mark this plan as Running
+    await q("UPDATE plan_board SET status = 'Running', start_date = COALESCE(start_date, NOW()), updated_at = NOW() WHERE id = $1", [rowId]);
 
     // 4. Log
     await q(
@@ -18570,7 +18592,7 @@ RETURNING *
       await q("UPDATE plan_board SET status = 'Running', start_date = NOW(), updated_at = NOW() WHERE plan_id = $1", [nextJob.plan_id]);
 
       // Stop any other accidentally overlapping active jobs on same machine
-      await q("UPDATE plan_board SET status = 'Stopped', updated_at = NOW() WHERE machine = $1 AND plan_id != $2 AND status = 'Running'", [machine, nextJob.plan_id]);
+      await q("UPDATE plan_board SET status = 'Stopped', updated_at = NOW() WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND plan_id != $2 AND UPPER(status) = 'RUNNING'", [machine, nextJob.plan_id]);
 
       // Log auto-start
       await q(

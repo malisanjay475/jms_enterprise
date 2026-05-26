@@ -446,8 +446,11 @@ router.post('/push', async (req, res) => {
         }
         res.json({ ok: true, rows: normalized.length, stats, partialFailures: stats.failed > 0 });
     } catch (e) {
-        console.error('[Sync] Push Receive Error:', e);
-        res.status(500).json({ error: e.message });
+        // upsertData should not throw any more (it now returns failed stats), but
+        // keep this as a last-resort safety net. Return 200 so the factory's
+        // LAST_PUSH watermark can still advance — a 500 freezes ALL pushes forever.
+        console.error('[Sync] Push Receive Error (safety-net catch):', e.message);
+        res.json({ ok: true, rows: 0, stats: { created: 0, updated: 0, failed: 0 }, partialFailures: true });
     }
 });
 
@@ -1242,6 +1245,32 @@ async function upsertData(table, data) {
             }
 
             await client.query('COMMIT');
+
+            // After committing plan_board upserts, enforce the invariant that only
+            // ONE plan per machine can be RUNNING at a time.  A LOCAL server may
+            // have started a plan independently (e.g. via DPR entry) and pushed it
+            // here while MAIN already had a different plan RUNNING on the same
+            // machine.  Keep the most-recently-updated Running plan per machine and
+            // stop the rest.  This runs outside the batch transaction so a failure
+            // here never rolls back the data already committed.
+            if (table === 'plan_board') {
+                try {
+                    await pool.query(`
+                        UPDATE plan_board
+                           SET status = 'Stopped', updated_at = NOW()
+                         WHERE UPPER(status) = 'RUNNING'
+                           AND id NOT IN (
+                               SELECT DISTINCT ON (machine) id
+                                 FROM plan_board
+                                WHERE UPPER(status) = 'RUNNING'
+                                ORDER BY machine, updated_at DESC NULLS LAST
+                           )
+                    `);
+                } catch (dedupErr) {
+                    console.warn('[Sync] plan_board RUNNING dedup failed (non-fatal):', dedupErr.message);
+                }
+            }
+
             return stats;
         } catch (e) {
             await client.query('ROLLBACK');
@@ -1255,8 +1284,16 @@ async function upsertData(table, data) {
                     throw e;
                 }
             } else {
-                console.error(`[Sync] Upsert Batch Error ${table}:`, e);
-                throw e;
+                // Do NOT re-throw non-deadlock errors. Instead, count all rows in
+                // this batch as failed and return stats so the caller (push endpoint)
+                // can return HTTP 200 with partialFailures=true.
+                //
+                // WHY: throwing here causes the push endpoint to return 500, which
+                // causes the factory server's LAST_PUSH to freeze indefinitely —
+                // blocking ALL tables, not just the one that failed. Returning stats
+                // lets LAST_PUSH advance so all other tables keep flowing.
+                console.error(`[Sync] Upsert Batch Error ${table} (returning failed stats, not throwing):`, e.message);
+                return { created: stats.created, updated: stats.updated, failed: stats.failed + data.length };
             }
         } finally {
             client.release();
