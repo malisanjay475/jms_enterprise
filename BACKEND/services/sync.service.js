@@ -413,8 +413,11 @@ router.post('/push', async (req, res) => {
         }
         res.json({ ok: true, rows: normalized.length, stats, partialFailures: stats.failed > 0 });
     } catch (e) {
-        console.error('[Sync] Push Receive Error:', e);
-        res.status(500).json({ error: e.message });
+        // upsertData should not throw any more (it now returns failed stats), but
+        // keep this as a last-resort safety net. Return 200 so the factory's
+        // LAST_PUSH watermark can still advance — a 500 freezes ALL pushes forever.
+        console.error('[Sync] Push Receive Error (safety-net catch):', e.message);
+        res.json({ ok: true, rows: 0, stats: { created: 0, updated: 0, failed: 0 }, partialFailures: true });
     }
 });
 
@@ -1153,8 +1156,16 @@ async function upsertData(table, data) {
                     throw e;
                 }
             } else {
-                console.error(`[Sync] Upsert Batch Error ${table}:`, e);
-                throw e;
+                // Do NOT re-throw non-deadlock errors. Instead, count all rows in
+                // this batch as failed and return stats so the caller (push endpoint)
+                // can return HTTP 200 with partialFailures=true.
+                //
+                // WHY: throwing here causes the push endpoint to return 500, which
+                // causes the factory server's LAST_PUSH to freeze indefinitely —
+                // blocking ALL tables, not just the one that failed. Returning stats
+                // lets LAST_PUSH advance so all other tables keep flowing.
+                console.error(`[Sync] Upsert Batch Error ${table} (returning failed stats, not throwing):`, e.message);
+                return { created: stats.created, updated: stats.updated, failed: stats.failed + data.length };
             }
         } finally {
             client.release();
