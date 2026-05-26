@@ -7528,7 +7528,8 @@
             const alreadyPlannedQty = Math.max(0, parseCpNumber(familySnapshot.adjustedPlannedQty) ?? 0);
             const colourBalanceQty = colourMouldItemQty > 0 ? Math.max(colourMouldItemQty - alreadyPlannedQty, 0) : 0;
             const familyBalanceQty = Math.max(0, parseCpNumber(familySnapshot.remainingQty) ?? 0);
-            const mouldBalanceQty = Math.max(familyBalanceQty, colourBalanceQty);
+            const positiveLimits = [familyBalanceQty, colourBalanceQty].filter((qty) => qty > 0);
+            const mouldBalanceQty = positiveLimits.length ? Math.min(...positiveLimits) : 0;
             modal.dataset.planQtyLimit = String(mouldBalanceQty ?? '');
             const wipDate = colourPayload?.meta?.wipStockDate ? formatCpDate(colourPayload.meta.wipStockDate) : '-';
             const activeBatchQty = getCpActiveBatchQty();
