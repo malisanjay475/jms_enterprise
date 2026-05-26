@@ -7179,7 +7179,7 @@
 
           const exceedsOrderQty = planQtyLimit != null && totals.planQty > planQtyLimit;
           const rowsWithPlan = rows.filter((row) => Number(row.planQty || 0) > 0);
-          const missingMachine = rowsWithPlan.some((row) => !String(row.selectedMachine || '').trim());
+          const missingMachine = rowsWithPlan.length > 0 && !cpSelectedMachine;
           const missingBatchQty = targetBatchQty <= 0;
           const canSavePlan = rowsWithPlan.length > 0 && !missingBatchQty && !missingMachine && !missingConsumptionRatio && !exceedsOrderQty;
           const currentPayloads = canSavePlan ? buildCpColourPlanPayloads() : [];
@@ -7204,7 +7204,7 @@
             } else if (cappedByBatchQty) {
               footer.textContent = `One selected mould reached the per-mould Batch Qty limit of ${formatCpQty(targetBatchQty)}.`;
             } else if (missingMachine) {
-              footer.textContent = `Select machine for each colour row with Batch Qty > 0 | Per mould limit: ${formatCpQty(targetBatchQty)}`;
+              footer.textContent = `Select a machine above to continue | Per mould Batch Qty limit: ${formatCpQty(targetBatchQty)}`;
             } else if (!batchStatus.complete) {
               footer.textContent = `${getCpBatchBlockMessage(currentPayloads)} Use Save Plan, then plan another variant only when balance remains.`;
             } else {
@@ -7218,23 +7218,126 @@
           }
         }
 
-        function renderCpColourMachineOptions(modal, row, rowIndex) {
-          const machineSelect = modal.querySelector(`.cp-colour-machine-select[data-row-index="${rowIndex}"]`);
-          if (!machineSelect) return;
-          const machines = Array.isArray(row.availableMachines) ? row.availableMachines : [];
-          machineSelect.innerHTML = machines.map((m) => {
-            const role = m.preferenceRole === 'PRIMARY' ? 'P' : (m.preferenceRole === 'SECONDARY' ? 'S' : 'M');
-            const available = m.isFree
-              ? 'AVL'
-              : (m.bookedUntil ? `BUSY ${formatCpMachineAvailability(m.bookedUntil)}` : 'BUSY');
-            return `<option value="${esc(m.machine)}">${esc(`${m.machine} [${role}] - ${available}`)}</option>`;
-          }).join('');
-          if (row.selectedMachine && machines.some((m) => m.machine === row.selectedMachine)) {
-            machineSelect.value = row.selectedMachine;
-          } else {
-            row.selectedMachine = machines[0]?.machine || '';
-            machineSelect.value = row.selectedMachine || '';
+        // Renders machine selection cards above the colour table.
+        // PRIMARY cards first, then SECONDARY, then COMPATIBLE — clicking one selects
+        // that machine for ALL colour rows and sets the global cpSelectedMachine.
+        function renderCpColourMachineCards(modal, colourRows) {
+          const cardsContainer = modal.querySelector('#cpColourMachineCards');
+          if (!cardsContainer) return;
+
+          // Union of all unique machines across every colour row's availableMachines list
+          const allMachines = [];
+          const seen = new Set();
+          (Array.isArray(colourRows) ? colourRows : []).forEach((row) => {
+            (Array.isArray(row.availableMachines) ? row.availableMachines : []).forEach((m) => {
+              if (m && m.machine && !seen.has(m.machine)) {
+                seen.add(m.machine);
+                allMachines.push(m);
+              }
+            });
+          });
+
+          // Sort: PRIMARY → SECONDARY → COMPATIBLE, then alpha
+          const roleOrder = { PRIMARY: 0, SECONDARY: 1, COMPATIBLE: 2 };
+          allMachines.sort((a, b) => {
+            const ra = roleOrder[a.preferenceRole] ?? 2;
+            const rb = roleOrder[b.preferenceRole] ?? 2;
+            if (ra !== rb) return ra - rb;
+            return String(a.machine || '').localeCompare(String(b.machine || ''));
+          });
+
+          cardsContainer.innerHTML = '';
+
+          if (!allMachines.length) {
+            cardsContainer.innerHTML = '<div style="color:#be123c; font-weight:700; font-size:0.82rem; background:#fff1f2; border:1px solid #fecdd3; border-radius:10px; padding:10px 14px">No machines found for this mould. Map a Primary Machine in Mould Master first.</div>';
+            return;
           }
+
+          allMachines.forEach((mac) => {
+            const isPrimary  = mac.preferenceRole === 'PRIMARY';
+            const isSecondary = mac.preferenceRole === 'SECONDARY';
+            const isFree = !!mac.isFree;
+
+            // Role styling
+            const roleBg     = isPrimary ? '#eff6ff' : isSecondary ? '#fff7ed' : '#f8fafc';
+            const roleBorder  = isPrimary ? '#bfdbfe' : isSecondary ? '#fed7aa' : '#e2e8f0';
+            const roleColor  = isPrimary ? '#1d4ed8' : isSecondary ? '#c2410c' : '#475569';
+            const roleLabel  = isPrimary ? 'PRIMARY'  : isSecondary ? 'SECONDARY' : 'MACHINE';
+
+            // Availability
+            const statusDot  = isFree ? '🟢' : '🔴';
+            const statusText = isFree ? 'AVAILABLE' : (mac.currentStatus || 'BUSY');
+            const statusColor = isFree ? '#15803d' : '#dc2626';
+            const freeFromText = !isFree && mac.bookedUntil
+              ? `Free: ${formatCpMachineAvailability(mac.bookedUntil)}`
+              : null;
+
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.dataset.machineName = mac.machine || '';
+            card.dataset.roleBorder = roleBorder;
+            card.style.cssText = [
+              'text-align:left',
+              `border:2px solid ${roleBorder}`,
+              'border-radius:14px',
+              'background:#fff',
+              'padding:12px 14px',
+              'cursor:pointer',
+              'min-width:190px',
+              'max-width:240px',
+              'transition:border-color 0.12s, background 0.12s, box-shadow 0.12s',
+              'display:flex',
+              'flex-direction:column',
+              'gap:0'
+            ].join(';');
+
+            card.innerHTML = `
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px; margin-bottom:8px">
+                <span style="font-weight:900; color:#0f172a; font-size:1rem; line-height:1.2">${esc(mac.machine || '-')}</span>
+                <span style="background:${roleBg}; color:${roleColor}; border:1px solid ${roleBorder}; border-radius:999px; padding:2px 8px; font-size:0.68rem; font-weight:900; white-space:nowrap; flex-shrink:0">${roleLabel}</span>
+              </div>
+              ${(mac.building || mac.line) ? `<div style="color:#64748b; font-size:0.75rem; margin-bottom:5px">${esc(mac.building || '')}${mac.line ? ` · Line ${esc(String(mac.line))}` : ''}</div>` : ''}
+              ${mac.tonnage ? `<div style="color:#334155; font-size:0.75rem; font-weight:700; margin-bottom:5px">Tonnage: ${esc(String(mac.tonnage))} T</div>` : ''}
+              <div style="display:flex; align-items:center; gap:5px; margin-top:auto; padding-top:6px; border-top:1px solid #f1f5f9">
+                <span style="font-size:0.7rem">${statusDot}</span>
+                <span style="font-weight:900; color:${statusColor}; font-size:0.82rem">${esc(statusText)}</span>
+              </div>
+              ${freeFromText ? `<div style="color:#64748b; font-size:0.73rem; margin-top:3px">${esc(freeFromText)}</div>` : ''}
+              ${mac.currentOrder && !isFree ? `<div style="color:#94a3b8; font-size:0.71rem; margin-top:2px">Running: ${esc(mac.currentOrder)}</div>` : ''}
+            `;
+
+            card.addEventListener('click', () => {
+              // Deselect all cards
+              cardsContainer.querySelectorAll('button[data-machine-name]').forEach((btn) => {
+                btn.style.borderColor = btn.dataset.roleBorder || '#e2e8f0';
+                btn.style.background  = '#fff';
+                btn.style.boxShadow   = 'none';
+              });
+              // Highlight this card
+              card.style.borderColor = '#0284c7';
+              card.style.background  = '#f0f9ff';
+              card.style.boxShadow   = '0 0 0 3px #bae6fd';
+
+              // Set global machine
+              cpSelectedMachine = mac;
+
+              // Propagate to every colour row so buildCpColourPlanPayloads works
+              (Array.isArray(window.cpColourPlanRows) ? window.cpColourPlanRows : []).forEach((r) => {
+                r.selectedMachine = mac.machine;
+              });
+
+              // Update chip label
+              const chip = modal.querySelector('#cpColourMachineChip');
+              if (chip) {
+                chip.textContent = `✓ ${mac.machine}`;
+                chip.style.display = 'inline-block';
+              }
+
+              recalcCpColourPlanModal();
+            });
+
+            cardsContainer.appendChild(card);
+          });
         }
 
         window.onCpColourMouldChange = function(rowIndex, mouldCode) {
@@ -7247,7 +7350,12 @@
           row.availableMachines = selectedMould ? (window.cpVariantMachineMap?.[selectedMould.code] || []) : [];
           row.mouldSelection = selectedMould?.code || mouldCode || '-';
           row.consumptionRatioQty = parseCpNumber(selectedMould?.consumptionRatioQty);
-          renderCpColourMachineOptions(modal, row, rowIndex);
+          // Mould changed — reset global machine selection and re-render cards
+          cpSelectedMachine = null;
+          rows.forEach((r) => { r.selectedMachine = ''; });
+          const chip = modal.querySelector('#cpColourMachineChip');
+          if (chip) { chip.style.display = 'none'; chip.textContent = ''; }
+          renderCpColourMachineCards(modal, rows);
           recalcCpColourPlanModal();
         };
 
@@ -7458,6 +7566,16 @@
                 </div>
               </div>
 
+              <!-- Machine Selection Cards — PRIMARY first, then SECONDARY -->
+              <div style="border:1px solid #e2e8f0; border-radius:14px; background:#fff; flex-shrink:0; padding:12px 14px">
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap">
+                  <span style="font-weight:900; color:#0f172a; font-size:0.88rem">&#9881; Select Machine</span>
+                  <span style="color:#94a3b8; font-size:0.76rem">Click a card to assign machine to this plan</span>
+                  <span id="cpColourMachineChip" style="display:none; background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; border-radius:999px; padding:2px 10px; font-size:0.76rem; font-weight:900"></span>
+                </div>
+                <div id="cpColourMachineCards" style="display:flex; flex-wrap:wrap; gap:10px; align-items:stretch"></div>
+              </div>
+
               <!-- Colour table — flex-grow to fill ALL remaining space, no max-height cap -->
               <div style="border:1px solid #cbd5e1; border-radius:14px; overflow:hidden; background:#fff; flex:1 1 auto; display:flex; flex-direction:column; min-height:0">
                 <div style="padding:9px 14px; background:#f8fafc; display:flex; justify-content:space-between; gap:10px; align-items:center; flex-shrink:0">
@@ -7465,7 +7583,7 @@
                   <span class="tag">${esc(colourRows.length)} Rows</span>
                 </div>
                 <div style="overflow:auto; flex:1 1 auto; min-height:0; border-top:1px solid #e2e8f0">
-                  <table style="width:100%; min-width:1180px; border-collapse:collapse">
+                  <table style="width:100%; min-width:980px; border-collapse:collapse">
                     <thead>
                       <tr style="background:#f8fafc">
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:left; font-size:0.75rem">Item Code</th>
@@ -7479,7 +7597,6 @@
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">WIP Bal</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">Plan Qty</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:left; font-size:0.75rem">Mould</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:left; font-size:0.75rem">Machine</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -7505,11 +7622,8 @@
                               ${(row.availableMoulds || []).map((m) => `<option value="${esc(m.code)}" ${m.code === row.selectedMouldCode ? 'selected' : ''}>${esc(`${m.code}${m.mouldingSqn ? ` (Sqn ${m.mouldingSqn})` : ''}`)}</option>`).join('')}
                             </select>
                           </td>
-                          <td style="padding:6px 8px; border-bottom:1px solid #f1f5f9">
-                            <select class="cp-colour-machine-select" data-row-index="${index}" onchange="window.onCpColourMachineChange(${index}, this.value)" style="width:280px; border:1px solid #bfdbfe; border-radius:8px; padding:5px 8px; font-weight:700; font-size:0.82rem"></select>
-                          </td>
                         </tr>
-                      `).join('') : `<tr><td colspan="12" style="padding:18px; text-align:center; color:#64748b">No OR/JR Wise Detail rows found for this mould.</td></tr>`}
+                      `).join('') : `<tr><td colspan="11" style="padding:18px; text-align:center; color:#64748b">No OR/JR Wise Detail rows found for this mould.</td></tr>`}
                     </tbody>
                     <tfoot>
                       <tr style="background:#f8fafc">
@@ -7523,7 +7637,6 @@
                         <td style="padding:7px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900; font-size:0.82rem" data-colour-total="wipBalQty">-</td>
                         <td style="padding:7px 8px; border-top:1px solid #e2e8f0; text-align:right; font-weight:900; font-size:0.82rem" data-colour-total="planQty">-</td>
                         <td style="padding:7px 8px; border-top:1px solid #e2e8f0"></td>
-                        <td style="padding:7px 8px; border-top:1px solid #e2e8f0"></td>
                       </tr>
                     </tfoot>
                   </table>
@@ -7534,11 +7647,10 @@
             modal.querySelectorAll('.cp-colour-use-input').forEach((input) => {
               input.addEventListener('input', recalcCpColourPlanModal);
             });
-            colourRows.forEach((row, index) => renderCpColourMachineOptions(modal, row, index));
+            renderCpColourMachineCards(modal, colourRows);
             recalcCpColourPlanModal();
             modal.querySelector('[data-cp-colour-submit="queue"]').onclick = () => {
-              const hasMissingMachine = (window.cpColourPlanRows || []).some((r) => (r.planQty || 0) > 0 && !String(r.selectedMachine || '').trim());
-              if (hasMissingMachine) return toast('Select machine for each colour row with Use Qty > 0.', 'error');
+              if (!cpSelectedMachine) return toast('Select a machine first.', 'error');
               addToQueue();
               closeCpColourPlanModal();
             };
