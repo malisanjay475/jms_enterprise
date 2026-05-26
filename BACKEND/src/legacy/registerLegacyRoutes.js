@@ -8320,10 +8320,14 @@ app.post('/api/planning/create', async (req, res) => {
         }
 
         const requestedPlanQty = Math.max(0, toNum(p.planQty) ?? 0);
+        const requestedMouldItemQty = Math.max(0, toNum(p.mouldItemQty) ?? 0);
         const selectedTargetQty = Math.max(0, toNum(validation.selected?.familyTargetQty ?? validation.selected?.targetPlanQty ?? validation.selected?.plan_qty) ?? 0);
         const selectedRemainingQty = Math.max(0, toNum(validation.selected?.familyRemainingQty ?? validation.selected?.remainingQty) ?? selectedTargetQty);
         if (!requestedPlanQty) {
           throw new Error(`Enter a valid Plan Qty for mould '${validation.selected?.mould_name || p.mouldName || '-'}'.`);
+        }
+        if (requestedMouldItemQty > 0 && requestedPlanQty > requestedMouldItemQty) {
+          throw new Error(`Plan Qty ${requestedPlanQty} cannot be more than Mould Item Qty ${requestedMouldItemQty} for mould '${validation.selected?.mould_name || p.mouldName || '-'}'.`);
         }
         if (selectedTargetQty > 0 && requestedPlanQty > selectedRemainingQty) {
           throw new Error(`Plan Qty ${requestedPlanQty} cannot be more than family balance ${selectedRemainingQty} for mould '${validation.selected?.mould_name || p.mouldName || '-'}'.`);
