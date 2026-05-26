@@ -1226,6 +1226,16 @@
       gap: 8px;
     }
 
+    /* Prevent the hidden face from intercepting clicks on the visible face.
+       Without this, the front face (position:absolute; inset:0) can absorb
+       pointer events in some browsers even when it's facing away. */
+    .machine:not(.is-flipped) .machine-back {
+      pointer-events: none;
+    }
+    .machine.is-flipped .machine-front {
+      pointer-events: none;
+    }
+
     /* Typography */
     .machine .media {
       width: 100%;
@@ -5602,7 +5612,12 @@
             </div>
             ${activePlan ? `
             <button type="button"
-              onclick="event.stopPropagation(); openPlanJobDetail(${JSON.stringify(activePlan.orderNo||'').replace(/"/g,'&quot;')}, ${JSON.stringify(m.code||m.name||'').replace(/"/g,'&quot;')}, ${JSON.stringify(String(activePlan.id||'')).replace(/"/g,'&quot;')}, ${JSON.stringify(activePlan.itemName||activePlan.mouldName||'').replace(/"/g,'&quot;')}, ${JSON.stringify(activePlan.clientName||'').replace(/"/g,'&quot;')})"
+              class="pjd-open-btn"
+              data-order="${esc(activePlan.orderNo||'')}"
+              data-machine="${esc(m.code||m.name||'')}"
+              data-planid="${esc(String(activePlan.id||''))}"
+              data-item="${esc(activePlan.itemName||activePlan.mouldName||'')}"
+              data-client="${esc(activePlan.clientName||'')}"
               style="width:100%;padding:5px 0;background:linear-gradient(135deg,#0ea5e9,#0369a1);color:#fff;border:none;border-radius:7px;font-size:0.7rem;font-weight:800;cursor:pointer;letter-spacing:0.03em;flex-shrink:0"
               onmouseover="this.style.opacity='0.82'" onmouseout="this.style.opacity='1'">
               &#128269; View Full Details
@@ -5612,6 +5627,25 @@
           </div>
         </div>
         `;
+
+          // Wire up "View Full Details" via addEventListener (safe, no HTML-escaping fragility)
+          if (activePlan) {
+            const openBtn = btn.querySelector('.pjd-open-btn');
+            if (openBtn) {
+              openBtn.addEventListener('click', function(ev) {
+                ev.stopPropagation();
+                if (typeof window.openPlanJobDetail === 'function') {
+                  window.openPlanJobDetail(
+                    openBtn.dataset.order,
+                    openBtn.dataset.machine,
+                    openBtn.dataset.planid,
+                    openBtn.dataset.item,
+                    openBtn.dataset.client
+                  );
+                }
+              });
+            }
+          }
 
           btn.addEventListener('mouseenter', (ev) => showHover(ev, m, false));
           btn.addEventListener('mousemove', (ev) => moveHover(ev));
