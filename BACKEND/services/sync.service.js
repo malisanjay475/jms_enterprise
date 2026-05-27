@@ -152,7 +152,7 @@ const CONFLICT_KEYS = {
     qc_online_reports: 'id',
     qc_training_sheets: 'id',
     shifting_records: 'id',
-    std_actual: 'id',
+    std_actual: 'plan_id, shift, dpr_date, machine',
     vendor_dispatch: 'id',
     vendor_payments: 'id',
     vendor_users: 'id',
@@ -221,7 +221,9 @@ const SYNC_CONFLICT_INDEXES = {
     wip_stock_snapshots: 'factory_id, stock_date, source_file_name',
     wip_stock_snapshot_lines: 'factory_id, stock_date, comparison_key',
     // HR daily entries have a natural unique constraint used as conflict identity
-    hr_kra_daily_entries: 'employee_user_id, assignment_item_id, entry_date'
+    hr_kra_daily_entries: 'employee_user_id, assignment_item_id, entry_date',
+    // std_actual uses the natural unique constraint — LOCAL serial IDs diverge from MAIN
+    std_actual: 'plan_id, shift, dpr_date, machine'
 };
 
 // Tables that represent global master/reference data shared across ALL factories.
@@ -235,7 +237,13 @@ const GLOBAL_MASTER_TABLES = new Set([
 
 const SYNC_ID_REQUIRED_TABLES = ['notifications'];
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
-const SYNC_SCHEMA_READY_VERSION = '2026-05-23-local-sync-performance-v1';
+const SYNC_SCHEMA_READY_VERSION = '2026-05-27-pull-constraint-fixes-v1';
+
+// Tables that carry a UNIQUE constraint on sync_id created by the app schema (outside
+// the sync service).  When a pull-upsert fails because another LOCAL row already owns
+// the same sync_id (assigned locally before MAIN synced), we reassign that row's
+// sync_id to a fresh random UUID so the main upsert can then succeed.
+const TABLES_WITH_EXTERNAL_SYNC_ID_CONSTRAINT = new Set(['shift_teams']);
 const tableColumnCache = new Map();
 const tableExistsCache = new Map();
 
@@ -1145,7 +1153,12 @@ async function upsertData(table, data) {
                     continue;
                 }
 
-                if (row && row.sync_id && Object.prototype.hasOwnProperty.call(row, 'id') && !conflictColumns.includes('id')) {
+                // When the conflict key is NOT 'id' (e.g. natural keys like plan_id+shift+dpr_date+machine
+                // for std_actual, or line+shift_date+shift for shift_teams), drop the 'id' column from
+                // the payload entirely.  Serial IDs diverge between LOCAL and MAIN when both sides create
+                // rows independently, so keeping 'id' in the INSERT would either overwrite the wrong row
+                // (ON CONFLICT id) or violate the serial uniqueness on the target server.
+                if (row && Object.prototype.hasOwnProperty.call(row, 'id') && !conflictColumns.includes('id')) {
                     delete row.id;
                 }
 
@@ -1237,6 +1250,55 @@ async function upsertData(table, data) {
                                 console.error('[Sync] Legacy notification conflict fallback failed:', legacyErr.message);
                             }
                         }
+
+                        // --- sync_id external-constraint deconfliction ---
+                        // Applies to tables (e.g. shift_teams) that have a UNIQUE index on
+                        // sync_id created by the app schema outside the sync service.
+                        // Symptom: INSERT fails with 23505 on the sync_id constraint because
+                        // a different LOCAL row was previously assigned the same sync_id that
+                        // MAIN considers authoritative for a different natural key.
+                        // Fix: reassign the conflicting row's sync_id to a new random UUID
+                        // (inside a fresh savepoint), then retry the original upsert.
+                        if (
+                            innerErr.code === '23505'
+                            && row && row.sync_id
+                            && TABLES_WITH_EXTERNAL_SYNC_ID_CONSTRAINT.has(table)
+                            && String(innerErr.constraint || innerErr.detail || '').toLowerCase().includes('sync_id')
+                        ) {
+                            let deconflictActive = false;
+                            try {
+                                await client.query('SAVEPOINT sync_deconflict_syncid');
+                                deconflictActive = true;
+                                // Reassign the stale sync_id on the conflicting LOCAL row
+                                await client.query(
+                                    `UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id = $1`,
+                                    [row.sync_id]
+                                );
+                                // Retry the original upsert — it can now INSERT or UPDATE cleanly
+                                const result2 = await client.query(sql, vals);
+                                await client.query('RELEASE SAVEPOINT sync_deconflict_syncid');
+                                deconflictActive = false;
+                                if (result2.rows.length && result2.rows[0].inserted === true) {
+                                    stats.created += 1;
+                                } else if (result2.rows.length) {
+                                    stats.updated += 1;
+                                }
+                                continue; // row handled — move on to the next one
+                            } catch (deconflictErr) {
+                                if (deconflictActive) {
+                                    try {
+                                        await client.query('ROLLBACK TO SAVEPOINT sync_deconflict_syncid');
+                                        await client.query('RELEASE SAVEPOINT sync_deconflict_syncid');
+                                    } catch (cleanupErr) {
+                                        console.error('[Sync] Deconflict savepoint cleanup failed:', cleanupErr.message);
+                                        throw cleanupErr;
+                                    }
+                                }
+                                console.error(`[Sync] sync_id deconflict fallback failed for ${table}:`, deconflictErr.message);
+                                // Fall through to the generic error log below
+                            }
+                        }
+                        // -------------------------------------------------------
 
                         console.error(`[Sync] Row Error in ${table}:`, innerErr.message);
                         console.error('Failed Row:', JSON.stringify(row));
