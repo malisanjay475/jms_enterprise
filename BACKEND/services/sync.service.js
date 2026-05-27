@@ -382,10 +382,12 @@ async function fetchWithSyncRetry(url, label, options = {}) {
    ROUTER DEFINITIONS (Mounted at /api/sync)
    ============================================================ */
 
-// Rate limiter: max 60 asset uploads per IP per minute (well above any real LOCAL server need).
+// Rate limiter: max 300 asset uploads per IP per minute.
+// A LOCAL server can have 100+ machine icons to sync in one bulk pass — the old limit of 60
+// caused 429 rejections for the excess files, leaving icons missing on MAIN.
 const uploadAssetLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 60,
+    max: 300,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many requests' }
