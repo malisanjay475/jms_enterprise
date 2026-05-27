@@ -3454,6 +3454,38 @@ app.post('/api/sync/push-uploads', async (_req, res) => {
   );
 });
 
+// One-click "Load ALL data to MAIN" for the factory operator (sync_monitor.html).
+// Resets the push watermarks to the epoch so the next sync cycle re-uploads every
+// local row for this factory to MAIN, then triggers a cycle immediately.
+// LOCAL-only and session-protected like /push-uploads — the server uses its own
+// configured SYNC_API_KEY for the actual push, so no key is needed from the browser.
+// Safe to run repeatedly: MAIN upserts on conflict keys, so rows are de-duplicated.
+app.post('/api/sync/force-full-push', async (_req, res) => {
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() !== 'LOCAL') {
+    return res.status(400).json({ ok: false, error: 'Only available on LOCAL servers' });
+  }
+  try {
+    await q(
+      `INSERT INTO server_config (key, value) VALUES ($1, $2)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      ['LAST_PUSH', '1970-01-01T00:00:00.000Z']
+    );
+    await q(
+      `INSERT INTO server_config (key, value) VALUES ($1, $2)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      ['LAST_DELETE_PUSH', '1970-01-01T00:00:00.000Z']
+    );
+    if (syncService && typeof syncService.triggerSync === 'function') {
+      syncService.triggerSync();
+    }
+    console.log('[Sync] force-full-push: LAST_PUSH reset to epoch; full re-push of all local data to MAIN triggered.');
+    res.json({ ok: true, message: 'Full re-push started — all local data is uploading to MAIN. Watch the "Last Data Push" time below.' });
+  } catch (e) {
+    console.error('[Sync] force-full-push failed:', e.message);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 app.get('/api/legacy-health', async (_req, res) => {
   try {
     const r = await q('SELECT NOW() AS now', []);
