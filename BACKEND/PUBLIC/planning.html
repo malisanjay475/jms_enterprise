@@ -7117,6 +7117,57 @@
           });
         }
 
+        // Distributes a single total Plan Qty across the colour rows proportional to each
+        // row's Mould Item Qty (reqQty). Uses largest-remainder rounding so the parts sum
+        // exactly to the (capped) total, and never lets a row exceed its own Mould Item Qty.
+        function cpAutoSplitPlanQty(totalValue) {
+          const modal = document.getElementById('cpColourPlanModal');
+          if (!modal) return;
+          const rows = Array.isArray(window.cpColourPlanRows) ? window.cpColourPlanRows : [];
+          if (!rows.length) return;
+          const planInputs = rows.map((_, i) => modal.querySelector(`.cp-colour-plan-input[data-row-index="${i}"]`));
+
+          // Per-row cap = that colour's Mould Item Qty
+          const caps = rows.map((r) => Math.max(0, parseCpNumber(r.mouldItemQty ?? r.reqQty) ?? 0));
+          const capSum = caps.reduce((a, b) => a + b, 0);
+
+          // Total can never exceed the sum of Mould Item Qty, nor the family/colour balance limit
+          const limit = parseCpNumber(modal.dataset.planQtyLimit);
+          let target = Math.max(0, Math.floor(parseCpNumber(totalValue) ?? 0));
+          const hardMax = capSum > 0 ? capSum : target;
+          target = Math.min(target, hardMax);
+          if (limit != null && limit >= 0) target = Math.min(target, Math.floor(limit));
+
+          const shares = rows.map(() => 0);
+          if (capSum <= 0) {
+            // No Mould Item Qty weights — split equally
+            const n = rows.length;
+            const base = Math.floor(target / n);
+            let rem = target - base * n;
+            rows.forEach((_, i) => { shares[i] = base + (i < rem ? 1 : 0); });
+          } else {
+            // Proportional split by Mould Item Qty, floor first
+            const raw = caps.map((c) => target * (c / capSum));
+            raw.forEach((s, i) => { shares[i] = Math.min(Math.floor(s), caps[i]); });
+            let leftover = target - shares.reduce((a, b) => a + b, 0);
+            // Hand out the remaining units to the largest fractional remainders (respecting caps)
+            const order = raw
+              .map((s, i) => ({ i, frac: s - Math.floor(s) }))
+              .sort((a, b) => b.frac - a.frac);
+            let guard = 0;
+            while (leftover > 0 && guard < order.length * 4) {
+              const idx = order[guard % order.length].i;
+              if (shares[idx] < caps[idx]) { shares[idx] += 1; leftover -= 1; }
+              guard++;
+            }
+          }
+
+          rows.forEach((_, i) => {
+            if (planInputs[i]) planInputs[i].value = shares[i] > 0 ? String(shares[i]) : '';
+          });
+          recalcCpColourPlanModal();
+        }
+
         function recalcCpColourPlanModal() {
           const modal = document.getElementById('cpColourPlanModal');
           if (!modal) return;
@@ -7186,6 +7237,13 @@
             const cell = modal.querySelector(`[data-colour-total="${key}"]`);
             if (cell) cell.textContent = formatCpQty(totals[key]);
           });
+
+          // Keep the master "Total Plan Qty" field in sync with the live row total,
+          // but don't fight the user while they are actively typing into it.
+          const totalPlanInput = modal.querySelector('#cpColourTotalPlanInput');
+          if (totalPlanInput && document.activeElement !== totalPlanInput) {
+            totalPlanInput.value = totals.planQty > 0 ? String(totals.planQty) : '';
+          }
 
           const exceedsOrderQty = planQtyLimit != null && totals.planQty > planQtyLimit;
           const rowsWithPlan = rows.filter((row) => Number(row.planQty || 0) > 0);
@@ -7593,9 +7651,15 @@
 
               <!-- Colour table — flex-grow to fill ALL remaining space, no max-height cap -->
               <div style="border:1px solid #cbd5e1; border-radius:14px; overflow:hidden; background:#fff; flex:1 1 auto; display:flex; flex-direction:column; min-height:0">
-                <div style="padding:9px 14px; background:#f8fafc; display:flex; justify-content:space-between; gap:10px; align-items:center; flex-shrink:0">
+                <div style="padding:9px 14px; background:#f8fafc; display:flex; justify-content:space-between; gap:10px; align-items:center; flex-shrink:0; flex-wrap:wrap">
                   <strong style="color:#0f172a">OR/JR Wise Detail Colours</strong>
-                  <span class="tag">${esc(colourRows.length)} Rows</span>
+                  <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+                    <span style="font-size:0.78rem; color:#0f172a; font-weight:800">Total Plan Qty</span>
+                    <input id="cpColourTotalPlanInput" type="number" min="0" step="1" max="${esc(mouldBalanceQty || '')}" placeholder="Enter qty" style="width:150px; border:2px solid #0ea5e9; border-radius:8px; padding:6px 10px; text-align:right; font-weight:900; color:#0f172a; font-size:0.92rem">
+                    <span style="font-size:0.72rem; color:#0369a1; font-weight:700; background:#e0f2fe; border:1px solid #bae6fd; border-radius:999px; padding:2px 8px">Max ${esc(formatCpQty(mouldBalanceQty || 0))}</span>
+                    <span style="font-size:0.7rem; color:#94a3b8">auto-splits across colours by Mould Item Qty</span>
+                    <span class="tag">${esc(colourRows.length)} Rows</span>
+                  </div>
                 </div>
                 <div style="overflow:auto; flex:1 1 auto; min-height:0; border-top:1px solid #e2e8f0">
                   <table style="width:100%; min-width:980px; border-collapse:collapse">
@@ -7667,6 +7731,12 @@
             modal.querySelectorAll('.cp-colour-plan-input').forEach((input) => {
               input.addEventListener('input', recalcCpColourPlanModal);
             });
+            const totalPlanInput = modal.querySelector('#cpColourTotalPlanInput');
+            if (totalPlanInput) {
+              totalPlanInput.addEventListener('input', function() {
+                cpAutoSplitPlanQty(this.value);
+              });
+            }
             renderCpColourMachineCards(modal, colourRows);
             recalcCpColourPlanModal();
             modal.querySelector('[data-cp-colour-submit="queue"]').onclick = () => {
