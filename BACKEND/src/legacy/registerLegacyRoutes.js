@@ -2463,6 +2463,17 @@ function toNum(v) {
   return Number.isNaN(n) ? null : n;
 }
 
+// Returns "today" as YYYY-MM-DD in the server's LOCAL timezone (the container is
+// pinned to Asia/Kolkata). NOTE: do NOT use new Date().toISOString().slice(0,10)
+// for this — toISOString() is always UTC, so on a UTC host it returns the previous
+// day during IST morning hours. Building from local date parts respects TZ.
+function todayLocalDateStr(d = new Date()) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function normalizeOptionalText(value) {
   const clean = String(value || '').trim();
   return clean || null;
@@ -6662,7 +6673,7 @@ app.post('/api/shifting/scan-entry', async (req, res) => {
     const scan = req.body?.scan || req.body?.label_uid || req.body?.uid || '';
     const toLocation = normalizeOptionalText(req.body?.toLocation);
     const supervisor = normalizeOptionalText(req.body?.supervisor) || getRequestUsername(req) || 'Shifting Supervisor';
-    const shiftDate = normalizeOptionalText(req.body?.date) || new Date().toISOString().slice(0, 10);
+    const shiftDate = normalizeOptionalText(req.body?.date) || todayLocalDateStr();
     const shiftType = normalizeOptionalText(req.body?.shift) || ((new Date().getHours() >= 8 && new Date().getHours() < 20) ? 'Day' : 'Night');
     if (!toLocation) return res.status(400).json({ ok: false, error: 'Select destination first.' });
 
@@ -17131,7 +17142,7 @@ app.post('/api/qc/fpa', async (req, res) => {
         fpa_status, fpa_form_image, product_images, remarks, supervisor, factory_id, updated_at
       ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12::jsonb,$13,$14,$15,NOW())
     `, [
-      date || new Date().toISOString().slice(0, 10), shift || '', hour_slot || '', plan_id || '', job_card_no || '', order_no || '',
+      date || todayLocalDateStr(), shift || '', hour_slot || '', plan_id || '', job_card_no || '', order_no || '',
       line || '', machine || '', item_name || '', mould_name || '', fpa_form_image, JSON.stringify(images), remarks || '', supervisor || '', factoryId
     ]);
     syncService.triggerSync();
@@ -17435,7 +17446,7 @@ app.get('/api/qc/compliance', async (req, res) => {
 app.get('/api/qc/dashboard/kpis', async (req, res) => {
   try {
     const { date, dateTo, machine } = req.query;
-    const d1 = date || new Date().toISOString().split('T')[0];
+    const d1 = date || todayLocalDateStr();
     const d2 = dateTo || d1;
 
     let sql = `SELECT
@@ -17533,7 +17544,7 @@ SUM(qty_checked) as total_checked,
 app.get('/api/qc/dashboard/analysis', async (req, res) => {
   try {
     const { date, dateTo, type, machine } = req.query;
-    const d1 = date || new Date().toISOString().split('T')[0];
+    const d1 = date || todayLocalDateStr();
     const d2 = dateTo || d1;
 
     let baseWhere = `date >= $1 AND date <= $2`;
