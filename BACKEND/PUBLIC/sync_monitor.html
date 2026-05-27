@@ -176,6 +176,18 @@
             </span>
         </div>
 
+        <!-- Force full re-push: re-uploads ALL local data to Main. LOCAL only. -->
+        <div id="forcePushRow" style="display:none; margin-top:12px; padding:12px 0; border-top:1px solid #e5e7eb;">
+            <div class="label" style="margin-bottom:8px;">Load ALL Data to Main Server</div>
+            <button class="refresh-btn" id="forcePushBtn" onclick="forceFullPush()" style="background:#dc2626; margin:0;">
+                ⬆ Force Full Re-Push → Main (Load All Data)
+            </button>
+            <div id="forcePushStatus" style="margin-top:8px; font-size:12px; color:#6b7280;"></div>
+            <div style="margin-top:6px; font-size:11px; color:#9ca3af;">
+                Re-sends every local record for this factory to Main. Safe to run repeatedly — Main de-duplicates.
+            </div>
+        </div>
+
         <button class="refresh-btn" onclick="checkStatus()" style="margin-top:12px;">Refresh Status</button>
         <div id="last-auto-refresh">Auto-refreshing...</div>
     </div>
@@ -214,11 +226,13 @@
                         document.getElementById('connectionRow').style.display = 'none';
                     }
 
-                    // Show "Push Icons" button only on LOCAL
+                    // Show "Push Icons" + "Force Full Re-Push" buttons only on LOCAL
                     if (data.type === 'LOCAL') {
                         document.getElementById('syncIconsRow').style.display = '';
+                        document.getElementById('forcePushRow').style.display = '';
                     } else {
                         document.getElementById('syncIconsRow').style.display = 'none';
+                        document.getElementById('forcePushRow').style.display = 'none';
                     }
 
                     // Pending push count — only for LOCAL
@@ -287,6 +301,38 @@
             } finally {
                 btn.disabled = false;
                 btn.textContent = 'Push All Icons → Main';
+            }
+        }
+
+        async function forceFullPush() {
+            if (!confirm('Re-push ALL local data for this factory to the Main server now?\n\nThis re-uploads every record. It is safe (Main de-duplicates) but can take a few minutes for large factories.')) {
+                return;
+            }
+            const btn = document.getElementById('forcePushBtn');
+            const status = document.getElementById('forcePushStatus');
+            btn.disabled = true;
+            const originalText = btn.textContent;
+            btn.textContent = 'Starting full re-push…';
+            status.textContent = '';
+            try {
+                const res = await fetch('/api/sync/force-full-push', { method: 'POST' });
+                const data = await res.json();
+                if (data.ok) {
+                    status.textContent = '✓ ' + (data.message || 'Full re-push started.');
+                    status.style.color = '#10b981';
+                    // Refresh status a few times so the operator sees "Last Data Push" update
+                    setTimeout(checkStatus, 3000);
+                    setTimeout(checkStatus, 10000);
+                } else {
+                    status.textContent = '✗ ' + (data.error || 'Failed');
+                    status.style.color = '#ef4444';
+                }
+            } catch (e) {
+                status.textContent = '✗ ' + e.message;
+                status.style.color = '#ef4444';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
             }
         }
 
