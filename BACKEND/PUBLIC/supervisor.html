@@ -1348,8 +1348,8 @@
       <h3 style="margin-top:0; font-size:18px; color:#1e293b">Confirm Submission</h3>
       <div id="confirm-msg" style="margin-bottom:20px; color:#334155; line-height:1.6; font-size:15px"></div>
       <div class="grid-2">
-        <button class="ghost" onclick="hide('modal-confirm')" type="button">No, Cancel</button>
-        <button class="primary" id="btn-confirm-yes" type="button">Yes, Submit</button>
+        <button class="ghost" id="btn-confirm-no" type="button">Submit as-is</button>
+        <button class="primary" id="btn-confirm-yes" type="button">Update to Today</button>
       </div>
     </div>
   </div>
@@ -3995,33 +3995,45 @@
       const selDate = el('d-date').value;
       const selShift = el('d-shift').value;
 
-      // Use session values (populated at Login/Load)
-      // Fallback to "today" if session is missing (safety)
-      const curDate = session.shiftDate || '';
-      const curShift = session.shift || '';
+      // [FIX] Compute the CURRENT expected shift/date from the browser clock at submit time.
+      // Previously we used session.shiftDate (set at login) which is stale: an operator who
+      // opens a job before 8 AM (Night shift → yesterday) would NEVER see the "last shift?"
+      // warning when submitting at 10 AM, because the stale session date still matched.
+      // Result: 10 AM entries silently went to yesterday's date and disappeared from today's summary.
+      {
+        const _now = new Date();
+        const _mins = _now.getHours() * 60 + _now.getMinutes();
+        const curShift = (_mins >= 480 && _mins < 1200) ? 'Day' : 'Night';
+        const _dateObj = new Date(_now); _dateObj.setHours(0, 0, 0, 0);
+        if (curShift === 'Night' && _mins < 480) _dateObj.setDate(_dateObj.getDate() - 1);
+        const curDate = isoDate(_dateObj);
 
-      // Only check if we have valid session context
-      if (curDate && curShift) {
         if (selDate !== curDate || selShift !== curShift) {
-          // SHOW ALERT
-          const msg = `Are You Sure You want to Submit Data For Last Shift?<br><br>
-                       <b style="font-size:18px; color:#0f172a">${selDate}</b><br>
-                       <b style="font-size:18px; color:#0f172a">${selShift}</b>`;
+          // Mismatch: form shows a different date/shift than "now"
+          const msg = `Form is set to <b>${selShift} shift — ${selDate}</b> but the current shift is <b>${curShift} — ${curDate}</b>.<br><br>
+                       <span style="color:#dc2626; font-weight:600">Click YES to update to today's shift, or NO to submit as-is (backfill).</span>`;
 
           el('confirm-msg').innerHTML = msg;
 
-          // Bind One-Time Click
+          // YES → auto-refresh to current shift/date, then submit
           el('btn-confirm-yes').onclick = function () {
+            hide('modal-confirm');
+            buildDateSelect(); // reset to current shift date
+            proceedSubmitDPR();
+          };
+
+          // NO → submit with the currently selected (previous shift) date
+          el('btn-confirm-no').onclick = function () {
             hide('modal-confirm');
             proceedSubmitDPR();
           };
 
           show('modal-confirm');
-          return; // STOP here
+          return; // wait for user choice
         }
       }
 
-      // If Current Shift or No Session Info -> Proceed Directly
+      // No mismatch — proceed directly
       proceedSubmitDPR();
     }
 
@@ -4126,6 +4138,10 @@
             el('dpr-msg').innerHTML = '<span class="ok">Saved.</span>';
             // Reset to Main Entry for next time
             setDPRMode('Main');
+
+            // [FIX] Refresh date/shift selector after each save so the form always shows
+            // the current shift, even if a shift boundary (8 AM / 8 PM) passed since job open.
+            buildDateSelect();
 
             loadQueue();
             loadRecent();
