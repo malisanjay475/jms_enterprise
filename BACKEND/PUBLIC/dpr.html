@@ -697,7 +697,7 @@
                         }
 
                         let masterHtml = '';
-                        // Entries Counter — filled slots vs open (non-future) slots across all machines/dates/shifts
+                        // Entries counters — computed AFTER allDates loop from raw API data (see below)
                         let grandTotalOpenSlots = 0;
                         let grandTotalFilledSlots = 0;
 
@@ -1048,16 +1048,6 @@
                                         if (cleanSlot.includes('|')) cleanSlot = cleanSlot.split('|').pop();
                                         if (!mData[cleanSlot]) mData[cleanSlot] = [];
                                         mData[cleanSlot] = mData[cleanSlot].concat(rawMachineData[rawSlot]);
-                                    });
-
-                                    // --- ENTRIES COUNTER: count open (non-future) and filled slots for this machine ---
-                                    slots.forEach(slotKey => {
-                                        const slotEndTs = getSlotEnd(slotKey, date, rowShift);
-                                        const slotStartTs = slotEndTs - 3600000;
-                                        if (new Date().getTime() >= slotStartTs) { // slot has opened
-                                            grandTotalOpenSlots++;
-                                            if ((mData[slotKey] || []).length > 0) grandTotalFilledSlots++;
-                                        }
                                     });
 
                                     // --- 1. Identify Distinct Moulds FIRST (v57 Deduplication) ---
@@ -1869,6 +1859,51 @@
                             masterHtml += lineBuffer.map(x => x.html).join('');
                         }
                         }); // END allDates.forEach
+
+                        // ---- ENTRIES COUNT: Standalone calculation from raw API data ----
+                        // Runs outside the rendering loop so it is never skipped or double-counted.
+                        {
+                            const _now = Date.now();
+                            const _slots = ['08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07','07-08'];
+                            const _shiftsForCount = (shiftMode === 'Both') ? ['Day','Night'] : [shiftMode];
+                            // Slot end-hour tables (local browser time)
+                            const _dayEnd  = {'08-09':9,'09-10':10,'10-11':11,'11-12':12,'12-01':13,'01-02':14,'02-03':15,'03-04':16,'04-05':17,'05-06':18,'06-07':19,'07-08':20};
+                            const _nightEnd = {'08-09':21,'09-10':22,'10-11':23,'11-12':0,'12-01':1,'01-02':2,'02-03':3,'03-04':4,'04-05':5,'05-06':6,'06-07':7,'07-08':8};
+                            const _nightNextDay = new Set(['11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07','07-08']);
+                            // All allowed machines (factory-filtered)
+                            const _allMachines = (machines || []).map(m => m.machine).filter(m => allowedMachines.has(m));
+
+                            _shiftsForCount.forEach(_shift => {
+                                const _dmap = (_shift === 'Day') ? dayDatesMap : nightDatesMap;
+                                allDates.forEach(_date => {
+                                    const _entries = ((_dmap[_date] || {}).entries) || {};
+                                    _allMachines.forEach(_machine => {
+                                        const _raw = _entries[_machine] || {};
+                                        // Normalise slot keys (strip "Day|" / "Night|" prefix)
+                                        const _clean = {};
+                                        Object.keys(_raw).forEach(k => {
+                                            const ck = k.includes('|') ? k.split('|').pop() : k;
+                                            if (!_clean[ck]) _clean[ck] = [];
+                                            const v = _raw[k];
+                                            _clean[ck] = _clean[ck].concat(Array.isArray(v) ? v : (v ? [v] : []));
+                                        });
+                                        _slots.forEach(_slot => {
+                                            // Compute slot start timestamp in LOCAL time
+                                            const endH = (_shift === 'Day') ? _dayEnd[_slot] : _nightEnd[_slot];
+                                            const addDay = (_shift === 'Night' && _nightNextDay.has(_slot)) ? 1 : 0;
+                                            const _d = new Date(_date);
+                                            _d.setHours(endH, 0, 0, 0);
+                                            if (addDay) _d.setDate(_d.getDate() + addDay);
+                                            const sStart = _d.getTime() - 3600000;
+                                            if (_now >= sStart) { // slot has opened
+                                                grandTotalOpenSlots++;
+                                                if ((_clean[_slot] || []).filter(Boolean).length > 0) grandTotalFilledSlots++;
+                                            }
+                                        });
+                                    });
+                                });
+                            });
+                        }
 
                         if (!masterHtml) {
                             masterHtml = '<div style="padding:60px; text-align:center; color:#94a3b8; background:white; border-radius:8px; border:1px dashed #cbd5e1">No Active Machines Found.</div>';
