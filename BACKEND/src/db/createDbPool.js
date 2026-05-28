@@ -1,6 +1,10 @@
 'use strict';
 
-const { Pool } = require('pg');
+const pg = require('pg');
+const { Pool } = pg;
+
+// Prevent timezone-shifting by returning DATE columns as raw YYYY-MM-DD strings
+pg.types.setTypeParser(1082, (val) => val);
 
 function createDbPool(config) {
   const pool = new Pool({
