@@ -242,6 +242,16 @@
             document.getElementById('modal-details').style.display = 'flex';
         };
 
+        // [FIX] IST-safe "today" helper — toISOString() always returns UTC, which is one
+        // calendar day BEHIND IST between midnight IST (18:30 UTC) and 05:30 IST (00:00 UTC).
+        // Using local-time getters ensures the correct IST date even at night-shift hours.
+        function localToday() {
+            const d = new Date();
+            return d.getFullYear() + '-'
+                + String(d.getMonth() + 1).padStart(2, '0') + '-'
+                + String(d.getDate()).padStart(2, '0');
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             const J = window.JPSMS;
             if (J && J.auth) {
@@ -260,8 +270,8 @@
             if (view === 'hourly') {
                 title.textContent = 'DPR Hourly Report';
 
-                // FILTER BAR
-                const today = new Date().toISOString().split('T')[0];
+                // FILTER BAR — use local-time date (NOT toISOString which is UTC)
+                const today = localToday();
                 card.innerHTML = `
                   <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:15px; align-items:flex-end; padding:15px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0">
                     <div>
@@ -483,11 +493,11 @@
             } else if (view === 'summary') {
                 title.textContent = 'DPR Compliance Summary';
 
-                // Reuse Filter UI
-                const today = new Date().toISOString().split('T')[0];
-                const hour = new Date().getHours();
-                // Auto-detect shift: If 7PM-7AM -> Night, else Day
-                const defaultShift = (hour >= 19 || hour < 7) ? 'Night' : 'Day';
+                // Reuse Filter UI — use local-time date (NOT toISOString which is UTC)
+                const today = localToday();
+                const hour = new Date().getHours(); // browser local time (IST on factory devices)
+                // Auto-detect shift: If 8PM-8AM -> Night, else Day (matches factory 8-20 shift)
+                const defaultShift = (hour >= 20 || hour < 8) ? 'Night' : 'Day';
                 const DPR_PROCESS_OPTIONS = ['Moulding', 'Printing', 'Tuffting'];
                 let dprProcess = localStorage.getItem('jpsms_dpr_process') || 'Moulding';
 
