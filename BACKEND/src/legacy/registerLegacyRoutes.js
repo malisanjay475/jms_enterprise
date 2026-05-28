@@ -13781,8 +13781,19 @@ app.get('/api/dpr/hourly', async (req, res) => {
       FROM dpr_hourly d
       LEFT JOIN plan_board pb ON pb.plan_id = d.plan_id
       LEFT JOIN orders o ON o.order_no = d.order_no
-      LEFT JOIN moulds m ON m.mould_number = d.mould_no
-      LEFT JOIN std_actual sa ON sa.plan_id = d.plan_id
+      LEFT JOIN LATERAL (
+        SELECT mould_name
+        FROM moulds
+        WHERE mould_number = d.mould_no
+        LIMIT 1
+      ) m ON true
+      LEFT JOIN LATERAL (
+        SELECT article_act, cavity_act
+        FROM std_actual
+        WHERE plan_id = d.plan_id
+        ORDER BY (dpr_date = d.dpr_date AND shift = d.shift) DESC, created_at DESC
+        LIMIT 1
+      ) sa ON true
       WHERE d.is_deleted = false
     `;
 
