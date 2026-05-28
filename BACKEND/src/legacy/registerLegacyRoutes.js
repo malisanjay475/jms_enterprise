@@ -13136,7 +13136,9 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
         const rowsToUpsert = data.map(row => {
           const jrDate = toDate(row.jr_date);
           const planDate = toDate(row.plan_date) || jrDate || null;
-          const mouldItemQty = toNum(row.mould_item_qty);
+          // Round mould_item_qty to integer — physical piece count, decimals are data entry artefacts
+          const rawMiq = toNum(row.mould_item_qty);
+          const mouldItemQty = rawMiq !== null ? Math.round(rawMiq) : null;
           return {
             or_jr_no: String(row.or_jr_no || '').trim(),
             or_jr_date: jrDate || null,
@@ -13208,7 +13210,9 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
         const rowsToUpsert = data.map(row => {
           const jrDate = toIsoDateText(row.jr_date);
           const planDate = toIsoDateText(row.plan_date) || jrDate || null;
-          const mouldItemQty = toNum(row.mould_item_qty);
+          // Round mould_item_qty to integer — physical piece count, decimals are data entry artefacts
+          const rawMiq = toNum(row.mould_item_qty);
+          const mouldItemQty = rawMiq !== null ? Math.round(rawMiq) : null;
           return {
             or_jr_no: String(row.or_jr_no || '').trim(),
             or_jr_date: jrDate,
@@ -13247,8 +13251,8 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
             aggMap.set(key, { ...row });
           } else {
             const ex = aggMap.get(key);
-            ex.mould_item_qty = normalizeOptionalText((parseFloat(ex.mould_item_qty) || 0) + (parseFloat(row.mould_item_qty) || 0));
-            ex.plan_qty       = normalizeOptionalText((parseFloat(ex.plan_qty) || 0) + (parseFloat(row.plan_qty) || 0));
+            ex.mould_item_qty = normalizeOptionalText(Math.round((parseFloat(ex.mould_item_qty) || 0) + (parseFloat(row.mould_item_qty) || 0)));
+            ex.plan_qty       = normalizeOptionalText(Math.round((parseFloat(ex.plan_qty) || 0) + (parseFloat(row.plan_qty) || 0)));
           }
         }
         const aggregatedRows = Array.from(aggMap.values());
