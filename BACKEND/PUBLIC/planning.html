@@ -10825,6 +10825,7 @@
         if (!modal || !body) return;
         window.currentJcApprovalId = id;
         modal.style.display = 'flex';
+        lockModalScroll(); // keep page at current scroll position while modal is open
         body.innerHTML = '<div style="padding:36px; text-align:center; color:#64748b; font-weight:850">Loading plan details...</div>';
         try {
           const res = await api.get(`/planning/job-card-approvals/${id}`);
@@ -10898,6 +10899,7 @@
         if (modal) modal.style.display = 'none';
         window.currentJcApprovalId = null;
         window.currentJcApprovalPlan = null;
+        unlockModalScrollIfNeeded(); // restore scroll position to where user was
       };
 
       window.submitJcApproval = async function (action) {
