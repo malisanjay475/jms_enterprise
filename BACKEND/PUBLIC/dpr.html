@@ -769,11 +769,15 @@
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:center" title="Filled Entries / Total Open Slots (non-future)">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#0891b2; text-transform:uppercase">Entries</div>
-                                        <div style="font-size:1.1rem; font-weight:800; white-space:nowrap">
-                                            <span id="grand-total-entries-filled" style="font-size:1.4rem; color:#059669">0</span><span style="color:#cbd5e1; font-size:0.9rem; margin:0 2px">/</span><span id="grand-total-entries-total" style="color:#64748b; font-size:1rem; font-weight:700">0</span>
+                                    <div style="text-align:center; min-width:110px" title="Filled Entries / Total Open Slots (non-future)">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#0891b2; text-transform:uppercase; letter-spacing:0.5px">Entries</div>
+                                        <div style="font-size:1.1rem; font-weight:800; white-space:nowrap; margin:2px 0 3px">
+                                            <span id="grand-total-entries-filled" style="font-size:1.4rem; color:#059669; font-weight:900">–</span><span style="color:#cbd5e1; font-size:0.9rem; margin:0 2px">/</span><span id="grand-total-entries-total" style="color:#64748b; font-size:1rem; font-weight:700">–</span>
                                         </div>
+                                        <div style="background:#e2e8f0; border-radius:99px; height:5px; width:100%; overflow:hidden; margin-bottom:2px">
+                                            <div id="grand-total-entries-bar" style="height:5px; width:0%; background:#059669; border-radius:99px; transition:width 0.5s ease"></div>
+                                        </div>
+                                        <div id="grand-total-entries-pct" style="font-size:0.72rem; font-weight:700; color:#059669">–%</div>
                                     </div>
                                 </div>
                             </div>
@@ -2017,13 +2021,16 @@
                             // --- UPDATE ENTRIES COUNT ---
                             const elEntFilled = document.getElementById('grand-total-entries-filled');
                             const elEntTotal  = document.getElementById('grand-total-entries-total');
+                            const elEntBar    = document.getElementById('grand-total-entries-bar');
+                            const elEntPct    = document.getElementById('grand-total-entries-pct');
                             if (elEntFilled && elEntTotal) {
                                 const entPct = grandTotalOpenSlots > 0 ? Math.round((grandTotalFilledSlots / grandTotalOpenSlots) * 100) : 0;
                                 const entColor = entPct >= 80 ? '#059669' : entPct >= 50 ? '#d97706' : '#dc2626';
                                 elEntFilled.textContent = grandTotalFilledSlots;
                                 elEntFilled.style.color = entColor;
                                 elEntTotal.textContent  = grandTotalOpenSlots;
-                                elEntTotal.title = `${entPct}% entries filled`;
+                                if (elEntBar) { elEntBar.style.width = entPct + '%'; elEntBar.style.background = entColor; }
+                                if (elEntPct) { elEntPct.textContent = entPct + '%'; elEntPct.style.color = entColor; }
                             }
                         }
 
