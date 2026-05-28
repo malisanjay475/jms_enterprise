@@ -2062,24 +2062,26 @@
       const m = realNow.getMinutes();
       const totalMins = h * 60 + m;
 
-      // LOGIC: Shift Change at 08:10 AM & 08:10 PM
-      // Day Shift: 08:10 AM (490m) to 08:10 PM (1210m)
-      // Night Shift: 08:10 PM (1210m) to 08:10 AM (490m next day)
+      // LOGIC: Shift Change at 08:00 AM & 08:00 PM (matches backend login endpoint)
+      // Day Shift: 08:00 AM (480m) to 08:00 PM (1200m)
+      // Night Shift: 08:00 PM (1200m) to 08:00 AM (480m next day)
+      // [FIX] Was 490/1210 (8:10 AM/PM) — misaligned with backend which uses h>=8/h>=20.
+      //       Entries made 08:00–08:09 AM were filed under YESTERDAY instead of today.
 
       let useDate = new Date(realNow);
       let setShift = 'Day';
 
-      if (totalMins >= 490 && totalMins < 1210) {
+      if (totalMins >= 480 && totalMins < 1200) {
         // Day Shift (Today)
         setShift = 'Day';
       } else {
         // Night Shift
         setShift = 'Night';
-        if (totalMins < 490) {
-          // Early morning (< 08:10) -> Belongs to YESTERDAY'S Night Shift
+        if (totalMins < 480) {
+          // Early morning (< 08:00) -> Belongs to YESTERDAY'S Night Shift
           useDate.setDate(useDate.getDate() - 1);
         }
-        // If > 20:10 -> Belongs to TODAY'S Night Shift
+        // If >= 20:00 -> Belongs to TODAY'S Night Shift
       }
 
       // Reset hours for clean date comparison

@@ -13978,9 +13978,12 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
 
     // 5. Build Grouped Results
+    // Use todayLocalDateStr() so the date is IST-correct even on a UTC host.
+    // toLocaleDateString('en-CA') is unreliable across Node versions / TZ configs;
+    // todayLocalDateStr uses getFullYear/getMonth/getDate which respect the process TZ.
     const now = new Date();
-    const todayStr = now.toLocaleDateString('en-CA');
-    const currentHour = now.getHours();
+    const todayStr = todayLocalDateStr(now);
+    const currentHour = now.getHours(); // IST hours after TZ=Asia/Kolkata is set in container
 
     const getDateStr = (d) => {
       const year = d.getFullYear();
