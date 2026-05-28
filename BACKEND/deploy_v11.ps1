@@ -13,15 +13,18 @@ New-Item -ItemType Directory -Path "$TempDir" | Out-Null
 New-Item -ItemType Directory -Path "$TempDir/services" | Out-Null
 New-Item -ItemType Directory -Path "$TempDir/PUBLIC/assets" | Out-Null
 New-Item -ItemType Directory -Path "$TempDir/src/db" | Out-Null
+New-Item -ItemType Directory -Path "$TempDir/src/legacy" | Out-Null
 
 Write-Host "3. Copying Files..."
 Copy-Item "server.js" -Destination "$TempDir"
 Copy-Item "package.json" -Destination "$TempDir"
 Copy-Item "services/sync.service.js" -Destination "$TempDir/services"
 Copy-Item "src/db/createDbPool.js" -Destination "$TempDir/src/db"
+Copy-Item "src/legacy/registerLegacyRoutes.js" -Destination "$TempDir/src/legacy"
 Copy-Item "PUBLIC/supervisor.html" -Destination "$TempDir/PUBLIC"
 Copy-Item "PUBLIC/login.html" -Destination "$TempDir/PUBLIC"
 Copy-Item "PUBLIC/users.html" -Destination "$TempDir/PUBLIC"
+Copy-Item "PUBLIC/dpr.html" -Destination "$TempDir/PUBLIC"
 Copy-Item "PUBLIC/assets/app.js" -Destination "$TempDir/PUBLIC/assets"
 
 Write-Host "4. Zipping..."
