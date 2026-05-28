@@ -13,9 +13,10 @@ services:
       POSTGRES_USER: ${DB_USER:-jms_v1}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-JmsV1DbAuto9x4k2m7n1q5w8r}
       POSTGRES_DB: ${DB_NAME:-jms_v1}
-      # Run the DB in IST so CURRENT_DATE / NOW() match the factory day (Asia/Kolkata).
-      TZ: ${TZ:-Asia/Kolkata}
-      PGTZ: ${TZ:-Asia/Kolkata}
+      # Hardcoded IST — do NOT use ${TZ:-Asia/Kolkata}: if the VPS host has TZ=UTC set
+      # (Hostinger Ubuntu default) the :- fallback is SKIPPED and the container gets UTC.
+      TZ: "Asia/Kolkata"
+      PGTZ: "Asia/Kolkata"
     volumes:
       - jms_v1_pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -44,8 +45,9 @@ services:
       - jms_v1_uploads:/app/PUBLIC/uploads
     environment:
       PORT: "3000"
-      # India Standard Time so shift/date ("today") logic matches the factory floor.
-      TZ: ${TZ:-Asia/Kolkata}
+      # Hardcoded IST — do NOT use ${TZ:-Asia/Kolkata}: Hostinger VPS has TZ=UTC in the
+      # host environment so the :- fallback is skipped and the container would get UTC.
+      TZ: "Asia/Kolkata"
       DB_HOST: db
       DB_PORT: "5432"
       DB_USER: ${DB_USER:-jms_v1}
