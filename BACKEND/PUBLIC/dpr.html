@@ -697,6 +697,10 @@
                         }
 
                         let masterHtml = '';
+                        // Entries Counter — filled slots vs open (non-future) slots across all machines/dates/shifts
+                        let grandTotalOpenSlots = 0;
+                        let grandTotalFilledSlots = 0;
+
                         // 1. Render Global Plant Total Section (Visible once at top)
                         masterHtml += `
                             <div id="sticky-plant-total" style="position:sticky; top:105px; z-index:40; background:white; border:1px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
@@ -762,6 +766,13 @@
                                             <span title="Colour Changes" style="color:#c2410c">CC: <span id="grand-total-cc" style="font-weight:800; font-size:1.2rem">0</span></span>
                                             <span style="color:#cbd5e1">|</span>
                                             <span title="Job Changes" style="color:#7c3aed">JC: <span id="grand-total-jc" style="font-weight:800; font-size:1.2rem">0</span></span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:center" title="Filled Entries / Total Open Slots (non-future)">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#0891b2; text-transform:uppercase">Entries</div>
+                                        <div style="font-size:1.1rem; font-weight:800; white-space:nowrap">
+                                            <span id="grand-total-entries-filled" style="font-size:1.4rem; color:#059669">0</span><span style="color:#cbd5e1; font-size:0.9rem; margin:0 2px">/</span><span id="grand-total-entries-total" style="color:#64748b; font-size:1rem; font-weight:700">0</span>
                                         </div>
                                     </div>
                                 </div>
@@ -1033,6 +1044,16 @@
                                         if (cleanSlot.includes('|')) cleanSlot = cleanSlot.split('|').pop();
                                         if (!mData[cleanSlot]) mData[cleanSlot] = [];
                                         mData[cleanSlot] = mData[cleanSlot].concat(rawMachineData[rawSlot]);
+                                    });
+
+                                    // --- ENTRIES COUNTER: count open (non-future) and filled slots for this machine ---
+                                    slots.forEach(slotKey => {
+                                        const slotEndTs = getSlotEnd(slotKey, date, rowShift);
+                                        const slotStartTs = slotEndTs - 3600000;
+                                        if (new Date().getTime() >= slotStartTs) { // slot has opened
+                                            grandTotalOpenSlots++;
+                                            if ((mData[slotKey] || []).length > 0) grandTotalFilledSlots++;
+                                        }
                                     });
 
                                     // --- 1. Identify Distinct Moulds FIRST (v57 Deduplication) ---
@@ -1991,6 +2012,18 @@
 
                                 const gtAutoDtEl = document.getElementById('grand-total-autodt');
                                 if (gtAutoDtEl) gtAutoDtEl.textContent = (grandTotalAutoDt / 60).toFixed(1);
+                            }
+
+                            // --- UPDATE ENTRIES COUNT ---
+                            const elEntFilled = document.getElementById('grand-total-entries-filled');
+                            const elEntTotal  = document.getElementById('grand-total-entries-total');
+                            if (elEntFilled && elEntTotal) {
+                                const entPct = grandTotalOpenSlots > 0 ? Math.round((grandTotalFilledSlots / grandTotalOpenSlots) * 100) : 0;
+                                const entColor = entPct >= 80 ? '#059669' : entPct >= 50 ? '#d97706' : '#dc2626';
+                                elEntFilled.textContent = grandTotalFilledSlots;
+                                elEntFilled.style.color = entColor;
+                                elEntTotal.textContent  = grandTotalOpenSlots;
+                                elEntTotal.title = `${entPct}% entries filled`;
                             }
                         }
 
