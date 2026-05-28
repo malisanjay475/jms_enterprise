@@ -2,7 +2,10 @@
 FROM node:20-alpine
 
 # pg_restore / psql / dropdb for optional AUTO_IMPORT_DB_PATH (see scripts/auto-import-db-if-needed.js)
-RUN apk add --no-cache postgresql-client su-exec
+# tzdata: Alpine has no timezone database; without it Node's local-time methods
+# (getHours/getDate/etc.) fall back to UTC, which makes "today"/shift-date logic
+# show the previous day on a UTC host. The factory runs in IST (Asia/Kolkata).
+RUN apk add --no-cache postgresql-client su-exec tzdata
 
 # Install PM2 globally so it is available on $PATH for all users
 RUN npm install -g pm2@5
@@ -28,6 +31,9 @@ RUN addgroup -S jms && adduser -S jms -G jms && chown -R jms:jms /app
 # Environment Variables (Defaults)
 ENV PORT=3000
 ENV NODE_ENV=production
+# Default to India Standard Time so shift/date logic matches the factory floor
+# (the LOCAL factory server already runs in IST). Can be overridden via compose.
+ENV TZ=Asia/Kolkata
 
 # Expose Port
 EXPOSE 3000
