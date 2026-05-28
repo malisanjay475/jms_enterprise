@@ -12,11 +12,13 @@ Write-Host "2. Creating Temp Structure..."
 New-Item -ItemType Directory -Path "$TempDir" | Out-Null
 New-Item -ItemType Directory -Path "$TempDir/services" | Out-Null
 New-Item -ItemType Directory -Path "$TempDir/PUBLIC/assets" | Out-Null
+New-Item -ItemType Directory -Path "$TempDir/src/db" | Out-Null
 
 Write-Host "3. Copying Files..."
 Copy-Item "server.js" -Destination "$TempDir"
-Copy-Item "migrate_factory_isolation_v2.js" -Destination "$TempDir"
+Copy-Item "package.json" -Destination "$TempDir"
 Copy-Item "services/sync.service.js" -Destination "$TempDir/services"
+Copy-Item "src/db/createDbPool.js" -Destination "$TempDir/src/db"
 Copy-Item "PUBLIC/supervisor.html" -Destination "$TempDir/PUBLIC"
 Copy-Item "PUBLIC/login.html" -Destination "$TempDir/PUBLIC"
 Copy-Item "PUBLIC/users.html" -Destination "$TempDir/PUBLIC"
@@ -26,13 +28,13 @@ Write-Host "4. Zipping..."
 Compress-Archive -Path "$TempDir/*" -DestinationPath $ZipName
 
 Write-Host "5. Uploading to $RemoteHost..."
-# Note: This assumes SSH key is set up. If not, it will prompt for password.
-scp $ZipName "${RemoteUser}@${RemoteHost}:/root/"
+# Note: Using the specific po_parser_vps_deploy_ed25519 deployment key
+scp -i "$env:USERPROFILE\.ssh\po_parser_vps_deploy_ed25519" $ZipName "${RemoteUser}@${RemoteHost}:/root/"
 
 Write-Host "6. Deploying on Remote..."
-# Unzip to /root/jpsms (App Root), Rebuild/Restart App, Run Migration
-$Cmd = "unzip -o /root/$ZipName -d /root/jpsms && cd /root/jpsms && docker-compose up -d --build app && echo 'Waiting for DB...' && sleep 5 && docker exec jpsms-app node migrate_factory_isolation_v2.js && rm /root/$ZipName"
-ssh "${RemoteUser}@${RemoteHost}" $Cmd
+# Unzip to /opt/jms-enterprise/BACKEND, Rebuild/Restart V1 App, Clean up zip
+$Cmd = "unzip -o /root/$ZipName -d /opt/jms-enterprise/BACKEND && cd /opt/jms-enterprise && docker compose -p jms-enterprise-v1 -f docker-compose.vps-v1-isolated.yml up -d --build app && rm /root/$ZipName"
+ssh -i "$env:USERPROFILE\.ssh\po_parser_vps_deploy_ed25519" -o StrictHostKeyChecking=no "${RemoteUser}@${RemoteHost}" $Cmd
 
 Write-Host "7. Cleanup Local..."
 Remove-Item $TempDir -Recurse -Force
