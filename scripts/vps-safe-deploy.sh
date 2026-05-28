@@ -159,8 +159,13 @@ fi
 backup_before_deploy
 
 $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" pull app || true
-# Remove any stale containers with conflicting names (orphans from aborted deploys)
-docker ps -a --filter "name=${DEPLOY_PROJECT}-app" --format "{{.ID}}" | xargs -r docker rm -f || true
+
+# Pre-clean ALL stale containers with conflicting names before compose up.
+# --remove-orphans can race against containers that were just removed, causing
+# "No such container" errors. Removing them here (with || true so we never abort)
+# before compose up avoids the race.
+docker ps -a --filter "name=${DEPLOY_PROJECT}" --format "{{.ID}}" | xargs -r docker rm -f || true
+
 $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" up -d --remove-orphans db
 $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" up -d --remove-orphans app
 
