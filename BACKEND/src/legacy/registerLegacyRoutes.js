@@ -1816,6 +1816,85 @@ async function migrateWipStockMasterSchema() {
     .catch(err => console.warn('[DB] wip_stock_snapshot_lines comparison key index skipped:', err.message));
   await q(`CREATE INDEX IF NOT EXISTS idx_wip_stock_movements_factory_date ON wip_stock_movements(factory_id, movement_at DESC)`)
     .catch(err => console.warn('[DB] wip_stock_movements factory/date index skipped:', err.message));
+
+  // wip_inventory and wip_outward_logs: used by the shifting/WIP approval flow.
+  // Must exist on LOCAL servers for sync to work (previously only on MAIN).
+  await q(`
+    CREATE TABLE IF NOT EXISTS wip_inventory (
+      id SERIAL PRIMARY KEY,
+      shifting_record_id INTEGER,
+      order_no TEXT,
+      item_code TEXT,
+      item_name TEXT,
+      mould_name TEXT,
+      rack_no TEXT,
+      qty NUMERIC NOT NULL DEFAULT 0,
+      factory_id INTEGER,
+      sync_id UUID DEFAULT gen_random_uuid(),
+      sync_status TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(err => console.warn('[DB] wip_inventory create skipped:', err.message));
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS wip_outward_logs (
+      id SERIAL PRIMARY KEY,
+      wip_inventory_id INTEGER,
+      qty NUMERIC NOT NULL,
+      to_location TEXT,
+      receiver_name TEXT,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      factory_id INTEGER,
+      sync_id UUID DEFAULT gen_random_uuid(),
+      sync_status TEXT
+    )
+  `).catch(err => console.warn('[DB] wip_outward_logs create skipped:', err.message));
+
+  // vendors and vendor_users: purchase/vendor module tables.
+  // Must exist on LOCAL for sync column bootstrap to succeed.
+  await q(`
+    CREATE TABLE IF NOT EXISTS vendors (
+      id SERIAL PRIMARY KEY,
+      vendor_code TEXT,
+      vendor_name TEXT,
+      contact_person TEXT,
+      phone TEXT,
+      email TEXT,
+      address TEXT,
+      gst_no TEXT,
+      pan_no TEXT,
+      bank_name TEXT,
+      bank_account TEXT,
+      bank_ifsc TEXT,
+      is_active BOOLEAN DEFAULT true,
+      factory_id INTEGER,
+      sync_id UUID DEFAULT gen_random_uuid(),
+      sync_status TEXT,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(err => console.warn('[DB] vendors create skipped:', err.message));
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS vendor_users (
+      id SERIAL PRIMARY KEY,
+      vendor_id INTEGER,
+      username TEXT,
+      password_hash TEXT,
+      full_name TEXT,
+      phone TEXT,
+      email TEXT,
+      is_active BOOLEAN DEFAULT true,
+      factory_id INTEGER,
+      sync_id UUID DEFAULT gen_random_uuid(),
+      sync_status TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(err => console.warn('[DB] vendor_users create skipped:', err.message));
 }
 
 async function migrateRawMaterialSchema() {
@@ -3497,6 +3576,93 @@ app.post('/api/sync/force-full-push', async (_req, res) => {
   }
 });
 
+/* ============================================================
+   ADMIN: Bulk-approve all PENDING/NULL plans
+   POST /api/admin/plans/bulk-approve
+   Body: { username, password } — admin credentials required
+   Used to show plans on the planning board after a sync from LOCAL
+   where plans may have been synced with PENDING/NULL jc_approval_status.
+   ============================================================ */
+app.post('/api/admin/plans/bulk-approve', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ ok: false, error: 'username and password required' });
+    }
+    // Verify admin credentials
+    const userRows = await q(
+      `SELECT id, password_hash, role_code FROM users WHERE username = $1 LIMIT 1`,
+      [username]
+    );
+    if (!userRows.length) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+    const user = userRows[0];
+    const bcrypt = require('bcrypt');
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+    if (!isAdminLikeRole(user.role_code)) {
+      return res.status(403).json({ ok: false, error: 'Admin access required' });
+    }
+
+    const factoryId = getFactoryId(req);
+    const whereFactory = factoryId ? `AND (factory_id = ${factoryId} OR factory_id IS NULL)` : '';
+
+    // Count how many will be approved
+    const countRows = await q(
+      `SELECT COUNT(*) AS cnt FROM plan_board
+       WHERE UPPER(COALESCE(jc_approval_status, 'PENDING')) != 'APPROVED'
+         AND status != 'COMPLETED'
+         ${whereFactory}`
+    );
+    const count = Number(countRows[0]?.cnt || 0);
+
+    if (count === 0) {
+      return res.json({ ok: true, message: 'All active plans are already APPROVED.', updated: 0 });
+    }
+
+    // Bulk approve
+    await q(
+      `UPDATE plan_board
+       SET jc_approval_status = 'APPROVED',
+           jc_approved_by = $1,
+           jc_approved_at = NOW(),
+           updated_at = NOW()
+       WHERE UPPER(COALESCE(jc_approval_status, 'PENDING')) != 'APPROVED'
+         AND status != 'COMPLETED'
+         ${whereFactory}`,
+      [username]
+    );
+
+    console.log(`[Admin] bulk-approve: ${count} plans approved by ${username}`);
+    res.json({ ok: true, message: `${count} plan(s) approved. Refresh the planning board.`, updated: count });
+  } catch (e) {
+    console.error('[Admin] bulk-approve error:', e.message);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/* ============================================================
+   ADMIN: Reset sync pull watermark (MAIN forces full re-pull from LOCAL)
+   POST /api/admin/sync/reset-pull
+   Resets LAST_PULL so LOCAL re-fetches all rows from MAIN on next cycle.
+   ============================================================ */
+app.post('/api/admin/sync/reset-pull', async (req, res) => {
+  try {
+    await q(
+      `INSERT INTO server_config (key, value) VALUES ('LAST_PULL', '1970-01-01T00:00:00.000Z')
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+    );
+    await q(
+      `INSERT INTO server_config (key, value) VALUES ('LAST_DELETE_PULL', '1970-01-01T00:00:00.000Z')
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+    );
+    console.log('[Admin] sync reset-pull: LAST_PULL reset to epoch. Full re-pull will start on next sync cycle.');
+    res.json({ ok: true, message: 'LAST_PULL reset. Full re-pull starting on next sync cycle.' });
+  } catch (e) {
+    console.error('[Admin] reset-pull failed:', e.message);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 app.get('/api/legacy-health', async (_req, res) => {
   try {
     const r = await q('SELECT NOW() AS now', []);
@@ -4032,6 +4198,11 @@ async function initializeLegacyRuntime() {
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS jc_rejected_at TIMESTAMPTZ;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS jc_rejection_stage TEXT;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS job_card_given BOOLEAN DEFAULT false;
+            -- Completion tracking columns (added to MAIN but missing on LOCAL servers)
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS completed_by TEXT;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+            -- Factory isolation (required for multi-factory support)
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS factory_id INTEGER;
 
             CREATE TABLE IF NOT EXISTS plan_job_card_approval_history (
                 id SERIAL PRIMARY KEY,
@@ -5651,6 +5822,167 @@ app.get('/api/dpr/recent', async (req, res) => {
     res.json({ ok: true, data: { rows } });
   } catch (e) {
     console.error('dpr/recent', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/* ============================================================
+   PLAN DRILL-DOWN  (Timeline → JC Click → Colour/Shift/Hourly)
+   GET /api/dpr/plan-drilldown?planId=PLN-xxx&orderNo=JR/xxx
+   Returns all dpr_hourly entries for the plan, plus colour plan-qty
+   from plan_board.colour_details, so the frontend can group by
+   colour → shift → hour_slot for the multi-level drill-down view.
+============================================================ */
+app.get('/api/dpr/plan-drilldown', async (req, res) => {
+  try {
+    const { planId, orderNo } = req.query;
+    if (!planId && !orderNo) return res.status(400).json({ ok: false, error: 'planId or orderNo required' });
+    const factoryId = getFactoryId(req);
+
+    // 1. Fetch plan_board for colour plan quantities
+    let planRow = null;
+    if (planId) {
+      const rows = await q(
+        `SELECT plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
+         FROM plan_board WHERE plan_id = $1 LIMIT 1`, [planId]
+      );
+      planRow = rows[0] || null;
+    }
+    if (!planRow && orderNo) {
+      const rows = await q(
+        `SELECT plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
+         FROM plan_board WHERE order_no = $1 LIMIT 1`, [orderNo]
+      );
+      planRow = rows[0] || null;
+    }
+
+    const effectiveOrderNo = planRow?.order_no || orderNo || null;
+    const effectivePlanId  = planRow?.plan_id  || planId  || null;
+
+    // Parse colour_details for per-colour plan quantities
+    let colourPlanMap = {}; // { colourName: planQty }
+    if (planRow?.colour_details) {
+      try {
+        const cd = typeof planRow.colour_details === 'string'
+          ? JSON.parse(planRow.colour_details)
+          : planRow.colour_details;
+        if (Array.isArray(cd)) {
+          cd.forEach(c => {
+            const name = (c.colourName || c.itemColour || c.colour || c.color || c.name || '').trim() || 'Default';
+            const qty  = Number(c.planQty ?? c.useQty ?? c.batchQty ?? c.qty ?? 0) || 0;
+            colourPlanMap[name] = (colourPlanMap[name] || 0) + qty;
+          });
+        }
+      } catch (_) {}
+    }
+
+    // 2. Fetch all DPR hourly entries for this plan
+    const params = [];
+    let whereClauses = ['h.is_deleted = false'];
+
+    if (effectivePlanId) {
+      params.push(effectivePlanId);
+      whereClauses.push(`(h.plan_id = $${params.length} OR h.plan_id = (SELECT id::text FROM plan_board WHERE plan_id = $${params.length} LIMIT 1))`);
+    } else if (effectiveOrderNo) {
+      params.push(effectiveOrderNo);
+      whereClauses.push(`h.order_no = $${params.length}`);
+    }
+
+    if (factoryId) {
+      params.push(factoryId);
+      whereClauses.push(`(h.factory_id = $${params.length} OR h.factory_id IS NULL)`);
+    }
+
+    const entries = await q(`
+      SELECT
+        h.id,
+        h.dpr_date::text AS dpr_date,
+        h.shift,
+        h.hour_slot,
+        h.good_qty,
+        h.reject_qty,
+        h.downtime_min,
+        COALESCE(NULLIF(TRIM(h.colour), ''), 'Default') AS colour,
+        h.machine,
+        h.remarks,
+        h.created_by,
+        h.created_at,
+        h.entry_type
+      FROM dpr_hourly h
+      WHERE ${whereClauses.join(' AND ')}
+      ORDER BY h.dpr_date ASC, h.shift ASC, h.hour_slot ASC
+    `, params);
+
+    // 3. Group entries: colour → shifts → hourly
+    const colourMap = {}; // { colour: { planQty, shifts: { 'Day|2026-05-28': { shift, date, entries[] } } } }
+
+    entries.forEach(e => {
+      const col  = e.colour || 'Default';
+      const key  = `${e.shift}|${e.dpr_date}`;
+
+      if (!colourMap[col]) colourMap[col] = { planQty: colourPlanMap[col] || 0, shifts: {} };
+      if (!colourMap[col].shifts[key]) {
+        colourMap[col].shifts[key] = {
+          shift: e.shift,
+          date: e.dpr_date,
+          goodQty: 0, rejectQty: 0, downtimeMin: 0,
+          entries: []
+        };
+      }
+      const s = colourMap[col].shifts[key];
+      s.goodQty    += Number(e.good_qty    || 0);
+      s.rejectQty  += Number(e.reject_qty  || 0);
+      s.downtimeMin += Number(e.downtime_min || 0);
+      s.entries.push({
+        id: e.id,
+        hourSlot:   e.hour_slot,
+        goodQty:    Number(e.good_qty    || 0),
+        rejectQty:  Number(e.reject_qty  || 0),
+        downtimeMin:Number(e.downtime_min || 0),
+        machine:    e.machine,
+        enteredBy:  e.created_by,
+        createdAt:  e.created_at,
+        remarks:    e.remarks,
+        entryType:  e.entry_type
+      });
+    });
+
+    // 4. Shape into final response
+    const totalGood   = entries.reduce((s, e) => s + Number(e.good_qty   || 0), 0);
+    const totalReject = entries.reduce((s, e) => s + Number(e.reject_qty || 0), 0);
+    const planQty     = Number(planRow?.plan_qty  || 0);
+    const balQty      = Number(planRow?.bal_qty   || 0);
+
+    const colours = Object.entries(colourMap).map(([colour, data]) => {
+      const shifts = Object.values(data.shifts).sort((a, b) =>
+        a.date < b.date ? -1 : a.date > b.date ? 1 : a.shift.localeCompare(b.shift)
+      );
+      const produced = shifts.reduce((s, sh) => s + sh.goodQty, 0);
+      const plan     = data.planQty || 0;
+      return {
+        colour,
+        planQty:     plan,
+        producedQty: produced,
+        balQty:      Math.max(0, plan - produced),
+        shifts
+      };
+    }).sort((a, b) => a.colour.localeCompare(b.colour));
+
+    res.json({
+      ok: true,
+      data: {
+        planId: effectivePlanId,
+        orderNo: effectiveOrderNo,
+        planQty,
+        producedQty: totalGood,
+        balQty,
+        totalReject,
+        mouldName: planRow?.mould_name || '',
+        colours
+      }
+    });
+  } catch (e) {
+    console.error('[plan-drilldown]', e.message);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
@@ -16241,7 +16573,7 @@ WITH RankedPlans AS (
   LEFT JOIN orders o ON pb.order_no = o.order_no
   LEFT JOIN moulds m ON m.mould_name = pb.mould_name
   LEFT JOIN mould_planning_summary mps ON(mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
-  LEFT JOIN or_jr_report r ON r.or_jr_no = pb.order_no
+  LEFT JOIN or_jr_report r ON (r.or_jr_no = pb.order_no AND (r.item_code = pb.item_code OR pb.item_code IS NULL OR pb.item_code = ''))
   ${whereClause}
 )
 SELECT * FROM RankedPlans WHERE rn = 1
@@ -16271,91 +16603,165 @@ ORDER BY sort_order ASC, seq ASC, updated_at ASC
 app.get('/api/job/colors', async (req, res) => {
   try {
     let { or_jr_no, jc_no, mould_no, plan_id } = req.query;
-    console.log(`[API] / job / colors params: `, req.query);
+    console.log(`[API] /job/colors params: `, req.query);
 
     // Context Resolution from PlanID if specific keys are missing
     if (plan_id && (!or_jr_no || !mould_no)) {
       try {
         const pRows = await q(`
-SELECT
-pb.order_no,
-  COALESCE(mps.mould_no, pb.item_code) as resolved_mould_no, --Fallback to item_code if mould_no missing
-pb.item_code,
-  pb.item_name 
+          SELECT pb.order_no, COALESCE(mps.mould_no, pb.item_code) as resolved_mould_no, pb.item_code, pb.item_name 
           FROM plan_board pb
-          LEFT JOIN mould_planning_summary mps ON(mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
+          LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
           WHERE pb.plan_id = $1
-  `, [plan_id]);
+        `, [plan_id]);
 
         if (pRows.length) {
           const p = pRows[0];
           if (!or_jr_no) or_jr_no = p.order_no;
           if (!mould_no) mould_no = p.resolved_mould_no;
-          // Also set target context for filtering
-          // targetItemCode = p.item_code;
         }
       } catch (err) { console.error('PlanID Lookup Error', err); }
     }
 
-    // Robust checking for optional parameters
-    if (!or_jr_no || !mould_no) return res.json({ ok: true, data: [] });
-
-    // NEW: Fetch Plan Context (Item Code / Name) to strictly filter
+    // Fetch Plan Context (Item Code / Name) and Factory ID
+    let planColourDetails = null;
+    let planFactoryId = null;
     let targetItemCode = '';
     let targetItemName = '';
     if (plan_id) {
-      const pRows = await q(`SELECT item_code, item_name FROM plan_board WHERE plan_id = $1`, [plan_id]);
-      if (pRows.length) {
-        targetItemCode = (pRows[0].item_code || '').trim();
-        targetItemName = (pRows[0].item_name || '').trim();
+      try {
+        const pRows = await q(`
+          SELECT colour_details, factory_id, item_code, item_name 
+          FROM plan_board 
+          WHERE plan_id = $1
+        `, [plan_id]);
+        if (pRows.length) {
+          planColourDetails = pRows[0].colour_details;
+          planFactoryId = pRows[0].factory_id;
+          targetItemCode = (pRows[0].item_code || '').trim();
+          targetItemName = (pRows[0].item_name || '').trim();
+        }
+      } catch (err) { console.error('Plan Board Fetch Error', err); }
+    }
+
+    const factoryId = planFactoryId || getFactoryId(req);
+
+    // ── NEW: PRIMARY PATH (plan_board.colour_details) ──
+    let parsedPlanColors = [];
+    if (planColourDetails) {
+      let rawRows = planColourDetails;
+      if (typeof rawRows === 'string') {
+        try { rawRows = JSON.parse(rawRows || '[]'); } catch (_) { rawRows = []; }
+      }
+      if (Array.isArray(rawRows)) {
+        parsedPlanColors = rawRows;
       }
     }
 
-    // Keys: or_jr_no, jc_no (or job_card_no), mould_no
-    // Updated: Check multiple keys, TRIM and LOWER for robustness
-    // [FIX] Factory Isolation injected into WHERE
-    const factoryId = getFactoryId(req);
+    // Normalize Map of color name -> plan quantity
+    const planColorsMap = {};
+    parsedPlanColors.forEach(row => {
+      const qty = Math.max(0, Number(row?.planQty ?? row?.plan_qty ?? row?.batchQty ?? row?.batch_qty ?? 0) || 0);
+      const rawName = String(row?.colourName || row?.itemColour || row?.item_colour || row?.rawItemName || row?.itemName || row?.item_name || '').trim();
+      if (rawName) {
+        const normKey = rawName.toUpperCase();
+        if (!planColorsMap[normKey]) {
+          planColorsMap[normKey] = { name: rawName, qty: 0 };
+        }
+        planColorsMap[normKey].qty += qty;
+      }
+    });
+
+    if (Object.keys(planColorsMap).length > 0) {
+      console.log(`[JC - COLORS] Found ${Object.keys(planColorsMap).length} colors in plan_board.colour_details for plan ${plan_id}.`);
+      
+      // Fetch Production from dpr_hourly (grouped strictly by plan_id + colour)
+      let prodSql = `
+        SELECT TRIM(UPPER(colour)) as colour, SUM(good_qty) as total
+        FROM dpr_hourly
+        WHERE plan_id = $1 AND is_deleted = false
+      `;
+      const prodParams = [plan_id];
+      if (factoryId) {
+        prodSql += ` AND factory_id = $2`;
+        prodParams.push(factoryId);
+      }
+      prodSql += ` GROUP BY TRIM(UPPER(colour))`;
+      
+      const prodRows = await q(prodSql, prodParams);
+
+      const prodMap = {};
+      prodRows.forEach(p => {
+        const k = (p.colour || '').trim().toUpperCase();
+        if (k) prodMap[k] = Number(p.total || 0);
+      });
+
+      const result = [];
+      const matchedKeys = new Set();
+
+      Object.keys(planColorsMap).forEach(k => {
+        const pColor = planColorsMap[k];
+        const produced = Math.round(prodMap[k] || 0);
+        result.push({
+          name: pColor.name,
+          qty: Math.round(pColor.qty),
+          produced: produced,
+          bal: Math.max(0, Math.round(pColor.qty) - produced)
+        });
+        matchedKeys.add(k);
+      });
+
+      // Add "Other" if there was production in colours not defined in plan
+      let otherProd = 0;
+      Object.keys(prodMap).forEach(k => {
+        if (!matchedKeys.has(k) && k !== 'DEFAULT') {
+          otherProd += prodMap[k];
+        }
+      });
+      if (otherProd > 0) {
+        result.push({
+          name: 'Other / Unspecified',
+          qty: 0,
+          produced: Math.round(otherProd),
+          bal: 0
+        });
+      }
+
+      return res.json({ ok: true, data: result });
+    }
+
+    // ── FALLBACK PATH: LEGACY jc_details SEARCH ──
+    console.log(`[JC - COLORS] No colors in plan_board.colour_details. Falling back to legacy jc_details search.`);
+    if (!or_jr_no || !mould_no) return res.json({ ok: true, data: [] });
 
     let sql = `
-SELECT
-COALESCE(data ->> 'mould_item_name', data ->> 'mold_item_name', data ->> 'item_name') as name,
-  COALESCE(data ->> 'mould_item_qty', data ->> 'mold_item_qty', data ->> 'item_qty', data ->> 'plan_qty') as qty,
-  data ->> 'item_code' as code,
-  data ->> 'mould_no' as raw_mould_no
+      SELECT
+        COALESCE(data ->> 'mould_item_name', data ->> 'mold_item_name', data ->> 'item_name') as name,
+        COALESCE(data ->> 'mould_item_qty', data ->> 'mold_item_qty', data ->> 'item_qty', data ->> 'plan_qty') as qty,
+        data ->> 'item_code' as code,
+        data ->> 'mould_no' as raw_mould_no
       FROM jc_details
-WHERE
---1. Match OR matches OR - JR No
-UPPER(TRIM(data ->> 'or_jr_no')) = UPPER($1)
-AND
---2. Match Job Card matches JC NO(or Job Card No)
-  ($2 = '' OR UPPER(TRIM(data ->> 'jc_no')) = UPPER($2) OR UPPER(TRIM(data ->> 'job_card_no')) = UPPER($2))
-AND
---3. Match Mould matches MOULD NO(or Mould Code)
-  (
-    UPPER(TRIM(data ->> 'mould_no')) = UPPER($3) 
+      WHERE UPPER(TRIM(data ->> 'or_jr_no')) = UPPER($1)
+        AND ($2 = '' OR UPPER(TRIM(data ->> 'jc_no')) = UPPER($2) OR UPPER(TRIM(data ->> 'job_card_no')) = UPPER($2))
+        AND (
+          UPPER(TRIM(data ->> 'mould_no')) = UPPER($3) 
           OR UPPER(TRIM(data ->> 'mould_code')) = UPPER($3)
-          --Fuzzy Match: Match Base Number(e.g. 9717 matches 9717 - L and 9717 - LID / CLIP)
           OR SPLIT_PART(UPPER(TRIM(data ->> 'mould_no')), '-', 1) = SPLIT_PART(UPPER($3), '-', 1)
-  )
+        )
     `;
 
-    // Strict Filter: If we know the Item Code, ensure we only get colors for THIS Item
     const params = [String(or_jr_no).trim(), String(jc_no).trim(), String(mould_no).trim()];
 
     if (targetItemCode) {
-      // STRICT FILTER: Match Item Code / Mould Item Code / Our Code / Mold Item Code
-      // We MUST check 'our_code' because Plan uses ERP Code (e.g. 1577) which matches 'our_code' in Report,
-      // even if 'mold_item_code' is different (e.g. 2306-Handle).
-      sql += ` AND(
-    TRIM(data ->> 'mould_item_code') = $4 
+      sql += ` AND (
+        TRIM(data ->> 'mould_item_code') = $4 
         OR TRIM(data ->> 'mold_item_code') = $4
         OR TRIM(data ->> 'our_code') = $4
         OR TRIM(data ->> 'item_code') = $4
-  )`;
+      )`;
       params.push(targetItemCode);
     }
 
-    // [FIX] Apply Factory Isolation
     if (factoryId) {
       sql += ` AND factory_id = $${params.length + 1} `;
       params.push(factoryId);
@@ -16363,8 +16769,41 @@ AND
 
     let colors = await q(sql, params);
 
+    // [ROBUSTNESS FALLBACK]
+    if (colors.length === 0 && jc_no) {
+      console.log(`[JC - COLORS] No colors found for jc_no='${jc_no}'. Trying fallback query matching only OR & Mould.`);
+      let fallbackSql = `
+        SELECT 
+          COALESCE(data ->> 'mould_item_name', data ->> 'mold_item_name', data ->> 'item_name') as name,
+          COALESCE(data ->> 'mould_item_qty', data ->> 'mold_item_qty', data ->> 'item_qty', data ->> 'plan_qty') as qty,
+          data ->> 'item_code' as code,
+          data ->> 'mould_no' as raw_mould_no
+        FROM jc_details
+        WHERE UPPER(TRIM(data ->> 'or_jr_no')) = UPPER($1)
+          AND (
+            UPPER(TRIM(data ->> 'mould_no')) = UPPER($2) 
+            OR UPPER(TRIM(data ->> 'mould_code')) = UPPER($2)
+            OR SPLIT_PART(UPPER(TRIM(data ->> 'mould_no')), '-', 1) = SPLIT_PART(UPPER($2), '-', 1)
+          )
+      `;
+      const fallbackParams = [String(or_jr_no).trim(), String(mould_no).trim()];
+      if (targetItemCode) {
+        fallbackSql += ` AND (
+          TRIM(data ->> 'mould_item_code') = $3 
+          OR TRIM(data ->> 'mold_item_code') = $3
+          OR TRIM(data ->> 'our_code') = $3
+          OR TRIM(data ->> 'item_code') = $3
+        )`;
+        fallbackParams.push(targetItemCode);
+      }
+      if (factoryId) {
+        fallbackSql += ` AND factory_id = $${fallbackParams.length + 1} `;
+        fallbackParams.push(factoryId);
+      }
+      colors = await q(fallbackSql, fallbackParams);
+    }
+
     // BEST MATCH LOGIC: Prioritize Exact Mould No Match
-    // If we have exact matches (e.g. "1532-B"), discard fuzzy ones ("1532-Body").
     if (mould_no) {
       const targetMould = String(mould_no).trim().toUpperCase();
       const exactMatches = colors.filter(c =>
@@ -16373,10 +16812,7 @@ AND
 
       if (exactMatches.length > 0) {
         colors = exactMatches;
-        // console.log('[JC - COLORS] Applied Exact Mould Match Filter.');
       } else {
-        // Fallback: Improved Prefix Match (Handles 4750-BTM 4 vs 4750-BTM 6)
-        // Extract the base part before space, e.g., "4750-BTM"
         const targetPrefix = targetMould.split(' ')[0];
         if (targetPrefix && targetPrefix.length > 2) {
            const prefixMatches = colors.filter(c => 
@@ -16386,14 +16822,13 @@ AND
            if (prefixMatches.length > 0) {
              colors = prefixMatches;
            } else {
-             // Second Fallback: LID vs BTM keyword matching
              const isBtm = targetMould.includes('BTM') || targetMould.includes('BOTTOM');
              const isLid = targetMould.includes('LID') || targetMould.includes('TOP');
              const keywordMatches = colors.filter(c => {
                const raw = (c.raw_mould_no || '').toUpperCase();
                if (isBtm && !isLid) return raw.includes('BTM') || raw.includes('BOTTOM');
                if (isLid && !isBtm) return raw.includes('LID') || raw.includes('TOP');
-               return true; // if neither, or both, keep it
+               return true;
              });
              
              if (keywordMatches.length > 0 && keywordMatches.length < colors.length) {
@@ -16407,7 +16842,6 @@ AND
     console.log(`[JC - COLORS] Req: OR = ${or_jr_no} JC = ${jc_no} M = ${mould_no} Item = ${targetItemName} | Found: ${colors.length} `);
 
     // Fetch Plan Production
-    // [FIX] Filter by Factory also
     let prodSql = `
       SELECT colour, SUM(good_qty) as total
       FROM dpr_hourly
@@ -16422,7 +16856,6 @@ AND
 
     const prod = await q(prodSql, prodParams);
 
-    // MAP: Normalized Color Name -> Quantity
     const prodMap = {};
     prod.forEach(p => {
       const k = (p.colour || 'null').trim().toUpperCase();
@@ -16431,13 +16864,12 @@ AND
     });
 
     const uniqueColors = {};
-    const matchedKeys = new Set(); // Track which prodMap keys were consumed
+    const matchedKeys = new Set();
 
     colors.forEach(c => {
       const rawName = (c.name || '').trim();
       if (!rawName) return;
 
-      // CORE LOGIC: Strictly extract "C" from "A-B-C"
       let colorName = rawName;
       if (rawName.includes('-')) {
         const parts = rawName.split('-');
@@ -16452,14 +16884,12 @@ AND
       }
       uniqueColors[colorName].target += target;
 
-      // Match Production
       if (prodMap[normKey]) {
         uniqueColors[colorName].produced += prodMap[normKey];
         matchedKeys.add(normKey);
       }
     });
 
-    // Capture Unmatched / Null Production
     let otherProd = 0;
     Object.keys(prodMap).forEach(k => {
       if (!matchedKeys.has(k)) {
@@ -16474,12 +16904,11 @@ AND
       return {
         name: colorName,
         qty: target,
-        produced: produced, // Helpful for debugging
+        produced: produced,
         bal: Math.max(0, target - produced)
       };
     });
 
-    // Add 'Other' row if significant
     if (otherProd > 0) {
       result.push({
         name: 'Other / Unspecified',
@@ -18687,7 +19116,7 @@ pb.*,
   m.mould_number as mould_code
       FROM plan_board pb
       LEFT JOIN orders o ON pb.order_no = o.order_no
-      LEFT JOIN or_jr_report r ON r.or_jr_no = pb.order_no
+      LEFT JOIN or_jr_report r ON (r.or_jr_no = pb.order_no AND (r.item_code = pb.item_code OR pb.item_code IS NULL OR pb.item_code = ''))
       LEFT JOIN moulds m ON m.mould_name = pb.mould_name
       WHERE pb.status = 'COMPLETED_PENDING'
   `;
@@ -18732,7 +19161,7 @@ app.get('/api/approvals/item/:id', async (req, res) => {
             SELECT pb.*, o.client_name, r.job_card_no 
             FROM plan_board pb 
             LEFT JOIN orders o ON pb.order_no = o.order_no
-            LEFT JOIN or_jr_report r ON r.or_jr_no = pb.order_no
+            LEFT JOIN or_jr_report r ON (r.or_jr_no = pb.order_no AND (r.item_code = pb.item_code OR pb.item_code IS NULL OR pb.item_code = ''))
             WHERE pb.plan_id = $1
   `, [id]);
 
