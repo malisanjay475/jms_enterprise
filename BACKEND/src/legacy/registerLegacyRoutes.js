@@ -1895,6 +1895,25 @@ async function migrateWipStockMasterSchema() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `).catch(err => console.warn('[DB] vendor_users create skipped:', err.message));
+
+  // vendor_dispatch: vendor delivery/dispatch records for purchase orders.
+  // Must exist on LOCAL for sync column bootstrap to succeed.
+  await q(`
+    CREATE TABLE IF NOT EXISTS vendor_dispatch (
+      id SERIAL PRIMARY KEY,
+      vendor_id INTEGER,
+      po_id INTEGER,
+      dispatch_date DATE,
+      invoice_no TEXT,
+      invoice_file TEXT,
+      status TEXT DEFAULT 'Pending',
+      factory_id INTEGER,
+      sync_id UUID DEFAULT gen_random_uuid(),
+      sync_status TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(err => console.warn('[DB] vendor_dispatch create skipped:', err.message));
 }
 
 async function migrateRawMaterialSchema() {
@@ -4475,7 +4494,17 @@ async function initializeLegacyRuntime() {
       await q(`DROP INDEX IF EXISTS std_actual_unique_key`);
     } catch (e) { console.log('[DB] Note: Drop constraint std_actual_unique_key failed:', e.message); }
 
-    await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_std_actual_sync_id ON std_actual(sync_id);`);
+    // [FIX 3] std_actual sync_id must be NON-UNIQUE.
+    // std_actual rows are written by BOTH LOCAL and MAIN independently (supervisors on both
+    // sides submit DPR entries). When MAIN pushes rows to LOCAL, the upsert
+    // ON CONFLICT (plan_id, shift, dpr_date, machine) DO UPDATE SET sync_id = EXCLUDED.sync_id
+    // tries to overwrite the LOCAL row's sync_id with MAIN's value. But MAIN's sync_id for row A
+    // may already be the LOCAL sync_id for a different row B — causing:
+    //   "duplicate key value violates unique constraint idx_std_actual_sync_id"
+    // The real canonical key for std_actual is the composite (plan_id, shift, dpr_date, machine).
+    // sync_id is just a replication helper; it must NOT be unique here.
+    try { await q(`DROP INDEX IF EXISTS idx_std_actual_sync_id`); } catch (_) {}
+    await q(`CREATE INDEX IF NOT EXISTS idx_std_actual_sync_id ON std_actual(sync_id);`);
 
     // [FIX] Machine names must be unique per factory, not globally.
     // Older schemas still have a global UNIQUE(machine) constraint, which breaks
@@ -16580,6 +16609,33 @@ AND
     }
 
     console.log(`[JC - COLORS] Req: OR = ${or_jr_no} JC = ${jc_no} M = ${mould_no} Item = ${targetItemName} | Found: ${colors.length} `);
+
+    // ── Fallback: if jc_details found nothing but plan_id is known, use plan_board.colour_details
+    //    This ensures balance is computed (plan_qty - produced) even when JC detail report
+    //    has not been uploaded yet for this plan.
+    if (!colors.length && plan_id) {
+      try {
+        const pbRows = await q(
+          `SELECT colour_details FROM plan_board WHERE plan_id = $1 LIMIT 1`,
+          [String(plan_id)]
+        );
+        if (pbRows.length && pbRows[0].colour_details) {
+          let cd = pbRows[0].colour_details;
+          if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = []; } }
+          if (Array.isArray(cd)) {
+            colors = cd.map(row => ({
+              name: String(row.colourName || row.itemColour || row.item_colour ||
+                           row.itemName   || row.item_name  || '').trim(),
+              qty:  String(row.planQty || row.plan_qty || row.batchQty || row.batch_qty || 0),
+              raw_mould_no: null
+            })).filter(c => c.name);
+            console.log(`[JC - COLORS] jc_details empty → fell back to plan_board.colour_details: ${colors.length} colours`);
+          }
+        }
+      } catch (fbErr) {
+        console.warn('[JC - COLORS] colour_details fallback error:', fbErr.message);
+      }
+    }
 
     // Fetch Plan Production
     // [FIX] Filter by Factory also

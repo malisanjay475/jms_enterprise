@@ -2836,7 +2836,7 @@
           trTot.className = 'color-row';
           trTot.innerHTML = `<td><span class="color-badge" style="font-weight:700">Required</span></td><td><span class="qty-pill" style="font-weight:700">${Math.round(sumPlan)}</span></td><td><span class="qty-pill" style="font-weight:700">${Math.round(sumBal)}</span></td>`;
           if (tbody) tbody.appendChild(trTot);
-          el('color-plan-note').textContent = 'Source: Saved plan colour breakdown';
+          el('color-plan-note').textContent = 'Source: Plan colours + Live production';
           buildColourOptions(job);
           const planKey = 'last_color_' + (job.PlanID || '');
           const last = localStorage.getItem(planKey);
