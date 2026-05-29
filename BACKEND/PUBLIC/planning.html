@@ -9422,22 +9422,17 @@
             const isRunning = (st === 'running');
             const isCompleted = (st === 'completed');
 
-            // Store plan data for Complete modal — avoids serialising into an onclick attr
-            // (single quotes in mould/product names would break the JS string)
-            if (!window._cpDataMap) window._cpDataMap = {};
-            window._cpDataMap[String(p.id)] = p;
-
             // View Detail Button (New)
             actionHtml += `
-                  <button class="btn icon mini master-action-btn view"
+                  <button class="btn icon mini master-action-btn view" 
                      title="View Detail"
                      onclick="window.viewPlan('${p.id}')">
                      <i class="bi bi-eye"></i>
                   </button>
-
-                  <button class="btn icon mini master-action-btn complete"
+                  
+                  <button class="btn icon mini master-action-btn complete" 
                      title="Complete Plan"
-                     onclick="event.stopPropagation(); window.openCompletePlanModal('${p.id}')">
+                     onclick="event.stopPropagation(); window.openCompletePlanModal('${p.id}', '${esc(JSON.stringify(p))}')">
                      <i class="bi bi-check-lg" style="font-weight:bold"></i>
                   </button>`;
 
@@ -10828,15 +10823,9 @@
         const title = document.getElementById('jcApprovalModalTitle');
         const sign = document.getElementById('jcApprovalSignLine');
         if (!modal || !body) return;
-
-        // Move modal to document.body if it is nested inside .main-content (renderShell moves all
-        // body children into .main-content on load). As long as the modal lives inside the scroll
-        // container, browsers will scroll .main-content to "show" any focused child (e.g. textareas)
-        // even though the modal is position:fixed. Moving it to body breaks that DOM link entirely.
-        if (modal.parentElement !== document.body) document.body.appendChild(modal);
-
         window.currentJcApprovalId = id;
         modal.style.display = 'flex';
+        lockModalScroll(); // keep page at current scroll position while modal is open
         body.innerHTML = '<div style="padding:36px; text-align:center; color:#64748b; font-weight:850">Loading plan details...</div>';
         try {
           const res = await api.get(`/planning/job-card-approvals/${id}`);
@@ -10910,8 +10899,7 @@
         if (modal) modal.style.display = 'none';
         window.currentJcApprovalId = null;
         window.currentJcApprovalPlan = null;
-        // No scroll unlock needed — we no longer call lockModalScroll() on open.
-        // Scroll position is preserved by saving/restoring #pageContent.scrollTop directly.
+        unlockModalScrollIfNeeded(); // restore scroll position to where user was
       };
 
       window.submitJcApproval = async function (action) {
@@ -11643,24 +11631,7 @@
     // Complete Plan Logic
     window.openCompletePlanModal = function (id, jsonRow) {
       try {
-        let p;
-        if (jsonRow !== undefined && jsonRow !== null) {
-          // Called with serialised data (legacy callers / timeline_patch.js)
-          if (typeof jsonRow === 'object') {
-            p = jsonRow;
-          } else {
-            // Try plain JSON parse first; fall back to URL-decode for any encoded callers
-            try { p = JSON.parse(jsonRow); }
-            catch(e1) {
-              try { p = JSON.parse(decodeURIComponent(jsonRow)); }
-              catch(e2) { throw e1; }
-            }
-          }
-        } else {
-          // Preferred path: look up from the in-memory data store (no attr serialisation)
-          p = (window._cpDataMap || {})[String(id)];
-          if (!p) throw new Error('Plan data not found for id ' + id + '. Reload the page and try again.');
-        }
+        const p = JSON.parse(decodeURIComponent(jsonRow));
         window.cpCurrentPlanId = id;
 
         document.getElementById('cpmTitle').textContent = 'Order: ' + (p.orderNo || p.order_no);
@@ -12904,6 +12875,7 @@
                   <span>P:<strong>${fmtQty(p.planQty)}</strong></span>
                   <span class="${p.balQty > 0 ? 'bal-pos' : 'bal-done'}">B:<strong>${fmtQty(p.balQty)}</strong></span>
                 </div>
+                ${(p.jcNo || p.jc_no || p.job_card_no) ? `<div onclick="if(window.openJcDrilldown)window.openJcDrilldown('${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.planId||p.plan_id||'')}','${esc(p.orderNo||'')}'); event.stopPropagation();" style="font-size:.62rem;font-family:monospace;color:#2563eb;font-weight:700;text-decoration:underline;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px" title="Click: Colour/Shift/Hourly drill-down">JC: ${esc(p.jcNo||p.jc_no||p.job_card_no||'')} ↗</div>` : ''}
                 ${timeBadge}
               </div>
             </td>`;
