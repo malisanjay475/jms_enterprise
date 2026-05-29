@@ -894,8 +894,8 @@ const LEGACY_UPLOADS_DIR = path.join(BACKEND_ROOT, 'public', 'uploads');
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
-      // HTML pages must always revalidate so deployments are picked up immediately
-      res.setHeader('Cache-Control', 'no-cache');
+      // Cache for 5 minutes with a 1-minute stale-while-revalidate background refresh
+      res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
     } else if (path.basename(filePath) === 'app.js') {
       // app.js carries the version badge — never serve stale
       res.setHeader('Cache-Control', 'no-cache');
@@ -4668,20 +4668,22 @@ async function initializeLegacyRuntime() {
     }
 
     try {
-      // --- MIGRATION: Fix OR-JR Report PK (Composite: OR/JR + Plan Date + Job Card) ---
+      // --- MIGRATION: Fix OR-JR Report PK (Composite: OR/JR No + Job Card No only) ---
       // 1. Remove Strict PK on just or_jr_no
       await q(`ALTER TABLE or_jr_report DROP CONSTRAINT IF EXISTS or_jr_report_pkey`);
-      // 2. Add Composite Constraint (Unique Index for Upsert)
-      // Using COALESCE to treat NULL as a distinct value for uniqueness
+      // 2. Drop old 3-part index (included plan_date — caused duplicate rows when plan_date changed)
+      await q(`DROP INDEX IF EXISTS idx_or_jr_composite_unique`).catch(() => {});
+      // 3. Create 2-part unique index: OR No + JC No only
+      //    One row per (OR/JR No + Job Card No) combination.
+      //    Same OR with different JC = separate rows (both coexist and update independently).
       await q(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_composite_unique
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_jc_unique
         ON or_jr_report (
             or_jr_no,
-            COALESCE(plan_date, '1970-01-01'::date),
             COALESCE(job_card_no, '')
         )
       `);
-      console.log('[DB] OR-JR Report Composite Unique Index ensured');
+      console.log('[DB] OR-JR Report Unique Index (or_jr_no + job_card_no) ensured');
     } catch (e) {
       console.warn('[DB] or_jr_report composite migration skipped:', e.message);
     }
@@ -7362,9 +7364,9 @@ app.get('/api/planning/board', async (req, res) => {
 
     const rows = await q(
       `
-    SELECT
-    pb.id,
-      pb.plan_id      AS "planId",
+      SELECT
+        pb.id,
+        pb.plan_id      AS "planId",
         pb.plant,
         COALESCE(NULLIF(TRIM(pb.building), ''), NULLIF(TRIM(planMachine.building), ''), NULLIF(TRIM(planMachine.machine_process), ''), 'General') AS building,
         COALESCE(NULLIF(TRIM(pb.line), ''), NULLIF(TRIM(planMachine.line), ''), CASE WHEN COALESCE(NULLIF(TRIM(planMachine.machine_process), ''), 'Moulding') = 'Moulding' THEN '1' ELSE 'Machines' END) AS line,
@@ -7372,25 +7374,15 @@ app.get('/api/planning/board', async (req, res) => {
         COALESCE(NULLIF(TRIM(planMachine.machine_process), ''), 'Moulding') AS "machineProcess",
         pb.seq,
         pb.order_no     AS "orderNo",
-          pb.item_code    AS "itemCode",
-            pb.item_name    AS "itemName",
-    COALESCE(pb.mould_name, m.mould_name, 'Unknown') AS "mouldName",
-      o.client_name    AS "clientName",
+        COALESCE(pb.mould_name, m.mould_name, 'Unknown') AS "mouldName",
+        o.client_name    AS "clientName",
         mMaster.cycle_time AS "cycleTime",
         -- Fetch Mould No from Master (Strict => Fallback to Mould Master)
         COALESCE(mps.mould_no, m.mould_number, '-') AS "mouldNo",
-
-
-          mps.jr_qty       AS "jrQty",
-          mps.mould_item_qty AS "targetQty",
-          mps.tonnage      AS "tonnage",
-          mps.cavity       AS "cavity",
-          mps.uom          AS "uom",
-          ojr.job_card_no  AS "jcNo",
-          pb.job_card_given,
-
-
-          pb.plan_qty     AS "planQty",
+        mps.cavity       AS "cavity",
+        ojr.job_card_no  AS "jcNo",
+        pb.job_card_given,
+        pb.plan_qty     AS "planQty",
             pb.bal_qty      AS "balQty",
               pb.start_date   AS "startDate",
                 pb.end_date     AS "endDate",
@@ -11887,50 +11879,30 @@ app.post('/api/upload/or-jr-preview', upload.single('file'), async (req, res) =>
     console.log(`[OR - JR Upload] Extracted ${mapped.length} valid records.`);
 
 
-    // 3. Compare with DB (Composite Key Check)
+    // 3. Compare with DB — key is (or_jr_no + job_card_no) only, plan_date excluded
     const existingRows = requestFactoryId
-      ? await q(`SELECT or_jr_no, plan_date, job_card_no, jr_close FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
-      : await q(`SELECT or_jr_no, plan_date, job_card_no, jr_close FROM or_jr_report`);
+      ? await q(`SELECT or_jr_no, job_card_no FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
+      : await q(`SELECT or_jr_no, job_card_no FROM or_jr_report`);
     const dbMap = new Map();
 
     existingRows.forEach(row => {
-      // Key: OR|Date|JC
-      // Parse Dates
-      const d = row.plan_date ? new Date(row.plan_date).toISOString().split('T')[0] : '1970-01-01';
-      const j = (row.job_card_no || '').trim();
       const o = (row.or_jr_no || '').trim();
-
-      // Key: OR + JC (Ignoring Date for Update detection)
-      const key = `${o}| ${j} `;
-      dbMap.set(key, row);
+      const j = (row.job_card_no || '').trim();
+      // Key: OR No + JC No
+      dbMap.set(`${o}|${j}`, row);
     });
 
     const preview = mapped.map(row => {
-      // Generate Key
-      const rd = row.plan_date ? new Date(row.plan_date).toISOString().split('T')[0] : '1970-01-01';
-      const rj = (row.job_card_no || '').trim();
       const ro = (row.or_jr_no || '').trim();
-
-      const key = `${ro}| ${rj} `;
+      const rj = (row.job_card_no || '').trim();
+      const key = `${ro}|${rj}`;
       const existing = dbMap.get(key);
 
-      if (!existing) {
-        return { ...row, _status: 'NEW' };
-      }
-
-      // Check if Closed
-      if ((existing.jr_close || '').toLowerCase() === 'yes') {
-        return { ...row, _status: 'SKIP (Closed)' };
-      }
-
-      // Update all cells for every row (User Request)
-      // Detect if Date Changed for clarity (Optional)
-      const oldDate = existing.plan_date ? new Date(existing.plan_date).toISOString().split('T')[0] : '1970-01-01';
-      if (rd !== oldDate) {
-        // Date Modified
-      }
-
-      return { ...row, _status: 'UPDATE', _old: existing };
+      // Exact match (same OR + same JC) → UPDATE that row
+      // No match (new JC or brand-new OR)  → INSERT as NEW
+      // jr_close is intentionally NOT checked — closed rows are always updatable
+      if (!existing) return { ...row, _status: 'NEW' };
+      return { ...row, _status: 'UPDATE' };
     });
 
     res.json({ ok: true, data: preview });
@@ -11957,9 +11929,9 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
     if (!rows || !Array.isArray(rows)) return res.json({ ok: false, error: 'Invalid data' });
     assertUploadRowsMatchFactory(rows, requestFactoryId, 'OR-JR Status upload');
 
-    // Filter out SKIP
+    // Process all NEW and UPDATE rows (no SKIP status exists anymore)
     const toProcess = rows.filter(r => r._status === 'NEW' || r._status === 'UPDATE');
-    console.log(`[OR - JR Confirm] Processing ${toProcess.length} rows(Total sent: ${rows.length}.Skipped: ${rows.length - toProcess.length})`);
+    console.log(`[OR - JR Confirm] Processing ${toProcess.length} rows (Total sent: ${rows.length}, Skipped: ${rows.length - toProcess.length})`);
 
     console.log('!!! HANDLER HIT: /api/upload/or-jr-confirm !!!');
     if (!toProcess.length) return res.json({ ok: true, message: 'Nothing to save' });
@@ -11975,199 +11947,78 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
       try { // ATOMIC ROW START
 
 
-        // SMART MERGE LOGIC:
-        // 1. Check if an entry exists for this OR No with an EMPTY/NULL Job Card.
-        // 2. If yes, UPDATE that entry (Upgrade it to valid JC).
-        // 3. If no, INSERT/UPSERT as usual.
-
-        const orNo = r.or_jr_no;
-        const jcNo = (r.job_card_no || '').trim();
         const rowFactoryId = normalizeFactoryId(r.factory_id) ?? requestFactoryId;
 
-        // Only try merge if we HAVE a JC No (otherwise we are just inserting another empty one, which is fine or caught by upsert)
-        let merged = false;
-        if (jcNo) {
-          const potentialMatch = await pool.query(`
-                SELECT or_jr_no FROM or_jr_report 
-                WHERE or_jr_no = $1
-AND(job_card_no IS NULL OR TRIM(job_card_no) = '')
-AND(factory_id = $2 OR factory_id IS NULL)
-                LIMIT 1
-  `, [orNo, rowFactoryId]);
-
-          if (potentialMatch.rows.length > 0) {
-            // UPDATE instead of INSERT
-            // We update the PK fields (job_card_no) via direct update on the found row?
-            // Actually we can't change PK easily if it's part of PK. 
-            // Wait, PK is (or_jr_no). 
-            // Let's check init_or_jr_table.js -> PK is or_jr_no ONLY?
-            // If PK is or_jr_no, we can't have duplicates of OR No at all!
-            // ERROR: The user has duplicates. So PK must NOT be just or_jr_no.
-            // Let's trust the "ON CONFLICT (or_jr_no, COALESCE(job_card_no, ''))" clause below. 
-            // This implies a composite UNIQUE constraint exists.
-
-            // So, to "Merge", we DELETE the empty one and INSERT the new one? 
-            // OR UPDATE the empty one's job_card_no to the new one?
-            // UPDATE is better to preserve created_at if desired, but replacing is safer for data consistency.
-            // Let's UPDATE the empty record's job_card_no to the new one.
-
-            // CRITICAL CHECK: Does the TARGET JC (Upgrade) ALREADY EXIST?
-            const targetExists = await pool.query(`
-                 SELECT 1 FROM or_jr_report WHERE or_jr_no = $1 AND job_card_no = $2 AND (factory_id = $3 OR factory_id IS NULL)
-  `, [orNo, jcNo, rowFactoryId]);
-
-            if (targetExists.rows.length > 0) {
-              // Target already exists. The Empty one is redundant.
-              // DELETE the Empty one.
-              try {
-
-                await pool.query(`
-                        DELETE FROM or_jr_report 
-                        WHERE or_jr_no = $1 AND(job_card_no IS NULL OR TRIM(job_card_no) = '') AND(factory_id = $2 OR factory_id IS NULL)
-  `, [orNo, rowFactoryId]);
-
-              } catch (delErr) {
-
-                console.error('[Auto-Merge] Pre-Delete Failed (FK Constraint?):', delErr.message);
-                // Ignore and proceed to UPSERT
-              }
-
-              // merged = false -> Forces fall-through to Standard UPSERT below to update the Existing Target Record
-              merged = false;
-            } else {
-              // Target does NOT exist. Safe to Upgrade the Empty one in-place.
-              try {
-                // SAVEPOINT required to recover from failed UPDATE (aborted transaction) before trying DELETE
-
-
-                await pool.query(`
-                    UPDATE or_jr_report 
-                    SET job_card_no = $1,
-  --Update other fields too
-or_jr_date = $2, or_qty = $3, jr_qty = $4, plan_qty = $5, plan_date = $6,
-  job_card_date = $7, item_code = $8, product_name = $9, client_name = $10,
-  prod_plan_qty = $11, std_pack = $12, uom = $13, planned_comp_date = $14,
-  mld_start_date = $15, mld_end_date = $16, actual_mld_start_date = $17,
-  prt_tuf_end_date = $18, pack_end_date = $19, mld_status = $20, shift_status = $21,
-  prt_tuf_status = $22, pack_status = $23, wh_status = $24, rev_mld_end_date = $25,
-  shift_comp_date = $26, rev_ptd_tuf_end_date = $27, rev_pak_end_date = $28,
-  wh_rec_date = $29, remarks_all = $30, jr_close = $31, or_remarks = $32, jr_remarks = $33,
-  edited_by = $34, edited_date = NOW(), factory_id = $35
-                    WHERE or_jr_no = $36 AND(job_card_no IS NULL OR TRIM(job_card_no) = '') AND(factory_id = $35 OR factory_id IS NULL)
-                `, [
-                  jcNo, // $1
-                  r.or_jr_date, r.or_qty, r.jr_qty, r.plan_qty, r.plan_date, // $2-$6
-                  r.job_card_date, r.item_code, r.product_name, r.client_name, // $7-$10
-                  r.prod_plan_qty, r.std_pack, r.uom, r.planned_comp_date, // $11-$14
-                  r.mld_start_date, r.mld_end_date, r.actual_mld_start_date, // $15-$17
-                  r.prt_tuf_end_date, r.pack_end_date, r.mld_status, // $18-$20
-                  r.shift_status, r.prt_tuf_status, r.pack_status, r.wh_status, // $21-$24
-                  r.rev_mld_end_date, r.shift_comp_date, r.rev_ptd_tuf_end_date, // $25-$27
-                  r.rev_pak_end_date, r.wh_rec_date, r.remarks_all, r.jr_close, // $28-$31
-                  r.or_remarks, r.jr_remarks, // $32-$33
-                  user || 'System', // $34
-                  rowFactoryId, // $35
-                  orNo // $36
-                ]);
-
-
-                merged = true;
-                upsertCount++; // Count as handled
-              } catch (e) {
-
-                console.log('[Auto-Merge] Update failed. Trying Delete...');
-
-                try {
-                  // NESTED SAVEPOINT: Protect the DELETE operation too!
-                  // If DELETE fails (e.g. FK constraint on old empty record), we must NOT abort the main transaction.
-
-                  await pool.query(`DELETE FROM or_jr_report WHERE or_jr_no = $1 AND(job_card_no IS NULL OR TRIM(job_card_no) = '') AND(factory_id = $2 OR factory_id IS NULL)`, [orNo, rowFactoryId]);
-
-                } catch (delErr) {
-
-                  console.error('[Auto-Merge] Delete Failed (FK or Lock?):', delErr.message);
-                  // Verify if we can proceed? 
-                  // If delete failed, we still want to INSERT the new valid record.
-                  // The "Empty" record stays. It's duplicate but harmless if constraints allow unique composite.
-                }
-
-                merged = false;
-              }
-            }
-          }
-        }
-
-        if (!merged) {
-          // Standard Insert/Upsert
-          // WRAP ENTIRE ROW ACTION IN SAVEPOINT to allow skipping bad rows without aborting batch
-          try {
-
-
-            await pool.query(`
+        // Pure UPSERT — key is (or_jr_no + job_card_no).
+        // Each OR+JC combination is its own independent row.
+        // Same OR with 2 different JCs = 2 separate rows, both saved independently.
+        // Smart merge removed: it caused row loss when multiple JCs for the same OR
+        // were present in the same upload batch.
+        try {
+          await pool.query(`
             INSERT INTO or_jr_report(
-    or_jr_no, or_jr_date, or_qty, jr_qty, plan_qty, plan_date, job_card_no, job_card_date,
-    item_code, product_name, client_name, prod_plan_qty, std_pack, uom,
-    planned_comp_date, mld_start_date, mld_end_date, actual_mld_start_date, prt_tuf_end_date, pack_end_date,
-    mld_status, shift_status, prt_tuf_status, pack_status, wh_status,
-    rev_mld_end_date, shift_comp_date, rev_ptd_tuf_end_date, rev_pak_end_date, wh_rec_date,
-    remarks_all, jr_close, or_remarks, jr_remarks,
-    created_by, created_date, edited_by, edited_date, factory_id
-  ) VALUES(
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-    $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
-    $26, $27, $28, $29, $30, $31, $32, $33, $34,
-    COALESCE($35, $37), COALESCE($36, NOW()), COALESCE($38, $37), COALESCE($39, NOW()), $40
-  )
-            ON CONFLICT(or_jr_no, COALESCE(plan_date, '1970-01-01':: date), COALESCE(job_card_no, '':: text))
+              or_jr_no, or_jr_date, or_qty, jr_qty, plan_qty, plan_date, job_card_no, job_card_date,
+              item_code, product_name, client_name, prod_plan_qty, std_pack, uom,
+              planned_comp_date, mld_start_date, mld_end_date, actual_mld_start_date, prt_tuf_end_date, pack_end_date,
+              mld_status, shift_status, prt_tuf_status, pack_status, wh_status,
+              rev_mld_end_date, shift_comp_date, rev_ptd_tuf_end_date, rev_pak_end_date, wh_rec_date,
+              remarks_all, jr_close, or_remarks, jr_remarks,
+              created_by, created_date, edited_by, edited_date, factory_id
+            ) VALUES(
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+              $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
+              $26, $27, $28, $29, $30, $31, $32, $33, $34,
+              COALESCE($35, $37), COALESCE($36, NOW()), COALESCE($38, $37), COALESCE($39, NOW()), $40
+            )
+            ON CONFLICT(or_jr_no, COALESCE(job_card_no, ''::text))
             DO UPDATE SET
-or_jr_date = EXCLUDED.or_jr_date, or_qty = EXCLUDED.or_qty, jr_qty = EXCLUDED.jr_qty, plan_qty = EXCLUDED.plan_qty, plan_date = EXCLUDED.plan_date,
-  job_card_no = EXCLUDED.job_card_no, job_card_date = EXCLUDED.job_card_date, item_code = EXCLUDED.item_code, product_name = EXCLUDED.product_name,
-  client_name = EXCLUDED.client_name, prod_plan_qty = EXCLUDED.prod_plan_qty, std_pack = EXCLUDED.std_pack, uom = EXCLUDED.uom,
-  planned_comp_date = EXCLUDED.planned_comp_date, mld_start_date = EXCLUDED.mld_start_date, mld_end_date = EXCLUDED.mld_end_date,
-  actual_mld_start_date = EXCLUDED.actual_mld_start_date, prt_tuf_end_date = EXCLUDED.prt_tuf_end_date, pack_end_date = EXCLUDED.pack_end_date,
-  mld_status = EXCLUDED.mld_status, shift_status = EXCLUDED.shift_status, prt_tuf_status = EXCLUDED.prt_tuf_status, pack_status = EXCLUDED.pack_status,
-  wh_status = EXCLUDED.wh_status, rev_mld_end_date = EXCLUDED.rev_mld_end_date, shift_comp_date = EXCLUDED.shift_comp_date,
-  rev_ptd_tuf_end_date = EXCLUDED.rev_ptd_tuf_end_date, rev_pak_end_date = EXCLUDED.rev_pak_end_date, wh_rec_date = EXCLUDED.wh_rec_date,
-  remarks_all = EXCLUDED.remarks_all, jr_close = EXCLUDED.jr_close, or_remarks = EXCLUDED.or_remarks, jr_remarks = EXCLUDED.jr_remarks,
-  created_by = EXCLUDED.created_by, created_date = EXCLUDED.created_date,
-  edited_by = EXCLUDED.edited_by, edited_date = EXCLUDED.edited_date, factory_id = EXCLUDED.factory_id
-    `,
-              [
-                r.or_jr_no, r.or_jr_date, r.or_qty, r.jr_qty, r.plan_qty, r.plan_date, (r.job_card_no || '').trim(), r.job_card_date,
-                r.item_code, r.product_name, r.client_name, r.prod_plan_qty, r.std_pack, r.uom,
-                r.planned_comp_date, r.mld_start_date, r.mld_end_date, r.actual_mld_start_date, r.prt_tuf_end_date, r.pack_end_date,
-                r.mld_status, r.shift_status, r.prt_tuf_status, r.pack_status, r.wh_status,
-                r.rev_mld_end_date, r.shift_comp_date, r.rev_ptd_tuf_end_date, r.rev_pak_end_date, r.wh_rec_date,
-                r.remarks_all, r.jr_close, r.or_remarks, r.jr_remarks,
-                // $35: Excel Created By
-                r.created_by || null,
-                // $36: Excel Created Date
-                r.created_date || null,
-                // $37: Fallback User (Request User)
-                user || 'System',
-                // $38: Excel Edited By
-                r.edited_by || null,
-                // $39: Excel Edited Date
-                r.edited_date || null,
-                // $40: Resolved Factory ID
-                rowFactoryId
-              ]
-            );
-
-
-            upsertCount++;
-          } catch (upsertErr) {
-
-            console.error(`[OR - JR Upload] Insert Skipped for ${r.or_jr_no} due to error: `, upsertErr.message);
-            // Continue loop - SKIPPING this row only
-          }
+              or_jr_date = EXCLUDED.or_jr_date, or_qty = EXCLUDED.or_qty, jr_qty = EXCLUDED.jr_qty,
+              plan_qty = EXCLUDED.plan_qty, plan_date = EXCLUDED.plan_date,
+              job_card_no = EXCLUDED.job_card_no, job_card_date = EXCLUDED.job_card_date,
+              item_code = EXCLUDED.item_code, product_name = EXCLUDED.product_name,
+              client_name = EXCLUDED.client_name, prod_plan_qty = EXCLUDED.prod_plan_qty,
+              std_pack = EXCLUDED.std_pack, uom = EXCLUDED.uom,
+              planned_comp_date = EXCLUDED.planned_comp_date,
+              mld_start_date = EXCLUDED.mld_start_date, mld_end_date = EXCLUDED.mld_end_date,
+              actual_mld_start_date = EXCLUDED.actual_mld_start_date,
+              prt_tuf_end_date = EXCLUDED.prt_tuf_end_date, pack_end_date = EXCLUDED.pack_end_date,
+              mld_status = EXCLUDED.mld_status, shift_status = EXCLUDED.shift_status,
+              prt_tuf_status = EXCLUDED.prt_tuf_status, pack_status = EXCLUDED.pack_status,
+              wh_status = EXCLUDED.wh_status,
+              rev_mld_end_date = EXCLUDED.rev_mld_end_date, shift_comp_date = EXCLUDED.shift_comp_date,
+              rev_ptd_tuf_end_date = EXCLUDED.rev_ptd_tuf_end_date,
+              rev_pak_end_date = EXCLUDED.rev_pak_end_date, wh_rec_date = EXCLUDED.wh_rec_date,
+              remarks_all = EXCLUDED.remarks_all, jr_close = EXCLUDED.jr_close,
+              or_remarks = EXCLUDED.or_remarks, jr_remarks = EXCLUDED.jr_remarks,
+              created_by = EXCLUDED.created_by, created_date = EXCLUDED.created_date,
+              edited_by = EXCLUDED.edited_by, edited_date = EXCLUDED.edited_date,
+              factory_id = EXCLUDED.factory_id
+          `, [
+            r.or_jr_no, r.or_jr_date, r.or_qty, r.jr_qty, r.plan_qty, r.plan_date,
+            (r.job_card_no || '').trim(), r.job_card_date,
+            r.item_code, r.product_name, r.client_name, r.prod_plan_qty, r.std_pack, r.uom,
+            r.planned_comp_date, r.mld_start_date, r.mld_end_date, r.actual_mld_start_date,
+            r.prt_tuf_end_date, r.pack_end_date,
+            r.mld_status, r.shift_status, r.prt_tuf_status, r.pack_status, r.wh_status,
+            r.rev_mld_end_date, r.shift_comp_date, r.rev_ptd_tuf_end_date,
+            r.rev_pak_end_date, r.wh_rec_date,
+            r.remarks_all, r.jr_close, r.or_remarks, r.jr_remarks,
+            r.created_by || null,       // $35 Excel Created By
+            r.created_date || null,     // $36 Excel Created Date
+            user || 'System',           // $37 Fallback user
+            r.edited_by || null,        // $38 Excel Edited By
+            r.edited_date || null,      // $39 Excel Edited Date
+            rowFactoryId                // $40
+          ]);
+          upsertCount++;
+        } catch (upsertErr) {
+          console.error('[OR-JR Upload] Row skipped for', r.or_jr_no, '/', r.job_card_no, ':', upsertErr.message);
         }
-
 
 
       } catch (rowErr) {
 
-        console.error(`[OR - JR Upload] Critical Row Failure for ${r.or_jr_no}: `, rowErr.message);
+        console.error('[OR - JR Upload] Critical Row Failure for', r.or_jr_no, ':', rowErr.message);
       }
     }
 
@@ -16573,7 +16424,7 @@ WITH RankedPlans AS (
   LEFT JOIN orders o ON pb.order_no = o.order_no
   LEFT JOIN moulds m ON m.mould_name = pb.mould_name
   LEFT JOIN mould_planning_summary mps ON(mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
-  LEFT JOIN or_jr_report r ON (r.or_jr_no = pb.order_no AND (r.item_code = pb.item_code OR pb.item_code IS NULL OR pb.item_code = ''))
+  LEFT JOIN or_jr_report r ON r.or_jr_no = pb.order_no
   ${whereClause}
 )
 SELECT * FROM RankedPlans WHERE rn = 1
@@ -16603,165 +16454,150 @@ ORDER BY sort_order ASC, seq ASC, updated_at ASC
 app.get('/api/job/colors', async (req, res) => {
   try {
     let { or_jr_no, jc_no, mould_no, plan_id } = req.query;
-    console.log(`[API] /job/colors params: `, req.query);
+    console.log(`[API] /api/job/colors params: `, req.query);
+    const factoryIdTop = getFactoryId(req);
+
+    // ── PRIMARY PATH: use plan_board.colour_details (the batch-plan data) + live DPR production.
+    //    This is always the most accurate source — it's the exact colour breakdown saved when
+    //    the plan was created. Only fall back to jc_details if plan_id is absent or empty.
+    if (plan_id && String(plan_id) !== 'undefined' && String(plan_id) !== '') {
+      const pbRows = await q(
+        `SELECT colour_details FROM plan_board WHERE plan_id = $1 LIMIT 1`,
+        [String(plan_id)]
+      );
+      if (pbRows.length) {
+        let cd = pbRows[0].colour_details || [];
+        if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = []; } }
+        if (Array.isArray(cd) && cd.length > 0) {
+          // Fetch production from dpr_hourly for this plan
+          let prodSql = `SELECT colour, SUM(good_qty) as total FROM dpr_hourly WHERE plan_id = $1 AND is_deleted = false`;
+          const prodParams = [String(plan_id)];
+          if (factoryIdTop) { prodSql += ` AND factory_id = $2`; prodParams.push(factoryIdTop); }
+          prodSql += ' GROUP BY colour';
+          const prod = await q(prodSql, prodParams);
+
+          const prodMap = {};
+          prod.forEach(p => {
+            const k = (p.colour || '').trim().toUpperCase();
+            if (k) prodMap[k] = (prodMap[k] || 0) + Number(p.total || 0);
+          });
+
+          // Build result: plan qty from colour_details, produced from dpr_hourly
+          const grouped = {};
+          cd.forEach(row => {
+            const name = String(
+              row.colourName || row.itemColour || row.colour || row.color || row.name || ''
+            ).trim();
+            if (!name) return;
+            const qty = Number(row.planQty ?? row.batchQty ?? row.useQty ?? row.qty ?? 0) || 0;
+            if (!grouped[name]) grouped[name] = { target: 0, produced: 0 };
+            grouped[name].target += qty;
+            const k = name.toUpperCase();
+            if (prodMap[k]) grouped[name].produced += prodMap[k];
+          });
+
+          const result = Object.entries(grouped)
+            .filter(([, d]) => d.target > 0)
+            .map(([name, d]) => ({
+              name,
+              qty:         Math.round(d.target),
+              produced:    Math.round(d.produced),
+              bal:         Math.round(d.target - d.produced),  // negative = over-produced
+              overProduced: d.produced > d.target
+            }));
+
+          console.log(`[JOB COLORS] plan_id=${plan_id} → ${result.length} colours, prodMap keys: ${Object.keys(prodMap).join(',') || 'none'}`);
+          return res.json({ ok: true, data: result });
+        }
+      }
+    }
+
+    // ── LEGACY FALLBACK: no plan_id or colour_details empty → use jc_details
+    console.log(`[JOB COLORS] Falling back to jc_details for or_jr_no=${or_jr_no}`);
 
     // Context Resolution from PlanID if specific keys are missing
     if (plan_id && (!or_jr_no || !mould_no)) {
       try {
         const pRows = await q(`
-          SELECT pb.order_no, COALESCE(mps.mould_no, pb.item_code) as resolved_mould_no, pb.item_code, pb.item_name 
+SELECT
+pb.order_no,
+  COALESCE(mps.mould_no, pb.item_code) as resolved_mould_no, --Fallback to item_code if mould_no missing
+pb.item_code,
+  pb.item_name 
           FROM plan_board pb
-          LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
+          LEFT JOIN mould_planning_summary mps ON(mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
           WHERE pb.plan_id = $1
-        `, [plan_id]);
+  `, [plan_id]);
 
         if (pRows.length) {
           const p = pRows[0];
           if (!or_jr_no) or_jr_no = p.order_no;
           if (!mould_no) mould_no = p.resolved_mould_no;
+          // Also set target context for filtering
+          // targetItemCode = p.item_code;
         }
       } catch (err) { console.error('PlanID Lookup Error', err); }
     }
 
-    // Fetch Plan Context (Item Code / Name) and Factory ID
-    let planColourDetails = null;
-    let planFactoryId = null;
+    // Robust checking for optional parameters
+    if (!or_jr_no || !mould_no) return res.json({ ok: true, data: [] });
+
+    // NEW: Fetch Plan Context (Item Code / Name) to strictly filter
     let targetItemCode = '';
     let targetItemName = '';
     if (plan_id) {
-      try {
-        const pRows = await q(`
-          SELECT colour_details, factory_id, item_code, item_name 
-          FROM plan_board 
-          WHERE plan_id = $1
-        `, [plan_id]);
-        if (pRows.length) {
-          planColourDetails = pRows[0].colour_details;
-          planFactoryId = pRows[0].factory_id;
-          targetItemCode = (pRows[0].item_code || '').trim();
-          targetItemName = (pRows[0].item_name || '').trim();
-        }
-      } catch (err) { console.error('Plan Board Fetch Error', err); }
-    }
-
-    const factoryId = planFactoryId || getFactoryId(req);
-
-    // ── NEW: PRIMARY PATH (plan_board.colour_details) ──
-    let parsedPlanColors = [];
-    if (planColourDetails) {
-      let rawRows = planColourDetails;
-      if (typeof rawRows === 'string') {
-        try { rawRows = JSON.parse(rawRows || '[]'); } catch (_) { rawRows = []; }
-      }
-      if (Array.isArray(rawRows)) {
-        parsedPlanColors = rawRows;
+      const pRows = await q(`SELECT item_code, item_name FROM plan_board WHERE plan_id = $1`, [plan_id]);
+      if (pRows.length) {
+        targetItemCode = (pRows[0].item_code || '').trim();
+        targetItemName = (pRows[0].item_name || '').trim();
       }
     }
 
-    // Normalize Map of color name -> plan quantity
-    const planColorsMap = {};
-    parsedPlanColors.forEach(row => {
-      const qty = Math.max(0, Number(row?.planQty ?? row?.plan_qty ?? row?.batchQty ?? row?.batch_qty ?? 0) || 0);
-      const rawName = String(row?.colourName || row?.itemColour || row?.item_colour || row?.rawItemName || row?.itemName || row?.item_name || '').trim();
-      if (rawName) {
-        const normKey = rawName.toUpperCase();
-        if (!planColorsMap[normKey]) {
-          planColorsMap[normKey] = { name: rawName, qty: 0 };
-        }
-        planColorsMap[normKey].qty += qty;
-      }
-    });
-
-    if (Object.keys(planColorsMap).length > 0) {
-      console.log(`[JC - COLORS] Found ${Object.keys(planColorsMap).length} colors in plan_board.colour_details for plan ${plan_id}.`);
-      
-      // Fetch Production from dpr_hourly (grouped strictly by plan_id + colour)
-      let prodSql = `
-        SELECT TRIM(UPPER(colour)) as colour, SUM(good_qty) as total
-        FROM dpr_hourly
-        WHERE plan_id = $1 AND is_deleted = false
-      `;
-      const prodParams = [plan_id];
-      if (factoryId) {
-        prodSql += ` AND factory_id = $2`;
-        prodParams.push(factoryId);
-      }
-      prodSql += ` GROUP BY TRIM(UPPER(colour))`;
-      
-      const prodRows = await q(prodSql, prodParams);
-
-      const prodMap = {};
-      prodRows.forEach(p => {
-        const k = (p.colour || '').trim().toUpperCase();
-        if (k) prodMap[k] = Number(p.total || 0);
-      });
-
-      const result = [];
-      const matchedKeys = new Set();
-
-      Object.keys(planColorsMap).forEach(k => {
-        const pColor = planColorsMap[k];
-        const produced = Math.round(prodMap[k] || 0);
-        result.push({
-          name: pColor.name,
-          qty: Math.round(pColor.qty),
-          produced: produced,
-          bal: Math.max(0, Math.round(pColor.qty) - produced)
-        });
-        matchedKeys.add(k);
-      });
-
-      // Add "Other" if there was production in colours not defined in plan
-      let otherProd = 0;
-      Object.keys(prodMap).forEach(k => {
-        if (!matchedKeys.has(k) && k !== 'DEFAULT') {
-          otherProd += prodMap[k];
-        }
-      });
-      if (otherProd > 0) {
-        result.push({
-          name: 'Other / Unspecified',
-          qty: 0,
-          produced: Math.round(otherProd),
-          bal: 0
-        });
-      }
-
-      return res.json({ ok: true, data: result });
-    }
-
-    // ── FALLBACK PATH: LEGACY jc_details SEARCH ──
-    console.log(`[JC - COLORS] No colors in plan_board.colour_details. Falling back to legacy jc_details search.`);
-    if (!or_jr_no || !mould_no) return res.json({ ok: true, data: [] });
+    // Keys: or_jr_no, jc_no (or job_card_no), mould_no
+    // Updated: Check multiple keys, TRIM and LOWER for robustness
+    // [FIX] Factory Isolation injected into WHERE
+    const factoryId = getFactoryId(req);
 
     let sql = `
-      SELECT
-        COALESCE(data ->> 'mould_item_name', data ->> 'mold_item_name', data ->> 'item_name') as name,
-        COALESCE(data ->> 'mould_item_qty', data ->> 'mold_item_qty', data ->> 'item_qty', data ->> 'plan_qty') as qty,
-        data ->> 'item_code' as code,
-        data ->> 'mould_no' as raw_mould_no
+SELECT
+COALESCE(data ->> 'mould_item_name', data ->> 'mold_item_name', data ->> 'item_name') as name,
+  COALESCE(data ->> 'mould_item_qty', data ->> 'mold_item_qty', data ->> 'item_qty', data ->> 'plan_qty') as qty,
+  data ->> 'item_code' as code,
+  data ->> 'mould_no' as raw_mould_no
       FROM jc_details
-      WHERE UPPER(TRIM(data ->> 'or_jr_no')) = UPPER($1)
-        AND ($2 = '' OR UPPER(TRIM(data ->> 'jc_no')) = UPPER($2) OR UPPER(TRIM(data ->> 'job_card_no')) = UPPER($2))
-        AND (
-          UPPER(TRIM(data ->> 'mould_no')) = UPPER($3) 
+WHERE
+--1. Match OR matches OR - JR No
+UPPER(TRIM(data ->> 'or_jr_no')) = UPPER($1)
+AND
+--2. Match Job Card matches JC NO(or Job Card No)
+  ($2 = '' OR UPPER(TRIM(data ->> 'jc_no')) = UPPER($2) OR UPPER(TRIM(data ->> 'job_card_no')) = UPPER($2))
+AND
+--3. Match Mould matches MOULD NO(or Mould Code)
+  (
+    UPPER(TRIM(data ->> 'mould_no')) = UPPER($3) 
           OR UPPER(TRIM(data ->> 'mould_code')) = UPPER($3)
+          --Fuzzy Match: Match Base Number(e.g. 9717 matches 9717 - L and 9717 - LID / CLIP)
           OR SPLIT_PART(UPPER(TRIM(data ->> 'mould_no')), '-', 1) = SPLIT_PART(UPPER($3), '-', 1)
-        )
+  )
     `;
 
+    // Strict Filter: If we know the Item Code, ensure we only get colors for THIS Item
     const params = [String(or_jr_no).trim(), String(jc_no).trim(), String(mould_no).trim()];
 
     if (targetItemCode) {
-      sql += ` AND (
-        TRIM(data ->> 'mould_item_code') = $4 
+      // STRICT FILTER: Match Item Code / Mould Item Code / Our Code / Mold Item Code
+      // We MUST check 'our_code' because Plan uses ERP Code (e.g. 1577) which matches 'our_code' in Report,
+      // even if 'mold_item_code' is different (e.g. 2306-Handle).
+      sql += ` AND(
+    TRIM(data ->> 'mould_item_code') = $4 
         OR TRIM(data ->> 'mold_item_code') = $4
         OR TRIM(data ->> 'our_code') = $4
         OR TRIM(data ->> 'item_code') = $4
-      )`;
+  )`;
       params.push(targetItemCode);
     }
 
+    // [FIX] Apply Factory Isolation
     if (factoryId) {
       sql += ` AND factory_id = $${params.length + 1} `;
       params.push(factoryId);
@@ -16769,41 +16605,8 @@ app.get('/api/job/colors', async (req, res) => {
 
     let colors = await q(sql, params);
 
-    // [ROBUSTNESS FALLBACK]
-    if (colors.length === 0 && jc_no) {
-      console.log(`[JC - COLORS] No colors found for jc_no='${jc_no}'. Trying fallback query matching only OR & Mould.`);
-      let fallbackSql = `
-        SELECT 
-          COALESCE(data ->> 'mould_item_name', data ->> 'mold_item_name', data ->> 'item_name') as name,
-          COALESCE(data ->> 'mould_item_qty', data ->> 'mold_item_qty', data ->> 'item_qty', data ->> 'plan_qty') as qty,
-          data ->> 'item_code' as code,
-          data ->> 'mould_no' as raw_mould_no
-        FROM jc_details
-        WHERE UPPER(TRIM(data ->> 'or_jr_no')) = UPPER($1)
-          AND (
-            UPPER(TRIM(data ->> 'mould_no')) = UPPER($2) 
-            OR UPPER(TRIM(data ->> 'mould_code')) = UPPER($2)
-            OR SPLIT_PART(UPPER(TRIM(data ->> 'mould_no')), '-', 1) = SPLIT_PART(UPPER($2), '-', 1)
-          )
-      `;
-      const fallbackParams = [String(or_jr_no).trim(), String(mould_no).trim()];
-      if (targetItemCode) {
-        fallbackSql += ` AND (
-          TRIM(data ->> 'mould_item_code') = $3 
-          OR TRIM(data ->> 'mold_item_code') = $3
-          OR TRIM(data ->> 'our_code') = $3
-          OR TRIM(data ->> 'item_code') = $3
-        )`;
-        fallbackParams.push(targetItemCode);
-      }
-      if (factoryId) {
-        fallbackSql += ` AND factory_id = $${fallbackParams.length + 1} `;
-        fallbackParams.push(factoryId);
-      }
-      colors = await q(fallbackSql, fallbackParams);
-    }
-
     // BEST MATCH LOGIC: Prioritize Exact Mould No Match
+    // If we have exact matches (e.g. "1532-B"), discard fuzzy ones ("1532-Body").
     if (mould_no) {
       const targetMould = String(mould_no).trim().toUpperCase();
       const exactMatches = colors.filter(c =>
@@ -16812,7 +16615,10 @@ app.get('/api/job/colors', async (req, res) => {
 
       if (exactMatches.length > 0) {
         colors = exactMatches;
+        // console.log('[JC - COLORS] Applied Exact Mould Match Filter.');
       } else {
+        // Fallback: Improved Prefix Match (Handles 4750-BTM 4 vs 4750-BTM 6)
+        // Extract the base part before space, e.g., "4750-BTM"
         const targetPrefix = targetMould.split(' ')[0];
         if (targetPrefix && targetPrefix.length > 2) {
            const prefixMatches = colors.filter(c => 
@@ -16822,13 +16628,14 @@ app.get('/api/job/colors', async (req, res) => {
            if (prefixMatches.length > 0) {
              colors = prefixMatches;
            } else {
+             // Second Fallback: LID vs BTM keyword matching
              const isBtm = targetMould.includes('BTM') || targetMould.includes('BOTTOM');
              const isLid = targetMould.includes('LID') || targetMould.includes('TOP');
              const keywordMatches = colors.filter(c => {
                const raw = (c.raw_mould_no || '').toUpperCase();
                if (isBtm && !isLid) return raw.includes('BTM') || raw.includes('BOTTOM');
                if (isLid && !isBtm) return raw.includes('LID') || raw.includes('TOP');
-               return true;
+               return true; // if neither, or both, keep it
              });
              
              if (keywordMatches.length > 0 && keywordMatches.length < colors.length) {
@@ -16842,6 +16649,7 @@ app.get('/api/job/colors', async (req, res) => {
     console.log(`[JC - COLORS] Req: OR = ${or_jr_no} JC = ${jc_no} M = ${mould_no} Item = ${targetItemName} | Found: ${colors.length} `);
 
     // Fetch Plan Production
+    // [FIX] Filter by Factory also
     let prodSql = `
       SELECT colour, SUM(good_qty) as total
       FROM dpr_hourly
@@ -16856,6 +16664,7 @@ app.get('/api/job/colors', async (req, res) => {
 
     const prod = await q(prodSql, prodParams);
 
+    // MAP: Normalized Color Name -> Quantity
     const prodMap = {};
     prod.forEach(p => {
       const k = (p.colour || 'null').trim().toUpperCase();
@@ -16864,12 +16673,13 @@ app.get('/api/job/colors', async (req, res) => {
     });
 
     const uniqueColors = {};
-    const matchedKeys = new Set();
+    const matchedKeys = new Set(); // Track which prodMap keys were consumed
 
     colors.forEach(c => {
       const rawName = (c.name || '').trim();
       if (!rawName) return;
 
+      // CORE LOGIC: Strictly extract "C" from "A-B-C"
       let colorName = rawName;
       if (rawName.includes('-')) {
         const parts = rawName.split('-');
@@ -16884,12 +16694,14 @@ app.get('/api/job/colors', async (req, res) => {
       }
       uniqueColors[colorName].target += target;
 
+      // Match Production
       if (prodMap[normKey]) {
         uniqueColors[colorName].produced += prodMap[normKey];
         matchedKeys.add(normKey);
       }
     });
 
+    // Capture Unmatched / Null Production
     let otherProd = 0;
     Object.keys(prodMap).forEach(k => {
       if (!matchedKeys.has(k)) {
@@ -16904,11 +16716,13 @@ app.get('/api/job/colors', async (req, res) => {
       return {
         name: colorName,
         qty: target,
-        produced: produced,
-        bal: Math.max(0, target - produced)
+        produced: produced, // Helpful for debugging
+        bal:         target - produced,   // negative = over-produced; keep for display
+        overProduced: produced > target
       };
     });
 
+    // Add 'Other' row if significant
     if (otherProd > 0) {
       result.push({
         name: 'Other / Unspecified',
@@ -19116,7 +18930,7 @@ pb.*,
   m.mould_number as mould_code
       FROM plan_board pb
       LEFT JOIN orders o ON pb.order_no = o.order_no
-      LEFT JOIN or_jr_report r ON (r.or_jr_no = pb.order_no AND (r.item_code = pb.item_code OR pb.item_code IS NULL OR pb.item_code = ''))
+      LEFT JOIN or_jr_report r ON r.or_jr_no = pb.order_no
       LEFT JOIN moulds m ON m.mould_name = pb.mould_name
       WHERE pb.status = 'COMPLETED_PENDING'
   `;
@@ -19161,7 +18975,7 @@ app.get('/api/approvals/item/:id', async (req, res) => {
             SELECT pb.*, o.client_name, r.job_card_no 
             FROM plan_board pb 
             LEFT JOIN orders o ON pb.order_no = o.order_no
-            LEFT JOIN or_jr_report r ON (r.or_jr_no = pb.order_no AND (r.item_code = pb.item_code OR pb.item_code IS NULL OR pb.item_code = ''))
+            LEFT JOIN or_jr_report r ON r.or_jr_no = pb.order_no
             WHERE pb.plan_id = $1
   `, [id]);
 

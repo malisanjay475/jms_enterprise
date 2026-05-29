@@ -1,0 +1,58 @@
+name: Scheduled Database & Offsite Backup
+
+on:
+  schedule:
+    # Trigger every 6 hours (UTC: 00:30, 06:30, 12:30, 18:30)
+    # This corresponds to 6:00 AM, 12:00 PM, 6:00 PM, 12:00 AM IST
+    - cron: '30 0,6,12,18 * * *'
+  workflow_dispatch: # Enable manual triggers
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Trigger VPS Backup Script via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+          DB_CONTAINER: jms-enterprise-v1-db-1
+          APP_CONTAINER: jms-enterprise-v1-app-1
+          DB_USER: jms_v1
+          DB_PASSWORD: ${{ secrets.VPS_POSTGRES_PASSWORD }}
+          DB_NAME: jms_v1
+          BACKUP_DIR: /opt/jms-backups
+          MAX_BACKUPS: 16 # Keep 4 days of local history (every 6h)
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
+          port: 22
+          envs: DEPLOY_PATH,DB_CONTAINER,APP_CONTAINER,DB_USER,DB_PASSWORD,DB_NAME,BACKUP_DIR,MAX_BACKUPS
+          script: |
+            set -eo pipefail
+            echo "[Backup] Creating database snapshot..."
+            
+            # Make backup dir if not exists
+            mkdir -p "$BACKUP_DIR"
+            
+            # Trigger DB backup using custom container overrides
+            DB_CONTAINER="$DB_CONTAINER" APP_CONTAINER="$APP_CONTAINER" BACKUP_DIR="$BACKUP_DIR" MAX_BACKUPS="$MAX_BACKUPS" DB_PASSWORD="$DB_PASSWORD" bash "$DEPLOY_PATH/scripts/backup-db.sh"
+            
+            echo "[Backup] Archiving uploads volume..."
+            TIMESTAMP=$(date +"%Y-%m-%d_%H-%M")
+            tar -czf "$BACKUP_DIR/uploads_$TIMESTAMP.tar.gz" -C "$DEPLOY_PATH/BACKEND/PUBLIC/uploads" .
+            
+            echo "[Backup] Cleaning up local upload archives older than 4 days..."
+            find "$BACKUP_DIR" -name "uploads_*.tar.gz" -mtime +4 -exec rm -f {} \;
+            
+            echo "[Backup] Success! Backups prepared on VPS at $BACKUP_DIR"
+
+      - name: Sync Backups to Google Drive
+        uses: Rclone/github-action-rclone@v3
+        with:
+          rclone-config: ${{ secrets.RCLONE_CONFIG }}
+        run: |
+          # Sync VPS backups directory securely to offsite Google Drive folder JMS-Backups
+          rclone sync "vps-backup:/opt/jms-backups" "gdrive:JMS-Backups" --copy-links

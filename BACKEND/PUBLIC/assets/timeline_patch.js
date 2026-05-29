@@ -5,6 +5,14 @@
 (function () {
     console.log('[TimelinePatch] Initializing v56 (Reorder Ripple + Load)...');
 
+    // Global client plan cache with 2-minute TTL
+    window._planBoardCache = {
+        data: null,
+        timestamp: 0,
+        ttl: 120000, // 2 minutes
+        process: null
+    };
+
     // CSS Injection (Timeline + Modal Styles)
     const style = document.createElement('style');
     style.innerHTML = `
@@ -112,6 +120,46 @@
         .om-badge.planned { background: #f1f5f9; color: #475569; }
         .om-badge.completed { background: #dbeafe; color: #1e40af; }
         .om-badge.pending { background: #fff1f2; color: #be123c; border: 1px dashed #fda4af; }
+
+        /* ── DRILL-DOWN PANEL ── */
+        .dd-panel { animation: ddSlideIn 0.22s ease; }
+        @keyframes ddSlideIn { from { opacity:0; transform:translateX(18px); } to { opacity:1; transform:none; } }
+
+        .dd-breadcrumb { display:flex; align-items:center; gap:6px; font-size:0.82rem;
+            color:#64748b; padding:10px 16px; background:#f1f5f9; border-bottom:1px solid #e2e8f0; flex-wrap:wrap; }
+        .dd-breadcrumb span.sep { color:#cbd5e1; }
+        .dd-breadcrumb .dd-crumb { cursor:pointer; color:#3b82f6; font-weight:600; }
+        .dd-breadcrumb .dd-crumb:hover { text-decoration:underline; }
+        .dd-breadcrumb .dd-crumb.active { color:#0f172a; font-weight:700; cursor:default; text-decoration:none; }
+
+        .dd-summary-bar { display:flex; gap:0; background:#fff; border-bottom:1px solid #e2e8f0; }
+        .dd-stat { flex:1; padding:10px 16px; text-align:center; border-right:1px solid #e2e8f0; }
+        .dd-stat:last-child { border-right:none; }
+        .dd-stat-label { font-size:0.7rem; font-weight:700; text-transform:uppercase; color:#94a3b8; margin-bottom:2px; }
+        .dd-stat-val { font-size:1.15rem; font-weight:800; }
+
+        .dd-table { width:100%; border-collapse:collapse; }
+        .dd-table th { background:#f1f5f9; color:#475569; font-weight:700; font-size:0.78rem;
+            text-transform:uppercase; padding:10px 14px; text-align:left; border-bottom:1px solid #e2e8f0; }
+        .dd-table td { padding:10px 14px; border-bottom:1px solid #f8fafc; font-size:0.88rem; color:#334155; }
+        .dd-table tr:last-child td { border-bottom:none; }
+        .dd-table tr.clickable { cursor:pointer; }
+        .dd-table tr.clickable:hover td { background:#eff6ff; }
+        .dd-table .num { text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }
+        .dd-table .dim { color:#94a3b8; font-size:0.8rem; }
+
+        .dd-colour-dot { display:inline-block; width:10px; height:10px; border-radius:50%;
+            margin-right:6px; vertical-align:middle; }
+        .dd-jc-link { font-family:monospace; font-weight:700; color:#2563eb; cursor:pointer;
+            text-decoration:underline; text-underline-offset:2px; word-break:break-all; }
+        .dd-jc-link:hover { color:#1d4ed8; }
+        .dd-back-btn { display:inline-flex; align-items:center; gap:5px; padding:5px 12px;
+            background:#f1f5f9; border:1px solid #cbd5e1; border-radius:6px; font-size:0.82rem;
+            font-weight:600; color:#475569; cursor:pointer; transition:all 0.15s; }
+        .dd-back-btn:hover { background:#e2e8f0; color:#0f172a; }
+
+        .dd-empty { text-align:center; padding:32px 16px; color:#94a3b8; font-style:italic; font-size:0.9rem; }
+        .dd-loading { text-align:center; padding:32px; color:#64748b; }
     `;
     document.head.appendChild(style);
 
@@ -131,7 +179,13 @@
                         <span style="opacity:0.6">ORDER:</span> <span id="om-orderno">#12345</span>
                     </div>
                 </div>
-                <div class="om-body">
+                <!-- DRILL-DOWN AREA (replaces body when drilling in) -->
+                <div id="om-dd-area" style="display:none; flex:1; overflow:hidden; display:none; flex-direction:column;">
+                    <div id="om-dd-breadcrumb" class="dd-breadcrumb"></div>
+                    <div id="om-dd-body" style="flex:1; overflow-y:auto; background:#f8fafc;"></div>
+                </div>
+                <!-- PLANS LIST (default view) -->
+                <div id="om-plans-area" class="om-body">
                     <div class="om-table-card">
                         <table class="om-table">
                             <thead>
@@ -140,7 +194,8 @@
                                     <th>Machine</th>
                                     <th>JC Number</th>
                                     <th>Status</th>
-                                    <th style="text-align:right">Qty</th>
+                                    <th style="text-align:right">Plan Qty</th>
+                                    <th style="text-align:right">Produced</th>
                                     <th style="text-align:right">Bal</th>
                                     <th>Schedule (Start / End / Exp)</th>
                                 </tr>
@@ -156,100 +211,21 @@
         document.body.appendChild(modal);
     };
 
-    window.openOrderModal = async function (orderNo) {
-        window.createOrderModal();
-        const modal = document.getElementById('orderDetailModal');
-        const tbody = document.getElementById('om-tbody');
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:#cbd5e1"><div class="spinner-border spinner-border-sm text-primary"></div> checking summary...</td></tr>';
-
-        modal.style.display = 'flex';
-        void modal.offsetWidth;
-        modal.classList.add('active');
-
-        // 1. Fetch Summary Items
-        let summaryItems = [];
-        try {
-            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-            const res = await api.get('/planning/orders/' + encodeURIComponent(orderNo) + '/details');
-            summaryItems = (res && res.data) ? res.data : [];
-        } catch (e) {
-            console.error("Failed to fetch summary", e);
-            summaryItems = [];
-        }
-
-        // 2. Data Association
-        const allPlans = window.allMasterPlans || [];
-        const activePlans = allPlans.filter(p => p.orderNo === orderNo);
-
-        let mergedList = [];
-        let headerProd = 'Product Name Not Available';
-        let headerClient = 'Unknown Client';
-
-        // Scan for Product Name
-        const validSummary = summaryItems.find(s => s.product_name && s.product_name !== 'null');
-        if (validSummary) {
-            headerProd = validSummary.product_name;
-            if (validSummary.client_name) headerClient = validSummary.client_name;
-        }
-
-        if (summaryItems.length > 0) {
-            // MERGE SUMMARY with ACTIVE PLANS
-            mergedList = summaryItems.map(s => {
-                const mouldNo = s.mould_no || s.mouldNo;
-                // Normalize and Match
-                const ap = activePlans.find(p => (p.mouldNo || p.mould_no || '').trim() === (mouldNo || '').trim());
-
-                // Fallback Header
-                if (headerProd === 'Product Name Not Available' && ap && ap.productName) headerProd = ap.productName;
-                if (headerClient === 'Unknown Client' && ap && ap.clientName) headerClient = ap.clientName;
-
-                return {
-                    isSummary: true,
-                    mouldName: s.mould_name || s.mouldName || (ap ? ap.mouldName : 'Unknown Mould'),
-                    mouldNo: mouldNo,
-                    machine: ap ? ap.machine : '-',
-                    jcNo: ap ? (ap.jcNo || ap.jc_no || ap.job_card_no) : (s.jc_no || '-'),
-                    status: ap ? ap.status : 'Pending',
-                    planQty: s.plan_qty || s.qty || (ap ? ap.planQty : 0),
-                    balQty: ap ? ap.balQty : (s.plan_qty || s.qty || 0),
-                    producedQty: ap ? ap.producedQty : 0,
-                    _planObj: ap // This object MUST have _rippled... properties
-                };
-            });
-        } else {
-            // FALLBACK TO ACTIVE PLANS
-            mergedList = activePlans.map(p => {
-                if (headerProd === 'Product Name Not Available' && p.productName) headerProd = p.productName;
-                if (headerClient === 'Unknown Client' && p.clientName) headerClient = p.clientName;
-
-                return {
-                    isSummary: false,
-                    mouldName: p.mouldName,
-                    mouldNo: p.mouldNo,
-                    machine: p.machine,
-                    jcNo: p.jcNo || p.jc_no || p.job_card_no,
-                    status: p.status,
-                    planQty: p.planQty,
-                    balQty: p.balQty,
-                    producedQty: p.producedQty,
-                    _planObj: p
-                };
-            });
-        }
-
+    // Helper: build and render merged plan rows (used by openOrderModal)
+    function _omRenderRows(mergedList, orderNo, headerProd, headerClient) {
         if (mergedList.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px;">No data found.</td></tr>';
+            document.getElementById('om-tbody').innerHTML =
+                '<tr><td colspan="8" style="text-align:center; padding:30px;">No data found.</td></tr>';
             return;
         }
-
         document.getElementById('om-product').textContent = headerProd;
-        document.getElementById('om-client').textContent = headerClient;
+        document.getElementById('om-client').textContent  = headerClient;
         document.getElementById('om-orderno').textContent = orderNo;
 
-        // Render Rows
         const fmt = (d) => d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
+        const esc = (s) => (s || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-        tbody.innerHTML = mergedList.map(item => {
+        document.getElementById('om-tbody').innerHTML = mergedList.map(item => {
             const st = (item.status || 'Pending').toLowerCase();
             const isPlanned = item.machine && item.machine !== '-' && st !== 'pending';
 
@@ -259,60 +235,463 @@
             else if (st === 'completed') badgeClass = 'completed';
             else if (st === 'planned') badgeClass = 'planned';
 
-            // Dates Logic
             let datesHtml = '<span style="color:#cbd5e1">-</span>';
             if (item._planObj) {
                 const p = item._planObj;
-
                 let start = p.startDate ? new Date(p.startDate) : null;
                 let end = p.endDate ? new Date(p.endDate) : null;
                 let exp = null;
-
                 if (p._rippledStartRaw) start = p._rippledStartRaw;
-                if (p._rippledEndRaw) end = p._rippledEndRaw;
-                if (p._rippledExpRaw) exp = p._rippledExpRaw;
-
+                if (p._rippledEndRaw)   end   = p._rippledEndRaw;
+                if (p._rippledExpRaw)   exp   = p._rippledExpRaw;
                 const sStr = start ? fmt(start) : '-';
-                const eStr = end ? fmt(end) : '-';
-                const xStr = exp ? fmt(exp) : '-';
-
+                const eStr = end   ? fmt(end)   : '-';
+                const xStr = exp   ? fmt(exp)   : '-';
                 if (isPlanned) {
-                    datesHtml = `
-                        <div style="display:grid; grid-template-columns:auto 1fr; gap:2px 8px; font-size:0.8rem; color:#64748b">
-                            <div style="text-align:right; color:#94a3b8">Start Date:</div> <div style="font-weight:600; color:#334155">${sStr}</div>
-                            <div style="text-align:right; color:#94a3b8">End Date:</div> <div style="font-weight:600; color:#334155">${eStr}</div>
-                            ${exp ? `<div style="text-align:right; color:#2563eb; font-weight:700">Exp. End Date:</div> <div style="font-weight:700; color:#2563eb">${xStr}</div>` : ''}
-                        </div>
-                    `;
+                    datesHtml = `<div style="display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:0.8rem;color:#64748b">
+                        <div style="text-align:right;color:#94a3b8">Start:</div><div style="font-weight:600;color:#334155">${sStr}</div>
+                        <div style="text-align:right;color:#94a3b8">End:</div><div style="font-weight:600;color:#334155">${eStr}</div>
+                        ${exp ? `<div style="text-align:right;color:#2563eb;font-weight:700">Exp:</div><div style="font-weight:700;color:#2563eb">${xStr}</div>` : ''}
+                    </div>`;
                 }
             }
 
             const jc = item.jcNo || '-';
-            const machDisplay = isPlanned ? item.machine : '<span style="color:#cbd5e1; font-style:italic">Unassigned</span>';
+            const machDisplay = isPlanned ? item.machine : '<span style="color:#cbd5e1;font-style:italic">Unassigned</span>';
+            const jcClickable = jc && jc !== '-'
+                ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : '')}','${esc(item._planObj ? (item._planObj.orderNo || '') : '')}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
+                : '<span style="color:#cbd5e1">—</span>';
 
-            return `
-                <tr>
-                    <td>
-                        <div style="font-weight:700; color:#334155;">${(item.mouldName || '-')}</div>
-                        <div style="font-size:0.8rem; color:#64748b; font-family:monospace">${item.mouldNo}</div>
-                    </td>
-                    <td style="font-weight:600; color:#334155">${machDisplay}</td>
-                    <td style="font-family:monospace; font-weight:700; color:#475569; word-break:break-all">${jc}</td>
-                    <td><span class="om-badge ${badgeClass}">${(item.status || 'Pending')}</span></td>
-                    <td style="text-align:right; font-weight:700; color:#1e293b">${(item.planQty || 0).toLocaleString()}</td>
-                    <td style="text-align:right; font-weight:700; color:${item.balQty > 0 ? '#f59e0b' : '#10b981'}">${(item.balQty || 0).toLocaleString()}</td>
-                    <td>${datesHtml}</td>
-                </tr>
-             `;
+            return `<tr>
+                <td><div style="font-weight:700;color:#334155">${esc(item.mouldName || '-')}</div>
+                    <div style="font-size:0.8rem;color:#64748b;font-family:monospace">${esc(item.mouldNo)}</div></td>
+                <td style="font-weight:600;color:#334155">${machDisplay}</td>
+                <td>${jcClickable}</td>
+                <td><span class="om-badge ${badgeClass}">${esc(item.status || 'Pending')}</span></td>
+                <td style="text-align:right;font-weight:700;color:#1e293b">${(item.planQty || 0).toLocaleString()}</td>
+                <td style="text-align:right;font-weight:700;color:#16a34a">${(item.producedQty || 0).toLocaleString()}</td>
+                <td style="text-align:right;font-weight:700;color:${item.balQty > 0 ? '#f59e0b' : '#10b981'}">${(item.balQty || 0).toLocaleString()}</td>
+                <td>${datesHtml}</td>
+            </tr>`;
         }).join('');
+    }
+
+    window.openOrderModal = async function (orderNo) {
+        window.createOrderModal();
+        const modal = document.getElementById('orderDetailModal');
+        _ddShowPlans(); // make sure plans area is visible, not drill-down
+
+        modal.style.display = 'flex';
+        void modal.offsetWidth;
+        modal.classList.add('active');
+
+        // ── STEP 1: Render immediately from cached allMasterPlans (0 ms wait) ──
+        const allPlans   = window.allMasterPlans || [];
+        const activePlans = allPlans.filter(p => p.orderNo === orderNo);
+
+        let headerProd   = 'Product Name Not Available';
+        let headerClient = 'Unknown Client';
+
+        const mergedFromCache = activePlans.map(p => {
+            if (headerProd   === 'Product Name Not Available' && p.productName) headerProd   = p.productName;
+            if (headerClient === 'Unknown Client'             && p.clientName)  headerClient = p.clientName;
+            return {
+                isSummary: false,
+                mouldName:   p.mouldName,
+                mouldNo:     p.mouldNo,
+                machine:     p.machine,
+                jcNo:        p.jcNo || p.jc_no || p.job_card_no,
+                status:      p.status,
+                planQty:     p.planQty,
+                balQty:      p.balQty,
+                producedQty: p.producedQty,
+                _planObj:    p
+            };
+        });
+
+        if (mergedFromCache.length === 0) {
+            document.getElementById('om-tbody').innerHTML =
+                '<tr><td colspan="8" style="text-align:center;padding:30px;color:#94a3b8">No active plans for this order.</td></tr>';
+        } else {
+            _omRenderRows(mergedFromCache, orderNo, headerProd, headerClient);
+        }
+
+        // ── STEP 2: Fetch mould-planning summary in background to enrich rows ──
+        // This is purely additive — it fills in mould_no / plan_qty from ERP data.
+        // If it's slow or fails the user already sees all the plan data above.
+        try {
+            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+            // 3-second timeout so a slow API never blocks the UI
+            const fetchWithTimeout = (url, ms) => {
+                const ctrl = new AbortController();
+                const timer = setTimeout(() => ctrl.abort(), ms);
+                return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+            };
+            const baseUrl = api._base || window.location.origin;
+            const raw = await fetchWithTimeout(
+                `${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/details`, 3000
+            );
+            if (!raw.ok) throw new Error('non-ok');
+            const resJson = await raw.json();
+            const summaryItems = (resJson && resJson.data) ? resJson.data : [];
+
+            if (summaryItems.length > 0) {
+                // Re-derive header from summary if better info available
+                const validSummary = summaryItems.find(s => s.product_name && s.product_name !== 'null');
+                if (validSummary) {
+                    headerProd   = validSummary.product_name;
+                    if (validSummary.client_name) headerClient = validSummary.client_name;
+                }
+
+                const enriched = summaryItems.map(s => {
+                    const mouldNo = s.mould_no || s.mouldNo;
+                    const ap = activePlans.find(p => (p.mouldNo || p.mould_no || '').trim() === (mouldNo || '').trim());
+                    if (headerProd   === 'Product Name Not Available' && ap && ap.productName) headerProd   = ap.productName;
+                    if (headerClient === 'Unknown Client'             && ap && ap.clientName)  headerClient = ap.clientName;
+                    return {
+                        isSummary: true,
+                        mouldName:   s.mould_name || s.mouldName || (ap ? ap.mouldName : 'Unknown Mould'),
+                        mouldNo,
+                        machine:     ap ? ap.machine : '-',
+                        jcNo:        ap ? (ap.jcNo || ap.jc_no || ap.job_card_no) : (s.jc_no || '-'),
+                        status:      ap ? ap.status : 'Pending',
+                        planQty:     s.plan_qty || s.qty || (ap ? ap.planQty : 0),
+                        balQty:      ap ? ap.balQty : (s.plan_qty || s.qty || 0),
+                        producedQty: ap ? ap.producedQty : 0,
+                        _planObj:    ap
+                    };
+                });
+                // Only update if modal is still open for this order
+                if (modal.classList.contains('active') &&
+                    document.getElementById('om-orderno')?.textContent === orderNo) {
+                    _omRenderRows(enriched, orderNo, headerProd, headerClient);
+                }
+            }
+        } catch (e) {
+            // Timeout or network error — cached data already showing, nothing to do
+            if (e.name !== 'AbortError') console.warn('[OrderModal] summary fetch failed:', e.message);
+        }
+
+        // Final: ensure header is set
+        if (document.getElementById('om-product')?.textContent === 'Product Name') {
+            document.getElementById('om-product').textContent = headerProd;
+            document.getElementById('om-client').textContent  = headerClient;
+            document.getElementById('om-orderno').textContent = orderNo;
+        }
     };
 
     window.closeOrderModal = function () {
         const modal = document.getElementById('orderDetailModal');
         if (modal) {
             modal.classList.remove('active');
-            setTimeout(() => modal.style.display = 'none', 300);
+            setTimeout(() => { modal.style.display = 'none'; window._ddHideDrill(); }, 300);
         }
+    };
+
+    /* ================================================================
+       DRILL-DOWN LOGIC
+       Level 1: Plans list (default modal view)
+       Level 2: JC click → colour-wise Plan/Produce/Bal
+       Level 3: Colour click → shift-wise totals
+       Level 4: Shift click → hourly entries
+    ================================================================ */
+    window._ddState = { jcNo: '', planId: '', orderNo: '', data: null, colour: null, shift: null };
+    const COLOUR_PALETTE = ['#3b82f6','#ef4444','#f59e0b','#10b981','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#6366f1'];
+    let _ddColourIndex = {};
+
+    function _ddColour(name) {
+        if (!_ddColourIndex[name]) {
+            const keys = Object.keys(_ddColourIndex);
+            _ddColourIndex[name] = COLOUR_PALETTE[keys.length % COLOUR_PALETTE.length];
+        }
+        return _ddColourIndex[name];
+    }
+
+    function _ddShowPlans() {
+        document.getElementById('om-plans-area').style.display = '';
+        const dd = document.getElementById('om-dd-area');
+        dd.style.display = 'none';
+    }
+    window._ddHideDrill = _ddShowPlans;
+
+    function _ddShowDrill() {
+        document.getElementById('om-plans-area').style.display = 'none';
+        const dd = document.getElementById('om-dd-area');
+        dd.style.display = 'flex';
+        dd.style.flexDirection = 'column';
+        dd.style.flex = '1';
+        dd.style.overflow = 'hidden';
+    }
+
+    function _ddN(n) { return Number(n || 0).toLocaleString(); }
+    function _ddMins(m) {
+        const v = Number(m || 0);
+        if (!v) return '–';
+        const h = Math.floor(v / 60), mi = v % 60;
+        return h ? `${h}h ${mi}m` : `${mi}m`;
+    }
+    function _ddFmtDate(d) {
+        if (!d) return '–';
+        try { return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }); } catch { return d; }
+    }
+
+    function _ddBreadcrumb(levels) {
+        const el = document.getElementById('om-dd-breadcrumb');
+        el.innerHTML = levels.map((l, i) => {
+            const isLast = i === levels.length - 1;
+            return (i > 0 ? '<span class="sep">›</span>' : '') +
+                `<span class="dd-crumb ${isLast ? 'active' : ''}" ${!isLast ? `onclick="(${l.fn})()"` : ''}>${l.label}</span>`;
+        }).join('');
+    }
+
+    /* Level 2: Colour-wise breakdown */
+    window.openJcDrilldown = async function (jcLabel, jcNo, planId, orderNo) {
+        _ddColourIndex = {};
+        window._ddState = { jcNo: jcNo || jcLabel, planId, orderNo, data: null, colour: null, shift: null };
+        _ddShowDrill();
+        const body = document.getElementById('om-dd-body');
+        body.innerHTML = `<div class="dd-loading"><i class="bi bi-arrow-repeat spin"></i> Loading production data…</div>`;
+        _ddBreadcrumb([
+            { label: '← All Plans', fn: 'window._ddHideDrill' },
+            { label: `JC: ${jcLabel}`, fn: '' }
+        ]);
+
+        try {
+            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+            const qs = new URLSearchParams();
+            if (planId) qs.set('planId', planId);
+            if (orderNo) qs.set('orderNo', orderNo);
+            const res = await api.get('/dpr/plan-drilldown?' + qs.toString());
+            if (!res || !res.ok) throw new Error(res?.error || 'Failed');
+            window._ddState.data = res.data;
+            _ddRenderColours(res.data);
+        } catch (e) {
+            body.innerHTML = `<div class="dd-empty">Error: ${e.message}</div>`;
+        }
+    };
+
+    function _ddRenderColours(data) {
+        const body = document.getElementById('om-dd-body');
+        const { colours = [], planQty = 0, producedQty = 0, balQty = 0, totalReject = 0, mouldName = '' } = data;
+        const jcLabel = window._ddState.jcNo;
+
+        _ddBreadcrumb([
+            { label: '← All Plans', fn: 'window._ddHideDrill' },
+            { label: `JC: ${jcLabel}`, fn: '' }
+        ]);
+
+        let colourRows = '';
+        if (colours.length === 0) {
+            colourRows = `<tr><td colspan="5" class="dd-empty">No production entries found for this plan.</td></tr>`;
+        } else {
+            // Store colour names in a lookup so onclick uses an index — no string escaping needed
+            window._ddColourLookup = colours.map(c => c.colour);
+            colourRows = colours.map((c, i) => {
+                const dotColor = _ddColour(c.colour);
+                const pct = c.planQty > 0 ? Math.round((c.producedQty / c.planQty) * 100) : (c.producedQty > 0 ? 100 : 0);
+                const bar = c.planQty > 0
+                    ? `<div style="background:#e2e8f0;border-radius:3px;height:4px;margin-top:4px;overflow:hidden"><div style="width:${Math.min(pct,100)}%;height:4px;background:${dotColor};border-radius:3px"></div></div>`
+                    : '';
+                return `<tr class="clickable" data-cidx="${i}">
+                    <td>
+                        <span class="dd-colour-dot" style="background:${dotColor}"></span>
+                        <strong>${c.colour}</strong>
+                    </td>
+                    <td class="num">${_ddN(c.planQty)}</td>
+                    <td class="num" style="color:#16a34a">${_ddN(c.producedQty)}${bar}</td>
+                    <td class="num" style="color:${c.balQty > 0 ? '#f59e0b' : '#10b981'}">${_ddN(c.balQty)}</td>
+                    <td class="num dim">${pct}%</td>
+                </tr>`;
+            }).join('');
+        }
+
+        body.innerHTML = `<div class="dd-panel">
+            <div class="dd-summary-bar">
+                <div class="dd-stat"><div class="dd-stat-label">Plan Qty</div><div class="dd-stat-val" style="color:#1e293b">${_ddN(planQty)}</div></div>
+                <div class="dd-stat"><div class="dd-stat-label">Produced</div><div class="dd-stat-val" style="color:#16a34a">${_ddN(producedQty)}</div></div>
+                <div class="dd-stat"><div class="dd-stat-label">Balance</div><div class="dd-stat-val" style="color:#f59e0b">${_ddN(balQty)}</div></div>
+                <div class="dd-stat"><div class="dd-stat-label">Rejection</div><div class="dd-stat-val" style="color:#ef4444">${_ddN(totalReject)}</div></div>
+            </div>
+            <div style="padding:16px">
+                <div style="font-size:0.8rem;color:#64748b;margin-bottom:8px;font-weight:600">
+                    <i class="bi bi-palette-fill" style="color:#8b5cf6;margin-right:4px"></i>
+                    Click on a colour to see shift-wise breakdown
+                </div>
+                <div class="om-table-card">
+                    <table class="dd-table">
+                        <thead><tr>
+                            <th>Colour</th><th class="num">Plan Qty</th>
+                            <th class="num">Produced</th><th class="num">Balance</th><th class="num">%</th>
+                        </tr></thead>
+                        <tbody>${colourRows}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>`;
+        // Wire up colour row clicks via event delegation (avoids inline JS with user data)
+        body.querySelectorAll('tr[data-cidx]').forEach(tr => {
+            tr.addEventListener('click', () => {
+                const idx = Number(tr.dataset.cidx);
+                const col = (window._ddColourLookup || [])[idx];
+                if (col !== undefined) window._ddOpenShifts(col);
+            });
+        });
+    }
+
+    /* Level 3: Shift-wise totals for a colour */
+    window._ddOpenShifts = function (colourName) {
+        const data = window._ddState.data;
+        if (!data) return;
+        window._ddState.colour = colourName;
+        const jcLabel = window._ddState.jcNo;
+        const colourData = data.colours.find(c => c.colour === colourName);
+        if (!colourData) return;
+
+        _ddBreadcrumb([
+            { label: '← All Plans',      fn: 'window._ddHideDrill' },
+            { label: `JC: ${jcLabel}`,   fn: 'window._ddBackToColours' },
+            { label: colourName,          fn: '' }
+        ]);
+
+        const { shifts = [] } = colourData;
+        const dotColor = _ddColour(colourName);
+        let shiftRows = '';
+
+        if (shifts.length === 0) {
+            shiftRows = `<tr><td colspan="5" class="dd-empty">No shift entries found.</td></tr>`;
+        } else {
+            shiftRows = shifts.map(s => {
+                const shiftKey = `${s.shift}||${s.date}`;
+                const dayNight = s.shift === 'Day'
+                    ? `<span style="color:#f59e0b;font-weight:700">☀ Day</span>`
+                    : `<span style="color:#6366f1;font-weight:700">🌙 Night</span>`;
+                return `<tr class="clickable" data-shift="${s.shift}" data-date="${s.date}">
+                    <td>${dayNight}</td>
+                    <td>${_ddFmtDate(s.date)}</td>
+                    <td class="num" style="color:#16a34a"><strong>${_ddN(s.goodQty)}</strong></td>
+                    <td class="num" style="color:#ef4444">${_ddN(s.rejectQty)}</td>
+                    <td class="num dim">${_ddMins(s.downtimeMin)}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        const totalGood = shifts.reduce((s, r) => s + r.goodQty, 0);
+        const totalRej  = shifts.reduce((s, r) => s + r.rejectQty, 0);
+        const totalDt   = shifts.reduce((s, r) => s + r.downtimeMin, 0);
+
+        const body = document.getElementById('om-dd-body');
+        body.innerHTML = `<div class="dd-panel">
+            <div class="dd-summary-bar">
+                <div class="dd-stat">
+                    <div class="dd-stat-label"><span class="dd-colour-dot" style="background:${dotColor}"></span>${colourName}</div>
+                    <div class="dd-stat-val" style="color:#1e293b">${shifts.length} shift(s)</div>
+                </div>
+                <div class="dd-stat"><div class="dd-stat-label">Total Produced</div><div class="dd-stat-val" style="color:#16a34a">${_ddN(totalGood)}</div></div>
+                <div class="dd-stat"><div class="dd-stat-label">Total Reject</div><div class="dd-stat-val" style="color:#ef4444">${_ddN(totalRej)}</div></div>
+                <div class="dd-stat"><div class="dd-stat-label">Total Downtime</div><div class="dd-stat-val" style="color:#64748b">${_ddMins(totalDt)}</div></div>
+            </div>
+            <div style="padding:16px">
+                <div style="font-size:0.8rem;color:#64748b;margin-bottom:8px;font-weight:600">
+                    <i class="bi bi-calendar2-week-fill" style="color:#3b82f6;margin-right:4px"></i>
+                    Click on a shift to see hourly entries
+                </div>
+                <div class="om-table-card">
+                    <table class="dd-table">
+                        <thead><tr>
+                            <th>Shift</th><th>Date</th>
+                            <th class="num">Good Qty</th><th class="num">Reject</th><th class="num">Downtime</th>
+                        </tr></thead>
+                        <tbody>${shiftRows}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>`;
+        // Wire up shift row clicks via event delegation (data-shift and data-date are safe enum/date strings)
+        const _cn = colourName; // captured in closure — never put user data in inline onclick
+        body.querySelectorAll('tr[data-shift]').forEach(tr => {
+            tr.addEventListener('click', () => window._ddOpenHourly(_cn, tr.dataset.shift, tr.dataset.date));
+        });
+    };
+    window._ddBackToColours = function () { _ddRenderColours(window._ddState.data); };
+
+    /* Level 4: Hourly entries for a colour + shift + date */
+    window._ddOpenHourly = function (colourName, shift, date) {
+        const data = window._ddState.data;
+        if (!data) return;
+        window._ddState.shift = { shift, date };
+        const jcLabel = window._ddState.jcNo;
+        const colourData = data.colours.find(c => c.colour === colourName);
+        if (!colourData) return;
+        const shiftData = colourData.shifts.find(s => s.shift === shift && s.date === date);
+        if (!shiftData) return;
+
+        _ddBreadcrumb([
+            { label: '← All Plans',    fn: 'window._ddHideDrill' },
+            { label: `JC: ${jcLabel}`, fn: 'window._ddBackToColours' },
+            { label: colourName,       fn: `window._ddOpenShifts(window._ddState.colour)` },
+            { label: `${shift} – ${_ddFmtDate(date)}`, fn: '' }
+        ]);
+
+        const entries = shiftData.entries || [];
+        const dotColor = _ddColour(colourName);
+        const dayNight = shift === 'Day'
+            ? `<span style="color:#f59e0b;font-weight:700">☀ Day Shift</span>`
+            : `<span style="color:#6366f1;font-weight:700">🌙 Night Shift</span>`;
+
+        let rows = '';
+        if (entries.length === 0) {
+            rows = `<tr><td colspan="6" class="dd-empty">No hourly entries found.</td></tr>`;
+        } else {
+            rows = entries.map(e => {
+                const timeStr = e.createdAt
+                    ? new Date(e.createdAt).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' })
+                    : '–';
+                const etBadge = e.entryType && e.entryType !== 'MAIN'
+                    ? `<span style="font-size:0.7rem;background:#fef3c7;color:#92400e;border-radius:3px;padding:1px 4px;margin-left:4px">${e.entryType}</span>`
+                    : '';
+                return `<tr>
+                    <td><strong style="font-family:monospace">${e.hourSlot || '–'}</strong></td>
+                    <td class="num" style="color:#16a34a;font-size:1rem"><strong>${_ddN(e.goodQty)}</strong></td>
+                    <td class="num" style="color:#ef4444">${_ddN(e.rejectQty)}</td>
+                    <td class="num dim">${_ddMins(e.downtimeMin)}</td>
+                    <td style="font-size:0.82rem">${e.enteredBy || '–'}${etBadge}<br><span class="dim">${timeStr}</span></td>
+                    <td style="font-size:0.8rem;color:#64748b;max-width:160px;word-wrap:break-word">${e.remarks || '–'}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        const totalG = entries.reduce((s, e) => s + e.goodQty, 0);
+        const totalR = entries.reduce((s, e) => s + e.rejectQty, 0);
+        const totalD = entries.reduce((s, e) => s + e.downtimeMin, 0);
+
+        const body = document.getElementById('om-dd-body');
+        body.innerHTML = `<div class="dd-panel">
+            <div class="dd-summary-bar">
+                <div class="dd-stat">
+                    <div class="dd-stat-label"><span class="dd-colour-dot" style="background:${dotColor}"></span>${colourName} · ${dayNight}</div>
+                    <div class="dd-stat-val" style="color:#1e293b">${entries.length} hour slot(s)</div>
+                </div>
+                <div class="dd-stat"><div class="dd-stat-label">Total Good</div><div class="dd-stat-val" style="color:#16a34a">${_ddN(totalG)}</div></div>
+                <div class="dd-stat"><div class="dd-stat-label">Total Reject</div><div class="dd-stat-val" style="color:#ef4444">${_ddN(totalR)}</div></div>
+                <div class="dd-stat"><div class="dd-stat-label">Downtime</div><div class="dd-stat-val" style="color:#64748b">${_ddMins(totalD)}</div></div>
+            </div>
+            <div style="padding:16px">
+                <div style="font-size:0.8rem;color:#64748b;margin-bottom:8px;font-weight:600">
+                    <i class="bi bi-clock-history" style="color:#10b981;margin-right:4px"></i>
+                    Hourly entries for ${colourName} — ${shift} Shift, ${_ddFmtDate(date)}
+                </div>
+                <div class="om-table-card">
+                    <table class="dd-table">
+                        <thead><tr>
+                            <th>Hour Slot</th><th class="num">Good Qty</th>
+                            <th class="num">Reject</th><th class="num">Downtime</th>
+                            <th>Entered By</th><th>Remarks</th>
+                        </tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>`;
     };
 
     // --- Helper for Actions (v55) ---
@@ -524,7 +903,7 @@
                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:0.8rem; color:#64748b; padding-bottom:4px; border-bottom:1px solid #f1f5f9;">
                           <div>Qty: <strong style="color:#1e293b">${formatNum(p.planQty)}</strong></div>
                           <div>Bal: <strong style="color:${p.balQty > 0 ? '#f59e0b' : '#10b981'}">${formatNum(p.balQty)}</strong></div>
-                          ${jcNo ? `<div style="grid-column:1/-1;">JC: <span style="font-family:monospace; color:#334155; font-weight:700; word-wrap:break-word; white-space:normal;">${esc(jcNo)}</span></div>` : ''}
+                          ${jcNo ? `<div style="grid-column:1/-1;" onclick="window.openJcDrilldown('${esc(jcNo)}','${esc(jcNo)}','${esc(p.planId||p.plan_id||'')}','${esc(p.orderNo||'')}'); event.stopPropagation();">JC: <span class="dd-jc-link" style="font-size:0.78rem">${esc(jcNo)} <i class="bi bi-bar-chart-line-fill" style="font-size:0.68rem"></i></span></div>` : ''}
                        </div>
 
                        <div style="display:grid; grid-template-columns:auto 1fr; gap:0px 6px; font-size:0.75rem; color:#64748b;">
@@ -666,11 +1045,40 @@
         con.innerHTML = '<div style="padding:60px; text-align:center; color:#64748b"><div class="spinner-border text-primary spinner-border-sm"></div><div class="mt-2" style="font-size:0.9rem">Loading...</div></div>';
         try {
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+            
+            // Dynamic cache invalidation wrapper for mutations
+            if (api && typeof api.post === 'function' && !api.post._isCacheWrapped) {
+                const originalPost = api.post;
+                api.post = async function(url, ...args) {
+                    if (url.includes('/planning/') || url.includes('/sync/')) {
+                        console.log('[Cache] Plans updated via post. Invalidating timeline cache...', url);
+                        window._planBoardCache.data = null;
+                        window._planBoardCache.timestamp = 0;
+                    }
+                    return originalPost.call(this, url, ...args);
+                };
+                api.post._isCacheWrapped = true;
+            }
+
             const processQuery = `process=${encodeURIComponent(currentProcess)}`;
-            const [mRes, pRes] = await Promise.all([
-                api.get(`/masters/machines?${processQuery}`),
-                api.get(`/planning/board?${processQuery}`)
-            ]);
+            
+            // Serve from 2-minute client memory cache if valid
+            const now = Date.now();
+            let pRes;
+            if (window._planBoardCache.data && 
+                window._planBoardCache.process === currentProcess && 
+                (now - window._planBoardCache.timestamp) < window._planBoardCache.ttl) {
+                console.log('[Cache] Served timeline plan board from 2-minute memory cache.');
+                pRes = window._planBoardCache.data;
+            } else {
+                console.log('[Cache] Plan board cache miss. Fetching fresh data...');
+                pRes = await api.get(`/planning/board?${processQuery}`);
+                window._planBoardCache.data = pRes;
+                window._planBoardCache.timestamp = now;
+                window._planBoardCache.process = currentProcess;
+            }
+
+            const mRes = await api.get(`/masters/machines?${processQuery}`);
             window.allMachines = ((mRes && mRes.data) ? mRes.data : []).map(machine => ({
                 code: machine.machine,
                 name: machine.machine,
