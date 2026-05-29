@@ -3576,6 +3576,93 @@ app.post('/api/sync/force-full-push', async (_req, res) => {
   }
 });
 
+/* ============================================================
+   ADMIN: Bulk-approve all PENDING/NULL plans
+   POST /api/admin/plans/bulk-approve
+   Body: { username, password } — admin credentials required
+   Used to show plans on the planning board after a sync from LOCAL
+   where plans may have been synced with PENDING/NULL jc_approval_status.
+   ============================================================ */
+app.post('/api/admin/plans/bulk-approve', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ ok: false, error: 'username and password required' });
+    }
+    // Verify admin credentials
+    const userRows = await q(
+      `SELECT id, password_hash, role_code FROM users WHERE username = $1 LIMIT 1`,
+      [username]
+    );
+    if (!userRows.length) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+    const user = userRows[0];
+    const bcrypt = require('bcrypt');
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+    if (!isAdminLikeRole(user.role_code)) {
+      return res.status(403).json({ ok: false, error: 'Admin access required' });
+    }
+
+    const factoryId = getFactoryId(req);
+    const whereFactory = factoryId ? `AND (factory_id = ${factoryId} OR factory_id IS NULL)` : '';
+
+    // Count how many will be approved
+    const countRows = await q(
+      `SELECT COUNT(*) AS cnt FROM plan_board
+       WHERE UPPER(COALESCE(jc_approval_status, 'PENDING')) != 'APPROVED'
+         AND status != 'COMPLETED'
+         ${whereFactory}`
+    );
+    const count = Number(countRows[0]?.cnt || 0);
+
+    if (count === 0) {
+      return res.json({ ok: true, message: 'All active plans are already APPROVED.', updated: 0 });
+    }
+
+    // Bulk approve
+    await q(
+      `UPDATE plan_board
+       SET jc_approval_status = 'APPROVED',
+           jc_approved_by = $1,
+           jc_approved_at = NOW(),
+           updated_at = NOW()
+       WHERE UPPER(COALESCE(jc_approval_status, 'PENDING')) != 'APPROVED'
+         AND status != 'COMPLETED'
+         ${whereFactory}`,
+      [username]
+    );
+
+    console.log(`[Admin] bulk-approve: ${count} plans approved by ${username}`);
+    res.json({ ok: true, message: `${count} plan(s) approved. Refresh the planning board.`, updated: count });
+  } catch (e) {
+    console.error('[Admin] bulk-approve error:', e.message);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/* ============================================================
+   ADMIN: Reset sync pull watermark (MAIN forces full re-pull from LOCAL)
+   POST /api/admin/sync/reset-pull
+   Resets LAST_PULL so LOCAL re-fetches all rows from MAIN on next cycle.
+   ============================================================ */
+app.post('/api/admin/sync/reset-pull', async (req, res) => {
+  try {
+    await q(
+      `INSERT INTO server_config (key, value) VALUES ('LAST_PULL', '1970-01-01T00:00:00.000Z')
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+    );
+    await q(
+      `INSERT INTO server_config (key, value) VALUES ('LAST_DELETE_PULL', '1970-01-01T00:00:00.000Z')
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+    );
+    console.log('[Admin] sync reset-pull: LAST_PULL reset to epoch. Full re-pull will start on next sync cycle.');
+    res.json({ ok: true, message: 'LAST_PULL reset. Full re-pull starting on next sync cycle.' });
+  } catch (e) {
+    console.error('[Admin] reset-pull failed:', e.message);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 app.get('/api/legacy-health', async (_req, res) => {
   try {
     const r = await q('SELECT NOW() AS now', []);
