@@ -4668,20 +4668,22 @@ async function initializeLegacyRuntime() {
     }
 
     try {
-      // --- MIGRATION: Fix OR-JR Report PK (Composite: OR/JR + Plan Date + Job Card) ---
+      // --- MIGRATION: Fix OR-JR Report PK (Composite: OR/JR No + Job Card No only) ---
       // 1. Remove Strict PK on just or_jr_no
       await q(`ALTER TABLE or_jr_report DROP CONSTRAINT IF EXISTS or_jr_report_pkey`);
-      // 2. Add Composite Constraint (Unique Index for Upsert)
-      // Using COALESCE to treat NULL as a distinct value for uniqueness
+      // 2. Drop old 3-part index (included plan_date — caused duplicate rows when plan_date changed)
+      await q(`DROP INDEX IF EXISTS idx_or_jr_composite_unique`).catch(() => {});
+      // 3. Create 2-part unique index: OR No + JC No only
+      //    One row per (OR/JR No + Job Card No) combination.
+      //    Same OR with different JC = separate rows (both coexist and update independently).
       await q(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_composite_unique
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_jc_unique
         ON or_jr_report (
             or_jr_no,
-            COALESCE(plan_date, '1970-01-01'::date),
             COALESCE(job_card_no, '')
         )
       `);
-      console.log('[DB] OR-JR Report Composite Unique Index ensured');
+      console.log('[DB] OR-JR Report Unique Index (or_jr_no + job_card_no) ensured');
     } catch (e) {
       console.warn('[DB] or_jr_report composite migration skipped:', e.message);
     }
@@ -11887,50 +11889,30 @@ app.post('/api/upload/or-jr-preview', upload.single('file'), async (req, res) =>
     console.log(`[OR - JR Upload] Extracted ${mapped.length} valid records.`);
 
 
-    // 3. Compare with DB (Composite Key Check)
+    // 3. Compare with DB — key is (or_jr_no + job_card_no) only, plan_date excluded
     const existingRows = requestFactoryId
-      ? await q(`SELECT or_jr_no, plan_date, job_card_no, jr_close FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
-      : await q(`SELECT or_jr_no, plan_date, job_card_no, jr_close FROM or_jr_report`);
+      ? await q(`SELECT or_jr_no, job_card_no FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
+      : await q(`SELECT or_jr_no, job_card_no FROM or_jr_report`);
     const dbMap = new Map();
 
     existingRows.forEach(row => {
-      // Key: OR|Date|JC
-      // Parse Dates
-      const d = row.plan_date ? new Date(row.plan_date).toISOString().split('T')[0] : '1970-01-01';
-      const j = (row.job_card_no || '').trim();
       const o = (row.or_jr_no || '').trim();
-
-      // Key: OR + JC (Ignoring Date for Update detection)
-      const key = `${o}| ${j} `;
-      dbMap.set(key, row);
+      const j = (row.job_card_no || '').trim();
+      // Key: OR No + JC No
+      dbMap.set(`${o}|${j}`, row);
     });
 
     const preview = mapped.map(row => {
-      // Generate Key
-      const rd = row.plan_date ? new Date(row.plan_date).toISOString().split('T')[0] : '1970-01-01';
-      const rj = (row.job_card_no || '').trim();
       const ro = (row.or_jr_no || '').trim();
-
-      const key = `${ro}| ${rj} `;
+      const rj = (row.job_card_no || '').trim();
+      const key = `${ro}|${rj}`;
       const existing = dbMap.get(key);
 
-      if (!existing) {
-        return { ...row, _status: 'NEW' };
-      }
-
-      // Check if Closed
-      if ((existing.jr_close || '').toLowerCase() === 'yes') {
-        return { ...row, _status: 'SKIP (Closed)' };
-      }
-
-      // Update all cells for every row (User Request)
-      // Detect if Date Changed for clarity (Optional)
-      const oldDate = existing.plan_date ? new Date(existing.plan_date).toISOString().split('T')[0] : '1970-01-01';
-      if (rd !== oldDate) {
-        // Date Modified
-      }
-
-      return { ...row, _status: 'UPDATE', _old: existing };
+      // Exact match (same OR + same JC) → UPDATE that row
+      // No match (new JC or brand-new OR)  → INSERT as NEW
+      // jr_close is intentionally NOT checked — closed rows are always updatable
+      if (!existing) return { ...row, _status: 'NEW' };
+      return { ...row, _status: 'UPDATE' };
     });
 
     res.json({ ok: true, data: preview });
@@ -11957,9 +11939,9 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
     if (!rows || !Array.isArray(rows)) return res.json({ ok: false, error: 'Invalid data' });
     assertUploadRowsMatchFactory(rows, requestFactoryId, 'OR-JR Status upload');
 
-    // Filter out SKIP
+    // Process all NEW and UPDATE rows (no SKIP status exists anymore)
     const toProcess = rows.filter(r => r._status === 'NEW' || r._status === 'UPDATE');
-    console.log(`[OR - JR Confirm] Processing ${toProcess.length} rows(Total sent: ${rows.length}.Skipped: ${rows.length - toProcess.length})`);
+    console.log(`[OR - JR Confirm] Processing ${toProcess.length} rows (Total sent: ${rows.length}, Skipped: ${rows.length - toProcess.length})`);
 
     console.log('!!! HANDLER HIT: /api/upload/or-jr-confirm !!!');
     if (!toProcess.length) return res.json({ ok: true, message: 'Nothing to save' });
@@ -12118,7 +12100,7 @@ or_jr_date = $2, or_qty = $3, jr_qty = $4, plan_qty = $5, plan_date = $6,
     $26, $27, $28, $29, $30, $31, $32, $33, $34,
     COALESCE($35, $37), COALESCE($36, NOW()), COALESCE($38, $37), COALESCE($39, NOW()), $40
   )
-            ON CONFLICT(or_jr_no, COALESCE(plan_date, '1970-01-01':: date), COALESCE(job_card_no, '':: text))
+            ON CONFLICT(or_jr_no, COALESCE(job_card_no, '':: text))
             DO UPDATE SET
 or_jr_date = EXCLUDED.or_jr_date, or_qty = EXCLUDED.or_qty, jr_qty = EXCLUDED.jr_qty, plan_qty = EXCLUDED.plan_qty, plan_date = EXCLUDED.plan_date,
   job_card_no = EXCLUDED.job_card_no, job_card_date = EXCLUDED.job_card_date, item_code = EXCLUDED.item_code, product_name = EXCLUDED.product_name,
