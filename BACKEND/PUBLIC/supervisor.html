@@ -2855,14 +2855,14 @@
           trTot.innerHTML = `<td><span class="color-badge" style="font-weight:700">Required</span></td><td><span class="qty-pill" style="font-weight:700">${Math.round(sumPlan)}</span></td><td>${totalBalHtml}</td>`;
           if (tbody) tbody.appendChild(trTot);
 
-          // Over-production alert banner (shown inside colour card)
-          const existingAlert = el('over-prod-alert');
-          if (existingAlert) existingAlert.remove();
+          // Over-production alert banner — remove ALL stale copies first
+          // (getElementById only finds the first; querySelectorAll removes every one)
+          document.querySelectorAll('#over-prod-alert').forEach(n => n.remove());
           if (overProducedList.length > 0) {
             const alertDiv = document.createElement('div');
             alertDiv.id = 'over-prod-alert';
             alertDiv.style.cssText = 'margin-top:10px; background:#fef2f2; border:1px solid #fca5a5; border-radius:10px; padding:10px 14px; font-size:12px; color:#b91c1c; font-weight:700';
-            alertDiv.innerHTML = `<div style="font-size:13px; margin-bottom:4px">⚠️ OVER PRODUCTION DETECTED</div>` +
+            alertDiv.innerHTML = `<div style="font-size:13px; margin-bottom:4px">⚠️ OVER PRODUCTION — ${job.Machine || ''}</div>` +
               overProducedList.map(o =>
                 `<div>• ${o.name}: Plan ${o.qty} | Produced ${o.produced} | <b>Extra ${o.excess} pcs</b></div>`
               ).join('');
@@ -3255,7 +3255,8 @@
       jobsDiv.innerHTML = '';
       el('no-jobs').classList.add('hidden');
 
-      // Reset DPR area
+      // Reset DPR area — clear any stale over-production alerts from the previous job
+      document.querySelectorAll('#over-prod-alert').forEach(n => n.remove());
       session.activeJob = null;
       hide('dpr-form');
       hide('std-actual-card');
@@ -3322,6 +3323,10 @@
 
           // ✅ NEW: first visible row is ALWAYS the active job
           const activeIndex = 0;
+          // Clear stale over-production alerts whenever the active job changes
+          if (!session.activeJob || session.activeJob.PlanID !== (mapped[activeIndex].job || {}).PlanID) {
+            document.querySelectorAll('#over-prod-alert').forEach(n => n.remove());
+          }
           session.activeJob = mapped[activeIndex].job || null;
 
           jobsDiv.innerHTML = '';
