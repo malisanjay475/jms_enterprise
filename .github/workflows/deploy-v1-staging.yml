@@ -182,7 +182,7 @@ jobs:
           LOCAL_FACTORY_ID: ${{ secrets.STAGING_LOCAL_FACTORY_ID }}
           SYNC_API_KEY: ${{ secrets.STAGING_SYNC_API_KEY }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          DB_BACKUP_BEFORE_DEPLOY: ${{ secrets.STAGING_DB_BACKUP_BEFORE_DEPLOY || '1' }}
+          DB_BACKUP_BEFORE_DEPLOY: ${{ secrets.STAGING_DB_BACKUP_BEFORE_DEPLOY || '0' }}
           GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
           GHCR_USERNAME: ${{ github.repository_owner }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -228,7 +228,7 @@ jobs:
           LOCAL_FACTORY_ID: ${{ secrets.STAGING_LOCAL_FACTORY_ID }}
           SYNC_API_KEY: ${{ secrets.STAGING_SYNC_API_KEY }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          DB_BACKUP_BEFORE_DEPLOY: ${{ secrets.STAGING_DB_BACKUP_BEFORE_DEPLOY || '1' }}
+          DB_BACKUP_BEFORE_DEPLOY: ${{ secrets.STAGING_DB_BACKUP_BEFORE_DEPLOY || '0' }}
           GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
           GHCR_USERNAME: ${{ github.repository_owner }}
           GITHUB_REPOSITORY: ${{ github.repository }}
