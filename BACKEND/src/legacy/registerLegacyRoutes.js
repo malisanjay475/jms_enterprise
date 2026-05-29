@@ -16610,6 +16610,33 @@ AND
 
     console.log(`[JC - COLORS] Req: OR = ${or_jr_no} JC = ${jc_no} M = ${mould_no} Item = ${targetItemName} | Found: ${colors.length} `);
 
+    // ── Fallback: if jc_details found nothing but plan_id is known, use plan_board.colour_details
+    //    This ensures balance is computed (plan_qty - produced) even when JC detail report
+    //    has not been uploaded yet for this plan.
+    if (!colors.length && plan_id) {
+      try {
+        const pbRows = await q(
+          `SELECT colour_details FROM plan_board WHERE plan_id = $1 LIMIT 1`,
+          [String(plan_id)]
+        );
+        if (pbRows.length && pbRows[0].colour_details) {
+          let cd = pbRows[0].colour_details;
+          if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = []; } }
+          if (Array.isArray(cd)) {
+            colors = cd.map(row => ({
+              name: String(row.colourName || row.itemColour || row.item_colour ||
+                           row.itemName   || row.item_name  || '').trim(),
+              qty:  String(row.planQty || row.plan_qty || row.batchQty || row.batch_qty || 0),
+              raw_mould_no: null
+            })).filter(c => c.name);
+            console.log(`[JC - COLORS] jc_details empty → fell back to plan_board.colour_details: ${colors.length} colours`);
+          }
+        }
+      } catch (fbErr) {
+        console.warn('[JC - COLORS] colour_details fallback error:', fbErr.message);
+      }
+    }
+
     // Fetch Plan Production
     // [FIX] Filter by Factory also
     let prodSql = `
