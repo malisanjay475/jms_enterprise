@@ -2804,12 +2804,17 @@
           if (tbody) tbody.innerHTML = '';
           window.jobColorsData = {};
           let sumPlan = 0, sumBal = 0, sumProduced = 0;
+          const overProducedList = []; // collect for alert
+
           apiRows.forEach(r => {
             const q = Math.round(Number(r.qty || 0));
-            const b = Math.round(Number(r.bal || 0));
+            const b = Math.round(Number(r.bal));           // can be negative
             const p = Math.round(Number(r.produced || 0));
+            const isOver = b < 0;
             window.jobColorsData[r.name] = { plan: q, bal: b };
             sumPlan += q; sumBal += b; sumProduced += p;
+            if (isOver) overProducedList.push({ name: r.name, qty: q, produced: p, excess: Math.abs(b) });
+
             const cName = r.name.toLowerCase();
             let badgeClass = 'color-badge';
             if (r.name.includes('Other')) badgeClass = 'color-badge badge-grey';
@@ -2825,17 +2830,46 @@
             else if (cName.includes('pink') || cName.includes('rose') || cName.includes('magenta')) badgeClass += ' badge-pink';
             else if (cName.includes('brown') || cName.includes('beige') || cName.includes('tan')) badgeClass += ' badge-brown';
             else if (cName.includes('teal') || cName.includes('aqua')) badgeClass += ' badge-teal';
+
+            // Negative balance → red pill with minus sign
+            const balHtml = isOver
+              ? `<span class="qty-pill" style="background:#fee2e2; color:#dc2626; font-weight:800; border:1px solid #fca5a5">${b}</span>`
+              : `<span class="qty-pill">${b}</span>`;
+
             const tr = document.createElement('tr');
-            tr.className = 'color-row';
+            tr.className = isOver ? 'color-row over-produced-row' : 'color-row';
+            if (isOver) tr.style.cssText = 'background:#fff5f5';
             tr.dataset.colorName = r.name;
-            tr.innerHTML = `<td><span class="${badgeClass}">${r.name}</span></td><td><span class="qty-pill">${q}</span></td><td><span class="qty-pill">${b}</span></td>`;
+            tr.innerHTML = `<td><span class="${badgeClass}">${r.name}${isOver ? ' <span style="font-size:10px;color:#dc2626;font-weight:700">⚠ OVER</span>' : ''}</span></td><td><span class="qty-pill">${q}</span></td><td>${balHtml}</td>`;
             tr.onclick = () => { const sel = el('d-color'); if (sel) { sel.value = r.name; sel.dispatchEvent(new Event('change')); } };
             if (tbody) tbody.appendChild(tr);
           });
+
+          // Total row — negative total also in red
+          const totalIsOver = sumBal < 0;
+          const totalBalHtml = totalIsOver
+            ? `<span class="qty-pill" style="background:#fee2e2; color:#dc2626; font-weight:800; border:1px solid #fca5a5">${Math.round(sumBal)}</span>`
+            : `<span class="qty-pill" style="font-weight:700">${Math.round(sumBal)}</span>`;
           const trTot = document.createElement('tr');
           trTot.className = 'color-row';
-          trTot.innerHTML = `<td><span class="color-badge" style="font-weight:700">Required</span></td><td><span class="qty-pill" style="font-weight:700">${Math.round(sumPlan)}</span></td><td><span class="qty-pill" style="font-weight:700">${Math.round(sumBal)}</span></td>`;
+          trTot.innerHTML = `<td><span class="color-badge" style="font-weight:700">Required</span></td><td><span class="qty-pill" style="font-weight:700">${Math.round(sumPlan)}</span></td><td>${totalBalHtml}</td>`;
           if (tbody) tbody.appendChild(trTot);
+
+          // Over-production alert banner (shown inside colour card)
+          const existingAlert = el('over-prod-alert');
+          if (existingAlert) existingAlert.remove();
+          if (overProducedList.length > 0) {
+            const alertDiv = document.createElement('div');
+            alertDiv.id = 'over-prod-alert';
+            alertDiv.style.cssText = 'margin-top:10px; background:#fef2f2; border:1px solid #fca5a5; border-radius:10px; padding:10px 14px; font-size:12px; color:#b91c1c; font-weight:700';
+            alertDiv.innerHTML = `<div style="font-size:13px; margin-bottom:4px">⚠️ OVER PRODUCTION DETECTED</div>` +
+              overProducedList.map(o =>
+                `<div>• ${o.name}: Plan ${o.qty} | Produced ${o.produced} | <b>Extra ${o.excess} pcs</b></div>`
+              ).join('');
+            const card = el('color-plan-card');
+            if (card) card.appendChild(alertDiv);
+          }
+
           el('color-plan-note').textContent = 'Source: Plan colours + Live production';
           buildColourOptions(job);
           const planKey = 'last_color_' + (job.PlanID || '');
@@ -4095,6 +4129,12 @@
             loadRecent();
             loadUsedSlots();
             updateFilledSlots();
+
+            // Refresh colour balance table immediately so operator sees updated balance
+            // (including any negative/over-produced values after this entry)
+            if (session.activeJob) {
+              renderColorPlanTable(session.activeJob);
+            }
           } else {
             el('submit-errors').textContent =
               (r && r.error) ? String(r.error) : 'Save failed due to an unknown error.';

@@ -5736,6 +5736,66 @@ app.post('/api/dpr/submit', async (req, res) => {
       syncService.triggerSync();
     }
 
+    // ── OVER-PRODUCTION CHECK: after saving DPR entry, check if any colour
+    //    exceeded its plan qty. If so, notify ALL active users immediately.
+    if (PlanID && Colour && toNum(GoodQty) > 0) {
+      try {
+        // Get plan colour targets from plan_board.colour_details
+        const pbRows = await q(
+          `SELECT colour_details FROM plan_board WHERE plan_id = $1 LIMIT 1`,
+          [String(PlanID)]
+        );
+        if (pbRows.length && pbRows[0].colour_details) {
+          let cd = pbRows[0].colour_details;
+          if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = []; } }
+
+          if (Array.isArray(cd) && cd.length) {
+            // Build target map
+            const targetMap = {};
+            cd.forEach(row => {
+              const name = String(row.colourName || row.itemColour || row.colour || row.name || '').trim().toUpperCase();
+              if (name) targetMap[name] = (targetMap[name] || 0) + Number(row.planQty ?? row.batchQty ?? row.qty ?? 0);
+            });
+
+            // Get total produced per colour for this plan
+            const prod = await q(
+              `SELECT colour, SUM(good_qty) as total FROM dpr_hourly
+               WHERE plan_id = $1 AND is_deleted = false
+               GROUP BY colour`,
+              [String(PlanID)]
+            );
+
+            // Check if the just-saved colour is now over-produced
+            for (const p of prod) {
+              const colKey = (p.colour || '').trim().toUpperCase();
+              const target = targetMap[colKey] || 0;
+              const produced = Number(p.total || 0);
+              if (target > 0 && produced > target) {
+                const excess = Math.round(produced - target);
+                const colourName = (p.colour || 'Unknown').trim();
+                const title = `⚠️ Over Production: ${Machine}`;
+                const message = `Machine ${Machine} — Job ${OrderNo} — Colour: ${colourName} — Over by ${excess} pcs (Plan: ${Math.round(target)}, Produced: ${Math.round(produced)})`;
+                const link = `/supervisor.html`;
+
+                // Notify ALL active users
+                const allUsers = await q(`SELECT username FROM users WHERE status = 'active'`).catch(() => []);
+                for (const u of allUsers) {
+                  await q(
+                    `INSERT INTO notifications (target_user, type, title, message, link, created_by)
+                     VALUES ($1, $2, $3, $4, $5, $6)`,
+                    [u.username, 'OVER_PRODUCTION', title, message, link, session?.username || 'System']
+                  ).catch(() => {});
+                }
+                console.log(`[DPR] OVER-PRODUCTION ALERT sent: ${Machine} ${OrderNo} ${colourName} excess=${excess}`);
+              }
+            }
+          }
+        }
+      } catch (opErr) {
+        console.warn('[DPR] Over-production check error (non-fatal):', opErr.message);
+      }
+    }
+
     res.json({ ok: true, id: rows[0].id });
   } catch (e) {
     console.error('dpr/submit', e);
@@ -16524,9 +16584,10 @@ app.get('/api/job/colors', async (req, res) => {
             .filter(([, d]) => d.target > 0)
             .map(([name, d]) => ({
               name,
-              qty:      Math.round(d.target),
-              produced: Math.round(d.produced),
-              bal:      Math.max(0, Math.round(d.target - d.produced))
+              qty:         Math.round(d.target),
+              produced:    Math.round(d.produced),
+              bal:         Math.round(d.target - d.produced),   // negative = over-produced
+              overProduced: d.produced > d.target               // flag for alert
             }));
 
           console.log(`[JOB COLORS] plan_id=${plan_id} → ${result.length} colours from plan, prodMap keys: ${Object.keys(prodMap).join(',')}`);
