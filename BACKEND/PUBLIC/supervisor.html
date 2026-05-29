@@ -2773,6 +2773,15 @@
         return;
       }
 
+      // ── Clear ALL stale over-production alerts IMMEDIATELY (synchronous, before any fetch).
+      //    This runs every time regardless of API outcome, so alerts from other jobs
+      //    can never survive a job switch.
+      document.querySelectorAll('#over-prod-alert').forEach(n => n.remove());
+
+      // Snapshot the PlanID now — used later to guard against race conditions where
+      // loadQueue() changes session.activeJob while this async call is in-flight.
+      const _thisPlanId = job.PlanID;
+
       const tbody = el('color-plan-body');
       if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="muted">Loading colors...</td></tr>';
       show('color-plan-card');
@@ -2855,12 +2864,13 @@
           trTot.innerHTML = `<td><span class="color-badge" style="font-weight:700">Required</span></td><td><span class="qty-pill" style="font-weight:700">${Math.round(sumPlan)}</span></td><td>${totalBalHtml}</td>`;
           if (tbody) tbody.appendChild(trTot);
 
-          // Over-production alert banner — remove ALL stale copies first
-          // (getElementById only finds the first; querySelectorAll removes every one)
-          document.querySelectorAll('#over-prod-alert').forEach(n => n.remove());
-          if (overProducedList.length > 0) {
+          // Only add alert if this render is still for the currently active job.
+          // Guards against race: loadQueue() may have changed session.activeJob
+          // while the async API call was in-flight.
+          if (overProducedList.length > 0 && _thisPlanId === (session.activeJob?.PlanID ?? _thisPlanId)) {
             const alertDiv = document.createElement('div');
             alertDiv.id = 'over-prod-alert';
+            alertDiv.dataset.planId = String(_thisPlanId); // tag with plan so origin is traceable
             alertDiv.style.cssText = 'margin-top:10px; background:#fef2f2; border:1px solid #fca5a5; border-radius:10px; padding:10px 14px; font-size:12px; color:#b91c1c; font-weight:700';
             alertDiv.innerHTML = `<div style="font-size:13px; margin-bottom:4px">⚠️ OVER PRODUCTION — ${job.Machine || ''}</div>` +
               overProducedList.map(o =>
