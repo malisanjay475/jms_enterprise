@@ -464,13 +464,15 @@
         if (colours.length === 0) {
             colourRows = `<tr><td colspan="5" class="dd-empty">No production entries found for this plan.</td></tr>`;
         } else {
+            // Store colour names in a lookup so onclick uses an index — no string escaping needed
+            window._ddColourLookup = colours.map(c => c.colour);
             colourRows = colours.map((c, i) => {
                 const dotColor = _ddColour(c.colour);
                 const pct = c.planQty > 0 ? Math.round((c.producedQty / c.planQty) * 100) : (c.producedQty > 0 ? 100 : 0);
                 const bar = c.planQty > 0
                     ? `<div style="background:#e2e8f0;border-radius:3px;height:4px;margin-top:4px;overflow:hidden"><div style="width:${Math.min(pct,100)}%;height:4px;background:${dotColor};border-radius:3px"></div></div>`
                     : '';
-                return `<tr class="clickable" onclick="window._ddOpenShifts('${c.colour.replace(/'/g,"\\'")}')">
+                return `<tr class="clickable" data-cidx="${i}">
                     <td>
                         <span class="dd-colour-dot" style="background:${dotColor}"></span>
                         <strong>${c.colour}</strong>
@@ -506,6 +508,14 @@
                 </div>
             </div>
         </div>`;
+        // Wire up colour row clicks via event delegation (avoids inline JS with user data)
+        body.querySelectorAll('tr[data-cidx]').forEach(tr => {
+            tr.addEventListener('click', () => {
+                const idx = Number(tr.dataset.cidx);
+                const col = (window._ddColourLookup || [])[idx];
+                if (col !== undefined) window._ddOpenShifts(col);
+            });
+        });
     }
 
     /* Level 3: Shift-wise totals for a colour */
@@ -535,7 +545,7 @@
                 const dayNight = s.shift === 'Day'
                     ? `<span style="color:#f59e0b;font-weight:700">☀ Day</span>`
                     : `<span style="color:#6366f1;font-weight:700">🌙 Night</span>`;
-                return `<tr class="clickable" onclick="window._ddOpenHourly('${colourName.replace(/'/g,"\\'")}','${s.shift}','${s.date}')">
+                return `<tr class="clickable" data-shift="${s.shift}" data-date="${s.date}">
                     <td>${dayNight}</td>
                     <td>${_ddFmtDate(s.date)}</td>
                     <td class="num" style="color:#16a34a"><strong>${_ddN(s.goodQty)}</strong></td>
@@ -576,6 +586,11 @@
                 </div>
             </div>
         </div>`;
+        // Wire up shift row clicks via event delegation (data-shift and data-date are safe enum/date strings)
+        const _cn = colourName; // captured in closure — never put user data in inline onclick
+        body.querySelectorAll('tr[data-shift]').forEach(tr => {
+            tr.addEventListener('click', () => window._ddOpenHourly(_cn, tr.dataset.shift, tr.dataset.date));
+        });
     };
     window._ddBackToColours = function () { _ddRenderColours(window._ddState.data); };
 
@@ -593,7 +608,7 @@
         _ddBreadcrumb([
             { label: '← All Plans',    fn: 'window._ddHideDrill' },
             { label: `JC: ${jcLabel}`, fn: 'window._ddBackToColours' },
-            { label: colourName,       fn: `window._ddOpenShifts('${colourName.replace(/'/g,"\\'")}')` },
+            { label: colourName,       fn: `window._ddOpenShifts(window._ddState.colour)` },
             { label: `${shift} – ${_ddFmtDate(date)}`, fn: '' }
         ]);
 
