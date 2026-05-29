@@ -346,6 +346,10 @@
                         if (isAdmin) headers.unshift('Action');
 
                         let html = `
+                        <div style="margin-bottom:12px; font-weight:700; color:#475569; font-size:0.88rem; display:flex; align-items:center; gap:8px">
+                            <span style="background:#e0f2fe; color:#0369a1; padding:4px 10px; border-radius:99px; font-size:0.75rem; font-weight:800">${list.length}</span>
+                            <span>Total Hourly Entries Found</span>
+                        </div>
                         <div style="overflow-x:auto; max-height:80vh">
                         <table class="table" style="width:100%; border-collapse:collapse; font-size:0.75rem; white-space:nowrap">
                         <thead style="background:#f1f5f9; text-transform:uppercase; color:#64748b; font-weight:700; position:sticky; top:0; z-index:10">
