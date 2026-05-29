@@ -1816,6 +1816,85 @@ async function migrateWipStockMasterSchema() {
     .catch(err => console.warn('[DB] wip_stock_snapshot_lines comparison key index skipped:', err.message));
   await q(`CREATE INDEX IF NOT EXISTS idx_wip_stock_movements_factory_date ON wip_stock_movements(factory_id, movement_at DESC)`)
     .catch(err => console.warn('[DB] wip_stock_movements factory/date index skipped:', err.message));
+
+  // wip_inventory and wip_outward_logs: used by the shifting/WIP approval flow.
+  // Must exist on LOCAL servers for sync to work (previously only on MAIN).
+  await q(`
+    CREATE TABLE IF NOT EXISTS wip_inventory (
+      id SERIAL PRIMARY KEY,
+      shifting_record_id INTEGER,
+      order_no TEXT,
+      item_code TEXT,
+      item_name TEXT,
+      mould_name TEXT,
+      rack_no TEXT,
+      qty NUMERIC NOT NULL DEFAULT 0,
+      factory_id INTEGER,
+      sync_id UUID DEFAULT gen_random_uuid(),
+      sync_status TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(err => console.warn('[DB] wip_inventory create skipped:', err.message));
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS wip_outward_logs (
+      id SERIAL PRIMARY KEY,
+      wip_inventory_id INTEGER,
+      qty NUMERIC NOT NULL,
+      to_location TEXT,
+      receiver_name TEXT,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      factory_id INTEGER,
+      sync_id UUID DEFAULT gen_random_uuid(),
+      sync_status TEXT
+    )
+  `).catch(err => console.warn('[DB] wip_outward_logs create skipped:', err.message));
+
+  // vendors and vendor_users: purchase/vendor module tables.
+  // Must exist on LOCAL for sync column bootstrap to succeed.
+  await q(`
+    CREATE TABLE IF NOT EXISTS vendors (
+      id SERIAL PRIMARY KEY,
+      vendor_code TEXT,
+      vendor_name TEXT,
+      contact_person TEXT,
+      phone TEXT,
+      email TEXT,
+      address TEXT,
+      gst_no TEXT,
+      pan_no TEXT,
+      bank_name TEXT,
+      bank_account TEXT,
+      bank_ifsc TEXT,
+      is_active BOOLEAN DEFAULT true,
+      factory_id INTEGER,
+      sync_id UUID DEFAULT gen_random_uuid(),
+      sync_status TEXT,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(err => console.warn('[DB] vendors create skipped:', err.message));
+
+  await q(`
+    CREATE TABLE IF NOT EXISTS vendor_users (
+      id SERIAL PRIMARY KEY,
+      vendor_id INTEGER,
+      username TEXT,
+      password_hash TEXT,
+      full_name TEXT,
+      phone TEXT,
+      email TEXT,
+      is_active BOOLEAN DEFAULT true,
+      factory_id INTEGER,
+      sync_id UUID DEFAULT gen_random_uuid(),
+      sync_status TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(err => console.warn('[DB] vendor_users create skipped:', err.message));
 }
 
 async function migrateRawMaterialSchema() {
@@ -4032,6 +4111,11 @@ async function initializeLegacyRuntime() {
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS jc_rejected_at TIMESTAMPTZ;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS jc_rejection_stage TEXT;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS job_card_given BOOLEAN DEFAULT false;
+            -- Completion tracking columns (added to MAIN but missing on LOCAL servers)
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS completed_by TEXT;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+            -- Factory isolation (required for multi-factory support)
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS factory_id INTEGER;
 
             CREATE TABLE IF NOT EXISTS plan_job_card_approval_history (
                 id SERIAL PRIMARY KEY,
