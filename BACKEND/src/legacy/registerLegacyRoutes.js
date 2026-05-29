@@ -16464,7 +16464,66 @@ ORDER BY sort_order ASC, seq ASC, updated_at ASC
 app.get('/api/job/colors', async (req, res) => {
   try {
     let { or_jr_no, jc_no, mould_no, plan_id } = req.query;
-    console.log(`[API] / job / colors params: `, req.query);
+    console.log(`[API] /api/job/colors params: `, req.query);
+    const factoryIdTop = getFactoryId(req);
+
+    // ── PRIMARY PATH: use plan_board.colour_details (the batch-plan data) + live DPR production.
+    //    This is always the most accurate source — it's the exact colour breakdown saved when
+    //    the plan was created. Only fall back to jc_details if plan_id is absent or empty.
+    if (plan_id && String(plan_id) !== 'undefined' && String(plan_id) !== '') {
+      const pbRows = await q(
+        `SELECT colour_details FROM plan_board WHERE plan_id = $1 LIMIT 1`,
+        [String(plan_id)]
+      );
+      if (pbRows.length) {
+        let cd = pbRows[0].colour_details || [];
+        if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = []; } }
+        if (Array.isArray(cd) && cd.length > 0) {
+          // Fetch production from dpr_hourly for this plan
+          let prodSql = `SELECT colour, SUM(good_qty) as total FROM dpr_hourly WHERE plan_id = $1 AND is_deleted = false`;
+          const prodParams = [String(plan_id)];
+          if (factoryIdTop) { prodSql += ` AND factory_id = $2`; prodParams.push(factoryIdTop); }
+          prodSql += ' GROUP BY colour';
+          const prod = await q(prodSql, prodParams);
+
+          const prodMap = {};
+          prod.forEach(p => {
+            const k = (p.colour || '').trim().toUpperCase();
+            if (k) prodMap[k] = (prodMap[k] || 0) + Number(p.total || 0);
+          });
+
+          // Build result: plan qty from colour_details, produced from dpr_hourly
+          const grouped = {};
+          cd.forEach(row => {
+            const name = String(
+              row.colourName || row.itemColour || row.colour || row.color || row.name || ''
+            ).trim();
+            if (!name) return;
+            const qty = Number(row.planQty ?? row.batchQty ?? row.useQty ?? row.qty ?? 0) || 0;
+            if (!grouped[name]) grouped[name] = { target: 0, produced: 0 };
+            grouped[name].target += qty;
+            const k = name.toUpperCase();
+            if (prodMap[k]) grouped[name].produced += prodMap[k];
+          });
+
+          const result = Object.entries(grouped)
+            .filter(([, d]) => d.target > 0)
+            .map(([name, d]) => ({
+              name,
+              qty:         Math.round(d.target),
+              produced:    Math.round(d.produced),
+              bal:         Math.round(d.target - d.produced),  // negative = over-produced
+              overProduced: d.produced > d.target
+            }));
+
+          console.log(`[JOB COLORS] plan_id=${plan_id} → ${result.length} colours, prodMap keys: ${Object.keys(prodMap).join(',') || 'none'}`);
+          return res.json({ ok: true, data: result });
+        }
+      }
+    }
+
+    // ── LEGACY FALLBACK: no plan_id or colour_details empty → use jc_details
+    console.log(`[JOB COLORS] Falling back to jc_details for or_jr_no=${or_jr_no}`);
 
     // Context Resolution from PlanID if specific keys are missing
     if (plan_id && (!or_jr_no || !mould_no)) {
@@ -16668,7 +16727,8 @@ AND
         name: colorName,
         qty: target,
         produced: produced, // Helpful for debugging
-        bal: Math.max(0, target - produced)
+        bal:         target - produced,   // negative = over-produced; keep for display
+        overProduced: produced > target
       };
     });
 
