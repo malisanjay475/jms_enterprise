@@ -9422,17 +9422,22 @@
             const isRunning = (st === 'running');
             const isCompleted = (st === 'completed');
 
+            // Store plan data for Complete modal — avoids serialising into an onclick attr
+            // (single quotes in mould/product names would break the JS string)
+            if (!window._cpDataMap) window._cpDataMap = {};
+            window._cpDataMap[String(p.id)] = p;
+
             // View Detail Button (New)
             actionHtml += `
-                  <button class="btn icon mini master-action-btn view" 
+                  <button class="btn icon mini master-action-btn view"
                      title="View Detail"
                      onclick="window.viewPlan('${p.id}')">
                      <i class="bi bi-eye"></i>
                   </button>
-                  
-                  <button class="btn icon mini master-action-btn complete" 
+
+                  <button class="btn icon mini master-action-btn complete"
                      title="Complete Plan"
-                     onclick="event.stopPropagation(); window.openCompletePlanModal('${p.id}', '${esc(JSON.stringify(p))}')">
+                     onclick="event.stopPropagation(); window.openCompletePlanModal('${p.id}')">
                      <i class="bi bi-check-lg" style="font-weight:bold"></i>
                   </button>`;
 
@@ -11646,14 +11651,23 @@
     // Complete Plan Logic
     window.openCompletePlanModal = function (id, jsonRow) {
       try {
-        // jsonRow is always raw JSON (never URL-encoded); decodeURIComponent was incorrectly
-        // applied here and would throw a URIError if any field value contained % (e.g. "80% done")
         let p;
-        try { p = JSON.parse(jsonRow); }
-        catch(e1) {
-          // Fallback: in case it was URL-encoded by some caller
-          try { p = JSON.parse(decodeURIComponent(jsonRow)); }
-          catch(e2) { throw e1; }
+        if (jsonRow !== undefined && jsonRow !== null) {
+          // Called with serialised data (legacy callers / timeline_patch.js)
+          if (typeof jsonRow === 'object') {
+            p = jsonRow;
+          } else {
+            // Try plain JSON parse first; fall back to URL-decode for any encoded callers
+            try { p = JSON.parse(jsonRow); }
+            catch(e1) {
+              try { p = JSON.parse(decodeURIComponent(jsonRow)); }
+              catch(e2) { throw e1; }
+            }
+          }
+        } else {
+          // Preferred path: look up from the in-memory data store (no attr serialisation)
+          p = (window._cpDataMap || {})[String(id)];
+          if (!p) throw new Error('Plan data not found for id ' + id + '. Reload the page and try again.');
         }
         window.cpCurrentPlanId = id;
 
