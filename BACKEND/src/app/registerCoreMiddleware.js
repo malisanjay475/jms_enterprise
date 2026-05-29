@@ -23,10 +23,12 @@ function shouldSkipApiLimiter(req) {
   return fullPath.startsWith('/api/sync') || fullPath.startsWith('/sync');
 }
 
-// 300 requests/minute per IP for general API. Sync routes have their own stricter limiter.
+// 600 requests/minute per IP for general API.
+// Raised from 300: factory WiFi shares 1 IP across all users.
+// 10 supervisors × avg 60 req/min = 600 req/min needed at peak.
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 300,
+  max: 600,
   standardHeaders: true,
   legacyHeaders: false,
   skip: shouldSkipApiLimiter,
@@ -87,9 +89,25 @@ function registerCoreMiddleware(app) {
   app.use('/api/', apiLimiter);
   app.use(['/api/sync', '/sync'], syncLimiter);
 
-  // Static asset cache headers — 24h for PUBLIC assets, forces revalidation with ETag
+  // ── Static asset cache headers ──────────────────────────────────────────
+  // HTML pages: 5-minute browser cache. Short so deploys take effect quickly.
+  // JS/CSS already have ?v=release-XX version strings → safe for 24h cache.
+  // Fonts/images rarely change → 7-day cache.
   app.use((req, res, next) => {
-    if (req.method === 'GET' && /\.(js|css|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf)$/i.test(req.path)) {
+    if (req.method !== 'GET') return next();
+    const p = req.path;
+    if (/\.html$/i.test(p)) {
+      // 5 min cache + stale-while-revalidate so browser reuses instantly while
+      // revalidating in background. Revalidation uses ETag (Express sets it).
+      res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+    } else if (/\.(js|css)$/i.test(p)) {
+      // JS/CSS are versioned with ?v= query strings → long cache is safe.
+      res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=3600');
+    } else if (/\.(woff2?|ttf|eot|otf)$/i.test(p)) {
+      // Fonts never change — 7-day cache.
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    } else if (/\.(png|jpg|jpeg|gif|webp|svg|ico)$/i.test(p)) {
+      // Images — 24h cache.
       res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=3600');
     }
     next();

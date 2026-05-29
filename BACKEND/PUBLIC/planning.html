@@ -12,7 +12,7 @@
   <meta name="theme-color" content="#1e293b">
 
   <!-- Icons + App CSS -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
   <link rel="stylesheet" href="/assets/app.css?v=5">
 
   <!-- Early boot: theme + auth -->
@@ -3465,6 +3465,35 @@
       return null;
     };
 
+    /* ── Plan Board API Cache (2-minute TTL) ─────────────────────────────────
+       Switching views (Kanban → Timeline → Excel) re-calls loadMachines /
+       loadMasterPlan which each hit /planning/board again. With 10+ users on
+       factory WiFi this causes unnecessary DB hits. Cache the response for 2
+       minutes — data stays fresh for normal factory workflows (shifts don't
+       change every 30 seconds).
+       Call window._planCache.invalidate() after any plan create/update/delete.
+    ────────────────────────────────────────────────────────────────────────── */
+    window._planCache = (function () {
+      const TTL = 2 * 60 * 1000; // 2 minutes
+      const store = {};           // key → { data, ts }
+
+      return {
+        async get(key, fetchFn) {
+          const entry = store[key];
+          if (entry && (Date.now() - entry.ts) < TTL) {
+            return entry.data; // cache hit — instant
+          }
+          const data = await fetchFn();
+          store[key] = { data, ts: Date.now() };
+          return data;
+        },
+        invalidate(key) {
+          if (key) delete store[key];
+          else Object.keys(store).forEach(k => delete store[k]);
+        }
+      };
+    })();
+
     window.addEventListener('DOMContentLoaded', async () => {
       // alert('DEBUG: Script started');
       const jmsShell = await waitForJmsShell();
@@ -3481,6 +3510,26 @@
       try {
         const { renderShell, api, toast, store, auth } = jmsShell;
         window.toast = toast || ((m) => alert(m)); // Expose global
+
+        /* ── Auto-invalidate plan cache on any planning mutation ──────────────
+           Every local alias ($api, j.api, client, api) points to the SAME
+           window.JPSMS.api object, so wrapping .post once covers all ~25
+           mutation call sites. Any POST to /planning/* clears the 2-min plan
+           board cache → the user always sees their own create/edit/delete/move
+           immediately, while other users still get fast cached view-switches.
+           Idempotent guard prevents double-wrapping on re-init. */
+        if (window.JPSMS && window.JPSMS.api && typeof window.JPSMS.api.post === 'function' && !window.JPSMS.api.__planCacheWrapped) {
+          const _origPost = window.JPSMS.api.post.bind(window.JPSMS.api);
+          window.JPSMS.api.post = function (url, ...rest) {
+            try {
+              if (typeof url === 'string' && url.indexOf('/planning/') !== -1 && window._planCache) {
+                window._planCache.invalidate();
+              }
+            } catch (_) { /* never let cache logic break a real request */ }
+            return _origPost(url, ...rest);
+          };
+          window.JPSMS.api.__planCacheWrapped = true;
+        }
 
         // Auth Check
         auth.requireAuth();
@@ -5340,9 +5389,11 @@
           grid.innerHTML = `<div class="line-row"><div class="line-title">Loading machines…</div></div>`;
           try {
             // Parallel Fetch: Machines + Master Plan (for status accuracy)
+            // Plan board uses 2-min cache — repeat view switches are instant.
+            const boardKey = `board|${getPlanningProcessQuerySuffix()}`;
             const [mList, pRes] = await Promise.all([
               api.get(`/masters/machines?process=${encodeURIComponent(getPlanningProcessFilter())}`),
-              api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`)
+              window._planCache.get(boardKey, () => api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`))
             ]);
 
             // Populate Global Master Plans
@@ -9104,7 +9155,8 @@
           tbody.innerHTML = `<div class="row"><div style="grid-column:1/-1; text-align:center; padding:20px" class="muted">Loading master plan...</div></div>`;
 
           try {
-            const res = await api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`);
+            const boardKey = `board|${getPlanningProcessQuerySuffix()}`;
+            const res = await window._planCache.get(boardKey, () => api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`));
             let plans = (res && res.data && res.data.plans) ? res.data.plans : [];
 
             // FILTER: Remove plans without assigned machines (User Request)
