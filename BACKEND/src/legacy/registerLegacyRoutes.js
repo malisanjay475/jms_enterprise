@@ -16475,7 +16475,69 @@ ORDER BY sort_order ASC, seq ASC, updated_at ASC
 app.get('/api/job/colors', async (req, res) => {
   try {
     let { or_jr_no, jc_no, mould_no, plan_id } = req.query;
-    console.log(`[API] / job / colors params: `, req.query);
+    console.log(`[API] /api/job/colors params: `, req.query);
+    const factoryId = getFactoryId(req);
+
+    // ── PRIMARY PATH: plan_id is known → use plan_board.colour_details (the batch-plan
+    //    colour breakdown) + subtract live DPR production. This is always the most accurate
+    //    data because it comes directly from the plan that was created.
+    if (plan_id && String(plan_id) !== 'undefined' && String(plan_id) !== '') {
+      const pbRows = await q(
+        `SELECT colour_details, plan_qty FROM plan_board WHERE plan_id = $1 LIMIT 1`,
+        [String(plan_id)]
+      );
+
+      if (pbRows.length) {
+        let cd = pbRows[0].colour_details || [];
+        if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = []; } }
+
+        if (Array.isArray(cd) && cd.length > 0) {
+          // 1. Fetch production by colour from dpr_hourly for this plan
+          let prodSql = `SELECT colour, SUM(good_qty) as total FROM dpr_hourly WHERE plan_id = $1 AND is_deleted = false`;
+          const prodParams = [String(plan_id)];
+          if (factoryId) { prodSql += ` AND factory_id = $2`; prodParams.push(factoryId); }
+          prodSql += ' GROUP BY colour';
+          const prod = await q(prodSql, prodParams);
+
+          const prodMap = {};
+          prod.forEach(p => {
+            const k = (p.colour || '').trim().toUpperCase();
+            if (k) prodMap[k] = (prodMap[k] || 0) + Number(p.total || 0);
+          });
+
+          // 2. Build per-colour result using plan's colour_details
+          const grouped = {};
+          cd.forEach(row => {
+            const name = String(
+              row.colourName || row.itemColour || row.colour ||
+              row.color      || row.name       || ''
+            ).trim();
+            if (!name) return;
+            const qty = Number(row.planQty ?? row.batchQty ?? row.useQty ?? row.qty ?? 0) || 0;
+            if (!grouped[name]) grouped[name] = { target: 0, produced: 0 };
+            grouped[name].target += qty;
+            const k = name.toUpperCase();
+            if (prodMap[k]) grouped[name].produced += prodMap[k];
+          });
+
+          const result = Object.entries(grouped)
+            .filter(([, d]) => d.target > 0)
+            .map(([name, d]) => ({
+              name,
+              qty:      Math.round(d.target),
+              produced: Math.round(d.produced),
+              bal:      Math.max(0, Math.round(d.target - d.produced))
+            }));
+
+          console.log(`[JOB COLORS] plan_id=${plan_id} → ${result.length} colours from plan, prodMap keys: ${Object.keys(prodMap).join(',')}`);
+          return res.json({ ok: true, data: result });
+        }
+      }
+      // plan_board found but colour_details empty → fall through to jc_details legacy path
+    }
+
+    // ── LEGACY FALLBACK: no plan_id, or plan has no colour_details → use jc_details
+    console.log(`[JOB COLORS] Falling back to jc_details for or_jr_no=${or_jr_no}`);
 
     // Context Resolution from PlanID if specific keys are missing
     if (plan_id && (!or_jr_no || !mould_no)) {
@@ -16517,8 +16579,7 @@ pb.item_code,
 
     // Keys: or_jr_no, jc_no (or job_card_no), mould_no
     // Updated: Check multiple keys, TRIM and LOWER for robustness
-    // [FIX] Factory Isolation injected into WHERE
-    const factoryId = getFactoryId(req);
+    // factoryId already declared above in primary path
 
     let sql = `
 SELECT
@@ -16609,33 +16670,6 @@ AND
     }
 
     console.log(`[JC - COLORS] Req: OR = ${or_jr_no} JC = ${jc_no} M = ${mould_no} Item = ${targetItemName} | Found: ${colors.length} `);
-
-    // ── Fallback: if jc_details found nothing but plan_id is known, use plan_board.colour_details
-    //    This ensures balance is computed (plan_qty - produced) even when JC detail report
-    //    has not been uploaded yet for this plan.
-    if (!colors.length && plan_id) {
-      try {
-        const pbRows = await q(
-          `SELECT colour_details FROM plan_board WHERE plan_id = $1 LIMIT 1`,
-          [String(plan_id)]
-        );
-        if (pbRows.length && pbRows[0].colour_details) {
-          let cd = pbRows[0].colour_details;
-          if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = []; } }
-          if (Array.isArray(cd)) {
-            colors = cd.map(row => ({
-              name: String(row.colourName || row.itemColour || row.item_colour ||
-                           row.itemName   || row.item_name  || '').trim(),
-              qty:  String(row.planQty || row.plan_qty || row.batchQty || row.batch_qty || 0),
-              raw_mould_no: null
-            })).filter(c => c.name);
-            console.log(`[JC - COLORS] jc_details empty → fell back to plan_board.colour_details: ${colors.length} colours`);
-          }
-        }
-      } catch (fbErr) {
-        console.warn('[JC - COLORS] colour_details fallback error:', fbErr.message);
-      }
-    }
 
     // Fetch Plan Production
     // [FIX] Filter by Factory also
