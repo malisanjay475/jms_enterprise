@@ -10829,17 +10829,15 @@
         const sign = document.getElementById('jcApprovalSignLine');
         if (!modal || !body) return;
 
-        // The real scroll container is .main-content / #pageContent (body has overflow:hidden, window never scrolls).
-        // Save its scrollTop now so we can restore it after every DOM mutation that might reset it.
-        const _scrollCt = document.getElementById('pageContent') || document.querySelector('.main-content');
-        const _savedTop = _scrollCt ? _scrollCt.scrollTop : 0;
-        const _restoreScroll = () => { if (_scrollCt) _scrollCt.scrollTop = _savedTop; };
+        // Move modal to document.body if it is nested inside .main-content (renderShell moves all
+        // body children into .main-content on load). As long as the modal lives inside the scroll
+        // container, browsers will scroll .main-content to "show" any focused child (e.g. textareas)
+        // even though the modal is position:fixed. Moving it to body breaks that DOM link entirely.
+        if (modal.parentElement !== document.body) document.body.appendChild(modal);
 
         window.currentJcApprovalId = id;
         modal.style.display = 'flex';
-        _restoreScroll(); // display change can trigger a browser scroll-into-view; undo it immediately
         body.innerHTML = '<div style="padding:36px; text-align:center; color:#64748b; font-weight:850">Loading plan details...</div>';
-        _restoreScroll();
         try {
           const res = await api.get(`/planning/job-card-approvals/${id}`);
           const data = res?.data || {};
@@ -10902,14 +10900,8 @@
               <label style="font-weight:950; color:#334155">Moulding Remarks <textarea id="jcApprovalMouldingRemarks" placeholder="Required if Moulding rejects, optional if Moulding approves" style="width:100%; min-height:84px; margin-top:7px; border:1px solid #cbd5e1; border-radius:12px; padding:10px; resize:vertical">${esc(p.moulding_remarks || '')}</textarea></label>
             </div>
           `;
-          // Restore scroll immediately after render, and again after paint
-          // (browser may auto-scroll to textarea focus point after innerHTML)
-          _restoreScroll();
-          setTimeout(_restoreScroll, 0);
-          setTimeout(_restoreScroll, 80);
         } catch (e) {
           body.innerHTML = `<div style="padding:24px; color:#b91c1c; background:#fef2f2; border-radius:14px; font-weight:850">Error: ${esc(e.message || e)}</div>`;
-          _restoreScroll();
         }
       };
 
