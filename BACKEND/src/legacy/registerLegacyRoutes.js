@@ -12022,13 +12022,13 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
           ]);
           upsertCount++;
         } catch (upsertErr) {
-          console.error(`[OR-JR Upload] Row skipped for ${r.or_jr_no} / ${r.job_card_no}:`, upsertErr.message);
+          console.error('[OR-JR Upload] Row skipped for', r.or_jr_no, '/', r.job_card_no, ':', upsertErr.message);
         }
 
 
       } catch (rowErr) {
 
-        console.error(`[OR - JR Upload] Critical Row Failure for ${r.or_jr_no}: `, rowErr.message);
+        console.error('[OR - JR Upload] Critical Row Failure for', r.or_jr_no, ':', rowErr.message);
       }
     }
 
