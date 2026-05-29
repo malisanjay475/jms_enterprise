@@ -12875,6 +12875,7 @@
                   <span>P:<strong>${fmtQty(p.planQty)}</strong></span>
                   <span class="${p.balQty > 0 ? 'bal-pos' : 'bal-done'}">B:<strong>${fmtQty(p.balQty)}</strong></span>
                 </div>
+                ${(p.jcNo || p.jc_no || p.job_card_no) ? `<div onclick="if(window.openJcDrilldown)window.openJcDrilldown('${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.planId||p.plan_id||'')}','${esc(p.orderNo||'')}'); event.stopPropagation();" style="font-size:.62rem;font-family:monospace;color:#2563eb;font-weight:700;text-decoration:underline;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px" title="Click: Colour/Shift/Hourly drill-down">JC: ${esc(p.jcNo||p.jc_no||p.job_card_no||'')} ↗</div>` : ''}
                 ${timeBadge}
               </div>
             </td>`;

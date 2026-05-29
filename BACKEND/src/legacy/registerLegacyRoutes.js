@@ -5827,6 +5827,167 @@ app.get('/api/dpr/recent', async (req, res) => {
 });
 
 /* ============================================================
+   PLAN DRILL-DOWN  (Timeline → JC Click → Colour/Shift/Hourly)
+   GET /api/dpr/plan-drilldown?planId=PLN-xxx&orderNo=JR/xxx
+   Returns all dpr_hourly entries for the plan, plus colour plan-qty
+   from plan_board.colour_details, so the frontend can group by
+   colour → shift → hour_slot for the multi-level drill-down view.
+============================================================ */
+app.get('/api/dpr/plan-drilldown', async (req, res) => {
+  try {
+    const { planId, orderNo } = req.query;
+    if (!planId && !orderNo) return res.status(400).json({ ok: false, error: 'planId or orderNo required' });
+    const factoryId = getFactoryId(req);
+
+    // 1. Fetch plan_board for colour plan quantities
+    let planRow = null;
+    if (planId) {
+      const rows = await q(
+        `SELECT plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
+         FROM plan_board WHERE plan_id = $1 LIMIT 1`, [planId]
+      );
+      planRow = rows[0] || null;
+    }
+    if (!planRow && orderNo) {
+      const rows = await q(
+        `SELECT plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
+         FROM plan_board WHERE order_no = $1 LIMIT 1`, [orderNo]
+      );
+      planRow = rows[0] || null;
+    }
+
+    const effectiveOrderNo = planRow?.order_no || orderNo || null;
+    const effectivePlanId  = planRow?.plan_id  || planId  || null;
+
+    // Parse colour_details for per-colour plan quantities
+    let colourPlanMap = {}; // { colourName: planQty }
+    if (planRow?.colour_details) {
+      try {
+        const cd = typeof planRow.colour_details === 'string'
+          ? JSON.parse(planRow.colour_details)
+          : planRow.colour_details;
+        if (Array.isArray(cd)) {
+          cd.forEach(c => {
+            const name = (c.colourName || c.itemColour || c.colour || c.color || c.name || '').trim() || 'Default';
+            const qty  = Number(c.planQty ?? c.useQty ?? c.batchQty ?? c.qty ?? 0) || 0;
+            colourPlanMap[name] = (colourPlanMap[name] || 0) + qty;
+          });
+        }
+      } catch (_) {}
+    }
+
+    // 2. Fetch all DPR hourly entries for this plan
+    const params = [];
+    let whereClauses = ['h.is_deleted = false'];
+
+    if (effectivePlanId) {
+      params.push(effectivePlanId);
+      whereClauses.push(`(h.plan_id = $${params.length} OR h.plan_id = (SELECT id::text FROM plan_board WHERE plan_id = $${params.length} LIMIT 1))`);
+    } else if (effectiveOrderNo) {
+      params.push(effectiveOrderNo);
+      whereClauses.push(`h.order_no = $${params.length}`);
+    }
+
+    if (factoryId) {
+      params.push(factoryId);
+      whereClauses.push(`(h.factory_id = $${params.length} OR h.factory_id IS NULL)`);
+    }
+
+    const entries = await q(`
+      SELECT
+        h.id,
+        h.dpr_date::text AS dpr_date,
+        h.shift,
+        h.hour_slot,
+        h.good_qty,
+        h.reject_qty,
+        h.downtime_min,
+        COALESCE(NULLIF(TRIM(h.colour), ''), 'Default') AS colour,
+        h.machine,
+        h.remarks,
+        h.created_by,
+        h.created_at,
+        h.entry_type
+      FROM dpr_hourly h
+      WHERE ${whereClauses.join(' AND ')}
+      ORDER BY h.dpr_date ASC, h.shift ASC, h.hour_slot ASC
+    `, params);
+
+    // 3. Group entries: colour → shifts → hourly
+    const colourMap = {}; // { colour: { planQty, shifts: { 'Day|2026-05-28': { shift, date, entries[] } } } }
+
+    entries.forEach(e => {
+      const col  = e.colour || 'Default';
+      const key  = `${e.shift}|${e.dpr_date}`;
+
+      if (!colourMap[col]) colourMap[col] = { planQty: colourPlanMap[col] || 0, shifts: {} };
+      if (!colourMap[col].shifts[key]) {
+        colourMap[col].shifts[key] = {
+          shift: e.shift,
+          date: e.dpr_date,
+          goodQty: 0, rejectQty: 0, downtimeMin: 0,
+          entries: []
+        };
+      }
+      const s = colourMap[col].shifts[key];
+      s.goodQty    += Number(e.good_qty    || 0);
+      s.rejectQty  += Number(e.reject_qty  || 0);
+      s.downtimeMin += Number(e.downtime_min || 0);
+      s.entries.push({
+        id: e.id,
+        hourSlot:   e.hour_slot,
+        goodQty:    Number(e.good_qty    || 0),
+        rejectQty:  Number(e.reject_qty  || 0),
+        downtimeMin:Number(e.downtime_min || 0),
+        machine:    e.machine,
+        enteredBy:  e.created_by,
+        createdAt:  e.created_at,
+        remarks:    e.remarks,
+        entryType:  e.entry_type
+      });
+    });
+
+    // 4. Shape into final response
+    const totalGood   = entries.reduce((s, e) => s + Number(e.good_qty   || 0), 0);
+    const totalReject = entries.reduce((s, e) => s + Number(e.reject_qty || 0), 0);
+    const planQty     = Number(planRow?.plan_qty  || 0);
+    const balQty      = Number(planRow?.bal_qty   || 0);
+
+    const colours = Object.entries(colourMap).map(([colour, data]) => {
+      const shifts = Object.values(data.shifts).sort((a, b) =>
+        a.date < b.date ? -1 : a.date > b.date ? 1 : a.shift.localeCompare(b.shift)
+      );
+      const produced = shifts.reduce((s, sh) => s + sh.goodQty, 0);
+      const plan     = data.planQty || 0;
+      return {
+        colour,
+        planQty:     plan,
+        producedQty: produced,
+        balQty:      Math.max(0, plan - produced),
+        shifts
+      };
+    }).sort((a, b) => a.colour.localeCompare(b.colour));
+
+    res.json({
+      ok: true,
+      data: {
+        planId: effectivePlanId,
+        orderNo: effectiveOrderNo,
+        planQty,
+        producedQty: totalGood,
+        balQty,
+        totalReject,
+        mouldName: planRow?.mould_name || '',
+        colours
+      }
+    });
+  } catch (e) {
+    console.error('[plan-drilldown]', e.message);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/* ============================================================
    JOB SUMMARY (Admin Visualization)
 ============================================================ */
 app.get('/api/dpr/job-summary', async (req, res) => {
