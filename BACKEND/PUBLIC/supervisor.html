@@ -2778,6 +2778,108 @@
       show('color-plan-card');
 
       try {
+        // ── ALWAYS call the API first so production (DPR entries) is subtracted from
+        //    balance. Only fall back to plan's saved colour_details if the API returns
+        //    nothing (e.g. JC details not yet uploaded).
+        const orJrNo = job.OrderNo || (job._all ? job._all['Order No'] : '');
+        const jcNo   = getJobCardNo(job);
+        const mouldNo = job.MouldNo || (job._all ? job._all['Mould No'] : '');
+        const planId  = job.PlanID;
+
+        let apiRows = [];
+        try {
+          const apiUrl = `/api/job/colors?or_jr_no=${encodeURIComponent(orJrNo)}` +
+            `&jc_no=${encodeURIComponent(jcNo)}` +
+            `&mould_no=${encodeURIComponent(mouldNo)}` +
+            `&plan_id=${encodeURIComponent(planId)}`;
+          const apiRes  = await apiFetch(apiUrl);
+          const apiData = await apiRes.json();
+          if (apiData && apiData.ok) apiRows = apiData.data || [];
+        } catch (apiErr) {
+          console.warn('[Colors] API fetch failed, falling back to plan data:', apiErr);
+        }
+
+        // If API gave us results, use them (they include real production balance)
+        if (apiRows.length) {
+          if (tbody) tbody.innerHTML = '';
+          window.jobColorsData = {};
+          let sumPlan = 0, sumBal = 0, sumProduced = 0;
+          const overProducedList = []; // collect for alert
+
+          apiRows.forEach(r => {
+            const q = Math.round(Number(r.qty || 0));
+            const b = Math.round(Number(r.bal));           // can be negative
+            const p = Math.round(Number(r.produced || 0));
+            const isOver = b < 0;
+            window.jobColorsData[r.name] = { plan: q, bal: b };
+            sumPlan += q; sumBal += b; sumProduced += p;
+            if (isOver) overProducedList.push({ name: r.name, qty: q, produced: p, excess: Math.abs(b) });
+
+            const cName = r.name.toLowerCase();
+            let badgeClass = 'color-badge';
+            if (r.name.includes('Other')) badgeClass = 'color-badge badge-grey';
+            else if (cName.includes('red') || cName.includes('maroon') || cName.includes('cherry')) badgeClass += ' badge-red';
+            else if (cName.includes('blue') || cName.includes('navy') || cName.includes('cyan')) badgeClass += ' badge-blue';
+            else if (cName.includes('green') || cName.includes('lime') || cName.includes('olive')) badgeClass += ' badge-green';
+            else if (cName.includes('yellow') || cName.includes('gold') || cName.includes('lemon')) badgeClass += ' badge-yellow';
+            else if (cName.includes('black') || cName.includes('dark')) badgeClass += ' badge-black';
+            else if (cName.includes('white') || cName.includes('ivory') || cName.includes('milk')) badgeClass += ' badge-white';
+            else if (cName.includes('grey') || cName.includes('silver') || cName.includes('ash')) badgeClass += ' badge-grey';
+            else if (cName.includes('orange') || cName.includes('amber')) badgeClass += ' badge-orange';
+            else if (cName.includes('purple') || cName.includes('violet') || cName.includes('lavender')) badgeClass += ' badge-purple';
+            else if (cName.includes('pink') || cName.includes('rose') || cName.includes('magenta')) badgeClass += ' badge-pink';
+            else if (cName.includes('brown') || cName.includes('beige') || cName.includes('tan')) badgeClass += ' badge-brown';
+            else if (cName.includes('teal') || cName.includes('aqua')) badgeClass += ' badge-teal';
+
+            // Negative balance → red pill with minus sign
+            const balHtml = isOver
+              ? `<span class="qty-pill" style="background:#fee2e2; color:#dc2626; font-weight:800; border:1px solid #fca5a5">${b}</span>`
+              : `<span class="qty-pill">${b}</span>`;
+
+            const tr = document.createElement('tr');
+            tr.className = isOver ? 'color-row over-produced-row' : 'color-row';
+            if (isOver) tr.style.cssText = 'background:#fff5f5';
+            tr.dataset.colorName = r.name;
+            tr.innerHTML = `<td><span class="${badgeClass}">${r.name}${isOver ? ' <span style="font-size:10px;color:#dc2626;font-weight:700">⚠ OVER</span>' : ''}</span></td><td><span class="qty-pill">${q}</span></td><td>${balHtml}</td>`;
+            tr.onclick = () => { const sel = el('d-color'); if (sel) { sel.value = r.name; sel.dispatchEvent(new Event('change')); } };
+            if (tbody) tbody.appendChild(tr);
+          });
+
+          // Total row — negative total also in red
+          const totalIsOver = sumBal < 0;
+          const totalBalHtml = totalIsOver
+            ? `<span class="qty-pill" style="background:#fee2e2; color:#dc2626; font-weight:800; border:1px solid #fca5a5">${Math.round(sumBal)}</span>`
+            : `<span class="qty-pill" style="font-weight:700">${Math.round(sumBal)}</span>`;
+          const trTot = document.createElement('tr');
+          trTot.className = 'color-row';
+          trTot.innerHTML = `<td><span class="color-badge" style="font-weight:700">Required</span></td><td><span class="qty-pill" style="font-weight:700">${Math.round(sumPlan)}</span></td><td>${totalBalHtml}</td>`;
+          if (tbody) tbody.appendChild(trTot);
+
+          // Over-production alert banner (shown inside colour card)
+          const existingAlert = el('over-prod-alert');
+          if (existingAlert) existingAlert.remove();
+          if (overProducedList.length > 0) {
+            const alertDiv = document.createElement('div');
+            alertDiv.id = 'over-prod-alert';
+            alertDiv.style.cssText = 'margin-top:10px; background:#fef2f2; border:1px solid #fca5a5; border-radius:10px; padding:10px 14px; font-size:12px; color:#b91c1c; font-weight:700';
+            alertDiv.innerHTML = `<div style="font-size:13px; margin-bottom:4px">⚠️ OVER PRODUCTION DETECTED</div>` +
+              overProducedList.map(o =>
+                `<div>• ${o.name}: Plan ${o.qty} | Produced ${o.produced} | <b>Extra ${o.excess} pcs</b></div>`
+              ).join('');
+            const card = el('color-plan-card');
+            if (card) card.appendChild(alertDiv);
+          }
+
+          el('color-plan-note').textContent = 'Source: Plan colours + Live production';
+          buildColourOptions(job);
+          const planKey = 'last_color_' + (job.PlanID || '');
+          const last = localStorage.getItem(planKey);
+          const s = el('d-color');
+          if (last && hasOption(s, last)) { s.value = last; s.dispatchEvent(new Event('change')); }
+          return;
+        }
+
+        // ── FALLBACK: API returned nothing — use plan's saved colour_details (no production data)
         const savedPlanColors = getSavedPlanColorRows(job);
         if (savedPlanColors.length) {
           if (tbody) tbody.innerHTML = '';
@@ -2850,130 +2952,10 @@
           return;
         }
 
-        const orJrNo = job.OrderNo || (job._all ? job._all['Order No'] : '');
-        const jcNo = getJobCardNo(job);
-        const mouldNo = job.MouldNo || (job._all ? job._all['Mould No'] : '');
-        const planId = job.PlanID;
-
-        const url = `/api/job/colors?or_jr_no=${encodeURIComponent(orJrNo)}` +
-          `&jc_no=${encodeURIComponent(jcNo)}` +
-          `&mould_no=${encodeURIComponent(mouldNo)}` +
-          `&plan_id=${encodeURIComponent(planId)}`;
-
-        const res = await apiFetch(url);
-        const data = await res.json();
-        const rows = (data && data.ok) ? data.data : [];
-
-        if (tbody) tbody.innerHTML = '';
-        window.jobColorsData = {}; // Clear global
-
-        let sumPlan = 0;
-        let sumBal = 0;
-        let sumProduced = 0;
-
-        if (!rows.length) {
-          if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="muted">No color details found in saved plan or JC Report.</td></tr>';
-          // Update dropdowns (fallback will run)
-          buildColourOptions(job);
-          return;
-        }
-
-        rows.forEach(r => {
-          const q = Math.round(Number(r.qty || 0));
-          const b = Math.round(Number(r.bal || 0));
-          const p = Math.round(Number(r.produced || 0));
-
-          window.jobColorsData[r.name] = { plan: q, bal: b };
-          sumPlan += q;
-          sumBal += b;
-          sumProduced += p;
-
-          // Attempt to guess badge class
-          const cName = r.name.toLowerCase();
-          let badgeClass = 'color-badge';
-          if (r.name.includes('Other')) badgeClass = 'color-badge badge-grey'; // special for Other
-          else if (cName.includes('red') || cName.includes('maroon') || cName.includes('cherry')) badgeClass += ' badge-red';
-          else if (cName.includes('blue') || cName.includes('navy') || cName.includes('cyan')) badgeClass += ' badge-blue';
-          else if (cName.includes('green') || cName.includes('lime') || cName.includes('olive')) badgeClass += ' badge-green';
-          else if (cName.includes('yellow') || cName.includes('gold') || cName.includes('lemon')) badgeClass += ' badge-yellow';
-          else if (cName.includes('black') || cName.includes('dark')) badgeClass += ' badge-black';
-          else if (cName.includes('white') || cName.includes('ivory') || cName.includes('milk')) badgeClass += ' badge-white';
-          else if (cName.includes('grey') || cName.includes('silver') || cName.includes('ash')) badgeClass += ' badge-grey';
-          else if (cName.includes('orange') || cName.includes('amber')) badgeClass += ' badge-orange';
-          else if (cName.includes('purple') || cName.includes('violet') || cName.includes('lavender')) badgeClass += ' badge-purple';
-          else if (cName.includes('pink') || cName.includes('rose') || cName.includes('magenta')) badgeClass += ' badge-pink';
-          else if (cName.includes('brown') || cName.includes('beige') || cName.includes('tan')) badgeClass += ' badge-brown';
-          else if (cName.includes('teal') || cName.includes('aqua')) badgeClass += ' badge-teal';
-
-          const tr = document.createElement('tr');
-          tr.className = 'color-row';
-          tr.dataset.colorName = r.name; // For selection logic
-          tr.innerHTML = `
-             <td><span class="${badgeClass}">${r.name}</span></td>
-             <td><span class="qty-pill">${q}</span></td>
-             <td><span class="qty-pill">${b}</span></td>
-           `;
-          tr.onclick = () => {
-             const sel = el('d-color');
-             if (sel) {
-               sel.value = r.name;
-               sel.dispatchEvent(new Event('change'));
-             }
-          };
-          if (tbody) tbody.appendChild(tr);
-        });
-
-        // 1. Sum Row (Clamped)
-        const trTot = document.createElement('tr');
-        trTot.className = 'color-row';
-        trTot.innerHTML = `
-           <td><span class="color-badge" style="font-weight:700">Required</span></td>
-           <td><span class="qty-pill" style="font-weight:700">${Math.round(sumPlan)}</span></td>
-           <td><span class="qty-pill" style="font-weight:700">${Math.round(sumBal)}</span></td>
-         `;
-        if (tbody) tbody.appendChild(trTot);
-
-        // 2. Net Balance Row (Actual)
-        // Net Bal = Plan - Produced. (Can be negative)
-        const netBal = Math.round(sumPlan - sumProduced);
-        const netColor = netBal < 0 ? '#10b981' : (netBal > 0 ? '#f59e0b' : '#64748b');
-
-        const trNet = document.createElement('tr');
-        trNet.innerHTML = `
-           <td colspan="3" style="text-align:right; font-size:12px; padding:4px 8px; color:#64748b; background:#f8fafc">
-             Total Produced: <b>${Math.round(sumProduced)}</b> | Net Bal: <b style="color:${netColor}">${netBal > 0 ? '+' : ''}${netBal}</b>
-           </td>
-        `;
-        if (tbody) tbody.appendChild(trNet);
-
-        el('color-plan-note').textContent = 'Source: JC Detail Report - Plan vs Produced (Current Plan)';
-
-        // Re-build dropdowns now that data is populated
+        // Neither API nor saved plan colours found
+        if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="muted">No color details found in saved plan or JC Report.</td></tr>';
         buildColourOptions(job);
-        // Try to restore previous selection
-        const planKey = 'last_color_' + (job.PlanID || '');
-        const last = localStorage.getItem(planKey);
-
-        const s = el('d-color');
-        let restored = false;
-
-        // 1. Plan Specific (Sticky)
-        if (last && hasOption(s, last)) {
-          s.value = last;
-          restored = true;
-          s.dispatchEvent(new Event('change'));
-        }
-
-        // 2. Global Sticky REMOVED to prevent cross-job contamination (User Request)
-        /*
-        if (!restored) {
-          const global = localStorage.getItem('jpsms_last_color');
-          if (global && hasOption(s, global)) {
-            s.value = global;
-            s.dispatchEvent(new Event('change'));
-          }
-        }
-        */
+        return;
 
       } catch (e) {
         console.error('Color fetch error', e);
@@ -4147,6 +4129,12 @@
             loadRecent();
             loadUsedSlots();
             updateFilledSlots();
+
+            // Refresh colour balance table immediately so operator sees updated balance
+            // (including any negative/over-produced values after this entry)
+            if (session.activeJob) {
+              renderColorPlanTable(session.activeJob);
+            }
           } else {
             el('submit-errors').textContent =
               (r && r.error) ? String(r.error) : 'Save failed due to an unknown error.';

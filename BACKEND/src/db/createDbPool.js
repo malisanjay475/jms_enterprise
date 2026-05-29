@@ -1,10 +1,12 @@
 'use strict';
 
-const pg = require('pg');
-const { Pool } = pg;
+const { Pool } = require('pg');
 
-// Prevent timezone-shifting by returning DATE columns as raw YYYY-MM-DD strings
-pg.types.setTypeParser(1082, (val) => val);
+// NOTE: Do NOT add pg.types.setTypeParser(1082, ...) here.
+// DATE columns are intentionally returned as JavaScript Date objects by pg.
+// Timezone correctness is handled by TZ=Asia/Kolkata in docker-compose (hardcoded,
+// not ${TZ:-fallback} which Hostinger's host TZ=UTC overrides).
+// Changing the DATE parser globally breaks date comparisons and plan_board queries.
 
 function createDbPool(config) {
   const pool = new Pool({
