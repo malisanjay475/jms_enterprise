@@ -320,7 +320,11 @@
     window._tlComplete = function (id) {
         const p = window._tlMap[id];
         if (!p) return alert('Plan data missing');
-        if (window.openCompletePlanModal) window.openCompletePlanModal(id, JSON.stringify(p));
+        // Share into the central data map so openCompletePlanModal can look it up by id
+        // (avoids serialising the object into a JSON string, which breaks on ' in names)
+        if (!window._cpDataMap) window._cpDataMap = {};
+        window._cpDataMap[String(id)] = p;
+        if (window.openCompletePlanModal) window.openCompletePlanModal(id);
         else alert('Complete Modal not found');
     };
 
