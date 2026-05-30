@@ -4673,7 +4673,12 @@ async function initializeLegacyRuntime() {
       await q(`ALTER TABLE or_jr_report DROP CONSTRAINT IF EXISTS or_jr_report_pkey`);
       // 2. Drop old 3-part index (included plan_date — caused duplicate rows when plan_date changed)
       await q(`DROP INDEX IF EXISTS idx_or_jr_composite_unique`).catch(() => {});
-      // 3. Create 2-part unique index: OR No + JC No only
+      // 3. CRITICAL: Drop the old single-column unique index on or_jr_no alone.
+      //    If this index exists, inserting a second row for the same OR with a different
+      //    JC number fails silently — the INSERT catches the error and skips the row,
+      //    so only one of the two rows for the same OR survives.
+      await q(`DROP INDEX IF EXISTS idx_or_jr_report_unique_no`).catch(() => {});
+      // 4. Create 2-part unique index: OR No + JC No only
       //    One row per (OR/JR No + Job Card No) combination.
       //    Same OR with different JC = separate rows (both coexist and update independently).
       await q(`
