@@ -7915,6 +7915,16 @@
                   <div style="margin-top:8px; color:#475569; font-size:.88rem">
                     OR/JR summary found <strong>${esc(group.rows.length)}</strong> mould option(s) for this family. Selection happens inside popup.
                   </div>
+                  <div style="margin-top:10px; display:flex; flex-direction:column; gap:6px; background:rgba(241,245,249,0.5); border:1px solid #e2e8f0; padding:10px 12px; border-radius:12px">
+                    <div style="font-size:0.75rem; font-weight:800; color:#475569; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:2px">Mould Master Machine Compatibility</div>
+                    ${group.rows.map((r, rIdx) => `
+                      <div style="font-size:0.82rem; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+                        <strong style="color:#0f172a; font-family:monospace">${esc(r.mould_no || r.item_code || `Option ${rIdx+1}`)}</strong>
+                        <span class="tag small" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe; font-size:0.72rem; padding:1px 8px; font-weight:700">Primary: ${esc(r.primary_machine || r.primaryMachine || '-')}</span>
+                        <span class="tag small" style="background:#fff7ed; color:#c2410c; border-color:#fed7aa; font-size:0.72rem; padding:1px 8px; font-weight:700">Secondary: ${esc(r.secondary_machine || r.secondaryMachine || '-')}</span>
+                      </div>
+                    `).join('')}
+                  </div>
                   <div style="margin-top:10px; display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px; max-width:540px">
                     <div style="border:1px solid #e2e8f0; border-radius:14px; background:#fff; padding:10px 12px">
                       <div class="mini muted">Target Qty</div>
