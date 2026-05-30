@@ -55,16 +55,25 @@ jobs:
           envs: SYNC_API_KEY
           # Step exits non-zero if the app is unreachable or sync is stale,
           # which marks this step "failure" -> the email step below fires.
-          # We run curl INSIDE the app container against its own port 3000 —
-          # this is exactly how the Docker healthcheck reaches the app, so it
-          # works regardless of host firewall or published-port mapping.
+          # We run the request INSIDE the app container using node's http (the
+          # image is node:20-alpine — it has node but NOT curl). This is exactly
+          # how the Docker healthcheck reaches the app, so it works regardless of
+          # host firewall or published-port mapping.
           script: |
             APP="$(docker ps --format '{{.Names}}' | grep -E 'jms-enterprise-v1-app' | head -1)"
             if [ -z "$APP" ]; then
               echo "::error::App container (jms-enterprise-v1-app*) is not running — MAIN is DOWN."
               exit 1
             fi
-            RESP="$(docker exec "$APP" sh -c "curl -s -m 20 'http://127.0.0.1:3000/api/sync-alert?key=${SYNC_API_KEY}'" 2>/dev/null || true)"
+            RESP="$(docker exec -e SYNC_API_KEY="${SYNC_API_KEY}" "$APP" node -e '
+              const http = require("http");
+              const key = process.env.SYNC_API_KEY || "";
+              http.get("http://127.0.0.1:3000/api/sync-alert?key=" + encodeURIComponent(key), (r) => {
+                let b = "";
+                r.on("data", d => b += d);
+                r.on("end", () => { process.stdout.write(b); });
+              }).on("error", () => { process.exit(2); });
+            ' 2>/dev/null || true)"
             echo "sync-alert response: $RESP"
             if [ -z "$RESP" ]; then
               echo "::error::App did not respond on port 3000 inside the container — MAIN may be DOWN."
