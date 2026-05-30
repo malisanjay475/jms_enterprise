@@ -7935,19 +7935,36 @@
                   ${blockReason ? `<div style="margin-top:10px; color:#be123c; font-weight:700; font-size:.88rem">${esc(blockReason)}</div>` : ''}
                 </div>
                 <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end">
-                  <button class="btn mini secondary" type="button" data-cp-action="drop" ${group.hasPlanned ? 'disabled' : ''} style="color:#dc2626">Drop</button>
+                  ${group.hasDropped
+                    ? `<button class="btn mini secondary" type="button" data-cp-action="undrop" style="color:#059669; border-color:#a7f3d0; background:#f0fdf4">Undrop</button>`
+                    : `<button class="btn mini secondary" type="button" data-cp-action="drop" ${group.hasPlanned ? 'disabled' : ''} style="color:#dc2626">Drop</button>`
+                  }
                   <button class="btn primary" type="button" data-cp-action="select" ${blockReason ? 'disabled' : ''}>${group.rows.length > 1 ? 'Open Selection' : 'Select Mould'}</button>
                 </div>
               </div>
             `;
 
-            row.querySelector('[data-cp-action="drop"]').onclick = (e) => {
-              e.stopPropagation();
-              const first = group.rows[0] || {};
-              if (typeof window.dropCpMould === 'function') {
-                window.dropCpMould(first);
-              }
-            };
+            const dropBtn = row.querySelector('[data-cp-action="drop"]');
+            if (dropBtn) {
+              dropBtn.onclick = (e) => {
+                e.stopPropagation();
+                const first = group.rows[0] || {};
+                if (typeof window.dropCpMould === 'function') {
+                  window.dropCpMould(first);
+                }
+              };
+            }
+
+            const undropBtn = row.querySelector('[data-cp-action="undrop"]');
+            if (undropBtn) {
+              undropBtn.onclick = (e) => {
+                e.stopPropagation();
+                const first = group.rows[0] || {};
+                if (typeof window.undropCpMould === 'function') {
+                  window.undropCpMould(first);
+                }
+              };
+            }
 
             row.querySelector('[data-cp-action="select"]').onclick = (e) => {
               e.stopPropagation();
@@ -10111,6 +10128,35 @@
 
           if (res.ok || res.data?.ok) {
             toast('Mould Dropped Successfully');
+            loadCpOrders();
+            selectCpOrder(cpSelectedOrder, null);
+          } else {
+            toast('Failed: ' + (res.error || 'Unknown'), 'error');
+          }
+        } catch (e) {
+          console.error(e);
+          toast(e.message, 'error');
+        }
+      };
+
+      // -------------------------------------------------------------
+      // UNDROP MOULD HANDLER
+      // -------------------------------------------------------------
+      window.undropCpMould = async function (mould) {
+        if (!window.cpSelectedOrder) return toast('No Order Context', 'error');
+
+        if (!confirm(`Are you sure you want to Undrop this mould family for order ${window.cpSelectedOrder.orderNo}?`)) return;
+
+        try {
+          const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          const res = await api.post('/planning/undrop', {
+            orderNo: window.cpSelectedOrder.orderNo,
+            mouldNo: mould.mould_no || mould.item_code,
+            mouldName: mould.mould_name
+          });
+
+          if (res.ok || res.data?.ok) {
+            toast('Mould Restored to Plan Successfully');
             loadCpOrders();
             selectCpOrder(cpSelectedOrder, null);
           } else {
