@@ -8249,6 +8249,7 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       WHERE TRIM(COALESCE(d0.order_no, '')) = TRIM(COALESCE(r.or_jr_no, ''))
         AND (
           TRIM(COALESCE(d0.mould_name, '')) = TRIM(COALESCE(r.mould_name, ''))
+          OR TRIM(COALESCE(d0.mould_no, '')) = TRIM(COALESCE(r.mould_no, ''))
           OR TRIM(COALESCE(d0.item_code, '')) = TRIM(COALESCE(r.mould_no, ''))
         )
       ORDER BY d0.id DESC
