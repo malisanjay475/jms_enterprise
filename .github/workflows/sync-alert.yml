@@ -1,49 +1,94 @@
 name: Hourly Sync Health Check
 
+# Every 2 hours, asks MAIN whether any LOCAL factory server has stopped
+# pushing data within the staleness threshold (2h). Emails joyo44064@gmail.com
+# when sync is stale OR MAIN is unreachable — so a silently-stuck sync is
+# caught in hours, not days.
+#
+# Uses /api/sync-alert (NOT /api/sync/health): sync-alert reads the
+# local_servers heartbeat recorded on MAIN, which is the correct signal for
+# "is the factory LOCAL server still pushing?". /api/sync/health reports MAIN's
+# OWN sync activity, which is meaningless on the hub and would false-alarm.
+#
+# Required repo secrets:
+#   SYNC_API_KEY            same key the app uses (guards /api/sync-alert)
+#   ALERT_EMAIL_USER /      Gmail address + app password for sending alerts
+#   ALERT_EMAIL_PASSWORD
 on:
   schedule:
-    - cron: '0 */2 * * *' # Run every 2 hours
-  workflow_dispatch: # Enable manual triggers
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: jms-sync-health
+  cancel-in-progress: true
+
 jobs:
   check-sync:
     runs-on: ubuntu-latest
+    env:
+      MAIN_URL: 'http://72.62.228.195:9091'
+      HAS_KEY:  ${{ secrets.SYNC_API_KEY != '' }}
+      HAS_MAIL: ${{ secrets.ALERT_EMAIL_PASSWORD != '' }}
     steps:
+      - name: Skip if key not configured
+        if: env.HAS_KEY != 'true'
+        run: echo "::warning::SYNC_API_KEY secret not set — skipping sync health check."
+
       - name: Query Sync Health
         id: query
+        if: env.HAS_KEY == 'true'
+        env:
+          KEY: ${{ secrets.SYNC_API_KEY }}
         run: |
-          RESPONSE=$(curl -s -m 15 "http://72.62.228.195:9091/api/sync/health")
+          set +e
+          RESPONSE=$(curl -s -m 20 "${MAIN_URL}/api/sync-alert?key=${KEY}")
+          CURL_RC=$?
           echo "Sync health response: $RESPONSE"
-          OK=$(echo "$RESPONSE" | jq -r '.ok')
-          if [ "$OK" != "true" ]; then
-            echo "HEALTHY=false" >> $GITHUB_OUTPUT
-            # Escape newlines for output
-            CLEAN_RESP=$(echo "$RESPONSE" | tr -d '\n' | tr -d '\r')
-            echo "DETAILS=$CLEAN_RESP" >> $GITHUB_OUTPUT
+          if [ $CURL_RC -ne 0 ] || [ -z "$RESPONSE" ]; then
+            echo "STATUS=unreachable" >> "$GITHUB_OUTPUT"
+            echo "DETAILS=MAIN unreachable at ${MAIN_URL} (curl exit ${CURL_RC}). App may be DOWN." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          OK=$(echo "$RESPONSE" | jq -r '.ok' 2>/dev/null)
+          if [ "$OK" = "true" ]; then
+            echo "STATUS=healthy" >> "$GITHUB_OUTPUT"
           else
-            echo "HEALTHY=true" >> $GITHUB_OUTPUT
+            echo "STATUS=stale" >> "$GITHUB_OUTPUT"
+            CLEAN_RESP=$(echo "$RESPONSE" | tr -d '\n\r' | cut -c1-800)
+            echo "DETAILS=$CLEAN_RESP" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Report
+        if: env.HAS_KEY == 'true'
+        run: echo "Sync status = ${{ steps.query.outputs.STATUS }}"
+
       - name: Send Alert Email
-        if: steps.query.outputs.HEALTHY == 'false'
+        if: env.HAS_KEY == 'true' && env.HAS_MAIL == 'true' && (steps.query.outputs.STATUS == 'stale' || steps.query.outputs.STATUS == 'unreachable')
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 465
+          secure: true
           username: ${{ secrets.ALERT_EMAIL_USER }}
           password: ${{ secrets.ALERT_EMAIL_PASSWORD }}
-          subject: "[CRITICAL ALERT] JMS Ocean Sync Lag Detected!"
+          subject: "🟠 JMS SYNC ALERT — ${{ steps.query.outputs.STATUS }}"
           to: joyo44064@gmail.com
-          from: JMS System Health Monitor
+          from: JMS System Health Monitor <${{ secrets.ALERT_EMAIL_USER }}>
           body: |
-            CRITICAL: The local-to-main database sync is lagging by more than 2 hours!
-            
-            Please investigate the factory floor local server immediately to ensure the sync process is running.
-            
-            Health Check API Response:
+            JMS sync health check raised an alert.
+
+            STATUS: ${{ steps.query.outputs.STATUS }}
+
+            DETAIL:
             ${{ steps.query.outputs.DETAILS }}
-            
-            Timestamp: $(date)
+
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ACTION:
+            - stale       -> a LOCAL factory server stopped pushing to MAIN.
+                             Check it is online; run force-full-push from the LOCAL app.
+            - unreachable -> MAIN may be DOWN. Check the VPS / Docker container.

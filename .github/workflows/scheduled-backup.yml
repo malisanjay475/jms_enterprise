@@ -1,61 +1,85 @@
 name: Scheduled Database & Offsite Backup
 
+# Every 6 hours + manual. Runs the backup ENTIRELY on the VPS over SSH:
+#   1. pg_dump the database  2. archive the uploads volume
+#   3. rotate old local copies  4. rclone upload to Google Drive (if configured)
+# All steps run where the files actually live (the VPS) — a GitHub runner
+# cannot see the VPS filesystem, so the upload must happen on the VPS.
+# Emails joyo44064@gmail.com if the backup fails (when MAIL_* secrets are set).
+#
+# Cron UTC 00:30/06:30/12:30/18:30 = 06:00/12:00/18:00/00:00 IST.
 on:
   schedule:
-    # Trigger every 6 hours (UTC: 00:30, 06:30, 12:30, 18:30)
-    # This corresponds to 6:00 AM, 12:00 PM, 6:00 PM, 12:00 AM IST
     - cron: '30 0,6,12,18 * * *'
-  workflow_dispatch: # Enable manual triggers
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: jms-scheduled-backup
+  cancel-in-progress: false
 
 jobs:
   backup:
     runs-on: ubuntu-latest
     environment: production
+    env:
+      HAS_MAIL: ${{ secrets.MAIL_PASSWORD != '' }}
     steps:
-      - name: Trigger VPS Backup Script via SSH
+      - name: Verify SSH secrets
+        shell: bash
+        env:
+          HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          USER: ${{ secrets.HOSTINGER_SSH_USER }}
+          KEY:  ${{ secrets.HOSTINGER_SSH_KEY }}
+          DPATH: ${{ secrets.VPS_DEPLOY_PATH }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ] || [ -z "$DPATH" ]; then
+            echo "::error::Missing SSH secrets (HOSTINGER_SSH_HOST/USER/KEY, VPS_DEPLOY_PATH)."
+            exit 1
+          fi
+
+      - name: Run backup on VPS (dump + archive + rotate + rclone to Drive)
         uses: appleboy/ssh-action@v1.0.3
         env:
           DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
-          DB_CONTAINER: jms-enterprise-v1-db-1
-          APP_CONTAINER: jms-enterprise-v1-app-1
-          DB_USER: jms_v1
-          DB_PASSWORD: ${{ secrets.VPS_POSTGRES_PASSWORD }}
-          DB_NAME: jms_v1
-          BACKUP_DIR: /opt/jms-backups
-          MAX_BACKUPS: 16 # Keep 4 days of local history (every 6h)
         with:
           host: ${{ secrets.HOSTINGER_SSH_HOST }}
           username: ${{ secrets.HOSTINGER_SSH_USER }}
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
           passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
           port: 22
-          envs: DEPLOY_PATH,DB_CONTAINER,APP_CONTAINER,DB_USER,DB_PASSWORD,DB_NAME,BACKUP_DIR,MAX_BACKUPS
+          command_timeout: 20m
+          script_stop: true
+          envs: DEPLOY_PATH
           script: |
             set -eo pipefail
-            echo "[Backup] Creating database snapshot..."
-            
-            # Make backup dir if not exists
-            mkdir -p "$BACKUP_DIR"
-            
-            # Trigger DB backup using custom container overrides
-            DB_CONTAINER="$DB_CONTAINER" APP_CONTAINER="$APP_CONTAINER" BACKUP_DIR="$BACKUP_DIR" MAX_BACKUPS="$MAX_BACKUPS" DB_PASSWORD="$DB_PASSWORD" bash "$DEPLOY_PATH/scripts/backup-db.sh"
-            
-            echo "[Backup] Archiving uploads volume..."
-            TIMESTAMP=$(date +"%Y-%m-%d_%H-%M")
-            tar -czf "$BACKUP_DIR/uploads_$TIMESTAMP.tar.gz" -C "$DEPLOY_PATH/BACKEND/PUBLIC/uploads" .
-            
-            echo "[Backup] Cleaning up local upload archives older than 4 days..."
-            find "$BACKUP_DIR" -name "uploads_*.tar.gz" -mtime +4 -exec rm -f {} \;
-            
-            echo "[Backup] Success! Backups prepared on VPS at $BACKUP_DIR"
+            cd "$DEPLOY_PATH"
+            # Pull the latest backup script, then run it. The script does:
+            # pg_dump + uploads tar + rotation + (best-effort) rclone to Google Drive.
+            git fetch --prune origin >/dev/null 2>&1 || true
+            git checkout main >/dev/null 2>&1 || true
+            git pull --ff-only origin main >/dev/null 2>&1 || true
+            chmod +x scripts/vps-backup-to-cloud.sh
+            BACKUP_ROOT=/opt/jms-backups bash scripts/vps-backup-to-cloud.sh
 
-      - name: Sync Backups to Google Drive
-        uses: Rclone/github-action-rclone@v3
+      - name: Email alert on failure
+        if: failure() && env.HAS_MAIL == 'true'
+        uses: dawidd6/action-send-mail@v3
         with:
-          rclone-config: ${{ secrets.RCLONE_CONFIG }}
-        run: |
-          # Sync VPS backups directory securely to offsite Google Drive folder JMS-Backups
-          rclone sync "vps-backup:/opt/jms-backups" "gdrive:JMS-Backups" --copy-links
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "🔴 JMS BACKUP FAILED — action required"
+          to: joyo44064@gmail.com
+          from: JMS Backup Bot <${{ secrets.MAIL_USERNAME }}>
+          body: |
+            The scheduled JMS database backup FAILED.
+
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ACTION: open the run, read the logs, fix the cause.
+            Until fixed you have NO fresh offsite backup.
