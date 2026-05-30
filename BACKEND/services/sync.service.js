@@ -567,6 +567,26 @@ router.get('/status', async (req, res) => {
 // Use this to recover missing master data (e.g. moulds that were synced before pagination
 // was added, or moulds with historical updated_at values that slipped behind the watermark).
 // Only available on LOCAL servers. Authenticate with SYNC_API_KEY.
+router.get('/health', async (_req, res) => {
+    if (!pool) return res.status(503).json({ ok: false, error: 'Service initializing' });
+    try {
+        const STALE_MS = Number(process.env.SYNC_STALE_THRESHOLD_MS || 2 * 60 * 60 * 1000);
+        const cfg = await getServerConfigSnapshot();
+        const stamps = [cfg.LAST_SYNC, cfg.LAST_PUSH, cfg.LAST_PULL]
+            .map(v => (v ? new Date(v).getTime() : 0)).filter(t => t > 0);
+        const newest = stamps.length ? Math.max(...stamps) : 0;
+        const ageMs = newest ? (Date.now() - newest) : null;
+        const stale = newest === 0 || ageMs > STALE_MS;
+        res.json({
+            ok: !stale,
+            last_sync: cfg.LAST_SYNC || null, last_push: cfg.LAST_PUSH || null, last_pull: cfg.LAST_PULL || null,
+            age_minutes: ageMs != null ? Math.round(ageMs / 60000) : null,
+            threshold_minutes: Math.round(STALE_MS / 60000),
+            reason: stale ? (newest === 0 ? 'no sync activity yet' : `last sync ${Math.round(ageMs / 60000)}m ago`) : 'healthy'
+        });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 router.post('/admin/full-pull-reset', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
