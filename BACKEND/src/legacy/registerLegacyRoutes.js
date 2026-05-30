@@ -13941,14 +13941,15 @@ app.get('/api/planning/orders/:orderNo/details', async (req, res) => {
       // I need to reconstruct this.
     }
 
-    // RE-WRITING THE BLOCK TO SUPPORT FACTORY ID properly
     let sqlQuery = `
 SELECT
 s.*,
   m.id as mould_id,
   m.tonnage as master_tonnage,
   m.no_of_cav as master_cav,
-  m.cycle_time as master_ct
+  m.cycle_time as master_ct,
+  m.primary_machine,
+  m.secondary_machine
       FROM mould_planning_summary s
       LEFT JOIN moulds m ON m.mould_number = s.mould_no 
       WHERE s.or_jr_no = $1
@@ -13971,6 +13972,8 @@ s.*,
       masterMachineRaw: r.master_tonnage || r.tonnage,
       masterCavity: r.master_cav || r.cavity,
       masterCycleTime: r.master_ct || r.cycle_time,
+      primary_machine: r.primary_machine || r.primaryMachine,
+      secondary_machine: r.secondary_machine || r.secondaryMachine,
       mould_name: r.mould_name || 'Unknown Mould',
       item_code: r.item_code,
       plan_qty: r.plan_qty
