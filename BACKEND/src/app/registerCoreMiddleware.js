@@ -23,7 +23,10 @@ function shouldSkipApiLimiter(req) {
   return fullPath.startsWith('/api/sync') || fullPath.startsWith('/sync');
 }
 
-// 600 requests/minute per session for general API. Sync routes have their own stricter limiter.
+// 600 requests/minute per IP for general API.
+// Raised from 300: factory WiFi shares 1 IP across all users.
+// 10 supervisors × avg 60 req/min = 600 req/min needed at peak.
+// Sync routes have their own stricter limiter.
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 600,
@@ -93,6 +96,7 @@ function registerCoreMiddleware(app) {
   app.use('/api/', apiLimiter);
   app.use(['/api/sync', '/sync'], syncLimiter);
 
+  // ── Static asset cache headers ──────────────────────────────────────────
   // Static asset cache headers.
   // HTML: 5-min cache (short so deploys take effect quickly) → repeat visits
   // load in <1s. JS/CSS already ?v= versioned → 24h. Fonts → 7d. Images → 24h.
@@ -100,12 +104,17 @@ function registerCoreMiddleware(app) {
     if (req.method !== 'GET') return next();
     const p = req.path;
     if (/\.html$/i.test(p)) {
+      // 5 min cache + stale-while-revalidate so browser reuses instantly while
+      // revalidating in background. Revalidation uses ETag (Express sets it).
       res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
     } else if (/\.(js|css)$/i.test(p)) {
+      // JS/CSS are versioned with ?v= query strings → long cache is safe.
       res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=3600');
     } else if (/\.(woff2?|ttf|eot|otf)$/i.test(p)) {
+      // Fonts never change — 7-day cache.
       res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
     } else if (/\.(png|jpg|jpeg|gif|webp|svg|ico)$/i.test(p)) {
+      // Images — 24h cache.
       res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=3600');
     }
     next();

@@ -3465,17 +3465,32 @@
       return null;
     };
 
-    /* Plan Board API cache (2-min TTL). View switches reuse cached
-       /planning/board; auto-invalidated on any /planning/* POST. */
+    /* ── Plan Board API Cache (2-minute TTL) ─────────────────────────────────
+       Switching views (Kanban → Timeline → Excel) re-calls loadMachines /
+       loadMasterPlan which each hit /planning/board again. With 10+ users on
+       factory WiFi this causes unnecessary DB hits. Cache the response for 2
+       minutes — data stays fresh for normal factory workflows (shifts don't
+       change every 30 seconds).
+       Call window._planCache.invalidate() after any plan create/update/delete.
+    ────────────────────────────────────────────────────────────────────────── */
     window._planCache = (function () {
-      const TTL = 2 * 60 * 1000; const store = {};
+      const TTL = 2 * 60 * 1000; // 2 minutes
+      const store = {};           // key → { data, ts }
+
       return {
         async get(key, fetchFn) {
-          const e = store[key];
-          if (e && (Date.now() - e.ts) < TTL) return e.data;
-          const data = await fetchFn(); store[key] = { data, ts: Date.now() }; return data;
+          const entry = store[key];
+          if (entry && (Date.now() - entry.ts) < TTL) {
+            return entry.data; // cache hit — instant
+          }
+          const data = await fetchFn();
+          store[key] = { data, ts: Date.now() };
+          return data;
         },
-        invalidate(key) { key ? delete store[key] : Object.keys(store).forEach(k => delete store[k]); }
+        invalidate(key) {
+          if (key) delete store[key];
+          else Object.keys(store).forEach(k => delete store[k]);
+        }
       };
     })();
 
@@ -3496,12 +3511,21 @@
         const { renderShell, api, toast, store, auth } = jmsShell;
         window.toast = toast || ((m) => alert(m)); // Expose global
 
-        /* Auto-invalidate plan cache on any planning mutation (all aliases
-           share window.JPSMS.api, so wrapping .post once covers every site). */
+        /* ── Auto-invalidate plan cache on any planning mutation ──────────────
+           Every local alias ($api, j.api, client, api) points to the SAME
+           window.JPSMS.api object, so wrapping .post once covers all ~25
+           mutation call sites. Any POST to /planning/* clears the 2-min plan
+           board cache → the user always sees their own create/edit/delete/move
+           immediately, while other users still get fast cached view-switches.
+           Idempotent guard prevents double-wrapping on re-init. */
         if (window.JPSMS && window.JPSMS.api && typeof window.JPSMS.api.post === 'function' && !window.JPSMS.api.__planCacheWrapped) {
           const _origPost = window.JPSMS.api.post.bind(window.JPSMS.api);
           window.JPSMS.api.post = function (url, ...rest) {
-            try { if (typeof url === 'string' && url.indexOf('/planning/') !== -1 && window._planCache) window._planCache.invalidate(); } catch (_) {}
+            try {
+              if (typeof url === 'string' && url.indexOf('/planning/') !== -1 && window._planCache) {
+                window._planCache.invalidate();
+              }
+            } catch (_) { /* never let cache logic break a real request */ }
             return _origPost(url, ...rest);
           };
           window.JPSMS.api.__planCacheWrapped = true;
@@ -5365,6 +5389,7 @@
           grid.innerHTML = `<div class="line-row"><div class="line-title">Loading machines…</div></div>`;
           try {
             // Parallel Fetch: Machines + Master Plan (for status accuracy)
+            // Plan board uses 2-min cache — repeat view switches are instant.
             const boardKey = `board|${getPlanningProcessQuerySuffix()}`;
             const [mList, pRes] = await Promise.all([
               api.get(`/masters/machines?process=${encodeURIComponent(getPlanningProcessFilter())}`),
@@ -7910,19 +7935,36 @@
                   ${blockReason ? `<div style="margin-top:10px; color:#be123c; font-weight:700; font-size:.88rem">${esc(blockReason)}</div>` : ''}
                 </div>
                 <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end">
-                  <button class="btn mini secondary" type="button" data-cp-action="drop" ${group.hasPlanned ? 'disabled' : ''} style="color:#dc2626">Drop</button>
+                  ${group.hasDropped
+                    ? `<button class="btn mini secondary" type="button" data-cp-action="undrop" style="color:#059669; border-color:#a7f3d0; background:#f0fdf4">Undrop</button>`
+                    : `<button class="btn mini secondary" type="button" data-cp-action="drop" ${group.hasPlanned ? 'disabled' : ''} style="color:#dc2626">Drop</button>`
+                  }
                   <button class="btn primary" type="button" data-cp-action="select" ${blockReason ? 'disabled' : ''}>${group.rows.length > 1 ? 'Open Selection' : 'Select Mould'}</button>
                 </div>
               </div>
             `;
 
-            row.querySelector('[data-cp-action="drop"]').onclick = (e) => {
-              e.stopPropagation();
-              const first = group.rows[0] || {};
-              if (typeof window.dropCpMould === 'function') {
-                window.dropCpMould(first);
-              }
-            };
+            const dropBtn = row.querySelector('[data-cp-action="drop"]');
+            if (dropBtn) {
+              dropBtn.onclick = (e) => {
+                e.stopPropagation();
+                const first = group.rows[0] || {};
+                if (typeof window.dropCpMould === 'function') {
+                  window.dropCpMould(first);
+                }
+              };
+            }
+
+            const undropBtn = row.querySelector('[data-cp-action="undrop"]');
+            if (undropBtn) {
+              undropBtn.onclick = (e) => {
+                e.stopPropagation();
+                const first = group.rows[0] || {};
+                if (typeof window.undropCpMould === 'function') {
+                  window.undropCpMould(first);
+                }
+              };
+            }
 
             row.querySelector('[data-cp-action="select"]').onclick = (e) => {
               e.stopPropagation();
@@ -10086,6 +10128,35 @@
 
           if (res.ok || res.data?.ok) {
             toast('Mould Dropped Successfully');
+            loadCpOrders();
+            selectCpOrder(cpSelectedOrder, null);
+          } else {
+            toast('Failed: ' + (res.error || 'Unknown'), 'error');
+          }
+        } catch (e) {
+          console.error(e);
+          toast(e.message, 'error');
+        }
+      };
+
+      // -------------------------------------------------------------
+      // UNDROP MOULD HANDLER
+      // -------------------------------------------------------------
+      window.undropCpMould = async function (mould) {
+        if (!window.cpSelectedOrder) return toast('No Order Context', 'error');
+
+        if (!confirm(`Are you sure you want to Undrop this mould family for order ${window.cpSelectedOrder.orderNo}?`)) return;
+
+        try {
+          const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          const res = await api.post('/planning/undrop', {
+            orderNo: window.cpSelectedOrder.orderNo,
+            mouldNo: mould.mould_no || mould.item_code,
+            mouldName: mould.mould_name
+          });
+
+          if (res.ok || res.data?.ok) {
+            toast('Mould Restored to Plan Successfully');
             loadCpOrders();
             selectCpOrder(cpSelectedOrder, null);
           } else {
