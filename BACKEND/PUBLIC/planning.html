@@ -9484,7 +9484,7 @@
                   
                   <button class="btn icon mini master-action-btn complete" 
                      title="Complete Plan"
-                     onclick="event.stopPropagation(); window.openCompletePlanModal('${p.id}', '${esc(JSON.stringify(p))}')">
+                     onclick="event.stopPropagation(); window.openCompletePlanModal('${p.id}', '${encodeURIComponent(JSON.stringify(p))}')">
                      <i class="bi bi-check-lg" style="font-weight:bold"></i>
                   </button>`;
 
