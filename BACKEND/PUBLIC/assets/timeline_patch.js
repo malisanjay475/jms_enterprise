@@ -260,7 +260,7 @@
             let machDisplay = '';
             if (isPlanned && item._planObj) {
                 machDisplay = `<div class="om-mach-click-badge" 
-                         onclick="window.openMachineSelector(event, '${item._planObj.id}', '${esc(item.machine)}', '${esc(item._planObj.primaryMachine || '')}', '${esc(item._planObj.secondaryMachine || '')}')"
+                         onclick="window.openMachineSelector(event, '${item._planObj.id}', '${esc(item.machine)}', '${esc(item._planObj.primaryMachine || item._planObj.primary_machine || '')}', '${esc(item._planObj.secondaryMachine || item._planObj.secondary_machine || '')}')"
                          style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; padding:4px 8px; border-radius:6px; font-weight:700; transition:all 0.2s;"
                          onmouseover="this.style.background='#dbeafe'; this.style.borderColor='#3b82f6';"
                          onmouseout="this.style.background='#eff6ff'; this.style.borderColor='#bfdbfe';">
@@ -269,7 +269,7 @@
                     </div>`;
             } else if (item._planObj) {
                 machDisplay = `<div class="om-mach-click-badge" 
-                         onclick="window.openMachineSelector(event, '${item._planObj.id}', '', '${esc(item._planObj.primaryMachine || '')}', '${esc(item._planObj.secondaryMachine || '')}')"
+                         onclick="window.openMachineSelector(event, '${item._planObj.id}', '', '${esc(item._planObj.primaryMachine || item._planObj.primary_machine || '')}', '${esc(item._planObj.secondaryMachine || item._planObj.secondary_machine || '')}')"
                          style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; background:#f8fafc; border:1px solid #cbd5e1; color:#64748b; padding:4px 8px; border-radius:6px; font-weight:500; font-style:italic; transition:all 0.2s;"
                          onmouseover="this.style.background='#f1f5f9'; this.style.borderColor='#94a3b8'; color:#475569;"
                          onmouseout="this.style.background='#f8fafc'; this.style.borderColor='#cbd5e1'; color:#64748b;">

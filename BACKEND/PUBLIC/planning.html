@@ -5153,6 +5153,17 @@
              border-left-color: #ef4444 !important;
              border-left-width: 6px !important;
           }
+          .timeline-row {
+             transition: opacity 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+          }
+          .track-fade {
+             opacity: 0.15 !important;
+             pointer-events: none !important;
+          }
+          .track-allowed {
+             box-shadow: 0 0 14px rgba(59, 130, 246, 0.45) !important;
+             border: 2px dashed #3b82f6 !important;
+          }
         `;
         document.head.appendChild(dndStyle);
 
@@ -5171,6 +5182,41 @@
           };
           e.dataTransfer.setData('text/plain', JSON.stringify(window.draggedPlan));
           el.classList.add('dragging');
+
+          // Add visual track constraints based on primary/secondary machines
+          const primStr = el.getAttribute('data-primary-machine') || '';
+          const secStr = el.getAttribute('data-secondary-machine') || '';
+          
+          const allowed = new Set();
+          const currentMachineUpper = String(el.dataset.machine || '').trim().toUpperCase();
+          if (currentMachineUpper) allowed.add(currentMachineUpper);
+          
+          if (primStr) {
+              primStr.split(',').forEach(m => {
+                  const t = m.trim().toUpperCase();
+                  if (t) allowed.add(t);
+              });
+          }
+          if (secStr) {
+              secStr.split(',').forEach(m => {
+                  const t = m.trim().toUpperCase();
+                  if (t) allowed.add(t);
+              });
+          }
+          
+          const hasRestrictions = (primStr.trim() !== '' || secStr.trim() !== '');
+          if (hasRestrictions) {
+              document.querySelectorAll('.timeline-row').forEach(row => {
+                  const track = row.querySelector('.timeline-track');
+                  if (!track) return;
+                  const trackM = String(track.getAttribute('data-machine') || '').trim().toUpperCase();
+                  if (!allowed.has(trackM)) {
+                      row.classList.add('track-fade');
+                  } else {
+                      row.classList.add('track-allowed');
+                  }
+              });
+          }
         };
 
         window.handleDragEnd = function (e, el) {
@@ -5178,6 +5224,12 @@
           window.draggedPlan = null;
           // Cleanup any stuck drag-overs
           document.querySelectorAll('.timeline-track.drag-over').forEach(t => t.classList.remove('drag-over'));
+          
+          // Cleanup track constraints
+          document.querySelectorAll('.timeline-row').forEach(row => {
+              row.classList.remove('track-fade');
+              row.classList.remove('track-allowed');
+          });
         };
 
         window.handleDragOver = function (e, el) {
@@ -5274,15 +5326,11 @@
                 // 1a. Remove from old machine
                 const planObj = window.timelineGroups[oldMachine].splice(planObjIdx, 1)[0];
                 planObj.machine = targetMachine;
+                planObj.status = 'Stopped'; // Always stop plan when moved
 
-                // 2. Insert into new machine
+                // 2. Insert into target machine - Always at the end (Comes In Last)
                 if (!window.timelineGroups[targetMachine]) window.timelineGroups[targetMachine] = [];
-
-                let insertIdx = window.timelineGroups[targetMachine].length;
-                if (dropBeforeId) {
-                  const targetIdx = window.timelineGroups[targetMachine].findIndex(p => String(p.id) === String(dropBeforeId));
-                  if (targetIdx > -1) insertIdx = targetIdx;
-                }
+                const insertIdx = window.timelineGroups[targetMachine].length;
                 window.timelineGroups[targetMachine].splice(insertIdx, 0, planObj);
 
                 // 2a. Re-calc Sequences & Times for targetMachine locally (Very basic estimation)
@@ -5315,13 +5363,18 @@
                 if (cardEl) {
                   const targetTrack = document.querySelector(`.timeline-track[data-machine="${CSS.escape(targetMachine)}"]`);
                   if (targetTrack) {
-                    if (dropBeforeId) {
-                      const beforeCard = targetTrack.querySelector(`.timeline-card[data-pid="${CSS.escape(dropBeforeId)}"]`);
-                      if (beforeCard) targetTrack.insertBefore(cardEl, beforeCard);
-                      else targetTrack.appendChild(cardEl);
-                    } else {
-                      targetTrack.appendChild(cardEl);
+                    // Always append to the end of the track (Comes In Last)
+                    targetTrack.appendChild(cardEl);
+                    
+                    // Visually update state badge on the card if elements exist
+                    const statusBadge = cardEl.querySelector('[style*="text-transform:uppercase"]');
+                    if (statusBadge) {
+                      statusBadge.textContent = 'stopped';
+                      statusBadge.style.background = '#fee2e2';
+                      statusBadge.style.color = '#991b1b';
                     }
+                    cardEl.style.borderLeftColor = '#ef4444'; // Stopped border color
+
                     cardEl.dataset.machine = targetMachine;
                     optimisticSuccess = true;
                   } else {
