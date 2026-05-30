@@ -52,10 +52,12 @@ jobs:
             
             echo "[Backup] Success! Backups prepared on VPS at $BACKUP_DIR"
 
-      - name: Sync Backups to Google Drive
-        uses: Rclone/github-action-rclone@v3
+      - name: Setup Rclone
+        uses: rclone/github-action-rclone@v3
         with:
           rclone-config: ${{ secrets.RCLONE_CONFIG }}
+
+      - name: Sync Backups to Google Drive
         run: |
           # Sync VPS backups directory securely to offsite Google Drive folder JMS-Backups
           rclone sync "vps-backup:/opt/jms-backups" "gdrive:JMS-Backups" --copy-links
