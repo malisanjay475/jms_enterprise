@@ -23,13 +23,18 @@ function shouldSkipApiLimiter(req) {
   return fullPath.startsWith('/api/sync') || fullPath.startsWith('/sync');
 }
 
-// 300 requests/minute per IP for general API. Sync routes have their own stricter limiter.
+// 600 requests/minute per session for general API. Sync routes have their own stricter limiter.
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 300,
+  max: 600,
   standardHeaders: true,
   legacyHeaders: false,
   skip: shouldSkipApiLimiter,
+  keyGenerator: (req) => {
+    const user = req.headers['x-user-name'] || 'anonymous';
+    return `${req.ip}_${user}`;
+  },
+  validate: { ip: false },
   message: { ok: false, error: 'Too many requests, please slow down.' }
 });
 
@@ -40,6 +45,7 @@ const syncLimiter = rateLimit({
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { ip: false },
   message: { ok: false, error: 'Sync rate limit exceeded.' }
 });
 
@@ -87,9 +93,19 @@ function registerCoreMiddleware(app) {
   app.use('/api/', apiLimiter);
   app.use(['/api/sync', '/sync'], syncLimiter);
 
-  // Static asset cache headers — 24h for PUBLIC assets, forces revalidation with ETag
+  // Static asset cache headers.
+  // HTML: 5-min cache (short so deploys take effect quickly) → repeat visits
+  // load in <1s. JS/CSS already ?v= versioned → 24h. Fonts → 7d. Images → 24h.
   app.use((req, res, next) => {
-    if (req.method === 'GET' && /\.(js|css|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf)$/i.test(req.path)) {
+    if (req.method !== 'GET') return next();
+    const p = req.path;
+    if (/\.html$/i.test(p)) {
+      res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+    } else if (/\.(js|css)$/i.test(p)) {
+      res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=3600');
+    } else if (/\.(woff2?|ttf|eot|otf)$/i.test(p)) {
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    } else if (/\.(png|jpg|jpeg|gif|webp|svg|ico)$/i.test(p)) {
       res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=3600');
     }
     next();
