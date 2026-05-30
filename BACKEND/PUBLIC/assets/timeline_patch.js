@@ -257,7 +257,28 @@
             }
 
             const jc = item.jcNo || '-';
-            const machDisplay = isPlanned ? item.machine : '<span style="color:#cbd5e1;font-style:italic">Unassigned</span>';
+            let machDisplay = '';
+            if (isPlanned && item._planObj) {
+                machDisplay = `<div class="om-mach-click-badge" 
+                         onclick="window.openMachineSelector(event, '${item._planObj.id}', '${esc(item.machine)}', '${esc(item._planObj.primaryMachine || '')}', '${esc(item._planObj.secondaryMachine || '')}')"
+                         style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; padding:4px 8px; border-radius:6px; font-weight:700; transition:all 0.2s;"
+                         onmouseover="this.style.background='#dbeafe'; this.style.borderColor='#3b82f6';"
+                         onmouseout="this.style.background='#eff6ff'; this.style.borderColor='#bfdbfe';">
+                        <span>${esc(item.machine)}</span>
+                        <i class="bi bi-chevron-down" style="font-size:0.75rem; color:#3b82f6;"></i>
+                    </div>`;
+            } else if (item._planObj) {
+                machDisplay = `<div class="om-mach-click-badge" 
+                         onclick="window.openMachineSelector(event, '${item._planObj.id}', '', '${esc(item._planObj.primaryMachine || '')}', '${esc(item._planObj.secondaryMachine || '')}')"
+                         style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; background:#f8fafc; border:1px solid #cbd5e1; color:#64748b; padding:4px 8px; border-radius:6px; font-weight:500; font-style:italic; transition:all 0.2s;"
+                         onmouseover="this.style.background='#f1f5f9'; this.style.borderColor='#94a3b8'; color:#475569;"
+                         onmouseout="this.style.background='#f8fafc'; this.style.borderColor='#cbd5e1'; color:#64748b;">
+                        <span>Unassigned</span>
+                        <i class="bi bi-chevron-down" style="font-size:0.75rem; color:#94a3b8;"></i>
+                    </div>`;
+            } else {
+                machDisplay = '<span style="color:#cbd5e1;font-style:italic">Unassigned</span>';
+            }
             const jcClickable = jc && jc !== '-'
                 ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : '')}','${esc(item._planObj ? (item._planObj.orderNo || '') : '')}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
                 : '<span style="color:#cbd5e1">—</span>';
@@ -870,6 +891,8 @@
                         draggable="true"
                         data-pid="${p.id}"
                         data-machine="${m.code}"
+                        data-primary-machine="${esc(p.primaryMachine || '')}"
+                        data-secondary-machine="${esc(p.secondaryMachine || '')}"
                         ondragstart="window.handleDragStart(event, this)"
                         ondragend="window.handleDragEnd(event, this)"
                         onclick="window.openOrderModal('${esc(p.orderNo)}')"
@@ -1382,4 +1405,174 @@
 
     // Auto-init (Using Super Name)
     if (new URLSearchParams(window.location.search).get('view') === 'timeline') setTimeout(() => { window.superLoadTimeline(); }, 200);
+
+    // --- Interactive Machine Selector Modal ---
+    window.openMachineSelector = function(event, planId, currentMachine, primaryMachine, secondaryMachine) {
+        event.stopPropagation();
+        
+        const options = [];
+        const norm = (s) => String(s || '').trim().toUpperCase();
+        const currNorm = norm(currentMachine);
+        
+        const primTrim = String(primaryMachine || '').trim();
+        if (primTrim) {
+            options.push({
+                machine: primTrim,
+                type: 'primary',
+                label: 'Primary Machine',
+                isCurrent: norm(primTrim) === currNorm
+            });
+        }
+        
+        if (secondaryMachine) {
+            secondaryMachine.split(',').forEach(m => {
+                const secTrim = m.trim();
+                if (secTrim) {
+                    if (norm(secTrim) !== norm(primTrim)) {
+                        options.push({
+                            machine: secTrim,
+                            type: 'secondary',
+                            label: 'Secondary Machine',
+                            isCurrent: norm(secTrim) === currNorm
+                        });
+                    }
+                }
+            });
+        }
+        
+        if (currNorm && !options.some(opt => norm(opt.machine) === currNorm)) {
+            options.push({
+                machine: currentMachine.trim(),
+                type: 'current',
+                label: 'Current Machine',
+                isCurrent: true
+            });
+        }
+        
+        const modalId = 'pjdMachineSelectModal';
+        let oldModal = document.getElementById(modalId);
+        if (oldModal) oldModal.remove();
+        
+        let optionsHtml = '';
+        if (options.length === 0) {
+            optionsHtml = `
+                <div style="padding: 20px; color: #64748b; font-style: italic; font-size: 0.9rem; text-align: center;">
+                    No Primary or Secondary machines configured for this mould in Mould Master.
+                </div>
+            `;
+        } else {
+            optionsHtml = options.map(opt => {
+                let badgeBg = '#f1f5f9';
+                let badgeText = '#475569';
+                let badgeLabel = opt.label;
+                
+                if (opt.type === 'primary') {
+                    badgeBg = '#dcfce7';
+                    badgeText = '#15803d';
+                } else if (opt.type === 'secondary') {
+                    badgeBg = '#e0f2fe';
+                    badgeText = '#0369a1';
+                }
+                
+                const borderStyle = opt.isCurrent 
+                    ? 'border: 2px solid #3b82f6; background: #eff6ff;' 
+                    : 'border: 1px solid #e2e8f0; background: #ffffff;';
+                    
+                const checkIcon = opt.isCurrent 
+                    ? '<i class="bi bi-check-circle-fill" style="color:#3b82f6; font-size:1.1rem; margin-left:auto;"></i>' 
+                    : '<i class="bi bi-circle" style="color:#cbd5e1; font-size:1.1rem; margin-left:auto;"></i>';
+
+                return `
+                    <div class="om-mach-opt-card" 
+                         onclick="window.executeMachineChange('${planId}', '${esc(opt.machine)}', '${modalId}')"
+                         style="display:flex; align-items:center; gap:12px; padding:12px 16px; border-radius:10px; cursor:pointer; margin-bottom:8px; transition:all 0.2s; ${borderStyle}"
+                         onmouseover="if(!${opt.isCurrent}) { this.style.borderColor='#93c5fd'; this.style.background='#f8fafc'; }"
+                         onmouseout="if(!${opt.isCurrent}) { this.style.borderColor='#e2e8f0'; this.style.background='#ffffff'; }">
+                         
+                         <div style="display:flex; flex-direction:column; align-items:flex-start; gap:4px;">
+                             <span style="font-size:1.1rem; font-weight:800; color:#0f172a;">${esc(opt.machine)}</span>
+                             <span style="font-size:0.7rem; font-weight:800; text-transform:uppercase; background:${badgeBg}; color:${badgeText}; padding:2px 6px; border-radius:4px;">${badgeLabel}</span>
+                         </div>
+                         ${checkIcon}
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        const markup = `
+            <div id="${modalId}" style="position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15,23,42,0.3); z-index:999999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px)">
+                <div style="background:white; padding:24px; border-radius:16px; width:400px; max-width:92%; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25); display:flex; flex-direction:column; gap:16px; animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)">
+                    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #f1f5f9; padding-bottom:12px;">
+                        <div style="font-weight:800; font-size:1.25rem; color:#0f172a; display:flex; align-items:center; gap:8px">
+                            <i class="bi bi-cpu" style="color:#3b82f6;"></i> Select Machine
+                        </div>
+                        <button onclick="document.getElementById('${modalId}').remove()" style="border:none; background:none; cursor:pointer; font-size:1.5rem; color:#64748b; font-weight:bold;">&times;</button>
+                    </div>
+                    
+                    <div style="color:#64748b; font-size:0.88rem; line-height:1.4;">
+                        Choose a machine below to reschedule this plan. Only Primary and Secondary machines configured in Mould Master are shown.
+                    </div>
+                    
+                    <div style="max-height:300px; overflow-y:auto; padding:2px;">
+                        ${optionsHtml}
+                    </div>
+                    
+                    <div style="display:flex; justify-content:end; border-top:1px solid #f1f5f9; padding-top:12px;">
+                        <button class="btn ghost" onclick="document.getElementById('${modalId}').remove()" style="padding:8px 16px; font-weight:700; border-radius:8px;">Cancel</button>
+                    </div>
+                </div>
+            </div>
+            <style>@keyframes popIn { from { transform:scale(0.9); opacity:0; } to { transform:scale(1); opacity:1; } }</style>
+        `;
+        document.body.insertAdjacentHTML('beforeend', markup);
+    };
+
+    window.executeMachineChange = async function(planId, targetMachine, modalId) {
+        const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+        if (!api) {
+            alert('API client not found');
+            return;
+        }
+        
+        const modal = document.getElementById(modalId);
+        const container = modal.querySelector('div');
+        const originalContent = container.innerHTML;
+        container.innerHTML = `
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px; gap:16px;">
+                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                <div style="font-weight:700; color:#0f172a; font-size:1.1rem;">Updating Machine...</div>
+                <div style="color:#64748b; font-size:0.85rem;">Rescheduling plan to ${targetMachine}</div>
+            </div>
+        `;
+        
+        try {
+            const res = await api.post('/planning/move', {
+                rowId: planId,
+                targetMachine: targetMachine
+            });
+            
+            if (res && res.ok) {
+                if (window.JPSMS && window.JPSMS.toast) {
+                    window.JPSMS.toast('Machine updated successfully!', 'success');
+                }
+                modal.remove();
+                
+                window.closeOrderModal();
+                
+                if (typeof window.superLoadTimeline === 'function') {
+                    window.superLoadTimeline();
+                } else if (typeof window.loadTimeline === 'function') {
+                    window.loadTimeline();
+                } else {
+                    window.location.reload();
+                }
+            } else {
+                throw new Error(res?.error || 'Failed to change machine');
+            }
+        } catch(e) {
+            console.error(e);
+            alert('Error changing machine: ' + e.message);
+            modal.innerHTML = originalContent;
+        }
+    };
 })();

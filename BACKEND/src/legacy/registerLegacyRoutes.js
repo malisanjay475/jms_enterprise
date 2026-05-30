@@ -7389,7 +7389,9 @@ app.get('/api/planning/board', async (req, res) => {
                   pb.status,
                   o.priority     AS "priority",
                     COALESCE(dpr.qty, 0) AS "producedQty",
-                    dpr.first_entry AS "firstDprEntry"
+                    dpr.first_entry AS "firstDprEntry",
+                    COALESCE(NULLIF(TRIM(mMaster.primary_machine), ''), NULLIF(TRIM(m.primary_machine), ''), '') AS "primaryMachine",
+                    COALESCE(NULLIF(TRIM(mMaster.secondary_machine), ''), NULLIF(TRIM(m.secondary_machine), ''), '') AS "secondaryMachine"
       FROM plan_board pb
       LEFT JOIN orders o ON o.order_no = pb.order_no
       LEFT JOIN machines planMachine
@@ -10102,20 +10104,17 @@ app.post('/api/planning/move', async (req, res) => {
     if (!planRes.length) return res.json({ ok: false, error: 'Plan not found' });
     const plan = planRes[0];
 
-    // 2. Update Machine (Auto-Stop if Running)
+    // 2. Update Machine & Status (Always Stop on Move/Drag)
     const isRunning = (plan.status || '').toUpperCase() === 'RUNNING' || (plan.status || '').toUpperCase() === 'Running';
 
-    if (isRunning) {
-      await q("UPDATE plan_board SET machine = $1, status = 'Stopped', updated_at = NOW() WHERE id = $2", [targetMachine, rowId]);
+    await q("UPDATE plan_board SET machine = $1, status = 'Stopped', updated_at = NOW() WHERE id = $2", [targetMachine, rowId]);
 
+    if (isRunning) {
       // Log the auto-stop
       await q(
         "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'AUTO_STOP_MOVE', $2, 'System')",
         [rowId, JSON.stringify({ from: plan.machine, to: targetMachine, reason: 'Moved while running' })]
       );
-    } else {
-      // Just move
-      await q('UPDATE plan_board SET machine = $1, updated_at = NOW() WHERE id = $2', [targetMachine, rowId]);
     }
 
     // 4. Handle Resequencing
@@ -10128,12 +10127,8 @@ app.post('/api/planning/move', async (req, res) => {
       [targetMachine, rowId]
     );
 
-    // B. Determine Insert Index
-    let insertIdx = allPlans.length; // Default: Append
-    if (dropBeforeId) {
-      const foundIdx = allPlans.findIndex(p => String(p.id) === String(dropBeforeId));
-      if (foundIdx !== -1) insertIdx = foundIdx;
-    }
+    // B. Determine Insert Index - Always append to the very end (Comes In Last)
+    let insertIdx = allPlans.length;
 
     // C. Insert Moved Plan
     allPlans.splice(insertIdx, 0, { id: rowId });
