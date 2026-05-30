@@ -1413,6 +1413,9 @@
     window.openMachineSelector = function(event, planId, currentMachine, primaryMachine, secondaryMachine) {
         event.stopPropagation();
 
+        // Local HTML-escape (the outer `esc` consts are scoped to other functions).
+        const esc = (s) => (s || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
         // Build options from data already in memory — 0ms
         const norm = s => String(s||'').trim().toUpperCase();
         const currNorm = norm(currentMachine);
