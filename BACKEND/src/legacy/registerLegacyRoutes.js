@@ -9644,13 +9644,37 @@ app.post('/api/planning/create', async (req, res) => {
 });
 
 
+// Helper to strip trailing space and number without regex (immune to ReDoS)
+function stripTrailingNumberAndSpace(str) {
+  if (typeof str !== 'string') return '';
+  let s = str.trim();
+  if (!s) return '';
+  let i = s.length - 1;
+  if (s[i] < '0' || s[i] > '9') {
+    return s;
+  }
+  while (i >= 0 && s[i] >= '0' && s[i] <= '9') {
+    i--;
+  }
+  let spaceCount = 0;
+  while (i >= 0 && (s[i] === ' ' || s[i] === '\t')) {
+    spaceCount++;
+    i--;
+  }
+  if (spaceCount > 0) {
+    return s.slice(0, i + 1).trim();
+  }
+  return s;
+}
+
+
 // 5. DROP MOULD API
 app.post('/api/planning/drop', async (req, res) => {
   try {
     const { orderNo, itemCode, mouldNo, mouldName, remarks } = req.body;
     if (!orderNo || !mouldName) return res.json({ ok: false, error: 'Missing Info' });
 
-    const targetFamily = String(mouldNo || '').replace(/\s+\d+$/, '').trim();
+    const targetFamily = stripTrailingNumberAndSpace(mouldNo);
 
     if (targetFamily) {
       // Find all variants in this family for the order
@@ -9720,7 +9744,7 @@ app.post('/api/planning/undrop', async (req, res) => {
     const { orderNo, mouldNo, mouldName } = req.body;
     if (!orderNo || !mouldName) return res.json({ ok: false, error: 'Missing Info' });
 
-    const targetFamily = String(mouldNo || '').replace(/\s+\d+$/, '').trim();
+    const targetFamily = stripTrailingNumberAndSpace(mouldNo);
 
     if (targetFamily) {
       // Find all variants in this family for the order
@@ -9747,14 +9771,14 @@ app.post('/api/planning/undrop', async (req, res) => {
         await q(`
           DELETE FROM planning_drops 
           WHERE order_no = $1 
-            AND (mould_name = ANY($2::text[]) OR item_code = ANY($3::text[]))
+            AND (mould_name = ANY($2::text[]) OR item_code = ANY($3::text[]) OR mould_no = ANY($3::text[]))
         `, [orderNo, mouldNames, mouldNos]);
       } else {
         // Fallback: delete just the specific mould
         await q(`
           DELETE FROM planning_drops 
           WHERE order_no = $1 
-            AND (mould_name = $2 OR item_code = $3)
+            AND (mould_name = $2 OR item_code = $3 OR mould_no = $3)
         `, [orderNo, mouldName, mouldNo]);
       }
     } else {
@@ -9762,7 +9786,7 @@ app.post('/api/planning/undrop', async (req, res) => {
       await q(`
         DELETE FROM planning_drops 
         WHERE order_no = $1 
-          AND (mould_name = $2 OR item_code = $3)
+          AND (mould_name = $2 OR item_code = $3 OR mould_no = $3)
       `, [orderNo, mouldName, mouldNo]);
     }
 
