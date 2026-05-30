@@ -30,7 +30,7 @@ jobs:
   check-sync:
     runs-on: ubuntu-latest
     env:
-      MAIN_URL: 'http://72.62.228.195:9091'
+      MAIN_URL: 'https://jmsocean.cloud'
       HAS_KEY:  ${{ secrets.SYNC_API_KEY != '' }}
       HAS_MAIL: ${{ secrets.ALERT_EMAIL_PASSWORD != '' }}
     steps:
