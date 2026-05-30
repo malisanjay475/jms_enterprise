@@ -9644,17 +9644,89 @@ app.post('/api/planning/create', async (req, res) => {
 });
 
 
+// Helper to strip trailing space and number without regex (immune to ReDoS)
+function stripTrailingNumberAndSpace(str) {
+  if (typeof str !== 'string') return '';
+  let s = str.trim();
+  if (!s) return '';
+  let i = s.length - 1;
+  if (s[i] < '0' || s[i] > '9') {
+    return s;
+  }
+  while (i >= 0 && s[i] >= '0' && s[i] <= '9') {
+    i--;
+  }
+  let spaceCount = 0;
+  while (i >= 0 && (s[i] === ' ' || s[i] === '\t')) {
+    spaceCount++;
+    i--;
+  }
+  if (spaceCount > 0) {
+    return s.slice(0, i + 1).trim();
+  }
+  return s;
+}
+
+
 // 5. DROP MOULD API
 app.post('/api/planning/drop', async (req, res) => {
   try {
     const { orderNo, itemCode, mouldNo, mouldName, remarks } = req.body;
     if (!orderNo || !mouldName) return res.json({ ok: false, error: 'Missing Info' });
 
-    // 1. Insert Drop
-    await q(`
-      INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
-      VALUES ($1, $2, $3, $4, $5)
-    `, [orderNo, itemCode, mouldNo, mouldName, remarks]);
+    const targetFamily = stripTrailingNumberAndSpace(mouldNo);
+
+    if (targetFamily) {
+      // Find all variants in this family for the order
+      const variants = await q(`
+        SELECT DISTINCT ON (TRIM(COALESCE(s.mould_no, '')))
+          COALESCE(
+            NULLIF(TRIM(COALESCE(m.mould_name, '')), ''),
+            NULLIF(TRIM(COALESCE(s.mould_name, '')), ''),
+            NULLIF(TRIM(COALESCE(s.product_name, '')), ''),
+            TRIM(COALESCE(s.mould_no, ''))
+          ) AS mould_name,
+          TRIM(COALESCE(s.mould_no, '')) AS mould_no
+        FROM mould_planning_summary s
+        LEFT JOIN moulds m
+          ON TRIM(COALESCE(m.mould_number, '')) = TRIM(COALESCE(s.mould_no, ''))
+        WHERE TRIM(s.or_jr_no) = TRIM($1)
+          AND regexp_replace(TRIM(COALESCE(s.mould_no, '')), '\\s+\\d+$', '') = TRIM($2)
+      `, [orderNo, targetFamily]);
+
+      if (variants.length > 0) {
+        for (const variant of variants) {
+          // Check if already dropped
+          const existing = await q(`
+            SELECT id FROM planning_drops 
+            WHERE TRIM(COALESCE(order_no, '')) = TRIM($1)
+              AND (
+                TRIM(COALESCE(mould_name, '')) = TRIM($2)
+                OR TRIM(COALESCE(item_code, '')) = TRIM($3)
+              )
+          `, [orderNo, variant.mould_name, variant.mould_no]);
+
+          if (existing.length === 0) {
+            await q(`
+              INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
+              VALUES ($1, $2, $3, $4, $5)
+            `, [orderNo, variant.mould_no, variant.mould_no, variant.mould_name, remarks]);
+          }
+        }
+      } else {
+        // Fallback to inserting just the target mould if no variants found in summary
+        await q(`
+          INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
+          VALUES ($1, $2, $3, $4, $5)
+        `, [orderNo, itemCode, mouldNo, mouldName, remarks]);
+      }
+    } else {
+      // No family name could be derived, just drop target mould
+      await q(`
+        INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
+        VALUES ($1, $2, $3, $4, $5)
+      `, [orderNo, itemCode, mouldNo, mouldName, remarks]);
+    }
 
     // 2. Check Completion
     await checkOrderCompletion(orderNo);
@@ -9662,6 +9734,74 @@ app.post('/api/planning/drop', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('/api/planning/drop', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// 5A. UNDROP MOULD API
+app.post('/api/planning/undrop', async (req, res) => {
+  try {
+    const { orderNo, mouldNo, mouldName } = req.body;
+    if (!orderNo || !mouldName) return res.json({ ok: false, error: 'Missing Info' });
+
+    const targetFamily = stripTrailingNumberAndSpace(mouldNo);
+
+    if (targetFamily) {
+      // Find all variants in this family for the order
+      const variants = await q(`
+        SELECT DISTINCT ON (TRIM(COALESCE(s.mould_no, '')))
+          COALESCE(
+            NULLIF(TRIM(COALESCE(m.mould_name, '')), ''),
+            NULLIF(TRIM(COALESCE(s.mould_name, '')), ''),
+            NULLIF(TRIM(COALESCE(s.product_name, '')), ''),
+            TRIM(COALESCE(s.mould_no, ''))
+          ) AS mould_name,
+          TRIM(COALESCE(s.mould_no, '')) AS mould_no
+        FROM mould_planning_summary s
+        LEFT JOIN moulds m
+          ON TRIM(COALESCE(m.mould_number, '')) = TRIM(COALESCE(s.mould_no, ''))
+        WHERE TRIM(s.or_jr_no) = TRIM($1)
+          AND regexp_replace(TRIM(COALESCE(s.mould_no, '')), '\\s+\\d+$', '') = TRIM($2)
+      `, [orderNo, targetFamily]);
+
+      if (variants.length > 0) {
+        // Delete all variants of that family from planning_drops
+        const mouldNames = variants.map(v => v.mould_name);
+        const mouldNos = variants.map(v => v.mould_no);
+        await q(`
+          DELETE FROM planning_drops 
+          WHERE order_no = $1 
+            AND (mould_name = ANY($2::text[]) OR item_code = ANY($3::text[]) OR mould_no = ANY($3::text[]))
+        `, [orderNo, mouldNames, mouldNos]);
+      } else {
+        // Fallback: delete just the specific mould
+        await q(`
+          DELETE FROM planning_drops 
+          WHERE order_no = $1 
+            AND (mould_name = $2 OR item_code = $3 OR mould_no = $3)
+        `, [orderNo, mouldName, mouldNo]);
+      }
+    } else {
+      // Fallback
+      await q(`
+        DELETE FROM planning_drops 
+        WHERE order_no = $1 
+          AND (mould_name = $2 OR item_code = $3 OR mould_no = $3)
+      `, [orderNo, mouldName, mouldNo]);
+    }
+
+    // Force Status back to 'Pending' if Completed
+    await q(
+      `UPDATE orders SET status = 'Pending', updated_at = NOW() WHERE order_no = $1 AND status = 'Completed'`,
+      [orderNo]
+    );
+
+    // [Real-Time Sync]
+    syncService.triggerSync();
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('/api/planning/undrop', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
