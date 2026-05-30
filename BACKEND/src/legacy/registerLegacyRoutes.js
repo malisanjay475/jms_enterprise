@@ -10089,6 +10089,72 @@ app.post('/api/planning/restore', async (req, res) => {
 });
 
 
+// GET /api/planning/mould-machines?mould_name=X&plan_id=Y
+// Returns Primary + Secondary machines configured in Mould Master for a given mould.
+// Falls back to plan_board data if plan_id is provided and mould master has no entry.
+app.get('/api/planning/mould-machines', async (req, res) => {
+  try {
+    const { mould_name, plan_id } = req.query;
+    const factoryId = getFactoryId(req);
+
+    // Try to resolve mould name from plan if not provided
+    let resolvedMouldName = String(mould_name || '').trim();
+    if (!resolvedMouldName && plan_id) {
+      const pbRows = await q(
+        `SELECT mould_name FROM plan_board WHERE plan_id = $1 OR CAST(id AS TEXT) = $1 LIMIT 1`,
+        [String(plan_id)]
+      );
+      if (pbRows.length) resolvedMouldName = pbRows[0].mould_name || '';
+    }
+
+    if (!resolvedMouldName) return res.json({ ok: true, machines: [] });
+
+    // Look up primary + secondary machines in Mould Master
+    const rows = await q(
+      `SELECT primary_machine, secondary_machine
+       FROM moulds
+       WHERE mould_name = $1
+       AND (factory_id = $2 OR ($2 IS NULL AND factory_id IS NULL) OR $2 IS NULL)
+       ORDER BY id LIMIT 1`,
+      [resolvedMouldName, factoryId]
+    );
+
+    const machines = [];
+    if (rows.length) {
+      const prim = (rows[0].primary_machine || '').trim();
+      const sec  = (rows[0].secondary_machine || '').trim();
+      if (prim) machines.push({ machine: prim, type: 'Primary' });
+      if (sec) {
+        sec.split(',').forEach(m => {
+          const t = m.trim();
+          if (t && t.toUpperCase() !== prim.toUpperCase()) {
+            machines.push({ machine: t, type: 'Secondary' });
+          }
+        });
+      }
+    }
+
+    // Also include current machine if not already in list (from plan_board)
+    if (plan_id) {
+      const cur = await q(
+        `SELECT machine FROM plan_board WHERE plan_id = $1 OR CAST(id AS TEXT) = $1 LIMIT 1`,
+        [String(plan_id)]
+      );
+      if (cur.length && cur[0].machine) {
+        const curM = cur[0].machine.trim();
+        if (curM && !machines.some(m => m.machine.toUpperCase() === curM.toUpperCase())) {
+          machines.push({ machine: curM, type: 'Current' });
+        }
+      }
+    }
+
+    res.json({ ok: true, machines, mouldName: resolvedMouldName });
+  } catch (e) {
+    console.error('planning/mould-machines', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // POST /api/planning/move
 // Body: { rowId, targetMachine }
 app.post('/api/planning/move', async (req, res) => {
