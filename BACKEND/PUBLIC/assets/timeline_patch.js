@@ -5,6 +5,14 @@
 (function () {
     console.log('[TimelinePatch] Initializing v56 (Reorder Ripple + Load)...');
 
+    // Global client plan cache with 2-minute TTL
+    window._planBoardCache = {
+        data: null,
+        timestamp: 0,
+        ttl: 120000, // 2 minutes
+        process: null
+    };
+
     // CSS Injection (Timeline + Modal Styles)
     const style = document.createElement('style');
     style.innerHTML = `
@@ -1037,11 +1045,40 @@
         con.innerHTML = '<div style="padding:60px; text-align:center; color:#64748b"><div class="spinner-border text-primary spinner-border-sm"></div><div class="mt-2" style="font-size:0.9rem">Loading...</div></div>';
         try {
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+            
+            // Dynamic cache invalidation wrapper for mutations
+            if (api && typeof api.post === 'function' && !api.post._isCacheWrapped) {
+                const originalPost = api.post;
+                api.post = async function(url, ...args) {
+                    if (url.includes('/planning/') || url.includes('/sync/')) {
+                        console.log('[Cache] Plans updated via post. Invalidating timeline cache...', url);
+                        window._planBoardCache.data = null;
+                        window._planBoardCache.timestamp = 0;
+                    }
+                    return originalPost.call(this, url, ...args);
+                };
+                api.post._isCacheWrapped = true;
+            }
+
             const processQuery = `process=${encodeURIComponent(currentProcess)}`;
-            const [mRes, pRes] = await Promise.all([
-                api.get(`/masters/machines?${processQuery}`),
-                api.get(`/planning/board?${processQuery}`)
-            ]);
+            
+            // Serve from 2-minute client memory cache if valid
+            const now = Date.now();
+            let pRes;
+            if (window._planBoardCache.data && 
+                window._planBoardCache.process === currentProcess && 
+                (now - window._planBoardCache.timestamp) < window._planBoardCache.ttl) {
+                console.log('[Cache] Served timeline plan board from 2-minute memory cache.');
+                pRes = window._planBoardCache.data;
+            } else {
+                console.log('[Cache] Plan board cache miss. Fetching fresh data...');
+                pRes = await api.get(`/planning/board?${processQuery}`);
+                window._planBoardCache.data = pRes;
+                window._planBoardCache.timestamp = now;
+                window._planBoardCache.process = currentProcess;
+            }
+
+            const mRes = await api.get(`/masters/machines?${processQuery}`);
             window.allMachines = ((mRes && mRes.data) ? mRes.data : []).map(machine => ({
                 code: machine.machine,
                 name: machine.machine,

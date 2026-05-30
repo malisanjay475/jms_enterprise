@@ -1,0 +1,46 @@
+name: Hourly Sync Health Check
+
+on:
+  schedule:
+    - cron: '0 */2 * * *' # Run every 2 hours
+  workflow_dispatch: # Enable manual triggers
+
+jobs:
+  check-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query Sync Health
+        id: query
+        run: |
+          RESPONSE=$(curl -s -m 15 "http://72.62.228.195:9091/api/sync/health")
+          echo "Sync health response: $RESPONSE"
+          OK=$(echo "$RESPONSE" | jq -r '.ok')
+          if [ "$OK" != "true" ]; then
+            echo "HEALTHY=false" >> $GITHUB_OUTPUT
+            # Escape newlines for output
+            CLEAN_RESP=$(echo "$RESPONSE" | tr -d '\n' | tr -d '\r')
+            echo "DETAILS=$CLEAN_RESP" >> $GITHUB_OUTPUT
+          else
+            echo "HEALTHY=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Alert Email
+        if: steps.query.outputs.HEALTHY == 'false'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.ALERT_EMAIL_USER }}
+          password: ${{ secrets.ALERT_EMAIL_PASSWORD }}
+          subject: "[CRITICAL ALERT] JMS Ocean Sync Lag Detected!"
+          to: joyo44064@gmail.com
+          from: JMS System Health Monitor
+          body: |
+            CRITICAL: The local-to-main database sync is lagging by more than 2 hours!
+            
+            Please investigate the factory floor local server immediately to ensure the sync process is running.
+            
+            Health Check API Response:
+            ${{ steps.query.outputs.DETAILS }}
+            
+            Timestamp: $(date)

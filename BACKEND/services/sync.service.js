@@ -563,6 +563,45 @@ router.get('/status', async (req, res) => {
     }
 });
 
+router.get('/health', async (req, res) => {
+    if (!pool) return res.status(503).json({ error: 'Service initializing' });
+    try {
+        let lastPush = 'Never';
+        let lastPull = 'Never';
+
+        const result = await pool.query("SELECT * FROM server_config WHERE key IN ('LAST_PUSH', 'LAST_PULL')");
+        result.rows.forEach((r) => {
+            if (r.key === 'LAST_PUSH') lastPush = r.value;
+            if (r.key === 'LAST_PULL') lastPull = r.value;
+        });
+
+        const now = Date.now();
+        function getLagHours(ts) {
+            if (!ts || ts === 'Never') return 999;
+            const t = new Date(ts).getTime();
+            if (Number.isNaN(t)) return 999;
+            return (now - t) / (1000 * 60 * 60);
+        }
+
+        const pullLagHours = getLagHours(lastPull);
+        const pushLagHours = getLagHours(lastPush);
+
+        // Healthy means pull and push have succeeded within the last 2 hours.
+        const isHealthy = pullLagHours <= 2 && pushLagHours <= 2;
+
+        res.json({
+            ok: isHealthy,
+            last_push: lastPush,
+            last_pull: lastPull,
+            pull_lag_hours: pullLagHours === 999 ? 'Never' : Number(pullLagHours.toFixed(2)),
+            push_lag_hours: pushLagHours === 999 ? 'Never' : Number(pushLagHours.toFixed(2)),
+            timestamp: new Date().toISOString()
+        });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+    }
+});
+
 // Admin: reset pull watermarks so the next sync cycle fetches ALL rows from MAIN again.
 // Use this to recover missing master data (e.g. moulds that were synced before pagination
 // was added, or moulds with historical updated_at values that slipped behind the watermark).

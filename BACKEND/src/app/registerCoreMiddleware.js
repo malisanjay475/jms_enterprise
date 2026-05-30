@@ -23,15 +23,17 @@ function shouldSkipApiLimiter(req) {
   return fullPath.startsWith('/api/sync') || fullPath.startsWith('/sync');
 }
 
-// 600 requests/minute per IP for general API.
-// Raised from 300: factory WiFi shares 1 IP across all users (10 supervisors
-// × ~60 req/min = 600). Sync routes have their own limiter.
+// 600 requests/minute per session for general API. Sync routes have their own stricter limiter.
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 600,
   standardHeaders: true,
   legacyHeaders: false,
   skip: shouldSkipApiLimiter,
+  keyGenerator: (req) => {
+    const user = req.headers['x-user-name'] || 'anonymous';
+    return `${req.ip}_${user}`;
+  },
   message: { ok: false, error: 'Too many requests, please slow down.' }
 });
 
