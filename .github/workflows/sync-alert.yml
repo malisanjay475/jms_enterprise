@@ -39,7 +39,7 @@ jobs:
         if: env.HAS_KEY != 'true'
         run: echo "::warning::SYNC_API_KEY not set — skipping sync health check."
 
-      - name: Query sync health on the VPS (via SSH + localhost)
+      - name: Query sync health on the VPS (SSH + docker exec)
         id: query
         if: env.HAS_KEY == 'true'
         uses: appleboy/ssh-action@v1.0.3
@@ -53,19 +53,26 @@ jobs:
           port: 22
           command_timeout: 5m
           envs: SYNC_API_KEY
-          # The SSH step exits non-zero if the curl fails or sync is stale,
+          # Step exits non-zero if the app is unreachable or sync is stale,
           # which marks this step "failure" -> the email step below fires.
+          # We run curl INSIDE the app container against its own port 3000 —
+          # this is exactly how the Docker healthcheck reaches the app, so it
+          # works regardless of host firewall or published-port mapping.
           script: |
-            set -eo pipefail
-            RESP="$(curl -s -m 20 "http://127.0.0.1:9091/api/sync-alert?key=${SYNC_API_KEY}")"
-            echo "sync-alert response: $RESP"
-            if [ -z "$RESP" ]; then
-              echo "::error::MAIN app did not respond on 127.0.0.1:9091 — it may be DOWN."
+            APP="$(docker ps --format '{{.Names}}' | grep -E 'jms-enterprise-v1-app' | head -1)"
+            if [ -z "$APP" ]; then
+              echo "::error::App container (jms-enterprise-v1-app*) is not running — MAIN is DOWN."
               exit 1
             fi
-            OK="$(printf '%s' "$RESP" | grep -o '\"ok\":[a-z]*' | head -1 | cut -d: -f2)"
+            RESP="$(docker exec "$APP" sh -c "curl -s -m 20 'http://127.0.0.1:3000/api/sync-alert?key=${SYNC_API_KEY}'" 2>/dev/null || true)"
+            echo "sync-alert response: $RESP"
+            if [ -z "$RESP" ]; then
+              echo "::error::App did not respond on port 3000 inside the container — MAIN may be DOWN."
+              exit 1
+            fi
+            OK="$(printf '%s' "$RESP" | grep -o '"ok":[a-z]*' | head -1 | cut -d: -f2)"
             if [ "$OK" != "true" ]; then
-              echo "::error::Sync is STALE: $RESP"
+              echo "::error::Sync is STALE or key invalid: $RESP"
               exit 1
             fi
             echo "Sync healthy."
