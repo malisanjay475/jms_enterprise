@@ -7397,10 +7397,16 @@ app.get('/api/planning/board', async (req, res) => {
       LEFT JOIN machines planMachine
         ON LOWER(TRIM(planMachine.machine)) = LOWER(TRIM(pb.machine))
        AND (planMachine.factory_id = pb.factory_id OR (planMachine.factory_id IS NULL AND pb.factory_id IS NULL))
-      -- Optimized Mould Join: Match by Mould Name
-      LEFT JOIN moulds m ON m.mould_name = pb.mould_name 
-      -- Join Planning Summary for fallback Mould No
-      LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
+      -- Optimized Mould Join: Match by Alphanumeric Normalized Mould Name
+      LEFT JOIN moulds m ON 
+        LOWER(REGEXP_REPLACE(m.mould_name, '[^a-zA-Z0-9]', '', 'g')) = 
+        LOWER(REGEXP_REPLACE(pb.mould_name, '[^a-zA-Z0-9]', '', 'g'))
+      -- Join Planning Summary for fallback Mould No using Alphanumeric Normalized Mould Name
+      LEFT JOIN mould_planning_summary mps ON (
+        TRIM(mps.or_jr_no) = TRIM(pb.order_no) AND 
+        LOWER(REGEXP_REPLACE(mps.mould_name, '[^a-zA-Z0-9]', '', 'g')) = 
+        LOWER(REGEXP_REPLACE(pb.mould_name, '[^a-zA-Z0-9]', '', 'g'))
+      )
       -- Fetch Master CT using Mould No from Summary
       LEFT JOIN moulds mMaster ON TRIM(mMaster.mould_number) = TRIM(mps.mould_no)
 
