@@ -1,0 +1,70 @@
+name: Scheduled DB Backup (6-hourly -> Google Drive)
+
+# Every 6h + manual. DB dump + uploads archive on the VPS, rotation, and
+# rclone upload to Google Drive (once configured). Emails on failure.
+# Cron UTC = 06:30 / 12:30 / 18:30 / 00:30 IST.
+on:
+  schedule:
+    - cron: '0 1,7,13,19 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: jms-scheduled-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      HAS_MAIL: ${{ secrets.MAIL_PASSWORD != '' }}
+    steps:
+      - name: Verify SSH secrets
+        shell: bash
+        env:
+          HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          USER: ${{ secrets.HOSTINGER_SSH_USER }}
+          KEY:  ${{ secrets.HOSTINGER_SSH_KEY }}
+          DPATH: ${{ secrets.VPS_DEPLOY_PATH }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ] || [ -z "$DPATH" ]; then
+            echo "::error::Missing SSH secrets."; exit 1
+          fi
+
+      - name: Run backup on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
+          port: 22
+          command_timeout: 20m
+          script_stop: true
+          envs: DEPLOY_PATH
+          script: |
+            set -eo pipefail
+            cd "$DEPLOY_PATH"
+            git fetch --prune origin >/dev/null 2>&1 || true
+            git checkout main >/dev/null 2>&1 || true
+            git pull --ff-only origin main >/dev/null 2>&1 || true
+            chmod +x scripts/vps-backup-to-cloud.sh
+            bash scripts/vps-backup-to-cloud.sh
+
+      - name: Email alert on failure
+        if: failure() && env.HAS_MAIL == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "🔴 JMS BACKUP FAILED — action required"
+          to: joyo44064@gmail.com
+          from: JMS Backup Bot <${{ secrets.MAIL_USERNAME }}>
+          body: |
+            The scheduled JMS database backup FAILED.
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Until fixed you have NO fresh offsite backup.
