@@ -6113,7 +6113,10 @@
             return;
           }
 
-          visible.forEach(o => {
+          const MAX_RENDER = 80;
+          const itemsToRender = visible.slice(0, MAX_RENDER);
+
+          itemsToRender.forEach(o => {
             const el = document.createElement('div');
             el.className = 'cp-order-item';
             el.style.padding = '12px';
@@ -6207,6 +6210,22 @@
 
             list.appendChild(el);
           });
+
+          if (visible.length > MAX_RENDER) {
+            const moreEl = document.createElement('div');
+            moreEl.style.padding = '14px 12px';
+            moreEl.style.textAlign = 'center';
+            moreEl.style.color = '#0284c7';
+            moreEl.style.background = '#f0f9ff';
+            moreEl.style.border = '1px dashed #bae6fd';
+            moreEl.style.borderRadius = '16px';
+            moreEl.style.fontSize = '0.8rem';
+            moreEl.style.fontWeight = '800';
+            moreEl.style.marginTop = '10px';
+            moreEl.style.boxShadow = '0 2px 8px rgba(2,132,199,0.06)';
+            moreEl.textContent = `Showing top ${MAX_RENDER} of ${visible.length} matches. Type more to refine search.`;
+            list.appendChild(moreEl);
+          }
         }
 
         async function selectCpOrder(order, el) {
@@ -9076,13 +9095,19 @@
               };
 
               cpSearch.value = '';
+              let cpSearchTimeout = null;
               cpSearch.oninput = (e) => {
                 syncCpSearchUi();
                 resetCpOrderSelection();
-                renderCpOrders(e.target.value);
+                const val = e.target.value;
+                clearTimeout(cpSearchTimeout);
+                cpSearchTimeout = setTimeout(() => {
+                  renderCpOrders(val);
+                }, 100); // 100ms debounce
               };
               cpSearch.onkeydown = (e) => {
                 if (e.key === 'Escape' && cpSearch.value) {
+                  clearTimeout(cpSearchTimeout);
                   cpSearch.value = '';
                   syncCpSearchUi();
                   resetCpOrderSelection();
