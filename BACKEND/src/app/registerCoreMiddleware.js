@@ -37,7 +37,7 @@ const apiLimiter = rateLimit({
     const user = req.headers['x-user-name'] || 'anonymous';
     return `${req.ip}_${user}`;
   },
-  validate: { ip: false },
+  validate: { ip: false, defaultKeys: false },
   message: { ok: false, error: 'Too many requests, please slow down.' }
 });
 
@@ -48,7 +48,7 @@ const syncLimiter = rateLimit({
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { ip: false },
+  validate: { ip: false, defaultKeys: false },
   message: { ok: false, error: 'Sync rate limit exceeded.' }
 });
 
