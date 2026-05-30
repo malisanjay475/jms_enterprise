@@ -26,12 +26,18 @@ function shouldSkipApiLimiter(req) {
 // 600 requests/minute per IP for general API.
 // Raised from 300: factory WiFi shares 1 IP across all users.
 // 10 supervisors × avg 60 req/min = 600 req/min needed at peak.
+// Sync routes have their own stricter limiter.
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 600,
   standardHeaders: true,
   legacyHeaders: false,
   skip: shouldSkipApiLimiter,
+  keyGenerator: (req) => {
+    const user = req.headers['x-user-name'] || 'anonymous';
+    return `${req.ip}_${user}`;
+  },
+  validate: { ip: false },
   message: { ok: false, error: 'Too many requests, please slow down.' }
 });
 
@@ -42,6 +48,7 @@ const syncLimiter = rateLimit({
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { ip: false },
   message: { ok: false, error: 'Sync rate limit exceeded.' }
 });
 
@@ -90,9 +97,9 @@ function registerCoreMiddleware(app) {
   app.use(['/api/sync', '/sync'], syncLimiter);
 
   // ── Static asset cache headers ──────────────────────────────────────────
-  // HTML pages: 5-minute browser cache. Short so deploys take effect quickly.
-  // JS/CSS already have ?v=release-XX version strings → safe for 24h cache.
-  // Fonts/images rarely change → 7-day cache.
+  // Static asset cache headers.
+  // HTML: 5-min cache (short so deploys take effect quickly) → repeat visits
+  // load in <1s. JS/CSS already ?v= versioned → 24h. Fonts → 7d. Images → 24h.
   app.use((req, res, next) => {
     if (req.method !== 'GET') return next();
     const p = req.path;

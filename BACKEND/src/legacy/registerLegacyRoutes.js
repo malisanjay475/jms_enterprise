@@ -894,8 +894,8 @@ const LEGACY_UPLOADS_DIR = path.join(BACKEND_ROOT, 'public', 'uploads');
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
-      // HTML pages must always revalidate so deployments are picked up immediately
-      res.setHeader('Cache-Control', 'no-cache');
+      // Cache for 5 minutes with a 1-minute stale-while-revalidate background refresh
+      res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
     } else if (path.basename(filePath) === 'app.js') {
       // app.js carries the version badge — never serve stale
       res.setHeader('Cache-Control', 'no-cache');
@@ -7364,9 +7364,9 @@ app.get('/api/planning/board', async (req, res) => {
 
     const rows = await q(
       `
-    SELECT
-    pb.id,
-      pb.plan_id      AS "planId",
+      SELECT
+        pb.id,
+        pb.plan_id      AS "planId",
         pb.plant,
         COALESCE(NULLIF(TRIM(pb.building), ''), NULLIF(TRIM(planMachine.building), ''), NULLIF(TRIM(planMachine.machine_process), ''), 'General') AS building,
         COALESCE(NULLIF(TRIM(pb.line), ''), NULLIF(TRIM(planMachine.line), ''), CASE WHEN COALESCE(NULLIF(TRIM(planMachine.machine_process), ''), 'Moulding') = 'Moulding' THEN '1' ELSE 'Machines' END) AS line,
@@ -7374,25 +7374,15 @@ app.get('/api/planning/board', async (req, res) => {
         COALESCE(NULLIF(TRIM(planMachine.machine_process), ''), 'Moulding') AS "machineProcess",
         pb.seq,
         pb.order_no     AS "orderNo",
-          pb.item_code    AS "itemCode",
-            pb.item_name    AS "itemName",
-    COALESCE(pb.mould_name, m.mould_name, 'Unknown') AS "mouldName",
-      o.client_name    AS "clientName",
+        COALESCE(pb.mould_name, m.mould_name, 'Unknown') AS "mouldName",
+        o.client_name    AS "clientName",
         mMaster.cycle_time AS "cycleTime",
         -- Fetch Mould No from Master (Strict => Fallback to Mould Master)
         COALESCE(mps.mould_no, m.mould_number, '-') AS "mouldNo",
-
-
-          mps.jr_qty       AS "jrQty",
-          mps.mould_item_qty AS "targetQty",
-          mps.tonnage      AS "tonnage",
-          mps.cavity       AS "cavity",
-          mps.uom          AS "uom",
-          ojr.job_card_no  AS "jcNo",
-          pb.job_card_given,
-
-
-          pb.plan_qty     AS "planQty",
+        mps.cavity       AS "cavity",
+        ojr.job_card_no  AS "jcNo",
+        pb.job_card_given,
+        pb.plan_qty     AS "planQty",
             pb.bal_qty      AS "balQty",
               pb.start_date   AS "startDate",
                 pb.end_date     AS "endDate",

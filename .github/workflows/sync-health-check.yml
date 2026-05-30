@@ -1,0 +1,70 @@
+name: Sync Health Check (every 2h)
+
+# Polls MAIN /api/sync-alert. Emails joyo44064@gmail.com on 'stale' or
+# 'unreachable' so a silently-stuck sync is caught in hours, not days.
+# Secrets: MAIN_PUBLIC_URL, SYNC_API_KEY, MAIL_USERNAME, MAIL_PASSWORD.
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: jms-sync-health
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      HAS_MAIL: ${{ secrets.MAIL_PASSWORD != '' }}
+      HAS_CFG:  ${{ secrets.MAIN_PUBLIC_URL != '' && secrets.SYNC_API_KEY != '' }}
+    steps:
+      - name: Skip if not configured
+        if: env.HAS_CFG != 'true'
+        run: echo "::warning::Set MAIN_PUBLIC_URL and SYNC_API_KEY to enable sync alerts."
+
+      - name: Query sync health
+        if: env.HAS_CFG == 'true'
+        id: probe
+        shell: bash
+        env:
+          BASE: ${{ secrets.MAIN_PUBLIC_URL }}
+          KEY:  ${{ secrets.SYNC_API_KEY }}
+        run: |
+          set +e
+          resp="$(curl -fsS --max-time 25 "${BASE}/api/sync-alert?key=${KEY}")"
+          code=$?
+          if [ $code -ne 0 ]; then
+            echo "status=unreachable" >> "$GITHUB_OUTPUT"
+            echo "detail=Could not reach ${BASE}/api/sync-alert (curl exit $code). App may be DOWN." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ok="$(printf '%s' "$resp" | grep -o '"ok":[a-z]*' | head -1 | cut -d: -f2)"
+          if [ "$ok" = "true" ]; then echo "status=healthy" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=stale" >> "$GITHUB_OUTPUT"
+            echo "detail=$(printf '%s' "$resp" | tr -d '\n' | cut -c1-800)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report
+        if: env.HAS_CFG == 'true'
+        run: echo "Sync status = ${{ steps.probe.outputs.status }}"
+
+      - name: Email alert
+        if: env.HAS_CFG == 'true' && env.HAS_MAIL == 'true' && (steps.probe.outputs.status == 'stale' || steps.probe.outputs.status == 'unreachable')
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "🟠 JMS SYNC ALERT — ${{ steps.probe.outputs.status }}"
+          to: joyo44064@gmail.com
+          from: JMS Sync Monitor <${{ secrets.MAIL_USERNAME }}>
+          body: |
+            STATUS: ${{ steps.probe.outputs.status }}
+            DETAIL: ${{ steps.probe.outputs.detail }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            stale -> a LOCAL server stopped pushing; check it & force-full-push.
+            unreachable -> MAIN may be DOWN; check the VPS/Docker container.
