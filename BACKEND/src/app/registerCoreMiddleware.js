@@ -6,7 +6,7 @@ const express = require('express');
 const compression = require('compression');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const morgan = require('morgan');
 
 // Ensure log directory exists
@@ -35,9 +35,10 @@ const apiLimiter = rateLimit({
   skip: shouldSkipApiLimiter,
   keyGenerator: (req) => {
     const user = req.headers['x-user-name'] || 'anonymous';
-    return `${req.ip}_${user}`;
+    const ip = ipKeyGenerator(req.ip);
+    return `${ip}_${user}`;
   },
-  validate: { ip: false },
+  validate: false,
   message: { ok: false, error: 'Too many requests, please slow down.' }
 });
 
@@ -48,7 +49,7 @@ const syncLimiter = rateLimit({
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { ip: false },
+  validate: false,
   message: { ok: false, error: 'Sync rate limit exceeded.' }
 });
 
