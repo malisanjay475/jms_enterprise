@@ -73,7 +73,7 @@
         .om-backdrop.active { opacity: 1; pointer-events: auto; }
         
         .om-content {
-            background: #fff; width: 95%; max-width: 1200px; max-height: 90vh;
+            background: #fff; width: 98%; max-width: 1440px; max-height: 95vh;
             border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
             display: flex; flex-direction: column; overflow: hidden;
             transform: scale(0.95); transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -1407,124 +1407,102 @@
     if (new URLSearchParams(window.location.search).get('view') === 'timeline') setTimeout(() => { window.superLoadTimeline(); }, 200);
 
     // --- Interactive Machine Selector Modal ---
-    window.openMachineSelector = function(event, planId, currentMachine, primaryMachine, secondaryMachine) {
+    // ── Machine Selector: always fetches fresh data from API so Primary/Secondary
+    //    tags are correct even if the plan's cached data is stale or empty.
+    window.openMachineSelector = async function(event, planId, currentMachine, primaryMachine, secondaryMachine) {
         event.stopPropagation();
-        
-        const options = [];
-        const norm = (s) => String(s || '').trim().toUpperCase();
-        const currNorm = norm(currentMachine);
-        
-        const primTrim = String(primaryMachine || '').trim();
-        if (primTrim) {
-            options.push({
-                machine: primTrim,
-                type: 'primary',
-                label: 'Primary Machine',
-                isCurrent: norm(primTrim) === currNorm
-            });
-        }
-        
-        if (secondaryMachine) {
-            secondaryMachine.split(',').forEach(m => {
-                const secTrim = m.trim();
-                if (secTrim) {
-                    if (norm(secTrim) !== norm(primTrim)) {
-                        options.push({
-                            machine: secTrim,
-                            type: 'secondary',
-                            label: 'Secondary Machine',
-                            isCurrent: norm(secTrim) === currNorm
-                        });
-                    }
-                }
-            });
-        }
-        
-        if (currNorm && !options.some(opt => norm(opt.machine) === currNorm)) {
-            options.push({
-                machine: currentMachine.trim(),
-                type: 'current',
-                label: 'Current Machine',
-                isCurrent: true
-            });
-        }
-        
+
         const modalId = 'pjdMachineSelectModal';
         let oldModal = document.getElementById(modalId);
         if (oldModal) oldModal.remove();
-        
-        let optionsHtml = '';
-        if (options.length === 0) {
-            optionsHtml = `
-                <div style="padding: 20px; color: #64748b; font-style: italic; font-size: 0.9rem; text-align: center;">
-                    No Primary or Secondary machines configured for this mould in Mould Master.
-                </div>
-            `;
-        } else {
-            optionsHtml = options.map(opt => {
-                let badgeBg = '#f1f5f9';
-                let badgeText = '#475569';
-                let badgeLabel = opt.label;
-                
-                if (opt.type === 'primary') {
-                    badgeBg = '#dcfce7';
-                    badgeText = '#15803d';
-                } else if (opt.type === 'secondary') {
-                    badgeBg = '#e0f2fe';
-                    badgeText = '#0369a1';
-                }
-                
-                const borderStyle = opt.isCurrent 
-                    ? 'border: 2px solid #3b82f6; background: #eff6ff;' 
-                    : 'border: 1px solid #e2e8f0; background: #ffffff;';
-                    
-                const checkIcon = opt.isCurrent 
-                    ? '<i class="bi bi-check-circle-fill" style="color:#3b82f6; font-size:1.1rem; margin-left:auto;"></i>' 
-                    : '<i class="bi bi-circle" style="color:#cbd5e1; font-size:1.1rem; margin-left:auto;"></i>';
 
-                return `
-                    <div class="om-mach-opt-card" 
-                         onclick="window.executeMachineChange('${planId}', '${esc(opt.machine)}', '${modalId}')"
-                         style="display:flex; align-items:center; gap:12px; padding:12px 16px; border-radius:10px; cursor:pointer; margin-bottom:8px; transition:all 0.2s; ${borderStyle}"
-                         onmouseover="if(!${opt.isCurrent}) { this.style.borderColor='#93c5fd'; this.style.background='#f8fafc'; }"
-                         onmouseout="if(!${opt.isCurrent}) { this.style.borderColor='#e2e8f0'; this.style.background='#ffffff'; }">
-                         
-                         <div style="display:flex; flex-direction:column; align-items:flex-start; gap:4px;">
-                             <span style="font-size:1.1rem; font-weight:800; color:#0f172a;">${esc(opt.machine)}</span>
-                             <span style="font-size:0.7rem; font-weight:800; text-transform:uppercase; background:${badgeBg}; color:${badgeText}; padding:2px 6px; border-radius:4px;">${badgeLabel}</span>
-                         </div>
-                         ${checkIcon}
-                    </div>
-                `;
-            }).join('');
-        }
-        
-        const markup = `
-            <div id="${modalId}" style="position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15,23,42,0.3); z-index:999999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px)">
-                <div style="background:white; padding:24px; border-radius:16px; width:400px; max-width:92%; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25); display:flex; flex-direction:column; gap:16px; animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)">
-                    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #f1f5f9; padding-bottom:12px;">
-                        <div style="font-weight:800; font-size:1.25rem; color:#0f172a; display:flex; align-items:center; gap:8px">
-                            <i class="bi bi-cpu" style="color:#3b82f6;"></i> Select Machine
+        // Show immediately with loading state
+        const loadingMarkup = `
+            <div id="${modalId}" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(15,23,42,0.45);z-index:999999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
+                <div style="background:white;padding:28px 32px;border-radius:16px;width:460px;max-width:94%;box-shadow:0 25px 50px -12px rgba(0,0,0,0.3);display:flex;flex-direction:column;gap:18px;animation:popIn 0.2s cubic-bezier(0.175,0.885,0.32,1.275)">
+                    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f1f5f9;padding-bottom:12px;">
+                        <div style="font-weight:800;font-size:1.2rem;color:#0f172a;display:flex;align-items:center;gap:8px">
+                            <i class="bi bi-cpu" style="color:#3b82f6"></i> Change Machine
                         </div>
-                        <button onclick="document.getElementById('${modalId}').remove()" style="border:none; background:none; cursor:pointer; font-size:1.5rem; color:#64748b; font-weight:bold;">&times;</button>
+                        <button onclick="document.getElementById('${modalId}').remove()" style="border:none;background:none;cursor:pointer;font-size:1.5rem;color:#64748b;font-weight:bold;line-height:1">&times;</button>
                     </div>
-                    
-                    <div style="color:#64748b; font-size:0.88rem; line-height:1.4;">
-                        Choose a machine below to reschedule this plan. Only Primary and Secondary machines configured in Mould Master are shown.
-                    </div>
-                    
-                    <div style="max-height:300px; overflow-y:auto; padding:2px;">
-                        ${optionsHtml}
-                    </div>
-                    
-                    <div style="display:flex; justify-content:end; border-top:1px solid #f1f5f9; padding-top:12px;">
-                        <button class="btn ghost" onclick="document.getElementById('${modalId}').remove()" style="padding:8px 16px; font-weight:700; border-radius:8px;">Cancel</button>
+                    <div id="${modalId}-body" style="text-align:center;padding:20px;color:#64748b">
+                        <div style="font-size:1.8rem;margin-bottom:8px">⏳</div>Loading machines from Mould Master...
                     </div>
                 </div>
             </div>
-            <style>@keyframes popIn { from { transform:scale(0.9); opacity:0; } to { transform:scale(1); opacity:1; } }</style>
-        `;
-        document.body.insertAdjacentHTML('beforeend', markup);
+            <style>@keyframes popIn{from{transform:scale(0.9);opacity:0}to{transform:scale(1);opacity:1}}</style>`;
+        document.body.insertAdjacentHTML('beforeend', loadingMarkup);
+
+        // Fetch fresh machines from API
+        let machines = [];
+        try {
+            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+            const res = await api.get(`/planning/mould-machines?plan_id=${encodeURIComponent(planId)}`);
+            if (res && res.ok) machines = res.machines || [];
+        } catch(e) {
+            console.warn('[MachineSelector] API fetch failed, using cached data:', e.message);
+            // Fall back to cached primary/secondary from plan object
+            const norm = s => String(s||'').trim().toUpperCase();
+            const prim = String(primaryMachine||'').trim();
+            const currNorm = norm(currentMachine);
+            if (prim) machines.push({ machine: prim, type: 'Primary' });
+            if (secondaryMachine) {
+                secondaryMachine.split(',').forEach(m => {
+                    const t = m.trim();
+                    if (t && norm(t) !== norm(prim)) machines.push({ machine: t, type: 'Secondary' });
+                });
+            }
+            if (currNorm && !machines.some(m => norm(m.machine) === currNorm)) {
+                machines.push({ machine: (currentMachine||'').trim(), type: 'Current' });
+            }
+        }
+
+        // Populate body
+        const bodyEl = document.getElementById(`${modalId}-body`);
+        if (!bodyEl) return; // modal was closed while loading
+
+        const currNorm = String(currentMachine||'').trim().toUpperCase();
+
+        if (!machines.length) {
+            bodyEl.innerHTML = `
+                <div style="padding:20px;text-align:center;color:#94a3b8">
+                    <div style="font-size:2rem;margin-bottom:8px">🔍</div>
+                    <div style="font-weight:700;color:#64748b;margin-bottom:4px">No machines configured</div>
+                    <div style="font-size:0.85rem">Set Primary / Secondary machine in Mould Master for this mould.</div>
+                </div>`;
+            return;
+        }
+
+        const optHtml = machines.map(opt => {
+            const isCurrent = opt.machine.trim().toUpperCase() === currNorm;
+            const typeLC = (opt.type || '').toLowerCase();
+            const badgeBg   = typeLC === 'primary' ? '#dcfce7' : typeLC === 'secondary' ? '#e0f2fe' : '#f1f5f9';
+            const badgeTxt  = typeLC === 'primary' ? '#15803d' : typeLC === 'secondary' ? '#0369a1'  : '#475569';
+            const border    = isCurrent ? 'border:2px solid #3b82f6;background:#eff6ff' : 'border:1px solid #e2e8f0;background:#fff';
+            const check     = isCurrent
+                ? '<i class="bi bi-check-circle-fill" style="color:#3b82f6;font-size:1.1rem;margin-left:auto"></i>'
+                : '<i class="bi bi-circle" style="color:#cbd5e1;font-size:1.1rem;margin-left:auto"></i>';
+            const clickAttr = isCurrent ? '' :
+                `onclick="window.executeMachineChange('${planId}','${esc(opt.machine)}','${modalId}')"`;
+            const hover = isCurrent ? '' :
+                `onmouseover="this.style.borderColor='#93c5fd';this.style.background='#f8fafc'" onmouseout="this.style.borderColor='#e2e8f0';this.style.background='#fff'"`;
+            return `<div ${clickAttr} ${hover}
+                style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:10px;${isCurrent?'cursor:default':'cursor:pointer'};margin-bottom:8px;transition:all 0.15s;${border}">
+                <div style="flex:1">
+                    <div style="font-size:1.05rem;font-weight:800;color:#0f172a">${esc(opt.machine)}</div>
+                    <div style="margin-top:3px"><span style="font-size:0.72rem;font-weight:800;text-transform:uppercase;background:${badgeBg};color:${badgeTxt};padding:2px 7px;border-radius:4px">${esc(opt.type)}</span>${isCurrent ? ' <span style="font-size:0.75rem;color:#3b82f6;font-weight:700">— Current</span>' : ''}</div>
+                </div>
+                ${check}
+            </div>`;
+        }).join('');
+
+        bodyEl.innerHTML = `
+            <div style="color:#64748b;font-size:0.85rem;margin-bottom:12px;padding:8px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">
+                <i class="bi bi-info-circle" style="color:#3b82f6"></i>
+                Select a machine to move this plan. It will be placed <strong>last</strong> on the target machine with status <strong>Stopped</strong>.
+            </div>
+            <div style="max-height:340px;overflow-y:auto;padding:2px">${optHtml}</div>`;
     };
 
     window.executeMachineChange = async function(planId, targetMachine, modalId) {
