@@ -3,7 +3,7 @@
 // Sync-staleness alert (key-guarded, CI-pollable). Runs ON MAIN.
 // LOCAL servers sit behind factory NAT and can't be reached from GitHub
 // Actions — but each LOCAL agent heartbeats to MAIN, which records
-// last_push_at / last_seen_at in local_servers. This endpoint flags any active
+// last_push_at / last_heartbeat_at in local_servers. This endpoint flags any active
 // LOCAL server that stopped pushing within the threshold, so a scheduled
 // Action can email an alert. Catches the gap that hid a multi-day sync outage.
 //
@@ -26,20 +26,20 @@ function createSyncAlertRoute(pool) {
     if (!pool) return res.status(503).json({ ok: false, error: 'DB not ready' });
     try {
       const { rows } = await pool.query(`
-        SELECT node_name, factory_id, status, last_push_at, last_seen_at
+        SELECT node_name, factory_id, status, last_push_at, last_heartbeat_at
         FROM local_servers
         WHERE COALESCE(LOWER(status), '') NOT IN ('retired','disabled','decommissioned')
         ORDER BY node_name
       `);
       const servers = rows.map(r => {
         const pushAge = r.last_push_at ? (Date.now() - new Date(r.last_push_at).getTime()) : null;
-        const seenAge = r.last_seen_at ? (Date.now() - new Date(r.last_seen_at).getTime()) : null;
+        const seenAge = r.last_heartbeat_at ? (Date.now() - new Date(r.last_heartbeat_at).getTime()) : null;
         const stale = r.last_push_at != null && pushAge > STALE_MS;
         return {
           node_name: r.node_name, factory_id: r.factory_id, status: r.status,
-          last_push_at: r.last_push_at, last_seen_at: r.last_seen_at,
+          last_push_at: r.last_push_at, last_heartbeat_at: r.last_heartbeat_at,
           push_age_minutes: pushAge != null ? Math.round(pushAge / 60000) : null,
-          seen_age_minutes: seenAge != null ? Math.round(seenAge / 60000) : null,
+          heartbeat_age_minutes: seenAge != null ? Math.round(seenAge / 60000) : null,
           stale
         };
       });
