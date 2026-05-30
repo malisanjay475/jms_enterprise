@@ -1,19 +1,21 @@
 name: Hourly Sync Health Check
 
-# Every 2 hours, asks MAIN whether any LOCAL factory server has stopped
-# pushing data within the staleness threshold (2h). Emails joyo44064@gmail.com
-# when sync is stale OR MAIN is unreachable — so a silently-stuck sync is
-# caught in hours, not days.
+# Every 2 hours, checks whether any LOCAL factory server has stopped pushing
+# to MAIN within the staleness threshold (2h). Emails joyo44064@gmail.com when
+# sync is stale — so a silently-stuck sync is caught in hours, not days.
 #
-# Uses /api/sync-alert (NOT /api/sync/health): sync-alert reads the
-# local_servers heartbeat recorded on MAIN, which is the correct signal for
-# "is the factory LOCAL server still pushing?". /api/sync/health reports MAIN's
-# OWN sync activity, which is meaningless on the hub and would false-alarm.
+# HOW: MAIN's app port (9091) is firewalled from the public internet, so we do
+# NOT call it over a public URL. Instead we SSH into the VPS (same secrets the
+# backup/deploy use) and curl http://127.0.0.1:9091/api/sync-alert from inside
+# the box. This is firewall-proof and never depends on DNS / other sites.
+#
+# /api/sync-alert reads the local_servers heartbeat recorded on MAIN — the
+# correct "has the factory LOCAL server stopped pushing?" signal.
 #
 # Required repo secrets:
-#   SYNC_API_KEY            same key the app uses (guards /api/sync-alert)
-#   ALERT_EMAIL_USER /      Gmail address + app password for sending alerts
-#   ALERT_EMAIL_PASSWORD
+#   HOSTINGER_SSH_HOST / HOSTINGER_SSH_USER / HOSTINGER_SSH_KEY  (already used by deploy)
+#   SYNC_API_KEY                          guards /api/sync-alert
+#   ALERT_EMAIL_USER / ALERT_EMAIL_PASSWORD   Gmail + app password for alerts
 on:
   schedule:
     - cron: '0 */2 * * *'
@@ -30,44 +32,46 @@ jobs:
   check-sync:
     runs-on: ubuntu-latest
     env:
-      MAIN_URL: 'http://72.62.228.195:9091'
       HAS_KEY:  ${{ secrets.SYNC_API_KEY != '' }}
       HAS_MAIL: ${{ secrets.ALERT_EMAIL_PASSWORD != '' }}
     steps:
-      - name: Skip if key not configured
+      - name: Skip if not configured
         if: env.HAS_KEY != 'true'
-        run: echo "::warning::SYNC_API_KEY secret not set — skipping sync health check."
+        run: echo "::warning::SYNC_API_KEY not set — skipping sync health check."
 
-      - name: Query Sync Health
+      - name: Query sync health on the VPS (via SSH + localhost)
         id: query
         if: env.HAS_KEY == 'true'
+        uses: appleboy/ssh-action@v1.0.3
         env:
-          KEY: ${{ secrets.SYNC_API_KEY }}
-        run: |
-          set +e
-          RESPONSE=$(curl -s -m 20 "${MAIN_URL}/api/sync-alert?key=${KEY}")
-          CURL_RC=$?
-          echo "Sync health response: $RESPONSE"
-          if [ $CURL_RC -ne 0 ] || [ -z "$RESPONSE" ]; then
-            echo "STATUS=unreachable" >> "$GITHUB_OUTPUT"
-            echo "DETAILS=MAIN unreachable at ${MAIN_URL} (curl exit ${CURL_RC}). App may be DOWN." >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          OK=$(echo "$RESPONSE" | jq -r '.ok' 2>/dev/null)
-          if [ "$OK" = "true" ]; then
-            echo "STATUS=healthy" >> "$GITHUB_OUTPUT"
-          else
-            echo "STATUS=stale" >> "$GITHUB_OUTPUT"
-            CLEAN_RESP=$(echo "$RESPONSE" | tr -d '\n\r' | cut -c1-800)
-            echo "DETAILS=$CLEAN_RESP" >> "$GITHUB_OUTPUT"
-          fi
+          SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
+          port: 22
+          command_timeout: 5m
+          envs: SYNC_API_KEY
+          # The SSH step exits non-zero if the curl fails or sync is stale,
+          # which marks this step "failure" -> the email step below fires.
+          script: |
+            set -eo pipefail
+            RESP="$(curl -s -m 20 "http://127.0.0.1:9091/api/sync-alert?key=${SYNC_API_KEY}")"
+            echo "sync-alert response: $RESP"
+            if [ -z "$RESP" ]; then
+              echo "::error::MAIN app did not respond on 127.0.0.1:9091 — it may be DOWN."
+              exit 1
+            fi
+            OK="$(printf '%s' "$RESP" | grep -o '\"ok\":[a-z]*' | head -1 | cut -d: -f2)"
+            if [ "$OK" != "true" ]; then
+              echo "::error::Sync is STALE: $RESP"
+              exit 1
+            fi
+            echo "Sync healthy."
 
-      - name: Report
-        if: env.HAS_KEY == 'true'
-        run: echo "Sync status = ${{ steps.query.outputs.STATUS }}"
-
-      - name: Send Alert Email
-        if: env.HAS_KEY == 'true' && env.HAS_MAIL == 'true' && (steps.query.outputs.STATUS == 'stale' || steps.query.outputs.STATUS == 'unreachable')
+      - name: Send alert email
+        if: failure() && env.HAS_KEY == 'true' && env.HAS_MAIL == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -75,20 +79,19 @@ jobs:
           secure: true
           username: ${{ secrets.ALERT_EMAIL_USER }}
           password: ${{ secrets.ALERT_EMAIL_PASSWORD }}
-          subject: "🟠 JMS SYNC ALERT — ${{ steps.query.outputs.STATUS }}"
+          subject: "🟠 JMS SYNC ALERT — sync stale or MAIN unreachable"
           to: joyo44064@gmail.com
           from: JMS System Health Monitor <${{ secrets.ALERT_EMAIL_USER }}>
           body: |
-            JMS sync health check raised an alert.
+            The 2-hourly JMS sync health check FAILED.
 
-            STATUS: ${{ steps.query.outputs.STATUS }}
+            This means either:
+              - a LOCAL factory server stopped pushing to MAIN (sync stale), OR
+              - the MAIN app did not respond on the VPS (app may be DOWN).
 
-            DETAIL:
-            ${{ steps.query.outputs.DETAILS }}
-
-            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            Run (full logs): ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
             ACTION:
-            - stale       -> a LOCAL factory server stopped pushing to MAIN.
-                             Check it is online; run force-full-push from the LOCAL app.
-            - unreachable -> MAIN may be DOWN. Check the VPS / Docker container.
+            - Stale sync  -> check the factory LOCAL server is online; run
+                            force-full-push from the LOCAL app.
+            - App down    -> check the VPS / Docker container is running.
