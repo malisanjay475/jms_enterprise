@@ -9226,7 +9226,10 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
 
     if (factoryId) {
       machineParams.push(factoryId);
-      machineSql += ` AND m.factory_id = $${machineParams.length}`;
+      // NULL-tolerant factory scope: legacy machines imported before the factory_id
+      // migration carry factory_id = NULL and must still be plannable. This mirrors the
+      // moulds-master join (getPlanningOrderMouldBundle) and the plan_board status join below.
+      machineSql += ` AND (m.factory_id = $${machineParams.length} OR m.factory_id IS NULL)`;
     }
 
     if (requestedProcess) {
