@@ -4203,19 +4203,8 @@ async function initializeLegacyRuntime() {
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
             -- Factory isolation (required for multi-factory support)
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS factory_id INTEGER;
-
-            -- One-time backfill: older plans were created before factory_id was
-            -- persisted, leaving factory_id NULL. The board read filters on an
-            -- exact factory_id match, so those (already approved) plans never
-            -- appeared on Master Plan / Machine Timeline. Infer factory_id from
-            -- plant (DUNGRA=1, SHIVANI=2). Idempotent: only touches NULL rows.
-            UPDATE plan_board
-            SET factory_id = CASE
-                WHEN UPPER(TRIM(plant)) LIKE 'DUNGRA%'  THEN 1
-                WHEN UPPER(TRIM(plant)) LIKE 'SHIVANI%' THEN 2
-            END
-            WHERE factory_id IS NULL
-              AND (UPPER(TRIM(plant)) LIKE 'DUNGRA%' OR UPPER(TRIM(plant)) LIKE 'SHIVANI%');
+            -- NOTE: factory_id backfill for legacy plans runs as isolated,
+            -- error-guarded statements after this DDL block (see backfillPlanBoardFactoryId).
 
             CREATE TABLE IF NOT EXISTS plan_job_card_approval_history (
                 id SERIAL PRIMARY KEY,
@@ -4340,6 +4329,32 @@ async function initializeLegacyRuntime() {
         false
       )
     `).catch(err => console.warn('[DB] plan_audit_logs sequence reset skipped:', err.message));
+
+    // Backfill plan_board.factory_id for legacy plans created before factory_id was
+    // persisted. Such rows had factory_id = NULL and never appeared on the board
+    // (Master Plan / Machine Timeline), which scopes by factory_id. plant is NOT a
+    // reliable proxy for factory (e.g. Shivani is factory 4; plant strings are
+    // inconsistent), so we derive factory_id from the linked order, which is
+    // authoritative. Idempotent + error-guarded so it never blocks startup.
+    // 1) Heal any factory_id pointing to a non-existent factory (e.g. a previous
+    //    bad guess). Guarded so it never runs when the factories table is empty.
+    await q(`
+      UPDATE plan_board pb
+      SET factory_id = NULL
+      WHERE pb.factory_id IS NOT NULL
+        AND (SELECT COUNT(*) FROM factories) > 0
+        AND NOT EXISTS (SELECT 1 FROM factories f WHERE f.id = pb.factory_id)
+    `).catch(err => console.warn('[DB] plan_board factory_id heal skipped:', err.message));
+    // 2) Fill NULL factory_id from the plan's order (authoritative relationship).
+    await q(`
+      UPDATE plan_board pb
+      SET factory_id = o.factory_id
+      FROM orders o
+      WHERE pb.factory_id IS NULL
+        AND TRIM(COALESCE(pb.order_no, '')) <> ''
+        AND TRIM(COALESCE(pb.order_no, '')) = TRIM(COALESCE(o.order_no, ''))
+        AND o.factory_id IS NOT NULL
+    `).catch(err => console.warn('[DB] plan_board factory_id backfill skipped:', err.message));
 
     // MISSING TABLE: std_actual
     await q(`
@@ -7358,12 +7373,22 @@ app.get('/api/planning/board', async (req, res) => {
   try {
     // [FIX] Factory Isolation
     const factoryId = getFactoryId(req); // Moved up
-    const plant = req.query.plant || (factoryId === 1 ? 'DUNGRA' : (factoryId === 2 ? 'SHIVANI' : 'DUNGRA'));
+    // Do NOT derive a default plant from factoryId. factory<->plant is not a fixed
+    // 1:1 mapping (e.g. Shivani is factory 4, and plant strings are inconsistent),
+    // so a guessed plant value silently hides approved plans whose stored plant
+    // differs. factory_id is the source of truth for scoping; plant is only applied
+    // when the caller explicitly passes ?plant=... (matched case/whitespace-insensitively).
+    const explicitPlant = (req.query.plant && String(req.query.plant).trim()) ? String(req.query.plant).trim() : null;
     const date = req.query.date || null;
     const requestedProcess = getRequestedMachineProcess(req, 'Moulding');
 
-    const params = [plant];
-    let where = `plant = $1 AND pb.status != 'COMPLETED' AND UPPER(COALESCE(pb.jc_approval_status, 'PENDING')) = 'APPROVED'`;
+    const params = [];
+    let where = `pb.status != 'COMPLETED' AND UPPER(COALESCE(pb.jc_approval_status, 'PENDING')) = 'APPROVED'`;
+
+    if (explicitPlant) {
+      params.push(explicitPlant);
+      where += ` AND UPPER(TRIM(pb.plant)) = UPPER(TRIM($${params.length}))`;
+    }
 
     if (factoryId) {
       params.push(factoryId);
@@ -9948,7 +9973,7 @@ app.get('/api/planning/completed', async (req, res) => {
     const factoryId = getFactoryId(req);
     const { mode, search, from, to, limit = 500, plant } = req.query;
     const cleanSearch = (search || '').trim().toLowerCase();
-    const targetPlant = plant || (factoryId === 1 ? 'DUNGRA' : (factoryId === 2 ? 'SHIVANI' : 'DUNGRA'));
+    const explicitPlant = (plant && String(plant).trim()) ? String(plant).trim() : null;
 
     if (mode === 'hierarchical') {
       // (Keep hierarchical logic as is, or update if needed, but focus on flat view first for the report)
@@ -10022,9 +10047,17 @@ app.get('/api/planning/completed', async (req, res) => {
            WHERE plan_id = pb.id AND action = 'COMPLETE' 
            ORDER BY created_at DESC LIMIT 1
         ) audit_end ON true
-        WHERE pb.status = 'COMPLETED' AND pb.plant = $1
+        WHERE pb.status = 'COMPLETED'
       `;
-      const params = [targetPlant];
+      const params = [];
+      if (factoryId) {
+        params.push(factoryId);
+        sql += ` AND pb.factory_id = $${params.length}`;
+      }
+      if (explicitPlant) {
+        params.push(explicitPlant);
+        sql += ` AND UPPER(TRIM(pb.plant)) = UPPER(TRIM($${params.length}))`;
+      }
       if (cleanSearch) {
         sql += ` AND (pb.order_no ILIKE $${params.length + 1} OR pb.item_name ILIKE $${params.length + 1} OR pb.mould_name ILIKE $${params.length + 1} OR o.client_name ILIKE $${params.length + 1} OR pb.machine ILIKE $${params.length + 1} OR ojr.job_card_no ILIKE $${params.length + 1})`;
         params.push(`%${cleanSearch}%`);
