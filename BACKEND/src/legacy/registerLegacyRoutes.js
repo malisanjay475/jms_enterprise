@@ -4204,6 +4204,19 @@ async function initializeLegacyRuntime() {
             -- Factory isolation (required for multi-factory support)
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS factory_id INTEGER;
 
+            -- One-time backfill: older plans were created before factory_id was
+            -- persisted, leaving factory_id NULL. The board read filters on an
+            -- exact factory_id match, so those (already approved) plans never
+            -- appeared on Master Plan / Machine Timeline. Infer factory_id from
+            -- plant (DUNGRA=1, SHIVANI=2). Idempotent: only touches NULL rows.
+            UPDATE plan_board
+            SET factory_id = CASE
+                WHEN UPPER(TRIM(plant)) LIKE 'DUNGRA%'  THEN 1
+                WHEN UPPER(TRIM(plant)) LIKE 'SHIVANI%' THEN 2
+            END
+            WHERE factory_id IS NULL
+              AND (UPPER(TRIM(plant)) LIKE 'DUNGRA%' OR UPPER(TRIM(plant)) LIKE 'SHIVANI%');
+
             CREATE TABLE IF NOT EXISTS plan_job_card_approval_history (
                 id SERIAL PRIMARY KEY,
                 plan_board_id INTEGER,
@@ -8715,12 +8728,14 @@ app.post('/api/planning/create', async (req, res) => {
         (plan_id, plant, building, line, machine, seq,
           order_no, item_code, item_name, mould_name, mould_code,
           plan_qty, bal_qty, our_code, batch_no, batch_qty, mould_item_qty,
-          consumption_ratio_qty, colour_details, created_by, created_at, start_date, end_date, status, updated_at)
+          consumption_ratio_qty, colour_details, created_by, created_at, start_date, end_date, status, updated_at,
+          factory_id)
         VALUES
         ($1, $2, $3, $4, $5, $6,
           $7, $8, $9, $10, $11,
           $12, $13, $14, $15, $16, $17,
-          $18, $19::jsonb, $20, NOW(), $21, $22, 'PLANNED', NOW())
+          $18, $19::jsonb, $20, NOW(), $21, $22, 'PLANNED', NOW(),
+          $23)
         RETURNING id
         `,
         [
@@ -8745,7 +8760,8 @@ app.post('/api/planning/create', async (req, res) => {
           JSON.stringify(Array.isArray(p.colourDetails) ? p.colourDetails : []),
           p.createdBy || requestUsername,
           p.startDate || null,
-          p.endDate || null
+          p.endDate || null,
+          requestFactoryId
         ]
       );
 
