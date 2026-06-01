@@ -5,6 +5,14 @@
 (function () {
     console.log('[TimelinePatch] Initializing v56 (Reorder Ripple + Load)...');
 
+    // Global client plan cache with 2-minute TTL
+    window._planBoardCache = {
+        data: null,
+        timestamp: 0,
+        ttl: 120000, // 2 minutes
+        process: null
+    };
+
     // CSS Injection (Timeline + Modal Styles)
     const style = document.createElement('style');
     style.innerHTML = `
@@ -65,7 +73,7 @@
         .om-backdrop.active { opacity: 1; pointer-events: auto; }
         
         .om-content {
-            background: #fff; width: 95%; max-width: 1200px; max-height: 90vh;
+            background: #fff; width: 98%; max-width: 1440px; max-height: 95vh;
             border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
             display: flex; flex-direction: column; overflow: hidden;
             transform: scale(0.95); transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -203,100 +211,21 @@
         document.body.appendChild(modal);
     };
 
-    window.openOrderModal = async function (orderNo) {
-        window.createOrderModal();
-        const modal = document.getElementById('orderDetailModal');
-        const tbody = document.getElementById('om-tbody');
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:#cbd5e1"><div class="spinner-border spinner-border-sm text-primary"></div> checking summary...</td></tr>';
-
-        modal.style.display = 'flex';
-        void modal.offsetWidth;
-        modal.classList.add('active');
-
-        // 1. Fetch Summary Items
-        let summaryItems = [];
-        try {
-            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-            const res = await api.get('/planning/orders/' + encodeURIComponent(orderNo) + '/details');
-            summaryItems = (res && res.data) ? res.data : [];
-        } catch (e) {
-            console.error("Failed to fetch summary", e);
-            summaryItems = [];
-        }
-
-        // 2. Data Association
-        const allPlans = window.allMasterPlans || [];
-        const activePlans = allPlans.filter(p => p.orderNo === orderNo);
-
-        let mergedList = [];
-        let headerProd = 'Product Name Not Available';
-        let headerClient = 'Unknown Client';
-
-        // Scan for Product Name
-        const validSummary = summaryItems.find(s => s.product_name && s.product_name !== 'null');
-        if (validSummary) {
-            headerProd = validSummary.product_name;
-            if (validSummary.client_name) headerClient = validSummary.client_name;
-        }
-
-        if (summaryItems.length > 0) {
-            // MERGE SUMMARY with ACTIVE PLANS
-            mergedList = summaryItems.map(s => {
-                const mouldNo = s.mould_no || s.mouldNo;
-                // Normalize and Match
-                const ap = activePlans.find(p => (p.mouldNo || p.mould_no || '').trim() === (mouldNo || '').trim());
-
-                // Fallback Header
-                if (headerProd === 'Product Name Not Available' && ap && ap.productName) headerProd = ap.productName;
-                if (headerClient === 'Unknown Client' && ap && ap.clientName) headerClient = ap.clientName;
-
-                return {
-                    isSummary: true,
-                    mouldName: s.mould_name || s.mouldName || (ap ? ap.mouldName : 'Unknown Mould'),
-                    mouldNo: mouldNo,
-                    machine: ap ? ap.machine : '-',
-                    jcNo: ap ? (ap.jcNo || ap.jc_no || ap.job_card_no) : (s.jc_no || '-'),
-                    status: ap ? ap.status : 'Pending',
-                    planQty: s.plan_qty || s.qty || (ap ? ap.planQty : 0),
-                    balQty: ap ? ap.balQty : (s.plan_qty || s.qty || 0),
-                    producedQty: ap ? ap.producedQty : 0,
-                    _planObj: ap // This object MUST have _rippled... properties
-                };
-            });
-        } else {
-            // FALLBACK TO ACTIVE PLANS
-            mergedList = activePlans.map(p => {
-                if (headerProd === 'Product Name Not Available' && p.productName) headerProd = p.productName;
-                if (headerClient === 'Unknown Client' && p.clientName) headerClient = p.clientName;
-
-                return {
-                    isSummary: false,
-                    mouldName: p.mouldName,
-                    mouldNo: p.mouldNo,
-                    machine: p.machine,
-                    jcNo: p.jcNo || p.jc_no || p.job_card_no,
-                    status: p.status,
-                    planQty: p.planQty,
-                    balQty: p.balQty,
-                    producedQty: p.producedQty,
-                    _planObj: p
-                };
-            });
-        }
-
+    // Helper: build and render merged plan rows (used by openOrderModal)
+    function _omRenderRows(mergedList, orderNo, headerProd, headerClient) {
         if (mergedList.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px;">No data found.</td></tr>';
+            document.getElementById('om-tbody').innerHTML =
+                '<tr><td colspan="8" style="text-align:center; padding:30px;">No data found.</td></tr>';
             return;
         }
-
         document.getElementById('om-product').textContent = headerProd;
-        document.getElementById('om-client').textContent = headerClient;
+        document.getElementById('om-client').textContent  = headerClient;
         document.getElementById('om-orderno').textContent = orderNo;
 
-        // Render Rows
         const fmt = (d) => d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
+        const esc = (s) => (s || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-        tbody.innerHTML = mergedList.map(item => {
+        document.getElementById('om-tbody').innerHTML = mergedList.map(item => {
             const st = (item.status || 'Pending').toLowerCase();
             const isPlanned = item.machine && item.machine !== '-' && st !== 'pending';
 
@@ -306,58 +235,170 @@
             else if (st === 'completed') badgeClass = 'completed';
             else if (st === 'planned') badgeClass = 'planned';
 
-            // Dates Logic
             let datesHtml = '<span style="color:#cbd5e1">-</span>';
             if (item._planObj) {
                 const p = item._planObj;
-
                 let start = p.startDate ? new Date(p.startDate) : null;
                 let end = p.endDate ? new Date(p.endDate) : null;
                 let exp = null;
-
                 if (p._rippledStartRaw) start = p._rippledStartRaw;
-                if (p._rippledEndRaw) end = p._rippledEndRaw;
-                if (p._rippledExpRaw) exp = p._rippledExpRaw;
-
+                if (p._rippledEndRaw)   end   = p._rippledEndRaw;
+                if (p._rippledExpRaw)   exp   = p._rippledExpRaw;
                 const sStr = start ? fmt(start) : '-';
-                const eStr = end ? fmt(end) : '-';
-                const xStr = exp ? fmt(exp) : '-';
-
+                const eStr = end   ? fmt(end)   : '-';
+                const xStr = exp   ? fmt(exp)   : '-';
                 if (isPlanned) {
-                    datesHtml = `
-                        <div style="display:grid; grid-template-columns:auto 1fr; gap:2px 8px; font-size:0.8rem; color:#64748b">
-                            <div style="text-align:right; color:#94a3b8">Start Date:</div> <div style="font-weight:600; color:#334155">${sStr}</div>
-                            <div style="text-align:right; color:#94a3b8">End Date:</div> <div style="font-weight:600; color:#334155">${eStr}</div>
-                            ${exp ? `<div style="text-align:right; color:#2563eb; font-weight:700">Exp. End Date:</div> <div style="font-weight:700; color:#2563eb">${xStr}</div>` : ''}
-                        </div>
-                    `;
+                    datesHtml = `<div style="display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:0.8rem;color:#64748b">
+                        <div style="text-align:right;color:#94a3b8">Start:</div><div style="font-weight:600;color:#334155">${sStr}</div>
+                        <div style="text-align:right;color:#94a3b8">End:</div><div style="font-weight:600;color:#334155">${eStr}</div>
+                        ${exp ? `<div style="text-align:right;color:#2563eb;font-weight:700">Exp:</div><div style="font-weight:700;color:#2563eb">${xStr}</div>` : ''}
+                    </div>`;
                 }
             }
 
             const jc = item.jcNo || '-';
-            const machDisplay = isPlanned ? item.machine : '<span style="color:#cbd5e1; font-style:italic">Unassigned</span>';
-
+            let machDisplay = '';
+            if (isPlanned && item._planObj) {
+                machDisplay = `<div class="om-mach-click-badge" 
+                         onclick="window.openMachineSelector(event, '${item._planObj.id}', '${esc(item.machine)}', '${esc(item._planObj.primaryMachine || '')}', '${esc(item._planObj.secondaryMachine || '')}')"
+                         style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; padding:4px 8px; border-radius:6px; font-weight:700; transition:all 0.2s;"
+                         onmouseover="this.style.background='#dbeafe'; this.style.borderColor='#3b82f6';"
+                         onmouseout="this.style.background='#eff6ff'; this.style.borderColor='#bfdbfe';">
+                        <span>${esc(item.machine)}</span>
+                        <i class="bi bi-chevron-down" style="font-size:0.75rem; color:#3b82f6;"></i>
+                    </div>`;
+            } else if (item._planObj) {
+                machDisplay = `<div class="om-mach-click-badge" 
+                         onclick="window.openMachineSelector(event, '${item._planObj.id}', '', '${esc(item._planObj.primaryMachine || '')}', '${esc(item._planObj.secondaryMachine || '')}')"
+                         style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; background:#f8fafc; border:1px solid #cbd5e1; color:#64748b; padding:4px 8px; border-radius:6px; font-weight:500; font-style:italic; transition:all 0.2s;"
+                         onmouseover="this.style.background='#f1f5f9'; this.style.borderColor='#94a3b8'; color:#475569;"
+                         onmouseout="this.style.background='#f8fafc'; this.style.borderColor='#cbd5e1'; color:#64748b;">
+                        <span>Unassigned</span>
+                        <i class="bi bi-chevron-down" style="font-size:0.75rem; color:#94a3b8;"></i>
+                    </div>`;
+            } else {
+                machDisplay = '<span style="color:#cbd5e1;font-style:italic">Unassigned</span>';
+            }
             const jcClickable = jc && jc !== '-'
-                ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}', '${esc(item.jcNo || '')}', '${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : '')}', '${esc(item._planObj ? (item._planObj.orderNo || '') : '')}'); event.stopPropagation();" title="Click to see colour / shift / hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:0.75rem"></i></span>`
+                ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : '')}','${esc(item._planObj ? (item._planObj.orderNo || '') : '')}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
                 : '<span style="color:#cbd5e1">—</span>';
-            const prodDisp = (item.producedQty || 0).toLocaleString();
 
-            return `
-                <tr>
-                    <td>
-                        <div style="font-weight:700; color:#334155;">${(item.mouldName || '-')}</div>
-                        <div style="font-size:0.8rem; color:#64748b; font-family:monospace">${item.mouldNo}</div>
-                    </td>
-                    <td style="font-weight:600; color:#334155">${machDisplay}</td>
-                    <td>${jcClickable}</td>
-                    <td><span class="om-badge ${badgeClass}">${(item.status || 'Pending')}</span></td>
-                    <td style="text-align:right; font-weight:700; color:#1e293b">${(item.planQty || 0).toLocaleString()}</td>
-                    <td style="text-align:right; font-weight:700; color:#16a34a">${prodDisp}</td>
-                    <td style="text-align:right; font-weight:700; color:${item.balQty > 0 ? '#f59e0b' : '#10b981'}">${(item.balQty || 0).toLocaleString()}</td>
-                    <td>${datesHtml}</td>
-                </tr>
-             `;
+            return `<tr>
+                <td><div style="font-weight:700;color:#334155">${esc(item.mouldName || '-')}</div>
+                    <div style="font-size:0.8rem;color:#64748b;font-family:monospace">${esc(item.mouldNo)}</div></td>
+                <td style="font-weight:600;color:#334155">${machDisplay}</td>
+                <td>${jcClickable}</td>
+                <td><span class="om-badge ${badgeClass}">${esc(item.status || 'Pending')}</span></td>
+                <td style="text-align:right;font-weight:700;color:#1e293b">${(item.planQty || 0).toLocaleString()}</td>
+                <td style="text-align:right;font-weight:700;color:#16a34a">${(item.producedQty || 0).toLocaleString()}</td>
+                <td style="text-align:right;font-weight:700;color:${item.balQty > 0 ? '#f59e0b' : '#10b981'}">${(item.balQty || 0).toLocaleString()}</td>
+                <td>${datesHtml}</td>
+            </tr>`;
         }).join('');
+    }
+
+    window.openOrderModal = async function (orderNo) {
+        window.createOrderModal();
+        const modal = document.getElementById('orderDetailModal');
+        _ddShowPlans(); // make sure plans area is visible, not drill-down
+
+        modal.style.display = 'flex';
+        void modal.offsetWidth;
+        modal.classList.add('active');
+
+        // ── STEP 1: Render immediately from cached allMasterPlans (0 ms wait) ──
+        const allPlans   = window.allMasterPlans || [];
+        const activePlans = allPlans.filter(p => p.orderNo === orderNo);
+
+        let headerProd   = 'Product Name Not Available';
+        let headerClient = 'Unknown Client';
+
+        const mergedFromCache = activePlans.map(p => {
+            if (headerProd   === 'Product Name Not Available' && p.productName) headerProd   = p.productName;
+            if (headerClient === 'Unknown Client'             && p.clientName)  headerClient = p.clientName;
+            return {
+                isSummary: false,
+                mouldName:   p.mouldName,
+                mouldNo:     p.mouldNo,
+                machine:     p.machine,
+                jcNo:        p.jcNo || p.jc_no || p.job_card_no,
+                status:      p.status,
+                planQty:     p.planQty,
+                balQty:      p.balQty,
+                producedQty: p.producedQty,
+                _planObj:    p
+            };
+        });
+
+        if (mergedFromCache.length === 0) {
+            document.getElementById('om-tbody').innerHTML =
+                '<tr><td colspan="8" style="text-align:center;padding:30px;color:#94a3b8">No active plans for this order.</td></tr>';
+        } else {
+            _omRenderRows(mergedFromCache, orderNo, headerProd, headerClient);
+        }
+
+        // ── STEP 2: Fetch mould-planning summary in background to enrich rows ──
+        // This is purely additive — it fills in mould_no / plan_qty from ERP data.
+        // If it's slow or fails the user already sees all the plan data above.
+        try {
+            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+            // 3-second timeout so a slow API never blocks the UI
+            const fetchWithTimeout = (url, ms) => {
+                const ctrl = new AbortController();
+                const timer = setTimeout(() => ctrl.abort(), ms);
+                return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+            };
+            const baseUrl = api._base || window.location.origin;
+            const raw = await fetchWithTimeout(
+                `${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/details`, 3000
+            );
+            if (!raw.ok) throw new Error('non-ok');
+            const resJson = await raw.json();
+            const summaryItems = (resJson && resJson.data) ? resJson.data : [];
+
+            if (summaryItems.length > 0) {
+                // Re-derive header from summary if better info available
+                const validSummary = summaryItems.find(s => s.product_name && s.product_name !== 'null');
+                if (validSummary) {
+                    headerProd   = validSummary.product_name;
+                    if (validSummary.client_name) headerClient = validSummary.client_name;
+                }
+
+                const enriched = summaryItems.map(s => {
+                    const mouldNo = s.mould_no || s.mouldNo;
+                    const ap = activePlans.find(p => (p.mouldNo || p.mould_no || '').trim() === (mouldNo || '').trim());
+                    if (headerProd   === 'Product Name Not Available' && ap && ap.productName) headerProd   = ap.productName;
+                    if (headerClient === 'Unknown Client'             && ap && ap.clientName)  headerClient = ap.clientName;
+                    return {
+                        isSummary: true,
+                        mouldName:   s.mould_name || s.mouldName || (ap ? ap.mouldName : 'Unknown Mould'),
+                        mouldNo,
+                        machine:     ap ? ap.machine : '-',
+                        jcNo:        ap ? (ap.jcNo || ap.jc_no || ap.job_card_no) : (s.jc_no || '-'),
+                        status:      ap ? ap.status : 'Pending',
+                        planQty:     s.plan_qty || s.qty || (ap ? ap.planQty : 0),
+                        balQty:      ap ? ap.balQty : (s.plan_qty || s.qty || 0),
+                        producedQty: ap ? ap.producedQty : 0,
+                        _planObj:    ap
+                    };
+                });
+                // Only update if modal is still open for this order
+                if (modal.classList.contains('active') &&
+                    document.getElementById('om-orderno')?.textContent === orderNo) {
+                    _omRenderRows(enriched, orderNo, headerProd, headerClient);
+                }
+            }
+        } catch (e) {
+            // Timeout or network error — cached data already showing, nothing to do
+            if (e.name !== 'AbortError') console.warn('[OrderModal] summary fetch failed:', e.message);
+        }
+
+        // Final: ensure header is set
+        if (document.getElementById('om-product')?.textContent === 'Product Name') {
+            document.getElementById('om-product').textContent = headerProd;
+            document.getElementById('om-client').textContent  = headerClient;
+            document.getElementById('om-orderno').textContent = orderNo;
+        }
     };
 
     window.closeOrderModal = function () {
@@ -850,6 +891,8 @@
                         draggable="true"
                         data-pid="${p.id}"
                         data-machine="${m.code}"
+                        data-primary-machine="${esc(p.primaryMachine || '')}"
+                        data-secondary-machine="${esc(p.secondaryMachine || '')}"
                         ondragstart="window.handleDragStart(event, this)"
                         ondragend="window.handleDragEnd(event, this)"
                         onclick="window.openOrderModal('${esc(p.orderNo)}')"
@@ -1025,11 +1068,40 @@
         con.innerHTML = '<div style="padding:60px; text-align:center; color:#64748b"><div class="spinner-border text-primary spinner-border-sm"></div><div class="mt-2" style="font-size:0.9rem">Loading...</div></div>';
         try {
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+            
+            // Dynamic cache invalidation wrapper for mutations
+            if (api && typeof api.post === 'function' && !api.post._isCacheWrapped) {
+                const originalPost = api.post;
+                api.post = async function(url, ...args) {
+                    if (url.includes('/planning/') || url.includes('/sync/')) {
+                        console.log('[Cache] Plans updated via post. Invalidating timeline cache...', url);
+                        window._planBoardCache.data = null;
+                        window._planBoardCache.timestamp = 0;
+                    }
+                    return originalPost.call(this, url, ...args);
+                };
+                api.post._isCacheWrapped = true;
+            }
+
             const processQuery = `process=${encodeURIComponent(currentProcess)}`;
-            const [mRes, pRes] = await Promise.all([
-                api.get(`/masters/machines?${processQuery}`),
-                api.get(`/planning/board?${processQuery}`)
-            ]);
+            
+            // Serve from 2-minute client memory cache if valid
+            const now = Date.now();
+            let pRes;
+            if (window._planBoardCache.data && 
+                window._planBoardCache.process === currentProcess && 
+                (now - window._planBoardCache.timestamp) < window._planBoardCache.ttl) {
+                console.log('[Cache] Served timeline plan board from 2-minute memory cache.');
+                pRes = window._planBoardCache.data;
+            } else {
+                console.log('[Cache] Plan board cache miss. Fetching fresh data...');
+                pRes = await api.get(`/planning/board?${processQuery}`);
+                window._planBoardCache.data = pRes;
+                window._planBoardCache.timestamp = now;
+                window._planBoardCache.process = currentProcess;
+            }
+
+            const mRes = await api.get(`/masters/machines?${processQuery}`);
             window.allMachines = ((mRes && mRes.data) ? mRes.data : []).map(machine => ({
                 code: machine.machine,
                 name: machine.machine,
@@ -1333,4 +1405,145 @@
 
     // Auto-init (Using Super Name)
     if (new URLSearchParams(window.location.search).get('view') === 'timeline') setTimeout(() => { window.superLoadTimeline(); }, 200);
+
+    // --- Interactive Machine Selector Modal ---
+    // ── Machine Selector: INSTANT — uses data already loaded with the timeline.
+    //    Primary/Secondary machines come from plan._planObj (already in memory).
+    //    No API call, no loading delay.
+    window.openMachineSelector = function(event, planId, currentMachine, primaryMachine, secondaryMachine) {
+        event.stopPropagation();
+
+        // Local HTML-escape (the outer `esc` consts are scoped to other functions).
+        const esc = (s) => (s || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+        // Build options from data already in memory — 0ms
+        const norm = s => String(s||'').trim().toUpperCase();
+        const currNorm = norm(currentMachine);
+        const machines = [];
+
+        const prim = String(primaryMachine||'').trim();
+        if (prim) {
+            machines.push({ machine: prim, type: 'Primary' });
+        }
+        if (secondaryMachine) {
+            String(secondaryMachine).split(',').forEach(m => {
+                const t = m.trim();
+                if (t && norm(t) !== norm(prim)) {
+                    machines.push({ machine: t, type: 'Secondary' });
+                }
+            });
+        }
+        // Always include current machine so user can see where it is now
+        if (currNorm && !machines.some(m => norm(m.machine) === currNorm)) {
+            machines.push({ machine: (currentMachine||'').trim(), type: 'Current' });
+        }
+
+        const modalId = 'pjdMachineSelectModal';
+        let oldModal = document.getElementById(modalId);
+        if (oldModal) oldModal.remove();
+
+        let optHtml = '';
+        if (!machines.length) {
+            optHtml = `<div style="padding:20px;text-align:center;color:#94a3b8">
+                <div style="font-size:2rem;margin-bottom:8px">🔍</div>
+                <div style="font-weight:700;color:#64748b;margin-bottom:4px">No machines configured</div>
+                <div style="font-size:0.85rem">Set Primary / Secondary machine in Mould Master for this mould, then reload the timeline.</div>
+            </div>`;
+        } else {
+            optHtml = machines.map(opt => {
+                const isCurrent = norm(opt.machine) === currNorm;
+                const typeLC = (opt.type || '').toLowerCase();
+                const badgeBg  = typeLC === 'primary' ? '#dcfce7' : typeLC === 'secondary' ? '#e0f2fe' : '#f1f5f9';
+                const badgeTxt = typeLC === 'primary' ? '#15803d' : typeLC === 'secondary' ? '#0369a1'  : '#475569';
+                const border   = isCurrent ? 'border:2px solid #3b82f6;background:#eff6ff' : 'border:1px solid #e2e8f0;background:#fff';
+                const check    = isCurrent
+                    ? '<i class="bi bi-check-circle-fill" style="color:#3b82f6;font-size:1.1rem;margin-left:auto"></i>'
+                    : '<i class="bi bi-circle" style="color:#cbd5e1;font-size:1.1rem;margin-left:auto"></i>';
+                const clickAttr = isCurrent ? '' :
+                    `onclick="window.executeMachineChange('${planId}','${esc(opt.machine)}','${modalId}')"`;
+                const hover = isCurrent ? '' :
+                    `onmouseover="this.style.borderColor='#93c5fd';this.style.background='#f8fafc'" onmouseout="this.style.borderColor='#e2e8f0';this.style.background='#fff'"`;
+                return `<div ${clickAttr} ${hover}
+                    style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:10px;${isCurrent?'cursor:default':'cursor:pointer'};margin-bottom:8px;transition:all 0.15s;${border}">
+                    <div style="flex:1">
+                        <div style="font-size:1.05rem;font-weight:800;color:#0f172a">${esc(opt.machine)}</div>
+                        <div style="margin-top:3px">
+                            <span style="font-size:0.72rem;font-weight:800;text-transform:uppercase;background:${badgeBg};color:${badgeTxt};padding:2px 7px;border-radius:4px">${esc(opt.type)}</span>
+                            ${isCurrent ? ' <span style="font-size:0.75rem;color:#3b82f6;font-weight:700">— Current</span>' : ''}
+                        </div>
+                    </div>
+                    ${check}
+                </div>`;
+            }).join('');
+            optHtml = `<div style="color:#64748b;font-size:0.85rem;margin-bottom:12px;padding:8px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">
+                <i class="bi bi-info-circle" style="color:#3b82f6"></i>
+                Select a machine — plan goes <strong>last</strong> on target machine with status <strong>Stopped</strong>.
+            </div>
+            <div style="max-height:340px;overflow-y:auto;padding:2px">${optHtml}</div>`;
+        }
+
+        const markup = `
+            <div id="${modalId}" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(15,23,42,0.45);z-index:999999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
+                <div style="background:white;padding:28px 32px;border-radius:16px;width:460px;max-width:94%;box-shadow:0 25px 50px -12px rgba(0,0,0,0.3);display:flex;flex-direction:column;gap:18px;animation:popIn 0.2s cubic-bezier(0.175,0.885,0.32,1.275)">
+                    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f1f5f9;padding-bottom:12px;">
+                        <div style="font-weight:800;font-size:1.2rem;color:#0f172a;display:flex;align-items:center;gap:8px">
+                            <i class="bi bi-cpu" style="color:#3b82f6"></i> Change Machine
+                        </div>
+                        <button onclick="document.getElementById('${modalId}').remove()" style="border:none;background:none;cursor:pointer;font-size:1.5rem;color:#64748b;font-weight:bold;line-height:1">&times;</button>
+                    </div>
+                    <div>${optHtml}</div>
+                </div>
+            </div>
+            <style>@keyframes popIn{from{transform:scale(0.9);opacity:0}to{transform:scale(1);opacity:1}}</style>`;
+        document.body.insertAdjacentHTML('beforeend', markup);
+    };
+
+    window.executeMachineChange = async function(planId, targetMachine, modalId) {
+        const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+        if (!api) {
+            alert('API client not found');
+            return;
+        }
+        
+        const modal = document.getElementById(modalId);
+        const container = modal.querySelector('div');
+        const originalContent = container.innerHTML;
+        container.innerHTML = `
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px; gap:16px;">
+                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                <div style="font-weight:700; color:#0f172a; font-size:1.1rem;">Updating Machine...</div>
+                <div style="color:#64748b; font-size:0.85rem;">Rescheduling plan to ${targetMachine}</div>
+            </div>
+        `;
+        
+        try {
+            const res = await api.post('/planning/move', {
+                rowId: planId,
+                targetMachine: targetMachine
+            });
+            
+            if (res && res.ok) {
+                if (window.JPSMS && window.JPSMS.toast) {
+                    window.JPSMS.toast('Machine updated successfully!', 'success');
+                }
+                modal.remove();
+                
+                window.closeOrderModal();
+                
+                if (typeof window.superLoadTimeline === 'function') {
+                    window.superLoadTimeline();
+                } else if (typeof window.loadTimeline === 'function') {
+                    window.loadTimeline();
+                } else {
+                    window.location.reload();
+                }
+            } else {
+                throw new Error(res?.error || 'Failed to change machine');
+            }
+        } catch(e) {
+            console.error(e);
+            alert('Error changing machine: ' + e.message);
+            modal.innerHTML = originalContent;
+        }
+    };
 })();

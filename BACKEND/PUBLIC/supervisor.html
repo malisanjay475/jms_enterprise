@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#2563eb">
   <link rel="stylesheet" href="/assets/app.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
   <style>
     :root {
       --phone: 460px;
@@ -2773,6 +2773,15 @@
         return;
       }
 
+      // ── Clear ALL stale over-production alerts IMMEDIATELY (synchronous, before any fetch).
+      //    This runs every time regardless of API outcome, so alerts from other jobs
+      //    can never survive a job switch.
+      document.querySelectorAll('#over-prod-alert').forEach(n => n.remove());
+
+      // Snapshot the PlanID now — used later to guard against race conditions where
+      // loadQueue() changes session.activeJob while this async call is in-flight.
+      const _thisPlanId = job.PlanID;
+
       const tbody = el('color-plan-body');
       if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="muted">Loading colors...</td></tr>';
       show('color-plan-card');
@@ -2855,14 +2864,15 @@
           trTot.innerHTML = `<td><span class="color-badge" style="font-weight:700">Required</span></td><td><span class="qty-pill" style="font-weight:700">${Math.round(sumPlan)}</span></td><td>${totalBalHtml}</td>`;
           if (tbody) tbody.appendChild(trTot);
 
-          // Over-production alert banner (shown inside colour card)
-          const existingAlert = el('over-prod-alert');
-          if (existingAlert) existingAlert.remove();
-          if (overProducedList.length > 0) {
+          // Only add alert if this render is still for the currently active job.
+          // Guards against race: loadQueue() may have changed session.activeJob
+          // while the async API call was in-flight.
+          if (overProducedList.length > 0 && _thisPlanId === (session.activeJob?.PlanID ?? _thisPlanId)) {
             const alertDiv = document.createElement('div');
             alertDiv.id = 'over-prod-alert';
+            alertDiv.dataset.planId = String(_thisPlanId); // tag with plan so origin is traceable
             alertDiv.style.cssText = 'margin-top:10px; background:#fef2f2; border:1px solid #fca5a5; border-radius:10px; padding:10px 14px; font-size:12px; color:#b91c1c; font-weight:700';
-            alertDiv.innerHTML = `<div style="font-size:13px; margin-bottom:4px">⚠️ OVER PRODUCTION DETECTED</div>` +
+            alertDiv.innerHTML = `<div style="font-size:13px; margin-bottom:4px">⚠️ OVER PRODUCTION — ${job.Machine || ''}</div>` +
               overProducedList.map(o =>
                 `<div>• ${o.name}: Plan ${o.qty} | Produced ${o.produced} | <b>Extra ${o.excess} pcs</b></div>`
               ).join('');
@@ -3255,7 +3265,8 @@
       jobsDiv.innerHTML = '';
       el('no-jobs').classList.add('hidden');
 
-      // Reset DPR area
+      // Reset DPR area — clear any stale over-production alerts from the previous job
+      document.querySelectorAll('#over-prod-alert').forEach(n => n.remove());
       session.activeJob = null;
       hide('dpr-form');
       hide('std-actual-card');
@@ -3322,6 +3333,10 @@
 
           // ✅ NEW: first visible row is ALWAYS the active job
           const activeIndex = 0;
+          // Clear stale over-production alerts whenever the active job changes
+          if (!session.activeJob || session.activeJob.PlanID !== (mapped[activeIndex].job || {}).PlanID) {
+            document.querySelectorAll('#over-prod-alert').forEach(n => n.remove());
+          }
           session.activeJob = mapped[activeIndex].job || null;
 
           jobsDiv.innerHTML = '';
@@ -3465,7 +3480,13 @@
         loadUsedSlots();
         show('dpr-form');
         showPage('sec-dpr', el('tab-dpr'));
-        document.getElementById('sec-dpr').scrollIntoView({ behavior: 'smooth' });
+        // Scroll to Colour & QTY table so operator immediately sees the colour breakdown
+        const _colorCard = el('color-plan-card');
+        if (_colorCard) {
+          _colorCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          document.getElementById('sec-dpr').scrollIntoView({ behavior: 'smooth' });
+        }
       } catch (e) { alert('Error opening DPR Form: ' + e.message); console.error(e); }
     }
 

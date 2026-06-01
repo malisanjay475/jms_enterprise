@@ -230,6 +230,9 @@ function registerRoutes(app, deps) {
 
   app.use('/api/erp', services.erpRoutes);
   app.use('/api/local-servers', services.localServerService.router);
+  // Key-guarded sync-staleness alert (polled by scheduled GitHub Action).
+  const { createSyncAlertRoute } = require('../local-servers/syncAlertRoute');
+  app.use('/api/sync-alert', createSyncAlertRoute(pool));
   app.use('/api/vendor', services.vendorRoutes);
   app.use('/api/sync', services.syncService.router);
   app.use('/api/update', services.updaterService.router);

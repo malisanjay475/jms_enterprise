@@ -5,7 +5,7 @@ FROM node:20-alpine
 # tzdata: Alpine has no timezone database; without it Node's local-time methods
 # (getHours/getDate/etc.) fall back to UTC, which makes "today"/shift-date logic
 # show the previous day on a UTC host. The factory runs in IST (Asia/Kolkata).
-RUN apk add --no-cache postgresql-client su-exec tzdata
+RUN apk add --no-cache postgresql-client su-exec tzdata gzip
 
 # Install PM2 globally so it is available on $PATH for all users
 RUN npm install -g pm2@5
@@ -22,6 +22,9 @@ COPY server.js ./server.js
 
 # Copy remaining source (includes ecosystem.config.js)
 COPY . .
+
+# Pre-compress static assets (.html, .js, .css) to serve them directly via Nginx gzip_static
+RUN find PUBLIC -type f \( -name "*.html" -o -name "*.js" -o -name "*.css" \) -exec gzip -9 -k {} \;
 
 RUN chmod +x /app/docker-entrypoint.sh
 

@@ -894,8 +894,8 @@ const LEGACY_UPLOADS_DIR = path.join(BACKEND_ROOT, 'public', 'uploads');
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
-      // HTML pages must always revalidate so deployments are picked up immediately
-      res.setHeader('Cache-Control', 'no-cache');
+      // Cache for 5 minutes with a 1-minute stale-while-revalidate background refresh
+      res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
     } else if (path.basename(filePath) === 'app.js') {
       // app.js carries the version badge — never serve stale
       res.setHeader('Cache-Control', 'no-cache');
@@ -4204,6 +4204,19 @@ async function initializeLegacyRuntime() {
             -- Factory isolation (required for multi-factory support)
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS factory_id INTEGER;
 
+            -- One-time backfill: older plans were created before factory_id was
+            -- persisted, leaving factory_id NULL. The board read filters on an
+            -- exact factory_id match, so those (already approved) plans never
+            -- appeared on Master Plan / Machine Timeline. Infer factory_id from
+            -- plant (DUNGRA=1, SHIVANI=2). Idempotent: only touches NULL rows.
+            UPDATE plan_board
+            SET factory_id = CASE
+                WHEN UPPER(TRIM(plant)) LIKE 'DUNGRA%'  THEN 1
+                WHEN UPPER(TRIM(plant)) LIKE 'SHIVANI%' THEN 2
+            END
+            WHERE factory_id IS NULL
+              AND (UPPER(TRIM(plant)) LIKE 'DUNGRA%' OR UPPER(TRIM(plant)) LIKE 'SHIVANI%');
+
             CREATE TABLE IF NOT EXISTS plan_job_card_approval_history (
                 id SERIAL PRIMARY KEY,
                 plan_board_id INTEGER,
@@ -4673,7 +4686,12 @@ async function initializeLegacyRuntime() {
       await q(`ALTER TABLE or_jr_report DROP CONSTRAINT IF EXISTS or_jr_report_pkey`);
       // 2. Drop old 3-part index (included plan_date — caused duplicate rows when plan_date changed)
       await q(`DROP INDEX IF EXISTS idx_or_jr_composite_unique`).catch(() => {});
-      // 3. Create 2-part unique index: OR No + JC No only
+      // 3. CRITICAL: Drop the old single-column unique index on or_jr_no alone.
+      //    If this index exists, inserting a second row for the same OR with a different
+      //    JC number fails silently — the INSERT catches the error and skips the row,
+      //    so only one of the two rows for the same OR survives.
+      await q(`DROP INDEX IF EXISTS idx_or_jr_report_unique_no`).catch(() => {});
+      // 4. Create 2-part unique index: OR No + JC No only
       //    One row per (OR/JR No + Job Card No) combination.
       //    Same OR with different JC = separate rows (both coexist and update independently).
       await q(`
@@ -7364,9 +7382,9 @@ app.get('/api/planning/board', async (req, res) => {
 
     const rows = await q(
       `
-    SELECT
-    pb.id,
-      pb.plan_id      AS "planId",
+      SELECT
+        pb.id,
+        pb.plan_id      AS "planId",
         pb.plant,
         COALESCE(NULLIF(TRIM(pb.building), ''), NULLIF(TRIM(planMachine.building), ''), NULLIF(TRIM(planMachine.machine_process), ''), 'General') AS building,
         COALESCE(NULLIF(TRIM(pb.line), ''), NULLIF(TRIM(planMachine.line), ''), CASE WHEN COALESCE(NULLIF(TRIM(planMachine.machine_process), ''), 'Moulding') = 'Moulding' THEN '1' ELSE 'Machines' END) AS line,
@@ -7374,32 +7392,24 @@ app.get('/api/planning/board', async (req, res) => {
         COALESCE(NULLIF(TRIM(planMachine.machine_process), ''), 'Moulding') AS "machineProcess",
         pb.seq,
         pb.order_no     AS "orderNo",
-          pb.item_code    AS "itemCode",
-            pb.item_name    AS "itemName",
-    COALESCE(pb.mould_name, m.mould_name, 'Unknown') AS "mouldName",
-      o.client_name    AS "clientName",
+        COALESCE(pb.mould_name, m.mould_name, 'Unknown') AS "mouldName",
+        o.client_name    AS "clientName",
         mMaster.cycle_time AS "cycleTime",
         -- Fetch Mould No from Master (Strict => Fallback to Mould Master)
         COALESCE(mps.mould_no, m.mould_number, '-') AS "mouldNo",
-
-
-          mps.jr_qty       AS "jrQty",
-          mps.mould_item_qty AS "targetQty",
-          mps.tonnage      AS "tonnage",
-          mps.cavity       AS "cavity",
-          mps.uom          AS "uom",
-          ojr.job_card_no  AS "jcNo",
-          pb.job_card_given,
-
-
-          pb.plan_qty     AS "planQty",
+        mps.cavity       AS "cavity",
+        ojr.job_card_no  AS "jcNo",
+        pb.job_card_given,
+        pb.plan_qty     AS "planQty",
             pb.bal_qty      AS "balQty",
               pb.start_date   AS "startDate",
                 pb.end_date     AS "endDate",
                   pb.status,
                   o.priority     AS "priority",
                     COALESCE(dpr.qty, 0) AS "producedQty",
-                    dpr.first_entry AS "firstDprEntry"
+                    dpr.first_entry AS "firstDprEntry",
+                    COALESCE(NULLIF(TRIM(mMaster.primary_machine), ''), NULLIF(TRIM(m.primary_machine), ''), '') AS "primaryMachine",
+                    COALESCE(NULLIF(TRIM(mMaster.secondary_machine), ''), NULLIF(TRIM(m.secondary_machine), ''), '') AS "secondaryMachine"
       FROM plan_board pb
       LEFT JOIN orders o ON o.order_no = pb.order_no
       LEFT JOIN machines planMachine
@@ -8259,6 +8269,7 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       WHERE TRIM(COALESCE(d0.order_no, '')) = TRIM(COALESCE(r.or_jr_no, ''))
         AND (
           TRIM(COALESCE(d0.mould_name, '')) = TRIM(COALESCE(r.mould_name, ''))
+          OR TRIM(COALESCE(d0.mould_no, '')) = TRIM(COALESCE(r.mould_no, ''))
           OR TRIM(COALESCE(d0.item_code, '')) = TRIM(COALESCE(r.mould_no, ''))
         )
       ORDER BY d0.id DESC
@@ -8717,12 +8728,14 @@ app.post('/api/planning/create', async (req, res) => {
         (plan_id, plant, building, line, machine, seq,
           order_no, item_code, item_name, mould_name, mould_code,
           plan_qty, bal_qty, our_code, batch_no, batch_qty, mould_item_qty,
-          consumption_ratio_qty, colour_details, created_by, created_at, start_date, end_date, status, updated_at)
+          consumption_ratio_qty, colour_details, created_by, created_at, start_date, end_date, status, updated_at,
+          factory_id)
         VALUES
         ($1, $2, $3, $4, $5, $6,
           $7, $8, $9, $10, $11,
           $12, $13, $14, $15, $16, $17,
-          $18, $19::jsonb, $20, NOW(), $21, $22, 'PLANNED', NOW())
+          $18, $19::jsonb, $20, NOW(), $21, $22, 'PLANNED', NOW(),
+          $23)
         RETURNING id
         `,
         [
@@ -8747,7 +8760,8 @@ app.post('/api/planning/create', async (req, res) => {
           JSON.stringify(Array.isArray(p.colourDetails) ? p.colourDetails : []),
           p.createdBy || requestUsername,
           p.startDate || null,
-          p.endDate || null
+          p.endDate || null,
+          requestFactoryId
         ]
       );
 
@@ -9654,17 +9668,89 @@ app.post('/api/planning/create', async (req, res) => {
 });
 
 
+// Helper to strip trailing space and number without regex (immune to ReDoS)
+function stripTrailingNumberAndSpace(str) {
+  if (typeof str !== 'string') return '';
+  let s = str.trim();
+  if (!s) return '';
+  let i = s.length - 1;
+  if (s[i] < '0' || s[i] > '9') {
+    return s;
+  }
+  while (i >= 0 && s[i] >= '0' && s[i] <= '9') {
+    i--;
+  }
+  let spaceCount = 0;
+  while (i >= 0 && (s[i] === ' ' || s[i] === '\t')) {
+    spaceCount++;
+    i--;
+  }
+  if (spaceCount > 0) {
+    return s.slice(0, i + 1).trim();
+  }
+  return s;
+}
+
+
 // 5. DROP MOULD API
 app.post('/api/planning/drop', async (req, res) => {
   try {
     const { orderNo, itemCode, mouldNo, mouldName, remarks } = req.body;
     if (!orderNo || !mouldName) return res.json({ ok: false, error: 'Missing Info' });
 
-    // 1. Insert Drop
-    await q(`
-      INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
-      VALUES ($1, $2, $3, $4, $5)
-    `, [orderNo, itemCode, mouldNo, mouldName, remarks]);
+    const targetFamily = stripTrailingNumberAndSpace(mouldNo);
+
+    if (targetFamily) {
+      // Find all variants in this family for the order
+      const variants = await q(`
+        SELECT DISTINCT ON (TRIM(COALESCE(s.mould_no, '')))
+          COALESCE(
+            NULLIF(TRIM(COALESCE(m.mould_name, '')), ''),
+            NULLIF(TRIM(COALESCE(s.mould_name, '')), ''),
+            NULLIF(TRIM(COALESCE(s.product_name, '')), ''),
+            TRIM(COALESCE(s.mould_no, ''))
+          ) AS mould_name,
+          TRIM(COALESCE(s.mould_no, '')) AS mould_no
+        FROM mould_planning_summary s
+        LEFT JOIN moulds m
+          ON TRIM(COALESCE(m.mould_number, '')) = TRIM(COALESCE(s.mould_no, ''))
+        WHERE TRIM(s.or_jr_no) = TRIM($1)
+          AND regexp_replace(TRIM(COALESCE(s.mould_no, '')), '\\s+\\d+$', '') = TRIM($2)
+      `, [orderNo, targetFamily]);
+
+      if (variants.length > 0) {
+        for (const variant of variants) {
+          // Check if already dropped
+          const existing = await q(`
+            SELECT id FROM planning_drops 
+            WHERE TRIM(COALESCE(order_no, '')) = TRIM($1)
+              AND (
+                TRIM(COALESCE(mould_name, '')) = TRIM($2)
+                OR TRIM(COALESCE(item_code, '')) = TRIM($3)
+              )
+          `, [orderNo, variant.mould_name, variant.mould_no]);
+
+          if (existing.length === 0) {
+            await q(`
+              INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
+              VALUES ($1, $2, $3, $4, $5)
+            `, [orderNo, variant.mould_no, variant.mould_no, variant.mould_name, remarks]);
+          }
+        }
+      } else {
+        // Fallback to inserting just the target mould if no variants found in summary
+        await q(`
+          INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
+          VALUES ($1, $2, $3, $4, $5)
+        `, [orderNo, itemCode, mouldNo, mouldName, remarks]);
+      }
+    } else {
+      // No family name could be derived, just drop target mould
+      await q(`
+        INSERT INTO planning_drops (order_no, item_code, mould_no, mould_name, remarks)
+        VALUES ($1, $2, $3, $4, $5)
+      `, [orderNo, itemCode, mouldNo, mouldName, remarks]);
+    }
 
     // 2. Check Completion
     await checkOrderCompletion(orderNo);
@@ -9672,6 +9758,74 @@ app.post('/api/planning/drop', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('/api/planning/drop', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// 5A. UNDROP MOULD API
+app.post('/api/planning/undrop', async (req, res) => {
+  try {
+    const { orderNo, mouldNo, mouldName } = req.body;
+    if (!orderNo || !mouldName) return res.json({ ok: false, error: 'Missing Info' });
+
+    const targetFamily = stripTrailingNumberAndSpace(mouldNo);
+
+    if (targetFamily) {
+      // Find all variants in this family for the order
+      const variants = await q(`
+        SELECT DISTINCT ON (TRIM(COALESCE(s.mould_no, '')))
+          COALESCE(
+            NULLIF(TRIM(COALESCE(m.mould_name, '')), ''),
+            NULLIF(TRIM(COALESCE(s.mould_name, '')), ''),
+            NULLIF(TRIM(COALESCE(s.product_name, '')), ''),
+            TRIM(COALESCE(s.mould_no, ''))
+          ) AS mould_name,
+          TRIM(COALESCE(s.mould_no, '')) AS mould_no
+        FROM mould_planning_summary s
+        LEFT JOIN moulds m
+          ON TRIM(COALESCE(m.mould_number, '')) = TRIM(COALESCE(s.mould_no, ''))
+        WHERE TRIM(s.or_jr_no) = TRIM($1)
+          AND regexp_replace(TRIM(COALESCE(s.mould_no, '')), '\\s+\\d+$', '') = TRIM($2)
+      `, [orderNo, targetFamily]);
+
+      if (variants.length > 0) {
+        // Delete all variants of that family from planning_drops
+        const mouldNames = variants.map(v => v.mould_name);
+        const mouldNos = variants.map(v => v.mould_no);
+        await q(`
+          DELETE FROM planning_drops 
+          WHERE order_no = $1 
+            AND (mould_name = ANY($2::text[]) OR item_code = ANY($3::text[]) OR mould_no = ANY($3::text[]))
+        `, [orderNo, mouldNames, mouldNos]);
+      } else {
+        // Fallback: delete just the specific mould
+        await q(`
+          DELETE FROM planning_drops 
+          WHERE order_no = $1 
+            AND (mould_name = $2 OR item_code = $3 OR mould_no = $3)
+        `, [orderNo, mouldName, mouldNo]);
+      }
+    } else {
+      // Fallback
+      await q(`
+        DELETE FROM planning_drops 
+        WHERE order_no = $1 
+          AND (mould_name = $2 OR item_code = $3 OR mould_no = $3)
+      `, [orderNo, mouldName, mouldNo]);
+    }
+
+    // Force Status back to 'Pending' if Completed
+    await q(
+      `UPDATE orders SET status = 'Pending', updated_at = NOW() WHERE order_no = $1 AND status = 'Completed'`,
+      [orderNo]
+    );
+
+    // [Real-Time Sync]
+    syncService.triggerSync();
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('/api/planning/undrop', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
@@ -9956,6 +10110,72 @@ app.post('/api/planning/restore', async (req, res) => {
 });
 
 
+// GET /api/planning/mould-machines?mould_name=X&plan_id=Y
+// Returns Primary + Secondary machines configured in Mould Master for a given mould.
+// Falls back to plan_board data if plan_id is provided and mould master has no entry.
+app.get('/api/planning/mould-machines', async (req, res) => {
+  try {
+    const { mould_name, plan_id } = req.query;
+    const factoryId = getFactoryId(req);
+
+    // Try to resolve mould name from plan if not provided
+    let resolvedMouldName = String(mould_name || '').trim();
+    if (!resolvedMouldName && plan_id) {
+      const pbRows = await q(
+        `SELECT mould_name FROM plan_board WHERE plan_id = $1 OR CAST(id AS TEXT) = $1 LIMIT 1`,
+        [String(plan_id)]
+      );
+      if (pbRows.length) resolvedMouldName = pbRows[0].mould_name || '';
+    }
+
+    if (!resolvedMouldName) return res.json({ ok: true, machines: [] });
+
+    // Look up primary + secondary machines in Mould Master
+    const rows = await q(
+      `SELECT primary_machine, secondary_machine
+       FROM moulds
+       WHERE mould_name = $1
+       AND (factory_id = $2 OR ($2 IS NULL AND factory_id IS NULL) OR $2 IS NULL)
+       ORDER BY id LIMIT 1`,
+      [resolvedMouldName, factoryId]
+    );
+
+    const machines = [];
+    if (rows.length) {
+      const prim = (rows[0].primary_machine || '').trim();
+      const sec  = (rows[0].secondary_machine || '').trim();
+      if (prim) machines.push({ machine: prim, type: 'Primary' });
+      if (sec) {
+        sec.split(',').forEach(m => {
+          const t = m.trim();
+          if (t && t.toUpperCase() !== prim.toUpperCase()) {
+            machines.push({ machine: t, type: 'Secondary' });
+          }
+        });
+      }
+    }
+
+    // Also include current machine if not already in list (from plan_board)
+    if (plan_id) {
+      const cur = await q(
+        `SELECT machine FROM plan_board WHERE plan_id = $1 OR CAST(id AS TEXT) = $1 LIMIT 1`,
+        [String(plan_id)]
+      );
+      if (cur.length && cur[0].machine) {
+        const curM = cur[0].machine.trim();
+        if (curM && !machines.some(m => m.machine.toUpperCase() === curM.toUpperCase())) {
+          machines.push({ machine: curM, type: 'Current' });
+        }
+      }
+    }
+
+    res.json({ ok: true, machines, mouldName: resolvedMouldName });
+  } catch (e) {
+    console.error('planning/mould-machines', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // POST /api/planning/move
 // Body: { rowId, targetMachine }
 app.post('/api/planning/move', async (req, res) => {
@@ -9971,20 +10191,17 @@ app.post('/api/planning/move', async (req, res) => {
     if (!planRes.length) return res.json({ ok: false, error: 'Plan not found' });
     const plan = planRes[0];
 
-    // 2. Update Machine (Auto-Stop if Running)
+    // 2. Update Machine & Status (Always Stop on Move/Drag)
     const isRunning = (plan.status || '').toUpperCase() === 'RUNNING' || (plan.status || '').toUpperCase() === 'Running';
 
-    if (isRunning) {
-      await q("UPDATE plan_board SET machine = $1, status = 'Stopped', updated_at = NOW() WHERE id = $2", [targetMachine, rowId]);
+    await q("UPDATE plan_board SET machine = $1, status = 'Stopped', updated_at = NOW() WHERE id = $2", [targetMachine, rowId]);
 
+    if (isRunning) {
       // Log the auto-stop
       await q(
         "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'AUTO_STOP_MOVE', $2, 'System')",
         [rowId, JSON.stringify({ from: plan.machine, to: targetMachine, reason: 'Moved while running' })]
       );
-    } else {
-      // Just move
-      await q('UPDATE plan_board SET machine = $1, updated_at = NOW() WHERE id = $2', [targetMachine, rowId]);
     }
 
     // 4. Handle Resequencing
@@ -9997,12 +10214,8 @@ app.post('/api/planning/move', async (req, res) => {
       [targetMachine, rowId]
     );
 
-    // B. Determine Insert Index
-    let insertIdx = allPlans.length; // Default: Append
-    if (dropBeforeId) {
-      const foundIdx = allPlans.findIndex(p => String(p.id) === String(dropBeforeId));
-      if (foundIdx !== -1) insertIdx = foundIdx;
-    }
+    // B. Determine Insert Index - Always append to the very end (Comes In Last)
+    let insertIdx = allPlans.length;
 
     // C. Insert Moved Plan
     allPlans.splice(insertIdx, 0, { id: rowId });
@@ -13749,14 +13962,15 @@ app.get('/api/planning/orders/:orderNo/details', async (req, res) => {
       // I need to reconstruct this.
     }
 
-    // RE-WRITING THE BLOCK TO SUPPORT FACTORY ID properly
     let sqlQuery = `
 SELECT
 s.*,
   m.id as mould_id,
   m.tonnage as master_tonnage,
   m.no_of_cav as master_cav,
-  m.cycle_time as master_ct
+  m.cycle_time as master_ct,
+  m.primary_machine,
+  m.secondary_machine
       FROM mould_planning_summary s
       LEFT JOIN moulds m ON m.mould_number = s.mould_no 
       WHERE s.or_jr_no = $1
@@ -13779,6 +13993,8 @@ s.*,
       masterMachineRaw: r.master_tonnage || r.tonnage,
       masterCavity: r.master_cav || r.cavity,
       masterCycleTime: r.master_ct || r.cycle_time,
+      primary_machine: r.primary_machine || r.primaryMachine,
+      secondary_machine: r.secondary_machine || r.secondaryMachine,
       mould_name: r.mould_name || 'Unknown Mould',
       item_code: r.item_code,
       plan_qty: r.plan_qty

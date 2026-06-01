@@ -1,0 +1,113 @@
+name: Hourly Sync Health Check
+
+# Every 2 hours, checks whether any LOCAL factory server has stopped pushing
+# to MAIN within the staleness threshold (2h). Emails joyo44064@gmail.com when
+# sync is stale — so a silently-stuck sync is caught in hours, not days.
+#
+# HOW: MAIN's app port (9091) is firewalled from the public internet, so we do
+# NOT call it over a public URL. Instead we SSH into the VPS (same secrets the
+# backup/deploy use) and curl http://127.0.0.1:9091/api/sync-alert from inside
+# the box. This is firewall-proof and never depends on DNS / other sites.
+#
+# /api/sync-alert reads the local_servers heartbeat recorded on MAIN — the
+# correct "has the factory LOCAL server stopped pushing?" signal.
+#
+# Required repo secrets:
+#   HOSTINGER_SSH_HOST / HOSTINGER_SSH_USER / HOSTINGER_SSH_KEY  (already used by deploy)
+#   SYNC_API_KEY                          guards /api/sync-alert
+#   ALERT_EMAIL_USER / ALERT_EMAIL_PASSWORD   Gmail + app password for alerts
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jms-sync-health
+  cancel-in-progress: true
+
+jobs:
+  check-sync:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY:  ${{ secrets.SYNC_API_KEY != '' }}
+      HAS_MAIL: ${{ secrets.ALERT_EMAIL_PASSWORD != '' }}
+    steps:
+      - name: Skip if not configured
+        if: env.HAS_KEY != 'true'
+        run: echo "::warning::SYNC_API_KEY not set — skipping sync health check."
+
+      - name: Query sync health on the VPS (SSH + docker exec)
+        id: query
+        if: env.HAS_KEY == 'true'
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
+          port: 22
+          command_timeout: 5m
+          envs: SYNC_API_KEY
+          # Step exits non-zero if the app is unreachable or sync is stale,
+          # which marks this step "failure" -> the email step below fires.
+          # We run the request INSIDE the app container using node's http (the
+          # image is node:20-alpine — it has node but NOT curl). This is exactly
+          # how the Docker healthcheck reaches the app, so it works regardless of
+          # host firewall or published-port mapping.
+          script: |
+            APP="$(docker ps --format '{{.Names}}' | grep -E 'jms-enterprise-v1-app' | head -1)"
+            if [ -z "$APP" ]; then
+              echo "::error::App container (jms-enterprise-v1-app*) is not running — MAIN is DOWN."
+              exit 1
+            fi
+            RESP="$(docker exec -e SYNC_API_KEY="${SYNC_API_KEY}" "$APP" node -e '
+              const http = require("http");
+              const key = process.env.SYNC_API_KEY || "";
+              http.get("http://127.0.0.1:3000/api/sync-alert?key=" + encodeURIComponent(key), (r) => {
+                let b = "";
+                r.on("data", d => b += d);
+                r.on("end", () => { process.stdout.write(b); });
+              }).on("error", () => { process.exit(2); });
+            ' 2>/dev/null || true)"
+            echo "sync-alert response: $RESP"
+            if [ -z "$RESP" ]; then
+              echo "::error::App did not respond on port 3000 inside the container — MAIN may be DOWN."
+              exit 1
+            fi
+            OK="$(printf '%s' "$RESP" | grep -o '"ok":[a-z]*' | head -1 | cut -d: -f2)"
+            if [ "$OK" != "true" ]; then
+              echo "::error::Sync is STALE or key invalid: $RESP"
+              exit 1
+            fi
+            echo "Sync healthy."
+
+      - name: Send alert email
+        if: failure() && env.HAS_KEY == 'true' && env.HAS_MAIL == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.ALERT_EMAIL_USER }}
+          password: ${{ secrets.ALERT_EMAIL_PASSWORD }}
+          subject: "🟠 JMS SYNC ALERT — sync stale or MAIN unreachable"
+          to: joyo44064@gmail.com
+          from: JMS System Health Monitor <${{ secrets.ALERT_EMAIL_USER }}>
+          body: |
+            The 2-hourly JMS sync health check FAILED.
+
+            This means either:
+              - a LOCAL factory server stopped pushing to MAIN (sync stale), OR
+              - the MAIN app did not respond on the VPS (app may be DOWN).
+
+            Run (full logs): ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ACTION:
+            - Stale sync  -> check the factory LOCAL server is online; run
+                            force-full-push from the LOCAL app.
+            - App down    -> check the VPS / Docker container is running.

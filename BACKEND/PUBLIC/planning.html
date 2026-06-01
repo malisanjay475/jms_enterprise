@@ -12,7 +12,7 @@
   <meta name="theme-color" content="#1e293b">
 
   <!-- Icons + App CSS -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
   <link rel="stylesheet" href="/assets/app.css?v=5">
 
   <!-- Early boot: theme + auth -->
@@ -3465,6 +3465,35 @@
       return null;
     };
 
+    /* ── Plan Board API Cache (2-minute TTL) ─────────────────────────────────
+       Switching views (Kanban → Timeline → Excel) re-calls loadMachines /
+       loadMasterPlan which each hit /planning/board again. With 10+ users on
+       factory WiFi this causes unnecessary DB hits. Cache the response for 2
+       minutes — data stays fresh for normal factory workflows (shifts don't
+       change every 30 seconds).
+       Call window._planCache.invalidate() after any plan create/update/delete.
+    ────────────────────────────────────────────────────────────────────────── */
+    window._planCache = (function () {
+      const TTL = 2 * 60 * 1000; // 2 minutes
+      const store = {};           // key → { data, ts }
+
+      return {
+        async get(key, fetchFn) {
+          const entry = store[key];
+          if (entry && (Date.now() - entry.ts) < TTL) {
+            return entry.data; // cache hit — instant
+          }
+          const data = await fetchFn();
+          store[key] = { data, ts: Date.now() };
+          return data;
+        },
+        invalidate(key) {
+          if (key) delete store[key];
+          else Object.keys(store).forEach(k => delete store[k]);
+        }
+      };
+    })();
+
     window.addEventListener('DOMContentLoaded', async () => {
       // alert('DEBUG: Script started');
       const jmsShell = await waitForJmsShell();
@@ -3481,6 +3510,26 @@
       try {
         const { renderShell, api, toast, store, auth } = jmsShell;
         window.toast = toast || ((m) => alert(m)); // Expose global
+
+        /* ── Auto-invalidate plan cache on any planning mutation ──────────────
+           Every local alias ($api, j.api, client, api) points to the SAME
+           window.JPSMS.api object, so wrapping .post once covers all ~25
+           mutation call sites. Any POST to /planning/* clears the 2-min plan
+           board cache → the user always sees their own create/edit/delete/move
+           immediately, while other users still get fast cached view-switches.
+           Idempotent guard prevents double-wrapping on re-init. */
+        if (window.JPSMS && window.JPSMS.api && typeof window.JPSMS.api.post === 'function' && !window.JPSMS.api.__planCacheWrapped) {
+          const _origPost = window.JPSMS.api.post.bind(window.JPSMS.api);
+          window.JPSMS.api.post = function (url, ...rest) {
+            try {
+              if (typeof url === 'string' && url.indexOf('/planning/') !== -1 && window._planCache) {
+                window._planCache.invalidate();
+              }
+            } catch (_) { /* never let cache logic break a real request */ }
+            return _origPost(url, ...rest);
+          };
+          window.JPSMS.api.__planCacheWrapped = true;
+        }
 
         // Auth Check
         auth.requireAuth();
@@ -5340,9 +5389,11 @@
           grid.innerHTML = `<div class="line-row"><div class="line-title">Loading machines…</div></div>`;
           try {
             // Parallel Fetch: Machines + Master Plan (for status accuracy)
+            // Plan board uses 2-min cache — repeat view switches are instant.
+            const boardKey = `board|${getPlanningProcessQuerySuffix()}`;
             const [mList, pRes] = await Promise.all([
               api.get(`/masters/machines?process=${encodeURIComponent(getPlanningProcessFilter())}`),
-              api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`)
+              window._planCache.get(boardKey, () => api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`))
             ]);
 
             // Populate Global Master Plans
@@ -6087,7 +6138,10 @@
             return;
           }
 
-          visible.forEach(o => {
+          const MAX_RENDER = 80;
+          const itemsToRender = visible.slice(0, MAX_RENDER);
+
+          itemsToRender.forEach(o => {
             const el = document.createElement('div');
             el.className = 'cp-order-item';
             el.style.padding = '12px';
@@ -6181,6 +6235,22 @@
 
             list.appendChild(el);
           });
+
+          if (visible.length > MAX_RENDER) {
+            const moreEl = document.createElement('div');
+            moreEl.style.padding = '14px 12px';
+            moreEl.style.textAlign = 'center';
+            moreEl.style.color = '#0284c7';
+            moreEl.style.background = '#f0f9ff';
+            moreEl.style.border = '1px dashed #bae6fd';
+            moreEl.style.borderRadius = '16px';
+            moreEl.style.fontSize = '0.8rem';
+            moreEl.style.fontWeight = '800';
+            moreEl.style.marginTop = '10px';
+            moreEl.style.boxShadow = '0 2px 8px rgba(2,132,199,0.06)';
+            moreEl.textContent = `Showing top ${MAX_RENDER} of ${visible.length} matches. Type more to refine search.`;
+            list.appendChild(moreEl);
+          }
         }
 
         async function selectCpOrder(order, el) {
@@ -7845,6 +7915,16 @@
                   <div style="margin-top:8px; color:#475569; font-size:.88rem">
                     OR/JR summary found <strong>${esc(group.rows.length)}</strong> mould option(s) for this family. Selection happens inside popup.
                   </div>
+                  <div style="margin-top:10px; display:flex; flex-direction:column; gap:6px; background:rgba(241,245,249,0.5); border:1px solid #e2e8f0; padding:10px 12px; border-radius:12px">
+                    <div style="font-size:0.75rem; font-weight:800; color:#475569; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:2px">Mould Master Machine Compatibility</div>
+                    ${group.rows.map((r, rIdx) => `
+                      <div style="font-size:0.82rem; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+                        <strong style="color:#0f172a; font-family:monospace">${esc(r.mould_no || r.item_code || `Option ${rIdx+1}`)}</strong>
+                        <span class="tag small" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe; font-size:0.72rem; padding:1px 8px; font-weight:700">Primary: ${esc(r.primary_machine || r.primaryMachine || '-')}</span>
+                        <span class="tag small" style="background:#fff7ed; color:#c2410c; border-color:#fed7aa; font-size:0.72rem; padding:1px 8px; font-weight:700">Secondary: ${esc(r.secondary_machine || r.secondaryMachine || '-')}</span>
+                      </div>
+                    `).join('')}
+                  </div>
                   <div style="margin-top:10px; display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px; max-width:540px">
                     <div style="border:1px solid #e2e8f0; border-radius:14px; background:#fff; padding:10px 12px">
                       <div class="mini muted">Target Qty</div>
@@ -7865,19 +7945,36 @@
                   ${blockReason ? `<div style="margin-top:10px; color:#be123c; font-weight:700; font-size:.88rem">${esc(blockReason)}</div>` : ''}
                 </div>
                 <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end">
-                  <button class="btn mini secondary" type="button" data-cp-action="drop" ${group.hasPlanned ? 'disabled' : ''} style="color:#dc2626">Drop</button>
+                  ${group.hasDropped
+                    ? `<button class="btn mini secondary" type="button" data-cp-action="undrop" style="color:#059669; border-color:#a7f3d0; background:#f0fdf4">Undrop</button>`
+                    : `<button class="btn mini secondary" type="button" data-cp-action="drop" ${group.hasPlanned ? 'disabled' : ''} style="color:#dc2626">Drop</button>`
+                  }
                   <button class="btn primary" type="button" data-cp-action="select" ${blockReason ? 'disabled' : ''}>${group.rows.length > 1 ? 'Open Selection' : 'Select Mould'}</button>
                 </div>
               </div>
             `;
 
-            row.querySelector('[data-cp-action="drop"]').onclick = (e) => {
-              e.stopPropagation();
-              const first = group.rows[0] || {};
-              if (typeof window.dropCpMould === 'function') {
-                window.dropCpMould(first);
-              }
-            };
+            const dropBtn = row.querySelector('[data-cp-action="drop"]');
+            if (dropBtn) {
+              dropBtn.onclick = (e) => {
+                e.stopPropagation();
+                const first = group.rows[0] || {};
+                if (typeof window.dropCpMould === 'function') {
+                  window.dropCpMould(first);
+                }
+              };
+            }
+
+            const undropBtn = row.querySelector('[data-cp-action="undrop"]');
+            if (undropBtn) {
+              undropBtn.onclick = (e) => {
+                e.stopPropagation();
+                const first = group.rows[0] || {};
+                if (typeof window.undropCpMould === 'function') {
+                  window.undropCpMould(first);
+                }
+              };
+            }
 
             row.querySelector('[data-cp-action="select"]').onclick = (e) => {
               e.stopPropagation();
@@ -9050,13 +9147,19 @@
               };
 
               cpSearch.value = '';
+              let cpSearchTimeout = null;
               cpSearch.oninput = (e) => {
                 syncCpSearchUi();
                 resetCpOrderSelection();
-                renderCpOrders(e.target.value);
+                const val = e.target.value;
+                clearTimeout(cpSearchTimeout);
+                cpSearchTimeout = setTimeout(() => {
+                  renderCpOrders(val);
+                }, 100); // 100ms debounce
               };
               cpSearch.onkeydown = (e) => {
                 if (e.key === 'Escape' && cpSearch.value) {
+                  clearTimeout(cpSearchTimeout);
                   cpSearch.value = '';
                   syncCpSearchUi();
                   resetCpOrderSelection();
@@ -9104,7 +9207,8 @@
           tbody.innerHTML = `<div class="row"><div style="grid-column:1/-1; text-align:center; padding:20px" class="muted">Loading master plan...</div></div>`;
 
           try {
-            const res = await api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`);
+            const boardKey = `board|${getPlanningProcessQuerySuffix()}`;
+            const res = await window._planCache.get(boardKey, () => api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`));
             let plans = (res && res.data && res.data.plans) ? res.data.plans : [];
 
             // FILTER: Remove plans without assigned machines (User Request)
@@ -9432,7 +9536,7 @@
                   
                   <button class="btn icon mini master-action-btn complete" 
                      title="Complete Plan"
-                     onclick="event.stopPropagation(); window.openCompletePlanModal('${p.id}', '${esc(JSON.stringify(p))}')">
+                     onclick="event.stopPropagation(); window.openCompletePlanModal('${p.id}', '${encodeURIComponent(JSON.stringify(p))}')">
                      <i class="bi bi-check-lg" style="font-weight:bold"></i>
                   </button>`;
 
@@ -10034,6 +10138,35 @@
 
           if (res.ok || res.data?.ok) {
             toast('Mould Dropped Successfully');
+            loadCpOrders();
+            selectCpOrder(cpSelectedOrder, null);
+          } else {
+            toast('Failed: ' + (res.error || 'Unknown'), 'error');
+          }
+        } catch (e) {
+          console.error(e);
+          toast(e.message, 'error');
+        }
+      };
+
+      // -------------------------------------------------------------
+      // UNDROP MOULD HANDLER
+      // -------------------------------------------------------------
+      window.undropCpMould = async function (mould) {
+        if (!window.cpSelectedOrder) return toast('No Order Context', 'error');
+
+        if (!confirm(`Are you sure you want to Undrop this mould family for order ${window.cpSelectedOrder.orderNo}?`)) return;
+
+        try {
+          const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          const res = await api.post('/planning/undrop', {
+            orderNo: window.cpSelectedOrder.orderNo,
+            mouldNo: mould.mould_no || mould.item_code,
+            mouldName: mould.mould_name
+          });
+
+          if (res.ok || res.data?.ok) {
+            toast('Mould Restored to Plan Successfully');
             loadCpOrders();
             selectCpOrder(cpSelectedOrder, null);
           } else {

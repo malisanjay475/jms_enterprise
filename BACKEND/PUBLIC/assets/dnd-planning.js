@@ -3,7 +3,24 @@
  * Robust implementation using Global Event Delegation
  */
 
-console.log('[DnD] Module Loaded');
+// --- Visual restriction styles ---
+(function() {
+    const style = document.createElement('style');
+    style.innerHTML = `
+        .timeline-row {
+            transition: opacity 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        .track-fade {
+            opacity: 0.15 !important;
+            pointer-events: none !important;
+        }
+        .track-allowed {
+            box-shadow: 0 0 14px rgba(59, 130, 246, 0.45) !important;
+            border: 2px dashed #3b82f6 !important;
+        }
+    `;
+    document.head.appendChild(style);
+})();
 
 // --- Configuration ---
 const DND_DEBUG = true;
@@ -81,6 +98,42 @@ function handleDragStart(e) {
     setTimeout(() => document.body.removeChild(ghost), 0);
     // ---------------------------------------------
 
+    // --- Dynamic Track Fading based on Mould Master ---
+    const primStr = card.getAttribute('data-primary-machine') || '';
+    const secStr = card.getAttribute('data-secondary-machine') || '';
+    
+    const allowed = new Set();
+    const currentMachineUpper = String(machine || '').trim().toUpperCase();
+    if (currentMachineUpper) allowed.add(currentMachineUpper);
+    
+    if (primStr) {
+        primStr.split(',').forEach(m => {
+            const t = m.trim().toUpperCase();
+            if (t) allowed.add(t);
+        });
+    }
+    if (secStr) {
+        secStr.split(',').forEach(m => {
+            const t = m.trim().toUpperCase();
+            if (t) allowed.add(t);
+        });
+    }
+    
+    const hasRestrictions = (primStr.trim() !== '' || secStr.trim() !== '');
+    if (hasRestrictions) {
+        document.querySelectorAll('.timeline-row').forEach(row => {
+            const track = row.querySelector('.timeline-track');
+            if (!track) return;
+            const trackM = String(track.getAttribute('data-machine') || '').trim().toUpperCase();
+            if (!allowed.has(trackM)) {
+                row.classList.add('track-fade');
+            } else {
+                row.classList.add('track-allowed');
+            }
+        });
+        logDnD(`Restrictions active. Allowed machines: ${Array.from(allowed).join(', ')}`);
+    }
+
     // Set State
     dragSrcEl = card;
     dragPlanId = planId;
@@ -106,6 +159,13 @@ function handleDragEnd(e) {
         dragSrcEl.classList.remove('dragging');
         dragSrcEl.style.opacity = '1';
     }
+    
+    // Cleanup restricted track styles
+    document.querySelectorAll('.timeline-row').forEach(row => {
+        row.classList.remove('track-fade');
+        row.classList.remove('track-allowed');
+    });
+
     // Cleanup Check
     document.querySelectorAll('.' + HIGHLIGHT_CLASS).forEach(el => el.classList.remove(HIGHLIGHT_CLASS));
 
@@ -248,7 +308,9 @@ window.commitMove = async function () {
             closeMoveConfirm();
 
             // Refresh
-            if (typeof window.loadTimeline === 'function') {
+            if (typeof window.superLoadTimeline === 'function') {
+                window.superLoadTimeline();
+            } else if (typeof window.loadTimeline === 'function') {
                 window.loadTimeline();
             } else {
                 window.location.reload();
