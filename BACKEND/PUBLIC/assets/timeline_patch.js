@@ -224,10 +224,13 @@
 
         const fmt = (d) => d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
         const esc = (s) => (s || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        // Strip legacy "BUILDING -L{LINE}>" prefix  e.g. "E -L1>HYD-350-1" → "HYD-350-1"
+        const stripMach = (s) => { const t = String(s || '').trim(); return t.includes('>') ? t.split('>').pop().trim() : t; };
 
         document.getElementById('om-tbody').innerHTML = mergedList.map(item => {
+            const cleanMachine = stripMach(item.machine);
             const st = (item.status || 'Pending').toLowerCase();
-            const isPlanned = item.machine && item.machine !== '-' && st !== 'pending';
+            const isPlanned = cleanMachine && cleanMachine !== '-' && st !== 'pending';
 
             let badgeClass = 'pending';
             if (st === 'running') badgeClass = 'running';
@@ -259,16 +262,16 @@
             const jc = item.jcNo || '-';
             let machDisplay = '';
             if (isPlanned && item._planObj) {
-                machDisplay = `<div class="om-mach-click-badge" 
-                         onclick="window.openMachineSelector(event, '${item._planObj.id}', '${esc(item.machine)}', '${esc(item._planObj.primaryMachine || '')}', '${esc(item._planObj.secondaryMachine || '')}')"
+                machDisplay = `<div class="om-mach-click-badge"
+                         onclick="window.openMachineSelector(event, '${item._planObj.id}', '${esc(cleanMachine)}', '${esc(item._planObj.primaryMachine || '')}', '${esc(item._planObj.secondaryMachine || '')}')"
                          style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; padding:4px 8px; border-radius:6px; font-weight:700; transition:all 0.2s;"
                          onmouseover="this.style.background='#dbeafe'; this.style.borderColor='#3b82f6';"
                          onmouseout="this.style.background='#eff6ff'; this.style.borderColor='#bfdbfe';">
-                        <span>${esc(item.machine)}</span>
+                        <span>${esc(cleanMachine)}</span>
                         <i class="bi bi-chevron-down" style="font-size:0.75rem; color:#3b82f6;"></i>
                     </div>`;
             } else if (item._planObj) {
-                machDisplay = `<div class="om-mach-click-badge" 
+                machDisplay = `<div class="om-mach-click-badge"
                          onclick="window.openMachineSelector(event, '${item._planObj.id}', '', '${esc(item._planObj.primaryMachine || '')}', '${esc(item._planObj.secondaryMachine || '')}')"
                          style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; background:#f8fafc; border:1px solid #cbd5e1; color:#64748b; padding:4px 8px; border-radius:6px; font-weight:500; font-style:italic; transition:all 0.2s;"
                          onmouseover="this.style.background='#f1f5f9'; this.style.borderColor='#94a3b8'; color:#475569;"
