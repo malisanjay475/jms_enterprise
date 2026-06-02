@@ -9257,7 +9257,8 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
 
     if (factoryId) {
       machineParams.push(factoryId);
-      machineSql += ` AND m.factory_id = $${machineParams.length}`;
+      // Include global machines (factory_id IS NULL) so users on any factory see all relevant machines
+      machineSql += ` AND (m.factory_id = $${machineParams.length} OR m.factory_id IS NULL)`;
     }
 
     if (requestedProcess) {
@@ -11967,7 +11968,13 @@ app.get('/api/masters/machines', async (req, res) => {
     const conditions = ['1 = 1'];
     const normalizedProcess = normalizeMachineProcess(process, '');
 
-    applyFactoryScopeCondition(conditions, params, 'm.factory_id', factoryScope);
+    // For machine master data, also include global machines (factory_id IS NULL)
+    // so users on any factory can see unscoped machines during Create Plan
+    const machineFid = factoryScope?.factoryId ?? null;
+    if (machineFid) {
+      params.push(machineFid);
+      conditions.push(`(m.factory_id = $${params.length} OR m.factory_id IS NULL)`);
+    }
 
     if (normalizedProcess) {
       params.push(normalizedProcess);
