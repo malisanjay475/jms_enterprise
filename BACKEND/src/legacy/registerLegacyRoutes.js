@@ -7402,63 +7402,78 @@ app.get('/api/planning/board', async (req, res) => {
     // Self-heal M1: Fix machines master — strip "BUILDING -L{n}>" prefix from machine code
     // and extract building/line into the dedicated columns.
     // Example: "B -L1>HYD-350-1" → machine="HYD-350-1", building="B", line="1"
-    // Only runs while prefixed rows still exist (idempotent).
-    await q(`
-      UPDATE machines
-         SET machine  = TRIM(SPLIT_PART(machine, '>', 2)),
-             building = CASE
-                          WHEN building IS NULL OR TRIM(building) = ''
-                          THEN TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 1), ' ', 1))
-                          ELSE building
-                        END,
-             line     = CASE
-                          WHEN line IS NULL OR TRIM(line) = ''
-                          THEN TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 2), '>', 1))
-                          ELSE line
-                        END
-       WHERE machine LIKE '%>%'
-         AND TRIM(SPLIT_PART(machine, '>', 2)) <> ''
-    `);
+    // Guard: skip rows where the stripped code already exists for the same factory
+    // (avoids unique-constraint violation when multiple buildings share the same machine code).
+    try {
+      await q(`
+        UPDATE machines src
+           SET machine  = TRIM(SPLIT_PART(src.machine, '>', 2)),
+               building = CASE
+                            WHEN src.building IS NULL OR TRIM(src.building) = ''
+                            THEN TRIM(SPLIT_PART(SPLIT_PART(src.machine, '-L', 1), ' ', 1))
+                            ELSE src.building
+                          END,
+               line     = CASE
+                            WHEN src.line IS NULL OR TRIM(src.line) = ''
+                            THEN TRIM(SPLIT_PART(SPLIT_PART(src.machine, '-L', 2), '>', 1))
+                            ELSE src.line
+                          END
+         WHERE src.machine LIKE '%>%'
+           AND TRIM(SPLIT_PART(src.machine, '>', 2)) <> ''
+           AND NOT EXISTS (
+                 SELECT 1 FROM machines dup
+                  WHERE TRIM(LOWER(dup.machine)) = TRIM(LOWER(SPLIT_PART(src.machine, '>', 2)))
+                    AND dup.id <> src.id
+                    AND (dup.factory_id IS NOT DISTINCT FROM src.factory_id)
+               )
+      `);
+    } catch (e) { console.warn('[self-heal M1] machines prefix strip skipped:', e.message); }
 
     // Self-heal M1b: If machines.machine is already clean but building/line are still empty,
     // recover building and line from plan_board history — some plans may still carry the old
     // prefix code and that prefix encodes the building/line we need.
-    await q(`
-      UPDATE machines m
-         SET building = extracted.bld,
-             line     = extracted.ln
-        FROM (
-          SELECT DISTINCT ON (TRIM(LOWER(SPLIT_PART(machine, '>', 2))))
-            TRIM(LOWER(SPLIT_PART(machine, '>', 2)))                           AS machine_key,
-            TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 1), ' ', 1))             AS bld,
-            TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 2), '>', 1))             AS ln
-          FROM plan_board
-          WHERE machine LIKE '%>%'
-            AND TRIM(SPLIT_PART(machine, '>', 2)) <> ''
-            AND TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 1), ' ', 1)) <> ''
-          ORDER BY TRIM(LOWER(SPLIT_PART(machine, '>', 2))), updated_at DESC NULLS LAST
-        ) extracted
-       WHERE TRIM(LOWER(m.machine)) = extracted.machine_key
-         AND (m.building IS NULL OR TRIM(m.building) = ''
-              OR m.line IS NULL OR TRIM(m.line) = '')
-    `);
+    try {
+      await q(`
+        UPDATE machines m
+           SET building = extracted.bld,
+               line     = extracted.ln
+          FROM (
+            SELECT DISTINCT ON (TRIM(LOWER(SPLIT_PART(machine, '>', 2))))
+              TRIM(LOWER(SPLIT_PART(machine, '>', 2)))                           AS machine_key,
+              TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 1), ' ', 1))             AS bld,
+              TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 2), '>', 1))             AS ln
+            FROM plan_board
+            WHERE machine LIKE '%>%'
+              AND TRIM(SPLIT_PART(machine, '>', 2)) <> ''
+              AND TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 1), ' ', 1)) <> ''
+            ORDER BY TRIM(LOWER(SPLIT_PART(machine, '>', 2))), updated_at DESC NULLS LAST
+          ) extracted
+         WHERE TRIM(LOWER(m.machine)) = extracted.machine_key
+           AND (m.building IS NULL OR TRIM(m.building) = ''
+                OR m.line IS NULL OR TRIM(m.line) = '')
+      `);
+    } catch (e) { console.warn('[self-heal M1b] building/line recovery skipped:', e.message); }
 
     // Self-heal M2: Fix moulds.primary_machine (strip prefix)
-    await q(`
-      UPDATE moulds
-         SET primary_machine = TRIM(SPLIT_PART(primary_machine, '>', 2))
-       WHERE primary_machine LIKE '%>%'
-         AND TRIM(SPLIT_PART(primary_machine, '>', 2)) <> ''
-    `);
+    try {
+      await q(`
+        UPDATE moulds
+           SET primary_machine = TRIM(SPLIT_PART(primary_machine, '>', 2))
+         WHERE primary_machine LIKE '%>%'
+           AND TRIM(SPLIT_PART(primary_machine, '>', 2)) <> ''
+      `);
+    } catch (e) { console.warn('[self-heal M2]', e.message); }
 
     // Self-heal M3: Fix moulds.secondary_machine for single-value entries (no comma)
-    await q(`
-      UPDATE moulds
-         SET secondary_machine = TRIM(SPLIT_PART(secondary_machine, '>', 2))
-       WHERE secondary_machine LIKE '%>%'
-         AND secondary_machine NOT LIKE '%,%'
-         AND TRIM(SPLIT_PART(secondary_machine, '>', 2)) <> ''
-    `);
+    try {
+      await q(`
+        UPDATE moulds
+           SET secondary_machine = TRIM(SPLIT_PART(secondary_machine, '>', 2))
+         WHERE secondary_machine LIKE '%>%'
+           AND secondary_machine NOT LIKE '%,%'
+           AND TRIM(SPLIT_PART(secondary_machine, '>', 2)) <> ''
+      `);
+    } catch (e) { console.warn('[self-heal M3]', e.message); }
 
     // Self-heal M3b: Fix comma-separated secondary_machine (run programmatically)
     try {
