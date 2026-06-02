@@ -7371,7 +7371,17 @@ app.post('/api/job/complete', async (req, res) => {
 // GET /api/planning/board?plant=DUNGRA&date=2025-12-12
 app.get('/api/planning/board', async (req, res) => {
   try {
-    // Self-heal: if any machine has >1 RUNNING plan, keep only the most-recently-updated one
+    // Self-heal 1: strip legacy "BUILDING -L{LINE}>" prefix from plan_board.machine
+    // e.g. "E -L1>HYD-350-1" → "HYD-350-1" so it matches the machines master exactly
+    await q(`
+      UPDATE plan_board
+         SET machine    = TRIM(SPLIT_PART(machine, '>', 2)),
+             updated_at = NOW()
+       WHERE machine LIKE '%>%'
+         AND TRIM(SPLIT_PART(machine, '>', 2)) <> ''
+    `);
+
+    // Self-heal 2: if any machine has >1 RUNNING plan, keep only the most-recently-updated one
     await q(`
       UPDATE plan_board SET status = 'Stopped', updated_at = NOW()
       WHERE id IN (
@@ -11981,7 +11991,13 @@ app.get('/api/masters/machines', async (req, res) => {
     const conditions = ['1 = 1'];
     const normalizedProcess = normalizeMachineProcess(process, '');
 
-    applyFactoryScopeCondition(conditions, params, 'm.factory_id', factoryScope);
+    // For machine master data, also include global machines (factory_id IS NULL)
+    // so users on any factory can see unscoped machines during Create Plan
+    const machineFid = factoryScope?.factoryId ?? null;
+    if (machineFid) {
+      params.push(machineFid);
+      conditions.push(`(m.factory_id = $${params.length} OR m.factory_id IS NULL)`);
+    }
 
     if (normalizedProcess) {
       params.push(normalizedProcess);
