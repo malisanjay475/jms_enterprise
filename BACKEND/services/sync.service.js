@@ -212,6 +212,17 @@ const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
     job_card_label_print_log: 'printed_at'
 };
 
+// Tables whose ON CONFLICT target must be a raw expression rather than a plain
+// column list, because the backing unique index is built on an expression.
+// or_jr_report's unique index is idx_or_jr_jc_unique ON (or_jr_no, COALESCE(job_card_no, '')) —
+// the single-column unique on or_jr_no was dropped (one OR/JR can have many job cards),
+// so ON CONFLICT (or_jr_no) no longer matches any index. The target must reproduce the
+// index expression exactly. getConflictColumns still returns ['or_jr_no'] for deletion-PK
+// parsing; only the upsert conflict target is overridden here.
+const RAW_CONFLICT_TARGETS = {
+    or_jr_report: `or_jr_no, COALESCE(job_card_no, '')`
+};
+
 const SYNC_CONFLICT_INDEXES = {
     closed_plants: 'factory_id, dpr_date, plant, shift',
     order_completion_history: 'factory_id, order_no, action_type, changed_at',
@@ -1231,7 +1242,7 @@ async function upsertData(table, data) {
                 }
                 const idx = keys.map((_, i) => `$${i + 1}`);
                 const setClause = keys.map((k) => `${k} = EXCLUDED.${k}`).join(', ');
-                const conflictKey = conflictColumns.join(', ');
+                const conflictKey = RAW_CONFLICT_TARGETS[table] || conflictColumns.join(', ');
 
                 let whereClause = hasUpdatedAtColumn
                     ? `WHERE (EXCLUDED.updated_at > ${table}.updated_at OR ${table}.updated_at IS NULL)`

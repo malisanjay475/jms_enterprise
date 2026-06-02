@@ -7387,7 +7387,21 @@
           cardsContainer.innerHTML = '';
 
           if (!allMachines.length) {
-            cardsContainer.innerHTML = '<div style="color:#be123c; font-weight:700; font-size:0.82rem; background:#fff1f2; border:1px solid #fecdd3; border-radius:10px; padding:10px 14px">No machines found for this mould. Map a Primary Machine in Mould Master first.</div>';
+            // If the mould's mapped machine name does not match Machine Master (after
+            // normalization), the backend flags machineNameMismatch. In that case the name
+            // is wrong — show a name-mismatch error instead of the generic "not mapped" one.
+            const mismatchMap = window.cpVariantMismatchMap || {};
+            let mismatchInfo = null;
+            (Array.isArray(colourRows) ? colourRows : []).forEach((row) => {
+              const info = mismatchMap[row.selectedMouldCode];
+              if (info && info.mismatch && !mismatchInfo) mismatchInfo = info;
+            });
+            if (mismatchInfo) {
+              const namePart = mismatchInfo.requestedNames ? ` (mapped: ${esc(mismatchInfo.requestedNames)})` : '';
+              cardsContainer.innerHTML = `<div style="color:#be123c; font-weight:700; font-size:0.82rem; background:#fff1f2; border:1px solid #fecdd3; border-radius:10px; padding:10px 14px">Machines are not matching with Machine Master${namePart}. Correct the machine name in Mould Master.</div>`;
+            } else {
+              cardsContainer.innerHTML = '<div style="color:#be123c; font-weight:700; font-size:0.82rem; background:#fff1f2; border:1px solid #fecdd3; border-radius:10px; padding:10px 14px">No machines found for this mould. Map a Primary Machine in Mould Master first.</div>';
+            }
             return;
           }
 
@@ -7562,18 +7576,26 @@
             if (mould.primary_machine) params.set('primaryMachine', mould.primary_machine);
             if (mould.secondary_machine) params.set('secondaryMachine', mould.secondary_machine);
             const res = await api.get(`/planning/machines/compatible?${params.toString()}`);
-            return Array.isArray(res.data) ? res.data : [];
+            return {
+              machines: Array.isArray(res.data) ? res.data : [],
+              mismatch: !!res.machineNameMismatch,
+              requestedNames: res.requestedMachineNames || ''
+            };
           }
           const res = await api.get(`/masters/machines?process=${encodeURIComponent(getPlanningProcessFilter())}`);
-          return (res.data || []).map(machine => ({
-            machine: machine.machine,
-            tonnage: machine.tonnage || '-',
-            building: machine.building || getPlanningProcessFilter(),
-            line: machine.line || 'Machines',
-            isFree: true,
-            currentStatus: 'AVAILABLE',
-            currentOrder: null
-          }));
+          return {
+            machines: (res.data || []).map(machine => ({
+              machine: machine.machine,
+              tonnage: machine.tonnage || '-',
+              building: machine.building || getPlanningProcessFilter(),
+              line: machine.line || 'Machines',
+              isFree: true,
+              currentStatus: 'AVAILABLE',
+              currentOrder: null
+            })),
+            mismatch: false,
+            requestedNames: ''
+          };
         }
 
         async function openCpColourPlanModal(mould) {
@@ -7643,10 +7665,15 @@
             })).filter((row) => row.code);
             const colourPayload = await fetchCpColourPlanData(mould);
             const machineEntries = await Promise.all(familyMoulds.map(async (variant) => {
-              const variantMachines = await fetchCpMachinesForMould(variant);
-              return [variant.code, Array.isArray(variantMachines) ? variantMachines : []];
+              const variantResult = await fetchCpMachinesForMould(variant);
+              return [variant.code, variantResult];
             }));
-            window.cpVariantMachineMap = Object.fromEntries(machineEntries);
+            window.cpVariantMachineMap = Object.fromEntries(
+              machineEntries.map(([code, r]) => [code, Array.isArray(r.machines) ? r.machines : []])
+            );
+            window.cpVariantMismatchMap = Object.fromEntries(
+              machineEntries.map(([code, r]) => [code, { mismatch: !!r.mismatch, requestedNames: r.requestedNames || '' }])
+            );
             const colourRows = buildCpColourRows(mouldForColourCalc, colourPayload.rows, {
               availableMoulds: familyMoulds,
               machineMap: window.cpVariantMachineMap
@@ -10970,8 +10997,17 @@
         const sign = document.getElementById('jcApprovalSignLine');
         if (!modal || !body) return;
         window.currentJcApprovalId = id;
+        // Portal the modal to <body> so its position:fixed resolves against the viewport.
+        // While nested inside the approval panel, a transformed/filtered ancestor makes the
+        // fixed modal anchor to that ancestor instead — so it opens at the top of the page
+        // and the user has to scroll up to reach it. Moving it to body centers it in the
+        // current window every time.
+        if (modal.parentElement !== document.body) {
+          document.body.appendChild(modal);
+        }
         modal.style.display = 'flex';
         lockModalScroll(); // keep page at current scroll position while modal is open
+        body.scrollTop = 0; // start the detail list at the top; Approve/Reject footer stays pinned
         body.innerHTML = '<div style="padding:36px; text-align:center; color:#64748b; font-weight:850">Loading plan details...</div>';
         try {
           const res = await api.get(`/planning/job-card-approvals/${id}`);
