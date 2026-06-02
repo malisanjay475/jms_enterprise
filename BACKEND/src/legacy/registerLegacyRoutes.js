@@ -7371,39 +7371,32 @@ app.post('/api/job/complete', async (req, res) => {
 // GET /api/planning/board?plant=DUNGRA&date=2025-12-12
 app.get('/api/planning/board', async (req, res) => {
   try {
-    // Self-heal 1a: For prefix-style codes (e.g. "E -L1>HYD-350-1") replace with the
-    // EXACT machines.machine value found after the '>'. This ensures plan_board.machine
-    // always matches what the machines master stores, regardless of case/whitespace.
+    // Self-heal 1 (factory-scoped): Normalise plan_board.machine to the exact value stored
+    // in the machines master for the SAME factory. This covers:
+    //   a) Legacy prefix codes like "E -L1>HYD-350-1"  → "HYD-350-1"
+    //   b) Case/whitespace drift like "hyd-350-1"        → "HYD-350-1"
+    // The factory_id constraint prevents cross-factory contamination: a machine named
+    // "OMEGA-150-3" in factory 2 must never overwrite a plan that belongs to factory 1.
     await q(`
       UPDATE plan_board pb
          SET machine    = m.machine,
              updated_at = NOW()
         FROM machines m
-       WHERE pb.machine LIKE '%>%'
-         AND TRIM(LOWER(SPLIT_PART(pb.machine, '>', 2))) = TRIM(LOWER(m.machine))
+       WHERE (
+               -- prefix-style: strip "BUILDING -L{n}>" and match the rest
+               (pb.machine LIKE '%>%'
+                AND TRIM(LOWER(SPLIT_PART(pb.machine, '>', 2))) = TRIM(LOWER(m.machine)))
+               OR
+               -- plain code: case / whitespace drift only
+               (pb.machine NOT LIKE '%>%'
+                AND TRIM(LOWER(pb.machine)) = TRIM(LOWER(m.machine)))
+             )
          AND pb.machine <> m.machine
-    `);
-
-    // Self-heal 1b: Any remaining prefixed codes that didn't match a machines row –
-    // just strip the prefix as a best-effort fallback.
-    await q(`
-      UPDATE plan_board
-         SET machine    = TRIM(SPLIT_PART(machine, '>', 2)),
-             updated_at = NOW()
-       WHERE machine LIKE '%>%'
-         AND TRIM(SPLIT_PART(machine, '>', 2)) <> ''
-    `);
-
-    // Self-heal 1c: Normalise case/whitespace differences on plain (non-prefixed) codes
-    // so "HYD-350-1" and "hyd-350-1" both resolve to the exact machines.machine value.
-    await q(`
-      UPDATE plan_board pb
-         SET machine    = m.machine,
-             updated_at = NOW()
-        FROM machines m
-       WHERE pb.machine NOT LIKE '%>%'
-         AND TRIM(LOWER(pb.machine)) = TRIM(LOWER(m.machine))
-         AND pb.machine <> m.machine
+         AND (
+               m.factory_id = pb.factory_id          -- same factory
+               OR m.factory_id IS NULL                -- global machine (no factory assigned)
+               OR pb.factory_id IS NULL               -- plan has no factory yet
+             )
     `);
 
     // Self-heal 2: if any machine has >1 RUNNING plan, keep only the most-recently-updated one
@@ -7462,7 +7455,19 @@ app.get('/api/planning/board', async (req, res) => {
         pb.plant,
         COALESCE(NULLIF(TRIM(pb.building), ''), NULLIF(TRIM(planMachine.building), ''), NULLIF(TRIM(planMachine.machine_process), ''), 'General') AS building,
         COALESCE(NULLIF(TRIM(pb.line), ''), NULLIF(TRIM(planMachine.line), ''), CASE WHEN COALESCE(NULLIF(TRIM(planMachine.machine_process), ''), 'Moulding') = 'Moulding' THEN '1' ELSE 'Machines' END) AS line,
-        pb.machine,
+        -- Return the canonical machines.machine value so the frontend always gets an exact
+        -- match against m.code (machines master). Fallback chain:
+        --  1. planMachine matched on exact code          → use machines.machine
+        --  2. planMachine matched on prefix-stripped code → use machines.machine
+        --  3. pb.machine has a '>' prefix but no machines row → strip prefix
+        --  4. Bare value as-is
+        COALESCE(
+          planMachine.machine,
+          CASE WHEN pb.machine LIKE '%>%' AND NULLIF(TRIM(SPLIT_PART(pb.machine, '>', 2)), '') IS NOT NULL
+               THEN TRIM(SPLIT_PART(pb.machine, '>', 2))
+               ELSE pb.machine
+          END
+        ) AS machine,
         COALESCE(NULLIF(TRIM(planMachine.machine_process), ''), 'Moulding') AS "machineProcess",
         pb.seq,
         pb.order_no     AS "orderNo",
@@ -7487,8 +7492,15 @@ app.get('/api/planning/board', async (req, res) => {
       FROM plan_board pb
       LEFT JOIN orders o ON o.order_no = pb.order_no
       LEFT JOIN machines planMachine
-        ON LOWER(TRIM(planMachine.machine)) = LOWER(TRIM(pb.machine))
-       AND (planMachine.factory_id = pb.factory_id OR (planMachine.factory_id IS NULL AND pb.factory_id IS NULL))
+        ON (
+              -- exact / case-insensitive match
+              LOWER(TRIM(planMachine.machine)) = LOWER(TRIM(pb.machine))
+              OR
+              -- prefix-stripped match: "E -L1>HYD-350-1" → matches "HYD-350-1"
+              (pb.machine LIKE '%>%'
+               AND LOWER(TRIM(planMachine.machine)) = LOWER(TRIM(SPLIT_PART(pb.machine, '>', 2))))
+           )
+       AND (planMachine.factory_id = pb.factory_id OR planMachine.factory_id IS NULL OR pb.factory_id IS NULL)
       -- Optimized Mould Join: Match by Mould Name
       LEFT JOIN moulds m ON m.mould_name = pb.mould_name 
       -- Join Planning Summary for fallback Mould No
