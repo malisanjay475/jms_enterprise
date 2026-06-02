@@ -1441,19 +1441,42 @@
             machines.push({ machine: (currentMachine||'').trim(), type: 'Current' });
         }
 
+        // STRICT name matching — only show machines whose name accurately matches Machine
+        // Master (normalized: ignore case/spaces/dashes). A mould may have a machine mapped
+        // under a wrong/old name; we must NOT offer those. If names were provided but none
+        // match Machine Master, surface an error instead of silently showing nothing.
+        const simplify = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const masterKeys = new Set(
+            (Array.isArray(window.allMachines) ? window.allMachines : [])
+                .map(m => simplify(m.name || m.code || m.machine))
+                .filter(Boolean)
+        );
+        const requestedCount = machines.length;
+        const matchedMachines = masterKeys.size
+            ? machines.filter(m => masterKeys.has(simplify(m.machine)))
+            : machines;
+        const nameMismatch = requestedCount > 0 && matchedMachines.length === 0 && masterKeys.size > 0;
+        const requestedNames = machines.map(m => m.machine).filter(Boolean).join(', ');
+
         const modalId = 'pjdMachineSelectModal';
         let oldModal = document.getElementById(modalId);
         if (oldModal) oldModal.remove();
 
         let optHtml = '';
-        if (!machines.length) {
+        if (nameMismatch) {
+            optHtml = `<div style="padding:20px;text-align:center">
+                <div style="font-size:2rem;margin-bottom:8px">⚠️</div>
+                <div style="font-weight:800;color:#be123c;margin-bottom:6px">Machines are not matching with Machine Master</div>
+                <div style="font-size:0.85rem;color:#64748b">${requestedNames ? `Mapped: <strong>${esc(requestedNames)}</strong>. ` : ''}Correct the machine name in Mould Master to exactly match Machine Master, then reload the timeline.</div>
+            </div>`;
+        } else if (!matchedMachines.length) {
             optHtml = `<div style="padding:20px;text-align:center;color:#94a3b8">
                 <div style="font-size:2rem;margin-bottom:8px">🔍</div>
                 <div style="font-weight:700;color:#64748b;margin-bottom:4px">No machines configured</div>
                 <div style="font-size:0.85rem">Set Primary / Secondary machine in Mould Master for this mould, then reload the timeline.</div>
             </div>`;
         } else {
-            optHtml = machines.map(opt => {
+            optHtml = matchedMachines.map(opt => {
                 const isCurrent = norm(opt.machine) === currNorm;
                 const typeLC = (opt.type || '').toLowerCase();
                 const badgeBg  = typeLC === 'primary' ? '#dcfce7' : typeLC === 'secondary' ? '#e0f2fe' : '#f1f5f9';
