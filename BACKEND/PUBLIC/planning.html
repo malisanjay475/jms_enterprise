@@ -10984,8 +10984,17 @@
         const sign = document.getElementById('jcApprovalSignLine');
         if (!modal || !body) return;
         window.currentJcApprovalId = id;
+        // Portal the modal to <body> so its position:fixed resolves against the viewport.
+        // While nested inside the approval panel, a transformed/filtered ancestor makes the
+        // fixed modal anchor to that ancestor instead — so it opens at the top of the page
+        // and the user has to scroll up to reach it. Moving it to body centers it in the
+        // current window every time.
+        if (modal.parentElement !== document.body) {
+          document.body.appendChild(modal);
+        }
         modal.style.display = 'flex';
         lockModalScroll(); // keep page at current scroll position while modal is open
+        body.scrollTop = 0; // start the detail list at the top; Approve/Reject footer stays pinned
         body.innerHTML = '<div style="padding:36px; text-align:center; color:#64748b; font-weight:850">Loading plan details...</div>';
         try {
           const res = await api.get(`/planning/job-card-approvals/${id}`);
