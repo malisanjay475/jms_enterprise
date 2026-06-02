@@ -3126,7 +3126,9 @@
           return;
         }
 
-        list.forEach(m => dd.add(new Option(m, m)));
+        // Show clean display name (strip "BLDG -Ln>" prefix) but keep full code as value
+        const stripPfx = s => { const t = String(s||'').trim(); return t.includes('>') ? t.split('>').pop().trim() : t; };
+        list.forEach(m => dd.add(new Option(stripPfx(m), m)));
 
         if (session.machine && list.includes(session.machine)) {
           dd.value = session.machine;

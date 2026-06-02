@@ -12115,15 +12115,9 @@ app.get('/api/machines/supervisor', async (req, res) => {
           tonnage,
           is_active,
           COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') AS machine_process
-         FROM machines 
+         FROM machines
         WHERE COALESCE(is_active, TRUE) = TRUE
           AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
-          AND (
-            NULLIF(TRIM(line), '') IS NOT NULL
-            OR NULLIF(TRIM(building), '') IS NOT NULL
-            OR tonnage IS NOT NULL
-            OR machine LIKE '%>%'
-          )
           AND ${whereClause}`,
       params
     );
