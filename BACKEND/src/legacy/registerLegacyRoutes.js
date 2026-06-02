@@ -7484,23 +7484,35 @@ app.get('/api/planning/board', async (req, res) => {
     } catch (e) { console.warn('[self-heal M1b] building/line recovery skipped:', e.message); }
 
     // Self-heal M2: Fix moulds.primary_machine (strip prefix)
+    // GUARD: only strip if the resulting clean machine code actually exists in the
+    // machines master. This prevents stripping "B -L1>HYD-350-1" to "HYD-350-1" when
+    // the machines table only stores the full prefixed form (sibling machines).
     try {
       await q(`
-        UPDATE moulds
+        UPDATE moulds mo
            SET primary_machine = TRIM(SPLIT_PART(primary_machine, '>', 2))
          WHERE primary_machine LIKE '%>%'
            AND TRIM(SPLIT_PART(primary_machine, '>', 2)) <> ''
+           AND EXISTS (
+                 SELECT 1 FROM machines mac
+                  WHERE TRIM(LOWER(mac.machine)) = TRIM(LOWER(SPLIT_PART(mo.primary_machine, '>', 2)))
+               )
       `);
     } catch (e) { console.warn('[self-heal M2]', e.message); }
 
     // Self-heal M3: Fix moulds.secondary_machine for single-value entries (no comma)
+    // Same guard: only strip when the clean machine exists in the master.
     try {
       await q(`
-        UPDATE moulds
+        UPDATE moulds mo
            SET secondary_machine = TRIM(SPLIT_PART(secondary_machine, '>', 2))
          WHERE secondary_machine LIKE '%>%'
            AND secondary_machine NOT LIKE '%,%'
            AND TRIM(SPLIT_PART(secondary_machine, '>', 2)) <> ''
+           AND EXISTS (
+                 SELECT 1 FROM machines mac
+                  WHERE TRIM(LOWER(mac.machine)) = TRIM(LOWER(SPLIT_PART(mo.secondary_machine, '>', 2)))
+               )
       `);
     } catch (e) { console.warn('[self-heal M3]', e.message); }
 
@@ -7517,38 +7529,9 @@ app.get('/api/planning/board', async (req, res) => {
       }
     } catch (_) { /* non-critical */ }
 
-    // Self-heal S0: assign plan_board.machine from moulds.primary_machine
-    // When a plan has a known mould_no and that mould has a primary_machine set,
-    // but the plan's current machine is NULL, empty, or doesn't match any machine
-    // in the machines master — set it from the mould's primary_machine.
-    // This wires up plans to the correct physical machine as configured in Mould Master.
-    try {
-      await q(`
-        UPDATE plan_board pb
-           SET machine    = TRIM(mo.primary_machine),
-               updated_at = NOW()
-          FROM moulds mo
-         WHERE TRIM(LOWER(pb.mould_no)) = TRIM(LOWER(mo.code))
-           AND mo.primary_machine IS NOT NULL
-           AND TRIM(mo.primary_machine) <> ''
-           AND (
-                 pb.machine IS NULL
-                 OR TRIM(pb.machine) = ''
-                 OR NOT EXISTS (
-                       SELECT 1 FROM machines mac
-                        WHERE (
-                                TRIM(LOWER(mac.machine)) = TRIM(LOWER(pb.machine))
-                                OR
-                                (pb.machine LIKE '%>%'
-                                 AND TRIM(LOWER(mac.machine)) = TRIM(LOWER(SPLIT_PART(pb.machine, '>', 2))))
-                              )
-                          AND (mac.factory_id = pb.factory_id
-                               OR mac.factory_id IS NULL
-                               OR pb.factory_id IS NULL)
-                    )
-               )
-      `);
-    } catch (e) { console.warn('[self-heal S0] mould→machine assignment skipped:', e.message); }
+    // Self-heal S0 REMOVED — it was re-assigning plan machines from mould primary_machine
+    // even when plans already had valid machine assignments, causing data corruption.
+    // Plans keep whatever machine they were saved with; only explicit user edits change it.
 
     // Self-heal 2: if any machine has >1 RUNNING plan, keep only the most-recently-updated one
     await q(`
