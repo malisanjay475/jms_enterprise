@@ -9377,6 +9377,10 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
 
     const primaryBookedFor15Days = result.some((row) => row.preferenceRole === 'PRIMARY' && row.isBookedFor15Days);
     let scopedResult = result;
+    // True when the mould has a mapped primary/secondary machine name that does NOT
+    // exist in Machine Master (after normalization). We must NOT silently show other
+    // machines in that case — the name is wrong and the user has to correct it.
+    let machineNameMismatch = false;
 
     if (requestedProcess === 'Moulding') {
       const primaryRows = result.filter((row) => row.preferenceRole === 'PRIMARY');
@@ -9387,15 +9391,20 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
       } else if (secondaryRows.length > 0) {
         scopedResult = secondaryRows;
       } else if (primaryMachineKey || secondaryMachineKeys.length > 0) {
-        // A preferred machine was specified but didn't match any machine name in the machines
-        // table (e.g. case/formatting mismatch between moulds master and machines master).
-        // Fall back to returning ALL compatible machines so the user can still plan,
-        // rather than showing an empty dropdown.
-        scopedResult = result;
+        // A primary/secondary machine WAS mapped in Mould Master, but its name matches
+        // no machine in Machine Master. Do not fall back to all machines — surface the
+        // mismatch so the user fixes the name in Mould Master / Machine Master.
+        scopedResult = [];
+        machineNameMismatch = true;
       } else {
         scopedResult = [];
       }
     }
+
+    const requestedMachineNames = [primaryMachine, secondaryMachine]
+      .map((name) => normalizePlanningText(name))
+      .filter(Boolean)
+      .join(', ');
 
     scopedResult.sort((a, b) => {
       const rankFor = (row) => {
@@ -9414,7 +9423,7 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
       return naturalCompare(a.machine, b.machine);
     });
 
-    res.json({ ok: true, data: scopedResult });
+    res.json({ ok: true, data: scopedResult, machineNameMismatch, requestedMachineNames });
   } catch (e) {
     console.error('planning/compatible', e);
     res.status(500).json({ ok: false, error: String(e) });
