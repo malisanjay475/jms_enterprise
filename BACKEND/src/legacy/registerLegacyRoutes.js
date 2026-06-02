@@ -7399,6 +7399,57 @@ app.get('/api/planning/board', async (req, res) => {
              )
     `);
 
+    // Self-heal M1: Fix machines master — strip "BUILDING -L{n}>" prefix from machine code
+    // and extract building/line into the dedicated columns.
+    // Example: "B -L1>HYD-350-1" → machine="HYD-350-1", building="B", line="1"
+    // Only runs while prefixed rows still exist (idempotent).
+    await q(`
+      UPDATE machines
+         SET machine  = TRIM(SPLIT_PART(machine, '>', 2)),
+             building = CASE
+                          WHEN building IS NULL OR TRIM(building) = ''
+                          THEN TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 1), ' ', 1))
+                          ELSE building
+                        END,
+             line     = CASE
+                          WHEN line IS NULL OR TRIM(line) = ''
+                          THEN TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 2), '>', 1))
+                          ELSE line
+                        END
+       WHERE machine LIKE '%>%'
+         AND TRIM(SPLIT_PART(machine, '>', 2)) <> ''
+    `);
+
+    // Self-heal M2: Fix moulds.primary_machine (strip prefix)
+    await q(`
+      UPDATE moulds
+         SET primary_machine = TRIM(SPLIT_PART(primary_machine, '>', 2))
+       WHERE primary_machine LIKE '%>%'
+         AND TRIM(SPLIT_PART(primary_machine, '>', 2)) <> ''
+    `);
+
+    // Self-heal M3: Fix moulds.secondary_machine for single-value entries (no comma)
+    await q(`
+      UPDATE moulds
+         SET secondary_machine = TRIM(SPLIT_PART(secondary_machine, '>', 2))
+       WHERE secondary_machine LIKE '%>%'
+         AND secondary_machine NOT LIKE '%,%'
+         AND TRIM(SPLIT_PART(secondary_machine, '>', 2)) <> ''
+    `);
+
+    // Self-heal M3b: Fix comma-separated secondary_machine (run programmatically)
+    try {
+      const mouldRows = await q(`SELECT id, secondary_machine FROM moulds WHERE secondary_machine LIKE '%>%' AND secondary_machine LIKE '%,%'`);
+      for (const mRow of mouldRows) {
+        const fixed = (mRow.secondary_machine || '').split(',')
+          .map(s => { const t = s.trim(); return t.includes('>') ? t.split('>').pop().trim() : t; })
+          .join(', ');
+        if (fixed !== mRow.secondary_machine) {
+          await q(`UPDATE moulds SET secondary_machine = $1 WHERE id = $2`, [fixed, mRow.id]);
+        }
+      }
+    } catch (_) { /* non-critical */ }
+
     // Self-heal 2: if any machine has >1 RUNNING plan, keep only the most-recently-updated one
     await q(`
       UPDATE plan_board SET status = 'Stopped', updated_at = NOW()
@@ -9283,10 +9334,13 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
     const requestedProcess = getRequestedMachineProcess(req, 'Moulding');
     const primaryMachine = normalizePlanningText(req.query.primaryMachine);
     const secondaryMachine = normalizePlanningText(req.query.secondaryMachine);
-    const primaryMachineKey = normalizeMachinePreferenceKey(primaryMachine);
+    // Strip legacy "BUILDING -L{n}>" prefix before normalizing so "E -L1>HYD-350-1"
+    // and "HYD-350-1" both resolve to the same key "HYD3501".
+    const stripMachPfx = (s) => { const t = String(s || '').trim(); return t.includes('>') ? t.split('>').pop().trim() : t; };
+    const primaryMachineKey = normalizeMachinePreferenceKey(stripMachPfx(primaryMachine));
     const secondaryMachineKeys = secondaryMachine
       .split(',')
-      .map((item) => normalizeMachinePreferenceKey(item))
+      .map((item) => normalizeMachinePreferenceKey(stripMachPfx(item)))
       .filter(Boolean);
     const factoryId = getFactoryId(req);
 
@@ -9439,7 +9493,7 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
     // Combine
     const result = machines.map(m => {
       const s = statusMap[m.machine];
-      const machineNameKey = normalizeMachinePreferenceKey(m.machine);
+      const machineNameKey = normalizeMachinePreferenceKey(stripMachPfx(m.machine));
       const isPrimary = !!primaryMachineKey && machineNameKey === primaryMachineKey;
       const isSecondary = secondaryMachineKeys.includes(machineNameKey);
       return {
