@@ -5517,12 +5517,15 @@
           // Normalized Match & Filter Valid Plans (No History)
           // Strip legacy "BUILDING -L{LINE}>" prefix if present (e.g. "E -L1>HYD-350-1" → "HYD-350-1")
           const stripMachPrefix = (s) => { const t = String(s || '').trim(); return t.includes('>') ? t.split('>').pop().trim() : t; };
+          // Fuzzy key: strip prefix + remove all whitespace, compare uppercase
+          const machKey = (s) => stripMachPrefix(s).replace(/\s+/g, '').toUpperCase();
           const myPlans = allPlans.filter(p => {
             const pMach = stripMachPrefix(p.machine);
             const mCode = stripMachPrefix(m.code);
             const mMatch = (p.machine === m.code) ||
                            (p.machine && p.machine.trim().toUpperCase() === m.code.trim().toUpperCase()) ||
-                           (pMach && pMach.toUpperCase() === mCode.toUpperCase());
+                           (pMach && pMach.toUpperCase() === mCode.toUpperCase()) ||
+                           (pMach && mCode && machKey(p.machine) === machKey(m.code));
             const pStatus = (p.status || '').toUpperCase();
             return mMatch && !['COMPLETED', 'CANCELLED', 'ARCHIVED'].includes(pStatus);
           });
