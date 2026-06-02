@@ -5516,7 +5516,8 @@
 
           // Normalized Match & Filter Valid Plans (No History)
           const myPlans = allPlans.filter(p => {
-            const mMatch = (p.machine === m.code) || (p.machine && p.machine.toUpperCase() === m.code.toUpperCase());
+            const mMatch = (p.machine === m.code) ||
+                           (p.machine && p.machine.trim().toUpperCase() === m.code.trim().toUpperCase());
             const pStatus = (p.status || '').toUpperCase();
             return mMatch && !['COMPLETED', 'CANCELLED', 'ARCHIVED'].includes(pStatus);
           });

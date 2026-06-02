@@ -7371,6 +7371,20 @@ app.post('/api/job/complete', async (req, res) => {
 // GET /api/planning/board?plant=DUNGRA&date=2025-12-12
 app.get('/api/planning/board', async (req, res) => {
   try {
+    // Self-heal: if any machine has >1 RUNNING plan, keep only the most-recently-updated one
+    await q(`
+      UPDATE plan_board SET status = 'Stopped', updated_at = NOW()
+      WHERE id IN (
+        SELECT id FROM (
+          SELECT id,
+                 ROW_NUMBER() OVER (PARTITION BY TRIM(UPPER(machine)) ORDER BY updated_at DESC, id DESC) AS rn
+          FROM plan_board
+          WHERE UPPER(status) = 'RUNNING'
+        ) ranked
+        WHERE rn > 1
+      )
+    `);
+
     // [FIX] Factory Isolation
     const factoryId = getFactoryId(req); // Moved up
     // Do NOT derive a default plant from factoryId. factory<->plant is not a fixed
@@ -8925,18 +8939,35 @@ app.post('/api/planning/update', async (req, res) => {
     const { rowId, planQty, balQty, startDate, endDate, status } = req.body || {};
     if (!rowId) return res.json({ ok: false, error: 'Missing rowId' });
 
+    // If updating to RUNNING, auto-stop any other RUNNING plan on the same machine first
+    if (status && status.toUpperCase() === 'RUNNING') {
+      const planRow = await q('SELECT machine FROM plan_board WHERE id = $1', [rowId]);
+      if (planRow.length && planRow[0].machine) {
+        const stopped = await q(
+          `UPDATE plan_board SET status = 'Stopped', updated_at = NOW()
+           WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND UPPER(status) = 'RUNNING' AND id != $2
+           RETURNING id, order_no`,
+          [planRow[0].machine, rowId]
+        );
+        for (const s of stopped) {
+          await q(
+            "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SWAP_STOP', $2, 'System')",
+            [s.id, JSON.stringify({ reason: `Auto-stopped by update of plan ${rowId}`, by_plan_id: rowId })]
+          );
+        }
+      }
+    }
+
     const rows = await q(
-      `
-      UPDATE plan_board
-         SET plan_qty = COALESCE($2, plan_qty),
-      bal_qty = COALESCE($3, bal_qty),
-      start_date = COALESCE($4, start_date),
-      end_date = COALESCE($5, end_date),
-      status = COALESCE($6, status),
-      updated_at = NOW()
+      `UPDATE plan_board
+         SET plan_qty  = COALESCE($2, plan_qty),
+             bal_qty   = COALESCE($3, bal_qty),
+             start_date= COALESCE($4, start_date),
+             end_date  = COALESCE($5, end_date),
+             status    = COALESCE($6, status),
+             updated_at= NOW()
        WHERE id = $1
-      RETURNING id
-      `,
+       RETURNING id`,
       [rowId, toNum(planQty), toNum(balQty), startDate || null, endDate || null, status || null]
     );
 
@@ -10218,6 +10249,13 @@ app.post('/api/planning/move', async (req, res) => {
     if (!targetMachine && newMachine) targetMachine = newMachine;
 
     if (!rowId || !targetMachine) return res.json({ ok: false, error: 'Missing rowId or targetMachine' });
+
+    // Normalize targetMachine to canonical name from machines master (prevents whitespace/case drift)
+    const machineNorm = await q(
+      'SELECT machine FROM machines WHERE TRIM(LOWER(machine)) = TRIM(LOWER($1)) LIMIT 1',
+      [targetMachine]
+    );
+    if (machineNorm.length) targetMachine = machineNorm[0].machine;
 
     // 1. Get Plan & Old Machine
     const planRes = await q('SELECT * FROM plan_board WHERE id = $1', [rowId]);
