@@ -5572,8 +5572,10 @@
           else if (physicalStatus === 'running') sClass = 's-running';
           else if (activePlan && physicalStatus === 'stopped') sClass = 's-stopped';
 
-          // 4. Use the full machine code so the card matches the master naming.
-          const displayName = esc(m.code);
+          // 4. Display clean name: strip "BUILDING -L{n}>" prefix if present so cards always
+          //    show just the machine code (e.g. "AKAR-150-4" not "B -L1>AKAR-150-4").
+          //    m.code is still the raw DB value used for data matching; only display differs.
+          const displayName = esc(stripMachPrefix(m.code));
           const detail = (value, fallback = '-') => esc(value == null || value === '' ? fallback : value);
 
           // 5. Active Info Text
@@ -12651,6 +12653,9 @@
 
     /* ── Helpers ─────────────────────────────────────────────────────── */
     const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    // Strip "BUILDING -L{n}>" prefix from machine codes so display is always clean
+    // e.g. "B -L1>AKAR-150-4" → "AKAR-150-4"; "AKAR-150-4" → "AKAR-150-4" (no-op)
+    const stripMachPfx = s => { const t = String(s || '').trim(); return t.includes('>') ? t.split('>').pop().trim() : t; };
     const fmt = ms => {
       if (!Number.isFinite(ms) || ms <= 0) return '';
       const d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000), m = Math.floor((ms % 3600000) / 60000);
@@ -12700,7 +12705,11 @@
           const simplify = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
           const machMap = {};
           rawMachines.forEach(m => {
-            const code = m.machine || m.code || '';
+            // Use the stripped code as the map key so that plans referencing either the
+            // prefixed form ("B -L1>AKAR-150-4") or the clean form ("AKAR-150-4") both
+            // land in the same machine bucket.
+            const rawCode = m.machine || m.code || '';
+            const code = stripMachPfx(rawCode);
             machMap[code] = { code, building: m.building || proc, line: m.line || 'Machines', machine_process: m.machine_process || proc, is_active: m.is_active !== false };
           });
 
@@ -13014,11 +13023,11 @@
         }, 0);
         const loadLabel = fmt(totalMs);
 
-        /* machine cell */
+        /* machine cell — show clean stripped name; machMap keys are already stripped */
         const machCell = `
           <td class="etv-mach-cell" onclick="window.etvMachineClick('${esc(m.code)}')" title="${esc(m.code)} — click to filter">
             <div class="etv-mach-inner">
-              <div class="etv-mach-code" title="${esc(m.code)}">${esc(m.code)}</div>
+              <div class="etv-mach-code" title="${esc(m.code)}">${esc(stripMachPfx(m.code))}</div>
               <div class="etv-mach-meta">${esc(m._finalBuilding||'?')} · Line ${esc(m._finalLine||'?')}</div>
               ${plans.length > 0 ? `<div class="etv-mach-plans">${plans.length} plan${plans.length>1?'s':''} queued</div>` : `<div class="etv-mach-plans" style="color:#2d3f55">No plans</div>`}
               ${loadLabel ? `<div class="etv-mach-load"><i class="bi bi-clock" style="font-size:.5rem"></i> ${esc(loadLabel)}</div>` : ''}

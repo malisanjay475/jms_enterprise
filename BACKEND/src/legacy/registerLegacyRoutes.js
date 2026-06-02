@@ -7517,6 +7517,39 @@ app.get('/api/planning/board', async (req, res) => {
       }
     } catch (_) { /* non-critical */ }
 
+    // Self-heal S0: assign plan_board.machine from moulds.primary_machine
+    // When a plan has a known mould_no and that mould has a primary_machine set,
+    // but the plan's current machine is NULL, empty, or doesn't match any machine
+    // in the machines master — set it from the mould's primary_machine.
+    // This wires up plans to the correct physical machine as configured in Mould Master.
+    try {
+      await q(`
+        UPDATE plan_board pb
+           SET machine    = TRIM(mo.primary_machine),
+               updated_at = NOW()
+          FROM moulds mo
+         WHERE TRIM(LOWER(pb.mould_no)) = TRIM(LOWER(mo.code))
+           AND mo.primary_machine IS NOT NULL
+           AND TRIM(mo.primary_machine) <> ''
+           AND (
+                 pb.machine IS NULL
+                 OR TRIM(pb.machine) = ''
+                 OR NOT EXISTS (
+                       SELECT 1 FROM machines mac
+                        WHERE (
+                                TRIM(LOWER(mac.machine)) = TRIM(LOWER(pb.machine))
+                                OR
+                                (pb.machine LIKE '%>%'
+                                 AND TRIM(LOWER(mac.machine)) = TRIM(LOWER(SPLIT_PART(pb.machine, '>', 2))))
+                              )
+                          AND (mac.factory_id = pb.factory_id
+                               OR mac.factory_id IS NULL
+                               OR pb.factory_id IS NULL)
+                    )
+               )
+      `);
+    } catch (e) { console.warn('[self-heal S0] mould→machine assignment skipped:', e.message); }
+
     // Self-heal 2: if any machine has >1 RUNNING plan, keep only the most-recently-updated one
     await q(`
       UPDATE plan_board SET status = 'Stopped', updated_at = NOW()
@@ -12207,7 +12240,21 @@ app.get('/api/masters/machines', async (req, res) => {
       if (processCompare) return processCompare;
       return naturalCompare(a.machine, b.machine);
     });
-    res.json({ ok: true, data: await attachFactoryNames(rows) });
+
+    // Deduplicate: when the request is factory-scoped, prefer factory-specific entries
+    // over global (factory_id IS NULL) entries that share the same machine code.
+    // This prevents "AKAR-150-4" appearing twice when it exists both globally and in
+    // the current factory's machines master.
+    const deduped = machineFid
+      ? (() => {
+          const factoryCodes = new Set(
+            rows.filter(r => r.factory_id !== null).map(r => String(r.machine || '').trim().toLowerCase())
+          );
+          return rows.filter(r => r.factory_id !== null || !factoryCodes.has(String(r.machine || '').trim().toLowerCase()));
+        })()
+      : rows;
+
+    res.json({ ok: true, data: await attachFactoryNames(deduped) });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
 
