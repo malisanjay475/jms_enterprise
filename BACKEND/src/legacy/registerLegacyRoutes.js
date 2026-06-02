@@ -7420,6 +7420,29 @@ app.get('/api/planning/board', async (req, res) => {
          AND TRIM(SPLIT_PART(machine, '>', 2)) <> ''
     `);
 
+    // Self-heal M1b: If machines.machine is already clean but building/line are still empty,
+    // recover building and line from plan_board history — some plans may still carry the old
+    // prefix code and that prefix encodes the building/line we need.
+    await q(`
+      UPDATE machines m
+         SET building = extracted.bld,
+             line     = extracted.ln
+        FROM (
+          SELECT DISTINCT ON (TRIM(LOWER(SPLIT_PART(machine, '>', 2))))
+            TRIM(LOWER(SPLIT_PART(machine, '>', 2)))                           AS machine_key,
+            TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 1), ' ', 1))             AS bld,
+            TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 2), '>', 1))             AS ln
+          FROM plan_board
+          WHERE machine LIKE '%>%'
+            AND TRIM(SPLIT_PART(machine, '>', 2)) <> ''
+            AND TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 1), ' ', 1)) <> ''
+          ORDER BY TRIM(LOWER(SPLIT_PART(machine, '>', 2))), updated_at DESC NULLS LAST
+        ) extracted
+       WHERE TRIM(LOWER(m.machine)) = extracted.machine_key
+         AND (m.building IS NULL OR TRIM(m.building) = ''
+              OR m.line IS NULL OR TRIM(m.line) = '')
+    `);
+
     // Self-heal M2: Fix moulds.primary_machine (strip prefix)
     await q(`
       UPDATE moulds
