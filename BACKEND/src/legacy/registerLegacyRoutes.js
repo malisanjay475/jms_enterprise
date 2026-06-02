@@ -7402,8 +7402,12 @@ app.get('/api/planning/board', async (req, res) => {
     // Self-heal M1: Fix machines master — strip "BUILDING -L{n}>" prefix from machine code
     // and extract building/line into the dedicated columns.
     // Example: "B -L1>HYD-350-1" → machine="HYD-350-1", building="B", line="1"
-    // Guard: skip rows where the stripped code already exists for the same factory
-    // (avoids unique-constraint violation when multiple buildings share the same machine code).
+    // Guard 1: skip rows where the stripped code already exists for the same factory
+    //          (avoids unique-constraint violation when a clean entry already exists).
+    // Guard 2: skip rows where ANOTHER prefixed machine in the same factory strips to the
+    //          same base code ("B -L1>HYD-350-1" AND "E -L1>HYD-350-1" would both become
+    //          "HYD-350-1" — neither passes the NOT EXISTS check, so neither is updated in
+    //          that batch, preventing the intra-batch unique-constraint crash).
     try {
       await q(`
         UPDATE machines src
@@ -7420,14 +7424,39 @@ app.get('/api/planning/board', async (req, res) => {
                           END
          WHERE src.machine LIKE '%>%'
            AND TRIM(SPLIT_PART(src.machine, '>', 2)) <> ''
+           -- Guard 1: no existing clean machine with that name in same factory
            AND NOT EXISTS (
                  SELECT 1 FROM machines dup
                   WHERE TRIM(LOWER(dup.machine)) = TRIM(LOWER(SPLIT_PART(src.machine, '>', 2)))
                     AND dup.id <> src.id
                     AND (dup.factory_id IS NOT DISTINCT FROM src.factory_id)
                )
+           -- Guard 2: no sibling prefixed machine in same factory strips to the same base code
+           AND NOT EXISTS (
+                 SELECT 1 FROM machines sib
+                  WHERE sib.machine LIKE '%>%'
+                    AND TRIM(LOWER(SPLIT_PART(sib.machine, '>', 2))) = TRIM(LOWER(SPLIT_PART(src.machine, '>', 2)))
+                    AND sib.id <> src.id
+                    AND (sib.factory_id IS NOT DISTINCT FROM src.factory_id)
+               )
       `);
     } catch (e) { console.warn('[self-heal M1] machines prefix strip skipped:', e.message); }
+
+    // Self-heal M1c: For prefixed machines that cannot be stripped (because sibling machines
+    // share the same base code), still extract building/line from the prefix into the
+    // dedicated columns so they appear under the correct group on the planning board.
+    try {
+      await q(`
+        UPDATE machines src
+           SET building = TRIM(SPLIT_PART(SPLIT_PART(src.machine, '-L', 1), ' ', 1)),
+               line     = TRIM(SPLIT_PART(SPLIT_PART(src.machine, '-L', 2), '>', 1))
+         WHERE src.machine LIKE '%>%'
+           AND TRIM(SPLIT_PART(src.machine, '>', 2)) <> ''
+           AND (src.building IS NULL OR TRIM(src.building) = ''
+                OR src.line    IS NULL OR TRIM(src.line)    = '')
+           AND TRIM(SPLIT_PART(SPLIT_PART(src.machine, '-L', 1), ' ', 1)) <> ''
+      `);
+    } catch (e) { console.warn('[self-heal M1c] building/line extract skipped:', e.message); }
 
     // Self-heal M1b: If machines.machine is already clean but building/line are still empty,
     // recover building and line from plan_board history — some plans may still carry the old
