@@ -7371,14 +7371,39 @@ app.post('/api/job/complete', async (req, res) => {
 // GET /api/planning/board?plant=DUNGRA&date=2025-12-12
 app.get('/api/planning/board', async (req, res) => {
   try {
-    // Self-heal 1: strip legacy "BUILDING -L{LINE}>" prefix from plan_board.machine
-    // e.g. "E -L1>HYD-350-1" → "HYD-350-1" so it matches the machines master exactly
+    // Self-heal 1a: For prefix-style codes (e.g. "E -L1>HYD-350-1") replace with the
+    // EXACT machines.machine value found after the '>'. This ensures plan_board.machine
+    // always matches what the machines master stores, regardless of case/whitespace.
+    await q(`
+      UPDATE plan_board pb
+         SET machine    = m.machine,
+             updated_at = NOW()
+        FROM machines m
+       WHERE pb.machine LIKE '%>%'
+         AND TRIM(LOWER(SPLIT_PART(pb.machine, '>', 2))) = TRIM(LOWER(m.machine))
+         AND pb.machine <> m.machine
+    `);
+
+    // Self-heal 1b: Any remaining prefixed codes that didn't match a machines row –
+    // just strip the prefix as a best-effort fallback.
     await q(`
       UPDATE plan_board
          SET machine    = TRIM(SPLIT_PART(machine, '>', 2)),
              updated_at = NOW()
        WHERE machine LIKE '%>%'
          AND TRIM(SPLIT_PART(machine, '>', 2)) <> ''
+    `);
+
+    // Self-heal 1c: Normalise case/whitespace differences on plain (non-prefixed) codes
+    // so "HYD-350-1" and "hyd-350-1" both resolve to the exact machines.machine value.
+    await q(`
+      UPDATE plan_board pb
+         SET machine    = m.machine,
+             updated_at = NOW()
+        FROM machines m
+       WHERE pb.machine NOT LIKE '%>%'
+         AND TRIM(LOWER(pb.machine)) = TRIM(LOWER(m.machine))
+         AND pb.machine <> m.machine
     `);
 
     // Self-heal 2: if any machine has >1 RUNNING plan, keep only the most-recently-updated one
