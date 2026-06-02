@@ -9385,11 +9385,13 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
     if (requestedProcess === 'Moulding') {
       const primaryRows = result.filter((row) => row.preferenceRole === 'PRIMARY');
       const secondaryRows = result.filter((row) => row.preferenceRole === 'SECONDARY');
+      // Show BOTH the mapped Primary and Secondary machines (whichever match Machine
+      // Master) so the planner can pick either. The sort below still ranks an available
+      // Primary first; cards carry their own RUNNING/booked status for the planner to see.
+      const preferredRows = [...primaryRows, ...secondaryRows];
 
-      if (primaryRows.length > 0) {
-        scopedResult = primaryBookedFor15Days ? secondaryRows : primaryRows;
-      } else if (secondaryRows.length > 0) {
-        scopedResult = secondaryRows;
+      if (preferredRows.length > 0) {
+        scopedResult = preferredRows;
       } else if (primaryMachineKey || secondaryMachineKeys.length > 0) {
         // A primary/secondary machine WAS mapped in Mould Master, but its name matches
         // no machine in Machine Master. Do not fall back to all machines — surface the
