@@ -3126,7 +3126,11 @@
           return;
         }
 
-        list.forEach(m => dd.add(new Option(m, m)));
+        listRaw.forEach(m => {
+          const linePfx = m.line ? String(m.line).trim() : '';
+          const label = (linePfx && !m.machine.includes('>')) ? linePfx + '>' + m.machine : m.machine;
+          dd.add(new Option(label, m.machine));
+        });
 
         if (session.machine && list.includes(session.machine)) {
           dd.value = session.machine;
