@@ -2801,23 +2801,26 @@
 
           // Force Natural Sort via Suffix Key (Line + LastNumber Priority)
           if (c === 'machine' || c === 'mould_name' || c === 'mould_no' || c === 'mould_number') {
-            base.render = function (data, type) {
+            base.render = function (data, type, row) {
+              const name = String(data || '');
+              // For machine column: build full display name as line>machine when line exists
+              let displayName = name;
+              if (c === 'machine') {
+                const linePfx = row && row.line ? String(row.line).trim() : '';
+                if (linePfx && !name.includes('>')) displayName = linePfx + '>' + name;
+              }
               if (type === 'sort') {
                 // 1. Split Line and Suffix
-                const s = String(data || '');
-                const parts = s.split('>');
-                const line = parts.length > 1 ? parts[0] : 'AAAA'; // Default line
+                const parts = displayName.split('>');
+                const lineKey = parts.length > 1 ? parts[0] : 'AAAA';
                 const rest = parts.length > 1 ? parts[1] : parts[0];
-
                 // 2. Extract Last Number (Index)
                 const match = rest.match(/(\d+)$/);
                 const idx = match ? match[1] : '999999';
-
                 // 3. Construct Sort Key: [Line] [ZeroPaddedIndex] [OriginalString]
-                // This ensures Line grouping -> Index ordering -> Middle content is secondary
-                return line + ' ' + idx.padStart(10, '0') + ' ' + s;
+                return lineKey + ' ' + idx.padStart(10, '0') + ' ' + displayName;
               }
-              return data || '';
+              return displayName;
             };
           }
 
