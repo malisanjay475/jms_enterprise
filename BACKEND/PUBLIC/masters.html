@@ -2810,15 +2810,16 @@
                 if (linePfx && !name.includes('>')) displayName = linePfx + '>' + name;
               }
               if (type === 'sort') {
-                // 1. Split Line and Suffix
                 const parts = displayName.split('>');
-                const lineKey = parts.length > 1 ? parts[0] : 'AAAA';
+                const lineStr = parts.length > 1 ? parts[0].trim() : '';
                 const rest = parts.length > 1 ? parts[1] : parts[0];
-                // 2. Extract Last Number (Index)
-                const match = rest.match(/(\d+)$/);
-                const idx = match ? match[1] : '999999';
-                // 3. Construct Sort Key: [Line] [ZeroPaddedIndex] [OriginalString]
-                return lineKey + ' ' + idx.padStart(10, '0') + ' ' + displayName;
+                // Sort key: Building letter → Line number → Machine trailing number
+                const building = lineStr.charAt(0) || 'Z';
+                const lineNumMatch = lineStr.match(/L(\d+)/i);
+                const lineNum = lineNumMatch ? parseInt(lineNumMatch[1], 10) : 999;
+                const machNumMatch = rest.match(/(\d+)$/);
+                const machNum = machNumMatch ? parseInt(machNumMatch[1], 10) : 999;
+                return building + String(lineNum).padStart(4, '0') + String(machNum).padStart(6, '0');
               }
               return displayName;
             };
