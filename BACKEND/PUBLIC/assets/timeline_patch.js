@@ -1442,12 +1442,8 @@
         }
 
         // STRICT matching — only show machines that exist in Machine Master.
-        // The DB self-heal strips any "LINE>" prefix before saving, so primaryMachine / secondaryMachine
-        // arrive here as clean codes like "HYD-350-1". Old hyphen formats like "E-L-1-OM-350-4"
-        // contain extra chars and will NOT match → correctly hidden.
-        // Strip ">" prefix for the rare case where self-heal hasn't run yet.
+        // Handles ANY stored format: "HYD-350-1", "B -L1>HYD-350-1", "B -L1-HYD-350-1", etc.
         const simplify = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g, '');
-        const toCleanCode = (raw) => { const s = String(raw||'').trim(); return s.includes('>') ? s.split('>').pop().trim() : s; };
 
         // Build Machine Master lookup: simplify(cleanCode) → allMachines entry
         const masterMap = {};
@@ -1456,13 +1452,33 @@
             if (key) masterMap[key] = m;
         });
 
+        // Find Machine Master entry for any stored machine format:
+        //   "HYD-350-1"        → direct simplify  → "HYD3501"    → match ✓
+        //   "B -L1>HYD-350-1"  → split on '>'     → "HYD3501"    → match ✓
+        //   "B -L1-HYD-350-1"  → suffix fallback  → ends "HYD3501" → match ✓
+        //   "E-L-1-OM-350-4"   → all three fail                   → null  ✓ (dropped)
+        const findInMaster = (raw) => {
+            if (!raw) return null;
+            const s = String(raw).trim();
+            const sim = simplify(s);
+            // 1. Direct match (clean code stored, e.g. "HYD-350-1")
+            if (masterMap[sim]) return masterMap[sim];
+            // 2. After '>' (e.g. "B -L1>HYD-350-1")
+            if (s.includes('>')) {
+                const k = simplify(s.split('>').pop().trim());
+                if (masterMap[k]) return masterMap[k];
+            }
+            // 3. Suffix match for any separator style (e.g. "B -L1-HYD-350-1")
+            //    masterMap key must be ≥4 chars and a true suffix (not equal) of sim
+            for (const [k, v] of Object.entries(masterMap)) {
+                if (k.length >= 4 && sim.length > k.length && sim.endsWith(k)) return v;
+            }
+            return null;
+        };
+
         const requestedCount = machines.length;
-        // Keep only machines whose clean code matches a Machine Master entry
-        // Old format "E-L-1-OM-350-4" → simplify → "EL1OM3504" → no match → dropped ✓
-        // Clean code "HYD-350-1"       → simplify → "HYD3501"   → match    → shown  ✓
         const matchedMachines = machines.map(opt => {
-            const key = simplify(toCleanCode(opt.machine));
-            const entry = masterMap[key];
+            const entry = findInMaster(opt.machine);
             if (!entry) return null;
             return { ...opt, _entry: entry };
         }).filter(Boolean);
@@ -1493,7 +1509,9 @@
                 const entry = opt._entry;
                 const displayName = String(entry.line||'').trim() + '>' + (entry.code || entry.name || entry.machine || '');
                 const cleanName   = entry.code || entry.name || entry.machine || '';
-                const isCurrent   = simplify(cleanName) === simplify(currentMachine);
+                const currentEntry = findInMaster(currentMachine);
+                const currentClean = currentEntry ? (currentEntry.code || currentEntry.name || currentEntry.machine || '') : currentMachine;
+                const isCurrent   = simplify(cleanName) === simplify(currentClean);
                 const typeLC = (opt.type || '').toLowerCase();
                 const badgeBg  = typeLC === 'primary' ? '#dcfce7' : typeLC === 'secondary' ? '#e0f2fe' : '#f1f5f9';
                 const badgeTxt = typeLC === 'primary' ? '#15803d' : typeLC === 'secondary' ? '#0369a1'  : '#475569';
