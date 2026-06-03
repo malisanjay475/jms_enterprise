@@ -2880,10 +2880,13 @@
         };
 
         // 3. Initialize DataTable with 'data'
+        const machineColIdx = dtColumns.findIndex(c => c.data === 'machine');
+        const defaultOrder = machineColIdx >= 0 ? [[machineColIdx, 'asc']] : [[0, 'asc']];
         masterTable = $('#masterTable').DataTable({
           data: rows,
           columns: dtColumns,
           dom: 'Bfrtip',
+          order: defaultOrder,
           // Performance Tuning
           deferRender: true,
           scroller: true,

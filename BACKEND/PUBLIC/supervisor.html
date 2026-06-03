@@ -3126,7 +3126,15 @@
           return;
         }
 
-        listRaw.forEach(m => {
+        const sortedRaw = listRaw.slice().sort((a, b) => {
+          const lineA = String(a.line || '').trim();
+          const lineB = String(b.line || '').trim();
+          if (lineA !== lineB) return lineA.localeCompare(lineB);
+          const numA = parseInt((a.machine.match(/(\d+)$/) || [0, 0])[1], 10);
+          const numB = parseInt((b.machine.match(/(\d+)$/) || [0, 0])[1], 10);
+          return numA - numB;
+        });
+        sortedRaw.forEach(m => {
           const linePfx = m.line ? String(m.line).trim() : '';
           const label = (linePfx && !m.machine.includes('>')) ? linePfx + '>' + m.machine : m.machine;
           dd.add(new Option(label, m.machine));
