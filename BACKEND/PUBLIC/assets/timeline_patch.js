@@ -1470,16 +1470,60 @@
         const nameMismatch = requestedCount > 0 && matchedMachines.length === 0 && Object.keys(masterMap).length > 0;
         const requestedNames = machines.map(m => m.machine).filter(Boolean).join(', ');
 
+        // For each unmatched machine, find the correct Machine Master name as a suggestion
+        const extractSuffix = (raw) => {
+            const s = String(raw || '').trim();
+            if (s.includes('>')) return simplify(s.split('>').pop().trim());
+            const m2 = s.match(/^[A-Za-z]\s*-?\s*L-?\s*\d+\s*-\s*(.+)$/i);
+            if (m2) return simplify(m2[1].trim());
+            return simplify(s);
+        };
+        const allMasterMachines = Array.isArray(window.allMachines) ? window.allMachines : [];
+        const findCorrectNames = (raw) => {
+            const suffix = extractSuffix(raw);
+            if (!suffix) return [];
+            return allMasterMachines.map(m => {
+                const name = String(m.machine || m.name || m.code || '').trim();
+                const parsed = (() => { const idx = name.indexOf('>'); return idx >= 0 ? { line: name.slice(0,idx).trim(), machine: name.slice(idx+1).trim() } : null; })();
+                const key = parsed ? simplify(parsed.machine) : simplify(name);
+                return key === suffix ? name : null;
+            }).filter(Boolean);
+        };
+
         const modalId = 'pjdMachineSelectModal';
         let oldModal = document.getElementById(modalId);
         if (oldModal) oldModal.remove();
 
         let optHtml = '';
         if (nameMismatch) {
-            optHtml = `<div style="padding:20px;text-align:center">
-                <div style="font-size:2rem;margin-bottom:8px">⚠️</div>
-                <div style="font-weight:800;color:#be123c;margin-bottom:6px">Machines are not matching with Machine Master</div>
-                <div style="font-size:0.85rem;color:#64748b">${requestedNames ? `Mapped: <strong>${esc(requestedNames)}</strong>. ` : ''}Correct the machine name in Mould Master to exactly match Machine Master, then reload the timeline.</div>
+            const suggestionRows = machines.map(m => {
+                const correct = findCorrectNames(m.machine);
+                const corrHtml = correct.length
+                    ? `<span style="color:#15803d;font-weight:700">${correct.map(c => esc(c)).join(', ')}</span>`
+                    : `<span style="color:#94a3b8">No match found in Machine Master</span>`;
+                return `<tr>
+                    <td style="padding:4px 8px;color:#be123c;font-weight:600">${esc(m.machine)}</td>
+                    <td style="padding:4px 8px;color:#64748b">→</td>
+                    <td style="padding:4px 8px">${corrHtml}</td>
+                </tr>`;
+            }).join('');
+            optHtml = `<div style="padding:16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                    <span style="font-size:1.5rem">⚠️</span>
+                    <span style="font-weight:800;color:#be123c;font-size:1rem">Machines not matching Machine Master</span>
+                </div>
+                <div style="font-size:0.82rem;color:#64748b;margin-bottom:10px">Update Mould Master with the correct Machine Master names shown below:</div>
+                <table style="width:100%;border-collapse:collapse;font-size:0.82rem;background:#fff7f7;border-radius:8px;overflow:hidden;border:1px solid #fecdd3">
+                    <thead>
+                        <tr style="background:#fee2e2">
+                            <th style="padding:6px 8px;text-align:left;color:#be123c">Mould Master (Wrong)</th>
+                            <th style="padding:6px 8px"></th>
+                            <th style="padding:6px 8px;text-align:left;color:#15803d">Machine Master (Correct)</th>
+                        </tr>
+                    </thead>
+                    <tbody>${suggestionRows}</tbody>
+                </table>
+                <div style="margin-top:10px;font-size:0.78rem;color:#94a3b8">Go to Masters → Mould Master → update the machine names → reload timeline.</div>
             </div>`;
         } else if (!matchedMachines.length) {
             optHtml = `<div style="padding:20px;text-align:center;color:#94a3b8">
