@@ -3126,7 +3126,20 @@
           return;
         }
 
-        listRaw.forEach(m => {
+        const sortedRaw = listRaw.slice().sort((a, b) => {
+          const lineA = String(a.line || '').trim();
+          const lineB = String(b.line || '').trim();
+          const buildA = lineA.charAt(0) || 'Z';
+          const buildB = lineB.charAt(0) || 'Z';
+          if (buildA !== buildB) return buildA.localeCompare(buildB);
+          const lnA = parseInt((lineA.match(/L(\d+)/i) || [0, 0])[1], 10) || 999;
+          const lnB = parseInt((lineB.match(/L(\d+)/i) || [0, 0])[1], 10) || 999;
+          if (lnA !== lnB) return lnA - lnB;
+          const numA = parseInt((a.machine.match(/(\d+)$/) || [0, 0])[1], 10) || 999;
+          const numB = parseInt((b.machine.match(/(\d+)$/) || [0, 0])[1], 10) || 999;
+          return numA - numB;
+        });
+        sortedRaw.forEach(m => {
           const linePfx = m.line ? String(m.line).trim() : '';
           const label = (linePfx && !m.machine.includes('>')) ? linePfx + '>' + m.machine : m.machine;
           dd.add(new Option(label, m.machine));
