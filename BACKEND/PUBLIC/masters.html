@@ -933,7 +933,8 @@
           });
           list.innerHTML = sorted.map(m => {
             const line = String(m.line || '').trim();
-            const display = line ? `${line}>${m.machine}` : m.machine;
+            // If machine already has ">" (line prefix stored in machine column), use as-is
+            const display = m.machine.includes('>') ? m.machine : (line ? `${line}>${m.machine}` : m.machine);
             return `<option value="${display}">`;
           }).join('');
         }
