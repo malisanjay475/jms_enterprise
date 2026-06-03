@@ -1441,33 +1441,27 @@
             machines.push({ machine: (currentMachine||'').trim(), type: 'Current' });
         }
 
-        // STRICT matching — Mould Master value MUST be in "LINE>MACHINE" format (e.g. "B -L1>HYD-350-1").
-        // Values without ">" (old formats like "E-L-1-OM-350-4" or plain "OM-350-4") are rejected.
-        // Match is done by comparing line + machine parts separately against Machine Master entries.
+        // STRICT matching — only show machines that exist in Machine Master.
+        // The DB self-heal strips any "LINE>" prefix before saving, so primaryMachine / secondaryMachine
+        // arrive here as clean codes like "HYD-350-1". Old hyphen formats like "E-L-1-OM-350-4"
+        // contain extra chars and will NOT match → correctly hidden.
+        // Strip ">" prefix for the rare case where self-heal hasn't run yet.
         const simplify = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const toCleanCode = (raw) => { const s = String(raw||'').trim(); return s.includes('>') ? s.split('>').pop().trim() : s; };
 
-        // Parse "B -L1>HYD-350-1" → { line: "B -L1", machine: "HYD-350-1" }. Returns null if no ">".
-        const parseMouldMachine = (raw) => {
-            const str = String(raw||'').trim();
-            const idx = str.indexOf('>');
-            if (idx < 0) return null;
-            return { line: str.slice(0, idx).trim(), machine: str.slice(idx + 1).trim() };
-        };
-
-        // Build Machine Master lookup: "BL1|HYD3501" → allMachines entry
+        // Build Machine Master lookup: simplify(cleanCode) → allMachines entry
         const masterMap = {};
         (Array.isArray(window.allMachines) ? window.allMachines : []).forEach(m => {
-            const lineKey = simplify(m.line || '');
-            const machKey = simplify(m.code || m.name || m.machine || '');
-            if (lineKey && machKey) masterMap[lineKey + '|' + machKey] = m;
+            const key = simplify(m.code || m.name || m.machine || '');
+            if (key) masterMap[key] = m;
         });
 
         const requestedCount = machines.length;
-        // Only keep machines whose Mould Master value has ">" AND whose line+machine combo exists in Machine Master
+        // Keep only machines whose clean code matches a Machine Master entry
+        // Old format "E-L-1-OM-350-4" → simplify → "EL1OM3504" → no match → dropped ✓
+        // Clean code "HYD-350-1"       → simplify → "HYD3501"   → match    → shown  ✓
         const matchedMachines = machines.map(opt => {
-            const parsed = parseMouldMachine(opt.machine);
-            if (!parsed) return null;
-            const key = simplify(parsed.line) + '|' + simplify(parsed.machine);
+            const key = simplify(toCleanCode(opt.machine));
             const entry = masterMap[key];
             if (!entry) return null;
             return { ...opt, _entry: entry };
