@@ -9632,6 +9632,32 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
       .filter(Boolean)
       .join(', ');
 
+    // Build suggestions: for each requested machine, find Machine Master machines
+    // with the same normalized key so the user knows the correct name for Mould Master.
+    let machineNameSuggestions = [];
+    if (machineNameMismatch) {
+      const allMachineIndex = machines.map(m => ({
+        name: m.machine,
+        key: normalizeMachinePreferenceKey(stripMachPfx(m.machine))
+      }));
+      const buildSuggestion = (requested, role) => {
+        const reqKey = normalizeMachinePreferenceKey(stripMachPfx(normalizePlanningText(requested)));
+        if (!reqKey) return null;
+        const correctNames = allMachineIndex.filter(m => m.key === reqKey).map(m => m.name);
+        return { requested: normalizePlanningText(requested), role, correctNames };
+      };
+      if (primaryMachine) {
+        const s = buildSuggestion(primaryMachine, 'PRIMARY');
+        if (s) machineNameSuggestions.push(s);
+      }
+      if (secondaryMachine) {
+        secondaryMachine.split(',').forEach(sec => {
+          const s = buildSuggestion(sec.trim(), 'SECONDARY');
+          if (s) machineNameSuggestions.push(s);
+        });
+      }
+    }
+
     scopedResult.sort((a, b) => {
       const rankFor = (row) => {
         if (row.preferenceRole === 'PRIMARY' && !row.isBookedFor15Days) return 0;
@@ -9649,7 +9675,7 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
       return naturalCompare(a.machine, b.machine);
     });
 
-    res.json({ ok: true, data: scopedResult, machineNameMismatch, requestedMachineNames });
+    res.json({ ok: true, data: scopedResult, machineNameMismatch, requestedMachineNames, machineNameSuggestions });
   } catch (e) {
     console.error('planning/compatible', e);
     res.status(500).json({ ok: false, error: String(e) });
