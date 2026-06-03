@@ -125,6 +125,28 @@ backup_before_deploy() {
     return 0
   fi
 
+  # Guard: a previous interrupted deploy may have left the db container in a stopped/exited
+  # state. docker compose ps -q returns it even when not running, causing docker exec to fail.
+  # If the container exists but is not running, restart it and wait for it to become healthy.
+  local db_state
+  db_state="$(docker inspect --format '{{.State.Status}}' "$db_container_id" 2>/dev/null || echo 'unknown')"
+  if [[ "$db_state" != "running" ]]; then
+    echo "[deploy] db container is in state '$db_state'; restarting before backup..."
+    $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" up -d db 2>/dev/null || true
+    local wait_i
+    for wait_i in $(seq 1 12); do
+      sleep 5
+      db_container_id="$($DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" ps -q db 2>/dev/null || true)"
+      db_state="$(docker inspect --format '{{.State.Status}}' "$db_container_id" 2>/dev/null || echo 'unknown')"
+      echo "[deploy] db container state after restart attempt $wait_i: $db_state"
+      if [[ "$db_state" == "running" ]]; then break; fi
+    done
+    if [[ "$db_state" != "running" ]]; then
+      echo "[deploy] db container still not running after restart; skipping backup" >&2
+      return 0
+    fi
+  fi
+
   local backup_dir="$DEPLOY_META_DIR/backups"
   local timestamp
   timestamp="$(date +%Y%m%d-%H%M%S)"

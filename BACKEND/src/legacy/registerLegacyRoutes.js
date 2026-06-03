@@ -12,6 +12,15 @@ const upload = multer({
     cb(new Error(`File type not allowed: ${file.originalname}`), false);
   }
 });
+const uploadRestore = multer({
+  dest: 'uploads/',
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB for DB restore files
+  fileFilter(_req, file, cb) {
+    const ALLOWED = /\.(sql|dump|backup)$/i;
+    if (ALLOWED.test(file.originalname)) return cb(null, true);
+    cb(new Error(`Only .sql, .dump, or .backup files allowed for restore`), false);
+  }
+});
 const fs = require('fs');
 const xlsx = require('xlsx');
 const bcrypt = require('bcryptjs');
@@ -7371,6 +7380,182 @@ app.post('/api/job/complete', async (req, res) => {
 // GET /api/planning/board?plant=DUNGRA&date=2025-12-12
 app.get('/api/planning/board', async (req, res) => {
   try {
+    // Self-heal 1 (factory-scoped): Normalise plan_board.machine to the exact value stored
+    // in the machines master for the SAME factory. This covers:
+    //   a) Legacy prefix codes like "E -L1>HYD-350-1"  → "HYD-350-1"
+    //   b) Case/whitespace drift like "hyd-350-1"        → "HYD-350-1"
+    // The factory_id constraint prevents cross-factory contamination: a machine named
+    // "OMEGA-150-3" in factory 2 must never overwrite a plan that belongs to factory 1.
+    await q(`
+      UPDATE plan_board pb
+         SET machine    = m.machine,
+             updated_at = NOW()
+        FROM machines m
+       WHERE (
+               -- prefix-style: strip "BUILDING -L{n}>" and match the rest
+               (pb.machine LIKE '%>%'
+                AND TRIM(LOWER(SPLIT_PART(pb.machine, '>', 2))) = TRIM(LOWER(m.machine)))
+               OR
+               -- plain code: case / whitespace drift only
+               (pb.machine NOT LIKE '%>%'
+                AND TRIM(LOWER(pb.machine)) = TRIM(LOWER(m.machine)))
+             )
+         AND pb.machine <> m.machine
+         AND (
+               m.factory_id = pb.factory_id          -- same factory
+               OR m.factory_id IS NULL                -- global machine (no factory assigned)
+               OR pb.factory_id IS NULL               -- plan has no factory yet
+             )
+    `);
+
+    // Self-heal M1: Fix machines master — strip "BUILDING -L{n}>" prefix from machine code
+    // and extract building/line into the dedicated columns.
+    // Example: "B -L1>HYD-350-1" → machine="HYD-350-1", building="B", line="1"
+    // Guard 1: skip rows where the stripped code already exists for the same factory
+    //          (avoids unique-constraint violation when a clean entry already exists).
+    // Guard 2: skip rows where ANOTHER prefixed machine in the same factory strips to the
+    //          same base code ("B -L1>HYD-350-1" AND "E -L1>HYD-350-1" would both become
+    //          "HYD-350-1" — neither passes the NOT EXISTS check, so neither is updated in
+    //          that batch, preventing the intra-batch unique-constraint crash).
+    try {
+      await q(`
+        UPDATE machines src
+           SET machine  = TRIM(SPLIT_PART(src.machine, '>', 2)),
+               building = CASE
+                            WHEN src.building IS NULL OR TRIM(src.building) = ''
+                            THEN TRIM(SPLIT_PART(SPLIT_PART(src.machine, '-L', 1), ' ', 1))
+                            ELSE src.building
+                          END,
+               line     = CASE
+                            WHEN src.line IS NULL OR TRIM(src.line) = ''
+                            THEN TRIM(SPLIT_PART(SPLIT_PART(src.machine, '-L', 2), '>', 1))
+                            ELSE src.line
+                          END
+         WHERE src.machine LIKE '%>%'
+           AND TRIM(SPLIT_PART(src.machine, '>', 2)) <> ''
+           -- Guard 1: no existing clean machine with that name in same factory
+           AND NOT EXISTS (
+                 SELECT 1 FROM machines dup
+                  WHERE TRIM(LOWER(dup.machine)) = TRIM(LOWER(SPLIT_PART(src.machine, '>', 2)))
+                    AND dup.id <> src.id
+                    AND (dup.factory_id IS NOT DISTINCT FROM src.factory_id)
+               )
+           -- Guard 2: no sibling prefixed machine in same factory strips to the same base code
+           AND NOT EXISTS (
+                 SELECT 1 FROM machines sib
+                  WHERE sib.machine LIKE '%>%'
+                    AND TRIM(LOWER(SPLIT_PART(sib.machine, '>', 2))) = TRIM(LOWER(SPLIT_PART(src.machine, '>', 2)))
+                    AND sib.id <> src.id
+                    AND (sib.factory_id IS NOT DISTINCT FROM src.factory_id)
+               )
+      `);
+    } catch (e) { console.warn('[self-heal M1] machines prefix strip skipped:', e.message); }
+
+    // Self-heal M1c: For prefixed machines that cannot be stripped (because sibling machines
+    // share the same base code), still extract building/line from the prefix into the
+    // dedicated columns so they appear under the correct group on the planning board.
+    try {
+      await q(`
+        UPDATE machines src
+           SET building = TRIM(SPLIT_PART(SPLIT_PART(src.machine, '-L', 1), ' ', 1)),
+               line     = TRIM(SPLIT_PART(SPLIT_PART(src.machine, '-L', 2), '>', 1))
+         WHERE src.machine LIKE '%>%'
+           AND TRIM(SPLIT_PART(src.machine, '>', 2)) <> ''
+           AND (src.building IS NULL OR TRIM(src.building) = ''
+                OR src.line    IS NULL OR TRIM(src.line)    = '')
+           AND TRIM(SPLIT_PART(SPLIT_PART(src.machine, '-L', 1), ' ', 1)) <> ''
+      `);
+    } catch (e) { console.warn('[self-heal M1c] building/line extract skipped:', e.message); }
+
+    // Self-heal M1b: If machines.machine is already clean but building/line are still empty,
+    // recover building and line from plan_board history — some plans may still carry the old
+    // prefix code and that prefix encodes the building/line we need.
+    try {
+      await q(`
+        UPDATE machines m
+           SET building = extracted.bld,
+               line     = extracted.ln
+          FROM (
+            SELECT DISTINCT ON (TRIM(LOWER(SPLIT_PART(machine, '>', 2))))
+              TRIM(LOWER(SPLIT_PART(machine, '>', 2)))                           AS machine_key,
+              TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 1), ' ', 1))             AS bld,
+              TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 2), '>', 1))             AS ln
+            FROM plan_board
+            WHERE machine LIKE '%>%'
+              AND TRIM(SPLIT_PART(machine, '>', 2)) <> ''
+              AND TRIM(SPLIT_PART(SPLIT_PART(machine, '-L', 1), ' ', 1)) <> ''
+            ORDER BY TRIM(LOWER(SPLIT_PART(machine, '>', 2))), updated_at DESC NULLS LAST
+          ) extracted
+         WHERE TRIM(LOWER(m.machine)) = extracted.machine_key
+           AND (m.building IS NULL OR TRIM(m.building) = ''
+                OR m.line IS NULL OR TRIM(m.line) = '')
+      `);
+    } catch (e) { console.warn('[self-heal M1b] building/line recovery skipped:', e.message); }
+
+    // Self-heal M2: Fix moulds.primary_machine (strip prefix)
+    // GUARD: only strip if the resulting clean machine code actually exists in the
+    // machines master. This prevents stripping "B -L1>HYD-350-1" to "HYD-350-1" when
+    // the machines table only stores the full prefixed form (sibling machines).
+    try {
+      await q(`
+        UPDATE moulds mo
+           SET primary_machine = TRIM(SPLIT_PART(primary_machine, '>', 2))
+         WHERE primary_machine LIKE '%>%'
+           AND TRIM(SPLIT_PART(primary_machine, '>', 2)) <> ''
+           AND EXISTS (
+                 SELECT 1 FROM machines mac
+                  WHERE TRIM(LOWER(mac.machine)) = TRIM(LOWER(SPLIT_PART(mo.primary_machine, '>', 2)))
+               )
+      `);
+    } catch (e) { console.warn('[self-heal M2]', e.message); }
+
+    // Self-heal M3: Fix moulds.secondary_machine for single-value entries (no comma)
+    // Same guard: only strip when the clean machine exists in the master.
+    try {
+      await q(`
+        UPDATE moulds mo
+           SET secondary_machine = TRIM(SPLIT_PART(secondary_machine, '>', 2))
+         WHERE secondary_machine LIKE '%>%'
+           AND secondary_machine NOT LIKE '%,%'
+           AND TRIM(SPLIT_PART(secondary_machine, '>', 2)) <> ''
+           AND EXISTS (
+                 SELECT 1 FROM machines mac
+                  WHERE TRIM(LOWER(mac.machine)) = TRIM(LOWER(SPLIT_PART(mo.secondary_machine, '>', 2)))
+               )
+      `);
+    } catch (e) { console.warn('[self-heal M3]', e.message); }
+
+    // Self-heal M3b: Fix comma-separated secondary_machine (run programmatically)
+    try {
+      const mouldRows = await q(`SELECT id, secondary_machine FROM moulds WHERE secondary_machine LIKE '%>%' AND secondary_machine LIKE '%,%'`);
+      for (const mRow of mouldRows) {
+        const fixed = (mRow.secondary_machine || '').split(',')
+          .map(s => { const t = s.trim(); return t.includes('>') ? t.split('>').pop().trim() : t; })
+          .join(', ');
+        if (fixed !== mRow.secondary_machine) {
+          await q(`UPDATE moulds SET secondary_machine = $1 WHERE id = $2`, [fixed, mRow.id]);
+        }
+      }
+    } catch (_) { /* non-critical */ }
+
+    // Self-heal S0 REMOVED — it was re-assigning plan machines from mould primary_machine
+    // even when plans already had valid machine assignments, causing data corruption.
+    // Plans keep whatever machine they were saved with; only explicit user edits change it.
+
+    // Self-heal 2: if any machine has >1 RUNNING plan, keep only the most-recently-updated one
+    await q(`
+      UPDATE plan_board SET status = 'Stopped', updated_at = NOW()
+      WHERE id IN (
+        SELECT id FROM (
+          SELECT id,
+                 ROW_NUMBER() OVER (PARTITION BY TRIM(UPPER(machine)) ORDER BY updated_at DESC, id DESC) AS rn
+          FROM plan_board
+          WHERE UPPER(status) = 'RUNNING'
+        ) ranked
+        WHERE rn > 1
+      )
+    `);
+
     // [FIX] Factory Isolation
     const factoryId = getFactoryId(req); // Moved up
     // Do NOT derive a default plant from factoryId. factory<->plant is not a fixed
@@ -7413,7 +7598,19 @@ app.get('/api/planning/board', async (req, res) => {
         pb.plant,
         COALESCE(NULLIF(TRIM(pb.building), ''), NULLIF(TRIM(planMachine.building), ''), NULLIF(TRIM(planMachine.machine_process), ''), 'General') AS building,
         COALESCE(NULLIF(TRIM(pb.line), ''), NULLIF(TRIM(planMachine.line), ''), CASE WHEN COALESCE(NULLIF(TRIM(planMachine.machine_process), ''), 'Moulding') = 'Moulding' THEN '1' ELSE 'Machines' END) AS line,
-        pb.machine,
+        -- Return the canonical machines.machine value so the frontend always gets an exact
+        -- match against m.code (machines master). Fallback chain:
+        --  1. planMachine matched on exact code          → use machines.machine
+        --  2. planMachine matched on prefix-stripped code → use machines.machine
+        --  3. pb.machine has a '>' prefix but no machines row → strip prefix
+        --  4. Bare value as-is
+        COALESCE(
+          planMachine.machine,
+          CASE WHEN pb.machine LIKE '%>%' AND NULLIF(TRIM(SPLIT_PART(pb.machine, '>', 2)), '') IS NOT NULL
+               THEN TRIM(SPLIT_PART(pb.machine, '>', 2))
+               ELSE pb.machine
+          END
+        ) AS machine,
         COALESCE(NULLIF(TRIM(planMachine.machine_process), ''), 'Moulding') AS "machineProcess",
         pb.seq,
         pb.order_no     AS "orderNo",
@@ -7438,8 +7635,15 @@ app.get('/api/planning/board', async (req, res) => {
       FROM plan_board pb
       LEFT JOIN orders o ON o.order_no = pb.order_no
       LEFT JOIN machines planMachine
-        ON LOWER(TRIM(planMachine.machine)) = LOWER(TRIM(pb.machine))
-       AND (planMachine.factory_id = pb.factory_id OR (planMachine.factory_id IS NULL AND pb.factory_id IS NULL))
+        ON (
+              -- exact / case-insensitive match
+              LOWER(TRIM(planMachine.machine)) = LOWER(TRIM(pb.machine))
+              OR
+              -- prefix-stripped match: "E -L1>HYD-350-1" → matches "HYD-350-1"
+              (pb.machine LIKE '%>%'
+               AND LOWER(TRIM(planMachine.machine)) = LOWER(TRIM(SPLIT_PART(pb.machine, '>', 2))))
+           )
+       AND (planMachine.factory_id = pb.factory_id OR planMachine.factory_id IS NULL OR pb.factory_id IS NULL)
       -- Optimized Mould Join: Match by Mould Name
       LEFT JOIN moulds m ON m.mould_name = pb.mould_name 
       -- Join Planning Summary for fallback Mould No
@@ -8925,18 +9129,35 @@ app.post('/api/planning/update', async (req, res) => {
     const { rowId, planQty, balQty, startDate, endDate, status } = req.body || {};
     if (!rowId) return res.json({ ok: false, error: 'Missing rowId' });
 
+    // If updating to RUNNING, auto-stop any other RUNNING plan on the same machine first
+    if (status && status.toUpperCase() === 'RUNNING') {
+      const planRow = await q('SELECT machine FROM plan_board WHERE id = $1', [rowId]);
+      if (planRow.length && planRow[0].machine) {
+        const stopped = await q(
+          `UPDATE plan_board SET status = 'Stopped', updated_at = NOW()
+           WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1)) AND UPPER(status) = 'RUNNING' AND id != $2
+           RETURNING id, order_no`,
+          [planRow[0].machine, rowId]
+        );
+        for (const s of stopped) {
+          await q(
+            "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SWAP_STOP', $2, 'System')",
+            [s.id, JSON.stringify({ reason: `Auto-stopped by update of plan ${rowId}`, by_plan_id: rowId })]
+          );
+        }
+      }
+    }
+
     const rows = await q(
-      `
-      UPDATE plan_board
-         SET plan_qty = COALESCE($2, plan_qty),
-      bal_qty = COALESCE($3, bal_qty),
-      start_date = COALESCE($4, start_date),
-      end_date = COALESCE($5, end_date),
-      status = COALESCE($6, status),
-      updated_at = NOW()
+      `UPDATE plan_board
+         SET plan_qty  = COALESCE($2, plan_qty),
+             bal_qty   = COALESCE($3, bal_qty),
+             start_date= COALESCE($4, start_date),
+             end_date  = COALESCE($5, end_date),
+             status    = COALESCE($6, status),
+             updated_at= NOW()
        WHERE id = $1
-      RETURNING id
-      `,
+       RETURNING id`,
       [rowId, toNum(planQty), toNum(balQty), startDate || null, endDate || null, status || null]
     );
 
@@ -9205,10 +9426,13 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
     const requestedProcess = getRequestedMachineProcess(req, 'Moulding');
     const primaryMachine = normalizePlanningText(req.query.primaryMachine);
     const secondaryMachine = normalizePlanningText(req.query.secondaryMachine);
-    const primaryMachineKey = normalizeMachinePreferenceKey(primaryMachine);
+    // Strip legacy "BUILDING -L{n}>" prefix before normalizing so "E -L1>HYD-350-1"
+    // and "HYD-350-1" both resolve to the same key "HYD3501".
+    const stripMachPfx = (s) => { const t = String(s || '').trim(); return t.includes('>') ? t.split('>').pop().trim() : t; };
+    const primaryMachineKey = normalizeMachinePreferenceKey(stripMachPfx(primaryMachine));
     const secondaryMachineKeys = secondaryMachine
       .split(',')
-      .map((item) => normalizeMachinePreferenceKey(item))
+      .map((item) => normalizeMachinePreferenceKey(stripMachPfx(item)))
       .filter(Boolean);
     const factoryId = getFactoryId(req);
 
@@ -9226,7 +9450,10 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
 
     if (factoryId) {
       machineParams.push(factoryId);
-      machineSql += ` AND m.factory_id = $${machineParams.length}`;
+      // NULL-tolerant factory scope: legacy machines imported before the factory_id
+      // migration carry factory_id = NULL and must still be plannable. This mirrors the
+      // moulds-master join (getPlanningOrderMouldBundle) and the plan_board status join below.
+      machineSql += ` AND (m.factory_id = $${machineParams.length} OR m.factory_id IS NULL)`;
     }
 
     if (requestedProcess) {
@@ -9358,7 +9585,7 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
     // Combine
     const result = machines.map(m => {
       const s = statusMap[m.machine];
-      const machineNameKey = normalizeMachinePreferenceKey(m.machine);
+      const machineNameKey = normalizeMachinePreferenceKey(stripMachPfx(m.machine));
       const isPrimary = !!primaryMachineKey && machineNameKey === primaryMachineKey;
       const isSecondary = secondaryMachineKeys.includes(machineNameKey);
       return {
@@ -9374,25 +9601,36 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
 
     const primaryBookedFor15Days = result.some((row) => row.preferenceRole === 'PRIMARY' && row.isBookedFor15Days);
     let scopedResult = result;
+    // True when the mould has a mapped primary/secondary machine name that does NOT
+    // exist in Machine Master (after normalization). We must NOT silently show other
+    // machines in that case — the name is wrong and the user has to correct it.
+    let machineNameMismatch = false;
 
     if (requestedProcess === 'Moulding') {
       const primaryRows = result.filter((row) => row.preferenceRole === 'PRIMARY');
       const secondaryRows = result.filter((row) => row.preferenceRole === 'SECONDARY');
+      // Show BOTH the mapped Primary and Secondary machines (whichever match Machine
+      // Master) so the planner can pick either. The sort below still ranks an available
+      // Primary first; cards carry their own RUNNING/booked status for the planner to see.
+      const preferredRows = [...primaryRows, ...secondaryRows];
 
-      if (primaryRows.length > 0) {
-        scopedResult = primaryBookedFor15Days ? secondaryRows : primaryRows;
-      } else if (secondaryRows.length > 0) {
-        scopedResult = secondaryRows;
+      if (preferredRows.length > 0) {
+        scopedResult = preferredRows;
       } else if (primaryMachineKey || secondaryMachineKeys.length > 0) {
-        // A preferred machine was specified but didn't match any machine name in the machines
-        // table (e.g. case/formatting mismatch between moulds master and machines master).
-        // Fall back to returning ALL compatible machines so the user can still plan,
-        // rather than showing an empty dropdown.
-        scopedResult = result;
+        // A primary/secondary machine WAS mapped in Mould Master, but its name matches
+        // no machine in Machine Master. Do not fall back to all machines — surface the
+        // mismatch so the user fixes the name in Mould Master / Machine Master.
+        scopedResult = [];
+        machineNameMismatch = true;
       } else {
         scopedResult = [];
       }
     }
+
+    const requestedMachineNames = [primaryMachine, secondaryMachine]
+      .map((name) => normalizePlanningText(name))
+      .filter(Boolean)
+      .join(', ');
 
     scopedResult.sort((a, b) => {
       const rankFor = (row) => {
@@ -9411,7 +9649,7 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
       return naturalCompare(a.machine, b.machine);
     });
 
-    res.json({ ok: true, data: scopedResult });
+    res.json({ ok: true, data: scopedResult, machineNameMismatch, requestedMachineNames });
   } catch (e) {
     console.error('planning/compatible', e);
     res.status(500).json({ ok: false, error: String(e) });
@@ -10218,6 +10456,13 @@ app.post('/api/planning/move', async (req, res) => {
     if (!targetMachine && newMachine) targetMachine = newMachine;
 
     if (!rowId || !targetMachine) return res.json({ ok: false, error: 'Missing rowId or targetMachine' });
+
+    // Normalize targetMachine to canonical name from machines master (prevents whitespace/case drift)
+    const machineNorm = await q(
+      'SELECT machine FROM machines WHERE TRIM(LOWER(machine)) = TRIM(LOWER($1)) LIMIT 1',
+      [targetMachine]
+    );
+    if (machineNorm.length) targetMachine = machineNorm[0].machine;
 
     // 1. Get Plan & Old Machine
     const planRes = await q('SELECT * FROM plan_board WHERE id = $1', [rowId]);
@@ -11929,7 +12174,13 @@ app.get('/api/masters/machines', async (req, res) => {
     const conditions = ['1 = 1'];
     const normalizedProcess = normalizeMachineProcess(process, '');
 
-    applyFactoryScopeCondition(conditions, params, 'm.factory_id', factoryScope);
+    // For machine master data, also include global machines (factory_id IS NULL)
+    // so users on any factory can see unscoped machines during Create Plan
+    const machineFid = factoryScope?.factoryId ?? null;
+    if (machineFid) {
+      params.push(machineFid);
+      conditions.push(`(m.factory_id = $${params.length} OR m.factory_id IS NULL)`);
+    }
 
     if (normalizedProcess) {
       params.push(normalizedProcess);
@@ -11981,7 +12232,21 @@ app.get('/api/masters/machines', async (req, res) => {
       if (processCompare) return processCompare;
       return naturalCompare(a.machine, b.machine);
     });
-    res.json({ ok: true, data: await attachFactoryNames(rows) });
+
+    // Deduplicate: when the request is factory-scoped, prefer factory-specific entries
+    // over global (factory_id IS NULL) entries that share the same machine code.
+    // This prevents "AKAR-150-4" appearing twice when it exists both globally and in
+    // the current factory's machines master.
+    const deduped = machineFid
+      ? (() => {
+          const factoryCodes = new Set(
+            rows.filter(r => r.factory_id !== null).map(r => String(r.machine || '').trim().toLowerCase())
+          );
+          return rows.filter(r => r.factory_id !== null || !factoryCodes.has(String(r.machine || '').trim().toLowerCase()));
+        })()
+      : rows;
+
+    res.json({ ok: true, data: await attachFactoryNames(deduped) });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
 
@@ -19018,7 +19283,7 @@ app.get('/api/admin/backup', async (req, res) => {
 });
 
 // 2. RESTORE
-app.post('/api/admin/restore', upload.single('file'), async (req, res) => {
+app.post('/api/admin/restore', uploadRestore.single('file'), async (req, res) => {
   console.log('[Restore] Request received');
   if (!req.file) return res.status(400).json({ ok: false, error: 'No file uploaded' });
 

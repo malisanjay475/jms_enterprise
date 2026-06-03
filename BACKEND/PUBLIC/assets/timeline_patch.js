@@ -224,10 +224,13 @@
 
         const fmt = (d) => d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
         const esc = (s) => (s || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        // Strip legacy "BUILDING -L{LINE}>" prefix  e.g. "E -L1>HYD-350-1" → "HYD-350-1"
+        const stripMach = (s) => { const t = String(s || '').trim(); return t.includes('>') ? t.split('>').pop().trim() : t; };
 
         document.getElementById('om-tbody').innerHTML = mergedList.map(item => {
+            const cleanMachine = stripMach(item.machine);
             const st = (item.status || 'Pending').toLowerCase();
-            const isPlanned = item.machine && item.machine !== '-' && st !== 'pending';
+            const isPlanned = cleanMachine && cleanMachine !== '-' && st !== 'pending';
 
             let badgeClass = 'pending';
             if (st === 'running') badgeClass = 'running';
@@ -259,16 +262,16 @@
             const jc = item.jcNo || '-';
             let machDisplay = '';
             if (isPlanned && item._planObj) {
-                machDisplay = `<div class="om-mach-click-badge" 
-                         onclick="window.openMachineSelector(event, '${item._planObj.id}', '${esc(item.machine)}', '${esc(item._planObj.primaryMachine || '')}', '${esc(item._planObj.secondaryMachine || '')}')"
+                machDisplay = `<div class="om-mach-click-badge"
+                         onclick="window.openMachineSelector(event, '${item._planObj.id}', '${esc(cleanMachine)}', '${esc(item._planObj.primaryMachine || '')}', '${esc(item._planObj.secondaryMachine || '')}')"
                          style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; padding:4px 8px; border-radius:6px; font-weight:700; transition:all 0.2s;"
                          onmouseover="this.style.background='#dbeafe'; this.style.borderColor='#3b82f6';"
                          onmouseout="this.style.background='#eff6ff'; this.style.borderColor='#bfdbfe';">
-                        <span>${esc(item.machine)}</span>
+                        <span>${esc(cleanMachine)}</span>
                         <i class="bi bi-chevron-down" style="font-size:0.75rem; color:#3b82f6;"></i>
                     </div>`;
             } else if (item._planObj) {
-                machDisplay = `<div class="om-mach-click-badge" 
+                machDisplay = `<div class="om-mach-click-badge"
                          onclick="window.openMachineSelector(event, '${item._planObj.id}', '', '${esc(item._planObj.primaryMachine || '')}', '${esc(item._planObj.secondaryMachine || '')}')"
                          style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; background:#f8fafc; border:1px solid #cbd5e1; color:#64748b; padding:4px 8px; border-radius:6px; font-weight:500; font-style:italic; transition:all 0.2s;"
                          onmouseover="this.style.background='#f1f5f9'; this.style.borderColor='#94a3b8'; color:#475569;"
@@ -1438,19 +1441,42 @@
             machines.push({ machine: (currentMachine||'').trim(), type: 'Current' });
         }
 
+        // STRICT name matching — only show machines whose name accurately matches Machine
+        // Master (normalized: ignore case/spaces/dashes). A mould may have a machine mapped
+        // under a wrong/old name; we must NOT offer those. If names were provided but none
+        // match Machine Master, surface an error instead of silently showing nothing.
+        const simplify = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const masterKeys = new Set(
+            (Array.isArray(window.allMachines) ? window.allMachines : [])
+                .map(m => simplify(m.name || m.code || m.machine))
+                .filter(Boolean)
+        );
+        const requestedCount = machines.length;
+        const matchedMachines = masterKeys.size
+            ? machines.filter(m => masterKeys.has(simplify(m.machine)))
+            : machines;
+        const nameMismatch = requestedCount > 0 && matchedMachines.length === 0 && masterKeys.size > 0;
+        const requestedNames = machines.map(m => m.machine).filter(Boolean).join(', ');
+
         const modalId = 'pjdMachineSelectModal';
         let oldModal = document.getElementById(modalId);
         if (oldModal) oldModal.remove();
 
         let optHtml = '';
-        if (!machines.length) {
+        if (nameMismatch) {
+            optHtml = `<div style="padding:20px;text-align:center">
+                <div style="font-size:2rem;margin-bottom:8px">⚠️</div>
+                <div style="font-weight:800;color:#be123c;margin-bottom:6px">Machines are not matching with Machine Master</div>
+                <div style="font-size:0.85rem;color:#64748b">${requestedNames ? `Mapped: <strong>${esc(requestedNames)}</strong>. ` : ''}Correct the machine name in Mould Master to exactly match Machine Master, then reload the timeline.</div>
+            </div>`;
+        } else if (!matchedMachines.length) {
             optHtml = `<div style="padding:20px;text-align:center;color:#94a3b8">
                 <div style="font-size:2rem;margin-bottom:8px">🔍</div>
                 <div style="font-weight:700;color:#64748b;margin-bottom:4px">No machines configured</div>
                 <div style="font-size:0.85rem">Set Primary / Secondary machine in Mould Master for this mould, then reload the timeline.</div>
             </div>`;
         } else {
-            optHtml = machines.map(opt => {
+            optHtml = matchedMachines.map(opt => {
                 const isCurrent = norm(opt.machine) === currNorm;
                 const typeLC = (opt.type || '').toLowerCase();
                 const badgeBg  = typeLC === 'primary' ? '#dcfce7' : typeLC === 'secondary' ? '#e0f2fe' : '#f1f5f9';
