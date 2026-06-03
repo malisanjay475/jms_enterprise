@@ -920,7 +920,22 @@
         const res = await JPSMS.api.get('/masters/machines?process=Moulding');
         if (res.ok) {
           const list = document.getElementById('machineList');
-          list.innerHTML = res.data.map(m => `<option value="${m.machine}">`).join('');
+          const sorted = (res.data || []).slice().sort((a, b) => {
+            const la = String(a.line || '').trim(), lb = String(b.line || '').trim();
+            const ba = la.charAt(0) || 'Z', bb = lb.charAt(0) || 'Z';
+            if (ba !== bb) return ba.localeCompare(bb);
+            const lna = parseInt((la.match(/L(\d+)/i) || [0,0])[1], 10) || 999;
+            const lnb = parseInt((lb.match(/L(\d+)/i) || [0,0])[1], 10) || 999;
+            if (lna !== lnb) return lna - lnb;
+            const na = parseInt((a.machine.match(/(\d+)$/) || [0,0])[1], 10) || 999;
+            const nb = parseInt((b.machine.match(/(\d+)$/) || [0,0])[1], 10) || 999;
+            return na - nb;
+          });
+          list.innerHTML = sorted.map(m => {
+            const line = String(m.line || '').trim();
+            const display = line ? `${line}>${m.machine}` : m.machine;
+            return `<option value="${display}">`;
+          }).join('');
         }
       } catch (e) {
         console.error(e);
