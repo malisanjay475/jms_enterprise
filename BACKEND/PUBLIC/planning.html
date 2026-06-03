@@ -13062,7 +13062,7 @@
           const stLabel = st === 'running' ? 'RUN' : st === 'stopped' ? 'STOP' : st === 'completed' ? 'DONE' : 'PLAN';
 
           return `
-            <td class="etv-plan-cell" onclick="window.openOrderModal('${esc(p.orderNo)}')" title="Order: ${esc(p.orderNo)}&#10;Mould: ${esc(p.mouldName)}&#10;Client: ${esc(p.clientName)}&#10;Qty: ${fmtQty(p.planQty)} | Bal: ${fmtQty(p.balQty)}">
+            <td class="etv-plan-cell" onclick="window.openOrderModal('${esc(p.orderNo)}', '${esc(p.planId || p.plan_id || p.id || '')}')" title="Order: ${esc(p.orderNo)}&#10;Mould: ${esc(p.mouldName)}&#10;Client: ${esc(p.clientName)}&#10;Qty: ${fmtQty(p.planQty)} | Bal: ${fmtQty(p.balQty)}">
               <div class="etv-card ${cardClass}">
                 ${isPrevMould ? '<span class="etv-card-chg-badge">CHG</span>' : ''}
                 <div class="etv-card-row1">
