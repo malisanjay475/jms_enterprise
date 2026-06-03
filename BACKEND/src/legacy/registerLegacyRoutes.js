@@ -9632,7 +9632,7 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
       .filter(Boolean)
       .join(', ');
 
-    // Build suggestions: for each requested machine name, find Machine Master machines
+    // Build suggestions: for each requested machine, find Machine Master machines
     // with the same normalized key so the user knows the correct name for Mould Master.
     let machineNameSuggestions = [];
     if (machineNameMismatch) {

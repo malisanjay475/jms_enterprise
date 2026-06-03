@@ -1441,52 +1441,35 @@
             machines.push({ machine: (currentMachine||'').trim(), type: 'Current' });
         }
 
-        // STRICT matching — only show machines that exist in Machine Master.
-        // The DB self-heal strips any "LINE>" prefix before saving, so primaryMachine / secondaryMachine
-        // arrive here as clean codes like "HYD-350-1". Old hyphen formats like "E-L-1-OM-350-4"
-        // contain extra chars and will NOT match → correctly hidden.
-        // Strip ">" prefix for the rare case where self-heal hasn't run yet.
-        const simplify = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g, '');
-        const toCleanCode = (raw) => { const s = String(raw||'').trim(); return s.includes('>') ? s.split('>').pop().trim() : s; };
-
-        // Build Machine Master lookup: simplify(cleanCode) → allMachines entry
-        const masterMap = {};
-        (Array.isArray(window.allMachines) ? window.allMachines : []).forEach(m => {
-            const key = simplify(m.code || m.name || m.machine || '');
-            if (key) masterMap[key] = m;
-        });
-
+        // STRICT name matching — only show machines whose name accurately matches Machine
+        // Master (normalized: ignore case/spaces/dashes). A mould may have a machine mapped
+        // under a wrong/old name; we must NOT offer those. If names were provided but none
+        // match Machine Master, surface an error instead of silently showing nothing.
+        const simplify = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const masterKeys = new Set(
+            (Array.isArray(window.allMachines) ? window.allMachines : [])
+                .map(m => simplify(m.name || m.code || m.machine))
+                .filter(Boolean)
+        );
         const requestedCount = machines.length;
-        // Keep only machines whose clean code matches a Machine Master entry
-        // Old format "E-L-1-OM-350-4" → simplify → "EL1OM3504" → no match → dropped ✓
-        // Clean code "HYD-350-1"       → simplify → "HYD3501"   → match    → shown  ✓
-        const matchedMachines = machines.map(opt => {
-            const key = simplify(toCleanCode(opt.machine));
-            const entry = masterMap[key];
-            if (!entry) return null;
-            return { ...opt, _entry: entry };
-        }).filter(Boolean);
-
-        const nameMismatch = requestedCount > 0 && matchedMachines.length === 0 && Object.keys(masterMap).length > 0;
+        const matchedMachines = masterKeys.size
+            ? machines.filter(m => masterKeys.has(simplify(m.machine)))
+            : machines;
+        const nameMismatch = requestedCount > 0 && matchedMachines.length === 0 && masterKeys.size > 0;
         const requestedNames = machines.map(m => m.machine).filter(Boolean).join(', ');
 
-        // For each unmatched machine, find the correct Machine Master name as a suggestion
-        const extractSuffix = (raw) => {
-            const s = String(raw || '').trim();
-            if (s.includes('>')) return simplify(s.split('>').pop().trim());
-            const m2 = s.match(/^[A-Za-z]\s*-?\s*L-?\s*\d+\s*-\s*(.+)$/i);
-            if (m2) return simplify(m2[1].trim());
-            return simplify(s);
-        };
+        // For each unmatched machine, find correct Machine Master name as suggestion
         const allMasterMachines = Array.isArray(window.allMachines) ? window.allMachines : [];
         const findCorrectNames = (raw) => {
-            const suffix = extractSuffix(raw);
-            if (!suffix) return [];
+            const rawSimple = simplify(raw);
+            if (!rawSimple) return [];
+            // Try stripping building prefix (e.g. "E-L-1-OM-350-4" → "OM-350-4" → "OM3504")
+            const suffixMatch = String(raw||'').trim().match(/^[A-Za-z]\s*-?\s*L-?\s*\d+\s*[-\>]\s*(.+)$/i);
+            const suffix = suffixMatch ? simplify(suffixMatch[1]) : rawSimple;
             return allMasterMachines.map(m => {
                 const name = String(m.machine || m.name || m.code || '').trim();
-                const parsed = (() => { const idx = name.indexOf('>'); return idx >= 0 ? { line: name.slice(0,idx).trim(), machine: name.slice(idx+1).trim() } : null; })();
-                const key = parsed ? simplify(parsed.machine) : simplify(name);
-                return key === suffix ? name : null;
+                const nameSuffix = name.includes('>') ? simplify(name.split('>').pop()) : simplify(name);
+                return (nameSuffix === suffix || simplify(name) === rawSimple) ? name : null;
             }).filter(Boolean);
         };
 
@@ -1501,11 +1484,7 @@
                 const corrHtml = correct.length
                     ? `<span style="color:#15803d;font-weight:700">${correct.map(c => esc(c)).join(', ')}</span>`
                     : `<span style="color:#94a3b8">No match found in Machine Master</span>`;
-                return `<tr>
-                    <td style="padding:4px 8px;color:#be123c;font-weight:600">${esc(m.machine)}</td>
-                    <td style="padding:4px 8px;color:#64748b">→</td>
-                    <td style="padding:4px 8px">${corrHtml}</td>
-                </tr>`;
+                return `<tr><td style="padding:4px 8px;color:#be123c;font-weight:600">${esc(m.machine)}</td><td style="padding:4px 8px;color:#64748b">→</td><td style="padding:4px 8px">${corrHtml}</td></tr>`;
             }).join('');
             optHtml = `<div style="padding:16px">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
@@ -1514,13 +1493,11 @@
                 </div>
                 <div style="font-size:0.82rem;color:#64748b;margin-bottom:10px">Update Mould Master with the correct Machine Master names shown below:</div>
                 <table style="width:100%;border-collapse:collapse;font-size:0.82rem;background:#fff7f7;border-radius:8px;overflow:hidden;border:1px solid #fecdd3">
-                    <thead>
-                        <tr style="background:#fee2e2">
-                            <th style="padding:6px 8px;text-align:left;color:#be123c">Mould Master (Wrong)</th>
-                            <th style="padding:6px 8px"></th>
-                            <th style="padding:6px 8px;text-align:left;color:#15803d">Machine Master (Correct)</th>
-                        </tr>
-                    </thead>
+                    <thead><tr style="background:#fee2e2">
+                        <th style="padding:6px 8px;text-align:left;color:#be123c">Mould Master (Wrong)</th>
+                        <th style="padding:6px 8px"></th>
+                        <th style="padding:6px 8px;text-align:left;color:#15803d">Machine Master (Correct)</th>
+                    </tr></thead>
                     <tbody>${suggestionRows}</tbody>
                 </table>
                 <div style="margin-top:10px;font-size:0.78rem;color:#94a3b8">Go to Masters → Mould Master → update the machine names → reload timeline.</div>
@@ -1533,11 +1510,7 @@
             </div>`;
         } else {
             optHtml = matchedMachines.map(opt => {
-                // Display name and clean API name both come from the verified Machine Master entry
-                const entry = opt._entry;
-                const displayName = String(entry.line||'').trim() + '>' + (entry.code || entry.name || entry.machine || '');
-                const cleanName   = entry.code || entry.name || entry.machine || '';
-                const isCurrent   = simplify(cleanName) === simplify(currentMachine);
+                const isCurrent = norm(opt.machine) === currNorm;
                 const typeLC = (opt.type || '').toLowerCase();
                 const badgeBg  = typeLC === 'primary' ? '#dcfce7' : typeLC === 'secondary' ? '#e0f2fe' : '#f1f5f9';
                 const badgeTxt = typeLC === 'primary' ? '#15803d' : typeLC === 'secondary' ? '#0369a1'  : '#475569';
@@ -1546,13 +1519,13 @@
                     ? '<i class="bi bi-check-circle-fill" style="color:#3b82f6;font-size:1.1rem;margin-left:auto"></i>'
                     : '<i class="bi bi-circle" style="color:#cbd5e1;font-size:1.1rem;margin-left:auto"></i>';
                 const clickAttr = isCurrent ? '' :
-                    `onclick="window.executeMachineChange('${planId}','${esc(cleanName)}','${modalId}')"`;
+                    `onclick="window.executeMachineChange('${planId}','${esc(opt.machine)}','${modalId}')"`;
                 const hover = isCurrent ? '' :
                     `onmouseover="this.style.borderColor='#93c5fd';this.style.background='#f8fafc'" onmouseout="this.style.borderColor='#e2e8f0';this.style.background='#fff'"`;
                 return `<div ${clickAttr} ${hover}
                     style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:10px;${isCurrent?'cursor:default':'cursor:pointer'};margin-bottom:8px;transition:all 0.15s;${border}">
                     <div style="flex:1">
-                        <div style="font-size:1.05rem;font-weight:800;color:#0f172a">${esc(displayName)}</div>
+                        <div style="font-size:1.05rem;font-weight:800;color:#0f172a">${esc(opt.machine)}</div>
                         <div style="margin-top:3px">
                             <span style="font-size:0.72rem;font-weight:800;text-transform:uppercase;background:${badgeBg};color:${badgeTxt};padding:2px 7px;border-radius:4px">${esc(opt.type)}</span>
                             ${isCurrent ? ' <span style="font-size:0.75rem;color:#3b82f6;font-weight:700">— Current</span>' : ''}
