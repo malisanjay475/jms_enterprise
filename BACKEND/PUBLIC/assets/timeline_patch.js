@@ -111,6 +111,8 @@
         }
         .om-table tr:last-child td { border-bottom: none; }
         .om-table tr:hover td { background: #f8fafc; }
+        .om-table tr.highlighted td { background-color: #fef08a !important; border-top: 1.5px solid #eab308; border-bottom: 1.5px solid #eab308; }
+        .om-table tr.highlighted td:first-child { border-left: 5px solid #ca8a04; }
         
         .om-badge {
             padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
@@ -232,6 +234,13 @@
             const st = (item.status || 'Pending').toLowerCase();
             const isPlanned = cleanMachine && cleanMachine !== '-' && st !== 'pending';
 
+            const isHighlighted = item._planObj && (
+                String(item._planObj.id) === String(window.lastClickedPlanId) ||
+                String(item._planObj.planId) === String(window.lastClickedPlanId) ||
+                String(item._planObj.plan_id) === String(window.lastClickedPlanId)
+            );
+            const rowClass = isHighlighted ? 'class="highlighted"' : '';
+
             let badgeClass = 'pending';
             if (st === 'running') badgeClass = 'running';
             else if (st === 'stopped') badgeClass = 'stopped';
@@ -286,7 +295,7 @@
                 ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : '')}','${esc(item._planObj ? (item._planObj.orderNo || '') : '')}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
                 : '<span style="color:#cbd5e1">—</span>';
 
-            return `<tr>
+            return `<tr ${rowClass} ${isHighlighted ? 'data-highlighted="true"' : ''}>
                 <td><div style="font-weight:700;color:#334155">${esc(item.mouldName || '-')}</div>
                     <div style="font-size:0.8rem;color:#64748b;font-family:monospace">${esc(item.mouldNo)}</div></td>
                 <td style="font-weight:600;color:#334155">${machDisplay}</td>
@@ -298,12 +307,22 @@
                 <td>${datesHtml}</td>
             </tr>`;
         }).join('');
+
+        // Smoothly scroll the highlighted plan row into view
+        setTimeout(() => {
+            const highlightedRow = document.querySelector('#om-tbody tr[data-highlighted="true"]');
+            if (highlightedRow) {
+                highlightedRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 150);
     }
 
-    window.openOrderModal = async function (orderNo) {
+    window.openOrderModal = async function (orderNo, clickedPlanId) {
         window.createOrderModal();
         const modal = document.getElementById('orderDetailModal');
         _ddShowPlans(); // make sure plans area is visible, not drill-down
+
+        window.lastClickedPlanId = clickedPlanId; // Track clicked plan for highlighting
 
         modal.style.display = 'flex';
         void modal.offsetWidth;
@@ -408,6 +427,7 @@
         const modal = document.getElementById('orderDetailModal');
         if (modal) {
             modal.classList.remove('active');
+            window.lastClickedPlanId = null; // Clear highlight on close
             setTimeout(() => { modal.style.display = 'none'; window._ddHideDrill(); }, 300);
         }
     };
@@ -898,7 +918,7 @@
                         data-secondary-machine="${esc(p.secondaryMachine || '')}"
                         ondragstart="window.handleDragStart(event, this)"
                         ondragend="window.handleDragEnd(event, this)"
-                        onclick="window.openOrderModal('${esc(p.orderNo)}')"
+                        onclick="window.openOrderModal('${esc(p.orderNo)}', '${esc(p.id)}')"
                         style="
                            min-width: 225px; width: 225px; flex-shrink: 0;
                            background: ${cardBg};
