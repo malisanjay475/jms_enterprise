@@ -12,6 +12,15 @@ const upload = multer({
     cb(new Error(`File type not allowed: ${file.originalname}`), false);
   }
 });
+const uploadRestore = multer({
+  dest: 'uploads/',
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB for DB restore files
+  fileFilter(_req, file, cb) {
+    const ALLOWED = /\.(sql|dump|backup)$/i;
+    if (ALLOWED.test(file.originalname)) return cb(null, true);
+    cb(new Error(`Only .sql, .dump, or .backup files allowed for restore`), false);
+  }
+});
 const fs = require('fs');
 const xlsx = require('xlsx');
 const bcrypt = require('bcryptjs');
@@ -19274,7 +19283,7 @@ app.get('/api/admin/backup', async (req, res) => {
 });
 
 // 2. RESTORE
-app.post('/api/admin/restore', upload.single('file'), async (req, res) => {
+app.post('/api/admin/restore', uploadRestore.single('file'), async (req, res) => {
   console.log('[Restore] Request received');
   if (!req.file) return res.status(400).json({ ok: false, error: 'No file uploaded' });
 
