@@ -1491,7 +1491,10 @@
             optHtml = matchedMachines.map(opt => {
                 // Display name and clean API name both come from the verified Machine Master entry
                 const entry = opt._entry;
-                const displayName = String(entry.line||'').trim() + '>' + (entry.code || entry.name || entry.machine || '');
+                const lineVal = String(entry.line || '').trim();
+                const machVal = entry.code || entry.name || entry.machine || '';
+                const startsWithLine = lineVal && machVal.replace(/\s+/g, '').toLowerCase().startsWith(lineVal.replace(/\s+/g, '').toLowerCase());
+                const displayName = (lineVal && !machVal.includes('>') && !startsWithLine) ? lineVal + '>' + machVal : machVal;
                 const cleanName   = entry.code || entry.name || entry.machine || '';
                 const isCurrent   = simplify(cleanName) === simplify(currentMachine);
                 const typeLC = (opt.type || '').toLowerCase();
