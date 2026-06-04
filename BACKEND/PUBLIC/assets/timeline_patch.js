@@ -111,6 +111,8 @@
         }
         .om-table tr:last-child td { border-bottom: none; }
         .om-table tr:hover td { background: #f8fafc; }
+        .om-table tr.highlighted td { background-color: #fef08a !important; border-top: 1.5px solid #eab308; border-bottom: 1.5px solid #eab308; }
+        .om-table tr.highlighted td:first-child { border-left: 5px solid #ca8a04; }
         
         .om-badge {
             padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
@@ -232,6 +234,13 @@
             const st = (item.status || 'Pending').toLowerCase();
             const isPlanned = cleanMachine && cleanMachine !== '-' && st !== 'pending';
 
+            const isHighlighted = item._planObj && (
+                String(item._planObj.id) === String(window.lastClickedPlanId) ||
+                String(item._planObj.planId) === String(window.lastClickedPlanId) ||
+                String(item._planObj.plan_id) === String(window.lastClickedPlanId)
+            );
+            const rowClass = isHighlighted ? 'class="highlighted"' : '';
+
             let badgeClass = 'pending';
             if (st === 'running') badgeClass = 'running';
             else if (st === 'stopped') badgeClass = 'stopped';
@@ -286,7 +295,7 @@
                 ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : '')}','${esc(item._planObj ? (item._planObj.orderNo || '') : '')}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
                 : '<span style="color:#cbd5e1">—</span>';
 
-            return `<tr>
+            return `<tr ${rowClass} ${isHighlighted ? 'data-highlighted="true"' : ''}>
                 <td><div style="font-weight:700;color:#334155">${esc(item.mouldName || '-')}</div>
                     <div style="font-size:0.8rem;color:#64748b;font-family:monospace">${esc(item.mouldNo)}</div></td>
                 <td style="font-weight:600;color:#334155">${machDisplay}</td>
@@ -298,12 +307,22 @@
                 <td>${datesHtml}</td>
             </tr>`;
         }).join('');
+
+        // Smoothly scroll the highlighted plan row into view
+        setTimeout(() => {
+            const highlightedRow = document.querySelector('#om-tbody tr[data-highlighted="true"]');
+            if (highlightedRow) {
+                highlightedRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 150);
     }
 
-    window.openOrderModal = async function (orderNo) {
+    window.openOrderModal = async function (orderNo, clickedPlanId) {
         window.createOrderModal();
         const modal = document.getElementById('orderDetailModal');
         _ddShowPlans(); // make sure plans area is visible, not drill-down
+
+        window.lastClickedPlanId = clickedPlanId; // Track clicked plan for highlighting
 
         modal.style.display = 'flex';
         void modal.offsetWidth;
@@ -408,6 +427,7 @@
         const modal = document.getElementById('orderDetailModal');
         if (modal) {
             modal.classList.remove('active');
+            window.lastClickedPlanId = null; // Clear highlight on close
             setTimeout(() => { modal.style.display = 'none'; window._ddHideDrill(); }, 300);
         }
     };
@@ -886,8 +906,19 @@
                 const jcNo = p.jcNo || p.jc_no || p.job_card_no || p.jc_id || '';
                 const formatNum = (n) => (n || 0).toLocaleString();
                 const esc = (s) => (s || '').toString().replace(/&/g, '&amp;');
-                const cardBg = isMouldChange ? '#fff7ed' : '#ffffff';
-                const cardBorder = isMouldChange ? '#fdba74' : '#e2e8f0';
+                const searchVal = (document.getElementById('filt-search')?.value || '').trim().toLowerCase();
+                const isMatched = searchVal && (
+                    (p.orderNo || '').toLowerCase().includes(searchVal) ||
+                    (p.mouldName || '').toLowerCase().includes(searchVal) ||
+                    (p.mouldNo || '').toLowerCase().includes(searchVal) ||
+                    (p.clientName || '').toLowerCase().includes(searchVal) ||
+                    ((p.jcNo || p.jc_no || p.job_card_no || p.jc_id || '').toLowerCase().includes(searchVal))
+                );
+
+                const cardBg = isMatched ? '#fef9c3' : (isMouldChange ? '#fff7ed' : '#ffffff');
+                const cardBorder = isMatched ? '#eab308' : (isMouldChange ? '#fdba74' : '#e2e8f0');
+                const cardShadow = isMatched ? '0 0 16px rgba(234, 179, 8, 0.75)' : '0 1px 2px rgba(0,0,0,0.05)';
+                const cardBorderWidth = isMatched ? '2.5px' : '1px';
 
                 return `
                    <div class="timeline-card ${isUrgentChange ? 'blink-urgent-border' : ''}" 
@@ -898,16 +929,18 @@
                         data-secondary-machine="${esc(p.secondaryMachine || '')}"
                         ondragstart="window.handleDragStart(event, this)"
                         ondragend="window.handleDragEnd(event, this)"
-                        onclick="window.openOrderModal('${esc(p.orderNo)}')"
+                        onclick="window.openOrderModal('${esc(p.orderNo)}', '${esc(p.id)}')"
                         style="
                            min-width: 225px; width: 225px; flex-shrink: 0;
                            background: ${cardBg};
-                           border: 1px solid ${cardBorder};
+                           border: ${cardBorderWidth} solid ${cardBorder};
                            border-radius: 6px;
                            border-left: 5px solid ${leftBorder}; 
+                           box-shadow: ${cardShadow};
                            padding: 8px;
                            display: flex; flex-direction: column; gap: 4px;
                            position: relative; height: auto; 
+                           transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
                         ">
                        <div style="display:flex; justify-content:space-between; align-items:start;">
                           <div style="font-weight:800; color:#0f172a; font-size:0.9rem; line-height:1.1">${esc(p.orderNo || '-')}</div>
@@ -1491,7 +1524,10 @@
             optHtml = matchedMachines.map(opt => {
                 // Display name and clean API name both come from the verified Machine Master entry
                 const entry = opt._entry;
-                const displayName = String(entry.line||'').trim() + '>' + (entry.code || entry.name || entry.machine || '');
+                const lineVal = String(entry.line || '').trim();
+                const machVal = entry.code || entry.name || entry.machine || '';
+                const startsWithLine = lineVal && machVal.replace(/\s+/g, '').toLowerCase().startsWith(lineVal.replace(/\s+/g, '').toLowerCase());
+                const displayName = (lineVal && !machVal.includes('>') && !startsWithLine) ? lineVal + '>' + machVal : machVal;
                 const cleanName   = entry.code || entry.name || entry.machine || '';
                 const isCurrent   = simplify(cleanName) === simplify(currentMachine);
                 const typeLC = (opt.type || '').toLowerCase();

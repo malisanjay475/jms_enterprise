@@ -933,8 +933,9 @@
           });
           list.innerHTML = sorted.map(m => {
             const line = String(m.line || '').trim();
-            // If machine already has ">" (line prefix stored in machine column), use as-is
-            const display = m.machine.includes('>') ? m.machine : (line ? `${line}>${m.machine}` : m.machine);
+            // If machine already has ">" (line prefix stored in machine column), or if it starts with the line name, use as-is
+            const startsWithLine = line && m.machine.replace(/\s+/g, '').toLowerCase().startsWith(line.replace(/\s+/g, '').toLowerCase());
+            const display = (m.machine.includes('>') || startsWithLine) ? m.machine : (line ? `${line}>${m.machine}` : m.machine);
             return `<option value="${display}">`;
           }).join('');
         }
@@ -2823,7 +2824,8 @@
               let displayName = name;
               if (c === 'machine') {
                 const linePfx = row && row.line ? String(row.line).trim() : '';
-                if (linePfx && !name.includes('>')) displayName = linePfx + '>' + name;
+                const startsWithLine = linePfx && name.replace(/\s+/g, '').toLowerCase().startsWith(linePfx.replace(/\s+/g, '').toLowerCase());
+                if (linePfx && !name.includes('>') && !startsWithLine) displayName = linePfx + '>' + name;
               }
               if (type === 'sort') {
                 const parts = displayName.split('>');
