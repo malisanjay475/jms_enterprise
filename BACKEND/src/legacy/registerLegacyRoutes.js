@@ -12429,9 +12429,8 @@ app.post('/api/upload/or-jr-preview', upload.single('file'), async (req, res) =>
         if ((toIsoDateText(excelRow[f]) || '') !== (toIsoDateText(dbRow[f]) || '')) changed.push(f);
       }
       for (const f of COMPARE_NUM_FIELDS) {
-        const a = toNum(excelRow[f]);
-        const b = toNum(dbRow[f]);
-        if ((a === null ? null : a) !== (b === null ? null : b)) changed.push(f);
+        // toNum already returns null or a valid number (never NaN)
+        if (toNum(excelRow[f]) !== toNum(dbRow[f])) changed.push(f);
       }
       for (const f of COMPARE_STR_FIELDS) {
         if (normStr(excelRow[f]) !== normStr(dbRow[f])) changed.push(f);
