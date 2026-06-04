@@ -906,8 +906,19 @@
                 const jcNo = p.jcNo || p.jc_no || p.job_card_no || p.jc_id || '';
                 const formatNum = (n) => (n || 0).toLocaleString();
                 const esc = (s) => (s || '').toString().replace(/&/g, '&amp;');
-                const cardBg = isMouldChange ? '#fff7ed' : '#ffffff';
-                const cardBorder = isMouldChange ? '#fdba74' : '#e2e8f0';
+                const searchVal = (document.getElementById('filt-search')?.value || '').trim().toLowerCase();
+                const isMatched = searchVal && (
+                    (p.orderNo || '').toLowerCase().includes(searchVal) ||
+                    (p.mouldName || '').toLowerCase().includes(searchVal) ||
+                    (p.mouldNo || '').toLowerCase().includes(searchVal) ||
+                    (p.clientName || '').toLowerCase().includes(searchVal) ||
+                    ((p.jcNo || p.jc_no || p.job_card_no || p.jc_id || '').toLowerCase().includes(searchVal))
+                );
+
+                const cardBg = isMatched ? '#fef9c3' : (isMouldChange ? '#fff7ed' : '#ffffff');
+                const cardBorder = isMatched ? '#eab308' : (isMouldChange ? '#fdba74' : '#e2e8f0');
+                const cardShadow = isMatched ? '0 0 16px rgba(234, 179, 8, 0.75)' : '0 1px 2px rgba(0,0,0,0.05)';
+                const cardBorderWidth = isMatched ? '2.5px' : '1px';
 
                 return `
                    <div class="timeline-card ${isUrgentChange ? 'blink-urgent-border' : ''}" 
@@ -922,12 +933,14 @@
                         style="
                            min-width: 225px; width: 225px; flex-shrink: 0;
                            background: ${cardBg};
-                           border: 1px solid ${cardBorder};
+                           border: ${cardBorderWidth} solid ${cardBorder};
                            border-radius: 6px;
                            border-left: 5px solid ${leftBorder}; 
+                           box-shadow: ${cardShadow};
                            padding: 8px;
                            display: flex; flex-direction: column; gap: 4px;
                            position: relative; height: auto; 
+                           transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
                         ">
                        <div style="display:flex; justify-content:space-between; align-items:start;">
                           <div style="font-weight:800; color:#0f172a; font-size:0.9rem; line-height:1.1">${esc(p.orderNo || '-')}</div>
