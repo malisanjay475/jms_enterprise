@@ -12400,10 +12400,51 @@ app.post('/api/upload/or-jr-preview', upload.single('file'), async (req, res) =>
     console.log(`[OR - JR Upload] Extracted ${mapped.length} valid records.`);
 
 
-    // 3. Compare with DB — key is (or_jr_no + job_card_no) only, plan_date excluded
+    // 3. Compare with DB — key is (or_jr_no + job_card_no).
+    //    Smart upload:
+    //      • no match            → NEW    (insert a brand-new row)
+    //      • match + any change  → UPDATE (overwrite the existing row)
+    //      • match + no change   → SKIP   (identical row, nothing to write — hidden in UI)
+    //    Full column set is read so we can diff details, not just the keys.
+    const COMPARE_DATE_FIELDS = [
+      'or_jr_date', 'plan_date', 'job_card_date', 'planned_comp_date',
+      'mld_start_date', 'mld_end_date', 'actual_mld_start_date', 'prt_tuf_end_date',
+      'pack_end_date', 'rev_mld_end_date', 'shift_comp_date', 'rev_ptd_tuf_end_date',
+      'rev_pak_end_date', 'wh_rec_date'
+    ];
+    const COMPARE_NUM_FIELDS = ['or_qty', 'jr_qty', 'plan_qty', 'prod_plan_qty', 'std_pack'];
+    const COMPARE_STR_FIELDS = [
+      'item_code', 'product_name', 'client_name', 'uom',
+      'mld_status', 'shift_status', 'prt_tuf_status', 'pack_status', 'wh_status',
+      'remarks_all', 'jr_close', 'or_remarks', 'jr_remarks'
+    ];
+    // Audit fields (created_by/date, edited_by/date, factory_id) are intentionally
+    // NOT compared — they are re-stamped on every upload and would mask real changes.
+
+    const normStr = v => String(v ?? '').trim().toUpperCase();
+
+    const rowsDiffer = (excelRow, dbRow) => {
+      const changed = [];
+      for (const f of COMPARE_DATE_FIELDS) {
+        if ((toIsoDateText(excelRow[f]) || '') !== (toIsoDateText(dbRow[f]) || '')) changed.push(f);
+      }
+      for (const f of COMPARE_NUM_FIELDS) {
+        // toNum already returns null or a valid number (never NaN)
+        if (toNum(excelRow[f]) !== toNum(dbRow[f])) changed.push(f);
+      }
+      for (const f of COMPARE_STR_FIELDS) {
+        if (normStr(excelRow[f]) !== normStr(dbRow[f])) changed.push(f);
+      }
+      return changed;
+    };
+
+    const selectCols = [
+      'or_jr_no', 'job_card_no',
+      ...COMPARE_DATE_FIELDS, ...COMPARE_NUM_FIELDS, ...COMPARE_STR_FIELDS
+    ].join(', ');
     const existingRows = requestFactoryId
-      ? await q(`SELECT or_jr_no, job_card_no FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
-      : await q(`SELECT or_jr_no, job_card_no FROM or_jr_report`);
+      ? await q(`SELECT ${selectCols} FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
+      : await q(`SELECT ${selectCols} FROM or_jr_report`);
     const dbMap = new Map();
 
     existingRows.forEach(row => {
@@ -12419,11 +12460,13 @@ app.post('/api/upload/or-jr-preview', upload.single('file'), async (req, res) =>
       const key = `${ro}|${rj}`;
       const existing = dbMap.get(key);
 
-      // Exact match (same OR + same JC) → UPDATE that row
-      // No match (new JC or brand-new OR)  → INSERT as NEW
-      // jr_close is intentionally NOT checked — closed rows are always updatable
+      // No match → brand-new row
       if (!existing) return { ...row, _status: 'NEW' };
-      return { ...row, _status: 'UPDATE' };
+
+      // Match → only UPDATE when some detail actually changed; otherwise SKIP
+      const changedFields = rowsDiffer(row, existing);
+      if (changedFields.length === 0) return { ...row, _status: 'SKIP' };
+      return { ...row, _status: 'UPDATE', _changedFields: changedFields };
     });
 
     res.json({ ok: true, data: preview });
