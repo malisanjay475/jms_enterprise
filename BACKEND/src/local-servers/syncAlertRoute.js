@@ -17,7 +17,9 @@ const express = require('express');
 
 function createSyncAlertRoute(pool) {
   const router = express.Router();
-  const API_KEY = process.env.SYNC_API_KEY || 'jms-secret-key-2024';
+  // Use the same key as sync.service.js so both endpoints are guarded by one secret.
+  // If SYNC_API_KEY is not set in .env, both will use this same fallback string.
+  const API_KEY = process.env.SYNC_API_KEY || 'jpsms-sync-key';
   const STALE_MS = Number(process.env.SYNC_STALE_THRESHOLD_MS || 2 * 60 * 60 * 1000);
 
   router.get('/', async (req, res) => {

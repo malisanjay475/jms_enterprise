@@ -16,20 +16,34 @@ module.exports = {
       instances: 'max',
       exec_mode: 'cluster',
 
+      // --- Node.js memory flags ---
+      // Give Node.js 1.5 GB heap before GC pressure triggers.
+      // Previous 512M limit was too low for large Excel exports & sync cycles.
+      node_args: '--max-old-space-size=1536',
+
       // --- Stability settings ---
-      // Restart a worker if it uses more than 512 MB RAM (guards against memory leaks).
-      max_memory_restart: '512M',
+      // REMOVED max_memory_restart — the 512M limit was killing workers during
+      // large sync / Excel exports. Node's own GC handles heap; PM2 memory-kill
+      // was causing false-positive crashes on the factory LOCAL server.
+      // If you need a safety net on a very memory-constrained machine, uncomment:
+      // max_memory_restart: '1500M',
 
       // Delay between restarts so a crash-looping worker doesn't hammer the system.
-      restart_delay: 3000,
+      restart_delay: 5000,
 
-      // Maximum restarts in a 60-second window before PM2 stops retrying.
-      max_restarts: 10,
-      min_uptime: '10s',
+      // NO max_restarts cap — always restart. The global uncaughtException handler
+      // in server.js keeps the process alive for transient errors; PM2 restarts
+      // cover any case where the process does exit. Factory server must never
+      // stay down because PM2 gave up after N restarts.
+      // (Remove the following two lines entirely — omitting max_restarts means
+      //  PM2 v5 defaults to "no limit", which is what we want.)
+      // max_restarts: 10   ← intentionally removed
+      min_uptime: '5s',
 
       // --- Graceful shutdown ---
-      // Give in-flight requests up to 10 s to finish before killing the worker.
-      kill_timeout: 10000,
+      // Give in-flight requests up to 15 s to finish before killing the worker.
+      kill_timeout: 15000,
+      listen_timeout: 10000,
 
       // --- Logging ---
       // Merge stdout/stderr into a single log per worker. Docker captures these.

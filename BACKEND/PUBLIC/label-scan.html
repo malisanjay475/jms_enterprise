@@ -11,10 +11,11 @@
       --sky: #e8f8ff;
       --line: #cfe9f7;
       --muted: #64748b;
+      --green: #166534;
+      --green-bg: #dcfce7;
     }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      margin: 0;
       min-height: 100vh;
       font-family: Arial, sans-serif;
       color: var(--deep);
@@ -22,143 +23,284 @@
         radial-gradient(circle at top left, rgba(14, 165, 233, .24), transparent 34%),
         linear-gradient(135deg, #f8fdff 0%, #eef9ff 52%, #fffaf0 100%);
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
-      padding: 18px;
+      padding: 20px 16px 40px;
     }
     .card {
-      width: min(680px, 100%);
-      background: rgba(255, 255, 255, .95);
+      width: min(720px, 100%);
+      background: rgba(255, 255, 255, .97);
       border: 1px solid var(--line);
       border-radius: 24px;
       box-shadow: 0 24px 70px rgba(15, 47, 76, .16);
       overflow: hidden;
     }
+
+    /* ── Header ── */
     .head {
-      padding: 22px;
+      padding: 20px 24px 18px;
       background: linear-gradient(135deg, #ffffff 0%, #eaf9ff 100%);
       border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      gap: 14px;
     }
+    .head-icon {
+      width: 48px; height: 48px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--ocean), #0ea5e9);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .head-icon svg { width: 26px; height: 26px; fill: #fff; }
+    .head-text {}
     .eyebrow {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 900;
       color: var(--ocean);
       letter-spacing: .16em;
       text-transform: uppercase;
     }
-    h1 { margin: 6px 0 0; font-size: 26px; line-height: 1.1; }
-    .body { padding: 20px 22px 24px; }
-    .status {
+    h1 { font-size: 22px; line-height: 1.15; margin-top: 3px; }
+
+    /* ── Body ── */
+    .body { padding: 20px 24px 28px; }
+
+    .badge {
       display: inline-flex;
-      gap: 8px;
+      gap: 7px;
       align-items: center;
-      padding: 8px 12px;
+      padding: 7px 14px;
       border-radius: 999px;
-      background: #dcfce7;
-      color: #166534;
+      font-size: 13px;
       font-weight: 900;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
+    }
+    .badge.ok  { background: var(--green-bg); color: var(--green); }
+    .badge.err { background: #fef2f2; color: #991b1b; }
+    .badge svg { width: 16px; height: 16px; }
+
+    /* ── Sections ── */
+    .section { margin-bottom: 20px; }
+    .section-title {
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--ocean);
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid var(--sky);
     }
     .grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
+      gap: 10px;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
     }
     .field {
       border: 1px solid #dbeafe;
-      background: #fbfdff;
-      border-radius: 16px;
-      padding: 13px 14px;
+      background: #f8fcff;
+      border-radius: 14px;
+      padding: 12px 14px;
     }
-    .label {
+    .field.accent {
+      border-color: #bae6fd;
+      background: #f0fbff;
+    }
+    .field.highlight {
+      border-color: #a7f3d0;
+      background: #f0fdf4;
+    }
+    .lbl {
       color: var(--muted);
-      font-size: 11px;
+      font-size: 10.5px;
       font-weight: 900;
       letter-spacing: .08em;
       text-transform: uppercase;
-      margin-bottom: 5px;
+      margin-bottom: 4px;
     }
-    .value {
-      font-size: 16px;
+    .val {
+      font-size: 15px;
       font-weight: 900;
       word-break: break-word;
+      line-height: 1.3;
     }
+    .val.large { font-size: 19px; }
+    .val.mono  { font-family: 'Courier New', monospace; font-size: 12px; color: var(--muted); }
     .wide { grid-column: 1 / -1; }
-    .error {
+
+    /* ── UID strip ── */
+    .uid-strip {
+      margin-top: 20px;
+      padding: 12px 14px;
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      border-radius: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .uid-strip .lbl { margin-bottom: 0; }
+
+    /* ── Error ── */
+    .error-box {
       background: #fef2f2;
       color: #991b1b;
       border: 1px solid #fecaca;
       border-radius: 16px;
-      padding: 16px;
+      padding: 18px;
       font-weight: 800;
     }
-    @media (max-width: 560px) {
-      .grid { grid-template-columns: 1fr; }
-      h1 { font-size: 22px; }
+
+    @media (max-width: 540px) {
+      .grid   { grid-template-columns: 1fr; }
+      .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      h1 { font-size: 19px; }
+    }
+    @media (max-width: 380px) {
+      .grid-3 { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <main class="card">
-    <section class="head">
-      <div class="eyebrow">JMS Ocean Label Scan</div>
-      <h1>SFG Identification Label</h1>
-    </section>
+    <header class="head">
+      <div class="head-icon">
+        <svg viewBox="0 0 24 24"><path d="M4 4h4v4H4V4zm6 0h4v4h-4V4zm6 0h4v4h-4V4zM4 10h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4zM4 16h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4z"/></svg>
+      </div>
+      <div class="head-text">
+        <div class="eyebrow">JMS &mdash; Label Scan</div>
+        <h1>SFG Identification Label</h1>
+      </div>
+    </header>
     <section id="content" class="body">
-      <div class="status">Loading label details...</div>
+      <div class="badge ok">
+        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10" opacity=".2"/><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm0 2a8 8 0 1 1 0 16A8 8 0 0 1 12 4zm0 3a1 1 0 0 0-1 1v4a1 1 0 0 0 .293.707l2.5 2.5a1 1 0 0 0 1.414-1.414L13 12.586V10a1 1 0 0 0-1-1z"/></svg>
+        Loading label details…
+      </div>
     </section>
   </main>
 
   <script>
     (async function () {
       const content = document.getElementById('content');
-      const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (m) => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;'
-      }[m]));
+
+      function esc(v) {
+        return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+      }
+
+      function field(label, value, cls = '') {
+        const display = (value === null || value === undefined || String(value).trim() === '') ? '—' : value;
+        return `<div class="field ${cls}"><div class="lbl">${esc(label)}</div><div class="val">${esc(display)}</div></div>`;
+      }
+
+      function fieldHtml(label, html, cls = '') {
+        return `<div class="field ${cls}"><div class="lbl">${esc(label)}</div><div class="val">${html}</div></div>`;
+      }
+
+      function fmt(n) {
+        if (n === null || n === undefined || String(n).trim() === '') return '—';
+        const num = Number(n);
+        return isNaN(num) ? String(n) : num.toLocaleString('en-IN');
+      }
+
+      function fmtDate(ts) {
+        if (!ts) return '—';
+        return new Date(ts).toLocaleString('en-IN', {
+          day: '2-digit', month: 'short', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', hour12: true
+        });
+      }
+
       const params = new URLSearchParams(window.location.search);
       const uid = params.get('uid') || '';
 
-      function field(label, value, wide) {
-        return `<div class="field ${wide ? 'wide' : ''}"><div class="label">${esc(label)}</div><div class="value">${esc(value || '-')}</div></div>`;
-      }
-
       if (!uid) {
-        content.innerHTML = '<div class="error">No label UID found in QR code.</div>';
+        content.innerHTML = `<div class="error-box">No label UID found in QR code. Please scan a valid JMS label.</div>`;
         return;
       }
 
       try {
-        const response = await fetch(`/api/planning/job-card-label-log?label_uid=${encodeURIComponent(uid)}&limit=1`, {
-          cache: 'no-store'
-        });
-        const json = await response.json();
-        if (!response.ok || json.ok === false) throw new Error(json.error || 'Label not found');
-        const row = (json.data || json.items || [])[0];
-        if (!row) throw new Error('Label not found in print log.');
+        const res = await fetch(`/api/planning/job-card-label-log?label_uid=${encodeURIComponent(uid)}&limit=1`, { cache: 'no-store' });
+        const json = await res.json();
+        if (!res.ok || json.ok === false) throw new Error(json.error || 'Label not found');
+        const r = (json.data || json.items || [])[0];
+        if (!r) throw new Error('Label not found in print log.');
+
+        const labelProgress = (r.label_no && r.total_labels)
+          ? `${r.label_no} of ${r.total_labels}`
+          : (r.label_no || '—');
+
         content.innerHTML = `
-          <div class="status">Valid Label</div>
-          <div class="grid">
-            ${field('Label No', `${row.label_no || '-'} / ${row.total_labels || '-'}`)}
-            ${field('Label Qty', row.label_qty)}
-            ${field('Machine', row.machine_name)}
-            ${field('Job Card No', row.jc_no)}
-            ${field('OR No', row.order_no)}
-            ${field('Batch / Plan', row.our_code || row.plan_id)}
-            ${field('Mould', `${row.mould_no || ''} ${row.mould_name || ''}`.trim(), true)}
-            ${field('Item Name', row.item_name, true)}
-            ${field('Colour', row.colour)}
-            ${field('SFG Std Packing', row.sfg_std_packing)}
-            ${field('Printed By', row.printed_by)}
-            ${field('Printed At', row.printed_at ? new Date(row.printed_at).toLocaleString('en-IN') : '')}
-            ${field('Unique Label UID', row.label_uid, true)}
+          <div class="badge ok">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+            Valid Label
+          </div>
+
+          <!-- ── 1. Label Identity ── -->
+          <div class="section">
+            <div class="section-title">Label Identity</div>
+            <div class="grid">
+              ${fieldHtml('Label Number', `<span class="large">${esc(labelProgress)}</span>`, 'accent')}
+              ${fieldHtml('Label Qty', `<span class="large">${esc(fmt(r.label_qty))}</span>`, 'highlight')}
+            </div>
+          </div>
+
+          <!-- ── 2. Order & Production ── -->
+          <div class="section">
+            <div class="section-title">Order &amp; Production</div>
+            <div class="grid">
+              ${field('OR / JR No', r.order_no, 'accent')}
+              ${field('Job Card No', r.jc_no, 'accent')}
+              ${field('Machine', r.machine_name)}
+              ${field('Batch / Plan Code', r.our_code || r.plan_id)}
+            </div>
+          </div>
+
+          <!-- ── 3. Product Details ── -->
+          <div class="section">
+            <div class="section-title">Product Details</div>
+            <div class="grid">
+              ${field('Item Name', r.item_name, 'wide')}
+              ${field('Client', r.client_name)}
+              ${field('Colour', r.colour)}
+              ${field('Mould No', r.mould_no)}
+              ${field('Mould Name', r.mould_name)}
+            </div>
+          </div>
+
+          <!-- ── 4. Quantity Info ── -->
+          <div class="section">
+            <div class="section-title">Quantity Information</div>
+            <div class="grid-3">
+              ${fieldHtml('Label Qty', `<span class="large">${esc(fmt(r.label_qty))}</span>`, 'highlight')}
+              ${fieldHtml('Plan Qty', `<span class="large">${esc(fmt(r.plan_qty))}</span>`)}
+              ${fieldHtml('SFG Std Packing', `<span class="large">${esc(fmt(r.sfg_std_packing))}</span>`)}
+            </div>
+          </div>
+
+          <!-- ── 5. Print Trace ── -->
+          <div class="section">
+            <div class="section-title">Print Trace</div>
+            <div class="grid">
+              ${field('Printed By', r.printed_by)}
+              ${field('Printed At', fmtDate(r.printed_at))}
+            </div>
+          </div>
+
+          <!-- ── UID ── -->
+          <div class="uid-strip">
+            <div class="lbl">Unique Label UID</div>
+            <div class="val mono">${esc(r.label_uid)}</div>
           </div>
         `;
       } catch (err) {
-        content.innerHTML = `<div class="error">${esc(err.message || 'Unable to load label details.')}</div>`;
+        content.innerHTML = `<div class="error-box">${esc(err.message || 'Unable to load label details.')}</div>`;
       }
     })();
   </script>

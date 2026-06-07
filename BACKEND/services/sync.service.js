@@ -702,10 +702,32 @@ async function init(dbPool) {
         // env var wins; server_config is only a fallback for legacy LOCAL servers without .env entry
         if (!process.env.SYNC_API_KEY && config.SYNC_API_KEY) API_KEY = config.SYNC_API_KEY;
 
-        console.log(`[Sync] Init. Type: ${SERVER_TYPE}, Factory: ${LOCAL_FACTORY_ID}, Main: ${MAIN_SERVER_URL}`);
+        console.log(`[Sync] Init. Type: ${SERVER_TYPE}, Factory: ${LOCAL_FACTORY_ID}, Main: ${MAIN_SERVER_URL || '(NOT SET)'}`);
         console.log('[Sync] Service Version: v4.7 (Global Master Tables, Paginated Pull, Moulds Full Sync)');
 
         if (SERVER_TYPE === 'LOCAL') {
+            // ── Sync pre-flight checks ────────────────────────────────────────
+            // These warn loudly so the log clearly explains why no data flows to MAIN.
+            let syncReady = true;
+            if (!MAIN_SERVER_URL) {
+                console.error('[Sync] ❌ MAIN_SERVER_URL is not set! Data will NOT sync to the main server.');
+                console.error('[Sync]    Fix: add MAIN_SERVER_URL=https://your-vps-domain to .env on this LOCAL server.');
+                syncReady = false;
+            }
+            if (!LOCAL_FACTORY_ID) {
+                console.error('[Sync] ❌ LOCAL_FACTORY_ID is not set or is 0! Data will NOT sync correctly.');
+                console.error('[Sync]    Fix: add LOCAL_FACTORY_ID=<your factory id> to .env on this LOCAL server.');
+                syncReady = false;
+            }
+            const usingFallbackKey = !process.env.SYNC_API_KEY;
+            if (usingFallbackKey) {
+                console.warn('[Sync] ⚠️  SYNC_API_KEY not set in .env — using hardcoded fallback key.');
+                console.warn('[Sync]    This must match the SYNC_API_KEY on the MAIN server. Set it in .env to be safe.');
+            }
+            if (syncReady) {
+                console.log('[Sync] ✅ Pre-flight OK — sync schedule will start.');
+            }
+            // ─────────────────────────────────────────────────────────────────
             startSchedule();
         } else if (SERVER_TYPE === 'STANDALONE') {
             console.log('[Sync] STANDALONE MODE: Sync is DISABLED.');
@@ -795,7 +817,19 @@ function triggerSync() {
 }
 
 async function runSyncCycle() {
-    if (!pool || !LOCAL_FACTORY_ID || !MAIN_SERVER_URL) return;
+    if (!pool || !LOCAL_FACTORY_ID || !MAIN_SERVER_URL) {
+        // Log once every 10 minutes so the log doesn't flood, but it's always visible.
+        const now = Date.now();
+        if (!runSyncCycle._lastSkipLog || now - runSyncCycle._lastSkipLog > 10 * 60 * 1000) {
+            runSyncCycle._lastSkipLog = now;
+            console.warn('[Sync] ⚠️  Sync cycle SKIPPED — missing config:',
+                !pool ? 'pool=null' : '',
+                !LOCAL_FACTORY_ID ? 'LOCAL_FACTORY_ID=0' : '',
+                !MAIN_SERVER_URL ? 'MAIN_SERVER_URL=""' : ''
+            );
+        }
+        return;
+    }
     if (syncInFlight) {
         syncRerunRequested = true;
         console.log('[Sync] Cycle already running; queued one follow-up cycle.');

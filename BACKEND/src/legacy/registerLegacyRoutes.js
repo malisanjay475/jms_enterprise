@@ -4738,8 +4738,13 @@ async function initializeLegacyRuntime() {
   }
 
   if (!global.__JMS_DB_INIT_OK) {
-    console.error('[DB] Database initialization did not complete — exiting without starting HTTP (fix DB errors above).');
-    process.exit(1);
+    // Previously this called process.exit(1) which permanently killed the LOCAL
+    // factory server if any index migration threw (e.g. concurrent schema locks).
+    // Now we log the warning and continue — the HTTP server starts in a degraded
+    // state. Individual API calls may fail but the process stays alive so PM2
+    // can self-heal on the next cycle rather than entering a crash-restart loop.
+    console.error('[DB] WARNING: Database initialization did not complete — starting HTTP in degraded mode.');
+    console.error('[DB] Check the errors above. Core tables may be missing. Server will continue running.');
   }
   return {
     startupLog() {
