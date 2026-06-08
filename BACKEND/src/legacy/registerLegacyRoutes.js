@@ -14570,10 +14570,12 @@ app.get('/api/dpr/hourly', async (req, res) => {
 
     // Default limit if no date filter is applied, to prevent massive load
     // But if date is applied, user likely wants ALL records for that day.
-    const limitClause = date ? '' : ' LIMIT 100';
+    const limitClause = date ? '' : ' LIMIT 200';
 
-    // Sort logic
-    sql += ` ORDER BY d.created_at DESC${limitClause}`;
+    // Sort by dpr_date + hour_slot so synced rows (which arrive with a recent created_at
+    // from the upsert) appear in correct chronological order, not at the top of the list.
+    // Secondary sort by created_at handles duplicate entries for the same slot.
+    sql += ` ORDER BY d.dpr_date DESC, d.hour_slot DESC, d.created_at DESC${limitClause}`;
 
     const rows = await q(sql, params);
     res.json({ ok: true, data: await attachFactoryNames(rows) });
@@ -14845,7 +14847,10 @@ app.post('/api/dpr/delete-entry', async (req, res) => {
       return res.status(403).json({ ok: false, error: 'Admin or Superadmin access required' });
     }
 
-    await q('UPDATE dpr_hourly SET is_deleted = true WHERE id = $1', [id]);
+    // updated_at = NOW() is REQUIRED so sync picks up this deletion and replicates it to MAIN.
+    // Without it the soft-delete is invisible to the sync watermark and MAIN keeps showing
+    // the deleted row forever.
+    await q('UPDATE dpr_hourly SET is_deleted = true, updated_at = NOW() WHERE id = $1', [id]);
     res.json({ ok: true });
   } catch (e) {
     console.error('delete-entry error', e);
@@ -14866,7 +14871,8 @@ app.post('/api/dpr/delete-setup', async (req, res) => {
       return res.status(403).json({ ok: false, error: 'Admin or Superadmin access required' });
     }
 
-    await q('UPDATE std_actual SET is_deleted = true WHERE id = $1', [id]);
+    // updated_at = NOW() required for sync to replicate this deletion to MAIN.
+    await q('UPDATE std_actual SET is_deleted = true, updated_at = NOW() WHERE id = $1', [id]);
     res.json({ ok: true });
   } catch (e) {
     console.error('delete-setup error', e);

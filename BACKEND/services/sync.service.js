@@ -656,6 +656,111 @@ router.post('/admin/full-pull-reset', async (req, res) => {
     }
 });
 
+// ─── Diagnostic endpoint — shows everything needed to debug sync + DPR delay ───
+// GET /api/sync/diagnostic?apiKey=...
+// Returns: server config, watermarks, pending counts, DB timezone, dpr_hourly last 7 days
+router.get('/diagnostic', async (req, res) => {
+    if (!pool) return res.status(503).json({ ok: false, error: 'Service initializing' });
+    const { apiKey } = req.query;
+    if (apiKey !== API_KEY) return res.status(401).json({ ok: false, error: 'Invalid key' });
+
+    try {
+        const cfg = await getServerConfigSnapshot().catch(() => ({}));
+
+        // DB timezone and current timestamps
+        const tzRes = await pool.query(`
+            SELECT
+                NOW()                                AS db_now_utc,
+                NOW() AT TIME ZONE 'Asia/Kolkata'    AS db_now_ist,
+                current_setting('TimeZone')          AS db_timezone,
+                CURRENT_DATE                         AS db_current_date_utc
+        `);
+        const tz = tzRes.rows[0];
+
+        // Pending push counts for key tables (rows with updated_at > LAST_PUSH)
+        const lastPush = cfg.LAST_PUSH || '1970-01-01';
+        const keyTables = ['dpr_hourly', 'jc_details', 'jc_summaries', 'plan_board', 'or_jr_report', 'machine_status_logs'];
+        const pendingCounts = {};
+        for (const t of keyTables) {
+            try {
+                const hasFactory = await tableHasColumn(t, 'factory_id');
+                const sql = hasFactory
+                    ? `SELECT COUNT(*) AS c FROM ${t} WHERE updated_at > $1 AND factory_id = $2`
+                    : `SELECT COUNT(*) AS c FROM ${t} WHERE updated_at > $1`;
+                const params = hasFactory ? [lastPush, LOCAL_FACTORY_ID] : [lastPush];
+                const r = await pool.query(sql, params);
+                pendingCounts[t] = Number(r.rows[0]?.c || 0);
+            } catch (_) {
+                pendingCounts[t] = 'table_missing';
+            }
+        }
+
+        // DPR last 7 days row counts (to diagnose 1-day delay)
+        let dprLastWeek = [];
+        try {
+            const dprRes = await pool.query(`
+                SELECT
+                    dpr_date::text                                    AS dpr_date,
+                    COUNT(*)                                          AS total_rows,
+                    SUM(CASE WHEN is_deleted THEN 1 ELSE 0 END)      AS deleted_rows,
+                    SUM(CASE WHEN NOT is_deleted THEN 1 ELSE 0 END)  AS active_rows,
+                    MIN(updated_at)::text                            AS earliest_updated,
+                    MAX(updated_at)::text                            AS latest_updated
+                FROM dpr_hourly
+                WHERE dpr_date >= (CURRENT_DATE - INTERVAL '7 days')
+                  AND ($1::int = 0 OR factory_id = $1)
+                GROUP BY dpr_date
+                ORDER BY dpr_date DESC
+            `, [LOCAL_FACTORY_ID || 0]);
+            dprLastWeek = dprRes.rows;
+        } catch (_) {}
+
+        // Last sync audit
+        const auditKeys = ['LAST_PUSH', 'LAST_PULL', 'LAST_SYNC', 'LAST_SYNC_CREATED_COUNT',
+            'LAST_SYNC_UPDATED_COUNT', 'LAST_SYNC_FAILED_COUNT', 'LAST_SYNC_PENDING_COUNT', 'LAST_SYNC_CYCLE_AT'];
+        const audit = {};
+        auditKeys.forEach(k => { audit[k] = cfg[k] || null; });
+
+        res.json({
+            ok: true,
+            server: {
+                type: SERVER_TYPE,
+                factory_id: LOCAL_FACTORY_ID,
+                main_url: MAIN_SERVER_URL || '(NOT SET)',
+                api_key_set: !!process.env.SYNC_API_KEY,
+                node_version: process.version,
+                uptime_minutes: Math.round(process.uptime() / 60)
+            },
+            db_timezone: {
+                setting: tz.db_timezone,
+                now_utc: tz.db_now_utc,
+                now_ist: tz.db_now_ist,
+                current_date_utc: tz.db_current_date_utc,
+                warning: tz.db_timezone !== 'UTC'
+                    ? `⚠️ DB timezone is ${tz.db_timezone} — should be UTC for correct sync watermarks`
+                    : '✅ DB timezone is UTC'
+            },
+            sync_watermarks: audit,
+            pending_push_counts: pendingCounts,
+            dpr_last_7_days: dprLastWeek,
+            diagnosis: {
+                sync_running: SERVER_TYPE === 'LOCAL' && !!MAIN_SERVER_URL && !!LOCAL_FACTORY_ID,
+                last_push_age_minutes: audit.LAST_PUSH
+                    ? Math.round((Date.now() - new Date(audit.LAST_PUSH).getTime()) / 60000)
+                    : null,
+                has_pending_data: Object.values(pendingCounts).some(v => typeof v === 'number' && v > 0),
+                tip: SERVER_TYPE !== 'LOCAL'
+                    ? '❌ SERVER_TYPE is not LOCAL — sync is disabled. Set SERVER_TYPE=LOCAL in .env'
+                    : !MAIN_SERVER_URL
+                        ? '❌ MAIN_SERVER_URL not set — sync is disabled. Add MAIN_SERVER_URL to .env'
+                        : '✅ Sync appears configured correctly'
+            }
+        });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 // Admin: reset push watermarks so the next sync cycle re-pushes ALL local rows to MAIN.
 // Use this after a LOCAL server was offline for a long time and data was lost because
 // the push watermark jumped past rows that were never sent (the 100-row-per-cycle gap).
