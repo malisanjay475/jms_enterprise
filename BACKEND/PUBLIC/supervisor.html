@@ -1548,7 +1548,7 @@
         shifts.push({ date: yestStr, shift: 'Night', labelDate: yest });
         shifts.push({ date: todayStr, shift: 'Day', labelDate: now });
       } else {
-        // Current: Night. 
+        // Current: Night.
         // Production Date determination:
         let prodDate = new Date(now);
         if (currentHour < 8) prodDate.setDate(prodDate.getDate() - 1);
@@ -1558,15 +1558,42 @@
         shifts.push({ date: prodDateStr, shift: 'Night', labelDate: prodDate });
       }
 
+      // ── YESTERDAY BACKFILL OVERRIDE ──────────────────────────────────────────
+      // If the user has explicitly selected a date+shift in the form that isn't
+      // covered by the auto-computed "last 24 hours" window (the most common case
+      // being "Yesterday Day" during daytime), replace the shifts array with just
+      // that combo so all 12 past slots are visible.
+      //
+      // Only applies to the main entry slot select (d-slot), not quick-action/cc.
+      if (selectId === 'd-slot') {
+        const selDateEl = el('d-date');
+        const selShiftEl = el('d-shift');
+        if (selDateEl && selShiftEl) {
+          const manualDate = selDateEl.value;
+          const manualShift = selShiftEl.value;
+          if (manualDate && manualShift) {
+            const inWindow = shifts.some(s => s.date === manualDate && s.shift === manualShift);
+            if (!inWindow) {
+              // User selected a date+shift outside the rolling window (e.g. yesterday's
+              // Day shift during daytime). Build the array from their selection only —
+              // every slot in the past by definition, so no future-blocking needed.
+              const manualDateObj = new Date(manualDate + 'T00:00:00');
+              shifts = [{ date: manualDate, shift: manualShift, labelDate: manualDateObj, isBackfill: true }];
+            }
+          }
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+
       // Debug:
       // console.log('FILLED KEY CHECK:', Array.from(FILLED_ENTRIES));
 
       shifts.forEach((s, shiftIdx) => {
         SLOT_LABELS.forEach(slot => {
           // USER REQUEST: Only show 07-08 from LAST shift for regular supervisors
-          // Unless it's an expanded view (Admin or Quick Action)
-          // Last shift is always shifts[0]
-          if (!showAllLastShiftSlots && shiftIdx === 0 && slot !== '07-08') return;
+          // Unless it's an expanded view (Admin or Quick Action) OR a backfill shift
+          // (user deliberately chose yesterday — show all 12 slots so the full day can be filled)
+          if (!s.isBackfill && !showAllLastShiftSlots && shiftIdx === 0 && slot !== '07-08') return;
           // 1. Calculate Real End Time for this slot
           // Slot format "08-09", "12-01", etc.
           // Map to 24h based on Shift
@@ -1614,8 +1641,8 @@
             realEndTime.setHours(endH, 0, 0, 0);
           }
 
-          // 2. Future Check
-          if (now < realEndTime) return; // Skip logic for Future Slots
+          // 2. Future Check — skip for backfill shifts (all their slots are in the past)
+          if (!s.isBackfill && now < realEndTime) return;
 
           // 3. Filled Check
           const key = `${s.date}_${s.shift.toUpperCase()}_${slot}`;
