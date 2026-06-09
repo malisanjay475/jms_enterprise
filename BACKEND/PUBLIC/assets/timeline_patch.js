@@ -743,7 +743,7 @@
     window._tlComplete = function (id) {
         const p = window._tlMap[id];
         if (!p) return alert('Plan data missing');
-        if (window.openCompletePlanModal) window.openCompletePlanModal(id, JSON.stringify(p));
+        if (window.openCompletePlanModal) window.openCompletePlanModal(id, encodeURIComponent(JSON.stringify(p)));
         else alert('Complete Modal not found');
     };
 

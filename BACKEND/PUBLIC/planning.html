@@ -11824,7 +11824,10 @@
     // Complete Plan Logic
     window.openCompletePlanModal = function (id, jsonRow) {
       try {
-        const p = JSON.parse(decodeURIComponent(jsonRow));
+        // Support both encodeURIComponent(JSON) and raw JSON.stringify() callers
+        let p;
+        try { p = JSON.parse(decodeURIComponent(jsonRow)); }
+        catch (_) { p = JSON.parse(jsonRow); }
         window.cpCurrentPlanId = id;
 
         document.getElementById('cpmTitle').textContent = 'Order: ' + (p.orderNo || p.order_no);
