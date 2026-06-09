@@ -3944,6 +3944,16 @@
           if (span) span.textContent = '';
           // Backend returns [{ slot: '07-08', type: 'MAIN' }]
           usedSlots = (r && r.ok && Array.isArray(r.used)) ? r.used : [];
+          // Merge into SLOT_STATUS so fillHourSlotSelect can hide filled slots
+          // (SLOT_STATUS only has last-50 entries; this fills gaps for any selected date)
+          usedSlots.forEach(us => {
+            const k = `${dt}_${String(sh).toUpperCase()}_${us.slot}`;
+            let st = SLOT_STATUS.get(k) || { hasMain: false, hasCC: false, count: 0, isQuick: false, type: us.type };
+            st.count = st.count || 1;
+            if (us.type === 'MAIN' || us.type === 'Main') st.hasMain = true;
+            if (us.type === 'ColourChange') st.hasCC = true;
+            SLOT_STATUS.set(k, st);
+          });
           refreshSlots();
           checkPendingEntries(); // Trigger alert check
         })
