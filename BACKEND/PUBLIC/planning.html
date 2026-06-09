@@ -11824,11 +11824,23 @@
     // Complete Plan Logic
     window.openCompletePlanModal = function (id, jsonRow) {
       try {
-        const p = JSON.parse(decodeURIComponent(jsonRow));
+        let p;
+        // Strategy 1: look up directly from _tlMap (timeline path, no JSON needed).
+        // This avoids JSON.stringify/parse on objects with Date instances that can throw.
+        if (window._tlMap && window._tlMap[id]) {
+          p = window._tlMap[id];
+        } else if (jsonRow) {
+          // Strategy 2: parse inline JSON passed by plan-list onclick buttons.
+          // Try raw first (plain JSON string), then URL-decode fallback.
+          try { p = JSON.parse(jsonRow); }
+          catch (_) { p = JSON.parse(decodeURIComponent(jsonRow)); }
+        }
+        if (!p) throw new Error('Plan data not found for id: ' + id);
+
         window.cpCurrentPlanId = id;
 
-        document.getElementById('cpmTitle').textContent = 'Order: ' + (p.orderNo || p.order_no);
-        document.getElementById('cpmSub').textContent = 'Mould: ' + (p.mouldName || p.mould_name);
+        document.getElementById('cpmTitle').textContent = 'Order: ' + (p.orderNo || p.order_no || '');
+        document.getElementById('cpmSub').textContent = 'Mould: ' + (p.mouldName || p.mould_name || '');
 
         const qty = Number(p.planQty || 0);
         const produced = Number(p.producedQty || 0); // DPR aggregated
@@ -11845,7 +11857,7 @@
         };
 
         document.getElementById('completePlanModal').style.display = 'flex';
-      } catch (e) { console.error(e); alert('Error opening modal'); }
+      } catch (e) { console.error(e); alert('Error opening modal: ' + e.message); }
     };
 
     window.submitCompletePlan = async function () {
@@ -12226,7 +12238,7 @@
 
 
 
-  <script src="assets/timeline_patch.js?v=release56"></script>
+  <script src="assets/timeline_patch.js?v=release59"></script>
 
   <!-- ═══════════════════════════════════════════════════════════════════
        EXCEL VIEW TIMELINE  — compact spreadsheet for maximum machine density
