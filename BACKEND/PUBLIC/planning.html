@@ -11824,10 +11824,11 @@
     // Complete Plan Logic
     window.openCompletePlanModal = function (id, jsonRow) {
       try {
-        // Support both encodeURIComponent(JSON) and raw JSON.stringify() callers
+        // Try raw parse first so %xx in field values are never accidentally decoded.
+        // Falls back to decodeURIComponent for HTML onclick callers that pre-encode.
         let p;
-        try { p = JSON.parse(decodeURIComponent(jsonRow)); }
-        catch (_) { p = JSON.parse(jsonRow); }
+        try { p = JSON.parse(jsonRow); }
+        catch (_) { p = JSON.parse(decodeURIComponent(jsonRow)); }
         window.cpCurrentPlanId = id;
 
         document.getElementById('cpmTitle').textContent = 'Order: ' + (p.orderNo || p.order_no);
