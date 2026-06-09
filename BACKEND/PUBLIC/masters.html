@@ -2844,9 +2844,14 @@
               // For machine column: build full display name as line>machine when line exists
               let displayName = name;
               if (c === 'machine') {
-                const linePfx = row && row.line ? String(row.line).trim() : '';
-                const startsWithLine = linePfx && name.replace(/\s+/g, '').toLowerCase().startsWith(linePfx.replace(/\s+/g, '').toLowerCase());
-                if (linePfx && !name.includes('>') && !startsWithLine) displayName = linePfx + '>' + name;
+                if (name.includes('>')) {
+                  // Strip line prefix stored in old format — show only the machine code
+                  displayName = name.split('>').slice(1).join('>').trim();
+                } else {
+                  const linePfx = row && row.line ? String(row.line).trim() : '';
+                  const startsWithLine = linePfx && name.replace(/\s+/g, '').toLowerCase().startsWith(linePfx.replace(/\s+/g, '').toLowerCase());
+                  if (linePfx && !startsWithLine) displayName = name;
+                }
               }
               if (type === 'sort') {
                 if (c === 'machine') {
