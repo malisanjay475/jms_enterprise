@@ -1561,8 +1561,9 @@
       // Debug:
       // console.log('FILLED KEY CHECK:', Array.from(FILLED_ENTRIES));
 
-      // BACKFILL OVERRIDE: If user picked a date/shift not in the rolling window,
+      // BACKFILL OVERRIDE: If user picked anything other than the CURRENT active shift,
       // replace shifts with just that selection so all 12 slots are available.
+      // (Yesterday Night is in shifts[0] during Day shift but still needs all slots shown.)
       if (selectId === 'd-slot') {
         const selDateEl = el('d-date');
         const selShiftEl = el('d-shift');
@@ -1570,8 +1571,13 @@
           const manualDate = selDateEl.value;
           const manualShift = selShiftEl.value;
           if (manualDate && manualShift) {
-            const inWindow = shifts.some(s => s.date === manualDate && s.shift === manualShift);
-            if (!inWindow) {
+            // Current active shift is always the LAST entry in shifts[]
+            const currentShift = shifts[shifts.length - 1];
+            const isCurrentShift = currentShift &&
+              currentShift.date === manualDate &&
+              currentShift.shift === manualShift;
+            if (!isCurrentShift) {
+              // User picked a past/different shift → backfill mode: show all 12 slots
               const manualDateObj = new Date(manualDate + 'T00:00:00');
               shifts = [{ date: manualDate, shift: manualShift, labelDate: manualDateObj, isBackfill: true }];
             }
