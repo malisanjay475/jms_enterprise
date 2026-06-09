@@ -1558,6 +1558,26 @@ async function upsertData(table, data) {
                 } catch (dedupErr) {
                     console.warn('[Sync] plan_board RUNNING dedup failed (non-fatal):', dedupErr.message);
                 }
+
+                // On MAIN server: auto-approve plans that arrived from LOCAL with
+                // NULL or PENDING jc_approval_status so they are immediately visible
+                // on the Planning Board without manual intervention.
+                if (SERVER_TYPE === 'MAIN') {
+                    try {
+                        const approveRes = await pool.query(`
+                            UPDATE plan_board
+                               SET jc_approval_status = 'APPROVED',
+                                   updated_at = NOW()
+                             WHERE UPPER(COALESCE(jc_approval_status, 'PENDING')) != 'APPROVED'
+                               AND status NOT IN ('COMPLETED', 'CANCELLED')
+                        `);
+                        if (approveRes.rowCount > 0) {
+                            console.log(`[Sync] Auto-approved ${approveRes.rowCount} synced plan_board rows on MAIN.`);
+                        }
+                    } catch (approveErr) {
+                        console.warn('[Sync] plan_board auto-approve failed (non-fatal):', approveErr.message);
+                    }
+                }
             }
 
             return stats;
