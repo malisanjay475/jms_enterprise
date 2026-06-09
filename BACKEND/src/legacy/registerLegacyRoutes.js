@@ -5253,14 +5253,14 @@ app.get('/api/machines', async (req, res) => {
     let whereClause = '1=1';
     const params = [];
 
-    // [FIX] Factory Isolation
+    // Factory isolation: show this factory's machines AND global machines (factory_id IS NULL).
+    // Global machines (factory_id IS NULL) are shared across all factories — entered before
+    // multi-factory setup or deliberately unscoped. Without OR factory_id IS NULL, Dungra
+    // (factory 2) users see nothing when machines were entered without a factory tag.
     const factoryId = getFactoryId(req);
     if (factoryId) {
       params.push(factoryId);
-      whereClause += ` AND (factory_id = $${params.length}`;
-      // Optional: Allow global machines if factory_id is null? Or strict? 
-      // User said: "Data of Every Factory Is Uniquee" -> So Strict.
-      whereClause += `)`;
+      whereClause += ` AND (factory_id = $${params.length} OR factory_id IS NULL)`;
     }
 
     if (lines.length > 0 && !isAll) {

@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JMS — Factory Server Status</title>
+  <style>
+    :root {
+      --bg: #f0f4f8;
+      --card: #fff;
+      --ocean: #0284c7;
+      --deep: #0f2f4c;
+      --muted: #64748b;
+      --green: #16a34a; --green-bg: #dcfce7; --green-border: #86efac;
+      --red: #dc2626;   --red-bg: #fee2e2;   --red-border: #fca5a5;
+      --amber: #d97706; --amber-bg: #fef3c7; --amber-border: #fde68a;
+      --blue: #2563eb;  --blue-bg: #dbeafe;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: var(--bg); color: var(--deep); min-height: 100vh; }
+
+    /* ── Top bar ── */
+    .topbar { background: linear-gradient(135deg, #0f2f4c, #0284c7); color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 14px; }
+    .topbar-icon { width: 42px; height: 42px; border-radius: 12px; background: rgba(255,255,255,.15); display: flex; align-items: center; justify-content: center; font-size: 22px; }
+    .topbar h1 { font-size: 20px; font-weight: 900; }
+    .topbar .sub { font-size: 12px; opacity: .7; margin-top: 2px; }
+    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .btn { padding: 8px 16px; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; }
+    .btn-light  { background: rgba(255,255,255,.18); color: #fff; border: 1px solid rgba(255,255,255,.3); }
+    .btn-white  { background: #fff; color: var(--ocean); }
+    .btn:hover  { opacity: .85; }
+    #last-refresh { font-size: 11px; opacity: .6; }
+
+    /* ── Layout ── */
+    .page { padding: 20px 24px; max-width: 1200px; margin: 0 auto; }
+
+    /* ── Summary row ── */
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+    .stat-label { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+    .stat-val { font-size: 26px; font-weight: 900; }
+    .stat-val.green { color: var(--green); }
+    .stat-val.red   { color: var(--red); }
+    .stat-val.amber { color: var(--amber); }
+
+    /* ── Server cards ── */
+    .server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+    .server-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; transition: box-shadow .2s; }
+    .server-card:hover { box-shadow: 0 8px 24px rgba(15,47,76,.12); }
+
+    .card-head { padding: 14px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
+    .status-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .dot-green  { background: var(--green); box-shadow: 0 0 0 3px var(--green-bg); animation: pulse 2s infinite; }
+    .dot-red    { background: var(--red);   box-shadow: 0 0 0 3px var(--red-bg); }
+    .dot-amber  { background: var(--amber); box-shadow: 0 0 0 3px var(--amber-bg); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+    .card-head-info { flex: 1; min-width: 0; }
+    .server-name  { font-size: 15px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .factory-name { font-size: 12px; color: var(--muted); font-weight: 700; }
+
+    .status-badge { padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 900; flex-shrink: 0; }
+    .badge-online  { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+    .badge-offline { background: var(--red-bg);   color: var(--red);   border: 1px solid var(--red-border); }
+    .badge-stale   { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-border); }
+    .badge-pending { background: var(--blue-bg);  color: var(--blue);  border: 1px solid #93c5fd; }
+
+    .card-body { padding: 14px 16px; }
+    .kv { display: flex; justify-content: space-between; align-items: flex-start; padding: 5px 0; border-bottom: 1px solid #f1f5f9; font-size: 12px; gap: 8px; }
+    .kv:last-child { border-bottom: none; }
+    .kv .k { color: var(--muted); font-weight: 700; flex-shrink: 0; }
+    .kv .v { font-weight: 800; text-align: right; word-break: break-all; }
+    .v-ok   { color: var(--green); }
+    .v-warn { color: var(--amber); }
+    .v-err  { color: var(--red); }
+
+    .sync-bar { margin: 10px 0 4px; }
+    .sync-bar-label { font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing:.06em; margin-bottom: 4px; }
+    .bar-row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+    .bar-bg  { flex: 1; height: 6px; background: #f1f5f9; border-radius: 99px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 99px; background: var(--green); transition: width .4s; }
+    .bar-fill.warn { background: var(--amber); }
+    .bar-fill.err  { background: var(--red); }
+    .bar-val { font-size: 10px; font-weight: 800; color: var(--muted); min-width: 32px; text-align: right; }
+
+    .card-foot { padding: 10px 16px; background: #f8fafc; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-wrap: wrap; }
+    .mini-badge { padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: 800; background: #e2e8f0; color: var(--muted); }
+    .mini-badge.ok { background: var(--green-bg); color: var(--green); }
+    .mini-badge.warn { background: var(--amber-bg); color: var(--amber); }
+    .mini-badge.err  { background: var(--red-bg);   color: var(--red); }
+
+    /* ── Empty ── */
+    .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+    .empty .icon { font-size: 48px; margin-bottom: 12px; }
+    .loading { text-align: center; padding: 40px; color: var(--muted); font-weight: 700; }
+
+    /* ── Login ── */
+    .login-box { max-width: 360px; margin: 60px auto; background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 32px; }
+    .login-box h2 { font-size: 18px; font-weight: 900; margin-bottom: 6px; }
+    .login-box p { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; margin-bottom: 5px; }
+    .field input { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
+    .btn-primary { background: var(--ocean); color: #fff; width: 100%; padding: 10px; border-radius: 8px; font-size: 14px; font-weight: 700; border: none; cursor: pointer; }
+    .err-msg { background: var(--red-bg); color: var(--red); border-radius: 8px; padding: 10px; font-size: 13px; font-weight: 700; margin-top: 10px; }
+  </style>
+</head>
+<body>
+
+<!-- Login screen (shown before auth) -->
+<div id="login-screen" style="display:none; padding: 20px;">
+  <div class="login-box">
+    <h2>🏭 JMS Factory Status</h2>
+    <p>Admin login required to view local server status.</p>
+    <div class="field"><label>Username</label><input type="text" id="l-user" placeholder="admin username"></div>
+    <div class="field"><label>Password</label><input type="password" id="l-pass" placeholder="password"></div>
+    <button class="btn-primary" onclick="doLogin()">Login</button>
+    <div id="l-err" style="display:none" class="err-msg"></div>
+  </div>
+</div>
+
+<!-- Main dashboard -->
+<div id="main-screen" style="display:none">
+  <div class="topbar">
+    <div class="topbar-icon">🏭</div>
+    <div>
+      <h1>Factory Server Status</h1>
+      <div class="sub">Live connection & sync health for all LOCAL factory servers</div>
+    </div>
+    <div class="topbar-right">
+      <span id="last-refresh">—</span>
+      <button class="btn btn-light" onclick="loadServers()">↻ Refresh</button>
+      <button class="btn btn-light" onclick="toggleAuto()" id="btn-auto">⏱ Auto OFF</button>
+    </div>
+  </div>
+
+  <div class="page">
+    <div class="summary" id="summary-row"></div>
+    <div id="content"><div class="loading">Loading server status…</div></div>
+  </div>
+</div>
+
+<script>
+  // ── Session ──────────────────────────────────────────────────
+  const J = window.JPSMS;
+  let session = null;
+  let autoRefresh = false;
+  let autoTimer = null;
+
+  function fmt(ts) {
+    if (!ts) return '—';
+    try {
+      return new Date(ts).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      }) + ' IST';
+    } catch(_) { return ts; }
+  }
+
+  function ageMin(ts) {
+    if (!ts) return null;
+    return Math.round((Date.now() - new Date(ts).getTime()) / 60000);
+  }
+
+  function ageLabel(ts, warnMin = 10, errMin = 30) {
+    const m = ageMin(ts);
+    if (m === null) return '<span class="v-err">Never</span>';
+    if (m < 2)      return `<span class="v-ok">${m}m ago ✅</span>`;
+    if (m < warnMin) return `<span class="v-ok">${m}m ago</span>`;
+    if (m < errMin)  return `<span class="v-warn">${m}m ago ⚠️</span>`;
+    return `<span class="v-err">${m}m ago ❌</span>`;
+  }
+
+  function barClass(m, warn=10, err=30) {
+    return m > err ? 'err' : m > warn ? 'warn' : '';
+  }
+
+  function progressBar(ts, label, warnMin=10, errMin=30) {
+    const m = ageMin(ts);
+    if (m === null) return '';
+    const pct = Math.min(100, (m / 60) * 100);
+    const cls = barClass(m, warnMin, errMin);
+    return `
+      <div class="sync-bar">
+        <div class="sync-bar-label">${label}</div>
+        <div class="bar-row">
+          <div class="bar-bg"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div>
+          <div class="bar-val">${m}m</div>
+        </div>
+      </div>`;
+  }
+
+  // ── Auth ─────────────────────────────────────────────────────
+  async function checkAuth() {
+    try {
+      if (J && J.auth) {
+        const u = J.auth.getUser?.();
+        if (u?.username) { session = u; showMain(); return; }
+      }
+      // Try stored session
+      const stored = JSON.parse(localStorage.getItem('jpsms_session') || '{}');
+      if (stored?.username) { session = stored; showMain(); return; }
+    } catch(_) {}
+    showLogin();
+  }
+
+  async function doLogin() {
+    const user = document.getElementById('l-user').value.trim();
+    const pass = document.getElementById('l-pass').value;
+    const errEl = document.getElementById('l-err');
+    errEl.style.display = 'none';
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pass })
+      });
+      const d = await res.json();
+      if (!d.ok) throw new Error(d.error || 'Login failed');
+      session = d.user || { username: user, role_code: d.role_code };
+      localStorage.setItem('jpsms_session', JSON.stringify(session));
+      showMain();
+    } catch(e) {
+      errEl.textContent = '❌ ' + e.message;
+      errEl.style.display = 'block';
+    }
+  }
+
+  function showLogin() { document.getElementById('login-screen').style.display = 'block'; }
+  function showMain()  { document.getElementById('main-screen').style.display = 'block'; loadServers(); }
+
+  // ── Load servers ──────────────────────────────────────────────
+  async function loadServers() {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (session?.username) headers['x-user-name'] = session.username;
+      if (session?.factory_id) headers['x-factory-id'] = session.factory_id;
+
+      const res = await fetch('/api/local-servers?includeInactive=0', { headers });
+      const d = await res.json();
+
+      if (!res.ok || !d.ok) {
+        document.getElementById('content').innerHTML = `<div class="empty"><div class="icon">⚠️</div><div>${d.error || 'Failed to load. Check admin access.'}</div></div>`;
+        return;
+      }
+
+      const servers = d.localServers || [];
+      renderSummary(servers);
+      renderCards(servers);
+      document.getElementById('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString('en-IN');
+    } catch(e) {
+      document.getElementById('content').innerHTML = `<div class="empty"><div class="icon">❌</div><div>Error: ${e.message}</div></div>`;
+    }
+  }
+
+  function renderSummary(servers) {
+    const total   = servers.length;
+    const online  = servers.filter(s => s.is_connected).length;
+    const offline = servers.filter(s => !s.is_connected).length;
+    const stale   = servers.filter(s => {
+      const m = ageMin(s.last_push_at);
+      return s.is_connected && m !== null && m > 30;
+    }).length;
+
+    document.getElementById('summary-row').innerHTML = `
+      <div class="stat-card"><div class="stat-label">Total Servers</div><div class="stat-val">${total}</div></div>
+      <div class="stat-card"><div class="stat-label">🟢 Online</div><div class="stat-val green">${online}</div></div>
+      <div class="stat-card"><div class="stat-label">🔴 Offline</div><div class="stat-val ${offline>0?'red':'green'}">${offline}</div></div>
+      <div class="stat-card"><div class="stat-label">⚠️ Sync Stale</div><div class="stat-val ${stale>0?'amber':'green'}">${stale}</div></div>
+    `;
+  }
+
+  function renderCards(servers) {
+    if (!servers.length) {
+      document.getElementById('content').innerHTML = `
+        <div class="empty">
+          <div class="icon">🏭</div>
+          <div style="font-size:16px; font-weight:800; margin-bottom:8px">No Local Servers Found</div>
+          <div>No active factory servers are registered. Check the local_servers table.</div>
+        </div>`;
+      return;
+    }
+
+    const html = `<div class="server-grid">${servers.map(renderCard).join('')}</div>`;
+    document.getElementById('content').innerHTML = html;
+  }
+
+  function renderCard(s) {
+    const connected = s.is_connected;
+    const pushAge = ageMin(s.last_push_at);
+    const heartAge = ageMin(s.last_heartbeat_at);
+    const syncPending = s.metadata?.syncAudit?.pending ?? null;
+    const syncFailed  = s.metadata?.syncAudit?.failed  ?? null;
+    const version     = s.current_version || s.metadata?.appVersion || '—';
+
+    // Status
+    let dotCls = 'dot-red', badgeCls = 'badge-offline', badgeTxt = '🔴 OFFLINE';
+    if (s.status === 'pending_registration') { dotCls = 'dot-amber'; badgeCls = 'badge-pending'; badgeTxt = '🔵 PENDING'; }
+    else if (connected) {
+      const pushStale = pushAge !== null && pushAge > 30;
+      dotCls   = pushStale ? 'dot-amber'  : 'dot-green';
+      badgeCls = pushStale ? 'badge-stale' : 'badge-online';
+      badgeTxt = pushStale ? '⚠️ STALE'   : '✅ ONLINE';
+    }
+
+    // Push health bar
+    const pushBar = s.last_push_at ? progressBar(s.last_push_at, 'Last Push to MAIN', 10, 30) : '';
+    const pullBar = s.last_pull_at ? progressBar(s.last_pull_at, 'Last Pull from MAIN', 10, 30) : '';
+    const hbBar   = s.last_heartbeat_at ? progressBar(s.last_heartbeat_at, 'Last Heartbeat', 3, 10) : '';
+
+    // Mini badges
+    const vBadge = version !== '—' ? `<span class="mini-badge">v${version}</span>` : '';
+    const pBadge = syncPending !== null ? `<span class="mini-badge ${syncPending > 0 ? 'warn' : 'ok'}">${syncPending} pending</span>` : '';
+    const fBadge = syncFailed  !== null && syncFailed > 0 ? `<span class="mini-badge err">${syncFailed} failed</span>` : '';
+    const ipBadge = s.local_ip ? `<span class="mini-badge">📍 ${s.local_ip}</span>` : '';
+
+    return `
+      <div class="server-card">
+        <div class="card-head">
+          <div class="status-dot ${dotCls}"></div>
+          <div class="card-head-info">
+            <div class="server-name">${esc(s.node_name || s.node_code || 'Unknown Server')}</div>
+            <div class="factory-name">🏭 ${esc(s.factory_name || 'Unknown Factory')} (ID: ${s.factory_id})</div>
+          </div>
+          <div class="status-badge ${badgeCls}">${badgeTxt}</div>
+        </div>
+        <div class="card-body">
+          <div class="kv"><span class="k">Heartbeat</span><span class="v">${ageLabel(s.last_heartbeat_at, 3, 10)}</span></div>
+          <div class="kv"><span class="k">Last Push → MAIN</span><span class="v">${ageLabel(s.last_push_at, 10, 30)}</span></div>
+          <div class="kv"><span class="k">Last Pull ← MAIN</span><span class="v">${ageLabel(s.last_pull_at, 10, 60)}</span></div>
+          <div class="kv"><span class="k">Server IP</span><span class="v">${esc(s.local_ip || s.public_ip || '—')}</span></div>
+          <div class="kv"><span class="k">Version</span><span class="v">${esc(version)}</span></div>
+          <div class="kv"><span class="k">Registered</span><span class="v" style="font-size:10px">${fmt(s.last_registration_at)}</span></div>
+          ${syncPending !== null ? `<div class="kv"><span class="k">Pending Rows</span><span class="v ${syncPending > 0 ? 'v-warn' : 'v-ok'}">${syncPending}</span></div>` : ''}
+          ${syncFailed  !== null && syncFailed > 0 ? `<div class="kv"><span class="k">Failed Rows</span><span class="v v-err">${syncFailed}</span></div>` : ''}
+          ${s.last_error ? `<div class="kv"><span class="k">Last Error</span><span class="v v-err" style="font-size:10px; max-width:180px">${esc(String(s.last_error).slice(0,100))}</span></div>` : ''}
+          ${hbBar}${pushBar}${pullBar}
+        </div>
+        <div class="card-foot">${vBadge}${ipBadge}${pBadge}${fBadge}</div>
+      </div>`;
+  }
+
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  // ── Auto-refresh ──────────────────────────────────────────────
+  function toggleAuto() {
+    autoRefresh = !autoRefresh;
+    document.getElementById('btn-auto').textContent = autoRefresh ? '⏱ Auto ON' : '⏱ Auto OFF';
+    if (autoRefresh) {
+      autoTimer = setInterval(loadServers, 30000);
+    } else {
+      clearInterval(autoTimer);
+    }
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────
+  window.addEventListener('DOMContentLoaded', checkAuth);
+</script>
+</body>
+</html>

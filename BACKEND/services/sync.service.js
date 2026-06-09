@@ -246,6 +246,16 @@ const GLOBAL_MASTER_TABLES = new Set([
     'moulds'        // Mould master — company-wide reference, not factory-scoped
 ]);
 
+// Tables where the LOCAL→MAIN push should also include rows with factory_id IS NULL.
+// These are master/reference tables where records may be entered without a factory tag
+// (e.g. machines added before multi-factory setup, or shared reference machines).
+// Without this, Dungra LOCAL machines with factory_id=NULL are silently skipped
+// by the push query and never reach MAIN — so MAIN shows no machines for Dungra.
+const PUSH_INCLUDE_NULL_FACTORY_TABLES = new Set([
+    'machines',     // Machine master — may have factory_id=NULL for global/legacy machines
+    'moulds'        // Mould master — same reason
+]);
+
 const SYNC_ID_REQUIRED_TABLES = ['notifications'];
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 const SYNC_SCHEMA_READY_VERSION = '2026-05-27-pull-constraint-fixes-v1';
@@ -1014,8 +1024,14 @@ async function pushTableAllBatches(table, lastPush) {
         batchNum += 1;
         let rows;
         try {
+            // For master tables (machines, moulds) also push rows with factory_id IS NULL
+            // because those are global/legacy records that must be visible on MAIN
+            // for all factories (including Dungra factory 2).
+            const includeNullFactory = hasFactoryId && PUSH_INCLUDE_NULL_FACTORY_TABLES.has(table);
             const sql = hasFactoryId
-                ? `SELECT * FROM ${table} WHERE updated_at > $1 AND factory_id = $2 ORDER BY updated_at ASC LIMIT ${PUSH_BATCH_SIZE}`
+                ? includeNullFactory
+                    ? `SELECT * FROM ${table} WHERE updated_at > $1 AND (factory_id = $2 OR factory_id IS NULL) ORDER BY updated_at ASC LIMIT ${PUSH_BATCH_SIZE}`
+                    : `SELECT * FROM ${table} WHERE updated_at > $1 AND factory_id = $2 ORDER BY updated_at ASC LIMIT ${PUSH_BATCH_SIZE}`
                 : `SELECT * FROM ${table} WHERE updated_at > $1 ORDER BY updated_at ASC LIMIT ${PUSH_BATCH_SIZE}`;
             const params = hasFactoryId ? [currentSince, LOCAL_FACTORY_ID] : [currentSince];
             const result = await pool.query(sql, params);
