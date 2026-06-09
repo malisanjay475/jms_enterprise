@@ -2829,12 +2829,15 @@
               }
               if (type === 'sort') {
                 if (c === 'machine') {
-                  // Sort key: natural-sorted line string + trailing machine number.
-                  // row.line (e.g. "B -L1", "B -L2") is used directly so line grouping
-                  // is preserved even when the machine name already starts with the line prefix.
-                  const lineStr = row && row.line ? String(row.line).trim() : '';
+                  const machName = String(data || '');
+                  // Use row.line as primary source; if it has no L# (e.g. just "C"),
+                  // fall back to the prefix before ">" in the machine name (e.g. "C -L2>...")
+                  let lineStr = row && row.line ? String(row.line).trim() : '';
+                  if (!lineStr.match(/L\d+/i) && machName.includes('>')) {
+                    lineStr = machName.split('>')[0].trim();
+                  }
                   const lineKey = lineStr.replace(/(\d+)/g, (m) => m.padStart(10, '0'));
-                  const trailMatch = String(data || '').match(/(\d+)$/);
+                  const trailMatch = machName.match(/(\d+)$/);
                   const trailNum = trailMatch ? parseInt(trailMatch[1], 10) : 999999;
                   return lineKey + String(trailNum).padStart(10, '0');
                 }
