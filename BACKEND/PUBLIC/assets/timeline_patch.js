@@ -741,10 +741,21 @@
     // --- Helper for Actions (v55) ---
     window._tlMap = {};
     window._tlComplete = function (id) {
-        const p = window._tlMap[id];
-        if (!p) return alert('Plan data missing');
-        if (window.openCompletePlanModal) window.openCompletePlanModal(id, encodeURIComponent(JSON.stringify(p)));
-        else alert('Complete Modal not found');
+        try {
+            const p = window._tlMap[id];
+            if (!p) return alert('Plan data missing for id: ' + id);
+            if (window.openCompletePlanModal) {
+                // Pass null for jsonRow — openCompletePlanModal will look up from _tlMap directly.
+                // This avoids JSON.stringify on plan objects that contain Date instances,
+                // which throws RangeError if any date is Invalid (new Date(NaN)).
+                window.openCompletePlanModal(id, null);
+            } else {
+                alert('Complete Modal not found');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Timeline complete error: ' + e.message);
+        }
     };
 
     window._tlStart = async function (id) {
