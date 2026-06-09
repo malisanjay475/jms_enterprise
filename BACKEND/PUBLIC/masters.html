@@ -2386,6 +2386,27 @@
           return;
         }
 
+        // Pre-sort machines client-side so initial display is correct regardless of backend order.
+        // Machines stored as "C -L2>..." have a non-empty line prefix in naturalCompare which
+        // causes the backend to order them after plain-name machines — fix here instead.
+        if (currentType === 'machines') {
+          const padN = s => String(s || '').replace(/(\d+)/g, m => m.padStart(10, '0'));
+          const getMachKey = (r) => {
+            const line = String(r.line || '').trim();
+            const mach = String(r.machine || '');
+            // Use row.line if it has L# info, else fall back to prefix before '>'
+            const lineKey = /L\d+/i.test(line) ? padN(line)
+              : mach.includes('>') ? padN(mach.split('>')[0].trim())
+              : padN(line);
+            const trail = (mach.match(/(\d+)$/) || ['', '999999'])[1];
+            return lineKey + String(trail).padStart(10, '0');
+          };
+          rows = rows.slice().sort((a, b) => {
+            const ka = getMachKey(a), kb = getMachKey(b);
+            return ka < kb ? -1 : ka > kb ? 1 : 0;
+          });
+        }
+
         // Columns (Exclude technical)
         let cols = Object.keys(rows[0]).filter(c => !['created_date', 'edited_date', 'remarks_all', 'id', 'search_vector', 'created_at', 'updated_at', 'password'].includes(c));
 
