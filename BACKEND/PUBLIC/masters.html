@@ -2828,16 +2828,21 @@
                 if (linePfx && !name.includes('>') && !startsWithLine) displayName = linePfx + '>' + name;
               }
               if (type === 'sort') {
-                const parts = displayName.split('>');
-                const lineStr = parts.length > 1 ? parts[0].trim() : '';
-                const rest = parts.length > 1 ? parts[1] : parts[0];
-                // Sort key: Building letter → Line number → Machine trailing number
-                const building = lineStr.charAt(0) || 'Z';
-                const lineNumMatch = lineStr.match(/L(\d+)/i);
-                const lineNum = lineNumMatch ? parseInt(lineNumMatch[1], 10) : 999;
-                const machNumMatch = rest.match(/(\d+)$/);
-                const machNum = machNumMatch ? parseInt(machNumMatch[1], 10) : 999;
-                return building + String(lineNum).padStart(4, '0') + String(machNum).padStart(6, '0');
+                if (c === 'machine') {
+                  const machName = String(data || '');
+                  // Use row.line as primary source; if it has no L# (e.g. just "C"),
+                  // fall back to the prefix before ">" in the machine name (e.g. "C -L2>...")
+                  let lineStr = row && row.line ? String(row.line).trim() : '';
+                  if (!lineStr.match(/L\d+/i) && machName.includes('>')) {
+                    lineStr = machName.split('>')[0].trim();
+                  }
+                  const lineKey = lineStr.replace(/(\d+)/g, (m) => m.padStart(10, '0'));
+                  const trailMatch = machName.match(/(\d+)$/);
+                  const trailNum = trailMatch ? parseInt(trailMatch[1], 10) : 999999;
+                  return lineKey + String(trailNum).padStart(10, '0');
+                }
+                // mould columns: full natural sort by padding all digit sequences
+                return displayName.replace(/(\d+)/g, (m) => m.padStart(10, '0'));
               }
               return displayName;
             };
