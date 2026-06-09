@@ -1561,12 +1561,31 @@
       // Debug:
       // console.log('FILLED KEY CHECK:', Array.from(FILLED_ENTRIES));
 
+      // BACKFILL OVERRIDE: If user picked a date/shift not in the rolling window,
+      // replace shifts with just that selection so all 12 slots are available.
+      if (selectId === 'd-slot') {
+        const selDateEl = el('d-date');
+        const selShiftEl = el('d-shift');
+        if (selDateEl && selShiftEl) {
+          const manualDate = selDateEl.value;
+          const manualShift = selShiftEl.value;
+          if (manualDate && manualShift) {
+            const inWindow = shifts.some(s => s.date === manualDate && s.shift === manualShift);
+            if (!inWindow) {
+              const manualDateObj = new Date(manualDate + 'T00:00:00');
+              shifts = [{ date: manualDate, shift: manualShift, labelDate: manualDateObj, isBackfill: true }];
+            }
+          }
+        }
+      }
+
       shifts.forEach((s, shiftIdx) => {
         SLOT_LABELS.forEach(slot => {
           // USER REQUEST: Only show 07-08 from LAST shift for regular supervisors
           // Unless it's an expanded view (Admin or Quick Action)
           // Last shift is always shifts[0]
-          if (!showAllLastShiftSlots && shiftIdx === 0 && slot !== '07-08') return;
+          // Bypass this limit for backfill entries (user explicitly chose yesterday)
+          if (!s.isBackfill && !showAllLastShiftSlots && shiftIdx === 0 && slot !== '07-08') return;
           // 1. Calculate Real End Time for this slot
           // Slot format "08-09", "12-01", etc.
           // Map to 24h based on Shift
@@ -1614,8 +1633,8 @@
             realEndTime.setHours(endH, 0, 0, 0);
           }
 
-          // 2. Future Check
-          if (now < realEndTime) return; // Skip logic for Future Slots
+          // 2. Future Check (bypass for backfill — yesterday is never future)
+          if (!s.isBackfill && now < realEndTime) return;
 
           // 3. Filled Check
           const key = `${s.date}_${s.shift.toUpperCase()}_${slot}`;
