@@ -9558,6 +9558,13 @@
             // Priority Badge
             const priClass = (p.priority === 'Urgent' ? 'Urgent' : p.priority === 'High' ? 'High' : 'Normal');
 
+            // Store plan in cache so openCompletePlanModal can read it by ID only.
+            // This avoids embedding JSON in onclick attributes which breaks when any
+            // string field (item_name, mould_name, remarks…) contains a single quote —
+            // encodeURIComponent deliberately does NOT encode ' (single quote U+0027).
+            window.__completePlanCache = window.__completePlanCache || {};
+            window.__completePlanCache[p.id] = p;
+
             // Action Buttons
             let actionHtml = '';
 
@@ -9572,9 +9579,9 @@
                      <i class="bi bi-eye"></i>
                   </button>
                   
-                  <button class="btn icon mini master-action-btn complete" 
+                  <button class="btn icon mini master-action-btn complete"
                      title="Complete Plan"
-                     onclick="event.stopPropagation(); window.openCompletePlanModal('${p.id}', '${encodeURIComponent(JSON.stringify(p))}')">
+                     onclick="event.stopPropagation(); window.openCompletePlanModal('${p.id}')">
                      <i class="bi bi-check-lg" style="font-weight:bold"></i>
                   </button>`;
 
@@ -11822,9 +11829,15 @@
 
 
     // Complete Plan Logic
-    window.openCompletePlanModal = function (id, jsonRow) {
+    // NOTE: previously received a JSON-encoded plan object as the second argument.
+    // That approach broke whenever any field (item_name, mould_name, remarks, colour…)
+    // contained a single-quote character because encodeURIComponent does NOT encode '
+    // (U+0027 per the RFC spec), which split the onclick string argument mid-value.
+    // Fix: the button now stores the plan in window.__completePlanCache[id] and passes
+    // only the plain string id — no JSON, no encoding, no fragile HTML attributes.
+    window.openCompletePlanModal = function (id) {
       try {
-        const p = JSON.parse(decodeURIComponent(jsonRow));
+        const p = (window.__completePlanCache && window.__completePlanCache[id]) || {};
         window.cpCurrentPlanId = id;
 
         document.getElementById('cpmTitle').textContent = 'Order: ' + (p.orderNo || p.order_no);
