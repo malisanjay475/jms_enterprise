@@ -12528,7 +12528,7 @@
         background: #fff;
         min-height: 48px;
         position: relative;
-        transition: box-shadow .12s, transform .1s;
+        transition: background 0.2s, border-color 0.2s, box-shadow .12s, transform .1s;
       }
       .etv-plan-cell:hover .etv-card { box-shadow: 0 4px 14px rgba(15,23,42,.12); transform: translateY(-1px); }
       .etv-card.running   { border-left-color: #16a34a; background: #f0fdf4; border-color: #bbf7d0; }
@@ -12949,6 +12949,7 @@
 
     /* ── Grid renderer ───────────────────────────────────────────────── */
     function renderExcelGrid(machines) {
+      const searchVal = (document.getElementById('etv-search')?.value || '').trim().toLowerCase();
       const thead = document.getElementById('etv-thead');
       const tbody = document.getElementById('etv-tbody');
       const countEl = document.getElementById('etv-count');
@@ -13056,6 +13057,26 @@
           const cardClass = isPrevMould ? 'chg' : (st==='running'?'running':st==='stopped'?'stopped':st==='completed'?'completed':'planned');
           const statusClass = st==='running'?'running':st==='stopped'?'stopped':st==='completed'?'completed':'planned';
 
+          const isMatched = searchVal && (
+            (p.orderNo||'').toLowerCase().includes(searchVal) ||
+            (p.mouldName||'').toLowerCase().includes(searchVal) ||
+            (p.mouldNo||'').toLowerCase().includes(searchVal) ||
+            (p.clientName||'').toLowerCase().includes(searchVal) ||
+            ((p.jcNo||p.jc_no||p.job_card_no||'').toLowerCase().includes(searchVal))
+          );
+
+          let cardStyle = '';
+          if (isMatched) {
+            let leftBorderColor = '#cbd5e1';
+            if (st === 'running') leftBorderColor = '#16a34a';
+            else if (st === 'stopped') leftBorderColor = '#dc2626';
+            else if (st === 'planned') leftBorderColor = '#2563eb';
+            else if (st === 'completed') leftBorderColor = '#7c3aed';
+            else if (isPrevMould) leftBorderColor = '#ea580c';
+            
+            cardStyle = `background: #fef9c3 !important; border-color: #eab308 !important; border-left-color: ${leftBorderColor} !important; border-width: 2.5px !important; box-shadow: 0 0 16px rgba(234, 179, 8, 0.75) !important;`;
+          }
+
           /* time remaining badge */
           let timeBadge = '';
           if (p._rippledEndRaw) {
@@ -13074,8 +13095,8 @@
           const stLabel = st === 'running' ? 'RUN' : st === 'stopped' ? 'STOP' : st === 'completed' ? 'DONE' : 'PLAN';
 
           return `
-            <td class="etv-plan-cell" onclick="window.openOrderModal('${esc(p.orderNo)}')" title="Order: ${esc(p.orderNo)}&#10;Mould: ${esc(p.mouldName)}&#10;Client: ${esc(p.clientName)}&#10;Qty: ${fmtQty(p.planQty)} | Bal: ${fmtQty(p.balQty)}">
-              <div class="etv-card ${cardClass}">
+            <td class="etv-plan-cell" onclick="window.openOrderModal('${esc(p.orderNo)}', '${esc(p.planId || p.plan_id || p.id || '')}')" title="Order: ${esc(p.orderNo)}&#10;Mould: ${esc(p.mouldName)}&#10;Client: ${esc(p.clientName)}&#10;Qty: ${fmtQty(p.planQty)} | Bal: ${fmtQty(p.balQty)}">
+              <div class="etv-card ${cardClass}" style="${cardStyle}">
                 ${isPrevMould ? '<span class="etv-card-chg-badge">CHG</span>' : ''}
                 <div class="etv-card-row1">
                   <div class="etv-card-order">${esc(orderDisp)}</div>

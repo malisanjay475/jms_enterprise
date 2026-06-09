@@ -1561,12 +1561,37 @@
       // Debug:
       // console.log('FILLED KEY CHECK:', Array.from(FILLED_ENTRIES));
 
+      // BACKFILL OVERRIDE: If user picked anything other than the CURRENT active shift,
+      // replace shifts with just that selection so all 12 slots are available.
+      // (Yesterday Night is in shifts[0] during Day shift but still needs all slots shown.)
+      if (selectId === 'd-slot') {
+        const selDateEl = el('d-date');
+        const selShiftEl = el('d-shift');
+        if (selDateEl && selShiftEl) {
+          const manualDate = selDateEl.value;
+          const manualShift = selShiftEl.value;
+          if (manualDate && manualShift) {
+            // Current active shift is always the LAST entry in shifts[]
+            const currentShift = shifts[shifts.length - 1];
+            const isCurrentShift = currentShift &&
+              currentShift.date === manualDate &&
+              currentShift.shift === manualShift;
+            if (!isCurrentShift) {
+              // User picked a past/different shift → backfill mode: show all 12 slots
+              const manualDateObj = new Date(manualDate + 'T00:00:00');
+              shifts = [{ date: manualDate, shift: manualShift, labelDate: manualDateObj, isBackfill: true }];
+            }
+          }
+        }
+      }
+
       shifts.forEach((s, shiftIdx) => {
         SLOT_LABELS.forEach(slot => {
           // USER REQUEST: Only show 07-08 from LAST shift for regular supervisors
           // Unless it's an expanded view (Admin or Quick Action)
           // Last shift is always shifts[0]
-          if (!showAllLastShiftSlots && shiftIdx === 0 && slot !== '07-08') return;
+          // Bypass this limit for backfill entries (user explicitly chose yesterday)
+          if (!s.isBackfill && !showAllLastShiftSlots && shiftIdx === 0 && slot !== '07-08') return;
           // 1. Calculate Real End Time for this slot
           // Slot format "08-09", "12-01", etc.
           // Map to 24h based on Shift
@@ -1614,8 +1639,8 @@
             realEndTime.setHours(endH, 0, 0, 0);
           }
 
-          // 2. Future Check
-          if (now < realEndTime) return; // Skip logic for Future Slots
+          // 2. Future Check (bypass for backfill — yesterday is never future)
+          if (!s.isBackfill && now < realEndTime) return;
 
           // 3. Filled Check
           const key = `${s.date}_${s.shift.toUpperCase()}_${slot}`;
@@ -3141,7 +3166,8 @@
         });
         sortedRaw.forEach(m => {
           const linePfx = m.line ? String(m.line).trim() : '';
-          const label = (linePfx && !m.machine.includes('>')) ? linePfx + '>' + m.machine : m.machine;
+          const startsWithLine = linePfx && m.machine.replace(/\s+/g, '').toLowerCase().startsWith(linePfx.replace(/\s+/g, '').toLowerCase());
+          const label = (linePfx && !m.machine.includes('>') && !startsWithLine) ? linePfx + '>' + m.machine : m.machine;
           dd.add(new Option(label, m.machine));
         });
 
@@ -3943,6 +3969,16 @@
           if (span) span.textContent = '';
           // Backend returns [{ slot: '07-08', type: 'MAIN' }]
           usedSlots = (r && r.ok && Array.isArray(r.used)) ? r.used : [];
+          // Merge into SLOT_STATUS so fillHourSlotSelect can hide filled slots
+          // (SLOT_STATUS only has last-50 entries; this fills gaps for any selected date)
+          usedSlots.forEach(us => {
+            const k = `${dt}_${String(sh).toUpperCase()}_${us.slot}`;
+            let st = SLOT_STATUS.get(k) || { hasMain: false, hasCC: false, count: 0, isQuick: false, type: us.type };
+            st.count = st.count || 1;
+            if (us.type === 'MAIN' || us.type === 'Main') st.hasMain = true;
+            if (us.type === 'ColourChange') st.hasCC = true;
+            SLOT_STATUS.set(k, st);
+          });
           refreshSlots();
           checkPendingEntries(); // Trigger alert check
         })
