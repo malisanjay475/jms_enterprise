@@ -933,8 +933,9 @@
           });
           list.innerHTML = sorted.map(m => {
             const line = String(m.line || '').trim();
-            // If machine already has ">" (line prefix stored in machine column), use as-is
-            const display = m.machine.includes('>') ? m.machine : (line ? `${line}>${m.machine}` : m.machine);
+            // If machine already has ">" (line prefix stored in machine column), or if it starts with the line name, use as-is
+            const startsWithLine = line && m.machine.replace(/\s+/g, '').toLowerCase().startsWith(line.replace(/\s+/g, '').toLowerCase());
+            const display = (m.machine.includes('>') || startsWithLine) ? m.machine : (line ? `${line}>${m.machine}` : m.machine);
             return `<option value="${display}">`;
           }).join('');
         }
@@ -2385,6 +2386,27 @@
           return;
         }
 
+        // Pre-sort machines client-side so initial display is correct regardless of backend order.
+        // Machines stored as "C -L2>..." have a non-empty line prefix in naturalCompare which
+        // causes the backend to order them after plain-name machines — fix here instead.
+        if (currentType === 'machines') {
+          const padN = s => String(s || '').replace(/(\d+)/g, m => m.padStart(10, '0'));
+          const getMachKey = (r) => {
+            const line = String(r.line || '').trim();
+            const mach = String(r.machine || '');
+            // Use row.line if it has L# info, else fall back to prefix before '>'
+            const lineKey = /L\d+/i.test(line) ? padN(line)
+              : mach.includes('>') ? padN(mach.split('>')[0].trim())
+              : padN(line);
+            const trail = (mach.match(/(\d+)$/) || ['', '999999'])[1];
+            return lineKey + String(trail).padStart(10, '0');
+          };
+          rows = rows.slice().sort((a, b) => {
+            const ka = getMachKey(a), kb = getMachKey(b);
+            return ka < kb ? -1 : ka > kb ? 1 : 0;
+          });
+        }
+
         // Columns (Exclude technical)
         let cols = Object.keys(rows[0]).filter(c => !['created_date', 'edited_date', 'remarks_all', 'id', 'search_vector', 'created_at', 'updated_at', 'password'].includes(c));
 
@@ -2822,20 +2844,31 @@
               // For machine column: build full display name as line>machine when line exists
               let displayName = name;
               if (c === 'machine') {
-                const linePfx = row && row.line ? String(row.line).trim() : '';
-                if (linePfx && !name.includes('>')) displayName = linePfx + '>' + name;
+                if (name.includes('>')) {
+                  // Strip line prefix stored in old format — show only the machine code
+                  displayName = name.split('>').slice(1).join('>').trim();
+                } else {
+                  const linePfx = row && row.line ? String(row.line).trim() : '';
+                  const startsWithLine = linePfx && name.replace(/\s+/g, '').toLowerCase().startsWith(linePfx.replace(/\s+/g, '').toLowerCase());
+                  if (linePfx && !startsWithLine) displayName = name;
+                }
               }
               if (type === 'sort') {
-                const parts = displayName.split('>');
-                const lineStr = parts.length > 1 ? parts[0].trim() : '';
-                const rest = parts.length > 1 ? parts[1] : parts[0];
-                // Sort key: Building letter → Line number → Machine trailing number
-                const building = lineStr.charAt(0) || 'Z';
-                const lineNumMatch = lineStr.match(/L(\d+)/i);
-                const lineNum = lineNumMatch ? parseInt(lineNumMatch[1], 10) : 999;
-                const machNumMatch = rest.match(/(\d+)$/);
-                const machNum = machNumMatch ? parseInt(machNumMatch[1], 10) : 999;
-                return building + String(lineNum).padStart(4, '0') + String(machNum).padStart(6, '0');
+                if (c === 'machine') {
+                  const machName = String(data || '');
+                  // Use row.line as primary source; if it has no L# (e.g. just "C"),
+                  // fall back to the prefix before ">" in the machine name (e.g. "C -L2>...")
+                  let lineStr = row && row.line ? String(row.line).trim() : '';
+                  if (!lineStr.match(/L\d+/i) && machName.includes('>')) {
+                    lineStr = machName.split('>')[0].trim();
+                  }
+                  const lineKey = lineStr.replace(/(\d+)/g, (m) => m.padStart(10, '0'));
+                  const trailMatch = machName.match(/(\d+)$/);
+                  const trailNum = trailMatch ? parseInt(trailMatch[1], 10) : 999999;
+                  return lineKey + String(trailNum).padStart(10, '0');
+                }
+                // mould columns: full natural sort by padding all digit sequences
+                return displayName.replace(/(\d+)/g, (m) => m.padStart(10, '0'));
               }
               return displayName;
             };

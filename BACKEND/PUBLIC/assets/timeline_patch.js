@@ -111,6 +111,8 @@
         }
         .om-table tr:last-child td { border-bottom: none; }
         .om-table tr:hover td { background: #f8fafc; }
+        .om-table tr.highlighted td { background-color: #fef08a !important; border-top: 1.5px solid #eab308; border-bottom: 1.5px solid #eab308; }
+        .om-table tr.highlighted td:first-child { border-left: 5px solid #ca8a04; }
         
         .om-badge {
             padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
@@ -232,6 +234,13 @@
             const st = (item.status || 'Pending').toLowerCase();
             const isPlanned = cleanMachine && cleanMachine !== '-' && st !== 'pending';
 
+            const isHighlighted = item._planObj && (
+                String(item._planObj.id) === String(window.lastClickedPlanId) ||
+                String(item._planObj.planId) === String(window.lastClickedPlanId) ||
+                String(item._planObj.plan_id) === String(window.lastClickedPlanId)
+            );
+            const rowClass = isHighlighted ? 'class="highlighted"' : '';
+
             let badgeClass = 'pending';
             if (st === 'running') badgeClass = 'running';
             else if (st === 'stopped') badgeClass = 'stopped';
@@ -286,7 +295,7 @@
                 ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : '')}','${esc(item._planObj ? (item._planObj.orderNo || '') : '')}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
                 : '<span style="color:#cbd5e1">—</span>';
 
-            return `<tr>
+            return `<tr ${rowClass} ${isHighlighted ? 'data-highlighted="true"' : ''}>
                 <td><div style="font-weight:700;color:#334155">${esc(item.mouldName || '-')}</div>
                     <div style="font-size:0.8rem;color:#64748b;font-family:monospace">${esc(item.mouldNo)}</div></td>
                 <td style="font-weight:600;color:#334155">${machDisplay}</td>
@@ -298,12 +307,22 @@
                 <td>${datesHtml}</td>
             </tr>`;
         }).join('');
+
+        // Smoothly scroll the highlighted plan row into view
+        setTimeout(() => {
+            const highlightedRow = document.querySelector('#om-tbody tr[data-highlighted="true"]');
+            if (highlightedRow) {
+                highlightedRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 150);
     }
 
-    window.openOrderModal = async function (orderNo) {
+    window.openOrderModal = async function (orderNo, clickedPlanId) {
         window.createOrderModal();
         const modal = document.getElementById('orderDetailModal');
         _ddShowPlans(); // make sure plans area is visible, not drill-down
+
+        window.lastClickedPlanId = clickedPlanId; // Track clicked plan for highlighting
 
         modal.style.display = 'flex';
         void modal.offsetWidth;
@@ -408,6 +427,7 @@
         const modal = document.getElementById('orderDetailModal');
         if (modal) {
             modal.classList.remove('active');
+            window.lastClickedPlanId = null; // Clear highlight on close
             setTimeout(() => { modal.style.display = 'none'; window._ddHideDrill(); }, 300);
         }
     };
@@ -897,8 +917,19 @@
                 const jcNo = p.jcNo || p.jc_no || p.job_card_no || p.jc_id || '';
                 const formatNum = (n) => (n || 0).toLocaleString();
                 const esc = (s) => (s || '').toString().replace(/&/g, '&amp;');
-                const cardBg = isMouldChange ? '#fff7ed' : '#ffffff';
-                const cardBorder = isMouldChange ? '#fdba74' : '#e2e8f0';
+                const searchVal = (document.getElementById('filt-search')?.value || '').trim().toLowerCase();
+                const isMatched = searchVal && (
+                    (p.orderNo || '').toLowerCase().includes(searchVal) ||
+                    (p.mouldName || '').toLowerCase().includes(searchVal) ||
+                    (p.mouldNo || '').toLowerCase().includes(searchVal) ||
+                    (p.clientName || '').toLowerCase().includes(searchVal) ||
+                    ((p.jcNo || p.jc_no || p.job_card_no || p.jc_id || '').toLowerCase().includes(searchVal))
+                );
+
+                const cardBg = isMatched ? '#fef9c3' : (isMouldChange ? '#fff7ed' : '#ffffff');
+                const cardBorder = isMatched ? '#eab308' : (isMouldChange ? '#fdba74' : '#e2e8f0');
+                const cardShadow = isMatched ? '0 0 16px rgba(234, 179, 8, 0.75)' : '0 1px 2px rgba(0,0,0,0.05)';
+                const cardBorderWidth = isMatched ? '2.5px' : '1px';
 
                 return `
                    <div class="timeline-card ${isUrgentChange ? 'blink-urgent-border' : ''}" 
@@ -909,16 +940,18 @@
                         data-secondary-machine="${esc(p.secondaryMachine || '')}"
                         ondragstart="window.handleDragStart(event, this)"
                         ondragend="window.handleDragEnd(event, this)"
-                        onclick="window.openOrderModal('${esc(p.orderNo)}')"
+                        onclick="window.openOrderModal('${esc(p.orderNo)}', '${esc(p.id)}')"
                         style="
                            min-width: 225px; width: 225px; flex-shrink: 0;
                            background: ${cardBg};
-                           border: 1px solid ${cardBorder};
+                           border: ${cardBorderWidth} solid ${cardBorder};
                            border-radius: 6px;
                            border-left: 5px solid ${leftBorder}; 
+                           box-shadow: ${cardShadow};
                            padding: 8px;
                            display: flex; flex-direction: column; gap: 4px;
                            position: relative; height: auto; 
+                           transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
                         ">
                        <div style="display:flex; justify-content:space-between; align-items:start;">
                           <div style="font-weight:800; color:#0f172a; font-size:0.9rem; line-height:1.1">${esc(p.orderNo || '-')}</div>
@@ -1452,37 +1485,50 @@
             machines.push({ machine: (currentMachine||'').trim(), type: 'Current' });
         }
 
-        // STRICT name matching — only show machines whose name accurately matches Machine
-        // Master (normalized: ignore case/spaces/dashes). A mould may have a machine mapped
-        // under a wrong/old name; we must NOT offer those. If names were provided but none
-        // match Machine Master, surface an error instead of silently showing nothing.
-        const simplify = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-        const masterKeys = new Set(
-            (Array.isArray(window.allMachines) ? window.allMachines : [])
-                .map(m => simplify(m.name || m.code || m.machine))
-                .filter(Boolean)
-        );
-        const requestedCount = machines.length;
-        const matchedMachines = masterKeys.size
-            ? machines.filter(m => masterKeys.has(simplify(m.machine)))
-            : machines;
-        const nameMismatch = requestedCount > 0 && matchedMachines.length === 0 && masterKeys.size > 0;
-        const requestedNames = machines.map(m => m.machine).filter(Boolean).join(', ');
+        // STRICT matching — only show machines that exist in Machine Master.
+        // Handles ANY stored format: "HYD-350-1", "B -L1>HYD-350-1", "B -L1-HYD-350-1", etc.
+        const simplify = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-        // For each unmatched machine, find correct Machine Master name as suggestion
-        const allMasterMachines = Array.isArray(window.allMachines) ? window.allMachines : [];
-        const findCorrectNames = (raw) => {
-            const rawSimple = simplify(raw);
-            if (!rawSimple) return [];
-            // Try stripping building prefix (e.g. "E-L-1-OM-350-4" → "OM-350-4" → "OM3504")
-            const suffixMatch = String(raw||'').trim().match(/^[A-Za-z]\s*-?\s*L-?\s*\d+\s*[-\>]\s*(.+)$/i);
-            const suffix = suffixMatch ? simplify(suffixMatch[1]) : rawSimple;
-            return allMasterMachines.map(m => {
-                const name = String(m.machine || m.name || m.code || '').trim();
-                const nameSuffix = name.includes('>') ? simplify(name.split('>').pop()) : simplify(name);
-                return (nameSuffix === suffix || simplify(name) === rawSimple) ? name : null;
-            }).filter(Boolean);
+        // Build Machine Master lookup: simplify(cleanCode) → allMachines entry
+        const masterMap = {};
+        (Array.isArray(window.allMachines) ? window.allMachines : []).forEach(m => {
+            const key = simplify(m.code || m.name || m.machine || '');
+            if (key) masterMap[key] = m;
+        });
+
+        // Find Machine Master entry for any stored machine format:
+        //   "HYD-350-1"        → direct simplify  → "HYD3501"    → match ✓
+        //   "B -L1>HYD-350-1"  → split on '>'     → "HYD3501"    → match ✓
+        //   "B -L1-HYD-350-1"  → suffix fallback  → ends "HYD3501" → match ✓
+        //   "E-L-1-OM-350-4"   → all three fail                   → null  ✓ (dropped)
+        const findInMaster = (raw) => {
+            if (!raw) return null;
+            const s = String(raw).trim();
+            const sim = simplify(s);
+            // 1. Direct match (clean code stored, e.g. "HYD-350-1")
+            if (masterMap[sim]) return masterMap[sim];
+            // 2. After '>' (e.g. "B -L1>HYD-350-1")
+            if (s.includes('>')) {
+                const k = simplify(s.split('>').pop().trim());
+                if (masterMap[k]) return masterMap[k];
+            }
+            // 3. Suffix match for any separator style (e.g. "B -L1-HYD-350-1")
+            //    masterMap key must be ≥4 chars and a true suffix (not equal) of sim
+            for (const [k, v] of Object.entries(masterMap)) {
+                if (k.length >= 4 && sim.length > k.length && sim.endsWith(k)) return v;
+            }
+            return null;
         };
+
+        const requestedCount = machines.length;
+        const matchedMachines = machines.map(opt => {
+            const entry = findInMaster(opt.machine);
+            if (!entry) return null;
+            return { ...opt, _entry: entry };
+        }).filter(Boolean);
+
+        const nameMismatch = requestedCount > 0 && matchedMachines.length === 0 && Object.keys(masterMap).length > 0;
+        const requestedNames = machines.map(m => m.machine).filter(Boolean).join(', ');
 
         const modalId = 'pjdMachineSelectModal';
         let oldModal = document.getElementById(modalId);
@@ -1490,28 +1536,10 @@
 
         let optHtml = '';
         if (nameMismatch) {
-            const suggestionRows = machines.map(m => {
-                const correct = findCorrectNames(m.machine);
-                const corrHtml = correct.length
-                    ? `<span style="color:#15803d;font-weight:700">${correct.map(c => esc(c)).join(', ')}</span>`
-                    : `<span style="color:#94a3b8">No match found in Machine Master</span>`;
-                return `<tr><td style="padding:4px 8px;color:#be123c;font-weight:600">${esc(m.machine)}</td><td style="padding:4px 8px;color:#64748b">→</td><td style="padding:4px 8px">${corrHtml}</td></tr>`;
-            }).join('');
-            optHtml = `<div style="padding:16px">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-                    <span style="font-size:1.5rem">⚠️</span>
-                    <span style="font-weight:800;color:#be123c;font-size:1rem">Machines not matching Machine Master</span>
-                </div>
-                <div style="font-size:0.82rem;color:#64748b;margin-bottom:10px">Update Mould Master with the correct Machine Master names shown below:</div>
-                <table style="width:100%;border-collapse:collapse;font-size:0.82rem;background:#fff7f7;border-radius:8px;overflow:hidden;border:1px solid #fecdd3">
-                    <thead><tr style="background:#fee2e2">
-                        <th style="padding:6px 8px;text-align:left;color:#be123c">Mould Master (Wrong)</th>
-                        <th style="padding:6px 8px"></th>
-                        <th style="padding:6px 8px;text-align:left;color:#15803d">Machine Master (Correct)</th>
-                    </tr></thead>
-                    <tbody>${suggestionRows}</tbody>
-                </table>
-                <div style="margin-top:10px;font-size:0.78rem;color:#94a3b8">Go to Masters → Mould Master → update the machine names → reload timeline.</div>
+            optHtml = `<div style="padding:20px;text-align:center">
+                <div style="font-size:2rem;margin-bottom:8px">⚠️</div>
+                <div style="font-weight:800;color:#be123c;margin-bottom:6px">Machines are not matching with Machine Master</div>
+                <div style="font-size:0.85rem;color:#64748b">${requestedNames ? `Mapped: <strong>${esc(requestedNames)}</strong>. ` : ''}Correct the machine name in Mould Master to exactly match Machine Master, then reload the timeline.</div>
             </div>`;
         } else if (!matchedMachines.length) {
             optHtml = `<div style="padding:20px;text-align:center;color:#94a3b8">
@@ -1521,7 +1549,16 @@
             </div>`;
         } else {
             optHtml = matchedMachines.map(opt => {
-                const isCurrent = norm(opt.machine) === currNorm;
+                // Display name and clean API name both come from the verified Machine Master entry
+                const entry = opt._entry;
+                const lineVal = String(entry.line || '').trim();
+                const machVal = entry.code || entry.name || entry.machine || '';
+                const startsWithLine = lineVal && machVal.replace(/\s+/g, '').toLowerCase().startsWith(lineVal.replace(/\s+/g, '').toLowerCase());
+                const displayName = (lineVal && !machVal.includes('>') && !startsWithLine) ? lineVal + '>' + machVal : machVal;
+                const cleanName   = entry.code || entry.name || entry.machine || '';
+                const currentEntry = findInMaster(currentMachine);
+                const currentClean = currentEntry ? (currentEntry.code || currentEntry.name || currentEntry.machine || '') : currentMachine;
+                const isCurrent   = simplify(cleanName) === simplify(currentClean);
                 const typeLC = (opt.type || '').toLowerCase();
                 const badgeBg  = typeLC === 'primary' ? '#dcfce7' : typeLC === 'secondary' ? '#e0f2fe' : '#f1f5f9';
                 const badgeTxt = typeLC === 'primary' ? '#15803d' : typeLC === 'secondary' ? '#0369a1'  : '#475569';
@@ -1530,13 +1567,13 @@
                     ? '<i class="bi bi-check-circle-fill" style="color:#3b82f6;font-size:1.1rem;margin-left:auto"></i>'
                     : '<i class="bi bi-circle" style="color:#cbd5e1;font-size:1.1rem;margin-left:auto"></i>';
                 const clickAttr = isCurrent ? '' :
-                    `onclick="window.executeMachineChange('${planId}','${esc(opt.machine)}','${modalId}')"`;
+                    `onclick="window.executeMachineChange('${planId}','${esc(cleanName)}','${modalId}')"`;
                 const hover = isCurrent ? '' :
                     `onmouseover="this.style.borderColor='#93c5fd';this.style.background='#f8fafc'" onmouseout="this.style.borderColor='#e2e8f0';this.style.background='#fff'"`;
                 return `<div ${clickAttr} ${hover}
                     style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:10px;${isCurrent?'cursor:default':'cursor:pointer'};margin-bottom:8px;transition:all 0.15s;${border}">
                     <div style="flex:1">
-                        <div style="font-size:1.05rem;font-weight:800;color:#0f172a">${esc(opt.machine)}</div>
+                        <div style="font-size:1.05rem;font-weight:800;color:#0f172a">${esc(displayName)}</div>
                         <div style="margin-top:3px">
                             <span style="font-size:0.72rem;font-weight:800;text-transform:uppercase;background:${badgeBg};color:${badgeTxt};padding:2px 7px;border-radius:4px">${esc(opt.type)}</span>
                             ${isCurrent ? ' <span style="font-size:0.75rem;color:#3b82f6;font-weight:700">— Current</span>' : ''}
