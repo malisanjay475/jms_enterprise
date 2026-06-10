@@ -11879,7 +11879,7 @@
               <div id="cpmRelatedSection" style="display:none;margin-bottom:18px;">
                 <div style="font-size:0.7rem;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
                   <i class="bi bi-diagram-3-fill" style="color:#64748b;"></i>
-                  Other Plans — Same Mould
+                  Other Plans — Same Order
                   <span id="cpmRelatedCount" style="font-size:0.7rem;background:#e2e8f0;color:#475569;padding:2px 8px;border-radius:10px;font-weight:700;"></span>
                   <span style="font-size:0.68rem;color:#9ca3af;font-weight:400;"> (enter qty to complete together)</span>
                 </div>
@@ -11966,17 +11966,13 @@
           document.getElementById('cpmBalDisplay').style.color = newBal > 0 ? '#ea580c' : '#16a34a';
         };
 
-        // ── Find all other plans for the same mould ───────────────────────
-        const mouldNo   = (p.mouldNo   || p.mould_no   || '').trim();
-        const mouldName = (p.mouldName || p.mould_name || '').trim();
-        const allPlans  = window.allMasterPlans || [];
-        const related   = allPlans.filter(r => {
+        // ── Find all other plans for the same ORDER ───────────────────────
+        const orderNo  = (p.orderNo || p.order_no || '').trim();
+        const allPlans = window.allMasterPlans || [];
+        const related  = allPlans.filter(r => {
           if (String(r.id) === String(id)) return false;
-          const rNo   = (r.mouldNo   || r.mould_no   || '').trim();
-          const rName = (r.mouldName || r.mould_name || '').trim();
-          if (mouldNo   && rNo   && mouldNo   === rNo)   return true;
-          if (mouldName && rName && mouldName === rName) return true;
-          return false;
+          const rOrder = (r.orderNo || r.order_no || '').trim();
+          return orderNo && rOrder && orderNo === rOrder;
         });
 
         const relSection = document.getElementById('cpmRelatedSection');
@@ -11994,10 +11990,15 @@
             return `
               <div data-related-id="${r.id}"
                 style="background:${rs.bg};border:1px solid ${rs.border};border-radius:10px;padding:10px 14px;">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap;">
-                  <span style="font-size:0.82rem;font-weight:700;color:${rs.text};">
-                    <i class="bi bi-cpu" style="margin-right:4px;"></i>${rMach}
-                  </span>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px;flex-wrap:wrap;">
+                  <div>
+                    <div style="font-size:0.82rem;font-weight:700;color:${rs.text};">
+                      <i class="bi bi-cpu" style="margin-right:4px;"></i>${rMach}
+                    </div>
+                    <div style="font-size:0.72rem;color:#475569;font-weight:600;margin-top:2px;">
+                      <i class="bi bi-box-seam" style="margin-right:3px;"></i>${r.mouldName || r.mould_name || '—'}
+                    </div>
+                  </div>
                   <span style="background:#fff;border:1px solid ${rs.border};color:${rs.badge};padding:2px 9px;border-radius:10px;font-size:0.7rem;font-weight:700;text-transform:uppercase;">${r.status || '—'}</span>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;align-items:center;">
