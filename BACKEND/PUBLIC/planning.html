@@ -11821,31 +11821,80 @@
     }
 
 
-    // Complete Plan Logic
+    // Complete Plan Logic — self-healing: injects modal HTML if not already in DOM
+    function _ensureCompletePlanModal() {
+      if (document.getElementById('completePlanModal')) return; // already exists
+      const div = document.createElement('div');
+      div.innerHTML = `
+        <div class="modal" id="completePlanModal" style="z-index:9999;display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;">
+          <div style="background:#fff;border-radius:12px;width:500px;max-width:95vw;box-shadow:0 8px 32px rgba(0,0,0,0.18);overflow:hidden;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0;">
+              <strong style="color:#16a34a;font-size:1.05rem;"><i class="bi bi-check-circle-fill"></i> Complete Plan</strong>
+              <button onclick="document.getElementById('completePlanModal').style.display='none'" style="background:none;border:none;cursor:pointer;font-size:1.2rem;color:#64748b;">&times;</button>
+            </div>
+            <div style="padding:20px;">
+              <div style="background:#f0fdf4;border:1px solid #bbf7d0;padding:12px;border-radius:8px;margin-bottom:15px;">
+                <div style="font-size:0.85rem;color:#166534;font-weight:700;" id="cpmTitle">Order: -</div>
+                <div style="font-size:0.8rem;color:#15803d;" id="cpmSub">Mould: -</div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:15px;">
+                <div><label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Plan Qty</label>
+                  <input id="cpmPlanQty" readonly style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;background:#f8fafc;color:#64748b;font-size:0.9rem;box-sizing:border-box;"></div>
+                <div><label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Completed Qty</label>
+                  <input id="cpmProduced" type="number" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-weight:bold;font-size:0.9rem;box-sizing:border-box;"></div>
+              </div>
+              <div style="margin-bottom:15px;"><label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Balance Qty (Auto)</label>
+                <input id="cpmBal" readonly style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-weight:700;font-size:0.9rem;box-sizing:border-box;">
+                <div style="font-size:0.75rem;color:#6b7280;margin-top:2px;">Calculated from Plan - Completed.</div>
+              </div>
+              <div style="margin-bottom:10px;"><label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Remarks / Notes</label>
+                <textarea id="cpmRemarks" rows="3" placeholder="Enter completion details..." style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.9rem;box-sizing:border-box;resize:vertical;"></textarea>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;padding:16px 20px;border-top:1px solid #e2e8f0;">
+              <button onclick="document.getElementById('completePlanModal').style.display='none'" style="padding:8px 18px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:0.9rem;">Cancel</button>
+              <button id="btnConfirmComplete" onclick="window.submitCompletePlan()" style="padding:8px 18px;border:none;border-radius:6px;background:#16a34a;color:#fff;cursor:pointer;font-size:0.9rem;font-weight:600;"><i class="bi bi-check-lg"></i> Complete Production Plan</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(div.firstElementChild);
+    }
+
     window.openCompletePlanModal = function (id, jsonRow) {
       try {
-        const p = JSON.parse(decodeURIComponent(jsonRow));
+        // Ensure modal HTML exists in DOM (self-healing if browser cached old page)
+        _ensureCompletePlanModal();
+
+        let p;
+        // Strategy 1: look up directly from _tlMap (timeline path, no JSON needed)
+        if (window._tlMap && window._tlMap[id]) {
+          p = window._tlMap[id];
+        } else if (jsonRow) {
+          // Strategy 2: parse inline JSON passed by plan-list onclick buttons
+          try { p = JSON.parse(jsonRow); }
+          catch (_) { p = JSON.parse(decodeURIComponent(jsonRow)); }
+        }
+        if (!p) throw new Error('Plan data not found for id: ' + id);
+
         window.cpCurrentPlanId = id;
 
-        document.getElementById('cpmTitle').textContent = 'Order: ' + (p.orderNo || p.order_no);
-        document.getElementById('cpmSub').textContent = 'Mould: ' + (p.mouldName || p.mould_name);
+        document.getElementById('cpmTitle').textContent = 'Order: ' + (p.orderNo || p.order_no || '');
+        document.getElementById('cpmSub').textContent = 'Mould: ' + (p.mouldName || p.mould_name || '');
 
         const qty = Number(p.planQty || 0);
-        const produced = Number(p.producedQty || 0); // DPR aggregated
+        const produced = Number(p.producedQty || 0);
 
         document.getElementById('cpmPlanQty').value = qty;
-        document.getElementById('cpmProduced').value = produced; // Pre-fill with DPR
+        document.getElementById('cpmProduced').value = produced;
         document.getElementById('cpmBal').value = qty - produced;
         document.getElementById('cpmRemarks').value = '';
 
-        // Auto-calc listener
         document.getElementById('cpmProduced').oninput = function () {
-          const v = Number(this.value);
-          document.getElementById('cpmBal').value = qty - v;
+          document.getElementById('cpmBal').value = qty - Number(this.value);
         };
 
         document.getElementById('completePlanModal').style.display = 'flex';
-      } catch (e) { console.error(e); alert('Error opening modal'); }
+      } catch (e) { console.error(e); alert('Error opening modal: ' + e.message); }
     };
 
     window.submitCompletePlan = async function () {
@@ -12226,7 +12275,7 @@
 
 
 
-  <script src="assets/timeline_patch.js?v=release57"></script>
+  <script src="assets/timeline_patch.js?v=release60"></script>
 
   <!-- ═══════════════════════════════════════════════════════════════════
        EXCEL VIEW TIMELINE  — compact spreadsheet for maximum machine density
