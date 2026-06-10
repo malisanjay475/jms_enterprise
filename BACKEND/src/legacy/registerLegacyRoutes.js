@@ -927,16 +927,24 @@ if (String(config.serverType || '').toUpperCase() === 'LOCAL' && config.mainServ
     // express.static already called next() — file not found locally, try MAIN
     try {
       const remoteUrl = `${_mainUrlBase}${req.path}`;
-      const upstream = await fetch(remoteUrl, { signal: AbortSignal.timeout(8000) });
+      // Use a generous timeout for the full transfer (headers + body)
+      const upstream = await fetch(remoteUrl, { signal: AbortSignal.timeout(30000) });
       if (!upstream.ok) return res.status(upstream.status).end();
       const ct = upstream.headers.get('content-type') || 'application/octet-stream';
       res.setHeader('Content-Type', ct);
       res.setHeader('Cache-Control', 'public, max-age=3600');
       const { Readable } = require('stream');
-      Readable.fromWeb(upstream.body).pipe(res);
+      const readable = Readable.fromWeb(upstream.body);
+      // Must handle 'error' on the stream — an unhandled error event crashes Node
+      readable.on('error', (err) => {
+        console.error('[Uploads Proxy] Stream error:', req.path, err.message);
+        if (!res.headersSent) res.status(502).end();
+        else res.end();
+      });
+      readable.pipe(res);
     } catch (e) {
       console.error('[Uploads Proxy] Failed:', req.path, e.message);
-      res.status(502).end();
+      if (!res.headersSent) res.status(502).end();
     }
   });
 }
@@ -14667,6 +14675,7 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         --STANDARDS
         COALESCE(m.cycle_time, m2.cycle_time, m4.cycle_time, m3.cycle_time, 0) as std_cycle_time,
         COALESCE(m.std_wt_kg, m2.std_wt_kg, m4.std_wt_kg, m3.std_wt_kg, 0) as std_weight,
+        s.article_act,
 
         --SUMMARY STATS(Plan vs Actual)
         COALESCE(ojr.plan_qty, pb.plan_qty, 0) as plan_qty,

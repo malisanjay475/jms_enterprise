@@ -1200,7 +1200,11 @@
                 const simpleRaw = simplify(raw);
                 const simpleMachine = simplify(machineName);
 
-                for (const key of Object.keys(mapCodeToInfo)) {
+                // Sort keys longest-first so "C-L4-OM-100-14" is tried before "C-L4-OM-100-1".
+                // Without this, the includes() check below fires a false match when one code
+                // is a numeric prefix of another (e.g. "CL4OM1001" ⊂ "CL4OM10014").
+                const sortedKeys = Object.keys(mapCodeToInfo).sort((a, b) => simplify(b).length - simplify(a).length);
+                for (const key of sortedKeys) {
                     const simpleKey = simplify(key);
                     if (!simpleKey) continue;
                     if (simpleKey === simpleRaw || simpleKey === simpleMachine) return key;
