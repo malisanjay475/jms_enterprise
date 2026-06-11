@@ -911,8 +911,8 @@
                     ((p.jcNo || p.jc_no || p.job_card_no || p.jc_id || '').toLowerCase().includes(searchVal))
                 );
 
-                const cardBg = isMatched ? '#fef9c3' : (isMouldChange ? '#f5f3ff' : '#ffffff');
-                const cardBorder = isMatched ? '#eab308' : (isMouldChange ? '#ddd6fe' : '#e2e8f0');
+                const cardBg = isMatched ? '#fef9c3' : (isMouldChange ? '#fff3e6' : '#ffffff');
+                const cardBorder = isMatched ? '#eab308' : (isMouldChange ? '#fdba74' : '#e2e8f0');
                 const cardShadow = isMatched ? '0 0 16px rgba(234, 179, 8, 0.75)' : '0 1px 2px rgba(0,0,0,0.05)';
                 const cardBorderWidth = isMatched ? '2.5px' : '1px';
 
@@ -951,7 +951,7 @@
                            <div style="font-weight:700; color:#334155; font-size:0.85rem; line-height:1.2; word-wrap:break-word; white-space:normal;" title="${esc(p.mouldName)}">${esc(p.mouldName)}</div>
                            <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
                               <span style="font-family:monospace; font-size:0.8rem; color:#475569; font-weight:700;">${esc(p.mouldNo)}</span>
-                              ${isMouldChange ? `<span style="font-size:0.65rem; font-weight:800; color:#6d28d9; background:#ede9fe; padding:1px 5px; border-radius:3px;">CHG</span>` : ''}
+                              ${isMouldChange ? `<span style="font-size:0.65rem; font-weight:800; color:#7c2d12; background:#fed7aa; padding:1px 5px; border-radius:3px;">CHG</span>` : ''}
                            </div>
                        </div>
 
