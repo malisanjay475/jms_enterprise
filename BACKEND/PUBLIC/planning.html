@@ -12140,62 +12140,106 @@
         return;
       }
 
-        // 14-column layout: Machine | OR No | Job Card | Mould/Product | Mould No | Client | Plan | Produced | Bal | Actual Start | Actual End | Status | By | Date/Time
-        const gridTemplate = 'minmax(130px, 1.2fr) 150px 150px minmax(200px, 2.2fr) 110px minmax(120px, 1fr) 80px 90px 90px 110px 110px 100px 90px 130px';
-        const numHeadStyle = 'text-align:right;';
-        const ctrHeadStyle = 'text-align:center;';
+        // Inject scoped stylesheet once
+        if (!document.getElementById('pcrStyles')) {
+          const st = document.createElement('style');
+          st.id = 'pcrStyles';
+          st.textContent = `
+            .pcr-grid{--pcr-cols:minmax(130px,1.2fr) 140px 150px minmax(210px,2.2fr) 110px minmax(120px,1fr) 84px 96px 104px 104px 104px 96px 92px 124px;}
+            .pcr-head{display:grid;grid-template-columns:var(--pcr-cols);gap:10px;align-items:center;position:sticky;top:0;z-index:6;
+              padding:11px 14px;border-radius:12px;margin-bottom:10px;
+              background:linear-gradient(180deg,#1e293b 0%,#0f172a 100%);
+              color:#e2e8f0;font-size:0.68rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+              box-shadow:0 6px 18px rgba(15,23,42,.22);}
+            .pcr-head .num{text-align:right;}
+            .pcr-head .ctr{text-align:center;}
+            .pcr-row{display:grid;grid-template-columns:var(--pcr-cols);gap:10px;align-items:center;
+              padding:10px 14px;margin-bottom:7px;background:#fff;border:1px solid #e8eef5;border-left:3px solid #cbd5e1;
+              border-radius:10px;font-size:0.85rem;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease;}
+            .pcr-row:nth-child(even){background:#fafcff;}
+            .pcr-row:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(15,23,42,.10);border-left-color:#0ea5e9;}
+            .pcr-cell{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+            .pcr-machine{font-weight:800;color:#0f172a;}
+            .pcr-or{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;color:#334155;font-size:0.8rem;}
+            .pcr-chip{display:inline-block;max-width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.76rem;
+              color:#0f172a;background:#eef2f7;border:1px solid #e2e8f0;padding:2px 7px;border-radius:6px;
+              overflow:hidden;text-overflow:ellipsis;vertical-align:middle;}
+            .pcr-mould{font-weight:700;color:#1e293b;}
+            .pcr-item{font-size:0.74rem;color:#64748b;font-weight:500;}
+            .pcr-sub{color:#475569;font-size:0.8rem;}
+            .pcr-num{text-align:right;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums;}
+            .pcr-plan{color:#334155;font-weight:600;}
+            .pcr-prod{color:#16a34a;font-weight:800;}
+            .pcr-bal{display:inline-flex;align-items:center;justify-content:flex-end;gap:3px;width:100%;font-weight:800;
+              font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums;}
+            .pcr-bal.met{color:#16a34a;}
+            .pcr-bal.short{color:#dc2626;}
+            .pcr-bal.zero{color:#64748b;}
+            .pcr-time{font-size:0.76rem;color:#475569;}
+            .pcr-when{font-size:0.74rem;color:#64748b;}
+            .pcr-status-wrap{display:flex;align-items:center;justify-content:center;gap:6px;}
+            .pcr-done{display:inline-flex;align-items:center;gap:4px;background:#dcfce7;color:#15803d;border:1px solid #86efac;
+              padding:3px 9px;border-radius:999px;font-size:0.72rem;font-weight:800;letter-spacing:.03em;}
+            .pcr-restore{padding:2px 6px;font-size:0.72rem;border:1px solid #e2e8f0;border-radius:6px;background:#fff;cursor:pointer;color:#475569;}
+            .pcr-restore:hover{background:#f1f5f9;color:#0f172a;}
+            .pcr-by{display:inline-flex;align-items:center;gap:5px;color:#475569;font-size:0.8rem;font-weight:600;}
+            .pcr-avatar{width:20px;height:20px;border-radius:50%;background:#e0f2fe;color:#0369a1;font-size:0.66rem;font-weight:800;
+              display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;}
+          `;
+          document.head.appendChild(st);
+        }
+
+        const esc = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;');
+        const fmtDate = (v) => v ? new Date(v).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
 
         let html = `
-          <div class="row h" style="display:grid; width:100%; grid-template-columns:${gridTemplate}; gap:8px; font-size:0.72rem; letter-spacing:.04em; text-transform:uppercase; font-weight:800; color:#475569; padding:10px 12px; margin-bottom:8px; position:sticky; top:0; z-index:5; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:10px;">
-                <div>Machine</div><div>OR No</div><div>Job Card</div><div>Mould / Product</div><div>Mould No</div><div>Client</div><div style="${numHeadStyle}">Plan</div><div style="${numHeadStyle}">Produced</div><div style="${numHeadStyle}">Bal</div><div>Actual Start</div><div>Actual End</div><div style="${ctrHeadStyle}">Status</div><div>By</div><div>Date / Time</div>
-             </div>
-          `;
+          <div class="pcr-grid pcr-head">
+            <div>Machine</div><div>OR No</div><div>Job Card</div><div>Mould / Product</div><div>Mould No</div><div>Client</div>
+            <div class="num">Plan</div><div class="num">Produced</div><div class="num">Bal</div>
+            <div>Actual Start</div><div>Actual End</div><div class="ctr">Status</div><div>By</div><div>Date / Time</div>
+          </div>`;
 
-        plans.forEach((p, idx) => {
+        const u = (window.JPSMS && window.JPSMS.auth) ? window.JPSMS.auth.getUser() : {};
+        const isAdmin = u.role_code === 'admin' || u.role_code === 'superadmin';
+
+        plans.forEach((p) => {
           if (!p) return;
-          const stClass = 'tag b';
-          const completedAt = p.completedAt ? new Date(p.completedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
-          const start = p.actualStart ? new Date(p.actualStart).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
-          const end = p.actualEnd ? new Date(p.actualEnd).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
-
+          const orderNo = p.order_no || p.orderNo || '-';
           const qty = Number(p.planQty || 0);
           const prod = Number(p.producedQty || 0);
           const bal = qty - prod;
 
-          // Balance colour: met/over target = green, shortfall = red.
-          const balColor = bal <= 0 ? '#16a34a' : '#dc2626';
-          const balLabel = bal <= 0 ? (bal === 0 ? '0' : '+' + Math.abs(bal).toLocaleString()) : bal.toLocaleString();
+          // Bal = Plan - Produced.  short (>0)=red ↓ remaining,  surplus (<0)=green ↑ over,  exact=neutral.
+          let balCls = 'zero', balHtml = '0';
+          if (bal > 0) { balCls = 'short'; balHtml = `<i class="bi bi-arrow-down-short"></i>${bal.toLocaleString()}`; }
+          else if (bal < 0) { balCls = 'met'; balHtml = `<i class="bi bi-arrow-up-short"></i>${Math.abs(bal).toLocaleString()}`; }
 
-          const u = (window.JPSMS && window.JPSMS.auth) ? window.JPSMS.auth.getUser() : {};
-          const isAdmin = u.role_code === 'admin' || u.role_code === 'superadmin';
-          let restoreBtn = '';
-          if (isAdmin) {
-              restoreBtn = `<button class="btn btn-outline" style="padding:2px 6px; font-size:0.75rem; margin-left:5px" onclick="window.restoreCompletedPlan(${p.planId || p.id})" title="Restore Plan"><i class="bi bi-arrow-counterclockwise"></i></button>`;
-          }
-
-          const zebra = idx % 2 === 0 ? '#ffffff' : '#fafcff';
+          const by = p.completedBy || '-';
+          const initial = by && by !== '-' ? by.trim().charAt(0).toUpperCase() : '?';
+          const restoreBtn = isAdmin
+            ? `<button class="pcr-restore" onclick="window.restoreCompletedPlan(${p.planId || p.id})" title="Restore Plan"><i class="bi bi-arrow-counterclockwise"></i></button>`
+            : '';
 
           html += `
-          <div class="row" style="display:grid; grid-template-columns:${gridTemplate}; gap:8px; align-items:center; border:1px solid #e7edf5; padding:9px 12px; background:${zebra}; border-radius:8px; margin-bottom:6px; font-size:0.85rem;">
-                  <div style="font-weight:700; color:#0f172a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${p.machine || ''}">${p.machine || '-'}</div>
-                  <div style="font-family:monospace; font-weight:600; color:#334155; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${p.order_no || p.orderNo || ''}">${p.order_no || p.orderNo || '-'}</div>
-                  <div style="font-family:monospace; color:#0f172a; background:#eef2f7; padding:2px 6px; border-radius:5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${p.jcNo || ''}">${p.jcNo || '-'}</div>
-                  <div style="overflow:hidden">
-                      <div style="font-weight:600; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${p.mouldName || ''}">${p.mouldName || '-'}</div>
-                      <div style="font-size:0.75rem; color:#64748b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${p.itemName || ''}">${p.itemName || ''}</div>
-                  </div>
-                  <div style="font-family:monospace; color:#334155; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" title="${p.mouldCode || ''}">${p.mouldCode || '-'}</div>
-                  <div style="font-size:0.8rem; color:#334155; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${p.clientName || ''}">${p.clientName || '-'}</div>
-                  <div style="font-family:monospace; text-align:right; color:#334155">${qty.toLocaleString()}</div>
-                  <div style="font-family:monospace; text-align:right; color:#16a34a; font-weight:bold">${prod.toLocaleString()}</div>
-                  <div style="font-family:monospace; text-align:right; color:${balColor}; font-weight:bold">${balLabel}</div>
-                  <div style="font-size:0.75rem; color:#475569; white-space:nowrap">${start}</div>
-                  <div style="font-size:0.75rem; color:#475569; white-space:nowrap">${end}</div>
-                  <div style="display:flex; align-items:center; justify-content:center; gap:5px"><span class="${stClass}">DONE</span>${restoreBtn}</div>
-                  <div style="font-size:0.8rem; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="${p.completedBy || ''}">${p.completedBy || '-'}</div>
-                  <div style="font-size:0.75rem; color:#64748b; white-space:nowrap">${completedAt}</div>
-               </div>
-          `;
+          <div class="pcr-grid pcr-row">
+            <div class="pcr-cell pcr-machine" title="${esc(p.machine)}">${p.machine || '-'}</div>
+            <div class="pcr-cell pcr-or" title="${esc(orderNo)}">${orderNo}</div>
+            <div class="pcr-cell"><span class="pcr-chip" title="${esc(p.jcNo)}">${p.jcNo || '-'}</span></div>
+            <div class="pcr-cell">
+              <div class="pcr-cell pcr-mould" title="${esc(p.mouldName)}">${p.mouldName || '-'}</div>
+              <div class="pcr-cell pcr-item" title="${esc(p.itemName)}">${p.itemName || ''}</div>
+            </div>
+            <div class="pcr-cell"><span class="pcr-chip" title="${esc(p.mouldCode)}">${p.mouldCode || '-'}</span></div>
+            <div class="pcr-cell pcr-sub" title="${esc(p.clientName)}">${p.clientName || '-'}</div>
+            <div class="pcr-num pcr-plan">${qty.toLocaleString()}</div>
+            <div class="pcr-num pcr-prod">${prod.toLocaleString()}</div>
+            <div class="pcr-num"><span class="pcr-bal ${balCls}">${balHtml}</span></div>
+            <div class="pcr-cell pcr-time">${fmtDate(p.actualStart)}</div>
+            <div class="pcr-cell pcr-time">${fmtDate(p.actualEnd)}</div>
+            <div class="pcr-status-wrap"><span class="pcr-done"><i class="bi bi-check-circle-fill"></i>DONE</span>${restoreBtn}</div>
+            <div class="pcr-cell pcr-by" title="${esc(by)}"><span class="pcr-avatar">${initial}</span><span class="pcr-cell">${by}</span></div>
+            <div class="pcr-cell pcr-when">${fmtDate(p.completedAt)}</div>
+          </div>`;
         });
         list.innerHTML = html;
       } catch (e) {
