@@ -7743,21 +7743,34 @@ app.post('/api/planning/complete', async (req, res) => {
 app.post('/api/planning/restore-plan', async (req, res) => {
   try {
     const { id } = req.body;
-    if (!id) return res.json({ ok: false, error: 'Missing Plan ID' });
+    if (id === undefined || id === null || id === '') {
+      return res.json({ ok: false, error: 'Missing Plan ID' });
+    }
 
-    // Restore the plan to 'Stopped' state so it appears back on the board
-    await q(`
-      UPDATE plan_board 
+    const rawId = String(id).trim();
+    const numericId = /^\d+$/.test(rawId) ? Number(rawId) : null;
+
+    // Restore the plan to 'Stopped' state so it appears back on the board.
+    // Match on numeric PK (id) OR the plan_id string so either identifier works.
+    const upd = await q(`
+      UPDATE plan_board
       SET status = 'Stopped',
           completed_by = NULL,
           completed_at = NULL,
           updated_at = NOW()
-      WHERE id = $1
-    `, [id]);
+      WHERE ($1::int IS NOT NULL AND id = $1::int)
+         OR plan_id = $2
+      RETURNING id
+    `, [numericId, rawId]);
 
+    if (!upd || upd.length === 0) {
+      return res.status(404).json({ ok: false, error: `No completed plan found for id ${rawId}` });
+    }
+
+    const restoredId = upd[0].id;
     await q(
       "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'RESTORE_PLAN', $2, 'Admin')",
-      [id, JSON.stringify({ note: 'Restored from completed report' })]
+      [restoredId, JSON.stringify({ note: 'Restored from completed report' })]
     );
 
     // [Real-Time Sync]
