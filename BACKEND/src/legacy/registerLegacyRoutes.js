@@ -421,8 +421,6 @@ const MASTER_UPLOAD_SCHEMAS = {
       { key: 'or_jr_date', label: 'OR/JR Date', headers: ['OR/JR Date'], required: true },
       { key: 'or_qty', label: 'OR Qty', headers: ['OR Qty'], required: true },
       { key: 'jr_qty', label: 'JR Qty', headers: ['JR Qty'], required: true },
-      { key: 'plan_qty', label: 'Plan Qty', headers: ['Plan Qty'], required: true },
-      { key: 'plan_date', label: 'Plan Date', headers: ['Plan Date'], required: true },
       { key: 'job_card_no', label: 'Job Card No', headers: ['Job Card No'], required: true },
       { key: 'job_card_date', label: 'Job Card Date', headers: ['Job Card Date'], required: true },
       { key: 'item_code', label: 'Item Code', headers: ['Item Code'], required: true },
@@ -2390,7 +2388,7 @@ function getUploadTemplateDefinition(type, factoryContext = {}) {
     orjr: {
       label: 'OR-JR Status',
       headers: [
-        'OR/JR No', 'OR/JR Date', 'OR Qty', 'JR Qty', 'Plan Qty', 'Plan Date',
+        'OR/JR No', 'OR/JR Date', 'OR Qty', 'JR Qty',
         'Job Card No', 'Job Card Date', 'Item Code', 'Product Name', 'Client Name',
         'Production Plan Qty', 'STD Pack', 'UOM', 'Planned Comp Date',
         'MLD Start Date', 'MLD End Date', 'Actual Mld Start Date', 'Prt/Tuf End Date', 'Pack End Date',
@@ -2400,7 +2398,7 @@ function getUploadTemplateDefinition(type, factoryContext = {}) {
         'Created By', 'Created Date', 'Edited By', 'Edited Date'
       ],
       sample: [
-        'OR-1001', '2026-04-03', 10000, 10000, 10000, '2026-04-05',
+        'OR-1001', '2026-04-03', 10000, 10000,
         'JC-5001', '2026-04-03', 'ITEM-001', '20L Bucket', 'Demo Client',
         10000, 20, 'PCS', '2026-04-06',
         '2026-04-04', '2026-04-05', '2026-04-04', '2026-04-06', '2026-04-07',
@@ -12367,8 +12365,6 @@ app.post('/api/upload/or-jr-preview', upload.single('file'), async (req, res) =>
       or_jr_date: toDate(row.or_jr_date),
       or_qty: toNum(row.or_qty),
       jr_qty: toNum(row.jr_qty),
-      plan_qty: toNum(row.plan_qty),
-      plan_date: toDate(row.plan_date),
       job_card_no: row.job_card_no,
       job_card_date: toDate(row.job_card_date),
       item_code: row.item_code,
@@ -12415,12 +12411,12 @@ app.post('/api/upload/or-jr-preview', upload.single('file'), async (req, res) =>
     //      • match + no change   → SKIP   (identical row, nothing to write — hidden in UI)
     //    Full column set is read so we can diff details, not just the keys.
     const COMPARE_DATE_FIELDS = [
-      'or_jr_date', 'plan_date', 'job_card_date', 'planned_comp_date',
+      'or_jr_date', 'job_card_date', 'planned_comp_date',
       'mld_start_date', 'mld_end_date', 'actual_mld_start_date', 'prt_tuf_end_date',
       'pack_end_date', 'rev_mld_end_date', 'shift_comp_date', 'rev_ptd_tuf_end_date',
       'rev_pak_end_date', 'wh_rec_date'
     ];
-    const COMPARE_NUM_FIELDS = ['or_qty', 'jr_qty', 'plan_qty', 'prod_plan_qty', 'std_pack'];
+    const COMPARE_NUM_FIELDS = ['or_qty', 'jr_qty', 'prod_plan_qty', 'std_pack'];
     const COMPARE_STR_FIELDS = [
       'item_code', 'product_name', 'client_name', 'uom',
       'mld_status', 'shift_status', 'prt_tuf_status', 'pack_status', 'wh_status',
@@ -12545,7 +12541,6 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
             ON CONFLICT(or_jr_no, COALESCE(job_card_no, ''::text))
             DO UPDATE SET
               or_jr_date = EXCLUDED.or_jr_date, or_qty = EXCLUDED.or_qty, jr_qty = EXCLUDED.jr_qty,
-              plan_qty = EXCLUDED.plan_qty, plan_date = EXCLUDED.plan_date,
               job_card_no = EXCLUDED.job_card_no, job_card_date = EXCLUDED.job_card_date,
               item_code = EXCLUDED.item_code, product_name = EXCLUDED.product_name,
               client_name = EXCLUDED.client_name, prod_plan_qty = EXCLUDED.prod_plan_qty,
