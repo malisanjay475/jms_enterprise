@@ -208,29 +208,109 @@
       border-color: var(--primary);
     }
 
-    /* DataTables Customization */
-    table.dataTable.display tbody tr td {
-      padding: 6px 10px;
-      font-size: 0.75rem;
+    /* ════════════════════════════════════════════════════════════
+       Masters Report Theme — shared across all Masters DataTable views
+       ════════════════════════════════════════════════════════════ */
+
+    /* Report card wrapper around the table */
+    div.dataTables_wrapper {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 12px 14px 6px;
+      box-shadow: 0 10px 26px rgba(15, 23, 42, .06);
     }
 
+    /* Cells */
+    table.dataTable.display tbody tr td,
+    table.dataTable tbody td {
+      padding: 8px 12px;
+      font-size: 0.78rem;
+      color: #1e293b;
+      border-bottom: 1px solid #eef2f7 !important;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Zebra + hover */
+    table.dataTable.display tbody tr.odd > *,
+    table.dataTable tbody tr:nth-child(odd) > * {
+      box-shadow: none;
+    }
+    table.dataTable tbody tr:nth-child(even) {
+      background-color: #f8fafc;
+    }
+    table.dataTable tbody tr:hover {
+      background-color: #ecfeff !important;
+    }
+
+    /* Header — sticky dark slate report bar */
     table.dataTable thead th {
-      background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%) !important;
-      color: white !important;
-      font-weight: 600;
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%) !important;
+      color: #e2e8f0 !important;
+      font-weight: 800;
       text-transform: uppercase;
-      font-size: 0.75rem;
-      padding: 8px 10px !important;
+      letter-spacing: .05em;
+      font-size: 0.7rem;
+      padding: 11px 12px !important;
       border-bottom: none !important;
       white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 4;
+    }
+    table.dataTable thead th:first-child { border-top-left-radius: 8px; }
+    table.dataTable thead th:last-child { border-top-right-radius: 8px; }
+
+    /* Sort arrows visible on dark header */
+    table.dataTable thead .sorting:after,
+    table.dataTable thead .sorting_asc:after,
+    table.dataTable thead .sorting_desc:after {
+      color: #cbd5e1 !important;
+      opacity: .85;
     }
 
+    /* Toolbar buttons (Cols / Copy / Excel / Print) */
     .dt-buttons .dt-button {
-      background: white !important;
-      border: 1px solid #e2e8f0 !important;
-      border-radius: 4px !important;
-      padding: 4px 10px !important;
-      font-size: 0.75rem !important;
+      background: #fff !important;
+      border: 1px solid #cbd5e1 !important;
+      border-radius: 8px !important;
+      padding: 6px 12px !important;
+      font-size: 0.76rem !important;
+      font-weight: 700 !important;
+      color: #334155 !important;
+      transition: all .12s ease;
+    }
+    .dt-buttons .dt-button:hover {
+      background: #0f172a !important;
+      border-color: #0f172a !important;
+      color: #fff !important;
+    }
+
+    /* Search box — pill with focus ring */
+    div.dataTables_wrapper div.dataTables_filter input {
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      padding: 7px 14px;
+      font-size: 0.8rem;
+      min-width: 240px;
+      transition: box-shadow .12s ease, border-color .12s ease;
+    }
+    div.dataTables_wrapper div.dataTables_filter input:focus {
+      outline: none;
+      border-color: #0ea5e9;
+      box-shadow: 0 0 0 3px rgba(14, 165, 233, .18);
+    }
+
+    /* Info line + paging in muted report typography */
+    div.dataTables_wrapper div.dataTables_info {
+      font-size: 0.76rem;
+      color: #64748b;
+      font-weight: 600;
+      padding-top: 10px;
+    }
+    div.dataTables_wrapper .dataTables_paginate .paginate_button {
+      font-size: 0.76rem;
+      border-radius: 6px !important;
     }
 
     /* FIX: Column Visibility Dropdown Overflow */
