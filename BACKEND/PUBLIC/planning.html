@@ -4355,6 +4355,15 @@
             const res = await api.post('/planning/restore-plan', { id: planId });
             if (res.ok) {
                 if (window.JPSMS && window.JPSMS.toast) window.JPSMS.toast('Plan restored successfully');
+                // Drop it from the completed lookup and invalidate the board cache so Create Plan
+                // immediately treats this mould as plan-able again.
+                if (window.completedPlanKeys) {
+                  Object.keys(window.completedPlanKeys).forEach(k => {
+                    const v = window.completedPlanKeys[k];
+                    if (v && (v.planId === planId || v.id === planId)) delete window.completedPlanKeys[k];
+                  });
+                }
+                if (window._planCache && window._planCache.invalidate) window._planCache.invalidate();
                 window.loadProductionCompletionReport();
             } else {
                 alert('Error: ' + res.error);
@@ -4378,11 +4387,16 @@
         window.allMasterPlans = [];
 
         window.isPlanDuplicate = function (orderNo, mouldNameRaw) {
-          if (!window.allMasterPlans || !window.allMasterPlans.length) return null;
-
           const normalize = (s) => String(s || '').trim().replace(/\s+/g, ' ').toUpperCase();
           const targetMould = normalize(mouldNameRaw);
           const targetOrder = normalize(orderNo);
+
+          // A Completed plan must never be re-planned. It stays blocked until a Superadmin
+          // restores it (which flips status to Stopped and drops it from completedPlanKeys).
+          const completedHit = (window.completedPlanKeys || {})[`${targetOrder}|${targetMould}`];
+          if (completedHit) return completedHit;
+
+          if (!window.allMasterPlans || !window.allMasterPlans.length) return null;
 
           return window.allMasterPlans.find(p => {
             const pMould = normalize(p.mouldName || p.mould_name);
@@ -5403,6 +5417,21 @@
             if (pRes && pRes.data && pRes.data.plans) {
               window.allMasterPlans = pRes.data.plans;
             }
+
+            // Completed plans are excluded from the board, so load them separately into a
+            // lookup keyed by order_no|mould_name. Create Plan uses this to block re-planning a
+            // mould that is already Completed (until a Superadmin restores it).
+            api.get('/planning/completed?limit=2000').then(cRes => {
+              const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ').toUpperCase();
+              const map = {};
+              ((cRes && cRes.data) ? cRes.data : []).forEach(c => {
+                if (!c) return;
+                map[`${norm(c.orderNo)}|${norm(c.mouldName)}`] = {
+                  id: c.id, planId: c.planId, machine: c.machine, status: 'Completed'
+                };
+              });
+              window.completedPlanKeys = map;
+            }).catch(() => { window.completedPlanKeys = window.completedPlanKeys || {}; });
 
             const runningMachines = new Set((window.allMasterPlans || [])
               .filter(plan => String(plan.status || '').toUpperCase() === 'RUNNING')
@@ -8542,24 +8571,39 @@
             cpSelectedMould = mould; // Keep selected so user knows context
             cpSelectedMachine = null; // No machine selection allowed
 
+            const isCompleted = String(duplicate.status || '').toUpperCase() === 'COMPLETED';
+
             // 1. Hide Machine List / Show Warning
             const sec = document.getElementById('cpMachineSection');
             const list = document.getElementById('cpMachineList');
             if (sec) sec.style.display = 'block';
             if (list) {
               list.style.display = 'block'; // Ensure visible container
-              list.innerHTML = `
-                    <div style="background:#fff1f2; border:1px solid #fecdd3; border-radius:8px; padding:16px; text-align:center; color:#be123c">
+              list.innerHTML = isCompleted
+                ? `<div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px; padding:16px; text-align:center; color:#047857">
+                        <div style="font-size:1.5rem; margin-bottom:8px"><i class="bi bi-check-circle-fill"></i></div>
+                        <div style="font-weight:700; margin-bottom:4px">Plan Already Completed</div>
+                        <div style="font-size:0.9rem">This mould is already <strong>Completed</strong> for this order.</div>
+                        <div style="font-size:0.85rem; margin-top:8px; opacity:0.8">It will not be planned again. A Superadmin can Restore it from the Complete Production Plan report to re-plan.</div>
+                    </div>`
+                : `<div style="background:#fff1f2; border:1px solid #fecdd3; border-radius:8px; padding:16px; text-align:center; color:#be123c">
                         <div style="font-size:1.5rem; margin-bottom:8px">⚠️</div>
                         <div style="font-weight:700; margin-bottom:4px">Mould is Already Active</div>
                         <div style="font-size:0.9rem">This mould is currently <strong>${duplicate.status}</strong> on Machine <strong>${esc(duplicate.machine)}</strong>.</div>
                         <div style="font-size:0.85rem; margin-top:8px; opacity:0.8">You cannot create a duplicate plan.</div>
-                    </div>
-                 `;
+                    </div>`;
             }
 
             // 2. Change Save Button to View Plan
-            if (saveBtn) {
+            if (saveBtn && isCompleted) {
+              // Completed plans are not on the board — nothing to view. Just block the action.
+              saveBtn.disabled = true;
+              saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Already Completed';
+              saveBtn.className = 'btn';
+              saveBtn.style.background = '#94a3b8';
+              saveBtn.style.color = '#fff';
+              saveBtn.onclick = null;
+            } else if (saveBtn) {
               saveBtn.disabled = false;
               saveBtn.innerHTML = '<i class="bi bi-eye"></i> View Existing Plan';
               saveBtn.className = 'btn'; // Reset primary class if needed, or keep
@@ -12145,19 +12189,19 @@
           const st = document.createElement('style');
           st.id = 'pcrStyles';
           st.textContent = `
-            .pcr-grid{--pcr-cols:minmax(130px,1.2fr) 140px 150px minmax(210px,2.2fr) 110px minmax(120px,1fr) 84px 96px 104px 104px 104px 96px 92px 124px;}
-            .pcr-head{display:grid;grid-template-columns:var(--pcr-cols);gap:10px;align-items:center;position:sticky;top:0;z-index:6;
-              padding:11px 14px;border-radius:12px;margin-bottom:10px;
+            .pcr-grid{--pcr-cols:minmax(130px,1.2fr) 140px 150px minmax(210px,2.2fr) 110px minmax(120px,1fr) 84px 96px 104px 104px 104px 96px 92px 124px 70px;}
+            .pcr-head{display:grid;grid-template-columns:var(--pcr-cols);gap:8px;align-items:center;position:sticky;top:0;z-index:6;
+              padding:7px 12px;border-radius:10px;margin-bottom:6px;
               background:linear-gradient(180deg,#1e293b 0%,#0f172a 100%);
-              color:#e2e8f0;font-size:0.68rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
-              box-shadow:0 6px 18px rgba(15,23,42,.22);}
+              color:#e2e8f0;font-size:0.66rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+              box-shadow:0 4px 12px rgba(15,23,42,.20);}
             .pcr-head .num{text-align:right;}
             .pcr-head .ctr{text-align:center;}
-            .pcr-row{display:grid;grid-template-columns:var(--pcr-cols);gap:10px;align-items:center;
-              padding:10px 14px;margin-bottom:7px;background:#fff;border:1px solid #e8eef5;border-left:3px solid #cbd5e1;
-              border-radius:10px;font-size:0.85rem;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease;}
+            .pcr-row{display:grid;grid-template-columns:var(--pcr-cols);gap:8px;align-items:center;
+              padding:4px 12px;margin-bottom:2px;background:#fff;border:1px solid #eef2f7;border-left:3px solid #cbd5e1;
+              border-radius:7px;font-size:0.8rem;line-height:1.25;transition:background .12s ease,border-color .12s ease;}
             .pcr-row:nth-child(even){background:#fafcff;}
-            .pcr-row:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(15,23,42,.10);border-left-color:#0ea5e9;}
+            .pcr-row:hover{background:#f1f9ff;border-left-color:#0ea5e9;}
             .pcr-cell{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
             .pcr-machine{font-weight:800;color:#0f172a;}
             .pcr-or{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600;color:#334155;font-size:0.8rem;}
@@ -12180,10 +12224,11 @@
             .pcr-status-wrap{display:flex;align-items:center;justify-content:center;gap:6px;}
             .pcr-done{display:inline-flex;align-items:center;gap:4px;background:#dcfce7;color:#15803d;border:1px solid #86efac;
               padding:3px 9px;border-radius:999px;font-size:0.72rem;font-weight:800;letter-spacing:.03em;}
-            .pcr-restore{padding:2px 6px;font-size:0.72rem;border:1px solid #e2e8f0;border-radius:6px;background:#fff;cursor:pointer;color:#475569;}
-            .pcr-restore:hover{background:#f1f5f9;color:#0f172a;}
+            .pcr-restore{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;font-size:0.7rem;font-weight:700;
+              border:1px solid #bae6fd;border-radius:6px;background:#f0f9ff;cursor:pointer;color:#0369a1;white-space:nowrap;}
+            .pcr-restore:hover{background:#0369a1;border-color:#0369a1;color:#fff;}
             .pcr-by{display:inline-flex;align-items:center;gap:5px;color:#475569;font-size:0.8rem;font-weight:600;}
-            .pcr-avatar{width:20px;height:20px;border-radius:50%;background:#e0f2fe;color:#0369a1;font-size:0.66rem;font-weight:800;
+            .pcr-avatar{width:18px;height:18px;border-radius:50%;background:#e0f2fe;color:#0369a1;font-size:0.62rem;font-weight:800;
               display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;}
           `;
           document.head.appendChild(st);
@@ -12196,11 +12241,11 @@
           <div class="pcr-grid pcr-head">
             <div>Machine</div><div>OR No</div><div>Job Card</div><div>Mould / Product</div><div>Mould No</div><div>Client</div>
             <div class="num">Plan</div><div class="num">Produced</div><div class="num">Bal</div>
-            <div>Actual Start</div><div>Actual End</div><div class="ctr">Status</div><div>By</div><div>Date / Time</div>
+            <div>Actual Start</div><div>Actual End</div><div class="ctr">Status</div><div>By</div><div>Date / Time</div><div class="ctr">Action</div>
           </div>`;
 
         const u = (window.JPSMS && window.JPSMS.auth) ? window.JPSMS.auth.getUser() : {};
-        const isAdmin = u.role_code === 'admin' || u.role_code === 'superadmin';
+        const isSuper = u.role_code === 'superadmin';
 
         plans.forEach((p) => {
           if (!p) return;
@@ -12216,9 +12261,9 @@
 
           const by = p.completedBy || '-';
           const initial = by && by !== '-' ? by.trim().charAt(0).toUpperCase() : '?';
-          const restoreBtn = isAdmin
-            ? `<button class="pcr-restore" onclick="window.restoreCompletedPlan(${p.planId || p.id})" title="Restore Plan"><i class="bi bi-arrow-counterclockwise"></i></button>`
-            : '';
+          const restoreBtn = isSuper
+            ? `<button class="pcr-restore" onclick="window.restoreCompletedPlan(${p.planId || p.id})" title="Restore Plan to board"><i class="bi bi-arrow-counterclockwise"></i> Restore</button>`
+            : '<span style="color:#cbd5e1">—</span>';
 
           html += `
           <div class="pcr-grid pcr-row">
@@ -12236,9 +12281,10 @@
             <div class="pcr-num"><span class="pcr-bal ${balCls}">${balHtml}</span></div>
             <div class="pcr-cell pcr-time">${fmtDate(p.actualStart)}</div>
             <div class="pcr-cell pcr-time">${fmtDate(p.actualEnd)}</div>
-            <div class="pcr-status-wrap"><span class="pcr-done"><i class="bi bi-check-circle-fill"></i>DONE</span>${restoreBtn}</div>
+            <div class="pcr-status-wrap"><span class="pcr-done"><i class="bi bi-check-circle-fill"></i>DONE</span></div>
             <div class="pcr-cell pcr-by" title="${esc(by)}"><span class="pcr-avatar">${initial}</span><span class="pcr-cell">${by}</span></div>
             <div class="pcr-cell pcr-when">${fmtDate(p.completedAt)}</div>
+            <div class="pcr-status-wrap">${restoreBtn}</div>
           </div>`;
         });
         list.innerHTML = html;
