@@ -790,23 +790,8 @@
         const compareMachineSeriesCodes = (codeA, codeB) => {
             const a = String(codeA || '').trim();
             const b = String(codeB || '').trim();
-            const numsA = (a.match(/\d+/g) || []).map(Number);
-            const numsB = (b.match(/\d+/g) || []).map(Number);
-            const machineNoA = numsA.length ? numsA[numsA.length - 1] : Number.MAX_SAFE_INTEGER;
-            const machineNoB = numsB.length ? numsB[numsB.length - 1] : Number.MAX_SAFE_INTEGER;
-
-            if (machineNoA !== machineNoB) return machineNoA - machineNoB;
-
-            const prefixA = numsA.slice(0, -1);
-            const prefixB = numsB.slice(0, -1);
-            const sharedLength = Math.min(prefixA.length, prefixB.length);
-
-            for (let i = 0; i < sharedLength; i++) {
-                if (prefixA[i] !== prefixB[i]) return prefixA[i] - prefixB[i];
-            }
-
-            if (prefixA.length !== prefixB.length) return prefixA.length - prefixB.length;
-
+            // Natural alphanumeric ordering of the full code so machines line up
+            // in a clean series (e.g. M1, M2, M10 — not M1, M10, M2).
             return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
         };
 
@@ -1531,32 +1516,53 @@
             return null;
         };
 
-        const requestedCount = machines.length;
-        const matchedMachines = machines.map(opt => {
+        // Tag every requested (primary/secondary/current) machine onto its master entry.
+        const typeByKey = {};
+        machines.forEach(opt => {
             const entry = findInMaster(opt.machine);
-            if (!entry) return null;
-            return { ...opt, _entry: entry };
-        }).filter(Boolean);
+            if (entry) {
+                const k = simplify(entry.code || entry.name || entry.machine || '');
+                // Keep the strongest tag (Primary > Secondary > Current)
+                if (!typeByKey[k] || opt.type === 'Primary') typeByKey[k] = opt.type;
+            }
+        });
 
-        const nameMismatch = requestedCount > 0 && matchedMachines.length === 0 && Object.keys(masterMap).length > 0;
-        const requestedNames = machines.map(m => m.machine).filter(Boolean).join(', ');
+        // ALWAYS list every machine from Machine Master so the picker is never empty.
+        // Each entry is tagged Primary / Secondary / Current where applicable, else "Other".
+        const currentEntryTop = findInMaster(currentMachine);
+        const currentKey = currentEntryTop ? simplify(currentEntryTop.code || currentEntryTop.name || currentEntryTop.machine || '') : simplify(currentMachine);
+
+        const matchedMachines = (Array.isArray(window.allMachines) ? window.allMachines.slice() : [])
+            .map(entry => {
+                const k = simplify(entry.code || entry.name || entry.machine || '');
+                let type = typeByKey[k] || 'Other';
+                if (k && k === currentKey) type = 'Current';
+                return { machine: entry.code || entry.name || entry.machine || '', type, _entry: entry, _key: k };
+            })
+            .filter(o => o._key);
+
+        // Sort the picker list into a clean machine series (building → line → code).
+        matchedMachines.sort((a, b) => {
+            const ea = a._entry, eb = b._entry;
+            const ba = String(ea.building || '').trim().toUpperCase();
+            const bb = String(eb.building || '').trim().toUpperCase();
+            if (ba !== bb) return ba.localeCompare(bb, undefined, { numeric: true, sensitivity: 'base' });
+            const la = String(ea.line || '').trim().toUpperCase();
+            const lb = String(eb.line || '').trim().toUpperCase();
+            if (la !== lb) return la.localeCompare(lb, undefined, { numeric: true, sensitivity: 'base' });
+            return String(a.machine).localeCompare(String(b.machine), undefined, { numeric: true, sensitivity: 'base' });
+        });
 
         const modalId = 'pjdMachineSelectModal';
         let oldModal = document.getElementById(modalId);
         if (oldModal) oldModal.remove();
 
         let optHtml = '';
-        if (nameMismatch) {
-            optHtml = `<div style="padding:20px;text-align:center">
-                <div style="font-size:2rem;margin-bottom:8px">⚠️</div>
-                <div style="font-weight:800;color:#be123c;margin-bottom:6px">Machines are not matching with Machine Master</div>
-                <div style="font-size:0.85rem;color:#64748b">${requestedNames ? `Mapped: <strong>${esc(requestedNames)}</strong>. ` : ''}Correct the machine name in Mould Master to exactly match Machine Master, then reload the timeline.</div>
-            </div>`;
-        } else if (!matchedMachines.length) {
+        if (!matchedMachines.length) {
             optHtml = `<div style="padding:20px;text-align:center;color:#94a3b8">
                 <div style="font-size:2rem;margin-bottom:8px">🔍</div>
-                <div style="font-weight:700;color:#64748b;margin-bottom:4px">No machines configured</div>
-                <div style="font-size:0.85rem">Set Primary / Secondary machine in Mould Master for this mould, then reload the timeline.</div>
+                <div style="font-weight:700;color:#64748b;margin-bottom:4px">No machines available</div>
+                <div style="font-size:0.85rem">No machines found in Machine Master. Add machines in Masters, then reload the timeline.</div>
             </div>`;
         } else {
             optHtml = matchedMachines.map(opt => {
