@@ -13004,6 +13004,8 @@
       if (d > 0) return `${d}d ${h}h`; if (h > 0) return `${h}h ${m}m`; return `${Math.max(1,m)}m`;
     };
     const fmtQty = n => Number(n || 0).toLocaleString();
+    /* normalized mould identifier — tolerant to mouldNo/mould_code/mouldName variants */
+    const mouldKey = p => String((p && (p.mouldNo || p.mould_code || p.mouldName || p.mould_name)) || '').trim().toUpperCase();
     const getProcFilter = () => (typeof window.getPlanningProcessFilter === 'function') ? window.getPlanningProcessFilter() : 'Moulding';
     const getApi = () => (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
 
@@ -13245,7 +13247,7 @@
             const start = p._rippledStartRaw.getTime();
             if (start <= now || start >= cutoffTime) return false; // not starting inside the window
             if (i === 0) return true;                              // first plan starting in window = new job
-            return (p.mouldNo||'') !== (mPlans[i-1].mouldNo||'');  // mould change
+            return mouldKey(p) !== mouldKey(mPlans[i-1]);          // mould change
           });
           if (!hasChangeInWindow) return false;
         }
@@ -13417,18 +13419,19 @@
           if (!p) return `<td class="etv-plan-cell etv-empty"><div class="etv-empty-inner"><span style="letter-spacing:.05em;opacity:.5">empty</span></div></td>`;
 
           const st   = (p.status||'').toLowerCase();
-          const isPrevMould = i > 0 && (p.mouldNo||'') !== (plans[i-1].mouldNo||'');
+          const isPrevMould = i > 0 && mouldKey(p) !== mouldKey(plans[i-1]);
 
-          /* ── Forecast: how soon is this mould change coming? ── */
+          /* ── Forecast: how soon is this mould change / new job coming? ── */
           const changeStartMs = p._rippledStartRaw ? p._rippledStartRaw.getTime() : 0;
           const changeInMs    = changeStartMs - nowMs;
-          const isUpcomingChange = isPrevMould && changeStartMs > nowMs &&
+          const isNewJob      = i === 0 && changeStartMs > nowMs;
+          const isUpcomingChange = (isPrevMould || isNewJob) && changeStartMs > nowMs &&
                                    (cutoffTime ? changeStartMs < cutoffTime : true);
           const isUrgentChange   = isUpcomingChange && changeInMs <= 7200000; // within 2h
           let changeBadge = '';
           if (cutoffTime && isUpcomingChange) {
             changeBadge = `<div class="etv-card-change" style="${isUrgentChange ? 'background:#fee2e2;color:#b91c1c;border-color:#fca5a5' : ''}">
-              <i class="bi bi-arrow-repeat"></i> Mould Change in <strong>${fmt(changeInMs)}</strong>
+              <i class="bi bi-arrow-repeat"></i> ${isNewJob ? 'New Job in' : 'Mould Change in'} <strong>${fmt(changeInMs)}</strong>
             </div>`;
           }
 
