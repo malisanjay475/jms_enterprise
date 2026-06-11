@@ -11555,6 +11555,14 @@
         if (dashboardToolbar) dashboardToolbar.style.display = 'none';
         document.getElementById('timelineView').style.display = 'block';
         if (typeof loadTimeline === 'function') loadTimeline();
+      } else if (view === 'excel_timeline') {
+        if (vm) vm.style.display = 'none';
+        if (kpiDeck) kpiDeck.style.display = 'none';
+        if (mapWrap) mapWrap.style.display = 'none';
+        if (dashboardToolbar) dashboardToolbar.style.display = 'none';
+        const excelTimelineViewEl = document.getElementById('excelTimelineView');
+        if (excelTimelineViewEl) excelTimelineViewEl.style.display = 'block';
+        if (typeof window.loadExcelTimeline === 'function') window.loadExcelTimeline();
       } else if (view === 'completed' || view === 'prod_complete') {
         if (vm) vm.style.display = 'none';
         if (kpiDeck) kpiDeck.style.display = 'none';
@@ -12551,8 +12559,8 @@
     'use strict';
 
     /* ── column constants (keep in sync with JS below) ── */
-    const MACH_W = 185; /* machine column px */
-    const SLOT_W = 158; /* each slot column px */
+    const MACH_W = 190; /* machine column px */
+    const SLOT_W = 210; /* each slot column px — wider so full OR numbers fit */
 
     /* ── CSS — LIGHT THEME ───────────────────────────────────────────── */
     const css = `
@@ -12819,15 +12827,15 @@
 
       /* ── Plan card ── */
       .etv-card {
-        border-radius: 6px;
-        padding: 5px 7px;
+        border-radius: 7px;
+        padding: 7px 9px;
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: 3px;
         border: 1px solid #e5eaf3;
-        border-left: 3px solid #cbd5e1;
+        border-left: 4px solid #cbd5e1;
         background: #fff;
-        min-height: 48px;
+        min-height: 64px;
         position: relative;
         transition: background 0.2s, border-color 0.2s, box-shadow .12s, transform .1s;
       }
@@ -12839,15 +12847,14 @@
       .etv-card.chg       { border-left-color: #ea580c; background: #fff7ed; border-color: #fed7aa; }
       .etv-card-row1 { display:flex; justify-content:space-between; align-items:flex-start; gap:3px; }
       .etv-card-order {
-        font-size: .71rem;
+        font-size: .8rem;
         font-weight: 800;
         color: #111827;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        overflow-wrap: anywhere;
+        white-space: normal;
         flex: 1;
         min-width: 0;
-        line-height: 1.3;
+        line-height: 1.25;
       }
       .etv-card-status {
         font-size: .53rem;
@@ -12910,8 +12917,30 @@
         gap: 2px;
         margin-top: 1px;
       }
+      .etv-card-change {
+        font-size: .62rem;
+        font-weight: 800;
+        color: #9a3412;
+        background: #ffedd5;
+        border: 1px solid #fed7aa;
+        border-radius: 5px;
+        padding: 2px 5px;
+        margin-top: 2px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        line-height: 1.2;
+      }
+      .etv-card-change strong { font-weight: 900; }
+      .etv-card-urgent {
+        animation: etvUrgentPulse 1.1s ease-in-out infinite;
+      }
+      @keyframes etvUrgentPulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }
+        50%      { box-shadow: 0 0 0 3px rgba(220,38,38,.35); }
+      }
       .etv-empty-inner {
-        min-height: 48px;
+        min-height: 64px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -12975,6 +13004,8 @@
       if (d > 0) return `${d}d ${h}h`; if (h > 0) return `${h}h ${m}m`; return `${Math.max(1,m)}m`;
     };
     const fmtQty = n => Number(n || 0).toLocaleString();
+    /* normalized mould identifier — tolerant to mouldNo/mould_code/mouldName variants */
+    const mouldKey = p => String((p && (p.mouldNo || p.mould_code || p.mouldName || p.mould_name)) || '').trim().toUpperCase();
     const getProcFilter = () => (typeof window.getPlanningProcessFilter === 'function') ? window.getPlanningProcessFilter() : 'Moulding';
     const getApi = () => (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
 
@@ -13131,6 +13162,11 @@
               <option value="Empty">⬜ No Plans</option>
               <option value="MouldChange">🟠 Mould Change</option>
             </select>
+            <select id="etv-forecast" onchange="window.etvFilter()" style="min-width:140px;border-color:#f59e0b;color:#b45309;font-weight:700">
+              <option value="">Forecast: Off</option>
+              <option value="24">⏱ Next 24 Hours</option>
+              <option value="48">⏱ Next 48 Hours</option>
+            </select>
 
             <button class="etv-btn" onclick="window.loadExcelTimeline()" title="Refresh">
               <i class="bi bi-arrow-clockwise"></i> Refresh
@@ -13190,7 +13226,11 @@
       const bVal  = document.getElementById('etv-bldg')?.value   || '';
       const lVal  = document.getElementById('etv-line')?.value   || '';
       const sVal  = document.getElementById('etv-status')?.value || '';
+      const fVal  = document.getElementById('etv-forecast')?.value || '';
       const norm  = v => String(v||'').trim().toUpperCase();
+
+      const now        = Date.now();
+      const cutoffTime = fVal ? (now + parseInt(fVal,10) * 3600000) : 0;
 
       const filtered = etvMachines.filter(m => {
         const b = m._finalBuilding || '?';
@@ -13199,6 +13239,18 @@
         if (lVal && norm(l) !== norm(lVal)) return false;
 
         const mPlans = etvGroups[m.code] || [];
+
+        /* ── FORECAST: keep only machines whose mould change / new job starts within the window ── */
+        if (cutoffTime > 0) {
+          const hasChangeInWindow = mPlans.some((p,i) => {
+            if (!p._rippledStartRaw) return false;
+            const start = p._rippledStartRaw.getTime();
+            if (start <= now || start >= cutoffTime) return false; // not starting inside the window
+            if (i === 0) return true;                              // first plan starting in window = new job
+            return mouldKey(p) !== mouldKey(mPlans[i-1]);          // mould change
+          });
+          if (!hasChangeInWindow) return false;
+        }
 
         if (sVal === 'Running'     && !mPlans.some(p=>(p.status||'').toLowerCase()==='running')) return false;
         if (sVal === 'Stopped'     && mPlans.length > 0) return false;
@@ -13219,7 +13271,7 @@
         return true;
       });
 
-      renderExcelGrid(filtered);
+      renderExcelGrid(filtered, cutoffTime);
     };
 
     window.etvUpdateLines = function () {
@@ -13241,7 +13293,7 @@
     };
 
     window.etvReset = function () {
-      ['etv-search','etv-bldg','etv-line','etv-status'].forEach(id => {
+      ['etv-search','etv-bldg','etv-line','etv-status','etv-forecast'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
       });
@@ -13249,7 +13301,9 @@
     };
 
     /* ── Grid renderer ───────────────────────────────────────────────── */
-    function renderExcelGrid(machines) {
+    function renderExcelGrid(machines, cutoffTime) {
+      cutoffTime = cutoffTime || 0;
+      const nowMs = Date.now();
       const searchVal = (document.getElementById('etv-search')?.value || '').trim().toLowerCase();
       const thead = document.getElementById('etv-thead');
       const tbody = document.getElementById('etv-tbody');
@@ -13273,8 +13327,19 @@
         return (a.code||'').localeCompare(b.code||'', undefined, {numeric:true});
       });
 
+      /* visible plans per machine — when forecast is on, drop plans starting beyond the cutoff
+         (keep RUNNING/started plans so the active job stays in view) */
+      const visiblePlans = (code) => {
+        const all = etvGroups[code] || [];
+        if (!cutoffTime) return all;
+        return all.filter(p => {
+          const start = p._rippledStartRaw ? p._rippledStartRaw.getTime() : 0;
+          return start < cutoffTime;
+        });
+      };
+
       /* max plan slots */
-      const maxSlots = Math.max(0, ...machines.map(m => (etvGroups[m.code]||[]).length));
+      const maxSlots = Math.max(0, ...machines.map(m => visiblePlans(m.code).length));
       const cols = Math.max(maxSlots, 1); /* at least 1 empty col */
 
       /* ── DEFINITIVE WIDTH FIX ──────────────────────────────────────────
@@ -13327,7 +13392,7 @@
           </td></tr>`);
         }
 
-        const plans = etvGroups[m.code] || [];
+        const plans = visiblePlans(m.code);
 
         /* load calc */
         const totalMs = plans.reduce((s,p) => {
@@ -13354,7 +13419,22 @@
           if (!p) return `<td class="etv-plan-cell etv-empty"><div class="etv-empty-inner"><span style="letter-spacing:.05em;opacity:.5">empty</span></div></td>`;
 
           const st   = (p.status||'').toLowerCase();
-          const isPrevMould = i > 0 && (p.mouldNo||'') !== (plans[i-1].mouldNo||'');
+          const isPrevMould = i > 0 && mouldKey(p) !== mouldKey(plans[i-1]);
+
+          /* ── Forecast: how soon is this mould change / new job coming? ── */
+          const changeStartMs = p._rippledStartRaw ? p._rippledStartRaw.getTime() : 0;
+          const changeInMs    = changeStartMs - nowMs;
+          const isNewJob      = i === 0 && changeStartMs > nowMs;
+          const isUpcomingChange = (isPrevMould || isNewJob) && changeStartMs > nowMs &&
+                                   (cutoffTime ? changeStartMs < cutoffTime : true);
+          const isUrgentChange   = isUpcomingChange && changeInMs <= 7200000; // within 2h
+          let changeBadge = '';
+          if (cutoffTime && isUpcomingChange) {
+            changeBadge = `<div class="etv-card-change" style="${isUrgentChange ? 'background:#fee2e2;color:#b91c1c;border-color:#fca5a5' : ''}">
+              <i class="bi bi-arrow-repeat"></i> ${isNewJob ? 'New Job in' : 'Mould Change in'} <strong>${fmt(changeInMs)}</strong>
+            </div>`;
+          }
+
           const cardClass = isPrevMould ? 'chg' : (st==='running'?'running':st==='stopped'?'stopped':st==='completed'?'completed':'planned');
           const statusClass = st==='running'?'running':st==='stopped'?'stopped':st==='completed'?'completed':'planned';
 
@@ -13390,15 +13470,16 @@
             }
           }
 
-          const orderDisp = (p.orderNo||'-').length > 16 ? (p.orderNo||'-').slice(0,15)+'…' : (p.orderNo||'-');
-          const mouldDisp = (p.mouldName||'-').length > 22 ? (p.mouldName||'-').slice(0,21)+'…' : (p.mouldName||'-');
+          const orderDisp = (p.orderNo||'-');
+          const mouldDisp = (p.mouldName||'-').length > 30 ? (p.mouldName||'-').slice(0,29)+'…' : (p.mouldName||'-');
           const clientDisp = (p.clientName||'').length > 18 ? (p.clientName||'').slice(0,17)+'…' : (p.clientName||'');
           const stLabel = st === 'running' ? 'RUN' : st === 'stopped' ? 'STOP' : st === 'completed' ? 'DONE' : 'PLAN';
 
           return `
             <td class="etv-plan-cell" onclick="window.openOrderModal('${esc(p.orderNo)}', '${esc(p.planId || p.plan_id || p.id || '')}')" title="Order: ${esc(p.orderNo)}&#10;Mould: ${esc(p.mouldName)}&#10;Client: ${esc(p.clientName)}&#10;Qty: ${fmtQty(p.planQty)} | Bal: ${fmtQty(p.balQty)}">
-              <div class="etv-card ${cardClass}" style="${cardStyle}">
+              <div class="etv-card ${cardClass}${isUrgentChange ? ' etv-card-urgent' : ''}" style="${cardStyle}">
                 ${isPrevMould ? '<span class="etv-card-chg-badge">CHG</span>' : ''}
+                ${changeBadge}
                 <div class="etv-card-row1">
                   <div class="etv-card-order">${esc(orderDisp)}</div>
                   <div class="etv-card-status ${statusClass}">${stLabel}</div>
