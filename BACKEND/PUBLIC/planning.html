@@ -12269,8 +12269,10 @@
 
           const by = p.completedBy || '-';
           const initial = by && by !== '-' ? by.trim().charAt(0).toUpperCase() : '?';
+          // Restore targets plan_board.id (numeric PK). Quote it so a string id can't break the
+          // inline handler, and prefer the numeric id over the plan_id string.
           const restoreBtn = isSuper
-            ? `<button class="pcr-restore" onclick="window.restoreCompletedPlan(${p.planId || p.id})" title="Restore Plan to board"><i class="bi bi-arrow-counterclockwise"></i> Restore</button>`
+            ? `<button class="pcr-restore" onclick="window.restoreCompletedPlan('${esc(p.id != null ? p.id : (p.planId || ''))}')" title="Restore Plan to board"><i class="bi bi-arrow-counterclockwise"></i> Restore</button>`
             : '<span style="color:#cbd5e1">—</span>';
 
           html += `
