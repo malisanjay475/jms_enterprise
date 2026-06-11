@@ -5,6 +5,46 @@
 (function () {
     console.log('[TimelinePatch] Initializing v56 (Reorder Ripple + Load)...');
 
+    // --- SHARED MACHINE SORT: Building → Line → Machine Number ---
+    // Used by Machine Timeline, Excel View Timeline and the Change Machine picker
+    // so every surface shows machines in the exact same perfect ascending series.
+    window.tlMachineSort = function (a, b) {
+        const norm = s => String(s == null ? '' : s).trim().toUpperCase();
+        const cleanCode = m => {
+            const c = norm(m && (m._finalCode || m.code || m.name || m.machine));
+            return c.includes('>') ? c.split('>').pop().trim() : c;
+        };
+        // Building: blank / ? / NULL sort to the very end
+        const bldg = m => {
+            const v = norm(m && (m._finalBuilding || m.building));
+            return (!v || v === '?' || v === 'NULL') ? '~~~' : v;
+        };
+        // Line number: pull the first integer out of "L1" / "Line 2" / "1"; blanks → Infinity (last)
+        const lineNo = m => {
+            const v = norm(m && (m._finalLine || m.line));
+            if (!v || v === '?' || v === 'NULL') return Number.MAX_SAFE_INTEGER;
+            const mt = v.match(/\d+/);
+            return mt ? Number(mt[0]) : Number.MAX_SAFE_INTEGER - 1;
+        };
+        // Machine number: the LAST integer group of the clean code (HYD-350-1 → 1, OM-100-14 → 14)
+        const machNo = m => {
+            const nums = cleanCode(m).match(/\d+/g);
+            return nums && nums.length ? Number(nums[nums.length - 1]) : Number.MAX_SAFE_INTEGER;
+        };
+
+        const bA = bldg(a), bB = bldg(b);
+        if (bA !== bB) return bA.localeCompare(bB, undefined, { numeric: true, sensitivity: 'base' });
+
+        const lA = lineNo(a), lB = lineNo(b);
+        if (lA !== lB) return lA - lB;
+
+        const nA = machNo(a), nB = machNo(b);
+        if (nA !== nB) return nA - nB;
+
+        // Final tie-break: natural compare of the clean code
+        return cleanCode(a).localeCompare(cleanCode(b), undefined, { numeric: true, sensitivity: 'base' });
+    };
+
     // Global client plan cache with 2-minute TTL
     window._planBoardCache = {
         data: null,
@@ -787,26 +827,8 @@
             return;
         }
 
-        const compareMachineSeriesCodes = (codeA, codeB) => {
-            const a = String(codeA || '').trim();
-            const b = String(codeB || '').trim();
-            // Natural alphanumeric ordering of the full code so machines line up
-            // in a clean series (e.g. M1, M2, M10 — not M1, M10, M2).
-            return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-        };
-
-        // Sort Machines
-        machines.sort((a, b) => {
-            const buildingA = String(a._finalBuilding || a.building || '').trim().toUpperCase();
-            const buildingB = String(b._finalBuilding || b.building || '').trim().toUpperCase();
-            if (buildingA !== buildingB) return buildingA.localeCompare(buildingB, undefined, { numeric: true, sensitivity: 'base' });
-
-            const lineA = String(a._finalLine || a.line || '').trim().toUpperCase();
-            const lineB = String(b._finalLine || b.line || '').trim().toUpperCase();
-            if (lineA !== lineB) return lineA.localeCompare(lineB, undefined, { numeric: true, sensitivity: 'base' });
-
-            return compareMachineSeriesCodes(a.code, b.code);
-        });
+        // Sort Machines — Building → Line → Machine Number (shared comparator)
+        machines.sort(window.tlMachineSort);
 
         machines.forEach(m => {
             let mPlans = window.timelineGroups[m.code] || [];
@@ -1541,17 +1563,8 @@
             })
             .filter(o => o._key);
 
-        // Sort the picker list into a clean machine series (building → line → code).
-        matchedMachines.sort((a, b) => {
-            const ea = a._entry, eb = b._entry;
-            const ba = String(ea.building || '').trim().toUpperCase();
-            const bb = String(eb.building || '').trim().toUpperCase();
-            if (ba !== bb) return ba.localeCompare(bb, undefined, { numeric: true, sensitivity: 'base' });
-            const la = String(ea.line || '').trim().toUpperCase();
-            const lb = String(eb.line || '').trim().toUpperCase();
-            if (la !== lb) return la.localeCompare(lb, undefined, { numeric: true, sensitivity: 'base' });
-            return String(a.machine).localeCompare(String(b.machine), undefined, { numeric: true, sensitivity: 'base' });
-        });
+        // Sort the picker list into the same perfect series (building → line → number).
+        matchedMachines.sort((a, b) => window.tlMachineSort(a._entry, b._entry));
 
         const modalId = 'pjdMachineSelectModal';
         let oldModal = document.getElementById(modalId);
