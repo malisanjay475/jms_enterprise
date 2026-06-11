@@ -13321,13 +13321,18 @@
       }
 
       /* sort: building → line → machine code */
-      machines.sort((a,b) => {
-        const ba = a._finalBuilding||'?', bb = b._finalBuilding||'?';
-        if (ba !== bb) return ba.localeCompare(bb, undefined, {numeric:true});
-        const la = a._finalLine||'?', lb = b._finalLine||'?';
-        if (la !== lb) return la.localeCompare(lb, undefined, {numeric:true});
-        return (a.code||'').localeCompare(b.code||'', undefined, {numeric:true});
-      });
+      if (typeof window.tlMachineSort === 'function') {
+        // Shared comparator: Building → Line → Machine Number (matches Machine Timeline)
+        machines.sort(window.tlMachineSort);
+      } else {
+        machines.sort((a,b) => {
+          const ba = a._finalBuilding||'?', bb = b._finalBuilding||'?';
+          if (ba !== bb) return ba.localeCompare(bb, undefined, {numeric:true});
+          const la = a._finalLine||'?', lb = b._finalLine||'?';
+          if (la !== lb) return la.localeCompare(lb, undefined, {numeric:true});
+          return (a.code||'').localeCompare(b.code||'', undefined, {numeric:true});
+        });
+      }
 
       /* visible plans per machine — when forecast is on, drop plans starting beyond the cutoff
          (keep RUNNING/started plans so the active job stays in view) */
