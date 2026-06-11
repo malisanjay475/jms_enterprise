@@ -1200,17 +1200,24 @@
                 const simpleRaw = simplify(raw);
                 const simpleMachine = simplify(machineName);
 
-                // Sort keys longest-first so "C-L4-OM-100-14" is tried before "C-L4-OM-100-1".
-                // Without this, the includes() check below fires a false match when one code
-                // is a numeric prefix of another (e.g. "CL4OM1001" ⊂ "CL4OM10014").
+                // Sort keys longest-first so exact matches on longer codes (e.g. "C-L4-OM-100-14")
+                // are tried before shorter ones ("C-L4-OM-100-1").
                 const sortedKeys = Object.keys(mapCodeToInfo).sort((a, b) => simplify(b).length - simplify(a).length);
+
+                // Pass 1: exact match only
                 for (const key of sortedKeys) {
                     const simpleKey = simplify(key);
                     if (!simpleKey) continue;
                     if (simpleKey === simpleRaw || simpleKey === simpleMachine) return key;
-                    if (simpleKey.length > 3 && simpleMachine.length > 3 && (simpleKey.includes(simpleMachine) || simpleMachine.includes(simpleKey))) {
-                        return key;
-                    }
+                }
+
+                // Pass 2: endsWith fallback — handles "B-L1-HYD-350-1" stored as plan machine
+                // where master only has "HYD-350-1". Uses endsWith (not includes) so
+                // "CL4OM10014" never false-matches "CL4OM1001" (100-14 vs 100-1 bug).
+                for (const key of sortedKeys) {
+                    const simpleKey = simplify(key);
+                    if (!simpleKey || simpleKey.length <= 3 || simpleMachine.length <= 3) continue;
+                    if (simpleMachine.endsWith(simpleKey) || simpleKey.endsWith(simpleMachine)) return key;
                 }
 
                 return '';
