@@ -667,11 +667,11 @@ router.post('/admin/full-pull-reset', async (req, res) => {
 });
 
 // ─── Diagnostic endpoint — shows everything needed to debug sync + DPR delay ───
-// GET /api/sync/diagnostic?apiKey=...
+// POST /api/sync/diagnostic with JSON body: { "apiKey": "..." }
 // Returns: server config, watermarks, pending counts, DB timezone, dpr_hourly last 7 days
-router.get('/diagnostic', async (req, res) => {
+router.post('/diagnostic', async (req, res) => {
     if (!pool) return res.status(503).json({ ok: false, error: 'Service initializing' });
-    const { apiKey } = req.query;
+    const { apiKey } = req.body || {};
     if (apiKey !== API_KEY) return res.status(401).json({ ok: false, error: 'Invalid key' });
 
     try {
