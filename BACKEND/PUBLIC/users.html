@@ -362,11 +362,11 @@
                                 <thead style="background:#f3f4f6">
                                     <tr>
                                         <th style="text-align:left; padding:8px">Feature</th>
-                                        <th style="text-align:center; padding:8px">View</th>
-                                        <th style="text-align:center; padding:8px">Add</th>
-                                        <th style="text-align:center; padding:8px">Edit</th>
-                                        <th style="text-align:center; padding:8px">Print</th>
-                                        <th style="text-align:center; padding:8px">Delete</th>
+                                        <th style="text-align:center; padding:8px"><label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px"><input type="checkbox" class="perm-col-all" data-t="view" onchange="toggleColumn('view', this.checked)" title="Toggle entire View column"> View</label></th>
+                                        <th style="text-align:center; padding:8px"><label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px"><input type="checkbox" class="perm-col-all" data-t="add" onchange="toggleColumn('add', this.checked)" title="Toggle entire Add column"> Add</label></th>
+                                        <th style="text-align:center; padding:8px"><label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px"><input type="checkbox" class="perm-col-all" data-t="edit" onchange="toggleColumn('edit', this.checked)" title="Toggle entire Edit column"> Edit</label></th>
+                                        <th style="text-align:center; padding:8px"><label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px"><input type="checkbox" class="perm-col-all" data-t="print" onchange="toggleColumn('print', this.checked)" title="Toggle entire Print column"> Print</label></th>
+                                        <th style="text-align:center; padding:8px"><label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px"><input type="checkbox" class="perm-col-all" data-t="delete" onchange="toggleColumn('delete', this.checked)" title="Toggle entire Delete column"> Delete</label></th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -541,75 +541,6 @@
 
         function renderPermTable(perms = {}) {
             const tbody = document.querySelector('#permTable tbody');
-
-            // 1. Build Full Menu (System Menu + Critical Ops)
-            const systemMenu = JPSMS.MENU || [];
-            // Clone to avoid mutating original if needed, though concat returns new array
-            const fullMenu = systemMenu.concat([
-                { id: 'approvals', label: 'Approvals & Reviews', icon: 'bi-check-all' },
-                {
-                    id: 'critical_ops', label: 'Critical Operations', icon: 'bi-shield-lock', items: [
-                        { id: 'data_wipe', label: 'Wipe / Reset Data' },
-                        { id: 'log_clear', label: 'Clear Logs' }
-                    ]
-                }
-            ]);
-
-            let html = '';
-
-            fullMenu.forEach(m => {
-                // Parent Row (Bold)
-                const p = perms[m.id] || {};
-                const parentId = m.id;
-
-                // Helper for Checkboxes
-                // We add class `group-${parentId}` to ALL checkboxes in this tree (Parent + Children)
-                // This allows the "Select All" toggle to find them easily.
-                const mkChk = (id, type, isChecked) => `
-                    <input type="checkbox" 
-                           class="perm-chk group-${parentId}" 
-                           data-f="${id}" 
-                           data-t="${type}" 
-                           ${isChecked ? 'checked' : ''}>
-                `;
-
-                html += `
-                    <tr style="border-bottom:1px solid #eee; background:#f8fafc;">
-                        <td style="padding:8px; font-weight:700; color:#0f172a; display:flex; align-items:center; gap:8px">
-                            <input type="checkbox" title="Select All for ${m.label}" onchange="toggleGroup('${parentId}', this.checked)">
-                            <i class="bi ${m.icon || 'bi-circle'}" style="opacity:0.6"></i> ${m.label}
-                        </td>
-                        <td style="text-align:center">${mkChk(m.id, 'view', p.view)}</td>
-                        <td style="text-align:center">${mkChk(m.id, 'edit', p.edit)}</td>
-                        <td style="text-align:center">${mkChk(m.id, 'print', p.print)}</td>
-                        <td style="text-align:center">${mkChk(m.id, 'other', p.other)}</td>
-                    </tr>
-                `;
-
-                // Sub-items (Indented)
-                if (m.items && m.items.length > 0) {
-                    m.items.forEach(sub => {
-                        const sp = perms[sub.id] || {};
-                        html += `
-                        <tr style="border-bottom:1px solid #fcfcfc">
-                            <td style="padding:4px 4px 4px 32px; font-size:0.9rem; color:#64748b; display:flex; align-items:center; gap:6px">
-                                └ ${sub.label}
-                            </td>
-                            <td style="text-align:center">${mkChk(sub.id, 'view', sp.view)}</td>
-                            <td style="text-align:center">${mkChk(sub.id, 'edit', sp.edit)}</td>
-                            <td style="text-align:center">${mkChk(sub.id, 'print', sp.print)}</td>
-                            <td style="text-align:center">${mkChk(sub.id, 'other', sp.other)}</td>
-                        </tr>
-                        `;
-                    });
-                }
-            });
-
-            tbody.innerHTML = html;
-        }
-
-        function renderPermTable(perms = {}) {
-            const tbody = document.querySelector('#permTable tbody');
             const normalizedPerms = normalizePermissionMap(perms);
             const systemMenu = JPSMS.MENU || [];
             const fullMenu = systemMenu.concat([
@@ -627,11 +558,12 @@
             fullMenu.forEach(m => {
                 const p = normalizedPerms[m.id] || {};
                 const parentId = m.id;
-                const mkChk = (id, type, isChecked) => `
+                const mkChk = (id, type, isChecked, isParent = false) => `
                     <input type="checkbox"
                            class="perm-chk group-${parentId}"
                            data-f="${id}"
                            data-t="${type}"
+                           ${isParent ? `data-parent="${parentId}"` : ''}
                            ${isChecked ? 'checked' : ''}>
                 `;
 
@@ -641,7 +573,7 @@
                             <input type="checkbox" title="Select All for ${m.label}" onchange="toggleGroup('${parentId}', this.checked)">
                             <i class="bi ${m.icon || 'bi-circle'}" style="opacity:0.6"></i> ${m.label}
                         </td>
-                        ${PERMISSION_ACTIONS.map(action => `<td style="text-align:center">${mkChk(m.id, action, p[action])}</td>`).join('')}
+                        ${PERMISSION_ACTIONS.map(action => `<td style="text-align:center">${mkChk(m.id, action, p[action], true)}</td>`).join('')}
                     </tr>
                 `;
 
@@ -661,6 +593,46 @@
             });
 
             tbody.innerHTML = html;
+
+            // Column cascade: parent module checkbox toggles the same action for all its sub-items.
+            // Child changes sync the parent (checked only when all children of that action are checked).
+            tbody.onchange = (e) => {
+                const box = e.target;
+                if (!box.classList || !box.classList.contains('perm-chk')) return;
+
+                if (box.dataset.parent) {
+                    // Parent row: cascade this action down to the whole group
+                    document.querySelectorAll(`#permTable .group-${box.dataset.parent}[data-t="${box.dataset.t}"]`)
+                        .forEach(c => { c.checked = box.checked; });
+                } else {
+                    syncParentForChild(box);
+                }
+                syncColumnHeaders();
+            };
+            syncColumnHeaders();
+        }
+
+        function syncParentForChild(childBox) {
+            const groupClass = Array.from(childBox.classList).find(c => c.startsWith('group-'));
+            if (!groupClass) return;
+            const action = childBox.dataset.t;
+            const children = Array.from(document.querySelectorAll(`#permTable .${groupClass}[data-t="${action}"]:not([data-parent])`));
+            const parent = document.querySelector(`#permTable .${groupClass}[data-t="${action}"][data-parent]`);
+            if (!parent || children.length === 0) return;
+            parent.checked = children.every(c => c.checked);
+        }
+
+        function toggleColumn(action, state) {
+            document.querySelectorAll(`#permTable tbody .perm-chk[data-t="${action}"]`).forEach(box => {
+                box.checked = state;
+            });
+        }
+
+        function syncColumnHeaders() {
+            document.querySelectorAll('#permTable thead .perm-col-all').forEach(headBox => {
+                const boxes = document.querySelectorAll(`#permTable tbody .perm-chk[data-t="${headBox.dataset.t}"]`);
+                headBox.checked = boxes.length > 0 && Array.from(boxes).every(b => b.checked);
+            });
         }
 
         function toggleGroup(groupId, state) {
@@ -668,6 +640,7 @@
             document.querySelectorAll(`.group-${groupId}`).forEach(box => {
                 box.checked = state;
             });
+            syncColumnHeaders();
         }
 
         function getPermsFromTable() {
