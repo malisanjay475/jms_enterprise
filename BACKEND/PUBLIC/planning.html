@@ -12846,7 +12846,7 @@
       .etv-card.stopped   { border-left-color: #dc2626; background: #fef2f2; border-color: #fecaca; }
       .etv-card.planned   { border-left-color: #2563eb; background: #eff6ff; border-color: #bfdbfe; }
       .etv-card.completed { border-left-color: #7c3aed; background: #f5f3ff; border-color: #ddd6fe; }
-      .etv-card.chg       { border-left-color: #8b5cf6; background: #f5f3ff; border-color: #ddd6fe; }
+      .etv-card.chg       { border-left-color: #c2410c; background: #fff3e6; border-color: #fdba74; }
       .etv-card-row1 { display:flex; justify-content:space-between; align-items:flex-start; gap:3px; }
       .etv-card-order {
         font-size: .8rem;
@@ -12905,8 +12905,8 @@
         right: 3px;
         font-size: .5rem;
         font-weight: 900;
-        background: #ede9fe;
-        color: #6d28d9;
+        background: #fed7aa;
+        color: #7c2d12;
         padding: 1px 3px;
         border-radius: 3px;
         letter-spacing: .04em;
@@ -12922,9 +12922,9 @@
       .etv-card-change {
         font-size: .62rem;
         font-weight: 800;
-        color: #6d28d9;
-        background: #ede9fe;
-        border: 1px solid #ddd6fe;
+        color: #7c2d12;
+        background: #ffedd5;
+        border: 1px solid #fdba74;
         border-radius: 5px;
         padding: 2px 5px;
         margin-top: 2px;
@@ -12987,7 +12987,7 @@
       .etv-legend-dot.running::before  { background: #16a34a; }
       .etv-legend-dot.stopped::before  { background: #dc2626; }
       .etv-legend-dot.planned::before  { background: #2563eb; }
-      .etv-legend-dot.chg::before      { background: #8b5cf6; }
+      .etv-legend-dot.chg::before      { background: #c2410c; }
       .etv-legend-dot.empty::before    { background: #e2e8f0; border: 1px solid #cbd5e1; }
     `;
     const styleEl = document.createElement('style');
@@ -13162,7 +13162,7 @@
               <option value="Stopped">🔴 Stopped</option>
               <option value="Planned">🔵 Has Plans</option>
               <option value="Empty">⬜ No Plans</option>
-              <option value="MouldChange">🟣 Mould Change</option>
+              <option value="MouldChange">🟠 Mould Change</option>
             </select>
             <select id="etv-forecast" onchange="window.etvFilter()" style="min-width:140px;border-color:#f59e0b;color:#b45309;font-weight:700">
               <option value="">Forecast: Off</option>
