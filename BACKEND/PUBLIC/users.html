@@ -660,13 +660,15 @@
 
                 if (box.dataset.parent) {
                     // Parent row: cascade this action down to the whole group
+                    box.indeterminate = false;
                     document.querySelectorAll(`#permTable .group-${box.dataset.parent}[data-t="${box.dataset.t}"]`)
-                        .forEach(c => { c.checked = box.checked; });
+                        .forEach(c => { c.checked = box.checked; c.indeterminate = false; });
                 } else {
                     syncParentForChild(box);
                 }
                 syncColumnHeaders();
             };
+            syncAllParents();
             syncColumnHeaders();
         }
 
@@ -677,13 +679,35 @@
             const children = Array.from(document.querySelectorAll(`#permTable .${groupClass}[data-t="${action}"]:not([data-parent])`));
             const parent = document.querySelector(`#permTable .${groupClass}[data-t="${action}"][data-parent]`);
             if (!parent || children.length === 0) return;
-            parent.checked = children.every(c => c.checked);
+            const anyChecked = children.some(c => c.checked);
+            const allChecked = children.every(c => c.checked);
+            // Parent stays checked while at least one child is checked, so the
+            // module menu keeps showing. Indeterminate = some-but-not-all.
+            parent.checked = anyChecked;
+            parent.indeterminate = anyChecked && !allChecked;
+        }
+
+        // Apply the tri-state rule to every parent action checkbox in the table.
+        function syncAllParents() {
+            document.querySelectorAll('#permTable .perm-chk[data-parent]').forEach(parent => {
+                const groupClass = Array.from(parent.classList).find(c => c.startsWith('group-'));
+                if (!groupClass) return;
+                const action = parent.dataset.t;
+                const children = Array.from(document.querySelectorAll(`#permTable .${groupClass}[data-t="${action}"]:not([data-parent])`));
+                if (children.length === 0) return;
+                const anyChecked = children.some(c => c.checked);
+                const allChecked = children.every(c => c.checked);
+                parent.checked = anyChecked;
+                parent.indeterminate = anyChecked && !allChecked;
+            });
         }
 
         function toggleColumn(action, state) {
             document.querySelectorAll(`#permTable tbody .perm-chk[data-t="${action}"]`).forEach(box => {
                 box.checked = state;
+                box.indeterminate = false;
             });
+            syncAllParents();
         }
 
         function syncColumnHeaders() {
@@ -697,6 +721,7 @@
             // Select ALL checkboxes that belong to this group (Parent + Children)
             document.querySelectorAll(`.group-${groupId}`).forEach(box => {
                 box.checked = state;
+                box.indeterminate = false;
             });
             syncColumnHeaders();
         }
@@ -752,6 +777,7 @@
         function toggleAllPerms(state) {
             document.querySelectorAll('#permTable input[type="checkbox"]').forEach(box => {
                 box.checked = state;
+                box.indeterminate = false;
             });
         }
 
