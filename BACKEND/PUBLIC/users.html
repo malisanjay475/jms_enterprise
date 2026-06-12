@@ -293,6 +293,15 @@
                         <div class="user-section-label">User Details</div>
 
                         <div class="user-stack">
+                            <div class="form-group" style="background:#f8fafc; border:1px dashed #cbd5e1; border-radius:8px; padding:10px">
+                                <label class="form-label" style="display:flex; align-items:center; gap:6px"><i class="bi bi-files"></i> Copy rights from another user</label>
+                                <div style="display:flex; gap:6px">
+                                    <select id="u_copy_from" class="form-control" style="flex:1"><option value="">— Select a user —</option></select>
+                                    <button type="button" class="btn btn-outline" onclick="applyRightsFromUser()" style="white-space:nowrap">Copy</button>
+                                </div>
+                                <div style="font-size:0.72rem; color:#64748b; margin-top:4px">Fills role, permissions, app access &amp; factory access from the chosen user. Review, then Save.</div>
+                            </div>
+
                             <div class="form-group">
                                 <label class="form-label">Username</label>
                                 <input id="u_username" class="form-control">
@@ -439,6 +448,55 @@
 
         function getCachedUser(userId) {
             return userRowsCache.find(u => Number(u.id) === Number(userId)) || null;
+        }
+
+        // Populate the "Copy rights from" dropdown with all other users.
+        function populateCopyFromDropdown(excludeId) {
+            const sel = document.getElementById('u_copy_from');
+            if (!sel) return;
+            const esc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+            const others = (userRowsCache || []).filter(u => Number(u.id) !== Number(excludeId));
+            sel.innerHTML = '<option value="">— Select a user —</option>' +
+                others.map(u => `<option value="${u.id}">${esc(u.username)} (${esc(u.role_code || 'operator')})</option>`).join('');
+            sel.value = '';
+        }
+
+        // Copy role + permissions + app access + factory access from a chosen user
+        // into the open form. The admin/superadmin sources show everything checked,
+        // matching how editUserById renders those roles.
+        function applyRightsFromUser() {
+            const sel = document.getElementById('u_copy_from');
+            const srcId = sel ? sel.value : '';
+            if (!srcId) { JPSMS.toast('Pick a user to copy rights from', 'error'); return; }
+            const src = getCachedUser(srcId);
+            if (!src) { JPSMS.toast('Source user not found', 'error'); return; }
+
+            // Role
+            if (src.role_code) document.getElementById('u_role').value = src.role_code;
+
+            // Global access
+            document.getElementById('u_global').checked = !!src.global_access;
+
+            // Factory access
+            const fList = src.assigned_factories || [];
+            document.querySelectorAll('.factory-chk').forEach(c => {
+                c.checked = fList.includes(parseInt(c.value));
+            });
+
+            // Permissions + App access
+            const perms = (typeof src.permissions === 'object' && src.permissions) ? src.permissions : {};
+            if (src.role_code === 'admin' || src.role_code === 'superadmin') {
+                renderPermTable({});
+                toggleAllPerms(true);
+                renderAppAccessChecks({});
+                toggleAllApps(true);
+            } else {
+                renderPermTable(perms);
+                const appMap = JPSMS.auth.getAppAccessMap ? JPSMS.auth.getAppAccessMap(src) : null;
+                renderAppAccessChecks(appMap || {});
+            }
+
+            JPSMS.toast('Copied rights from ' + (src.username || 'user') + '. Review, then Save.');
         }
 
         async function refreshCurrentSessionAccess(updatedUser) {
@@ -717,6 +775,8 @@
             // Checks
             document.getElementById('u_global').checked = false;
             document.querySelectorAll('.factory-chk').forEach(c => c.checked = false);
+
+            populateCopyFromDropdown(null);
         }
 
         function editUserById(userId) {
@@ -730,6 +790,8 @@
             isEditMode = true;
             document.getElementById('userModal').style.display = 'flex';
             document.querySelector('#userModal h3').textContent = 'Edit User';
+
+            populateCopyFromDropdown(editUserId);
 
             document.getElementById('u_username').value = user.username || '';
             document.getElementById('u_username').disabled = true;
