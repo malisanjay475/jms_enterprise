@@ -49,6 +49,48 @@ exports.generateSchedule = async (machines, orders) => {
     }
 };
 
+/**
+ * Explain a set of Smart Suggestions (mould-alignment moves) in plain language.
+ * `suggestions` is an array of { type:'cross'|'reorder', mould, fromCode, toCode, saved, reason }.
+ * Returns a friendly string. Throws if the AI model is not initialized so the
+ * caller can fall back to a deterministic summary.
+ */
+exports.explainSuggestions = async (suggestions = [], username = 'User') => {
+    if (!model) throw new Error("AI Model not initialized");
+
+    const totalSaved = suggestions.reduce((s, x) => s + (Number(x.saved) || 0), 0);
+    const compact = suggestions.map((s, i) => ({
+        n: i + 1,
+        action: s.type === 'cross' ? 'move' : 'regroup',
+        mould: s.mould || null,
+        from: s.fromCode || null,
+        to: s.toCode || null,
+        saves: Number(s.saved) || 0,
+        why: s.reason || ''
+    }));
+
+    const prompt = `
+    You are JOY ⚡️, a friendly production-planning assistant for a plastic injection moulding factory.
+    The user is "${username}". They opened the Smart Suggestions panel in the Excel-view planning timeline.
+
+    These suggestions reduce unnecessary MOULD CHANGES by grouping the same mould together on a machine
+    (a mould change costs setup time, so fewer changes = more productivity).
+
+    SUGGESTIONS (JSON): ${JSON.stringify(compact)}
+    TOTAL MOULD CHANGES SAVED IF ALL APPLIED: ${totalSaved}
+
+    Write a short, encouraging explanation for the user:
+    - Start with one line on the overall benefit (how many mould changes are saved).
+    - Then a brief bullet for each suggestion: what to do and why, in simple plain English.
+    - If there are no suggestions, congratulate them — the plan is already optimal.
+    - Keep it concise. Use a few emojis (⚡️✨🔧). No markdown headings, plain text with simple "- " bullets is fine.
+    `;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text().trim();
+};
+
 exports.askQuestion = async (question, username = 'User', context = {}) => {
     if (!model) throw new Error("AI Model not initialized");
 

@@ -16913,6 +16913,42 @@ app.post('/api/ai/ask', async (req, res) => {
   }
 });
 
+/* Joy explains the Smart Suggestions (mould-alignment moves) in plain language.
+   Falls back to a deterministic summary when the AI model is unavailable
+   (e.g. LOCAL servers without a Gemini key). */
+app.post('/api/ai/explain-suggestions', async (req, res) => {
+  try {
+    const { suggestions, username } = req.body || {};
+    const list = Array.isArray(suggestions) ? suggestions : [];
+    const totalSaved = list.reduce((s, x) => s + (Number(x && x.saved) || 0), 0);
+
+    // Build a deterministic fallback up front (used if AI is off or errors).
+    const buildFallback = () => {
+      if (!list.length) {
+        return "✨ Your plan is already optimal — the same moulds are grouped together, so there are no extra mould changes to remove right now. Great job! ⚡️";
+      }
+      const lines = list.map((s) => {
+        if (s.type === 'cross') {
+          return `- 🔧 Move mould "${s.mould || ''}" onto ${s.toCode || 'the running machine'} so it sits next to the same mould already running (saves ${Number(s.saved) || 0} mould change${(Number(s.saved) || 0) === 1 ? '' : 's'}).`;
+        }
+        return `- 🔧 Re-group moulds on ${s.toCode || 'this machine'} so duplicates run back-to-back (saves ${Number(s.saved) || 0} mould change${(Number(s.saved) || 0) === 1 ? '' : 's'}).`;
+      });
+      return `⚡️ Applying these ${list.length} suggestion${list.length === 1 ? '' : 's'} removes ${totalSaved} unnecessary mould change${totalSaved === 1 ? '' : 's'}, which means less setup time and more production.\n` + lines.join('\n');
+    };
+
+    try {
+      const answer = await aiService.explainSuggestions(list, username || 'User');
+      return res.json({ ok: true, answer, source: 'joy' });
+    } catch (aiErr) {
+      // AI unavailable — return the local summary so the feature still works.
+      return res.json({ ok: true, answer: buildFallback(), source: 'local' });
+    }
+  } catch (e) {
+    console.error('explain-suggestions', e);
+    res.status(500).json({ ok: false, error: String(e.message) });
+  }
+});
+
 /* ============================================================
    RAW MATERIAL MANAGEMENT
    ============================================================ */

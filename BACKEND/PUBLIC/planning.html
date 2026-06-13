@@ -12647,6 +12647,15 @@
       .etv-sg-applyall:hover { filter: brightness(1.08); }
       .etv-sg-empty { padding: 30px 18px; text-align: center; color: #16a34a; font-weight: 700; font-size: .88rem; }
       .etv-sg-empty i { font-size: 2rem; display: block; margin-bottom: 8px; }
+      .etv-sg-joybtn { flex-shrink:0; padding: 5px 12px; border-radius: 7px; border: none; cursor: pointer; font-size: .72rem; font-weight: 800; color: #fff; background: linear-gradient(90deg,#7c3aed,#2563eb); display:inline-flex; align-items:center; gap:5px; }
+      .etv-sg-joybtn:hover { filter: brightness(1.08); }
+      .etv-sg-joybtn:disabled { opacity: .6; cursor: default; }
+      .etv-joy-box { margin: 0 16px 4px; padding: 11px 13px; background: linear-gradient(135deg,#faf5ff,#eff6ff); border: 1px solid #ddd6fe; border-radius: 10px; }
+      .etv-joy-box .joy-loading { font-size: .8rem; color: #7c3aed; font-weight: 700; display:flex; align-items:center; gap:7px; }
+      .etv-joy-box .joy-head { margin-bottom: 5px; }
+      .etv-joy-box .joy-tag { font-size: .66rem; font-weight: 800; color: #6d28d9; background: #ede9fe; border: 1px solid #ddd6fe; padding: 1px 8px; border-radius: 20px; }
+      .etv-joy-box .joy-tag.local { color: #475569; background: #f1f5f9; border-color: #cbd5e1; }
+      .etv-joy-box .joy-msg { font-size: .78rem; color: #334155; line-height: 1.5; }
       #etv-filters .etv-row-filters { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
       #etv-filters .etv-row-filters::-webkit-scrollbar { height: 0; }
       #etv-filters .etv-title {
@@ -13891,7 +13900,9 @@
             <div class="etv-sg-sub">
               <span><strong>${list.length}</strong> suggestion${list.length === 1 ? '' : 's'} found</span>
               ${list.length ? `<span style="color:#047857;font-weight:800">Total: ${totalSaved} mould change${totalSaved === 1 ? '' : 's'} saved</span>` : ''}
+              <button class="etv-sg-joybtn" onclick="window.etvAskJoy(this)" title="Let Joy explain these suggestions in plain language"><i class="bi bi-stars"></i> Ask Joy</button>
             </div>
+            <div class="etv-joy-box" id="etv-joy-box" style="display:none"></div>
             <div class="etv-sg-body" id="etv-sg-body">${body}</div>
             ${list.length ? `
               <div class="etv-sg-foot">
@@ -13909,6 +13920,37 @@
     window.etvCloseSuggest = function () {
       const o = document.getElementById('etv-suggest-overlay');
       if (o) o.remove();
+    };
+
+    /* ── Ask Joy: natural-language explanation of the suggestions ───────── */
+    window.etvAskJoy = async function (btn) {
+      const box = document.getElementById('etv-joy-box');
+      if (!box) return;
+      const list = window._etvSuggestions || [];
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Thinking…'; }
+      box.style.display = 'block';
+      box.innerHTML = '<div class="joy-loading"><i class="bi bi-stars"></i> Joy is thinking…</div>';
+      try {
+        const payload = list.map(s => ({
+          type: s.type, mould: s.mould || '', fromCode: stripMachPfx(s.fromCode || ''),
+          toCode: stripMachPfx(s.toCode || ''), saved: s.saved || 0, reason: s.reason || ''
+        }));
+        let user = '';
+        try { user = (window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.getUser && (window.JPSMS.auth.getUser().username || window.JPSMS.auth.getUser().name)) || ''; } catch (e) {}
+        const res = await getApi().post('/ai/explain-suggestions', { suggestions: payload, username: user });
+        if (res && res.ok && res.answer) {
+          const text = String(res.answer);
+          const htmlText = esc(text).replace(/\n/g, '<br>');
+          const tag = res.source === 'joy' ? '<span class="joy-tag">⚡️ Joy</span>' : '<span class="joy-tag local">📋 Summary</span>';
+          box.innerHTML = `<div class="joy-head">${tag}</div><div class="joy-msg">${htmlText}</div>`;
+        } else {
+          box.innerHTML = '<div class="joy-msg">Joy could not explain right now. Please try again.</div>';
+        }
+      } catch (e) {
+        box.innerHTML = '<div class="joy-msg">Joy is unavailable right now. Please try again.</div>';
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-stars"></i> Ask Joy'; }
+      }
     };
 
     /* update the count badge on the Smart Suggestions button */
