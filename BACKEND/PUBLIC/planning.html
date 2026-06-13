@@ -13220,6 +13220,10 @@
     }
 
     function renderExcelView(wrap) {
+      /* remove any filter panels reparented to <body> from a previous render
+         (avoids stale duplicate-id panels lingering after a refresh) */
+      document.querySelectorAll('body > .etv-ms-panel').forEach(p => p.remove());
+
       /* Build filter dropdowns from machines */
       const bldgs = new Set(), lines = new Set(), tons = new Set();
       etvMachines.forEach(m => {
@@ -13385,21 +13389,19 @@
       if (!panel) return;
       const willOpen = (panel.style.display === 'none' || !panel.style.display);
       if (willOpen) {
-        // Panel is position:fixed so it escapes the filter bar's overflow clipping.
-        // Anchor it to the trigger button each time it opens.
-        const wrap = panel.closest('.etv-ms');
-        const btn  = wrap && wrap.querySelector('.etv-ms-btn');
+        // The filter bar (and its ancestors) use overflow + transforms, which both
+        // clip and offset a position:fixed child. Reparent the panel to <body> so it
+        // is positioned relative to the viewport, then anchor it to its trigger button.
+        const btn = document.querySelector('.etv-ms[data-key="' + key + '"] .etv-ms-btn');
+        if (panel.parentElement !== document.body) document.body.appendChild(panel);
+        panel.style.display = 'block'; // show first so we can measure width
         if (btn) {
           const r = btn.getBoundingClientRect();
-          panel.style.display = 'block'; // show first so we can measure height
           const panelW = panel.offsetWidth || 180;
           let left = r.left;
-          // keep panel within viewport horizontally
           if (left + panelW > window.innerWidth - 8) left = Math.max(8, window.innerWidth - panelW - 8);
           panel.style.left = left + 'px';
           panel.style.top  = (r.bottom + 4) + 'px';
-        } else {
-          panel.style.display = 'block';
         }
       } else {
         panel.style.display = 'none';
@@ -13434,7 +13436,8 @@
     if (!window._etvMsOutsideBound) {
       window._etvMsOutsideBound = true;
       document.addEventListener('click', function (e) {
-        if (!e.target.closest('.etv-ms')) {
+        // panels may be reparented to <body>, so allow clicks inside a panel too
+        if (!e.target.closest('.etv-ms') && !e.target.closest('.etv-ms-panel')) {
           document.querySelectorAll('.etv-ms-panel').forEach(p => p.style.display = 'none');
         }
       });
