@@ -12693,10 +12693,8 @@
       .etv-ms-btn .etv-ms-count { color: #2563eb; font-weight: 800; }
       .etv-ms-btn .bi-chevron-down { font-size: .6rem; opacity: .6; }
       .etv-ms-panel {
-        position: absolute;
-        top: calc(100% + 4px);
-        left: 0;
-        z-index: 1200;
+        position: fixed;
+        z-index: 4000;
         min-width: 180px;
         max-height: 320px;
         overflow-y: auto;
@@ -13384,7 +13382,28 @@
         if (p.id !== 'etv-ms-panel-' + key) p.style.display = 'none';
       });
       const panel = document.getElementById('etv-ms-panel-' + key);
-      if (panel) panel.style.display = (panel.style.display === 'none' || !panel.style.display) ? 'block' : 'none';
+      if (!panel) return;
+      const willOpen = (panel.style.display === 'none' || !panel.style.display);
+      if (willOpen) {
+        // Panel is position:fixed so it escapes the filter bar's overflow clipping.
+        // Anchor it to the trigger button each time it opens.
+        const wrap = panel.closest('.etv-ms');
+        const btn  = wrap && wrap.querySelector('.etv-ms-btn');
+        if (btn) {
+          const r = btn.getBoundingClientRect();
+          panel.style.display = 'block'; // show first so we can measure height
+          const panelW = panel.offsetWidth || 180;
+          let left = r.left;
+          // keep panel within viewport horizontally
+          if (left + panelW > window.innerWidth - 8) left = Math.max(8, window.innerWidth - panelW - 8);
+          panel.style.left = left + 'px';
+          panel.style.top  = (r.bottom + 4) + 'px';
+        } else {
+          panel.style.display = 'block';
+        }
+      } else {
+        panel.style.display = 'none';
+      }
     };
 
     window.etvMsAll = function (key, checked) {
