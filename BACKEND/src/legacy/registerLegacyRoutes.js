@@ -10605,6 +10605,89 @@ app.post('/api/planning/reseq', async (req, res) => {
   }
 });
 
+/* ── Cycle-time prediction (light statistical "ML") ───────────────────────
+   Learns the REALISTIC achieved cycle time per mould (and per mould+machine)
+   from historical dpr_hourly runs, recency-weighted so recent runs count more.
+   Used by the planning Excel view to estimate realistic output vs the standard.
+
+   Per hour-slot row: effective_seconds = (60 - downtime_min) * 60, and the
+   actual cycle = effective_seconds / shots. We recency-weight by date
+   (half-life ~30 days) and discard out-of-range cycles as noise. */
+app.get('/api/planning/cycle-prediction', async (req, res) => {
+  try {
+    const days = Math.min(730, Math.max(7, parseInt(req.query.days, 10) || 120));
+
+    // Shared CTE: per-row actual cycle + recency weight, filtered to sane values.
+    const baseCte = `
+      WITH calc AS (
+        SELECT
+          NULLIF(TRIM(h.mould_no), '')           AS mould_no,
+          NULLIF(TRIM(h.machine), '')            AS machine,
+          h.dpr_date,
+          h.shots,
+          h.good_qty,
+          h.reject_qty,
+          (GREATEST(0, 60 - COALESCE(h.downtime_min, 0)) * 60.0) / NULLIF(h.shots, 0) AS act_cycle,
+          EXP( - GREATEST(0, (CURRENT_DATE - h.dpr_date)) / 30.0 ) AS w
+        FROM dpr_hourly h
+        WHERE COALESCE(h.is_deleted, false) = false
+          AND COALESCE(h.entry_type, 'MAIN') ILIKE 'main'
+          AND h.shots > 0
+          AND NULLIF(TRIM(h.mould_no), '') IS NOT NULL
+          AND h.dpr_date >= (CURRENT_DATE - $1::int)
+      ),
+      filt AS (
+        SELECT * FROM calc WHERE act_cycle BETWEEN 1 AND 1800
+      )`;
+
+    const pairSql = baseCte + `
+      SELECT mould_no, machine,
+             COUNT(*)                                   AS n,
+             SUM(act_cycle * w) / NULLIF(SUM(w), 0)     AS pred_cycle,
+             SUM(good_qty)::numeric / NULLIF(SUM(shots), 0) AS good_per_shot,
+             SUM(reject_qty)::numeric / NULLIF(SUM(good_qty + reject_qty), 0) AS reject_rate
+      FROM filt
+      WHERE machine IS NOT NULL
+      GROUP BY mould_no, machine
+      HAVING COUNT(*) >= 2`;
+
+    const mouldSql = baseCte + `
+      SELECT mould_no,
+             COUNT(*)                                   AS n,
+             SUM(act_cycle * w) / NULLIF(SUM(w), 0)     AS pred_cycle,
+             SUM(good_qty)::numeric / NULLIF(SUM(shots), 0) AS good_per_shot,
+             SUM(reject_qty)::numeric / NULLIF(SUM(good_qty + reject_qty), 0) AS reject_rate
+      FROM filt
+      GROUP BY mould_no
+      HAVING COUNT(*) >= 3`;
+
+    const [pairs, moulds] = await Promise.all([ q(pairSql, [days]), q(mouldSql, [days]) ]);
+
+    const shape = (r) => {
+      const cyc = Number(r.pred_cycle) || 0;
+      const gps = Number(r.good_per_shot) || 0;
+      const predPcsHr = cyc > 0 ? (3600 / cyc) * gps : 0;
+      const n = Number(r.n) || 0;
+      const confidence = n >= 12 ? 'high' : (n >= 5 ? 'medium' : 'low');
+      return {
+        mouldNo: r.mould_no,
+        machine: r.machine || null,
+        n,
+        predCycle: Math.round(cyc * 10) / 10,
+        goodPerShot: Math.round(gps * 100) / 100,
+        predPcsHr: Math.round(predPcsHr),
+        rejectRate: Math.round((Number(r.reject_rate) || 0) * 1000) / 10, // percent, 1 dp
+        confidence
+      };
+    };
+
+    res.json({ ok: true, days, byPair: pairs.map(shape), byMould: moulds.map(shape) });
+  } catch (e) {
+    console.error('cycle-prediction', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 
 
 // POST /api/planning/delete
