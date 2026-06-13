@@ -12595,6 +12595,58 @@
       }
       #etv-filters .etv-row { display: flex; align-items: center; gap: 8px; }
       #etv-filters .etv-row-title { justify-content: space-between; }
+
+      /* Smart Suggestions button */
+      #etv-smart-btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 12px; border-radius: 8px; border: none; cursor: pointer;
+        font-size: .72rem; font-weight: 800; letter-spacing: .03em; color: #fff;
+        background: linear-gradient(90deg, #7c3aed 0%, #2563eb 100%);
+        box-shadow: 0 2px 6px rgba(124,58,237,.25); transition: filter .15s, transform .1s;
+      }
+      #etv-smart-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+      #etv-smart-btn:active { transform: translateY(0); }
+      #etv-smart-badge {
+        background: #fff; color: #7c3aed; border-radius: 10px;
+        font-size: .62rem; font-weight: 900; padding: 1px 7px; margin-left: 2px;
+      }
+
+      /* Smart Suggestions overlay */
+      #etv-suggest-overlay {
+        position: fixed; inset: 0; z-index: 6000; background: rgba(15,23,42,.45);
+        display: flex; align-items: flex-start; justify-content: center; padding: 5vh 16px;
+      }
+      #etv-suggest-modal {
+        background: #fff; width: 100%; max-width: 640px; max-height: 86vh; overflow: hidden;
+        border-radius: 14px; box-shadow: 0 20px 60px rgba(15,23,42,.35);
+        display: flex; flex-direction: column;
+      }
+      .etv-sg-head {
+        padding: 14px 18px; background: linear-gradient(90deg, #7c3aed 0%, #2563eb 100%); color: #fff;
+        display: flex; align-items: center; justify-content: space-between;
+      }
+      .etv-sg-head h3 { margin: 0; font-size: .98rem; font-weight: 900; letter-spacing: .03em; display:flex; align-items:center; gap:8px; }
+      .etv-sg-head button { background: rgba(255,255,255,.2); border: none; color: #fff; width: 28px; height: 28px; border-radius: 7px; cursor: pointer; font-size: 1rem; font-weight: 800; }
+      .etv-sg-sub { padding: 10px 18px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; font-size: .76rem; color: #475569; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+      .etv-sg-body { padding: 12px 16px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+      .etv-sg-card {
+        border: 1px solid #e2e8f0; border-left: 4px solid #7c3aed; border-radius: 10px; padding: 11px 13px;
+        display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; background: #fff;
+      }
+      .etv-sg-card.cross { border-left-color: #2563eb; }
+      .etv-sg-card.reorder { border-left-color: #f59e0b; }
+      .etv-sg-card .sg-txt { flex: 1; min-width: 0; }
+      .etv-sg-card .sg-mould { font-weight: 800; color: #1e293b; font-size: .82rem; }
+      .etv-sg-card .sg-detail { font-size: .73rem; color: #475569; margin-top: 3px; line-height: 1.4; }
+      .etv-sg-card .sg-save { display:inline-block; margin-top:5px; font-size: .66rem; font-weight: 800; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 1px 7px; border-radius: 6px; }
+      .etv-sg-apply { flex-shrink: 0; align-self: center; padding: 6px 13px; border-radius: 7px; border: none; cursor: pointer; font-size: .72rem; font-weight: 800; color: #fff; background: #2563eb; }
+      .etv-sg-apply:hover { filter: brightness(1.08); }
+      .etv-sg-apply:disabled { opacity: .5; cursor: default; }
+      .etv-sg-foot { padding: 12px 18px; border-top: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; gap: 10px; background:#f8fafc; }
+      .etv-sg-applyall { padding: 8px 18px; border-radius: 8px; border: none; cursor: pointer; font-size: .78rem; font-weight: 800; color: #fff; background: linear-gradient(90deg, #7c3aed 0%, #2563eb 100%); }
+      .etv-sg-applyall:hover { filter: brightness(1.08); }
+      .etv-sg-empty { padding: 30px 18px; text-align: center; color: #16a34a; font-weight: 700; font-size: .88rem; }
+      .etv-sg-empty i { font-size: 2rem; display: block; margin-bottom: 8px; }
       #etv-filters .etv-row-filters { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
       #etv-filters .etv-row-filters::-webkit-scrollbar { height: 0; }
       #etv-filters .etv-title {
@@ -13251,7 +13303,13 @@
           <div id="etv-filters">
             <div class="etv-row etv-row-title">
               <div class="etv-title"><i class="bi bi-grid-3x3-gap-fill"></i> Excel View Timeline</div>
-              <div id="etv-count">0 machines</div>
+              <div style="display:flex;align-items:center;gap:12px">
+                <button id="etv-smart-btn" type="button" onclick="window.etvSmartSuggest()" title="Find ways to reduce mould changes by grouping the same mould together">
+                  <i class="bi bi-stars"></i> Smart Suggestions
+                  <span id="etv-smart-badge" style="display:none"></span>
+                </button>
+                <div id="etv-count">0 machines</div>
+              </div>
             </div>
 
             <div class="etv-row etv-row-filters">
@@ -13316,6 +13374,7 @@
       }
 
       window.etvFilter();
+      if (typeof window.etvUpdateSmartBadge === 'function') window.etvUpdateSmartBadge();
     }
 
     /* ── Filter ──────────────────────────────────────────────────────── */
@@ -13660,6 +13719,258 @@
     window.etvMachineClick = function (code) {
       const inp = document.getElementById('etv-search');
       if (inp) { inp.value = code; window.etvFilter(); }
+    };
+
+    /* ── Smart Suggestions: mould-consolidation engine ───────────────────
+       Goal: reduce unnecessary mould changes by grouping the SAME mould
+       together. Two opportunity types:
+         (1) cross   — same mould running/planned on machine A AND planned on
+                       machine B → move B's plan onto A (next to A's block).
+         (2) reorder — same mould appears non-adjacent on ONE machine → reorder
+                       so the duplicates sit together.
+       Constraints: never move a RUNNING plan; enforce tonnage compatibility
+       (only consolidate onto a machine of the same tonnage class).            */
+
+    const etvPlanId = p => String((p && (p.id || p.planId || p.plan_id)) || '').trim();
+    const etvIsRunning = p => String((p && p.status) || '').toLowerCase() === 'running';
+    const etvMachByCode = code => etvMachines.find(m => m.code === code) || null;
+    const etvTon = code => { const m = etvMachByCode(code); return m ? String(m._tonnage || '').trim() : ''; };
+
+    function etvBuildSuggestions() {
+      const suggestions = [];
+      const codes = Object.keys(etvGroups);
+
+      /* index: mouldKey -> [{ code, idx, plan, running }] (skip blanks) */
+      const index = {};
+      codes.forEach(code => {
+        (etvGroups[code] || []).forEach((p, idx) => {
+          const k = mouldKey(p);
+          if (!k || k === '-') return;
+          (index[k] = index[k] || []).push({ code, idx, plan: p, running: etvIsRunning(p) });
+        });
+      });
+
+      /* (1) CROSS-MACHINE consolidation */
+      Object.keys(index).forEach(k => {
+        const occ = index[k];
+        const machinesWith = [...new Set(occ.map(o => o.code))];
+        if (machinesWith.length < 2) return;
+
+        /* anchor = machine that is RUNNING this mould (preferred), else the one
+           with the earliest/most occurrences */
+        let anchor = occ.find(o => o.running)?.code;
+        if (!anchor) {
+          const counts = {};
+          occ.forEach(o => counts[o.code] = (counts[o.code] || 0) + 1);
+          anchor = machinesWith.sort((a, b) => (counts[b] - counts[a]))[0];
+        }
+        const anchorTon = etvTon(anchor);
+
+        machinesWith.filter(c => c !== anchor).forEach(srcCode => {
+          /* only move PLANNED (non-running) occurrences from the source machine */
+          const movable = occ.filter(o => o.code === srcCode && !o.running);
+          if (!movable.length) return;
+          /* enforce tonnage: source machine class must match the anchor class */
+          if (anchorTon && etvTon(srcCode) && etvTon(srcCode) !== anchorTon) return;
+
+          movable.forEach(o => {
+            const pid = etvPlanId(o.plan);
+            if (!pid) return;
+            /* drop right after the anchor's same-mould block so it sits adjacent */
+            const anchorPlans = etvGroups[anchor] || [];
+            let afterIdx = -1;
+            for (let i = 0; i < anchorPlans.length; i++) { if (mouldKey(anchorPlans[i]) === k) afterIdx = i; }
+            const dropBeforePlan = (afterIdx >= 0 && anchorPlans[afterIdx + 1]) ? anchorPlans[afterIdx + 1] : null;
+            suggestions.push({
+              type: 'cross',
+              mould: o.plan.mouldName || o.plan.mouldNo || k,
+              fromCode: srcCode,
+              toCode: anchor,
+              rowId: pid,
+              targetMachine: (anchorPlans[0] && anchorPlans[0].machine) || anchor,
+              dropBeforeId: dropBeforePlan ? etvPlanId(dropBeforePlan) : null,
+              order: o.plan.orderNo || '',
+              saved: 1,
+              reason: `Mould "${o.plan.mouldName || o.plan.mouldNo || k}" is already on ${stripMachPfx(anchor)} but also planned on ${stripMachPfx(srcCode)}. Move it onto ${stripMachPfx(anchor)} to avoid a separate setup.`
+            });
+          });
+        });
+      });
+
+      /* (2) SAME-MACHINE non-adjacent reorder */
+      codes.forEach(code => {
+        const plans = etvGroups[code] || [];
+        if (plans.length < 3) return;
+        const seen = {};       // mouldKey -> first index
+        let hasGap = false;
+        plans.forEach((p, i) => {
+          const k = mouldKey(p); if (!k || k === '-') return;
+          if (seen[k] === undefined) seen[k] = i;
+          else if (i > seen[k] + 1) hasGap = true; // duplicate not adjacent to its group
+        });
+        if (!hasGap) return;
+
+        /* Build a grouped order: keep first appearance order of each mould, but
+           pull every later duplicate up next to its group. Running stays first. */
+        const runningIds = plans.filter(etvIsRunning).map(etvPlanId);
+        const groupsOrder = [];          // mouldKeys in first-seen order
+        const buckets = {};              // mouldKey -> [plans]
+        plans.forEach(p => {
+          const k = mouldKey(p);
+          if (!buckets[k]) { buckets[k] = []; groupsOrder.push(k); }
+          buckets[k].push(p);
+        });
+        const orderedIds = [];
+        groupsOrder.forEach(k => buckets[k].forEach(p => orderedIds.push(etvPlanId(p))));
+        /* ensure running plans remain at the very front */
+        const finalIds = [...runningIds, ...orderedIds.filter(id => !runningIds.includes(id))];
+
+        /* count how many adjacency-breaks we fix */
+        let saved = 0;
+        plans.forEach((p, i) => { if (i > 0 && mouldKey(p) !== mouldKey(plans[i - 1])) saved++; });
+        let savedAfter = 0;
+        finalIds.forEach((id, i) => {
+          if (i === 0) return;
+          const a = plans.find(p => etvPlanId(p) === finalIds[i - 1]);
+          const b = plans.find(p => etvPlanId(p) === id);
+          if (a && b && mouldKey(a) !== mouldKey(b)) savedAfter++;
+        });
+        const delta = saved - savedAfter;
+        if (delta <= 0) return;
+
+        suggestions.push({
+          type: 'reorder',
+          mould: '',
+          toCode: code,
+          machine: (plans[0] && plans[0].machine) || code,
+          orderedIds: finalIds,
+          saved: delta,
+          reason: `On ${stripMachPfx(code)}, the same mould is planned in non-adjacent slots. Re-group them to remove ${delta} extra mould change${delta > 1 ? 's' : ''}.`
+        });
+      });
+
+      /* highest savings first */
+      suggestions.sort((a, b) => (b.saved - a.saved));
+      return suggestions;
+    }
+
+    /* ── Smart Suggestions: panel ──────────────────────────────────────── */
+    window.etvSmartSuggest = function () {
+      const list = etvBuildSuggestions();
+      window._etvSuggestions = list;
+
+      const cards = list.map((s, i) => {
+        const cls = s.type === 'cross' ? 'cross' : 'reorder';
+        const title = s.type === 'cross'
+          ? `Move "${esc(s.mould)}" → ${esc(stripMachPfx(s.toCode))}`
+          : `Re-group moulds on ${esc(stripMachPfx(s.toCode))}`;
+        return `
+          <div class="etv-sg-card ${cls}" id="etv-sg-card-${i}">
+            <div class="sg-txt">
+              <div class="sg-mould">${title}</div>
+              <div class="sg-detail">${esc(s.reason)}</div>
+              <span class="sg-save"><i class="bi bi-arrow-down-circle"></i> Saves ${s.saved} mould change${s.saved > 1 ? 's' : ''}</span>
+            </div>
+            <button class="etv-sg-apply" onclick="window.etvApplySuggestion(${i}, this)">Apply</button>
+          </div>`;
+      }).join('');
+
+      const body = list.length
+        ? cards
+        : `<div class="etv-sg-empty"><i class="bi bi-check2-circle"></i>Your plan is already optimal — no mould changes to reduce right now.</div>`;
+
+      const totalSaved = list.reduce((s, x) => s + (x.saved || 0), 0);
+
+      const html = `
+        <div id="etv-suggest-overlay" onclick="if(event.target===this)window.etvCloseSuggest()">
+          <div id="etv-suggest-modal">
+            <div class="etv-sg-head">
+              <h3><i class="bi bi-stars"></i> Smart Suggestions</h3>
+              <button onclick="window.etvCloseSuggest()" title="Close">&times;</button>
+            </div>
+            <div class="etv-sg-sub">
+              <span><strong>${list.length}</strong> suggestion${list.length === 1 ? '' : 's'} found</span>
+              ${list.length ? `<span style="color:#047857;font-weight:800">Total: ${totalSaved} mould change${totalSaved === 1 ? '' : 's'} saved</span>` : ''}
+            </div>
+            <div class="etv-sg-body" id="etv-sg-body">${body}</div>
+            ${list.length ? `
+              <div class="etv-sg-foot">
+                <span style="font-size:.72rem;color:#64748b">Applying changes the live plan and re-sequences machines.</span>
+                <button class="etv-sg-applyall" onclick="window.etvApplyAll(this)"><i class="bi bi-shuffle"></i> Apply All (Shuffle)</button>
+              </div>` : ''}
+          </div>
+        </div>`;
+
+      const old = document.getElementById('etv-suggest-overlay');
+      if (old) old.remove();
+      document.body.insertAdjacentHTML('beforeend', html);
+    };
+
+    window.etvCloseSuggest = function () {
+      const o = document.getElementById('etv-suggest-overlay');
+      if (o) o.remove();
+    };
+
+    /* update the count badge on the Smart Suggestions button */
+    window.etvUpdateSmartBadge = function () {
+      const badge = document.getElementById('etv-smart-badge');
+      if (!badge) return;
+      try {
+        const n = etvBuildSuggestions().length;
+        if (n > 0) { badge.textContent = n; badge.style.display = 'inline-block'; }
+        else { badge.style.display = 'none'; }
+      } catch (e) { badge.style.display = 'none'; }
+    };
+
+    /* perform ONE suggestion's API call (no reload) */
+    async function etvDoSuggestion(s) {
+      const api = getApi();
+      if (s.type === 'cross') {
+        return api.post('/planning/move', { rowId: s.rowId, targetMachine: s.targetMachine, dropBeforeId: s.dropBeforeId || null });
+      }
+      return api.post('/planning/reseq', { machine: s.machine, orderedIds: s.orderedIds });
+    }
+
+    window.etvApplySuggestion = async function (i, btn) {
+      const s = (window._etvSuggestions || [])[i];
+      if (!s) return;
+      if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+      try {
+        const res = await etvDoSuggestion(s);
+        if (res && res.ok) {
+          if (btn) { btn.textContent = 'Done ✓'; btn.style.background = '#16a34a'; }
+          const card = document.getElementById('etv-sg-card-' + i);
+          if (card) card.style.opacity = '.5';
+          // reload the timeline data so subsequent suggestions stay valid
+          if (typeof window.loadExcelTimeline === 'function') window.loadExcelTimeline();
+        } else {
+          if (btn) { btn.disabled = false; btn.textContent = 'Apply'; }
+          alert('Could not apply: ' + ((res && res.error) || 'unknown error'));
+        }
+      } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Apply'; }
+        alert('Request failed: ' + e.message);
+      }
+    };
+
+    window.etvApplyAll = async function (btn) {
+      const list = window._etvSuggestions || [];
+      if (!list.length) return;
+      if (!confirm('Apply all ' + list.length + ' suggestions? This will move and re-sequence plans.')) return;
+      if (btn) { btn.disabled = true; btn.innerHTML = 'Applying…'; }
+      let okCount = 0, failCount = 0;
+      /* apply sequentially; skip ones whose plan id no longer exists is handled server-side */
+      for (const s of list) {
+        try { const res = await etvDoSuggestion(s); if (res && res.ok) okCount++; else failCount++; }
+        catch (e) { failCount++; }
+      }
+      window.etvCloseSuggest();
+      if (typeof window.loadExcelTimeline === 'function') window.loadExcelTimeline();
+      if (window.JPSMS && window.JPSMS.toast) {
+        window.JPSMS.toast(`Applied ${okCount} suggestion${okCount === 1 ? '' : 's'}${failCount ? ', ' + failCount + ' skipped' : ''}.`);
+      } else {
+        alert(`Applied ${okCount} suggestion(s).` + (failCount ? ` ${failCount} skipped.` : ''));
+      }
     };
 
   })();

@@ -10511,8 +10511,12 @@ app.post('/api/planning/move', async (req, res) => {
       [targetMachine, rowId]
     );
 
-    // B. Determine Insert Index - Always append to the very end (Comes In Last)
+    // B. Determine Insert Index - honor dropBeforeId when provided, else append to end
     let insertIdx = allPlans.length;
+    if (dropBeforeId) {
+      const di = allPlans.findIndex(p => String(p.id) === String(dropBeforeId));
+      if (di !== -1) insertIdx = di;
+    }
 
     // C. Insert Moved Plan
     allPlans.splice(insertIdx, 0, { id: rowId });
@@ -10548,6 +10552,44 @@ app.post('/api/planning/move', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('planning/move', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/planning/reseq
+// Body: { machine, orderedIds: [planId, ...] }
+// Re-sequences the given machine's plans into the supplied order (status untouched).
+app.post('/api/planning/reseq', async (req, res) => {
+  try {
+    let { machine, orderedIds } = req.body || {};
+    if (!machine || !Array.isArray(orderedIds) || !orderedIds.length) {
+      return res.json({ ok: false, error: 'Missing machine or orderedIds' });
+    }
+
+    // Normalize machine name to canonical master value
+    const mn = await q('SELECT machine FROM machines WHERE TRIM(LOWER(machine)) = TRIM(LOWER($1)) LIMIT 1', [machine]);
+    if (mn.length) machine = mn[0].machine;
+
+    // Only reseq ids that actually belong to this machine
+    const existing = await q('SELECT id FROM plan_board WHERE machine = $1', [machine]);
+    const valid = new Set(existing.map(r => String(r.id)));
+    const finalOrder = orderedIds.map(String).filter(id => valid.has(id));
+    // Append any machine plans missing from the supplied order (safety, keeps them queued)
+    existing.forEach(r => { if (!finalOrder.includes(String(r.id))) finalOrder.push(String(r.id)); });
+
+    for (let i = 0; i < finalOrder.length; i++) {
+      await q('UPDATE plan_board SET seq = $1, updated_at = NOW() WHERE id = $2', [(i + 1) * 10, finalOrder[i]]);
+    }
+
+    await q(
+      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'RESEQ', $2, 'System')",
+      [finalOrder[0] || null, JSON.stringify({ machine, order: finalOrder })]
+    );
+
+    syncService.triggerSync();
+    res.json({ ok: true, count: finalOrder.length });
+  } catch (e) {
+    console.error('planning/reseq', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
