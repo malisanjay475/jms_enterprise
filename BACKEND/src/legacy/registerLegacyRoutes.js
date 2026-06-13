@@ -10560,37 +10560,48 @@ app.post('/api/planning/move', async (req, res) => {
 // Body: { machine, orderedIds: [planId, ...] }
 // Re-sequences the given machine's plans into the supplied order (status untouched).
 app.post('/api/planning/reseq', async (req, res) => {
+  let { machine, orderedIds } = req.body || {};
+  if (!machine || !Array.isArray(orderedIds) || !orderedIds.length) {
+    return res.json({ ok: false, error: 'Missing machine or orderedIds' });
+  }
+
+  const client = await pool.connect();
   try {
-    let { machine, orderedIds } = req.body || {};
-    if (!machine || !Array.isArray(orderedIds) || !orderedIds.length) {
-      return res.json({ ok: false, error: 'Missing machine or orderedIds' });
-    }
+    await client.query('BEGIN');
 
     // Normalize machine name to canonical master value
-    const mn = await q('SELECT machine FROM machines WHERE TRIM(LOWER(machine)) = TRIM(LOWER($1)) LIMIT 1', [machine]);
-    if (mn.length) machine = mn[0].machine;
+    const mn = await client.query('SELECT machine FROM machines WHERE TRIM(LOWER(machine)) = TRIM(LOWER($1)) LIMIT 1', [machine]);
+    if (mn.rows.length) machine = mn.rows[0].machine;
 
-    // Only reseq ids that actually belong to this machine
-    const existing = await q('SELECT id FROM plan_board WHERE machine = $1', [machine]);
-    const valid = new Set(existing.map(r => String(r.id)));
+    // Only reseq ids that actually belong to this machine.
+    // ORDER BY keeps a deterministic order when appending "missing" ids below.
+    const existing = await client.query(
+      'SELECT id FROM plan_board WHERE machine = $1 ORDER BY COALESCE(seq, 999999) ASC, id ASC',
+      [machine]
+    );
+    const valid = new Set(existing.rows.map(r => String(r.id)));
     const finalOrder = orderedIds.map(String).filter(id => valid.has(id));
     // Append any machine plans missing from the supplied order (safety, keeps them queued)
-    existing.forEach(r => { if (!finalOrder.includes(String(r.id))) finalOrder.push(String(r.id)); });
+    existing.rows.forEach(r => { if (!finalOrder.includes(String(r.id))) finalOrder.push(String(r.id)); });
 
     for (let i = 0; i < finalOrder.length; i++) {
-      await q('UPDATE plan_board SET seq = $1, updated_at = NOW() WHERE id = $2', [(i + 1) * 10, finalOrder[i]]);
+      await client.query('UPDATE plan_board SET seq = $1, updated_at = NOW() WHERE id = $2', [(i + 1) * 10, finalOrder[i]]);
     }
 
-    await q(
+    await client.query(
       "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'RESEQ', $2, 'System')",
       [finalOrder[0] || null, JSON.stringify({ machine, order: finalOrder })]
     );
 
+    await client.query('COMMIT');
     syncService.triggerSync();
     res.json({ ok: true, count: finalOrder.length });
   } catch (e) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
     console.error('planning/reseq', e);
     res.status(500).json({ ok: false, error: String(e) });
+  } finally {
+    client.release();
   }
 });
 
