@@ -1253,11 +1253,12 @@
                                         const borderLeft = isHighJC && isFirstMouldInMachine ? `border-left:8px solid ${jcColor};` : '';
 
                                         machineRowHtml += `<tr style="${isFirstMouldInMachine ? 'border-top:2px solid #cbd5e1' : ''}">
-                                                                <td style="padding:10px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:${cellBg}; ${borderLeft} position:sticky; left:0; z-index:5; vertical-align:top; min-width:220px">${machineHtml}${mouldDisplay}</td>
+                                                                <td style="padding:10px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:${cellBg}; ${borderLeft} position:sticky; left:0; z-index:5; vertical-align:top; min-width:220px">${machineHtml}${mouldDisplay}<!--ROWCLEAR--></td>
                                                                 <td style="padding:10px 4px; text-align:center; border-right:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; background:#fff; position:sticky; left:220px; z-index:5; vertical-align:middle; min-width:45px">${stdDisplay}</td>`;
                                         // C. Slots Iteration
                                         let activeOverrideStatus = '';
                                         let skipRemainingSlots = false;
+                                        let rowQuickIds = []; // quick-action entry ids in this machine row (for superadmin row-clear)
 
                                         // Identify Active Mould Index for each slot to handle Transitions & Blocking Perfectly
                                         const activeMouldBySlot = Array(slots.length).fill(0);
@@ -1323,6 +1324,7 @@
 
                                             // 1. Detect OVERRIDES in this slot
                                             let overrideTriggeredThisSlot = false;
+                                            let overrideEntryId = null; // id of the quick-action entry in this slot (for superadmin delete)
 
                                              // Check purely special Entry Types (Quick Actions)
                                              const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial', 'PowerCut'].includes(e.entry_type));
@@ -1336,19 +1338,20 @@
                                                  else if (spEntry.entry_type === 'NoPlan') activeOverrideStatus = 'NO PLAN';
                                                  else if (spEntry.entry_type === 'MouldTrial') activeOverrideStatus = 'MOULD TRIAL';
                                                  else if (spEntry.entry_type === 'PowerCut') activeOverrideStatus = '⚡ POWER CUT';
+                                                 overrideEntryId = spEntry.id || null;
                                                  overrideTriggeredThisSlot = true;
                                              } else {
                                                 // Check manually entered Main types where downtime is >= 45m and 0 production
                                                 const dEntry = entries.find(e => e.entry_type === 'Main' && Number(e.downtime_min) >= 45 && Number(e.good_qty || 0) === 0);
                                                 if (dEntry) {
                                                     const brk = typeof dEntry.downtime_breakup === 'string' ? {} : (dEntry.downtime_breakup || {});
-                                                     if (brk['1']) { activeOverrideStatus = 'Man Power Shortage'; overrideTriggeredThisSlot = true; }
-                                                     else if (brk['2']) { activeOverrideStatus = 'Mould Changeover'; overrideTriggeredThisSlot = true; }
-                                                     else if (brk['5']) { activeOverrideStatus = '🏭 Machine Maintenance'; overrideTriggeredThisSlot = true; }
-                                                     else if (brk['7']) { activeOverrideStatus = 'MOULD MAINT'; overrideTriggeredThisSlot = true; }
-                                                     else if (brk['8']) { activeOverrideStatus = '⚡ POWER CUT'; overrideTriggeredThisSlot = true; }
-                                                     else if (brk['11']) { activeOverrideStatus = 'MOULD TRIAL'; overrideTriggeredThisSlot = true; }
-                                                     else if (brk['13']) { activeOverrideStatus = 'NO PLAN'; overrideTriggeredThisSlot = true; }
+                                                     if (brk['1']) { activeOverrideStatus = 'Man Power Shortage'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
+                                                     else if (brk['2']) { activeOverrideStatus = 'Mould Changeover'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
+                                                     else if (brk['5']) { activeOverrideStatus = '🏭 Machine Maintenance'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
+                                                     else if (brk['7']) { activeOverrideStatus = 'MOULD MAINT'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
+                                                     else if (brk['8']) { activeOverrideStatus = '⚡ POWER CUT'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
+                                                     else if (brk['11']) { activeOverrideStatus = 'MOULD TRIAL'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
+                                                     else if (brk['13']) { activeOverrideStatus = 'NO PLAN'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
                                                  }
                                              }
 
@@ -1372,6 +1375,12 @@
                                                  else if (activeOverrideStatus === 'MOULD TRIAL') { bg = '#f5f3ff'; border = '1px solid #ddd6fe'; content = `<div style="color:#7c3aed; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
                                                  else if (activeOverrideStatus === '⚡ POWER CUT') { bg = '#eff6ff'; border = '1px solid #bfdbfe'; content = `<div style="color:#1e40af; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
                                                  else { bg = '#fee2e2'; border = '1px solid #fca5a5'; content = `<div style="color:#b91c1c; font-weight:700; font-size:0.75rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
+
+                                                 // Superadmin-only per-cell delete (×) for this quick-action entry
+                                                 if (overrideEntryId) rowQuickIds.push(overrideEntryId);
+                                                 if (overrideEntryId && window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isSuperadmin && window.JPSMS.auth.isSuperadmin()) {
+                                                     content += `<button title="Delete this quick-action entry" onclick="event.stopPropagation(); deleteQuickEntry(${overrideEntryId}, this)" style="position:absolute; top:1px; right:1px; width:16px; height:16px; line-height:14px; padding:0; border:none; border-radius:50%; background:rgba(0,0,0,0.35); color:#fff; font-size:0.7rem; font-weight:800; cursor:pointer; z-index:5">×</button>`;
+                                                 }
 
                                             } else if (entries.length > 0) {
                                                 // Updated: Iterate all entries to show stacked visual
@@ -1754,6 +1763,14 @@
                                         machineEst += estPcs;
 
                                         machineRowHtml += `<td style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${summaryH}</td></tr>`;
+
+                                        // Superadmin-only row-level "clear quick entries" button (replaces this row's placeholder)
+                                        const _uniqQuickIds = Array.from(new Set(rowQuickIds));
+                                        const _isSuper = !!(window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isSuperadmin && window.JPSMS.auth.isSuperadmin());
+                                        const _rowClearBtn = (_uniqQuickIds.length && _isSuper)
+                                            ? `<button title="Delete all quick-action entries in this row" onclick="event.stopPropagation(); clearRowQuickEntries([${_uniqQuickIds.join(',')}], this)" style="display:inline-block; margin-top:6px; padding:2px 8px; border:1px solid #fca5a5; border-radius:4px; background:#fef2f2; color:#b91c1c; font-size:0.6rem; font-weight:700; cursor:pointer">🗑 Clear ${_uniqQuickIds.length} quick</button>`
+                                            : '';
+                                        machineRowHtml = machineRowHtml.replace('<!--ROWCLEAR-->', _rowClearBtn);
                                     }); // End distinctMoulds loop (Rows)
                                 }); // End shiftsToRender loop
 
@@ -2464,6 +2481,56 @@
                 }
             } catch (e) {
                 alert('Request Failed: ' + e.message);
+            }
+        };
+
+        // Superadmin-only: delete a single quick-action entry from the hourly grid cell
+        window.deleteQuickEntry = async (id, btn) => {
+            if (!window.JPSMS.auth.isSuperadmin || !window.JPSMS.auth.isSuperadmin()) {
+                alert('Superadmin access required.');
+                return;
+            }
+            if (!confirm('Delete this quick-action entry?')) return;
+            try {
+                if (btn) btn.disabled = true;
+                const res = await window.JPSMS.api.post('/dpr/delete-quick', { id, session: window.JPSMS.auth.getUser() });
+                if (res.ok && res.count > 0) {
+                    const applyBtn = document.getElementById('btn-apply');
+                    if (applyBtn) applyBtn.click();
+                } else if (res.ok) {
+                    alert('Nothing deleted — this is not a quick-action entry.');
+                    if (btn) btn.disabled = false;
+                } else {
+                    alert('Error: ' + res.error);
+                    if (btn) btn.disabled = false;
+                }
+            } catch (e) {
+                alert('Request Failed: ' + e.message);
+                if (btn) btn.disabled = false;
+            }
+        };
+
+        // Superadmin-only: clear all quick-action entries in a machine row
+        window.clearRowQuickEntries = async (ids, btn) => {
+            if (!window.JPSMS.auth.isSuperadmin || !window.JPSMS.auth.isSuperadmin()) {
+                alert('Superadmin access required.');
+                return;
+            }
+            if (!Array.isArray(ids) || !ids.length) return;
+            if (!confirm('Delete all ' + ids.length + ' quick-action entries in this row?')) return;
+            try {
+                if (btn) btn.disabled = true;
+                const res = await window.JPSMS.api.post('/dpr/delete-quick', { ids, session: window.JPSMS.auth.getUser() });
+                if (res.ok) {
+                    const applyBtn = document.getElementById('btn-apply');
+                    if (applyBtn) applyBtn.click();
+                } else {
+                    alert('Error: ' + res.error);
+                    if (btn) btn.disabled = false;
+                }
+            } catch (e) {
+                alert('Request Failed: ' + e.message);
+                if (btn) btn.disabled = false;
             }
         };
 
