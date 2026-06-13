@@ -12587,31 +12587,33 @@
         z-index: 200;
         background: #fff;
         border-bottom: 2px solid #e8eef8;
-        padding: 8px 14px;
+        padding: 10px 14px;
         display: flex;
-        gap: 6px;
-        align-items: center;
-        flex-wrap: nowrap;
-        overflow-x: auto;
+        flex-direction: column;
+        gap: 9px;
         box-shadow: 0 2px 8px rgba(15,23,42,.06);
       }
-      #etv-filters::-webkit-scrollbar { height: 0; }
+      #etv-filters .etv-row { display: flex; align-items: center; gap: 8px; }
+      #etv-filters .etv-row-title { justify-content: space-between; }
+      #etv-filters .etv-row-filters { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+      #etv-filters .etv-row-filters::-webkit-scrollbar { height: 0; }
       #etv-filters .etv-title {
-        font-size: .68rem;
+        font-size: .8rem;
         font-weight: 900;
-        letter-spacing: .1em;
+        letter-spacing: .09em;
         text-transform: uppercase;
         color: #1d4ed8;
         white-space: nowrap;
         display: flex;
         align-items: center;
-        gap: 5px;
-        padding: 5px 11px;
+        gap: 7px;
+        padding: 6px 13px;
         background: linear-gradient(135deg,#eff6ff,#dbeafe);
         border: 1.5px solid #93c5fd;
         border-radius: 8px;
         flex-shrink: 0;
       }
+      #etv-filters .etv-title i { font-size: .92rem; }
       #etv-filters input,
       #etv-filters select {
         border: 1px solid #d4dce9;
@@ -12754,52 +12756,55 @@
 
       /* ── Building / Line group separator ── */
       .etv-group-hdr td {
-        background: linear-gradient(90deg, #1e40af 0%, #2563eb 60%, #3b82f6 100%);
+        background: linear-gradient(90deg, #1e3a8a 0%, #2563eb 100%);
         color: #fff;
-        font-size: .6rem;
+        font-size: .64rem;
         font-weight: 800;
-        letter-spacing: .14em;
+        letter-spacing: .12em;
         text-transform: uppercase;
-        padding: 5px 14px;
-        border-bottom: 1px solid #1d4ed8;
+        padding: 7px 16px;
+        border-top: 1px solid rgba(255,255,255,.12);
+        border-bottom: 2px solid #1e40af;
+        box-shadow: inset 4px 0 0 #60a5fa;
       }
 
       /* ── Sticky column header row ── */
       .etv-col-hdr th {
-        background: #f1f5fb;
-        border-bottom: 2px solid #dce4f0;
+        background: linear-gradient(180deg,#f8fafc,#eef2f9);
+        border-bottom: 2px solid #cbd5e1;
         border-right: 1px solid #e8eef8;
         padding: 0;
-        height: 40px;
+        height: 42px;
         vertical-align: middle;
         position: sticky;
         top: 0;
         z-index: 10;
       }
       .etv-col-hdr th.etv-mach-col {
-        background: #eef3fc;
+        background: linear-gradient(180deg,#eef3fc,#e2eafa);
         position: sticky;
         left: 0;
         z-index: 20;
         border-right: 2px solid #2563eb;
       }
       .etv-col-inner {
-        padding: 5px 10px;
+        padding: 5px 12px;
         display: flex;
         flex-direction: column;
-        gap: 1px;
+        gap: 2px;
       }
       .etv-col-seq-label {
-        font-size: .63rem;
+        font-size: .68rem;
         font-weight: 800;
-        letter-spacing: .06em;
+        letter-spacing: .04em;
         text-transform: uppercase;
-        color: #374151;
+        color: #1e293b;
       }
       .etv-col-seq-sub {
-        font-size: .55rem;
-        color: #9ca3af;
-        font-weight: 500;
+        font-size: .56rem;
+        color: #64748b;
+        font-weight: 600;
+        letter-spacing: .02em;
       }
 
       /* ── Frozen machine column ── */
@@ -13242,49 +13247,39 @@
 
       wrap.innerHTML = `
         <div id="etv-wrap">
-          <!-- Filter bar -->
+          <!-- Filter bar (Row 1: title, Row 2: filters) -->
           <div id="etv-filters">
-            <div class="etv-title"><i class="bi bi-grid-3x3-gap-fill"></i> Excel View Timeline</div>
-
-            <div class="etv-search-wrap">
-              <i class="bi bi-search"></i>
-              <input id="etv-search" type="text" placeholder="Search machine, order, mould, client…" oninput="window.etvFilter()">
+            <div class="etv-row etv-row-title">
+              <div class="etv-title"><i class="bi bi-grid-3x3-gap-fill"></i> Excel View Timeline</div>
+              <div id="etv-count">0 machines</div>
             </div>
 
-            <!-- Process pills -->
-            <div id="etv-proc" style="display:flex;gap:6px;flex-shrink:0;"></div>
+            <div class="etv-row etv-row-filters">
+              <div class="etv-search-wrap">
+                <i class="bi bi-search"></i>
+                <input id="etv-search" type="text" placeholder="Search machine, order, mould, client…" oninput="window.etvFilter()">
+              </div>
 
-            ${etvMsHtml('tonnage', 'Tonnage', tonOpts)}
-            ${etvMsHtml('bldg', proc === 'Moulding' ? 'Buildings' : proc, bldgOpts)}
-            ${etvMsHtml('line', 'Lines', lineOpts)}
-            <select id="etv-status" onchange="window.etvFilter()" style="min-width:130px">
-              <option value="">All Statuses</option>
-              <option value="Running">🟢 Running</option>
-              <option value="Stopped">🔴 Stopped</option>
-              <option value="Planned">🔵 Has Plans</option>
-              <option value="Empty">⬜ No Plans</option>
-              <option value="MouldChange">🟠 Mould Change</option>
-            </select>
-            <select id="etv-forecast" onchange="window.etvFilter()" style="min-width:140px;border-color:#f59e0b;color:#b45309;font-weight:700">
-              <option value="">Forecast: Off</option>
-              <option value="24">⏱ Next 24 Hours</option>
-              <option value="48">⏱ Next 48 Hours</option>
-            </select>
+              <!-- Process pills -->
+              <div id="etv-proc" style="display:flex;gap:6px;flex-shrink:0;"></div>
 
-            <button class="etv-btn" onclick="window.loadExcelTimeline()" title="Refresh">
-              <i class="bi bi-arrow-clockwise"></i> Refresh
-            </button>
-            <button class="etv-btn" onclick="window.etvReset()" title="Reset filters">
-              <i class="bi bi-x-circle"></i> Reset
-            </button>
-            <button class="etv-btn" onclick="window.switchView('timeline')" title="Switch to Machine Timeline">
-              <i class="bi bi-bar-chart-steps"></i> Timeline
-            </button>
-            <button class="etv-btn" onclick="window.switchView(null)" title="Back to Dashboard">
-              <i class="bi bi-grid-1x2"></i>
-            </button>
-
-            <div id="etv-count">0 machines</div>
+              ${etvMsHtml('tonnage', 'Tonnage', tonOpts)}
+              ${etvMsHtml('bldg', proc === 'Moulding' ? 'Buildings' : proc, bldgOpts)}
+              ${etvMsHtml('line', 'Lines', lineOpts)}
+              <select id="etv-status" onchange="window.etvFilter()" style="min-width:130px">
+                <option value="">All Statuses</option>
+                <option value="Running">🟢 Running</option>
+                <option value="Stopped">🔴 Stopped</option>
+                <option value="Planned">🔵 Has Plans</option>
+                <option value="Empty">⬜ No Plans</option>
+                <option value="MouldChange">🟠 Mould Change</option>
+              </select>
+              <select id="etv-forecast" onchange="window.etvFilter()" style="min-width:140px;border-color:#f59e0b;color:#b45309;font-weight:700">
+                <option value="">Forecast: Off</option>
+                <option value="24">⏱ Next 24 Hours</option>
+                <option value="48">⏱ Next 48 Hours</option>
+              </select>
+            </div>
           </div>
 
           <!-- Scrollable table area -->
@@ -13521,8 +13516,8 @@
         <tr class="etv-col-hdr">
           <th class="etv-mach-col">
             <div class="etv-col-inner">
-              <span style="color:#4a6080;font-size:.59rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase">MACHINE</span>
-              <span style="color:#2d3f55;font-size:.53rem;font-weight:600">${machines.length} shown</span>
+              <span style="color:#1e293b;font-size:.68rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase">MACHINE</span>
+              <span style="color:#64748b;font-size:.56rem;font-weight:600">${machines.length} shown</span>
             </div>
           </th>
           ${Array.from({length: cols}, (_,i) => `
@@ -13546,8 +13541,8 @@
           const label = proc === 'Moulding'
             ? `Building ${m._finalBuilding||'?'}  ·  Line ${m._finalLine||'?'}`
             : `${m._finalBuilding||'?'}  ·  ${m._finalLine||'?'}`;
-          rows.push(`<tr class="etv-group-hdr"><td colspan="${cols+1}" style="padding:5px 14px">
-            <span style="color:#3b82f6;margin-right:7px"><i class="bi bi-building-fill"></i></span>${esc(label)}<span style="margin-left:10px;color:#4a6080;font-size:.55rem;font-weight:600;letter-spacing:.08em">${machines.filter(x=>(x._finalBuilding||'?')===m._finalBuilding&&(x._finalLine||'?')===m._finalLine).length} machines</span>
+          rows.push(`<tr class="etv-group-hdr"><td colspan="${cols+1}">
+            <span style="color:#bfdbfe;margin-right:8px"><i class="bi bi-building-fill"></i></span>${esc(label)}<span style="margin-left:12px;color:rgba(255,255,255,.78);font-size:.58rem;font-weight:700;letter-spacing:.06em">${machines.filter(x=>(x._finalBuilding||'?')===m._finalBuilding&&(x._finalLine||'?')===m._finalLine).length} machines</span>
           </td></tr>`);
         }
 
