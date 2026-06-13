@@ -14865,6 +14865,54 @@ app.post('/api/dpr/delete-entry', async (req, res) => {
   }
 });
 
+// POST /api/dpr/delete-quick (Superadmin-only Soft-Delete of Quick-Action entries)
+app.post('/api/dpr/delete-quick', async (req, res) => {
+  try {
+    let { id, ids, session } = req.body;
+    if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    // Verify Superadmin ONLY
+    const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
+    if (!u.length || !isSuperadminRole(u[0])) {
+      return res.status(403).json({ ok: false, error: 'Superadmin access required' });
+    }
+
+    // Normalize id list
+    if (!Array.isArray(ids)) ids = [];
+    if (id) ids.push(id);
+    ids = ids.map(Number).filter(n => Number.isFinite(n) && n > 0);
+    if (!ids.length) return res.status(400).json({ ok: false, error: 'ID(s) required' });
+
+    // Quick-action entry types + downtime_breakup codes that map to quick actions
+    const quickTypes = ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial', 'PowerCut'];
+    const quickCodes = ['1', '2', '5', '7', '8', '11', '13'];
+
+    // Only soft-delete rows that are genuinely quick-action entries.
+    // Either entry_type is in the quick set, OR (Main entry with >=45m downtime, 0 good qty, and a quick downtime_breakup code)
+    const result = await q(
+      `UPDATE dpr_hourly SET is_deleted = true
+        WHERE id = ANY($1::int[])
+          AND is_deleted IS NOT TRUE
+          AND (
+            entry_type = ANY($2)
+            OR (
+              entry_type = 'Main'
+              AND COALESCE(downtime_min, 0) >= 45
+              AND COALESCE(good_qty, 0) = 0
+              AND downtime_breakup IS NOT NULL
+              AND (SELECT bool_or(downtime_breakup ? c) FROM unnest($3::text[]) AS c)
+            )
+          )
+        RETURNING id`,
+      [ids, quickTypes, quickCodes]
+    );
+    res.json({ ok: true, deleted: result.map(r => r.id), count: result.length });
+  } catch (e) {
+    console.error('delete-quick error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // POST /api/dpr/delete-setup (Admin Soft-Delete)
 app.post('/api/dpr/delete-setup', async (req, res) => {
   try {
