@@ -12670,6 +12670,58 @@
         box-shadow: 0 1px 6px rgba(37,99,235,.28);
       }
       .etv-btn.primary:hover { background: #1d4ed8; }
+
+      /* ── Multi-select checkbox filter ── */
+      .etv-ms { position: relative; flex-shrink: 0; }
+      .etv-ms-btn {
+        border: 1px solid #d4dce9;
+        background: #fff;
+        color: #475569;
+        border-radius: 7px;
+        padding: 0 10px;
+        height: 32px;
+        font-size: .76rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+        transition: all .14s;
+      }
+      .etv-ms-btn:hover { background: #f1f5f9; border-color: #93a8c4; }
+      .etv-ms-btn .etv-ms-count { color: #2563eb; font-weight: 800; }
+      .etv-ms-btn .bi-chevron-down { font-size: .6rem; opacity: .6; }
+      .etv-ms-panel {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        z-index: 1200;
+        min-width: 180px;
+        max-height: 320px;
+        overflow-y: auto;
+        background: #fff;
+        border: 1px solid #d4dce9;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(15,23,42,.16);
+        padding: 6px;
+      }
+      .etv-ms-opt-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 8px;
+        font-size: .8rem;
+        color: #334155;
+        font-weight: 600;
+        border-radius: 5px;
+        cursor: pointer;
+        margin: 0;
+        white-space: nowrap;
+      }
+      .etv-ms-opt-row:hover { background: #f1f5f9; }
+      .etv-ms-opt-row input { width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; }
+      .etv-ms-all { border-bottom: 1px solid #e2e8f0; margin-bottom: 4px; padding-bottom: 7px; color: #1e293b; }
       #etv-count {
         margin-left: auto;
         font-size: .72rem;
@@ -13116,6 +13168,28 @@
           });
         }
 
+        /* ── Enrich each machine with tonnage from machine master (works for both
+              the reuse path and the build-from-scratch path) ── */
+        try {
+          const tonMap = {};
+          const simp = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+          ((mRes && mRes.data) ? mRes.data : []).forEach(m => {
+            const code = simp(stripMachPfx(m.machine || m.code || ''));
+            if (code && m.tonnage != null && String(m.tonnage).trim() !== '') {
+              tonMap[code] = String(m.tonnage).trim();
+            }
+          });
+          etvMachines.forEach(m => {
+            let t = tonMap[simp(stripMachPfx(m.code || ''))];
+            if (t == null) {
+              // fallback: parse tonnage from code, e.g. AKAR-150-4 → 150 (2nd-to-last numeric group)
+              const nums = String(m.code || '').match(/\d+/g);
+              if (nums && nums.length >= 2) t = nums[nums.length - 2];
+            }
+            m._tonnage = (t == null || t === '') ? '' : String(t).trim();
+          });
+        } catch (e) { console.warn('[ExcelTimeline] tonnage enrich failed', e); }
+
         renderExcelView(wrap);
       } catch (e) {
         console.error('[ExcelTimeline]', e);
@@ -13125,14 +13199,44 @@
     };
 
     /* ── Render full view ────────────────────────────────────────────── */
+    /* Reusable multi-select checkbox dropdown markup */
+    function etvMsHtml(key, label, opts) {
+      const rows = opts.map(o => `
+        <label class="etv-ms-opt-row">
+          <input type="checkbox" value="${esc(o.value)}" onchange="window.etvMsChanged('${key}')"> ${esc(o.text)}
+        </label>`).join('');
+      return `
+        <div class="etv-ms" data-key="${key}">
+          <button type="button" class="etv-ms-btn" onclick="window.etvToggleMs('${key}',event)">
+            <span>${esc(label)}</span>
+            <span class="etv-ms-count" id="etv-ms-count-${key}"></span>
+            <i class="bi bi-chevron-down"></i>
+          </button>
+          <div class="etv-ms-panel" id="etv-ms-panel-${key}" style="display:none">
+            <label class="etv-ms-opt-row etv-ms-all">
+              <input type="checkbox" onchange="window.etvMsAll('${key}',this.checked)"> <strong>Select All</strong>
+            </label>
+            <div class="etv-ms-opts">${rows || '<div style="padding:6px 8px;color:#94a3b8;font-size:.78rem">No options</div>'}</div>
+          </div>
+        </div>`;
+    }
+
     function renderExcelView(wrap) {
       /* Build filter dropdowns from machines */
-      const bldgs = new Set(), lines = new Set();
+      const bldgs = new Set(), lines = new Set(), tons = new Set();
       etvMachines.forEach(m => {
         if (m._finalBuilding && m._finalBuilding !== '?') bldgs.add(m._finalBuilding);
         if (m._finalLine    && m._finalLine    !== '?') lines.add(m._finalLine);
+        if (m._tonnage) tons.add(m._tonnage);
       });
       const proc = getProcFilter();
+
+      /* reset multi-select selections on each (re)render */
+      window.etvMs = { tonnage: new Set(), bldg: new Set(), line: new Set() };
+
+      const tonOpts  = [...tons].sort((a,b)=>Number(a)-Number(b)).map(t=>({value:t,text:t+' T'}));
+      const bldgOpts = [...bldgs].sort().map(b=>({value:b,text:proc==='Moulding'?'Bldg '+b:b}));
+      const lineOpts = [...lines].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true})).map(l=>({value:l,text:l==='MACHINES'?'Machines':'Line '+l}));
 
       wrap.innerHTML = `
         <div id="etv-wrap">
@@ -13148,14 +13252,9 @@
             <!-- Process pills -->
             <div id="etv-proc" style="display:flex;gap:6px;flex-shrink:0;"></div>
 
-            <select id="etv-bldg" onchange="window.etvUpdateLines()" style="min-width:130px">
-              <option value="">All ${proc === 'Moulding' ? 'Buildings' : proc}</option>
-              ${[...bldgs].sort().map(b=>`<option value="${esc(b)}">${proc==='Moulding'?'Bldg '+b:b}</option>`).join('')}
-            </select>
-            <select id="etv-line" onchange="window.etvFilter()" style="min-width:110px">
-              <option value="">All Lines</option>
-              ${[...lines].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true})).map(l=>`<option value="${esc(l)}">${l==='MACHINES'?'Machines':'Line '+l}</option>`).join('')}
-            </select>
+            ${etvMsHtml('tonnage', 'Tonnage', tonOpts)}
+            ${etvMsHtml('bldg', proc === 'Moulding' ? 'Buildings' : proc, bldgOpts)}
+            ${etvMsHtml('line', 'Lines', lineOpts)}
             <select id="etv-status" onchange="window.etvFilter()" style="min-width:130px">
               <option value="">All Statuses</option>
               <option value="Running">🟢 Running</option>
@@ -13225,11 +13324,12 @@
     /* ── Filter ──────────────────────────────────────────────────────── */
     window.etvFilter = function () {
       const q     = ((document.getElementById('etv-search')?.value || '')).toLowerCase();
-      const bVal  = document.getElementById('etv-bldg')?.value   || '';
-      const lVal  = document.getElementById('etv-line')?.value   || '';
       const sVal  = document.getElementById('etv-status')?.value || '';
       const fVal  = document.getElementById('etv-forecast')?.value || '';
       const norm  = v => String(v||'').trim().toUpperCase();
+
+      const ms    = window.etvMs || { tonnage:new Set(), bldg:new Set(), line:new Set() };
+      const tSet  = ms.tonnage, bSet = ms.bldg, lSet = ms.line;
 
       const now        = Date.now();
       const cutoffTime = fVal ? (now + parseInt(fVal,10) * 3600000) : 0;
@@ -13237,8 +13337,9 @@
       const filtered = etvMachines.filter(m => {
         const b = m._finalBuilding || '?';
         const l = m._finalLine    || '?';
-        if (bVal && norm(b) !== norm(bVal)) return false;
-        if (lVal && norm(l) !== norm(lVal)) return false;
+        if (bSet.size && !bSet.has(norm(b))) return false;
+        if (lSet.size && !lSet.has(norm(l))) return false;
+        if (tSet.size && !tSet.has(String(m._tonnage || ''))) return false;
 
         const mPlans = etvGroups[m.code] || [];
 
@@ -13276,29 +13377,58 @@
       renderExcelGrid(filtered, cutoffTime);
     };
 
-    window.etvUpdateLines = function () {
-      const bVal = document.getElementById('etv-bldg')?.value || '';
-      const lSel = document.getElementById('etv-line');
-      if (!lSel) return;
-      const norm = v => String(v||'').trim().toUpperCase();
-      const lines = new Set();
-      etvMachines.forEach(m => {
-        if (bVal && norm(m._finalBuilding) !== norm(bVal)) return;
-        if (m._finalLine && m._finalLine !== '?' && m._finalLine !== 'NULL') lines.add(m._finalLine);
+    /* ── Multi-select checkbox dropdown behaviour ── */
+    window.etvToggleMs = function (key, ev) {
+      if (ev) ev.stopPropagation();
+      document.querySelectorAll('.etv-ms-panel').forEach(p => {
+        if (p.id !== 'etv-ms-panel-' + key) p.style.display = 'none';
       });
-      const cur = lSel.value;
-      lSel.innerHTML = '<option value="">All Lines</option>' +
-        [...lines].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}))
-                  .map(l=>`<option value="${esc(l)}">${l==='MACHINES'?'Machines':'Line '+l}</option>`).join('');
-      if ([...lines].includes(cur)) lSel.value = cur;
+      const panel = document.getElementById('etv-ms-panel-' + key);
+      if (panel) panel.style.display = (panel.style.display === 'none' || !panel.style.display) ? 'block' : 'none';
+    };
+
+    window.etvMsAll = function (key, checked) {
+      document.querySelectorAll('#etv-ms-panel-' + key + ' .etv-ms-opts input[type=checkbox]')
+        .forEach(cb => { cb.checked = checked; });
+      window.etvMsChanged(key);
+    };
+
+    window.etvMsChanged = function (key) {
+      const set = new Set();
+      const boxes = [...document.querySelectorAll('#etv-ms-panel-' + key + ' .etv-ms-opts input[type=checkbox]')];
+      boxes.forEach(cb => { if (cb.checked) set.add(cb.value); });
+      window.etvMs = window.etvMs || { tonnage:new Set(), bldg:new Set(), line:new Set() };
+      window.etvMs[key] = set;
+
+      const cnt = document.getElementById('etv-ms-count-' + key);
+      if (cnt) cnt.textContent = set.size ? '(' + set.size + ')' : '';
+
+      const allCb = document.querySelector('#etv-ms-panel-' + key + ' .etv-ms-all input');
+      if (allCb) {
+        allCb.checked = boxes.length > 0 && boxes.every(b => b.checked);
+        allCb.indeterminate = !allCb.checked && boxes.some(b => b.checked);
+      }
       window.etvFilter();
     };
 
+    /* close any open multi-select panel when clicking outside (registered once) */
+    if (!window._etvMsOutsideBound) {
+      window._etvMsOutsideBound = true;
+      document.addEventListener('click', function (e) {
+        if (!e.target.closest('.etv-ms')) {
+          document.querySelectorAll('.etv-ms-panel').forEach(p => p.style.display = 'none');
+        }
+      });
+    }
+
     window.etvReset = function () {
-      ['etv-search','etv-bldg','etv-line','etv-status','etv-forecast'].forEach(id => {
+      ['etv-search','etv-status','etv-forecast'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
       });
+      window.etvMs = { tonnage:new Set(), bldg:new Set(), line:new Set() };
+      document.querySelectorAll('.etv-ms-panel input[type=checkbox]').forEach(cb => { cb.checked = false; cb.indeterminate = false; });
+      document.querySelectorAll('.etv-ms-count').forEach(c => c.textContent = '');
       window.etvFilter();
     };
 
