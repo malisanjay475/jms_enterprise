@@ -2983,6 +2983,84 @@ function scopeAllowsFactory(scope, factoryId) {
   return true;
 }
 
+// Returns the OR-level planning completeness for one order. An order is only
+// "planningComplete" — and therefore eligible to move into Order Completion
+// History — when ALL of these are true:
+//   1. fullyPlanned        : total planned (sum of distinct job_qty per job plan)
+//                            covers the OR Qty.
+//   2. allJobCardsHaveNo   : every OR-JR job card row carries a Job Card No.
+//   3. allLinked           : every job card row has at least one unique Job Plan
+//                            id (or our_code) referenced in its OR-JR remarks.
+async function getOrderPlanningCompletion(db, orderNo, factoryId) {
+  const fid = factoryId == null ? null : Number(factoryId);
+  const key = String(orderNo || '').trim();
+  if (!key) {
+    return {
+      orQty: 0, plannedQty: 0, fullyPlanned: false,
+      allJobCardsHaveNo: false, allLinked: false,
+      jobCardCount: 0, planningComplete: false
+    };
+  }
+
+  const jcRes = await db.query(`
+    SELECT r.id, r.or_qty,
+           NULLIF(TRIM(r.job_card_no), '') AS job_card_no,
+           r.remarks_all
+    FROM or_jr_report r
+    WHERE TRIM(COALESCE(r.or_jr_no, '')) = TRIM($1)
+      AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
+      AND COALESCE(TRIM(r.jr_close), '') <> 'Yes'
+      AND (r.is_closed IS FALSE OR r.is_closed IS NULL)
+  `, [key, fid]);
+  const jcRows = jcRes.rows;
+
+  const plannedRes = await db.query(`
+    SELECT COALESCE(SUM(jq), 0)::numeric AS planned_qty
+    FROM (
+      SELECT DISTINCT ON (COALESCE(pb.job_no, pb.batch_no), pb.our_code)
+        COALESCE(pb.job_qty, pb.batch_qty, 0)::numeric AS jq
+      FROM plan_board pb
+      WHERE TRIM(COALESCE(pb.order_no, '')) = TRIM($1)
+        AND COALESCE(pb.job_no, pb.batch_no, 0) > 0
+        AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
+      ORDER BY COALESCE(pb.job_no, pb.batch_no), pb.our_code, pb.id ASC
+    ) t
+  `, [key, fid]);
+
+  const planIdRes = await db.query(`
+    SELECT DISTINCT TRIM(plan_id) AS plan_id, TRIM(COALESCE(our_code, '')) AS our_code
+    FROM plan_board
+    WHERE TRIM(COALESCE(order_no, '')) = TRIM($1)
+      AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+  `, [key, fid]);
+
+  const linkTokens = [];
+  for (const row of planIdRes.rows) {
+    if (row.plan_id) linkTokens.push(String(row.plan_id).toLowerCase());
+    if (row.our_code) linkTokens.push(String(row.our_code).toLowerCase());
+  }
+
+  const orQty = jcRows.reduce((max, r) => Math.max(max, toNum(r.or_qty) ?? 0), 0);
+  const plannedQty = toNum(plannedRes.rows[0]?.planned_qty) ?? 0;
+  const fullyPlanned = orQty > 0 && plannedQty >= orQty;
+
+  const allJobCardsHaveNo = jcRows.length > 0 && jcRows.every((r) => !!r.job_card_no);
+  const allLinked = jcRows.length > 0 && linkTokens.length > 0 && jcRows.every((r) => {
+    const remarks = String(r.remarks_all || '').toLowerCase();
+    return linkTokens.some((tok) => tok && remarks.includes(tok));
+  });
+
+  return {
+    orQty,
+    plannedQty,
+    fullyPlanned,
+    allJobCardsHaveNo,
+    allLinked,
+    jobCardCount: jcRows.length,
+    planningComplete: fullyPlanned && allJobCardsHaveNo && allLinked
+  };
+}
+
 async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, actorName = 'System' } = {}) {
   const scopedFactoryId = normalizeFactoryId(factoryId);
   const params = [];
@@ -3171,6 +3249,14 @@ async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, a
     }
 
     if (group.all_completed) {
+      // GATE: MLD being fully completed is necessary but NOT sufficient to move
+      // the order into Order Completion History. It must ALSO be fully planned
+      // against OR Qty, every job card must have a Job Card No, and every unique
+      // Job Plan id must be linked in the OR-JR remarks. Until then, keep the
+      // order active (fall through to the clear logic so any stale completion
+      // flag is removed) so it still appears in Order Master / Create Plan.
+      const planning = await getOrderPlanningCompletion(db, orderNo, groupFactoryId);
+      if (planning.planningComplete) {
       const change = {
         field: 'MLD Status',
         to: 'Completed',
@@ -3304,6 +3390,8 @@ async function syncOrderCompletionConfirmations(db = pool, { factoryId = null, a
       }
 
       continue;
+      }
+      // planning not complete -> fall through to clear-stale-flag logic below.
     }
 
     if (!existing) continue;
@@ -3798,6 +3886,8 @@ async function bootstrapFreshCoreTables() {
       our_code TEXT,
       batch_no INTEGER,
       batch_qty NUMERIC,
+      job_no INTEGER,
+      job_qty NUMERIC,
       mould_item_qty NUMERIC,
       consumption_ratio_qty NUMERIC,
       colour_details JSONB,
@@ -4197,6 +4287,14 @@ async function initializeLegacyRuntime() {
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS our_code TEXT;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS batch_no INTEGER;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS batch_qty NUMERIC;
+            -- Batch -> Job rename (additive, non-destructive): job_no/job_qty are the
+            -- new canonical columns. batch_no/batch_qty are kept as legacy aliases and
+            -- backfilled below so existing plans, sync, and reports keep working.
+            -- A later cleanup migration can drop batch_no/batch_qty once verified.
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS job_no INTEGER;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS job_qty NUMERIC;
+            UPDATE plan_board SET job_no = batch_no WHERE job_no IS NULL AND batch_no IS NOT NULL;
+            UPDATE plan_board SET job_qty = batch_qty WHERE job_qty IS NULL AND batch_qty IS NOT NULL;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS mould_item_qty NUMERIC;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS consumption_ratio_qty NUMERIC;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS colour_details JSONB;
@@ -8977,13 +9075,13 @@ app.post('/api/planning/create', async (req, res) => {
           order_no, item_code, item_name, mould_name, mould_code,
           plan_qty, bal_qty, our_code, batch_no, batch_qty, mould_item_qty,
           consumption_ratio_qty, colour_details, created_by, created_at, start_date, end_date, status, updated_at,
-          factory_id)
+          factory_id, job_no, job_qty)
         VALUES
         ($1, $2, $3, $4, $5, $6,
           $7, $8, $9, $10, $11,
           $12, $13, $14, $15, $16, $17,
           $18, $19::jsonb, $20, NOW(), $21, $22, 'PLANNED', NOW(),
-          $23)
+          $23, $24, $25)
         RETURNING id
         `,
         [
@@ -9001,15 +9099,19 @@ app.post('/api/planning/create', async (req, res) => {
           toNum(p.planQty),
           toNum(p.balQty ?? p.planQty),
           p.ourCode || batchMeta.ourCode,
-          toNum(p.batchNo) || batchMeta.batchNo,
-          toNum(p.batchQty ?? p.planQty),
+          // batch_no / batch_qty kept as legacy aliases of job_no / job_qty.
+          // Accept new (jobNo/jobQty) or legacy (batchNo/batchQty) payload keys.
+          toNum(p.jobNo ?? p.batchNo) || batchMeta.batchNo,
+          toNum(p.jobQty ?? p.batchQty ?? p.planQty),
           toNum(p.mouldItemQty),
           toNum(p.consumptionRatioQty),
           JSON.stringify(Array.isArray(p.colourDetails) ? p.colourDetails : []),
           p.createdBy || requestUsername,
           p.startDate || null,
           p.endDate || null,
-          requestFactoryId
+          requestFactoryId,
+          toNum(p.jobNo ?? p.batchNo) || batchMeta.batchNo,
+          toNum(p.jobQty ?? p.batchQty ?? p.planQty)
         ]
       );
 
@@ -9131,11 +9233,124 @@ app.get('/api/planning/orders/:orderNo/batches', async (req, res) => {
       });
     });
 
-    const batches = Array.from(batchesByKey.values()).sort((a, b) => (a.batchNo || 0) - (b.batchNo || 0));
+    const batches = Array.from(batchesByKey.values())
+      .sort((a, b) => (a.batchNo || 0) - (b.batchNo || 0))
+      // Batch -> Job rename: expose job* aliases alongside legacy batch* keys so
+      // the frontend can read either. Values are identical.
+      .map((batch) => ({ ...batch, jobNo: batch.batchNo, jobQty: batch.batchQty }));
     const totalBatchQty = batches.reduce((sum, batch) => sum + (toNum(batch.batchQty) ?? 0), 0);
-    res.json({ ok: true, data: { batches, totalBatchQty } });
+    res.json({ ok: true, data: { batches, jobs: batches, totalBatchQty, totalJobQty: totalBatchQty } });
   } catch (e) {
     console.error('/api/planning/orders/:orderNo/batches', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// GET /api/planning/orders/:orderNo/job-cards
+// Returns EVERY OR-JR Status (job card) row for one OR number, plus OR-level
+// planning totals. Powers the expand-on-click panel in Create Plan:
+//   per job card -> Job Card No, Job Card Date, Job Card Qty (Prodn Plan Qty)
+//   OR level     -> OR Qty, total planned (sum of job plan qty), Bal Qty
+// Bal Qty is OR-level: OR Qty - total planned across all job plans for the OR.
+app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
+  try {
+    const orderNo = normalizePlanningText(req.params.orderNo);
+    if (!orderNo) return res.json({ ok: false, error: 'Order No required' });
+    const factoryId = getFactoryId(req);
+
+    // 1. All job card rows for this OR (one row per job card in OR-JR Status).
+    const jcRows = await q(`
+      SELECT
+        r.id,
+        TRIM(r.or_jr_no) AS or_jr_no,
+        r.or_jr_date,
+        r.or_qty,
+        NULLIF(TRIM(r.job_card_no), '') AS job_card_no,
+        r.job_card_date,
+        r.plan_qty AS job_card_qty,
+        r.product_name,
+        r.client_name,
+        r.mld_status,
+        r.remarks_all
+      FROM or_jr_report r
+      WHERE TRIM(COALESCE(r.or_jr_no, '')) = TRIM($1)
+        AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
+        AND COALESCE(TRIM(r.jr_close), '') <> 'Yes'
+        AND (r.is_closed IS FALSE OR r.is_closed IS NULL)
+      ORDER BY
+        CASE WHEN COALESCE(TRIM(r.job_card_no), '') = '' THEN 1 ELSE 0 END,
+        r.job_card_date ASC NULLS LAST,
+        r.id ASC
+    `, [orderNo, factoryId || null]);
+
+    // 2. Total planned across all job plans for this OR.
+    //    A "job plan" target qty is job_qty (legacy alias: batch_qty), one value
+    //    per distinct job_no. Sum the distinct job quantities.
+    const plannedRows = await q(`
+      SELECT COALESCE(SUM(jq), 0)::numeric AS planned_qty
+      FROM (
+        SELECT DISTINCT ON (COALESCE(pb.job_no, pb.batch_no), pb.our_code)
+          COALESCE(pb.job_qty, pb.batch_qty, 0)::numeric AS jq
+        FROM plan_board pb
+        WHERE TRIM(COALESCE(pb.order_no, '')) = TRIM($1)
+          AND COALESCE(pb.job_no, pb.batch_no, 0) > 0
+          AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
+        ORDER BY COALESCE(pb.job_no, pb.batch_no), pb.our_code, pb.id ASC
+      ) t
+    `, [orderNo, factoryId || null]);
+
+    // 3. Plan ids for this OR, so we can flag which job cards already have a
+    //    unique Job Plan id linked in their OR-JR remarks.
+    const planIdRows = await q(`
+      SELECT DISTINCT TRIM(plan_id) AS plan_id, TRIM(COALESCE(our_code, '')) AS our_code
+      FROM plan_board
+      WHERE TRIM(COALESCE(order_no, '')) = TRIM($1)
+        AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+    `, [orderNo, factoryId || null]);
+
+    const linkTokens = [];
+    for (const row of planIdRows) {
+      if (row.plan_id) linkTokens.push(String(row.plan_id).toLowerCase());
+      if (row.our_code) linkTokens.push(String(row.our_code).toLowerCase());
+    }
+
+    const orQty = jcRows.reduce((max, r) => Math.max(max, toNum(r.or_qty) ?? 0), 0);
+    const plannedQty = toNum(plannedRows[0]?.planned_qty) ?? 0;
+    const balQty = Math.max((orQty || 0) - plannedQty, 0);
+
+    const jobCards = jcRows.map((r) => {
+      const remarks = String(r.remarks_all || '').toLowerCase();
+      const linked = linkTokens.some((tok) => tok && remarks.includes(tok));
+      return {
+        id: r.id,
+        orderNo: r.or_jr_no,
+        orDate: r.or_jr_date,
+        jobCardNo: r.job_card_no || '-',
+        jobCardDate: r.job_card_date,
+        jobCardQty: toNum(r.job_card_qty) ?? 0,
+        mldStatus: r.mld_status || '',
+        hasJobCardNo: !!r.job_card_no,
+        planIdLinked: linked
+      };
+    });
+
+    const representative = jcRows[0] || {};
+    res.json({
+      ok: true,
+      data: {
+        orderNo,
+        orDate: representative.or_jr_date || null,
+        productName: representative.product_name || '-',
+        clientName: representative.client_name || '-',
+        orQty,
+        plannedQty,
+        balQty,
+        fullyPlanned: orQty > 0 && plannedQty >= orQty,
+        jobCards
+      }
+    });
+  } catch (e) {
+    console.error('/api/planning/orders/:orderNo/job-cards', e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
