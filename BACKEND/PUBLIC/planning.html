@@ -3915,7 +3915,7 @@
           <div class="jc-approval-grid jc-approval-head" style="display:grid; grid-template-columns:1.2fr 1.1fr 1fr 1.35fr 1.1fr .9fr; gap:0; background:#f1f9ff; border-bottom:1px solid #dbeafe; font-weight:950; color:#475569; text-transform:uppercase; letter-spacing:.06em; font-size:.76rem">
             <div>OR No</div>
             <div>Client Name</div>
-            <div>Batch / Plan No</div>
+            <div>Job Plan / Plan No</div>
             <div>Mould / Machine</div>
             <div>Jobcard No / Date</div>
             <div>Approval</div>
@@ -6237,14 +6237,6 @@
                        <div style="font-size:0.64rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.07em; font-weight:700; margin-bottom:3px">OR Date</div>
                        <div style="font-size:0.8rem; color:#334155; font-weight:700; line-height:1.22">${esc(formatCpDate(o.orDate))}</div>
                      </div>
-                     <div style="padding:8px 9px; background:rgba(255,255,255,0.82); border:1px solid rgba(203,213,225,0.9); border-radius:12px; min-width:0">
-                       <div style="font-size:0.64rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.07em; font-weight:700; margin-bottom:3px">JC Number</div>
-                       <div style="font-size:0.78rem; color:#334155; font-weight:700; font-family:monospace; line-height:1.22; overflow-wrap:anywhere">${esc(o.jcNo || '-')}</div>
-                     </div>
-                     <div style="padding:8px 9px; background:rgba(255,255,255,0.82); border:1px solid rgba(203,213,225,0.9); border-radius:12px">
-                       <div style="font-size:0.64rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.07em; font-weight:700; margin-bottom:3px">JC Date</div>
-                       <div style="font-size:0.8rem; color:#334155; font-weight:700; line-height:1.22">${esc(formatCpDate(o.jcDate))}</div>
-                     </div>
                    </div>
                    <div style="padding:9px 10px; background:rgba(248,250,252,0.95); border:1px solid rgba(203,213,225,0.95); border-radius:12px; margin-bottom:7px">
                      <div style="font-size:0.64rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.07em; font-weight:700; margin-bottom:3px">Product Name</div>
@@ -6254,23 +6246,29 @@
                      <div style="font-size:0.64rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.07em; font-weight:700; margin-bottom:3px">Client Name</div>
                      <div style="font-size:0.82rem; color:#475569; line-height:1.24; font-weight:700">${esc(o.partyName || '-')}</div>
                    </div>
-                   <div style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:8px; align-items:end">
+                   <div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:end">
                      <div style="padding:8px 9px; background:rgba(255,255,255,0.88); border:1px solid rgba(203,213,225,0.9); border-radius:12px">
                        <div style="font-size:0.64rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.07em; font-weight:700; margin-bottom:3px">OR Qty</div>
                        <div style="font-size:0.92rem; color:#0f172a; font-weight:800; line-height:1.18">${esc(formatCpQty(o.orQty))}</div>
                      </div>
-                     <div style="padding:8px 9px; background:rgba(255,255,255,0.88); border:1px solid rgba(203,213,225,0.9); border-radius:12px">
-                       <div style="font-size:0.64rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.07em; font-weight:700; margin-bottom:3px">JC Qty</div>
-                       <div style="font-size:0.92rem; color:#0f172a; font-weight:800; line-height:1.18">${esc(formatCpQty(o.jcQty || o.qty))}</div>
-                     </div>
                      <span class="tag ${esc(o.priority || 'Normal')}" style="transform:scale(0.82); transform-origin:right center;">${esc(o.priority || 'Normal')}</span>
                    </div>
+                   <div class="cp-jobcards-toggle" style="margin-top:9px; display:flex; align-items:center; justify-content:center; gap:6px; padding:7px; background:#f0f7ff; border:1px solid #cfe2fb; border-radius:10px; color:#1d4ed8; font-size:0.74rem; font-weight:800; letter-spacing:0.03em">
+                     <i class="bi bi-chevron-down cp-jobcards-chevron" style="transition:transform 0.18s ease"></i>
+                     <span class="cp-jobcards-label">View Job Cards</span>
+                   </div>
+                   <div class="cp-jobcards-panel" style="display:none; margin-top:9px"></div>
                 `;
 
             el.onmouseover = () => applyCpOrderCardState(el, cpSelectedOrder === o ? 'selected' : 'hover');
             el.onmouseout = () => applyCpOrderCardState(el, cpSelectedOrder === o ? 'selected' : 'base');
 
-            el.onclick = () => selectCpOrder(o, el);
+            el.onclick = (ev) => {
+              // Clicks on the job-card panel (rows / Create Plan buttons) handle
+              // themselves — don't toggle the panel when interacting inside it.
+              if (ev && ev.target && ev.target.closest && ev.target.closest('.cp-jobcards-panel')) return;
+              toggleCpOrderJobCards(o, el);
+            };
 
             if (cpSelectedOrder === o) {
               applyCpOrderCardState(el, 'selected');
@@ -6294,6 +6292,96 @@
             moreEl.textContent = `Showing top ${MAX_RENDER} of ${visible.length} matches. Type more to refine search.`;
             list.appendChild(moreEl);
           }
+        }
+
+        // Expand/collapse the inline Job Cards panel inside a Pending Order card.
+        // One OR can have multiple job card rows in OR-JR Status; this panel lists
+        // each one (Job Card No / Date / Qty + OR-level Bal Qty) with a per-row
+        // "Create Plan" button. Bal Qty is OR-level: OR Qty - total planned.
+        async function toggleCpOrderJobCards(order, el) {
+          const panel = el.querySelector('.cp-jobcards-panel');
+          const chevron = el.querySelector('.cp-jobcards-chevron');
+          const label = el.querySelector('.cp-jobcards-label');
+          if (!panel) return;
+
+          const isOpen = panel.style.display !== 'none';
+          if (isOpen) {
+            panel.style.display = 'none';
+            if (chevron) chevron.style.transform = 'rotate(0deg)';
+            if (label) label.textContent = 'View Job Cards';
+            return;
+          }
+
+          panel.style.display = 'block';
+          if (chevron) chevron.style.transform = 'rotate(180deg)';
+          if (label) label.textContent = 'Hide Job Cards';
+
+          if (panel.dataset.loaded === '1') return;
+          panel.innerHTML = '<div class="mini muted" style="padding:8px 4px">Loading job cards…</div>';
+          try {
+            const res = await api.get(`/planning/orders/${encodeURIComponent(order.orderNo)}/job-cards`);
+            const data = res && res.data ? res.data : null;
+            if (!data || !Array.isArray(data.jobCards) || !data.jobCards.length) {
+              panel.innerHTML = '<div class="mini muted" style="padding:8px 4px">No job cards found for this OR.</div>';
+              return;
+            }
+            renderCpJobCards(panel, order, data);
+            panel.dataset.loaded = '1';
+          } catch (e) {
+            panel.innerHTML = `<div class="mini" style="padding:8px 4px; color:#b91c1c">Failed to load job cards: ${esc(String(e?.message || e))}</div>`;
+          }
+        }
+
+        function renderCpJobCards(panel, order, data) {
+          const balQty = Number(data.balQty || 0);
+          const orQty = Number(data.orQty || 0);
+          const plannedQty = Number(data.plannedQty || 0);
+          const fullyPlanned = !!data.fullyPlanned;
+
+          const summary = `
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px">
+              <div style="flex:1; min-width:78px; padding:6px 8px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:9px">
+                <div style="font-size:0.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.06em; font-weight:700">Planned</div>
+                <div style="font-size:0.82rem; color:#0f172a; font-weight:800">${esc(formatCpQty(plannedQty))}</div>
+              </div>
+              <div style="flex:1; min-width:78px; padding:6px 8px; background:${fullyPlanned ? '#ecfdf5' : '#fff7ed'}; border:1px solid ${fullyPlanned ? '#bbf7d0' : '#fed7aa'}; border-radius:9px">
+                <div style="font-size:0.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.06em; font-weight:700">Bal Qty (OR)</div>
+                <div style="font-size:0.82rem; color:${fullyPlanned ? '#15803d' : '#c2410c'}; font-weight:800">${esc(formatCpQty(balQty))}</div>
+              </div>
+            </div>`;
+
+          const rows = data.jobCards.map((jc, idx) => {
+            const linkedBadge = jc.planIdLinked
+              ? '<span class="tag small" style="background:#dcfce7; color:#15803d; border-color:#bbf7d0">Linked</span>'
+              : (jc.hasJobCardNo ? '' : '<span class="tag small" style="background:#fef2f2; color:#b91c1c; border-color:#fecaca">No JC No</span>');
+            return `
+              <div style="border:1px solid #e2e8f0; border-radius:11px; padding:9px 10px; margin-bottom:7px; background:#ffffff">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px">
+                  <div style="font-size:0.7rem; color:#64748b; font-weight:800; text-transform:uppercase; letter-spacing:0.05em">Job Card ${idx + 1}</div>
+                  ${linkedBadge}
+                </div>
+                <div style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:6px; margin-bottom:7px">
+                  <div><div style="font-size:0.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; font-weight:700">Job Card No</div><div style="font-size:0.76rem; color:#0f172a; font-weight:700; font-family:monospace; overflow-wrap:anywhere">${esc(jc.jobCardNo || '-')}</div></div>
+                  <div><div style="font-size:0.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; font-weight:700">Job Card Date</div><div style="font-size:0.76rem; color:#334155; font-weight:700">${esc(formatCpDate(jc.jobCardDate))}</div></div>
+                  <div><div style="font-size:0.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; font-weight:700">Job Card Qty</div><div style="font-size:0.76rem; color:#0f172a; font-weight:800">${esc(formatCpQty(jc.jobCardQty))}</div></div>
+                  <div><div style="font-size:0.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; font-weight:700">Bal Qty (OR)</div><div style="font-size:0.76rem; color:${fullyPlanned ? '#15803d' : '#c2410c'}; font-weight:800">${esc(formatCpQty(balQty))}</div></div>
+                </div>
+                <button type="button" class="btn small cp-jc-create-plan" data-idx="${idx}"
+                  style="width:100%; justify-content:center; ${fullyPlanned ? 'opacity:0.55; cursor:not-allowed' : ''}"
+                  ${fullyPlanned ? 'disabled' : ''}>
+                  <i class="bi bi-plus-circle"></i> Create Plan
+                </button>
+              </div>`;
+          }).join('');
+
+          panel.innerHTML = summary + rows;
+
+          panel.querySelectorAll('.cp-jc-create-plan').forEach((btn) => {
+            btn.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              selectCpOrder(order, btn.closest('.cp-order-item'));
+            });
+          });
         }
 
         async function selectCpOrder(order, el) {
@@ -6325,7 +6413,7 @@
           if (tProd) tProd.textContent = order.productName;
 
           const footer = document.getElementById('cpFooterStatus');
-          if (footer) footer.textContent = 'Enter Batch Qty to start planning';
+          if (footer) footer.textContent = 'Enter Job Qty to start planning';
           renderCpBatchSetup(order);
 
           // clear mould list
@@ -6546,15 +6634,15 @@
           return `
             <div style="margin-top:12px; border-top:1px solid #dbeafe; padding-top:12px">
               <div style="display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:8px">
-                <div style="font-weight:900; color:#1e3a8a">Created Batches</div>
-                <span class="tag">${esc(batches.length)} Batch(es)</span>
+                <div style="font-weight:900; color:#1e3a8a">Created Job Plans</div>
+                <span class="tag">${esc(batches.length)} Job Plan(s)</span>
               </div>
               <div style="display:flex; flex-direction:column; gap:8px">
                 ${batches.map((batch, idx) => `
                   <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap; border:1px solid #bfdbfe; background:#fff; border-radius:14px; padding:9px 10px">
                     <div style="min-width:180px; flex:1 1 260px">
-                      <div style="font-weight:900; color:#0f172a">Batch ${esc(batch.batchNo || idx + 1)} <span style="color:#64748b; font-weight:700">${esc(batch.ourCode || '')}</span></div>
-                      <div class="mini muted">Batch Qty: ${esc(formatCpQty(batch.batchQty || 0))} | Plan Qty: ${esc(formatCpQty(batch.planQty || 0))} | By ${esc(batch.createdBy || 'System')}</div>
+                      <div style="font-weight:900; color:#0f172a">Job Plan ${esc(batch.batchNo || idx + 1)} <span style="color:#64748b; font-weight:700">${esc(batch.ourCode || '')}</span></div>
+                      <div class="mini muted">Job Qty: ${esc(formatCpQty(batch.batchQty || 0))} | Plan Qty: ${esc(formatCpQty(batch.planQty || 0))} | By ${esc(batch.createdBy || 'System')}</div>
                     </div>
                     <div class="mini muted" style="flex:0 1 auto">${esc(formatCpDateTime(batch.createdAt))}</div>
                     <button class="btn mini" type="button" data-cp-view-batch="${idx}" style="flex:0 0 auto">View Details</button>
@@ -6581,7 +6669,7 @@
 
         function openCpBatchDetailsModal(batchIndex) {
           const batch = (Array.isArray(window.cpOrderBatchHistory) ? window.cpOrderBatchHistory : [])[batchIndex];
-          if (!batch) return toast('Batch details not found.', 'error');
+          if (!batch) return toast('Job Plan details not found.', 'error');
           closeCpBatchDetailsModal();
           const rows = Array.isArray(batch.details) ? batch.details : [];
           const modal = document.createElement('div');
@@ -6593,9 +6681,9 @@
             <div class="modal-card" style="width:min(920px, 96vw); max-height:88vh; display:flex; flex-direction:column; overflow:hidden">
               <div class="modal-head" style="padding:14px 18px">
                 <div>
-                  <div style="font-size:.78rem; color:#0284c7; font-weight:900; letter-spacing:.12em; text-transform:uppercase">Batch Details</div>
-                  <div style="font-size:1.1rem; color:#0f172a; font-weight:900; margin-top:4px">Batch ${esc(batch.batchNo || batchIndex + 1)} ${esc(batch.ourCode || '')}</div>
-                  <div class="mini muted" style="margin-top:4px">Batch Qty: ${esc(formatCpQty(batch.batchQty || 0))} | Created By: ${esc(batch.createdBy || 'System')} | ${esc(formatCpDateTime(batch.createdAt))}</div>
+                  <div style="font-size:.78rem; color:#0284c7; font-weight:900; letter-spacing:.12em; text-transform:uppercase">Job Plan Details</div>
+                  <div style="font-size:1.1rem; color:#0f172a; font-weight:900; margin-top:4px">Job Plan ${esc(batch.batchNo || batchIndex + 1)} ${esc(batch.ourCode || '')}</div>
+                  <div class="mini muted" style="margin-top:4px">Job Qty: ${esc(formatCpQty(batch.batchQty || 0))} | Created By: ${esc(batch.createdBy || 'System')} | ${esc(formatCpDateTime(batch.createdAt))}</div>
                 </div>
                 <button class="btn icon ghost" type="button" onclick="closeCpBatchDetailsModal()"><i class="bi bi-x-lg"></i></button>
               </div>
@@ -6621,7 +6709,7 @@
                         <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9">${esc(row.machine || '-')}</td>
                         <td style="padding:9px 8px; border-bottom:1px solid #f1f5f9">${esc(row.createdBy || batch.createdBy || 'System')}</td>
                       </tr>
-                    `).join('') : `<tr><td colspan="6" style="padding:18px; text-align:center; color:#64748b">No batch details found.</td></tr>`}
+                    `).join('') : `<tr><td colspan="6" style="padding:18px; text-align:center; color:#64748b">No job plan details found.</td></tr>`}
                   </tbody>
                 </table>
               </div>
@@ -6652,9 +6740,9 @@
                 <div style="font-weight:900; color:#0f172a; margin-top:4px; font-size:1.05rem">${esc(formatCpQty(orderQty))}</div>
               </div>
               <div>
-                <label class="mini muted" for="cpBatchQtyInput" style="display:block; margin-bottom:5px">Create Batch Qty</label>
+                <label class="mini muted" for="cpBatchQtyInput" style="display:block; margin-bottom:5px">Create Job Qty</label>
                 <input id="cpBatchQtyInput" type="number" min="1" step="1" max="${esc(orderQty || '')}" value="${esc(currentBatchQty)}" ${locked ? 'disabled' : ''}
-                  placeholder="Enter batch qty, e.g. 600"
+                  placeholder="Enter job qty, e.g. 600"
                   style="width:100%; border:1px solid #93c5fd; border-radius:12px; padding:10px 12px; font-weight:900; color:#0f172a; background:${locked ? '#f1f5f9' : '#fff'}">
               </div>
               <div style="border:1px solid #fed7aa; background:#fff7ed; border-radius:14px; padding:10px 12px">
@@ -6662,7 +6750,7 @@
                 <div id="cpBatchBalanceQty" style="font-weight:900; color:#c2410c; margin-top:4px">${esc(formatCpQty(availableBalanceQty))}</div>
                 <div class="mini muted" style="margin-top:3px">Available: ${esc(formatCpQty(availableBalanceQty))}</div>
               </div>
-              ${locked ? `<div style="border:1px solid #bbf7d0; background:#f0fdf4; color:#166534; border-radius:14px; padding:10px 12px; font-weight:800; font-size:.86rem; min-width:0">Batch locked at ${esc(formatCpQty(currentBatchQty))} per mould. Saved moulds ${esc(savedMoulds)} / ${esc(batchStatus.required?.length || 0)}.</div>` : ''}
+              ${locked ? `<div style="border:1px solid #bbf7d0; background:#f0fdf4; color:#166534; border-radius:14px; padding:10px 12px; font-weight:800; font-size:.86rem; min-width:0">Job Plan locked at ${esc(formatCpQty(currentBatchQty))} per mould. Saved moulds ${esc(savedMoulds)} / ${esc(batchStatus.required?.length || 0)}.</div>` : ''}
             </div>
             ${renderCpBatchHistoryRows()}
           `;
@@ -6674,7 +6762,7 @@
               if (requested !== value) input.value = String(value);
               window.cpCurrentBatchQty = value || null;
               const footer = document.getElementById('cpFooterStatus');
-              if (footer) footer.textContent = value ? `Batch Qty set: ${formatCpQty(value)}` : 'Enter Batch Qty to start planning';
+              if (footer) footer.textContent = value ? `Job Qty set: ${formatCpQty(value)}` : 'Enter Job Qty to start planning';
             };
           }
           bindCpBatchHistoryActions();
@@ -7370,22 +7458,22 @@
           const footer = modal.querySelector('#cpColourFooter');
           if (footer) {
             if (missingBatchQty) {
-              footer.textContent = 'Enter Batch Qty on the selected OR first.';
+              footer.textContent = 'Enter Job Qty on the selected OR first.';
             } else if (exceedsOrderQty) {
               const overBy = totals.planQty - planQtyLimit;
               footer.textContent = `Total Plan Qty exceeds Mould Item Balance Qty by ${formatCpQty(overBy)} (Limit ${formatCpQty(planQtyLimit || 0)}).`;
             } else if (cappedByPlanQty) {
               footer.textContent = 'Plan Qty cannot be more than Mould Item Qty for a colour row.';
             } else if (cappedByReqQty) {
-              footer.textContent = 'Batch Qty cannot be more than Mould Item Qty for a colour row.';
+              footer.textContent = 'Job Qty cannot be more than Mould Item Qty for a colour row.';
             } else if (cappedByBatchQty) {
-              footer.textContent = `One selected mould reached the per-mould Batch Qty limit of ${formatCpQty(targetBatchQty)}.`;
+              footer.textContent = `One selected mould reached the per-mould Job Qty limit of ${formatCpQty(targetBatchQty)}.`;
             } else if (missingMachine) {
-              footer.textContent = `Select a machine above to continue | Per mould Batch Qty limit: ${formatCpQty(targetBatchQty)}`;
+              footer.textContent = `Select a machine above to continue | Per mould Job Qty limit: ${formatCpQty(targetBatchQty)}`;
             } else if (!batchStatus.complete) {
               footer.textContent = `${getCpBatchBlockMessage(currentPayloads)} Use Save Plan, then plan another variant only when balance remains.`;
             } else {
-              footer.textContent = `Batch is complete. Create Plan will save the selected mould variant(s) with one unique batch code. Per mould Batch Qty limit: ${formatCpQty(targetBatchQty)} | Plan Qty: ${formatCpQty(totals.planQty)}`;
+              footer.textContent = `Job Plan is complete. Create Plan will save the selected mould variant(s) with one unique job code. Per mould Job Qty limit: ${formatCpQty(targetBatchQty)} | Plan Qty: ${formatCpQty(totals.planQty)}`;
             }
           }
 
@@ -7743,7 +7831,7 @@
                   <div><div class="mini muted">OR Qty</div><div style="font-weight:900; color:#c2410c; font-size:0.85rem">${esc(formatCpQty(window.cpSelectedOrder?.orQty || window.cpSelectedOrder?.qty || 0))}</div></div>
                 </div>
                 <div style="border:1px solid #bbf7d0; border-radius:12px; padding:8px 12px; background:#f0fdf4; display:flex; align-items:center; gap:10px">
-                  <div><div class="mini muted">Batch Qty / Remaining</div><div style="font-weight:900; color:#166534; font-size:0.85rem">${esc(formatCpQty(activeBatchQty))} / ${esc(formatCpQty(Math.max(activeBatchQty - savedBatchQty, 0)))}</div></div>
+                  <div><div class="mini muted">Job Qty / Remaining</div><div style="font-weight:900; color:#166534; font-size:0.85rem">${esc(formatCpQty(activeBatchQty))} / ${esc(formatCpQty(Math.max(activeBatchQty - savedBatchQty, 0)))}</div></div>
                 </div>
               </div>
 
@@ -7805,7 +7893,7 @@
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:left; font-size:0.75rem">Item Name / Colour</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">Cons. Ratio</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">Mould Item Qty</th>
-                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">Batch Qty</th>
+                        <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">Job Qty</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">Req. Bal</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">WIP Qty</th>
                         <th style="position:sticky; top:0; z-index:2; background:#f8fafc; padding:7px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-size:0.75rem">Consume WIP</th>
@@ -8178,11 +8266,11 @@
 
         function getCpBatchBlockMessage(extraPayloads = []) {
           const status = getCpBatchCompleteness(extraPayloads);
-          if (!status.targetBatchQty) return 'Enter Batch Qty first.';
+          if (!status.targetBatchQty) return 'Enter Job Qty first.';
           if (!status.payloads.length) return 'Save at least one plan row first.';
           if (status.exceedsBatchQty) {
             const over = (status.overLimitMoulds || []).map((row) => `${row.code}: ${formatCpQty(row.qty)}`).join(', ');
-            return `Batch Qty per mould cannot exceed ${formatCpQty(status.targetBatchQty)}. Over limit: ${over || 'selected mould'}.`;
+            return `Job Qty per mould cannot exceed ${formatCpQty(status.targetBatchQty)}. Over limit: ${over || 'selected mould'}.`;
           }
           if (status.missing.length) {
             return `Save Plan for remaining mould variant(s) first. Pending moulds: ${status.missing.map((row) => row.code).join(', ')}.`;
@@ -8533,10 +8621,10 @@
           const activeBatchQty = getCpActiveBatchQty();
           const orderQty = getCpOrderQty();
           if (activeBatchQty <= 0) {
-            return toast('Enter Batch Qty after selecting OR first.', 'error');
+            return toast('Enter Job Qty after selecting OR first.', 'error');
           }
           if (orderQty > 0 && activeBatchQty > orderQty) {
-            return toast(`Batch Qty cannot be more than OR Qty (${formatCpQty(orderQty)}).`, 'error');
+            return toast(`Job Qty cannot be more than OR Qty (${formatCpQty(orderQty)}).`, 'error');
           }
           const selectedSqn = parseCpSqn(mould.mouldingSqn || mould.moulding_sqn);
           if (window.cpOrderSequenceMeta?.missingSqnMoulds?.length) {
@@ -9938,9 +10026,9 @@
         }
       };
 
-      // --- 2. Batch Planning ---
+      // --- 2. Job Planning ---
       window._batchOrdersCache = {};
-      // --- 2. Batch Planning ---
+      // --- 2. Job Planning ---
       window.openBatchPlanning = async function (itemCode, mouldName, planQty) {
         const oldModal = document.getElementById('batchPlanModal');
         if (oldModal) oldModal.remove();
@@ -9950,7 +10038,7 @@
                 <div class="modal-card" style="width:1150px; max-width:98vw; height:90vh; display:flex; flex-direction:column;">
                   <div class="modal-head">
                     <div>
-                      <strong><i class="bi bi-collection"></i> Batch Planning</strong>
+                      <strong><i class="bi bi-collection"></i> Job Planning</strong>
                       <div class="mini muted">Schedule multiple orders in one go</div>
                     </div>
                     <button class="btn icon ghost" onclick="document.getElementById('batchPlanModal').remove()"><i class="bi bi-x-lg"></i></button>
@@ -10185,7 +10273,7 @@
 
             await $api.post('/planning/create', payload);
           }
-          toast('Batch plans created!');
+          toast('Job plans created!');
           document.getElementById('batchPlanModal').remove();
           loadMasterPlan();
           loadKpIs();
@@ -10977,7 +11065,7 @@
                   <div class="jc-approval-grid" style="display:grid; grid-template-columns:1.2fr 1.1fr 1fr 1.35fr 1.1fr .9fr; align-items:center; border-top:1px solid #e2e8f0">
                     <div><b>${esc(r.order_no || '-')}</b><br><span class="muted">${esc(r.plan_id || '')}</span></div>
                     <div>${esc(r.created_by || '-')}<br><span class="muted">Created By</span></div>
-                    <div>${esc(r.our_code || '-')}<br><span class="muted">Batch ${esc(r.batch_no || '-')}</span></div>
+                    <div>${esc(r.our_code || '-')}<br><span class="muted">Job Plan ${esc(r.batch_no || '-')}</span></div>
                     <div>${esc(r.approval_stage || '-')}<br><span class="muted">${esc(r.action || '-')} by ${esc(r.acted_by || '-')}</span></div>
                     <div>${esc(r.job_card_no || '-')}<br><span class="muted">${r.job_card_date ? new Date(r.job_card_date).toLocaleDateString('en-GB') : '-'}</span></div>
                     <div><span style="display:inline-flex; padding:7px 12px; border-radius:999px; font-weight:950; background:${String(r.action || '').includes('REJECTED') ? '#fee2e2' : '#dcfce7'}; color:${String(r.action || '').includes('REJECTED') ? '#991b1b' : '#166534'}">${esc(r.action || '-')}</span></div>
@@ -11015,7 +11103,7 @@
               <div class="jc-approval-grid" style="display:grid; grid-template-columns:1.2fr 1.1fr 1fr 1.35fr 1.1fr .9fr; align-items:center; border-top:1px solid #e2e8f0; background:${linked ? '#ffffff' : '#fff7ed'}">
                 <div><b>${esc(r.order_no || '-')}</b><br><span class="muted">${esc(r.product_name || '')}</span>${pendingAge ? `<br><span title="${esc(pendingSince)}" style="font-size:.7rem; ${ageTone}"><i class="bi bi-clock"></i> ${esc(pendingAge)}</span>` : ''}</div>
                 <div><b>${esc(r.client_name || '-')}</b><br><span class="muted">Client</span></div>
-                <div><b>${esc(r.our_code || '-')}</b><br><span class="muted">${esc(r.plan_id || '-')} / Batch ${esc(r.batch_no || '-')}</span></div>
+                <div><b>${esc(r.our_code || '-')}</b><br><span class="muted">${esc(r.plan_id || '-')} / Job Plan ${esc(r.batch_no || '-')}</span></div>
                 <div><b>${esc(r.mould_name || r.mould_code || '-')}</b><br><span class="muted">${esc(r.machine || '-')}</span></div>
                 <div><b>${linked ? esc(r.job_card_no) : ''}</b><br>
                   <span class="muted">${linked ? esc(jcDate) : `<span style="color:#b45309; font-weight:700">Not linked in OR-JR</span>`}</span>
@@ -11098,10 +11186,10 @@
                 ['Mould Name', p.mould_name],
                 ['Client', p.client_name],
                 ['OR Qty', p.or_qty],
-                ['Batch Qty', p.batch_qty],
+                ['Job Qty', p.batch_qty],
                 ['Consumption Ratio Qty', p.consumption_ratio_qty],
                 ['Plan Qty', p.plan_qty],
-                ['Batch / Plan', `${p.our_code || '-'} / ${p.plan_id || '-'}`],
+                ['Job Plan / Plan', `${p.our_code || '-'} / ${p.plan_id || '-'}`],
                 ['Machine', p.machine],
                 ['Job Card Date', p.job_card_date ? new Date(p.job_card_date).toLocaleDateString('en-GB') : '-']
               ].map(([k, v]) => `<div style="border:1px solid #dbeafe; border-radius:14px; padding:11px 12px; background:#f8fbff"><div style="font-size:.72rem; color:#64748b; font-weight:950; text-transform:uppercase">${esc(k)}</div><div style="font-weight:950; color:#0f172a; margin-top:3px">${esc(v || '-')}</div></div>`).join('')}
@@ -11718,11 +11806,11 @@
 
   </div><!-- End Main Container -->
 
-  <!-- Batch Planning Modal -->
+  <!-- Job Planning Modal -->
   <div id="batchPlanModal" class="modal" aria-hidden="true">
     <div class="modal-card" style="width:900px; height:90vh; display:flex; flex-direction:column">
       <div class="modal-head">
-        <strong><i class="bi bi-layers-fill"></i> Batch Planning</strong>
+        <strong><i class="bi bi-layers-fill"></i> Job Planning</strong>
         <button class="btn icon ghost" onclick="closeModal('batchPlanModal')"><i class="bi bi-x-lg"></i></button>
       </div>
       <div style="padding:10px; background:#f8fafc; border-bottom:1px solid #e2e8f0; font-size:0.9rem">
