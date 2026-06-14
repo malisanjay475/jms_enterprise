@@ -1325,12 +1325,16 @@
                                             // 1. Detect OVERRIDES in this slot
                                             let overrideTriggeredThisSlot = false;
                                             let overrideEntryId = null; // id of the quick-action entry in this slot (for superadmin delete)
+                                            let overrideEntryDt = 0;    // downtime minutes of the covering quick-action entry
+                                            let overrideEntryGood = 0;  // good qty of the covering quick-action entry
 
                                              // Check purely special Entry Types (Quick Actions)
                                              const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial', 'PowerCut'].includes(e.entry_type));
 
                                              if (spEntry) {
                                                  machineEntryTypes.add(spEntry.entry_type); // collect for View Filter
+                                                 overrideEntryDt = Number(spEntry.downtime_min) || 0;
+                                                 overrideEntryGood = Number(spEntry.good_qty) || 0;
                                                  if (spEntry.entry_type === 'Maintenance') activeOverrideStatus = '🏭 Machine Maintenance';
                                                  else if (spEntry.entry_type.includes('MouldChange')) activeOverrideStatus = 'Mould Changeover';
                                                  else if (spEntry.entry_type === 'ManPowerShortage') activeOverrideStatus = 'Man Power Shortage';
@@ -1345,6 +1349,8 @@
                                                 const dEntry = entries.find(e => e.entry_type === 'Main' && Number(e.downtime_min) >= 45 && Number(e.good_qty || 0) === 0);
                                                 if (dEntry) {
                                                     const brk = typeof dEntry.downtime_breakup === 'string' ? {} : (dEntry.downtime_breakup || {});
+                                                    overrideEntryDt = Number(dEntry.downtime_min) || 0;
+                                                    overrideEntryGood = Number(dEntry.good_qty) || 0;
                                                      if (brk['1']) { activeOverrideStatus = 'Man Power Shortage'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
                                                      else if (brk['2']) { activeOverrideStatus = 'Mould Changeover'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
                                                      else if (brk['5']) { activeOverrideStatus = '🏭 Machine Maintenance'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
@@ -1380,6 +1386,11 @@
                                                  if (overrideEntryId) rowQuickIds.push(overrideEntryId);
                                                  if (overrideEntryId && window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isSuperadmin && window.JPSMS.auth.isSuperadmin()) {
                                                      content += `<button title="Delete this quick-action entry" onclick="event.stopPropagation(); deleteQuickEntry(${overrideEntryId}, this)" style="position:absolute; top:1px; right:1px; width:16px; height:16px; line-height:14px; padding:0; border:none; border-radius:50%; background:rgba(0,0,0,0.35); color:#fff; font-size:0.7rem; font-weight:800; cursor:pointer; z-index:5">×</button>`;
+                                                 }
+
+                                                 // Full-hour badge: quick-action logged for the whole hour (60 min) with 0 production
+                                                 if (overrideTriggeredThisSlot && overrideEntryDt >= 60 && overrideEntryGood === 0) {
+                                                     content += `<span title="Full-hour quick action: 60 min downtime, 0 production in this slot" style="position:absolute; bottom:1px; left:1px; background:#b91c1c; color:#fff; font-size:0.55rem; font-weight:800; padding:0 4px; border-radius:6px; line-height:1.45; z-index:5; pointer-events:none">⛔ 60m</span>`;
                                                  }
 
                                             } else if (entries.length > 0) {
@@ -1894,6 +1905,15 @@
                             // All allowed machines (factory-filtered)
                             const _allMachines = (machines || []).map(m => m.machine).filter(m => allowedMachines.has(m));
 
+                            // Quick-action detection — mirror the cell renderer so the count
+                            // includes quick-action entries AND the slots they visually cover.
+                            const _QUICK_TYPES = ['Maintenance','MouldChange','MouldChangeover','ManPowerShortage','MouldMaintenance','NoPlan','MouldTrial','PowerCut'];
+                            const _QUICK_CODES = ['1','2','5','7','8','11','13'];
+                            const _hasQuickCode = (e) => {
+                                const brk = (e && e.downtime_breakup && typeof e.downtime_breakup === 'object') ? e.downtime_breakup : {};
+                                return _QUICK_CODES.some(c => brk[c]);
+                            };
+
                             _shiftsForCount.forEach(_shift => {
                                 const _dmap = (_shift === 'Day') ? dayDatesMap : nightDatesMap;
                                 allDates.forEach(_date => {
@@ -1908,7 +1928,19 @@
                                             const v = _raw[k];
                                             _clean[ck] = _clean[ck].concat(Array.isArray(v) ? v : (v ? [v] : []));
                                         });
+                                        // Carry quick-action override coverage across slots, in slot order,
+                                        // exactly like the cell renderer (activeOverrideStatus is machine-wide).
+                                        let _activeOverride = false;
                                         _slots.forEach(_slot => {
+                                            const _list = (_clean[_slot] || []).filter(Boolean);
+                                            // Update override coverage from THIS slot's entries
+                                            const _sp = _list.find(e => _QUICK_TYPES.includes(e.entry_type));
+                                            const _dn = _list.find(e => e.entry_type === 'Main' && Number(e.downtime_min) >= 45 && Number(e.good_qty || 0) === 0 && _hasQuickCode(e));
+                                            const _trigger = !!(_sp || _dn);
+                                            const _hasProd = _list.some(e => Number(e.good_qty || 0) > 0 || Number(e.shots || 0) > 0 || (e.entry_type === 'Main' && Number(e.downtime_min || 0) < 45) || e.entry_type === 'ColourChange');
+                                            if (_trigger) _activeOverride = true;
+                                            else if (_hasProd) _activeOverride = false;
+
                                             // Compute slot start timestamp in LOCAL time
                                             const endH = (_shift === 'Day') ? _dayEnd[_slot] : _nightEnd[_slot];
                                             const addDay = (_shift === 'Night' && _nightNextDay.has(_slot)) ? 1 : 0;
@@ -1918,7 +1950,8 @@
                                             const sStart = _d.getTime() - 3600000;
                                             if (_now >= sStart) { // slot has opened
                                                 grandTotalOpenSlots++;
-                                                if ((_clean[_slot] || []).filter(Boolean).length > 0) grandTotalFilledSlots++;
+                                                // Filled if it has a real entry OR is covered by an active quick-action override
+                                                if (_list.length > 0 || _activeOverride) grandTotalFilledSlots++;
                                             }
                                         });
                                     });
