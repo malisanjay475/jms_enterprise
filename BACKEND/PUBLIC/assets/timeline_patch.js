@@ -960,6 +960,7 @@
                            position: relative; height: auto; 
                            transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
                         ">
+                       <div class="tl-pos-badge" title="Position ${idx + 1} on this machine">${idx + 1}</div>
                        <div style="display:flex; justify-content:space-between; align-items:start;">
                           <div style="font-weight:800; color:#0f172a; font-size:0.9rem; line-height:1.1">${esc(p.orderNo || '-')}</div>
                           <div style="font-size:0.7rem; font-weight:700; text-transform:uppercase; background:${bgTag}; color:${txtTag}; padding:2px 5px; border-radius:4px; white-space:nowrap">${st}</div>
