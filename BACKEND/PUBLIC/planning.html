@@ -6330,22 +6330,114 @@
           if (panel.dataset.loaded === '1') return;
           panel.innerHTML = '<div class="mini muted" style="padding:8px 4px">Loading job cards…</div>';
           try {
-            const res = await api.get(`/planning/orders/${encodeURIComponent(order.orderNo)}/job-cards`);
+            // Pull job cards AND the order's mould details in parallel so the panel
+            // can also show which moulds are planned vs not planned for this OR.
+            const [jcResult, detResult] = await Promise.allSettled([
+              api.get(`/planning/orders/${encodeURIComponent(order.orderNo)}/job-cards`),
+              api.get(`/planning/orders/${encodeURIComponent(order.orderNo)}/details`)
+            ]);
+            if (jcResult.status !== 'fulfilled') throw jcResult.reason;
+            const res = jcResult.value;
             const data = res && res.data ? res.data : null;
+            const moulds = (detResult.status === 'fulfilled' && Array.isArray(detResult.value?.data))
+              ? detResult.value.data : [];
             const hasJobCards = data && Array.isArray(data.jobCards) && data.jobCards.length;
             const hasPlans = data && Array.isArray(data.plans) && data.plans.length;
-            if (!data || (!hasJobCards && !hasPlans)) {
+            const hasMoulds = Array.isArray(moulds) && moulds.length;
+            if (!data || (!hasJobCards && !hasPlans && !hasMoulds)) {
               panel.innerHTML = '<div class="mini muted" style="padding:8px 4px">No job cards found for this OR.</div>';
               return;
             }
-            renderCpJobCards(panel, order, data);
+            renderCpJobCards(panel, order, data, moulds);
             panel.dataset.loaded = '1';
           } catch (e) {
             panel.innerHTML = `<div class="mini" style="padding:8px 4px; color:#b91c1c">Failed to load job cards: ${esc(String(e?.message || e))}</div>`;
           }
         }
 
-        function renderCpJobCards(panel, order, data) {
+        // Build a planned/unplanned status list per mould family from the order's
+        // /details rows. Pure: ignores the live draft queue (includeDraft=false) so
+        // the expand panel reflects only what is actually saved on the board.
+        function buildCpMouldStatusGroups(moulds) {
+          const list = Array.isArray(moulds) ? moulds : [];
+          const groups = new Map();
+          list.forEach((mould) => {
+            const family = normalizeCpFamilyCode(getCpMouldFamilyValue(mould));
+            if (!groups.has(family)) {
+              groups.set(family, {
+                family,
+                displayName: family || mould.mould_name || mould.product_name || mould.mould_no || 'Unnamed Mould',
+                rows: []
+              });
+            }
+            groups.get(family).rows.push(mould);
+          });
+          return Array.from(groups.values()).map((group) => {
+            const snapshot = getCpFamilySnapshotByRows(group.rows, group.family, false);
+            const minSqn = group.rows.reduce((min, row) => {
+              const sqn = parseCpSqn(row.mouldingSqn || row.moulding_sqn);
+              return Number.isFinite(sqn) ? (min == null ? sqn : Math.min(min, sqn)) : min;
+            }, null);
+            const allDropped = group.rows.length > 0 && group.rows.every((row) => !!row.isDropped);
+            const hasPlanned = group.rows.some((row) => !!row.hasAnyPlan) || snapshot.plannedQty > 0;
+            const fullyPlanned = (snapshot.targetQty > 0 && snapshot.remainingQty <= 0)
+              || group.rows.every((row) => !!row.isDropped || !!row.isFullyPlanned);
+            let status = 'unplanned';
+            if (allDropped) status = 'dropped';
+            else if (fullyPlanned) status = 'planned';
+            else if (hasPlanned) status = 'partial';
+            return {
+              displayName: group.displayName,
+              minSqn,
+              status,
+              targetQty: snapshot.targetQty,
+              plannedQty: snapshot.plannedQty,
+              remainingQty: snapshot.remainingQty
+            };
+          }).sort((a, b) => {
+            const aSqn = Number.isFinite(a.minSqn) ? a.minSqn : Number.MAX_SAFE_INTEGER;
+            const bSqn = Number.isFinite(b.minSqn) ? b.minSqn : Number.MAX_SAFE_INTEGER;
+            if (aSqn !== bSqn) return aSqn - bSqn;
+            return String(a.displayName || '').localeCompare(String(b.displayName || ''), undefined, { numeric: true, sensitivity: 'base' });
+          });
+        }
+
+        function renderCpMouldStatusSection(moulds) {
+          const groups = buildCpMouldStatusGroups(moulds);
+          if (!groups.length) return '';
+          const styleFor = {
+            planned:   { bg: '#ecfdf5', bd: '#bbf7d0', fg: '#15803d', label: 'Planned' },
+            partial:   { bg: '#fff7ed', bd: '#fed7aa', fg: '#c2410c', label: 'Partial' },
+            unplanned: { bg: '#fef2f2', bd: '#fecaca', fg: '#b91c1c', label: 'Not Planned' },
+            dropped:   { bg: '#f1f5f9', bd: '#e2e8f0', fg: '#64748b', label: 'Dropped' }
+          };
+          const plannedCount = groups.filter((g) => g.status === 'planned').length;
+          const openCount = groups.filter((g) => g.status === 'unplanned' || g.status === 'partial').length;
+          const rows = groups.map((g) => {
+            const s = styleFor[g.status] || styleFor.unplanned;
+            return `
+              <div style="border:1px solid ${s.bd}; background:${s.bg}; border-radius:11px; padding:8px 10px; margin-bottom:7px">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:5px">
+                  <div style="font-size:0.78rem; color:#0f172a; font-weight:800; overflow-wrap:anywhere">${esc(g.displayName)}${g.minSqn != null ? ` <span style="color:#94a3b8; font-weight:700; font-size:0.66rem">Sqn ${esc(String(g.minSqn))}</span>` : ''}</div>
+                  <span class="tag small" style="background:#fff; color:${s.fg}; border-color:${s.bd}; font-weight:800">${s.label}</span>
+                </div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; font-size:0.7rem; color:#475569; font-weight:700">
+                  <span>Target <strong style="color:#0f172a">${esc(formatCpQty(g.targetQty || 0))}</strong></span>
+                  <span>Planned <strong style="color:#1d4ed8">${esc(formatCpQty(g.plannedQty || 0))}</strong></span>
+                  <span>Balance <strong style="color:${(g.remainingQty || 0) > 0 ? '#c2410c' : '#15803d'}">${esc(formatCpQty(g.remainingQty || 0))}</strong></span>
+                </div>
+              </div>`;
+          }).join('');
+          return `
+            <div style="margin-top:10px; padding-top:8px; border-top:1px dashed #cbd5e1">
+              <div style="font-size:0.66rem; color:#475569; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:7px">
+                Moulds — Planned / Not Planned (${plannedCount}/${groups.length} planned${openCount ? `, ${openCount} open` : ''})
+              </div>
+              ${rows}
+            </div>`;
+        }
+
+        function renderCpJobCards(panel, order, data, moulds) {
           const balQty = Number(data.balQty || 0);
           const orQty = Number(data.orQty || 0);
           const plannedQty = Number(data.plannedQty || 0);
@@ -6420,7 +6512,10 @@
               </div>`;
           }
 
-          panel.innerHTML = summary + rows + plansSection;
+          // Moulds planned / not planned for this OR (from /details).
+          const mouldsSection = renderCpMouldStatusSection(moulds);
+
+          panel.innerHTML = summary + mouldsSection + rows + plansSection;
 
           panel.querySelectorAll('.cp-jc-create-plan').forEach((btn) => {
             btn.addEventListener('click', (ev) => {
