@@ -5957,7 +5957,7 @@
           list.innerHTML = '<div style="padding:20px;text-align:center" class="muted">Loading Pending Orders...</div>';
           try {
             const res = await api.get('/orders/pending');
-            cpOrders = (res && res.data ? res.data : []).map(o => ({
+            const mapped = (res && res.data ? res.data : []).map(o => ({
               ...o,
               orderNo: o.order_no || o.orderNo,
               jcNo: o.job_card_no || o.jobCardNo || o.jc_no || o.jcNo || '-',
@@ -5968,7 +5968,18 @@
               jcDate: o.job_card_date || o.jobCardDate || o.jc_date || o.jcDate || null,
               jcQty: o.jr_qty || o.jrQty || o.jc_qty || o.jcQty || null,
               qty: Number(o.jr_qty || o.jrQty || o.jc_qty || o.jcQty || o.qty || 0)
-            })).sort(defaultCpOrderSort);
+            }));
+            // De-dupe to ONE card per OR number. The backend already returns one
+            // row per OR (DISTINCT ON), but guard here too: an OR can have many
+            // job card rows and we only ever want a single Pending Order card.
+            // Per-OR job cards are shown in the expand panel (/job-cards).
+            const seenOrders = new Set();
+            cpOrders = mapped.filter(o => {
+              const key = String(o.orderNo || '').trim().toLowerCase();
+              if (!key || seenOrders.has(key)) return false;
+              seenOrders.add(key);
+              return true;
+            }).sort(defaultCpOrderSort);
 
             const currentFilter = document.getElementById('cpOrderSearch')?.value || '';
             renderCpOrders(currentFilter);
@@ -6321,7 +6332,9 @@
           try {
             const res = await api.get(`/planning/orders/${encodeURIComponent(order.orderNo)}/job-cards`);
             const data = res && res.data ? res.data : null;
-            if (!data || !Array.isArray(data.jobCards) || !data.jobCards.length) {
+            const hasJobCards = data && Array.isArray(data.jobCards) && data.jobCards.length;
+            const hasPlans = data && Array.isArray(data.plans) && data.plans.length;
+            if (!data || (!hasJobCards && !hasPlans)) {
               panel.innerHTML = '<div class="mini muted" style="padding:8px 4px">No job cards found for this OR.</div>';
               return;
             }
@@ -6350,7 +6363,7 @@
               </div>
             </div>`;
 
-          const rows = data.jobCards.map((jc, idx) => {
+          const rows = (data.jobCards || []).map((jc, idx) => {
             const linkedBadge = jc.planIdLinked
               ? '<span class="tag small" style="background:#dcfce7; color:#15803d; border-color:#bbf7d0">Linked</span>'
               : (jc.hasJobCardNo ? '' : '<span class="tag small" style="background:#fef2f2; color:#b91c1c; border-color:#fecaca">No JC No</span>');
@@ -6374,7 +6387,40 @@
               </div>`;
           }).join('');
 
-          panel.innerHTML = summary + rows;
+          // Created Plans: what is already planned for this OR. Stays visible until
+          // the OR leaves the pending list, so the user can see existing plans
+          // (and any auto-linked Job Card) before creating more.
+          const plansArr = Array.isArray(data.plans) ? data.plans : [];
+          let plansSection = '';
+          if (plansArr.length) {
+            const planRows = plansArr.map((p) => {
+              const jcBadge = p.jobCardNo
+                ? `<span class="tag small" style="background:#dcfce7; color:#15803d; border-color:#bbf7d0">JC ${esc(p.jobCardNo)}</span>`
+                : '<span class="tag small" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe">JC later</span>';
+              return `
+                <div style="border:1px solid #e2e8f0; border-radius:11px; padding:9px 10px; margin-bottom:7px; background:#f8fafc">
+                  <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px">
+                    <div style="font-size:0.7rem; color:#64748b; font-weight:800; text-transform:uppercase; letter-spacing:0.05em">Job Plan ${p.jobNo != null ? esc(String(p.jobNo)) : '-'}</div>
+                    ${jcBadge}
+                  </div>
+                  <div style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:6px">
+                    <div><div style="font-size:0.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; font-weight:700">Plan ID</div><div style="font-size:0.74rem; color:#0f172a; font-weight:700; font-family:monospace; overflow-wrap:anywhere">${esc(p.planId || '-')}</div></div>
+                    <div><div style="font-size:0.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; font-weight:700">Job Qty</div><div style="font-size:0.74rem; color:#0f172a; font-weight:800">${esc(formatCpQty(p.jobQty))}</div></div>
+                    <div><div style="font-size:0.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; font-weight:700">Mould</div><div style="font-size:0.74rem; color:#334155; font-weight:700; overflow-wrap:anywhere">${esc(p.mouldName || '-')}</div></div>
+                    <div><div style="font-size:0.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; font-weight:700">Machine</div><div style="font-size:0.74rem; color:#334155; font-weight:700; overflow-wrap:anywhere">${esc(p.machine || '-')}</div></div>
+                    <div><div style="font-size:0.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; font-weight:700">Status</div><div style="font-size:0.74rem; color:#334155; font-weight:700">${esc(p.status || '-')}</div></div>
+                    <div><div style="font-size:0.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; font-weight:700">Created By</div><div style="font-size:0.74rem; color:#334155; font-weight:700">${esc(p.createdBy || 'System')}</div></div>
+                  </div>
+                </div>`;
+            }).join('');
+            plansSection = `
+              <div style="margin-top:10px; padding-top:8px; border-top:1px dashed #cbd5e1">
+                <div style="font-size:0.66rem; color:#475569; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:7px">Created Plans (${plansArr.length})</div>
+                ${planRows}
+              </div>`;
+          }
+
+          panel.innerHTML = summary + rows + plansSection;
 
           panel.querySelectorAll('.cp-jc-create-plan').forEach((btn) => {
             btn.addEventListener('click', (ev) => {
