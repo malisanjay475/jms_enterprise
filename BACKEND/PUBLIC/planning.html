@@ -6386,13 +6386,18 @@
             if (allDropped) status = 'dropped';
             else if (fullyPlanned) status = 'planned';
             else if (hasPlanned) status = 'partial';
+            // Representative mould identity (prefer a dropped row) so the panel can
+            // undrop/plan this family directly.
+            const rep = group.rows.find((row) => !!row.isDropped) || group.rows[0] || {};
             return {
               displayName: group.displayName,
               minSqn,
               status,
               targetQty: snapshot.targetQty,
               plannedQty: snapshot.plannedQty,
-              remainingQty: snapshot.remainingQty
+              remainingQty: snapshot.remainingQty,
+              mouldNo: rep.mould_no || rep.item_code || '',
+              mouldName: rep.mould_name || ''
             };
           }).sort((a, b) => {
             const aSqn = Number.isFinite(a.minSqn) ? a.minSqn : Number.MAX_SAFE_INTEGER;
@@ -6415,6 +6420,13 @@
           const openCount = groups.filter((g) => g.status === 'unplanned' || g.status === 'partial').length;
           const rows = groups.map((g) => {
             const s = styleFor[g.status] || styleFor.unplanned;
+            const undropBtn = g.status === 'dropped'
+              ? `<button type="button" class="btn small cp-mould-undrop"
+                    data-mould-no="${esc(g.mouldNo)}" data-mould-name="${esc(g.mouldName)}"
+                    style="width:100%; justify-content:center; margin-top:7px; background:#ecfdf5; color:#059669; border-color:#a7f3d0">
+                    <i class="bi bi-arrow-counterclockwise"></i> Undrop &amp; Plan
+                  </button>`
+              : '';
             return `
               <div style="border:1px solid ${s.bd}; background:${s.bg}; border-radius:11px; padding:8px 10px; margin-bottom:7px">
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:5px">
@@ -6426,12 +6438,19 @@
                   <span>Planned <strong style="color:#1d4ed8">${esc(formatCpQty(g.plannedQty || 0))}</strong></span>
                   <span>Balance <strong style="color:${(g.remainingQty || 0) > 0 ? '#c2410c' : '#15803d'}">${esc(formatCpQty(g.remainingQty || 0))}</strong></span>
                 </div>
+                ${undropBtn}
               </div>`;
           }).join('');
           return `
             <div style="margin-top:10px; padding-top:8px; border-top:1px dashed #cbd5e1">
-              <div style="font-size:0.66rem; color:#475569; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:7px">
-                Moulds — Planned / Not Planned (${plannedCount}/${groups.length} planned${openCount ? `, ${openCount} open` : ''})
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:7px">
+                <div style="font-size:0.66rem; color:#475569; font-weight:800; text-transform:uppercase; letter-spacing:0.06em">
+                  Moulds — Planned / Not Planned (${plannedCount}/${groups.length} planned${openCount ? `, ${openCount} open` : ''})
+                </div>
+                <button type="button" class="btn small cp-open-order"
+                  style="justify-content:center; background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe; white-space:nowrap">
+                  <i class="bi bi-box-arrow-up-right"></i> Open Order
+                </button>
               </div>
               ${rows}
             </div>`;
@@ -6521,6 +6540,40 @@
             btn.addEventListener('click', (ev) => {
               ev.stopPropagation();
               selectCpOrder(order, btn.closest('.cp-order-item'));
+            });
+          });
+
+          // "Open Order" — always-available entry into the full order detail,
+          // even when the OR shows fully planned (so dropped moulds can be reached).
+          const openBtn = panel.querySelector('.cp-open-order');
+          if (openBtn) {
+            openBtn.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              selectCpOrder(order, panel.closest('.cp-order-item'));
+            });
+          }
+
+          // "Undrop & Plan" — restore a dropped mould family and open the order
+          // detail focused on planning, in one tap from this status panel.
+          panel.querySelectorAll('.cp-mould-undrop').forEach((btn) => {
+            btn.addEventListener('click', async (ev) => {
+              ev.stopPropagation();
+              const mould = {
+                mould_no: btn.getAttribute('data-mould-no') || '',
+                item_code: btn.getAttribute('data-mould-no') || '',
+                mould_name: btn.getAttribute('data-mould-name') || ''
+              };
+              btn.disabled = true;
+              try {
+                // Open + set order context first so undrop has cpSelectedOrder.
+                await selectCpOrder(order, panel.closest('.cp-order-item'));
+                if (typeof window.undropCpMould === 'function') {
+                  await window.undropCpMould(mould);
+                }
+              } catch (e) {
+                btn.disabled = false;
+                if (typeof toast === 'function') toast(String(e?.message || e), 'error');
+              }
             });
           });
         }
