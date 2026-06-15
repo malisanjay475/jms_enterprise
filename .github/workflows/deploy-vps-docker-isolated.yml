@@ -13,8 +13,12 @@ on:
         default: main
 
 concurrency:
-  group: deploy-vps-docker-v1-manual
-  cancel-in-progress: true
+  # Shared with publish-v1-app.yml so the two production deploy workflows
+  # never SSH into the VPS at the same time (prevents dial tcp :22 i/o timeout
+  # collisions). cancel-in-progress: false makes a second deploy queue and wait
+  # instead of cancelling an in-flight, health-gated deploy.
+  group: jms-v1-vps-production-deploy
+  cancel-in-progress: false
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/jms-v1-app
