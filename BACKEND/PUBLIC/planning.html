@@ -5164,6 +5164,31 @@
               opacity: 0.5;
               transform: scale(0.95);
           }
+          /* Position number badge on each timeline card */
+          .tl-pos-badge {
+              position: absolute; top: -9px; left: -9px; z-index: 6;
+              min-width: 22px; height: 22px; padding: 0 6px;
+              background: #1d4ed8; color: #fff; border-radius: 11px;
+              font-size: 0.74rem; font-weight: 800; line-height: 22px;
+              text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+              border: 2px solid #fff; pointer-events: none;
+          }
+          /* Live insertion indicator shown while dragging */
+          .tl-drop-indicator {
+              width: 6px; align-self: stretch; flex-shrink: 0; margin: 6px 2px;
+              border-radius: 4px; position: relative; pointer-events: none;
+              background: linear-gradient(#22c55e, #16a34a);
+              box-shadow: 0 0 10px rgba(34,197,94,0.85);
+              animation: tlDropPulse 0.9s ease-in-out infinite;
+          }
+          @keyframes tlDropPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+          .tl-drop-indicator .tl-drop-num {
+              position: absolute; top: -11px; left: 50%; transform: translateX(-50%);
+              min-width: 22px; height: 22px; padding: 0 6px; line-height: 22px;
+              background: #16a34a; color: #fff; border-radius: 11px;
+              font-size: 0.74rem; font-weight: 800; text-align: center;
+              border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.3); white-space: nowrap;
+          }
           @keyframes blinkBorder { 0% { border-color: #ef4444; box-shadow:0 0 5px #ef4444; } 50% { border-color: #fca5a5; box-shadow:none; } 100% { border-color: #ef4444; box-shadow:0 0 5px #ef4444; } }
           .blink-urgent-border {
              animation: blinkBorder 1.5s infinite;
@@ -5193,25 +5218,75 @@
         window.handleDragEnd = function (e, el) {
           if (el) el.classList.remove('dragging');
           window.draggedPlan = null;
+          window._tlDropTarget = null;
+          window.tlClearDropIndicator();
           // Cleanup any stuck drag-overs
           document.querySelectorAll('.timeline-track.drag-over').forEach(t => t.classList.remove('drag-over'));
         };
 
-        window.handleDragOver = function (e, el) {
+        // Single reusable insertion indicator element
+        window.tlGetDropIndicator = function () {
+          let ind = document.getElementById('tl-drop-indicator');
+          if (!ind) {
+            ind = document.createElement('div');
+            ind.id = 'tl-drop-indicator';
+            ind.className = 'tl-drop-indicator';
+            ind.innerHTML = '<span class="tl-drop-num"></span>';
+          }
+          return ind;
+        };
+        window.tlClearDropIndicator = function () {
+          const ind = document.getElementById('tl-drop-indicator');
+          if (ind && ind.parentNode) ind.parentNode.removeChild(ind);
+        };
+
+        // Compute where the dragged card would land and show the numbered indicator.
+        window.handleDragOver = function (e, track) {
           if (e.preventDefault) e.preventDefault(); // Allows dropping
           e.dataTransfer.dropEffect = 'move';
-          el.classList.add('drag-over');
+          track.classList.add('drag-over');
+
+          const draggingId = window.draggedPlan ? String(window.draggedPlan.id) : null;
+          // Horizontal track: order cards left→right, skip the one being dragged and the indicator.
+          const cards = Array.from(track.querySelectorAll('.timeline-card'))
+            .filter(c => String(c.dataset.pid) !== draggingId);
+
+          const x = e.clientX;
+          let beforeCard = null;
+          for (const c of cards) {
+            const r = c.getBoundingClientRect();
+            if (x < r.left + r.width / 2) { beforeCard = c; break; }
+          }
+
+          const ind = window.tlGetDropIndicator();
+          let position;
+          if (beforeCard) {
+            track.insertBefore(ind, beforeCard);
+            position = cards.indexOf(beforeCard) + 1;
+            window._tlDropTarget = { machine: track.dataset.machine, beforeId: beforeCard.dataset.pid, position };
+          } else {
+            track.appendChild(ind);
+            position = cards.length + 1;
+            window._tlDropTarget = { machine: track.dataset.machine, beforeId: null, position };
+          }
+          const numEl = ind.querySelector('.tl-drop-num');
+          if (numEl) numEl.textContent = position;
           return false;
         };
 
-        window.handleDragLeave = function (e, el) {
-          el.classList.remove('drag-over');
+        window.handleDragLeave = function (e, track) {
+          // Only clear when the cursor actually leaves the track (not when moving over child cards)
+          const to = e.relatedTarget;
+          if (to && track.contains(to)) return;
+          track.classList.remove('drag-over');
+          window.tlClearDropIndicator();
         };
 
         window.handleDrop = function (e, track) {
           e.preventDefault();
           e.stopPropagation();
           track.classList.remove('drag-over');
+          window.tlClearDropIndicator();
           const cardBeingDragged = document.querySelector('.timeline-card.dragging');
           if (cardBeingDragged) cardBeingDragged.classList.remove('dragging');
 
@@ -5224,32 +5299,41 @@
           // Prevent dropping if no drag source
           if (!window.draggedPlan) return false;
 
-          // Check if dropped on a card (to insert before)
-          const card = e.target.closest('.timeline-card');
-          let dropBeforeId = null;
-          if (card) {
-            const pid = card.dataset.pid;
-            // If dropping on self, ignore
-            if (pid === window.draggedPlan.id) return false;
-            dropBeforeId = pid;
+          // Use the precomputed insertion target (from handleDragOver) for exact positioning.
+          const target = window._tlDropTarget || {};
+          let dropBeforeId = (target.machine === targetMachine) ? (target.beforeId || null) : null;
+          let position = (target.machine === targetMachine) ? (target.position || null) : null;
+
+          // Fallback: if no precomputed target, infer from the card under the cursor.
+          if (!target.machine) {
+            const card = e.target.closest('.timeline-card');
+            if (card) {
+              if (String(card.dataset.pid) === String(window.draggedPlan.id)) return false;
+              dropBeforeId = card.dataset.pid;
+            }
           }
 
-          // Show Confirmation
+          // Dropping exactly where it already is → no-op
+          if (dropBeforeId && String(dropBeforeId) === String(window.draggedPlan.id)) return false;
+
           const planDetails = window.draggedPlan;
-          window.confirmMove(planDetails, targetMachine, dropBeforeId);
+          window.confirmMove(planDetails, targetMachine, dropBeforeId, position);
           return false;
         };
 
-        window.confirmMove = function (planData, targetMachine, dropBeforeId) {
+        window.confirmMove = function (planData, targetMachine, dropBeforeId, position) {
           const modalId = 'moveConfirmModal';
           let modal = document.getElementById(modalId);
           if (modal) modal.remove();
 
           const isReorder = (planData.machine === targetMachine);
           const title = isReorder ? 'Confirm Reorder' : 'Confirm Move';
+          const posTag = (position != null && position !== '')
+            ? ` to position <strong style="color:#fff; background:#16a34a; padding:2px 9px; border-radius:11px">#${position}</strong>`
+            : '';
           const msg = isReorder
-            ? `Reorder this plan within <strong>${targetMachine}</strong>?`
-            : `Move plan to machine <strong style="color:#0f172a; background:#f1f5f9; padding:2px 6px; border-radius:4px">${targetMachine}</strong>?`;
+            ? `Reorder this plan${posTag} within <strong>${targetMachine}</strong>?`
+            : `Move plan${posTag} to machine <strong style="color:#0f172a; background:#f1f5f9; padding:2px 6px; border-radius:4px">${targetMachine}</strong>?`;
 
           const markup = `
              <div id="${modalId}" style="position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); z-index:999999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(2px)">
@@ -5279,10 +5363,17 @@
           const btn = document.querySelector(`#${modalId} .btn.primary`);
           if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Moving...'; }
 
+          // Which timeline view is currently active? Excel View uses a table (no .timeline-track),
+          // so the machine-track optimistic DOM mutation below must be skipped for it.
+          const etvVisible = (() => {
+            const el = document.getElementById('excelTimelineView');
+            return !!(el && el.style.display !== 'none' && el.offsetParent !== null);
+          })();
+
           // INSTANT UI UPDATE (Optimistic)
           let optimisticSuccess = false;
           try {
-            if (window.timelineGroups && window.draggedPlan) {
+            if (!etvVisible && window.timelineGroups && window.draggedPlan) {
               // 1. Find the plan in current group
               const oldMachine = window.draggedPlan.machine;
               const planObjIdx = (window.timelineGroups[oldMachine] || []).findIndex(p => String(p.id) === String(rowId));
@@ -5378,13 +5469,11 @@
             if (res.ok || res.data?.ok) {
               if (window.JPSMS && window.JPSMS.toast) window.JPSMS.toast('Plan moved', 'success');
               // Always reload after saving so sequence-based Start/End/Exp ripple dates are accurate.
-              if (typeof window.superLoadTimeline === 'function') window.superLoadTimeline();
-              else if (typeof loadTimeline === 'function') loadTimeline();
+              reloadActiveTimeline();
             } else {
               if (window.JPSMS && window.JPSMS.toast) window.JPSMS.toast('Error: ' + (res.error || res.data?.error || 'Unknown'), 'error');
               // Refresh to undo optimistic UI on failure
-              if (typeof window.superLoadTimeline === 'function') window.superLoadTimeline();
-              else if (typeof loadTimeline === 'function') loadTimeline();
+              reloadActiveTimeline();
             }
           } catch (e) {
             console.error(e);
@@ -5392,6 +5481,12 @@
             const m = document.getElementById(modalId);
             if (m) m.remove();
             // Refresh to undo optimistic UI
+            reloadActiveTimeline();
+          }
+
+          // Reload whichever timeline view is currently visible.
+          function reloadActiveTimeline() {
+            if (etvVisible && typeof window.loadExcelTimeline === 'function') { window.loadExcelTimeline(); return; }
             if (typeof window.superLoadTimeline === 'function') window.superLoadTimeline();
             else if (typeof loadTimeline === 'function') loadTimeline();
           }
@@ -12889,6 +12984,73 @@
         font-size: .62rem; font-weight: 900; padding: 1px 7px; margin-left: 2px;
       }
 
+      /* Create Priority / Saved Priorities buttons */
+      #etv-priority-btn, #etv-saved-priority-btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 12px; border-radius: 8px; border: none; cursor: pointer;
+        font-size: .72rem; font-weight: 800; letter-spacing: .03em; color: #fff;
+        transition: filter .15s, transform .1s;
+      }
+      #etv-priority-btn { background: linear-gradient(90deg, #16a34a 0%, #0d9488 100%); box-shadow: 0 2px 6px rgba(13,148,136,.25); }
+      #etv-saved-priority-btn { background: #475569; box-shadow: 0 2px 6px rgba(71,85,105,.22); }
+      #etv-priority-btn:hover, #etv-saved-priority-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+      #etv-priority-btn:active, #etv-saved-priority-btn:active { transform: translateY(0); }
+      #etv-priority-btn.active { background: linear-gradient(90deg, #dc2626 0%, #b45309 100%); }
+
+      /* Priority selection mode: pickable plan cards + order badge */
+      #etv-table.etv-priority-mode .etv-plan-cell:not(.etv-empty) { cursor: copy; }
+      #etv-table.etv-priority-mode .etv-plan-cell:not(.etv-empty):hover .etv-card { outline: 2px dashed #0d9488; outline-offset: -2px; }
+      .etv-card.etv-prio-picked { outline: 2.5px solid #16a34a !important; outline-offset: -2px; box-shadow: 0 0 12px rgba(22,163,74,.45) !important; }
+      .etv-prio-order-badge {
+        position: absolute; top: -8px; left: -8px; z-index: 5;
+        min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px;
+        background: #16a34a; color: #fff; font-size: .68rem; font-weight: 900;
+        display: inline-flex; align-items: center; justify-content: center;
+        box-shadow: 0 1px 4px rgba(0,0,0,.3);
+      }
+
+      /* Priority side panel */
+      #etv-prio-panel {
+        position: fixed; top: 0; right: 0; bottom: 0; width: 360px; z-index: 6100;
+        background: #fff; box-shadow: -4px 0 24px rgba(15,23,42,.18);
+        display: flex; flex-direction: column; transform: translateX(100%); transition: transform .25s;
+      }
+      #etv-prio-panel.open { transform: translateX(0); }
+      #etv-prio-panel .pp-head { padding: 14px 16px; background: #0f172a; color: #fff; }
+      #etv-prio-panel .pp-head h3 { margin: 0; font-size: .95rem; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+      #etv-prio-panel .pp-head .pp-sub { font-size: .72rem; color: #cbd5e1; margin-top: 4px; }
+      #etv-prio-panel .pp-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
+      #etv-prio-panel .pp-foot { padding: 12px 16px; border-top: 1px solid #e2e8f0; background: #f8fafc; }
+      .pp-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 7px; background: #fff; }
+      .pp-item .pp-sr { width: 22px; height: 22px; border-radius: 50%; background: #16a34a; color: #fff; font-size: .7rem; font-weight: 900; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+      .pp-item .pp-info { flex: 1; min-width: 0; }
+      .pp-item .pp-mach { font-size: .76rem; font-weight: 800; color: #1e293b; }
+      .pp-item .pp-mould { font-size: .68rem; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .pp-item .pp-mp { font-size: .72rem; font-weight: 800; color: #0d9488; flex: 0 0 auto; }
+      .pp-item .pp-moveup, .pp-item .pp-movedn, .pp-item .pp-rm { border: none; background: #f1f5f9; color: #475569; border-radius: 6px; cursor: pointer; width: 22px; height: 22px; font-size: .72rem; display: inline-flex; align-items: center; justify-content: center; }
+      .pp-item .pp-rm:hover { background: #fee2e2; color: #dc2626; }
+      .pp-total { display: flex; justify-content: space-between; align-items: center; font-size: .85rem; font-weight: 800; color: #1e293b; margin-bottom: 10px; }
+      .pp-total strong { color: #0d9488; font-size: 1.05rem; }
+      .pp-btn { width: 100%; padding: 9px; border-radius: 8px; border: none; cursor: pointer; font-weight: 800; font-size: .8rem; margin-top: 6px; }
+      .pp-btn.save { background: #2563eb; color: #fff; }
+      .pp-btn.savepdf { background: #16a34a; color: #fff; }
+      .pp-btn.cancel { background: #e2e8f0; color: #475569; }
+      .pp-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+      /* Generic priority modal (date/shift + saved list) */
+      #etv-prio-modal { position: fixed; inset: 0; z-index: 6200; background: rgba(15,23,42,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+      #etv-prio-modal .pm-box { background: #fff; border-radius: 12px; width: 100%; max-width: 560px; max-height: 86vh; overflow: hidden; display: flex; flex-direction: column; }
+      #etv-prio-modal .pm-head { padding: 14px 18px; background: #0f172a; color: #fff; display: flex; align-items: center; justify-content: space-between; }
+      #etv-prio-modal .pm-head h3 { margin: 0; font-size: 1rem; font-weight: 800; }
+      #etv-prio-modal .pm-body { padding: 18px; overflow-y: auto; }
+      #etv-prio-modal label { display: block; font-size: .78rem; font-weight: 700; color: #475569; margin-bottom: 5px; }
+      #etv-prio-modal input, #etv-prio-modal select { width: 100%; padding: 9px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: .85rem; margin-bottom: 14px; }
+      #etv-prio-modal .pm-close { background: transparent; border: none; color: #fff; font-size: 1.3rem; cursor: pointer; }
+      .pm-saved-row { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 8px; }
+      .pm-saved-row .pm-saved-info { flex: 1; min-width: 0; }
+      .pm-saved-row .pm-saved-title { font-size: .8rem; font-weight: 800; color: #1e293b; }
+      .pm-saved-row .pm-saved-meta { font-size: .7rem; color: #64748b; }
+
       /* Smart Suggestions overlay */
       #etv-suggest-overlay {
         position: fixed; inset: 0; z-index: 6000; background: rgba(15,23,42,.45);
@@ -13236,6 +13398,21 @@
         transition: background 0.2s, border-color 0.2s, box-shadow .12s, transform .1s;
       }
       .etv-plan-cell:hover .etv-card { box-shadow: 0 4px 14px rgba(15,23,42,.12); transform: translateY(-1px); }
+      .etv-card[draggable="true"] { cursor: grab; }
+      .etv-card.etv-dragging { opacity: .4; cursor: grabbing; }
+      /* slot-position badge (top-right of each card / empty cell) */
+      .etv-slot-num {
+        position: absolute; top: 3px; right: 4px;
+        min-width: 15px; height: 15px; padding: 0 3px;
+        display: inline-flex; align-items: center; justify-content: center;
+        background: #1e3a8a; color: #fff; font-size: .55rem; font-weight: 800;
+        border-radius: 8px; line-height: 1; z-index: 2; pointer-events: none;
+      }
+      .etv-empty-inner { position: relative; }
+      .etv-empty-inner .etv-slot-num { background: #94a3b8; }
+      /* drop-target highlight while dragging */
+      .etv-plan-cell.etv-drop-hot { background: #ecfdf5 !important; box-shadow: inset 0 0 0 2px #16a34a; }
+      .etv-plan-cell.etv-drop-hot .etv-slot-num { background: #16a34a; transform: scale(1.15); transition: transform .1s; }
       .etv-card.running   { border-left-color: #16a34a; background: #f0fdf4; border-color: #bbf7d0; }
       .etv-card.stopped   { border-left-color: #dc2626; background: #fef2f2; border-color: #fecaca; }
       .etv-card.planned   { border-left-color: #2563eb; background: #eff6ff; border-color: #bfdbfe; }
@@ -13453,10 +13630,26 @@
         const api = getApi();
         const proc = getProcFilter();
         const q = `process=${encodeURIComponent(proc)}`;
-        const [mRes, pRes] = await Promise.all([
+        const [mRes, pRes, mouldRes] = await Promise.all([
           api.get(`/masters/machines?${q}`),
-          api.get(`/planning/board?${q}`)
+          api.get(`/planning/board?${q}`),
+          api.get(`/masters/moulds`).catch(() => null)
         ]);
+
+        /* ── Build manpower lookup from Mould Master (by mould name + number) ── */
+        try {
+          window.etvManpowerMap = {};
+          const simpKey = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+          const moulds = (mouldRes && mouldRes.data) ? mouldRes.data : [];
+          moulds.forEach(md => {
+            const mp = (md.manpower == null || md.manpower === '') ? null : Number(md.manpower);
+            if (mp == null || Number.isNaN(mp)) return;
+            const byName = simpKey(md.mould_name);
+            const byNo   = simpKey(md.mould_number);
+            if (byName) window.etvManpowerMap['N:' + byName] = mp;
+            if (byNo)   window.etvManpowerMap['#:' + byNo] = mp;
+          });
+        } catch (e) { console.warn('[ExcelTimeline] manpower map failed', e); }
 
         /* ── Reuse superLoadTimeline data if already loaded ── */
         if (window.timelineMachines && window.timelineMachines.length &&
@@ -13632,6 +13825,12 @@
                   <i class="bi bi-stars"></i> Smart Suggestions
                   <span id="etv-smart-badge" style="display:none"></span>
                 </button>
+                <button id="etv-priority-btn" type="button" onclick="window.etvCreatePriority()" title="Create an ordered priority list by picking plan cards one by one" style="display:none">
+                  <i class="bi bi-list-ol"></i> Create Priority
+                </button>
+                <button id="etv-saved-priority-btn" type="button" onclick="window.etvOpenSavedPriorities()" title="View saved priority lists" style="display:none">
+                  <i class="bi bi-clock-history"></i> Saved Priorities
+                </button>
                 <div id="etv-count">0 machines</div>
               </div>
             </div>
@@ -13699,7 +13898,321 @@
 
       window.etvFilter();
       if (typeof window.etvUpdateSmartBadge === 'function') window.etvUpdateSmartBadge();
+      if (typeof window.etvApplyPriorityRole === 'function') window.etvApplyPriorityRole();
     }
+
+    /* ── Create Priority: role gating ───────────────────────────────────
+       Visible only to PPC managers and superadmin. */
+    window.etvApplyPriorityRole = function () {
+      const allowed = ['ppc_ass_manager', 'ppc_manager', 'superadmin'];
+      let role = '';
+      try { role = String((window.JPSMS && window.JPSMS.auth.getUser().role_code) || '').toLowerCase(); } catch (_) {}
+      const show = allowed.includes(role);
+      ['etv-priority-btn', 'etv-saved-priority-btn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = show ? 'inline-flex' : 'none';
+      });
+    };
+
+    /* ════════════════════════════════════════════════════════════════════
+       CREATE PRIORITY — build an ordered priority sheet from plan cards
+    ════════════════════════════════════════════════════════════════════ */
+    window.etvPrioritySelecting = false;
+    window.etvPriorityCtx = null; // { date, shift, process, items:[{_key,machine,mouldName,mouldNo,manpower}] }
+
+    const prioEsc = s => String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+    window.etvPriorityKey = function (code, i, p) {
+      const pid = (p && (p.planId || p.plan_id || p.id)) || '';
+      return pid ? ('P:' + pid) : (code + '|' + i + '|' + ((p && p.orderNo) || ''));
+    };
+
+    window.etvManpowerFor = function (p) {
+      if (!p || !window.etvManpowerMap) return null;
+      const k = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const byNo = k(p.mouldNo), byName = k(p.mouldName);
+      if (byNo && window.etvManpowerMap['#:' + byNo] != null) return window.etvManpowerMap['#:' + byNo];
+      if (byName && window.etvManpowerMap['N:' + byName] != null) return window.etvManpowerMap['N:' + byName];
+      return null;
+    };
+
+    /* Step 1: ask Date + Shift */
+    window.etvCreatePriority = function () {
+      const now = new Date();
+      const today = now.toISOString().slice(0, 10);
+      const defShift = (now.getHours() >= 20 || now.getHours() < 8) ? 'Night' : 'Day';
+      const host = document.createElement('div');
+      host.id = 'etv-prio-modal';
+      host.innerHTML = `
+        <div class="pm-box">
+          <div class="pm-head">
+            <h3><i class="bi bi-list-ol"></i> Create Priority</h3>
+            <button class="pm-close" onclick="document.getElementById('etv-prio-modal').remove()">&times;</button>
+          </div>
+          <div class="pm-body">
+            <label>Date</label>
+            <input type="date" id="etv-prio-date" value="${today}">
+            <label>Shift</label>
+            <select id="etv-prio-shift">
+              <option value="Day"${defShift==='Day'?' selected':''}>Day</option>
+              <option value="Night"${defShift==='Night'?' selected':''}>Night</option>
+            </select>
+            <button class="pp-btn savepdf" onclick="window.etvPriorityStart()">
+              <i class="bi bi-check2-circle"></i> Start Selecting Plans
+            </button>
+          </div>
+        </div>`;
+      host.addEventListener('click', e => { if (e.target === host) host.remove(); });
+      document.body.appendChild(host);
+    };
+
+    window.etvPriorityStart = function () {
+      const date = document.getElementById('etv-prio-date').value;
+      const shift = document.getElementById('etv-prio-shift').value;
+      if (!date) { alert('Please select a date.'); return; }
+      const modal = document.getElementById('etv-prio-modal');
+      if (modal) modal.remove();
+      window.etvPriorityCtx = { date, shift, process: (typeof getProcFilter === 'function' ? getProcFilter() : ''), items: [] };
+      window.etvPrioritySelecting = true;
+      const btn = document.getElementById('etv-priority-btn');
+      if (btn) { btn.classList.add('active'); btn.innerHTML = '<i class="bi bi-x-circle"></i> Cancel Priority'; btn.setAttribute('onclick', 'window.etvPriorityCancel()'); }
+      window.etvRenderPriorityPanel();
+      if (typeof window.etvFilter === 'function') window.etvFilter();
+    };
+
+    window.etvPriorityCancel = function () {
+      window.etvPrioritySelecting = false;
+      window.etvPriorityCtx = null;
+      const btn = document.getElementById('etv-priority-btn');
+      if (btn) { btn.classList.remove('active'); btn.innerHTML = '<i class="bi bi-list-ol"></i> Create Priority'; btn.setAttribute('onclick', 'window.etvCreatePriority()'); }
+      const panel = document.getElementById('etv-prio-panel');
+      if (panel) panel.remove();
+      if (typeof window.etvFilter === 'function') window.etvFilter();
+    };
+
+    /* Step 2: pick / unpick a plan card */
+    window.etvPriorityPick = function (code, i) {
+      if (!window.etvPrioritySelecting || !window.etvPriorityCtx) return;
+      const plans = (window.etvGroups && window.etvGroups[code]) ? window.etvGroups[code] : (typeof etvGroups !== 'undefined' ? etvGroups[code] : null);
+      const list = plans || [];
+      const p = list[i];
+      if (!p) return;
+      const key = window.etvPriorityKey(code, i, p);
+      const items = window.etvPriorityCtx.items;
+      const at = items.findIndex(it => it._key === key);
+      if (at >= 0) {
+        items.splice(at, 1); // toggle off
+      } else {
+        items.push({
+          _key: key,
+          machine: (typeof stripMachPfx === 'function' ? stripMachPfx(code) : code),
+          mouldName: p.mouldName || '-',
+          mouldNo: p.mouldNo || '',
+          manpower: window.etvManpowerFor(p)
+        });
+      }
+      window.etvRenderPriorityPanel();
+      if (typeof window.etvFilter === 'function') window.etvFilter();
+    };
+
+    window.etvPriorityMove = function (idx, dir) {
+      const items = window.etvPriorityCtx && window.etvPriorityCtx.items;
+      if (!items) return;
+      const j = idx + dir;
+      if (j < 0 || j >= items.length) return;
+      const tmp = items[idx]; items[idx] = items[j]; items[j] = tmp;
+      window.etvRenderPriorityPanel();
+      if (typeof window.etvFilter === 'function') window.etvFilter();
+    };
+
+    window.etvPriorityRemove = function (idx) {
+      const items = window.etvPriorityCtx && window.etvPriorityCtx.items;
+      if (!items) return;
+      items.splice(idx, 1);
+      window.etvRenderPriorityPanel();
+      if (typeof window.etvFilter === 'function') window.etvFilter();
+    };
+
+    /* Side panel */
+    window.etvRenderPriorityPanel = function () {
+      let panel = document.getElementById('etv-prio-panel');
+      if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'etv-prio-panel';
+        document.body.appendChild(panel);
+      }
+      const ctx = window.etvPriorityCtx || { items: [], date: '', shift: '' };
+      const items = ctx.items || [];
+      const total = items.reduce((s, it) => s + (Number.isFinite(it.manpower) ? it.manpower : 0), 0);
+      const dateTxt = ctx.date ? new Date(ctx.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+
+      const rows = items.length ? items.map((it, idx) => `
+        <div class="pp-item">
+          <span class="pp-sr">${idx + 1}</span>
+          <div class="pp-info">
+            <div class="pp-mach">${prioEsc(it.machine)}</div>
+            <div class="pp-mould" title="${prioEsc(it.mouldName)}">${prioEsc(it.mouldName)}</div>
+          </div>
+          <span class="pp-mp">${it.manpower == null ? '–' : it.manpower}</span>
+          <button class="pp-moveup" title="Move up" onclick="window.etvPriorityMove(${idx},-1)"><i class="bi bi-chevron-up"></i></button>
+          <button class="pp-movedn" title="Move down" onclick="window.etvPriorityMove(${idx},1)"><i class="bi bi-chevron-down"></i></button>
+          <button class="pp-rm" title="Remove" onclick="window.etvPriorityRemove(${idx})"><i class="bi bi-x-lg"></i></button>
+        </div>`).join('') : `<div style="padding:24px 8px;text-align:center;color:#94a3b8;font-size:.8rem">Click plan cards in the grid to add them in priority order.</div>`;
+
+      panel.innerHTML = `
+        <div class="pp-head">
+          <h3><i class="bi bi-list-ol"></i> Priority — ${prioEsc(ctx.shift)} Shift</h3>
+          <div class="pp-sub">${prioEsc(dateTxt)} · ${items.length} machine${items.length===1?'':'s'} selected</div>
+        </div>
+        <div class="pp-body">${rows}</div>
+        <div class="pp-foot">
+          <div class="pp-total"><span>Total Manpower</span><strong>${total}</strong></div>
+          <button class="pp-btn savepdf" ${items.length?'':'disabled'} onclick="window.etvPrioritySave(true)"><i class="bi bi-file-earmark-pdf"></i> Save &amp; Generate PDF</button>
+          <button class="pp-btn save" ${items.length?'':'disabled'} onclick="window.etvPrioritySave(false)"><i class="bi bi-save"></i> Save Only</button>
+          <button class="pp-btn cancel" onclick="window.etvPriorityCancel()">Cancel</button>
+        </div>`;
+      requestAnimationFrame(() => panel.classList.add('open'));
+    };
+
+    /* Save (+ optional PDF) */
+    window.etvPrioritySave = async function (withPdf) {
+      const ctx = window.etvPriorityCtx;
+      if (!ctx || !ctx.items.length) return;
+      let createdBy = '';
+      try { createdBy = (window.JPSMS && window.JPSMS.auth.getUser().username) || ''; } catch (_) {}
+      const payload = {
+        priorityDate: ctx.date,
+        shift: ctx.shift,
+        process: ctx.process,
+        createdBy,
+        items: ctx.items.map(it => ({ machine: it.machine, mouldName: it.mouldName, mouldNo: it.mouldNo, manpower: it.manpower }))
+      };
+      try {
+        const api = getApi();
+        const res = await api.post('/planning/priority', payload);
+        const data = (res && res.data) ? res.data : res;
+        const title = (data && data.title) || window.etvPriorityTitle(ctx.date, ctx.shift);
+        const total = ctx.items.reduce((s, it) => s + (Number.isFinite(it.manpower) ? it.manpower : 0), 0);
+        if (withPdf) {
+          window.etvPriorityPdf({ title, items: ctx.items.map((it, i) => ({ sr: i + 1, machine: it.machine, mouldName: it.mouldName, manpower: it.manpower })), totalManpower: total });
+        }
+        window.etvPriorityCancel();
+        if (!withPdf) alert('Priority list saved.');
+      } catch (e) {
+        console.error('priority save', e);
+        alert('Failed to save priority list: ' + (e && e.message ? e.message : e));
+      }
+    };
+
+    window.etvPriorityTitle = function (date, shift) {
+      let dd = '';
+      try { dd = new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-'); } catch (_) { dd = String(date || ''); }
+      return `TODAY PRIORITY FOR ${String(shift || '').toUpperCase()} SHIFT OF ${dd}`;
+    };
+
+    /* PDF — matches the attached format: title box, green header, Sr/Machine/Mould Name/Manp, total */
+    window.etvPriorityPdf = function (data) {
+      const items = data.items || [];
+      const body = items.map(it => `
+        <tr>
+          <td class="c">${it.sr}</td>
+          <td>${prioEsc(it.machine)}</td>
+          <td>${prioEsc(it.mouldName)}</td>
+          <td class="c">${it.manpower == null ? '–' : it.manpower}</td>
+        </tr>`).join('');
+      const html = `<!doctype html><html><head><meta charset="utf-8"><title>${prioEsc(data.title)}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { font-family: Arial, Helvetica, sans-serif; margin: 18px; color: #111; }
+          .ttl { border: 3px solid #000; text-align: center; font-weight: 800; font-size: 18px; padding: 10px; margin-bottom: 12px; text-transform: uppercase; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #000; padding: 5px 8px; font-size: 13px; }
+          thead th { background: #16a34a; color: #fff; text-align: center; font-weight: 800; }
+          td.c { text-align: center; }
+          col.sr { width: 8%; } col.mp { width: 14%; } col.mc { width: 32%; }
+          tfoot td { font-weight: 800; background: #f1f5f9; }
+          @media print { body { margin: 0; } }
+        </style></head><body>
+        <div class="ttl">${prioEsc(data.title)}</div>
+        <table>
+          <colgroup><col class="sr"><col class="mc"><col><col class="mp"></colgroup>
+          <thead><tr><th>Sr</th><th>Machine</th><th>Mould Name</th><th>Manp</th></tr></thead>
+          <tbody>${body}</tbody>
+          <tfoot><tr><td class="c" colspan="3" style="text-align:right">Total Manpower</td><td class="c">${data.totalManpower}</td></tr></tfoot>
+        </table>
+        <script>window.onload=function(){window.print();}<\/script>
+        </body></html>`;
+      const w = window.open('', '_blank');
+      if (!w) { alert('Please allow pop-ups to generate the PDF.'); return; }
+      w.document.open(); w.document.write(html); w.document.close();
+    };
+
+    /* Saved Priorities list */
+    window.etvOpenSavedPriorities = async function () {
+      const host = document.createElement('div');
+      host.id = 'etv-prio-modal';
+      host.innerHTML = `
+        <div class="pm-box">
+          <div class="pm-head">
+            <h3><i class="bi bi-clock-history"></i> Saved Priorities</h3>
+            <button class="pm-close" onclick="document.getElementById('etv-prio-modal').remove()">&times;</button>
+          </div>
+          <div class="pm-body" id="etv-prio-saved-body">
+            <div style="text-align:center;color:#64748b;padding:20px"><span class="spinner-border spinner-border-sm"></span> Loading…</div>
+          </div>
+        </div>`;
+      host.addEventListener('click', e => { if (e.target === host) host.remove(); });
+      document.body.appendChild(host);
+      try {
+        const api = getApi();
+        const proc = (typeof getProcFilter === 'function' ? getProcFilter() : '');
+        const res = await api.get('/planning/priority' + (proc ? ('?process=' + encodeURIComponent(proc)) : ''));
+        const list = ((res && res.data) ? res.data : res) || [];
+        const isSuper = (() => { try { return String(window.JPSMS.auth.getUser().role_code || '').toLowerCase() === 'superadmin'; } catch (_) { return false; } })();
+        const body = document.getElementById('etv-prio-saved-body');
+        if (!list.length) { body.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:24px">No saved priorities yet.</div>'; return; }
+        body.innerHTML = list.map(r => {
+          const dt = r.createdAt ? new Date(r.createdAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+          return `
+            <div class="pm-saved-row">
+              <div class="pm-saved-info">
+                <div class="pm-saved-title">${prioEsc(r.title)}</div>
+                <div class="pm-saved-meta">${r.itemCount || 0} machines · Total MP: ${r.totalManpower == null ? '–' : r.totalManpower} · ${prioEsc(r.createdBy || '')} · ${prioEsc(dt)}</div>
+              </div>
+              <button class="pp-btn savepdf" style="width:auto;margin:0;padding:7px 12px" onclick="window.etvPriorityReprint(${r.id})"><i class="bi bi-file-earmark-pdf"></i> PDF</button>
+              ${isSuper ? `<button class="pp-btn cancel" style="width:auto;margin:0;padding:7px 10px" onclick="window.etvPriorityDelete(${r.id}, this)"><i class="bi bi-trash"></i></button>` : ''}
+            </div>`;
+        }).join('');
+      } catch (e) {
+        const body = document.getElementById('etv-prio-saved-body');
+        if (body) body.innerHTML = '<div style="text-align:center;color:#dc2626;padding:20px">Failed to load: ' + prioEsc(String(e && e.message || e)) + '</div>';
+      }
+    };
+
+    window.etvPriorityReprint = async function (id) {
+      try {
+        const api = getApi();
+        const res = await api.get('/planning/priority/' + id);
+        const d = (res && res.data) ? res.data : res;
+        const items = (d.items || []).map((it, i) => ({ sr: i + 1, machine: it.machine, mouldName: it.mouldName, manpower: it.manpower }));
+        window.etvPriorityPdf({ title: d.title || window.etvPriorityTitle(d.priorityDate, d.shift), items, totalManpower: d.totalManpower });
+      } catch (e) {
+        alert('Failed to load priority: ' + (e && e.message ? e.message : e));
+      }
+    };
+
+    window.etvPriorityDelete = async function (id, btn) {
+      if (!confirm('Delete this saved priority list?')) return;
+      try {
+        const api = getApi();
+        await api.delete('/planning/priority/' + id);
+        const row = btn.closest('.pm-saved-row');
+        if (row) row.remove();
+      } catch (e) {
+        alert('Failed to delete: ' + (e && e.message ? e.message : e));
+      }
+    };
 
     /* ── Filter ──────────────────────────────────────────────────────── */
     window.etvFilter = function () {
@@ -13886,7 +14399,10 @@
          We own the width here: machineCol + N slotCols.
       ────────────────────────────────────────────────────────────────── */
       const tableEl = document.getElementById('etv-table');
-      if (tableEl) tableEl.style.width = (MACH_W + cols * SLOT_W) + 'px';
+      if (tableEl) {
+        tableEl.style.width = (MACH_W + cols * SLOT_W) + 'px';
+        tableEl.classList.toggle('etv-priority-mode', !!window.etvPrioritySelecting);
+      }
 
       /* ── COLGROUP (belt-and-suspenders column sizing) ── */
       const cgEl = document.getElementById('etv-colgroup');
@@ -13953,7 +14469,7 @@
         /* plan slot cells */
         const planCells = Array.from({length: cols}, (_,i) => {
           const p = plans[i];
-          if (!p) return `<td class="etv-plan-cell etv-empty"><div class="etv-empty-inner"><span style="letter-spacing:.05em;opacity:.5">empty</span></div></td>`;
+          if (!p) return `<td class="etv-plan-cell etv-empty" data-machine="${esc(m.code)}" data-slot="${i}" data-slot-pid="" ondragover="window.etvDragOverCell(event, this)" ondragleave="window.etvDragLeaveCell(event, this)" ondrop="window.etvDropCell(event, this)"><div class="etv-empty-inner"><span class="etv-slot-num">${i+1}</span><span style="letter-spacing:.05em;opacity:.5">empty</span></div></td>`;
 
           const st   = (p.status||'').toLowerCase();
           const isPrevMould = i > 0 && mouldKey(p) !== mouldKey(plans[i-1]);
@@ -14037,9 +14553,26 @@
           const clientDisp = (p.clientName||'').length > 18 ? (p.clientName||'').slice(0,17)+'…' : (p.clientName||'');
           const stLabel = st === 'running' ? 'RUN' : st === 'stopped' ? 'STOP' : st === 'completed' ? 'DONE' : 'PLAN';
 
+          const etvPid = String(p.id || p.planId || p.plan_id || '');
+
+          /* ── Priority selection: pick key, order badge, picked highlight ──
+             When selecting, the cell click adds/removes a priority item and
+             drag is disabled so it doesn't fight with the click. */
+          const pickKey = window.etvPriorityKey ? window.etvPriorityKey(m.code, i, p) : '';
+          const prioIdx = (window.etvPrioritySelecting && window.etvPriorityCtx)
+            ? window.etvPriorityCtx.items.findIndex(it => it._key === pickKey) : -1;
+          const prioBadge = (prioIdx >= 0) ? `<span class="etv-prio-order-badge">${prioIdx + 1}</span>` : '';
+          const prioPickedClass = (prioIdx >= 0) ? ' etv-prio-picked' : '';
+          const cellOnClick = window.etvPrioritySelecting
+            ? `window.etvPriorityPick('${esc(m.code)}', ${i})`
+            : `window.openOrderModal('${esc(p.orderNo)}', '${esc(p.planId || p.plan_id || p.id || '')}')`;
+          const cardDraggable = window.etvPrioritySelecting ? 'false' : 'true';
+
           return `
-            <td class="etv-plan-cell" onclick="window.openOrderModal('${esc(p.orderNo)}', '${esc(p.planId || p.plan_id || p.id || '')}')" title="Order: ${esc(p.orderNo)}&#10;Mould: ${esc(p.mouldName)}&#10;Client: ${esc(p.clientName)}&#10;Qty: ${fmtQty(p.planQty)} | Bal: ${fmtQty(p.balQty)}">
-              <div class="etv-card ${cardClass}${isUrgentChange ? ' etv-card-urgent' : ''}" style="${cardStyle}">
+            <td class="etv-plan-cell" data-prio-key="${esc(pickKey)}" data-machine="${esc(m.code)}" data-slot="${i}" data-slot-pid="${esc(etvPid)}" ondragover="window.etvDragOverCell(event, this)" ondragleave="window.etvDragLeaveCell(event, this)" ondrop="window.etvDropCell(event, this)" onclick="${cellOnClick}" title="Order: ${esc(p.orderNo)}&#10;Mould: ${esc(p.mouldName)}&#10;Client: ${esc(p.clientName)}&#10;Qty: ${fmtQty(p.planQty)} | Bal: ${fmtQty(p.balQty)}">
+              <div class="etv-card ${cardClass}${isUrgentChange ? ' etv-card-urgent' : ''}${prioPickedClass}" draggable="${cardDraggable}" data-pid="${esc(etvPid)}" data-machine="${esc(m.code)}" ondragstart="window.etvDragStart(event, this)" ondragend="window.etvDragEnd(event, this)" style="position:relative;${cardStyle}">
+                <span class="etv-slot-num" title="Position ${i+1} on this machine">${i+1}</span>
+                ${prioBadge}
                 ${isPrevMould ? '<span class="etv-card-chg-badge">CHG</span>' : ''}
                 ${changeBadge}
                 <div class="etv-card-row1">
@@ -14354,6 +14887,84 @@
       } else {
         alert(`Applied ${okCount} suggestion(s).` + (failCount ? ` ${failCount} skipped.` : ''));
       }
+    };
+
+    /* ── Excel View: drag-to-slot reorder ──────────────────────────────────
+       Mirror the Machine Timeline drag UX inside the grid. Each plan card is
+       draggable; every cell (filled or empty) is a numbered drop slot. Dropping
+       on slot N reorders/moves the plan to position N on that machine. The shared
+       window.confirmMove(planData, targetMachine, dropBeforeId, position) drives
+       the confirm modal + executeMove (which is now Excel-View aware).          */
+    function etvFindPlan(machine, pid) {
+      const list = (etvGroups && etvGroups[machine]) || [];
+      return list.find(p => String(p.id || p.planId || p.plan_id || '') === String(pid)) || null;
+    }
+
+    window.etvDragStart = function (e, cardEl) {
+      if (!JPSMS.auth.can('planning', 'edit')) { e.preventDefault(); JPSMS.toast('Read Only Mode: You cannot move plans.', 'error'); return; }
+      const machine = cardEl.dataset.machine;
+      const pid = cardEl.dataset.pid;
+      const plan = etvFindPlan(machine, pid);
+      if (!plan) { e.preventDefault(); return; }
+      window.draggedPlan = Object.assign({}, plan, {
+        id: String(plan.id || plan.planId || plan.plan_id || pid),
+        machine: machine,
+        el: cardEl
+      });
+      cardEl.classList.add('etv-dragging');
+      try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', pid); } catch (_) {}
+    };
+
+    window.etvDragEnd = function (e, cardEl) {
+      if (cardEl) cardEl.classList.remove('etv-dragging');
+      document.querySelectorAll('.etv-plan-cell.etv-drop-hot').forEach(td => td.classList.remove('etv-drop-hot'));
+      window.draggedPlan = null;
+    };
+
+    window.etvDragOverCell = function (e, td) {
+      if (!window.draggedPlan) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'move'; } catch (_) {}
+      // No-op highlight if hovering the dragged card's own slot
+      if (String(td.dataset.slotPid || '') === String(window.draggedPlan.id)) return;
+      td.classList.add('etv-drop-hot');
+    };
+
+    window.etvDragLeaveCell = function (e, td) {
+      td.classList.remove('etv-drop-hot');
+    };
+
+    window.etvDropCell = function (e, td) {
+      e.preventDefault();
+      e.stopPropagation();
+      td.classList.remove('etv-drop-hot');
+      if (!window.draggedPlan) return;
+      if (!JPSMS.auth.can('planning', 'edit')) { JPSMS.toast('Read Only Mode: You cannot move plans.', 'error'); return; }
+
+      const targetMachine = td.dataset.machine;
+      const slot = parseInt(td.dataset.slot, 10) || 0;
+      const slotPid = td.dataset.slotPid || '';
+
+      // Dropping onto its own slot → no-op
+      if (slotPid && String(slotPid) === String(window.draggedPlan.id)) return;
+
+      // dropBeforeId = the plan currently occupying this slot (insert before it).
+      // Empty slot (no slotPid) → append to end (dropBeforeId null).
+      const dropBeforeId = slotPid || null;
+      // Position shown in the confirm modal. When inserting before a real card the
+      // slot index is the final position. When appending to a trailing empty slot the
+      // final position is the actual plan count (+1), since the backend appends to the
+      // end rather than the column index. Exclude the dragged plan if it already lives
+      // on the target machine (it is removed before re-insertion).
+      let position;
+      if (dropBeforeId) {
+        position = slot + 1;
+      } else {
+        const machineList = (etvGroups && etvGroups[targetMachine]) || [];
+        const draggedOnTarget = machineList.some(p => String(p.id || p.planId || p.plan_id || '') === String(window.draggedPlan.id));
+        position = machineList.length + (draggedOnTarget ? 0 : 1);
+      }
+      window.confirmMove(window.draggedPlan, targetMachine, dropBeforeId, position);
     };
 
   })();
