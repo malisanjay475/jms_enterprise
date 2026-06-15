@@ -1441,6 +1441,26 @@ async function migrateMouldMasterSchema() {
   `);
 }
 
+async function migratePriorityListSchema() {
+  await q(`
+    CREATE TABLE IF NOT EXISTS priority_lists (
+      id SERIAL PRIMARY KEY,
+      priority_date DATE NOT NULL,
+      shift TEXT NOT NULL,
+      process TEXT,
+      title TEXT,
+      items JSONB NOT NULL DEFAULT '[]'::jsonb,
+      total_manpower NUMERIC,
+      created_by TEXT,
+      factory_id INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await q(`CREATE INDEX IF NOT EXISTS idx_priority_lists_date ON priority_lists(priority_date DESC)`);
+  await q(`CREATE INDEX IF NOT EXISTS idx_priority_lists_factory ON priority_lists(factory_id)`);
+}
+
 async function migrateOrjrWiseMasterSchema() {
   await q(`
     CREATE TABLE IF NOT EXISTS mould_planning_summary (
@@ -4171,6 +4191,7 @@ async function initializeLegacyRuntime() {
     // Run independent schema migrations in parallel — each targets a different table
     await Promise.all([
       migrateMouldMasterSchema(),
+      migratePriorityListSchema(),
       migrateOrjrWiseMasterSchema(),
       migrateOrJrReportNumericSchema(),
       migrateOrjrWiseDetailSchema(),
@@ -7484,6 +7505,113 @@ app.post('/api/job/complete', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('job/complete', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/* ============================================================
+   PRIORITY LISTS APIs
+   Table: priority_lists
+   Stores an ordered, point-in-time priority sheet (date + shift)
+   built from the Excel View timeline. items is a JSONB snapshot so
+   the PDF stays reproducible even if plans/moulds change later.
+============================================================ */
+
+function buildPriorityTitle(priorityDate, shift) {
+  let dd = '';
+  try {
+    const d = new Date(priorityDate);
+    dd = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
+  } catch (_) { dd = String(priorityDate || ''); }
+  return `TODAY PRIORITY FOR ${String(shift || '').toUpperCase()} SHIFT OF ${dd}`;
+}
+
+// POST /api/planning/priority  → create a saved priority list
+app.post('/api/planning/priority', async (req, res) => {
+  try {
+    const { priorityDate, shift, process, items, createdBy } = req.body || {};
+    if (!priorityDate || !shift) {
+      return res.status(400).json({ ok: false, error: 'priorityDate and shift are required' });
+    }
+    const list = Array.isArray(items) ? items : [];
+    const normItems = list.map((it, i) => ({
+      sr: i + 1,
+      machine: String(it.machine || '-'),
+      mouldName: String(it.mouldName || '-'),
+      mouldNo: String(it.mouldNo || ''),
+      manpower: (it.manpower == null || it.manpower === '') ? null : Number(it.manpower)
+    }));
+    const totalManpower = normItems.reduce((s, it) => s + (Number.isFinite(it.manpower) ? it.manpower : 0), 0);
+    const title = buildPriorityTitle(priorityDate, shift);
+    const factoryId = getFactoryId(req) || null;
+
+    const rows = await q(
+      `INSERT INTO priority_lists
+         (priority_date, shift, process, title, items, total_manpower, created_by, factory_id)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
+       RETURNING id`,
+      [priorityDate, shift, process || null, title, JSON.stringify(normItems), totalManpower, createdBy || null, factoryId]
+    );
+    res.json({ ok: true, id: rows[0].id, title, totalManpower });
+  } catch (e) {
+    console.error('priority create', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/planning/priority?process=&date=  → list saved priority lists
+app.get('/api/planning/priority', async (req, res) => {
+  try {
+    const { process, date } = req.query || {};
+    const params = [];
+    let where = 'WHERE 1=1';
+    const factoryId = getFactoryId(req);
+    if (factoryId) { params.push(factoryId); where += ` AND (factory_id = $${params.length} OR factory_id IS NULL)`; }
+    if (process)   { params.push(process);   where += ` AND process = $${params.length}`; }
+    if (date)      { params.push(date);      where += ` AND priority_date = $${params.length}`; }
+
+    const rows = await q(
+      `SELECT id, priority_date AS "priorityDate", shift, process, title,
+              total_manpower AS "totalManpower", created_by AS "createdBy",
+              created_at AS "createdAt",
+              COALESCE(jsonb_array_length(items), 0) AS "itemCount"
+         FROM priority_lists ${where}
+        ORDER BY created_at DESC
+        LIMIT 200`,
+      params
+    );
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('priority list', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/planning/priority/:id  → fetch one (full items)
+app.get('/api/planning/priority/:id', async (req, res) => {
+  try {
+    const rows = await q(
+      `SELECT id, priority_date AS "priorityDate", shift, process, title,
+              items, total_manpower AS "totalManpower", created_by AS "createdBy",
+              created_at AS "createdAt"
+         FROM priority_lists WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Not found' });
+    res.json({ ok: true, data: rows[0] });
+  } catch (e) {
+    console.error('priority get', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// DELETE /api/planning/priority/:id
+app.delete('/api/planning/priority/:id', async (req, res) => {
+  try {
+    await q(`DELETE FROM priority_lists WHERE id = $1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('priority delete', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
