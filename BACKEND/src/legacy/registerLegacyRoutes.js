@@ -329,6 +329,8 @@ const MASTER_UPLOAD_SCHEMAS = {
       { key: 'line', label: 'Line', headers: ['Line', 'Lines'], required: true },
       { key: 'machine', label: 'Machine', headers: ['Machine', 'Machines', 'Machine Name'], required: true },
       { key: 'tonnage', label: 'Tonnage', headers: ['Tonnage'], required: true },
+      { key: 'mould_load_time', label: 'Mould Load Time', headers: ['Mould Load Time', 'Load Time', 'Mld Load Time'], required: false },
+      { key: 'mould_unload_time', label: 'Mould Unload Time', headers: ['Mould Unload Time', 'Unload Time', 'Mld Unload Time'], required: false },
       { key: 'factory_id', label: 'Factory ID', headers: ['Factory ID', 'Factory', 'Factory Code'], required: false }
     ]
   },
@@ -2372,17 +2374,19 @@ function getUploadTemplateDefinition(type, factoryContext = {}) {
       }
       : {
         label: 'Machines Master',
-        headers: ['Building', 'Line', 'Machine', 'Process', 'Tonnage', 'Factory ID'],
-        sample: ['Building A', 'Line 1', 'MC-01', 'Moulding', 250, factoryId],
+        headers: ['Building', 'Line', 'Machine', 'Process', 'Tonnage', 'Mould Load Time', 'Mould Unload Time', 'Factory ID'],
+        sample: ['Building A', 'Line 1', 'MC-01', 'Moulding', 250, 30, 20, factoryId],
         notes: [
           ['Rule', 'Value'],
           ['Master', 'Machines Master'],
           ['Upload sheet', 'Use the first sheet only'],
-          ['Column order', 'Use A=Building, B=Line, C=Machine, D=Process, E=Tonnage'],
+          ['Column order', 'Use A=Building, B=Line, C=Machine, D=Process, E=Tonnage, F=Mould Load Time, G=Mould Unload Time'],
           ['Factory ID', factoryId ? `Optional. Current scope is ${factoryName || `Factory ${factoryId}`} (${factoryId}). Leave blank to use selected Factory Scope.` : 'Optional. Leave blank to use selected Factory Scope.'],
           ['Machine names', 'Repeated machine names in the same file are auto-deduplicated by latest row'],
           ['Process values', 'Use Moulding, Tuffting, or Printing. Blank values default to Moulding.'],
-          ['Tonnage', 'Numeric only']
+          ['Tonnage', 'Numeric only'],
+          ['Mould Load Time', 'Optional. Numeric minutes only (e.g. 30)'],
+          ['Mould Unload Time', 'Optional. Numeric minutes only (e.g. 20)']
         ]
       },
     orjr: {
@@ -3599,7 +3603,7 @@ function formatMachineAuditValue(value) {
 }
 
 function buildMachineAuditChanges(beforeRow = {}, afterRow = {}) {
-  const fields = ['machine', 'machine_process', 'building', 'line', 'tonnage', 'vendor_name', 'model_no', 'machine_type', 'machine_icon', 'is_active'];
+  const fields = ['machine', 'machine_process', 'building', 'line', 'tonnage', 'mould_load_time', 'mould_unload_time', 'vendor_name', 'model_no', 'machine_type', 'machine_icon', 'is_active'];
   const changes = {};
 
   for (const field of fields) {
@@ -3851,6 +3855,8 @@ async function bootstrapFreshCoreTables() {
       line TEXT,
       building TEXT,
       tonnage NUMERIC,
+      mould_load_time NUMERIC,
+      mould_unload_time NUMERIC,
       capacity NUMERIC,
       is_active BOOLEAN DEFAULT TRUE,
       factory_id INTEGER,
@@ -4645,6 +4651,8 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE machines ADD COLUMN IF NOT EXISTS vendor_name TEXT`);
     await q(`ALTER TABLE machines ADD COLUMN IF NOT EXISTS model_no TEXT`);
     await q(`ALTER TABLE machines ADD COLUMN IF NOT EXISTS machine_type TEXT`);
+    await q(`ALTER TABLE machines ADD COLUMN IF NOT EXISTS mould_load_time NUMERIC`);
+    await q(`ALTER TABLE machines ADD COLUMN IF NOT EXISTS mould_unload_time NUMERIC`);
     await q(`ALTER TABLE machines ALTER COLUMN machine_process SET DEFAULT 'Moulding'`);
     await q(`UPDATE machines SET machine_process = 'Moulding' WHERE machine_process IS NULL OR TRIM(machine_process) = ''`);
     await q(`CREATE INDEX IF NOT EXISTS idx_machine_audit_logs_lookup ON machine_audit_logs ((LOWER(machine_id)), (COALESCE(factory_id, 0)), changed_at DESC)`);
@@ -12698,6 +12706,8 @@ app.get('/api/masters/machines', async (req, res) => {
         m.line,
         m.building,
         m.tonnage,
+        m.mould_load_time,
+        m.mould_unload_time,
         m.is_active,
         m.factory_id,
         f.name AS factory_name,
@@ -15895,6 +15905,8 @@ app.post('/api/upload/machines-preview', upload.single('file'), async (req, res)
     let machineColIndex = 2;
     let processColIndex = -1;
     let tonnageColIndex = 3;
+    let mouldLoadColIndex = -1;
+    let mouldUnloadColIndex = -1;
     let vendorColIndex = -1;
     let modelColIndex = -1;
     let machineTypeColIndex = -1;
@@ -15913,6 +15925,8 @@ app.post('/api/upload/machines-preview', upload.single('file'), async (req, res)
         'machine', 'machinename', 'machinenumber', 'machinecode',
         'process', 'machineprocess', 'processtype', 'department', 'section', 'type',
         'tonnage', 'machinecapacity',
+        'mouldloadtime', 'loadtime', 'mldloadtime',
+        'mouldunloadtime', 'unloadtime', 'mldunloadtime',
         'vendorname', 'vendor', 'brand',
         'modelno', 'modelnumber', 'model',
         'machinetype', 'machinetypename',
@@ -15936,6 +15950,8 @@ app.post('/api/upload/machines-preview', upload.single('file'), async (req, res)
           machineColIndex = findHeaderIndex(['machine', 'machinename', 'machinecode'], 2);
           processColIndex = findHeaderIndex(['process', 'machineprocess', 'processtype', 'department', 'section', 'type'], -1);
           tonnageColIndex = findHeaderIndex(['tonnage', 'machinecapacity'], processColIndex >= 0 ? 4 : 3);
+          mouldLoadColIndex = findHeaderIndex(['mouldloadtime', 'loadtime', 'mldloadtime'], -1);
+          mouldUnloadColIndex = findHeaderIndex(['mouldunloadtime', 'unloadtime', 'mldunloadtime'], -1);
           vendorColIndex = findHeaderIndex(['vendorname', 'vendor', 'brand'], -1);
           modelColIndex = findHeaderIndex(['modelno', 'modelnumber', 'model'], -1);
           machineTypeColIndex = findHeaderIndex(['machinetype', 'machinetypename'], -1);
@@ -15964,6 +15980,8 @@ app.post('/api/upload/machines-preview', upload.single('file'), async (req, res)
         machine: normalizeMachineName(r[machineColIndex]),
         machine_process: rowProcess,
         tonnage: toNum(rawTonnage),
+        mould_load_time: isPrintingRow ? null : toNum(mouldLoadColIndex >= 0 ? r[mouldLoadColIndex] : null),
+        mould_unload_time: isPrintingRow ? null : toNum(mouldUnloadColIndex >= 0 ? r[mouldUnloadColIndex] : null),
         vendor_name: normalizeOptionalText(vendorColIndex >= 0 ? r[vendorColIndex] : null),
         model_no: normalizeOptionalText(modelColIndex >= 0 ? r[modelColIndex] : null),
         machine_type: normalizeOptionalText(machineTypeColIndex >= 0 ? r[machineTypeColIndex] : null),
@@ -16017,6 +16035,8 @@ app.post('/api/upload/machines-preview', upload.single('file'), async (req, res)
           || old.line !== newItem.line
           || normalizeMachineProcess(old.machine_process, 'Moulding') !== newItem.machine_process
           || Number(old.tonnage) !== Number(newItem.tonnage)
+          || Number(old.mould_load_time) !== Number(newItem.mould_load_time)
+          || Number(old.mould_unload_time) !== Number(newItem.mould_unload_time)
           || normalizeOptionalText(old.vendor_name) !== normalizeOptionalText(newItem.vendor_name)
           || normalizeOptionalText(old.model_no) !== normalizeOptionalText(newItem.model_no)
           || normalizeOptionalText(old.machine_type) !== normalizeOptionalText(newItem.machine_type)
@@ -16082,13 +16102,15 @@ app.post('/api/upload/machines-confirm', async (req, res) => {
         if (r._status === 'NEW') {
           const machineName = normalizeMachineName(r.machine);
           await client.query(
-            `INSERT INTO machines(machine, line, building, machine_process, tonnage, vendor_name, model_no, machine_type, is_active, factory_id) VALUES($1, $2, $3, $4, $5, $6, $7, $8, true, $9)`,
+            `INSERT INTO machines(machine, line, building, machine_process, tonnage, mould_load_time, mould_unload_time, vendor_name, model_no, machine_type, is_active, factory_id) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, $11)`,
             [
               machineName,
               r.line || '',
               r.building || '',
               normalizeMachineProcess(r.machine_process, 'Moulding'),
               toNum(r.tonnage),
+              toNum(r.mould_load_time),
+              toNum(r.mould_unload_time),
               normalizeOptionalText(r.vendor_name),
               normalizeOptionalText(r.model_no),
               normalizeOptionalText(r.machine_type),
@@ -16105,7 +16127,7 @@ app.post('/api/upload/machines-confirm', async (req, res) => {
           counts.new++;
         } else if (r._status === 'UPDATE') {
           const before = await client.query(
-            `SELECT machine, line, building, machine_process, tonnage, vendor_name, model_no, machine_type, machine_icon, is_active
+            `SELECT machine, line, building, machine_process, tonnage, mould_load_time, mould_unload_time, vendor_name, model_no, machine_type, machine_icon, is_active
                FROM machines
               WHERE LOWER(machine) = LOWER($1)
                 AND (factory_id = $2 OR ($2 IS NULL AND factory_id IS NULL))
@@ -16113,12 +16135,14 @@ app.post('/api/upload/machines-confirm', async (req, res) => {
             [r.machine, rowFactoryId]
           );
           await client.query(
-            `UPDATE machines SET line = $1, building = $2, machine_process = $3, tonnage = $4, vendor_name = $5, model_no = $6, machine_type = $7, factory_id = $8, updated_at = NOW() WHERE LOWER(machine) = LOWER($9) AND (factory_id = $8 OR ($8 IS NULL AND factory_id IS NULL))`,
+            `UPDATE machines SET line = $1, building = $2, machine_process = $3, tonnage = $4, mould_load_time = $5, mould_unload_time = $6, vendor_name = $7, model_no = $8, machine_type = $9, factory_id = $10, updated_at = NOW() WHERE LOWER(machine) = LOWER($11) AND (factory_id = $10 OR ($10 IS NULL AND factory_id IS NULL))`,
             [
               r.line || '',
               r.building || '',
               normalizeMachineProcess(r.machine_process, 'Moulding'),
               toNum(r.tonnage),
+              toNum(r.mould_load_time),
+              toNum(r.mould_unload_time),
               normalizeOptionalText(r.vendor_name),
               normalizeOptionalText(r.model_no),
               normalizeOptionalText(r.machine_type),
@@ -16134,6 +16158,8 @@ app.post('/api/upload/machines-confirm', async (req, res) => {
               building: r.building || '',
               machine_process: normalizeMachineProcess(r.machine_process, 'Moulding'),
               tonnage: toNum(r.tonnage),
+              mould_load_time: toNum(r.mould_load_time),
+              mould_unload_time: toNum(r.mould_unload_time),
               vendor_name: normalizeOptionalText(r.vendor_name),
               model_no: normalizeOptionalText(r.model_no),
               machine_type: normalizeOptionalText(r.machine_type),
@@ -16282,13 +16308,15 @@ app.post('/api/upload/wipstock-confirm', async (req, res) => {
 // 3. CRUD: Create
 app.post('/api/machines', async (req, res) => {
   try {
-    const { machine, line, building, tonnage, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64 } = req.body;
+    const { machine, line, building, tonnage, mould_load_time, mould_unload_time, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64 } = req.body;
     const cleanMachine = normalizeMachineName(machine);
     const cleanProcess = normalizeMachineProcess(machine_process, 'Moulding');
     const isPrintingMachine = cleanProcess === 'Printing';
     const nextLine = isPrintingMachine ? '' : (line || '');
     const nextBuilding = isPrintingMachine ? '' : (building || '');
     const nextTonnage = isPrintingMachine ? null : toNum(tonnage);
+    const nextMouldLoadTime = isPrintingMachine ? null : toNum(mould_load_time);
+    const nextMouldUnloadTime = isPrintingMachine ? null : toNum(mould_unload_time);
     const resolvedMachineIcon = machine_icon_base64
       ? saveDataUrlImage(machine_icon_base64, 'machines', 'machine')
       : normalizeOptionalText(machine_icon);
@@ -16306,9 +16334,9 @@ app.post('/api/machines', async (req, res) => {
     try {
       await client.query('BEGIN');
       await client.query(
-        `INSERT INTO machines(machine, line, building, machine_process, tonnage, vendor_name, model_no, machine_type, machine_icon, is_active, factory_id)
-         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10)`,
-        [cleanMachine, nextLine, nextBuilding, cleanProcess, nextTonnage, normalizeOptionalText(vendor_name), normalizeOptionalText(model_no), normalizeOptionalText(machine_type), resolvedMachineIcon, factoryId]
+        `INSERT INTO machines(machine, line, building, machine_process, tonnage, mould_load_time, mould_unload_time, vendor_name, model_no, machine_type, machine_icon, is_active, factory_id)
+         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12)`,
+        [cleanMachine, nextLine, nextBuilding, cleanProcess, nextTonnage, nextMouldLoadTime, nextMouldUnloadTime, normalizeOptionalText(vendor_name), normalizeOptionalText(model_no), normalizeOptionalText(machine_type), resolvedMachineIcon, factoryId]
       );
       await logMachineAudit(client, {
         machineId: cleanMachine,
@@ -16337,7 +16365,7 @@ app.post('/api/machines', async (req, res) => {
 app.put('/api/machines/:id', async (req, res) => { // ID is machine name
   try {
     const { id } = req.params; // old machine name
-    const { machine, line, building, tonnage, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64 } = req.body;
+    const { machine, line, building, tonnage, mould_load_time, mould_unload_time, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64 } = req.body;
     const writeContext = await getWritableFactoryContext(req, 'edit machines');
     if (!writeContext.ok) {
       return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
@@ -16357,7 +16385,7 @@ app.put('/api/machines/:id', async (req, res) => { // ID is machine name
       await client.query('BEGIN');
 
       const existing = await client.query(
-        `SELECT machine, line, building, machine_process, tonnage, vendor_name, model_no, machine_type, machine_icon, is_active
+        `SELECT machine, line, building, machine_process, tonnage, mould_load_time, mould_unload_time, vendor_name, model_no, machine_type, machine_icon, is_active
            FROM machines
           WHERE LOWER(machine) = LOWER($1)
             AND (factory_id = $2 OR ($2 IS NULL AND factory_id IS NULL))
@@ -16373,6 +16401,8 @@ app.put('/api/machines/:id', async (req, res) => { // ID is machine name
         building: isPrintingMachine ? '' : (building || ''),
         machine_process: cleanProcess,
         tonnage: isPrintingMachine ? null : toNum(tonnage),
+        mould_load_time: isPrintingMachine ? null : toNum(mould_load_time),
+        mould_unload_time: isPrintingMachine ? null : toNum(mould_unload_time),
         vendor_name: normalizeOptionalText(vendor_name),
         model_no: normalizeOptionalText(model_no),
         machine_type: normalizeOptionalText(machine_type),
@@ -16382,15 +16412,15 @@ app.put('/api/machines/:id', async (req, res) => { // ID is machine name
 
       if (resolvedMachineIcon !== undefined) {
         await client.query(
-          `UPDATE machines SET machine = $1, line = $2, building = $3, machine_process = $4, tonnage = $5, vendor_name = $6, model_no = $7, machine_type = $8, machine_icon = $9, updated_at = NOW()
-            WHERE LOWER(machine) = LOWER($10) AND (factory_id = $11 OR ($11 IS NULL AND factory_id IS NULL))`,
-          [cleanMachine, nextState.line, nextState.building, nextState.machine_process, nextState.tonnage, nextState.vendor_name, nextState.model_no, nextState.machine_type, resolvedMachineIcon, id, factoryId]
+          `UPDATE machines SET machine = $1, line = $2, building = $3, machine_process = $4, tonnage = $5, mould_load_time = $6, mould_unload_time = $7, vendor_name = $8, model_no = $9, machine_type = $10, machine_icon = $11, updated_at = NOW()
+            WHERE LOWER(machine) = LOWER($12) AND (factory_id = $13 OR ($13 IS NULL AND factory_id IS NULL))`,
+          [cleanMachine, nextState.line, nextState.building, nextState.machine_process, nextState.tonnage, nextState.mould_load_time, nextState.mould_unload_time, nextState.vendor_name, nextState.model_no, nextState.machine_type, resolvedMachineIcon, id, factoryId]
         );
       } else {
         await client.query(
-          `UPDATE machines SET machine = $1, line = $2, building = $3, machine_process = $4, tonnage = $5, vendor_name = $6, model_no = $7, machine_type = $8, updated_at = NOW()
-            WHERE LOWER(machine) = LOWER($9) AND (factory_id = $10 OR ($10 IS NULL AND factory_id IS NULL))`,
-          [cleanMachine, nextState.line, nextState.building, nextState.machine_process, nextState.tonnage, nextState.vendor_name, nextState.model_no, nextState.machine_type, id, factoryId]
+          `UPDATE machines SET machine = $1, line = $2, building = $3, machine_process = $4, tonnage = $5, mould_load_time = $6, mould_unload_time = $7, vendor_name = $8, model_no = $9, machine_type = $10, updated_at = NOW()
+            WHERE LOWER(machine) = LOWER($11) AND (factory_id = $12 OR ($12 IS NULL AND factory_id IS NULL))`,
+          [cleanMachine, nextState.line, nextState.building, nextState.machine_process, nextState.tonnage, nextState.mould_load_time, nextState.mould_unload_time, nextState.vendor_name, nextState.model_no, nextState.machine_type, id, factoryId]
         );
       }
 

@@ -3635,6 +3635,8 @@
       );
       document.getElementById('m_machine_process').value = machineProcess;
       document.getElementById('m_tonnage').value = data.tonnage || '';
+      document.getElementById('m_mould_load_time').value = (data.mould_load_time ?? '') === '' ? '' : data.mould_load_time;
+      document.getElementById('m_mould_unload_time').value = (data.mould_unload_time ?? '') === '' ? '' : data.mould_unload_time;
       document.getElementById('m_vendor_name').value = data.vendor_name || '';
       document.getElementById('m_model_no').value = data.model_no || '';
       document.getElementById('m_machine_type').value = data.machine_type || '';
@@ -3663,6 +3665,8 @@
         line: isPrinting ? '' : document.getElementById('m_line').value,
         machine_process: process,
         tonnage: isPrinting ? '' : document.getElementById('m_tonnage').value,
+        mould_load_time: isPrinting ? '' : document.getElementById('m_mould_load_time').value,
+        mould_unload_time: isPrinting ? '' : document.getElementById('m_mould_unload_time').value,
         vendor_name: isPrinting ? document.getElementById('m_vendor_name').value : '',
         model_no: isPrinting ? document.getElementById('m_model_no').value : '',
         machine_type: isPrinting ? document.getElementById('m_machine_type').value : '',
@@ -3887,9 +3891,17 @@
           <label>Line</label>
           <input type="text" id="m_line" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
         </div>
-        <div style="margin-bottom:15px;">
+        <div style="margin-bottom:10px;">
           <label>Tonnage</label>
           <input type="number" id="m_tonnage" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+        </div>
+        <div style="margin-bottom:10px;">
+          <label>Mould Load Time (min)</label>
+          <input type="number" step="0.01" id="m_mould_load_time" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
+        </div>
+        <div style="margin-bottom:15px;">
+          <label>Mould Unload Time (min)</label>
+          <input type="number" step="0.01" id="m_mould_unload_time" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px;">
         </div>
       </div>
       <div id="machineIconFields">
