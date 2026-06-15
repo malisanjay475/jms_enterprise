@@ -14951,7 +14951,19 @@
       // dropBeforeId = the plan currently occupying this slot (insert before it).
       // Empty slot (no slotPid) → append to end (dropBeforeId null).
       const dropBeforeId = slotPid || null;
-      const position = slot + 1;
+      // Position shown in the confirm modal. When inserting before a real card the
+      // slot index is the final position. When appending to a trailing empty slot the
+      // final position is the actual plan count (+1), since the backend appends to the
+      // end rather than the column index. Exclude the dragged plan if it already lives
+      // on the target machine (it is removed before re-insertion).
+      let position;
+      if (dropBeforeId) {
+        position = slot + 1;
+      } else {
+        const machineList = (etvGroups && etvGroups[targetMachine]) || [];
+        const draggedOnTarget = machineList.some(p => String(p.id || p.planId || p.plan_id || '') === String(window.draggedPlan.id));
+        position = machineList.length + (draggedOnTarget ? 0 : 1);
+      }
       window.confirmMove(window.draggedPlan, targetMachine, dropBeforeId, position);
     };
 
