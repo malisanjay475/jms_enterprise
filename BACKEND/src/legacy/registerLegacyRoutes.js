@@ -4295,6 +4295,14 @@ async function initializeLegacyRuntime() {
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS job_qty NUMERIC;
             UPDATE plan_board SET job_no = batch_no WHERE job_no IS NULL AND batch_no IS NOT NULL;
             UPDATE plan_board SET job_qty = batch_qty WHERE job_qty IS NULL AND batch_qty IS NOT NULL;
+            -- Persisted plan <-> Job Card link (plan-first, JC-later flow).
+            -- When the user pastes a plan's Plan ID into the OR-JR Status Remarks in
+            -- ERP and dumps the data, the OR-JR import auto-connects that job card to
+            -- the plan by writing these columns. Read paths prefer this stored link
+            -- and fall back to the live remarks match.
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS job_card_no TEXT;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS job_card_date DATE;
+            ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS jc_linked_at TIMESTAMPTZ;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS mould_item_qty NUMERIC;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS consumption_ratio_qty NUMERIC;
             ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS colour_details JSONB;
@@ -9267,7 +9275,8 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
         r.or_qty,
         NULLIF(TRIM(r.job_card_no), '') AS job_card_no,
         r.job_card_date,
-        r.plan_qty AS job_card_qty,
+        -- Job Card Qty comes from the OR-JR Status "Prod Plan Qty" column.
+        COALESCE(r.prod_plan_qty, r.plan_qty) AS job_card_qty,
         r.product_name,
         r.client_name,
         r.mld_status,
@@ -9334,6 +9343,49 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
       };
     });
 
+    // 4. Existing plans already created for this OR. Shown in the expand panel
+    //    ("Created Plans") so the user can see what is already planned — and the
+    //    persisted Job Card link, if any — until the OR leaves the pending list.
+    const planRows = await q(`
+      SELECT
+        pb.id,
+        pb.plan_id,
+        pb.our_code,
+        COALESCE(pb.job_no, pb.batch_no) AS job_no,
+        COALESCE(pb.job_qty, pb.batch_qty) AS job_qty,
+        pb.mould_name,
+        pb.mould_code,
+        pb.machine,
+        pb.status,
+        NULLIF(TRIM(pb.job_card_no), '') AS job_card_no,
+        pb.job_card_date,
+        pb.jc_linked_at,
+        COALESCE(pb.created_by, 'System') AS created_by,
+        pb.created_at
+      FROM plan_board pb
+      WHERE TRIM(COALESCE(pb.order_no, '')) = TRIM($1)
+        AND COALESCE(pb.job_no, pb.batch_no, 0) > 0
+        AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
+      ORDER BY COALESCE(pb.job_no, pb.batch_no) ASC, pb.created_at ASC NULLS LAST, pb.id ASC
+    `, [orderNo, factoryId || null]);
+
+    const plans = planRows.map((p) => ({
+      id: p.id,
+      planId: p.plan_id || '',
+      ourCode: p.our_code || '',
+      jobNo: p.job_no != null ? Number(p.job_no) : null,
+      jobQty: toNum(p.job_qty) ?? 0,
+      mouldName: p.mould_name || p.mould_code || '-',
+      mouldCode: p.mould_code || '',
+      machine: p.machine || '-',
+      status: p.status || '-',
+      jobCardNo: p.job_card_no || '',
+      jobCardDate: p.job_card_date || null,
+      jcLinkedAt: p.jc_linked_at || null,
+      createdBy: p.created_by || 'System',
+      createdAt: p.created_at || null
+    }));
+
     const representative = jcRows[0] || {};
     res.json({
       ok: true,
@@ -9346,7 +9398,8 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
         plannedQty,
         balQty,
         fullyPlanned: orQty > 0 && plannedQty >= orQty,
-        jobCards
+        jobCards,
+        plans
       }
     });
   } catch (e) {
@@ -10974,6 +11027,67 @@ async function resolveJobCardFromOrJrRemarks(orderNo, ourCode, planId, factorySc
   if (jcOnly) return jcOnly;
 
   return allRows[0] || null;
+}
+
+// Auto-connect plan_board plans to their Job Cards after an OR-JR data dump.
+// Plan-first / JC-later flow: the user creates the plan in JMS, later creates
+// the Job Card in ERP, pastes that plan's Plan ID (or our_code) into the OR-JR
+// Status "Remarks" column, then dumps the OR-JR data here. For every plan of the
+// freshly-imported ORs we look for an OR-JR row whose remarks contain the plan's
+// Plan ID / our_code and that carries a Job Card No, then persist
+// job_card_no/job_card_date/jc_linked_at onto the plan. This makes the link
+// survive as stored data; read paths still fall back to the live remarks match.
+async function autoLinkPlansFromOrJrRemarks(db, orderNos, factoryId) {
+  const fid = factoryId == null ? null : Number(factoryId);
+  const keys = Array.from(new Set((orderNos || [])
+    .map((o) => String(o || '').trim())
+    .filter(Boolean)));
+  if (!keys.length) return { linked: 0, scannedOrders: 0 };
+
+  let linked = 0;
+  for (const orderNo of keys) {
+    // Plans for this OR that are not yet linked to a Job Card.
+    const plansRes = await db.query(`
+      SELECT id, TRIM(plan_id) AS plan_id, TRIM(COALESCE(our_code, '')) AS our_code
+      FROM plan_board
+      WHERE TRIM(COALESCE(order_no, '')) = TRIM($1)
+        AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        AND COALESCE(TRIM(job_card_no), '') = ''
+    `, [orderNo, fid]);
+    if (!plansRes.rows.length) continue;
+
+    // OR-JR rows for this OR that carry a Job Card No.
+    const jcRes = await db.query(`
+      SELECT NULLIF(TRIM(job_card_no), '') AS job_card_no, job_card_date,
+             LOWER(COALESCE(remarks_all, '')) AS remarks
+      FROM or_jr_report
+      WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM($1)
+        AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        AND COALESCE(TRIM(job_card_no), '') <> ''
+    `, [orderNo, fid]);
+    if (!jcRes.rows.length) continue;
+
+    for (const plan of plansRes.rows) {
+      const tokens = [];
+      if (plan.plan_id) tokens.push(String(plan.plan_id).toLowerCase());
+      if (plan.our_code) tokens.push(String(plan.our_code).toLowerCase());
+      if (!tokens.length) continue;
+      const hit = jcRes.rows.find((jc) => tokens.some((tok) => tok && jc.remarks.includes(tok)));
+      if (!hit) continue;
+      try {
+        const upd = await db.query(`
+          UPDATE plan_board
+          SET job_card_no = $1, job_card_date = $2, jc_linked_at = NOW()
+          WHERE id = $3
+            AND COALESCE(TRIM(job_card_no), '') = ''
+        `, [hit.job_card_no, hit.job_card_date || null, plan.id]);
+        linked += upd.rowCount || 0;
+      } catch (linkErr) {
+        console.error('[OR-JR AutoLink] Failed to link plan', plan.id, 'for OR', orderNo, ':', linkErr.message);
+      }
+    }
+  }
+  return { linked, scannedOrders: keys.length };
 }
 
 // Debug: show what or_jr_report rows exist for a given order_no + what the plan has
@@ -12954,6 +13068,20 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
     }
 
 
+
+    // Plan-first / JC-later auto-connect: now that the dump is in, link any
+    // plans whose Plan ID / our_code appears in the freshly-imported remarks to
+    // their newly-created Job Card (persists the link onto plan_board).
+    let autoLink = { linked: 0, scannedOrders: 0 };
+    try {
+      const importedOrderNos = toProcess.map((r) => r.or_jr_no);
+      autoLink = await autoLinkPlansFromOrJrRemarks(pool, importedOrderNos, requestFactoryId);
+      if (autoLink.linked) {
+        console.log(`[OR - JR Confirm] Auto-linked ${autoLink.linked} plan(s) to Job Cards across ${autoLink.scannedOrders} order(s)`);
+      }
+    } catch (autoLinkErr) {
+      console.error('[OR - JR Confirm] Auto-link step failed (non-fatal):', autoLinkErr.message);
+    }
 
     const completionSync = await syncOrderCompletionConfirmations(pool, {
       factoryId: requestFactoryId,
@@ -15600,8 +15728,14 @@ app.get('/api/orders/pending', async (req, res) => {
     // JOIN with OR-JR Report to get ALL columns (parity with Order Master)
     // Also use 'r.plan_qty' as 'qty' explicitly if needed, but 'o.qty' is synced now.
     // We select r.* to give frontend everything.
+    // [FIX] One card per OR in Create Plan.
+    // or_jr_report has ONE ROW PER JOB CARD, so a plain JOIN returns one row per
+    // job card and the Create Plan list rendered the same OR multiple times.
+    // DISTINCT ON (o.order_no) collapses to a single representative row per OR
+    // (preferring a row that already has a real Job Card No). The expand panel
+    // (/job-cards) still lists every job card for the OR.
     let sql = `
-    SELECT
+    SELECT DISTINCT ON (o.order_no)
     r.*,
       o.priority,
       o.qty, --Explicitly return 'qty' for frontend compatibility
@@ -15611,7 +15745,7 @@ app.get('/api/orders/pending', async (req, res) => {
         COALESCE(r.client_name, o.client_name) as client_name,
         o.order_no-- specific alias
       FROM orders o
-      LEFT JOIN or_jr_report r ON o.order_no = r.or_jr_no 
+      LEFT JOIN or_jr_report r ON o.order_no = r.or_jr_no
       --Filter out Closed(Legacy) AND specific m / c statuses(User Request)
       --Match on OR, Date, JC is inherent in 'r' rows.We filter undesirable statuses here.
       --RELAXED: Removed o.status = 'Pending' to allow fetching based purely on OR - JR criteria
@@ -15641,9 +15775,27 @@ app.get('/api/orders/pending', async (req, res) => {
       sql += ` AND o.factory_id = $${params.length} `;
     }
 
-    sql += ` ORDER BY ${getPrioritySortSql('o.priority')}, o.created_at `;
+    // DISTINCT ON requires the leading ORDER BY key to match (o.order_no).
+    // Within an OR, prefer the row with a real Job Card No, then newest JC date.
+    sql += `
+      ORDER BY
+        o.order_no,
+        CASE WHEN COALESCE(TRIM(r.job_card_no), '') = '' THEN 1 ELSE 0 END,
+        r.job_card_date DESC NULLS LAST,
+        r.or_jr_date DESC NULLS LAST
+    `;
 
-    const rows = await q(sql, params);
+    const distinctRows = await q(sql, params);
+    // Re-apply the user-facing priority/created ordering after de-duplication.
+    const rows = [...distinctRows].sort((a, b) => {
+      const pr = (p) => {
+        const v = String(p || 'Normal').toLowerCase();
+        return v === 'urgent' ? 0 : v === 'high' ? 1 : 2;
+      };
+      const d = pr(a.priority) - pr(b.priority);
+      if (d !== 0) return d;
+      return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+    });
     fs.appendFileSync('debug.log', `[${new Date().toISOString()}]/api/orders / pending -> Found ${rows.length} rows\n`);
     res.json({ ok: true, data: rows });
   } catch (e) {
