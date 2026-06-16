@@ -13367,6 +13367,26 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      .etv-mach-load.etv-mach-load-over {
+        color: #b91c1c;
+        background: #fee2e2;
+        border-color: #fca5a5;
+      }
+      .etv-load-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        margin-top: 3px;
+        font-size: .54rem;
+        font-weight: 800;
+        color: #fff;
+        background: #dc2626;
+        border-radius: 4px;
+        padding: 1px 5px;
+        letter-spacing: .02em;
+        animation: etvLoadPulse 1.6s ease-in-out infinite;
+      }
+      @keyframes etvLoadPulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
 
       /* ── Plan data cell ── */
       .etv-plan-cell {
@@ -13447,10 +13467,15 @@
         font-size: .65rem;
         color: #374151;
         font-weight: 600;
+        line-height: 1.25;
+        /* wrap mould name nicely over up to 2 lines instead of cutting it off */
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
         overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        line-height: 1.2;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        white-space: normal;
       }
       .etv-card-client {
         font-size: .6rem;
@@ -14447,13 +14472,17 @@
 
         const plans = visiblePlans(m.code);
 
-        /* load calc */
-        const totalMs = plans.reduce((s,p) => {
+        /* load calc — sum run-time of the FULL queue (not just forecast-visible plans)
+           so the machine's true load is shown even when a forecast window is applied */
+        const allMachinePlans = etvGroups[m.code] || [];
+        const totalMs = allMachinePlans.reduce((s,p) => {
           const st = p._rippledStartRaw ? p._rippledStartRaw.getTime() : NaN;
           const en = p._rippledEndRaw   ? p._rippledEndRaw.getTime()   : NaN;
           return (Number.isFinite(st) && Number.isFinite(en) && en>st) ? s+(en-st) : s;
         }, 0);
         const loadLabel = fmt(totalMs);
+        const loadDays = totalMs / 86400000;
+        const isOverloaded = loadDays > 30;
 
         /* machine cell — show clean stripped name; machMap keys are already stripped */
         const machCell = `
@@ -14462,7 +14491,8 @@
               <div class="etv-mach-code" title="${esc(m.code)}">${esc(stripMachPfx(m.code))}</div>
               <div class="etv-mach-meta">${esc(m._finalBuilding||'?')} · Line ${esc(m._finalLine||'?')}</div>
               ${plans.length > 0 ? `<div class="etv-mach-plans">${plans.length} plan${plans.length>1?'s':''} queued</div>` : `<div class="etv-mach-plans" style="color:#2d3f55">No plans</div>`}
-              ${loadLabel ? `<div class="etv-mach-load"><i class="bi bi-clock" style="font-size:.5rem"></i> ${esc(loadLabel)}</div>` : ''}
+              ${loadLabel ? `<div class="etv-mach-load${isOverloaded ? ' etv-mach-load-over' : ''}" title="Total queued run-time${isOverloaded ? ' — over 30 days of load' : ''}"><i class="bi bi-clock" style="font-size:.5rem"></i> Load: ${esc(loadLabel)}</div>` : ''}
+              ${isOverloaded ? `<div class="etv-load-badge" title="This machine has more than 30 days of planned load"><i class="bi bi-exclamation-triangle-fill"></i> 30+ days load</div>` : ''}
             </div>
           </td>`;
 
@@ -14549,7 +14579,7 @@
           }
 
           const orderDisp = (p.orderNo||'-');
-          const mouldDisp = (p.mouldName||'-').length > 30 ? (p.mouldName||'-').slice(0,29)+'…' : (p.mouldName||'-');
+          const mouldDisp = (p.mouldName || '-');
           const clientDisp = (p.clientName||'').length > 18 ? (p.clientName||'').slice(0,17)+'…' : (p.clientName||'');
           const stLabel = st === 'running' ? 'RUN' : st === 'stopped' ? 'STOP' : st === 'completed' ? 'DONE' : 'PLAN';
 
@@ -14579,7 +14609,7 @@
                   <div class="etv-card-order">${esc(orderDisp)}</div>
                   <div class="etv-card-status ${statusClass}">${stLabel}</div>
                 </div>
-                <div class="etv-card-mould">${esc(mouldDisp)}</div>
+                <div class="etv-card-mould" title="${esc(p.mouldName || '')}">${esc(mouldDisp)}</div>
                 ${clientDisp ? `<div style="font-size:.6rem;color:#64748b;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(clientDisp)}</div>` : ''}
                 <div class="etv-card-qty">
                   <span>P:<strong>${fmtQty(p.planQty)}</strong></span>
