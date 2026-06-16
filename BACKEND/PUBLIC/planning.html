@@ -3831,24 +3831,37 @@
                      <option value="Day">Day</option>
                      <option value="Night">Night</option>
                   </select>
+
+                  <label class="small-muted" style="color:#15803d; font-weight:600; margin-left:8px; display:flex; align-items:center; gap:5px; cursor:pointer">
+                     <input type="checkbox" id="mcrForecast" style="accent-color:#15803d; width:16px; height:16px"> Forecast
+                  </label>
                </div>
 
                <button class="btn" onclick="window.loadMouldChangeReport()" style="background:#dcfce7; color:#15803d; border-color:#86efac"><i class="bi bi-arrow-clockwise"></i> Load Report</button>
             </div>
+            <div class="small-muted" style="color:#15803d; margin-top:6px; font-size:0.72rem"><i class="bi bi-info-circle"></i> <strong>Forecast OFF</strong> = mould changes on the selected date only. <strong>Forecast ON</strong> = all upcoming projected mould changes from the selected date onward.</div>
          </div>
-         
-         <div class="list" id="mcrTable" style="padding-bottom:10px">
-             <div class="row h" style="display:grid; grid-template-columns: 100px 180px 1fr 1fr 150px 100px; gap:10px; padding:0 10px; margin-bottom:8px; font-weight:700; color:#14532d; font-size:0.75rem; text-transform:uppercase">
-                <div>Date</div>
-                <div>Machine</div>
-                <div>Previous Mould</div>
-                <div>Next Mould</div>
+
+         <div class="list" id="mcrTable" style="padding-bottom:10px; overflow-x:auto">
+           <div style="min-width:1180px">
+             <div class="row h" style="display:grid; grid-template-columns: 130px 110px 90px 1.4fr 90px 110px 70px 70px 60px 70px 1.2fr 70px; gap:8px; padding:0 10px; margin-bottom:8px; font-weight:700; color:#14532d; font-size:0.7rem; text-transform:uppercase">
+                <div>Machine Name</div>
                 <div>Change Time</div>
+                <div>Mould No.</div>
+                <div>Mould Name</div>
+                <div style="text-align:right">Plan Qty</div>
+                <div>Order No</div>
+                <div style="text-align:right">WT</div>
+                <div style="text-align:right">C/T</div>
+                <div style="text-align:right">CAV</div>
+                <div style="text-align:right">P/H</div>
+                <div>Client Name</div>
                 <div style="text-align:center">Shift</div>
              </div>
              <div id="mcrBody" style="min-height:200px">
                 <div class="muted" style="padding:20px; text-align:center">Select Date and Click Load Report</div>
              </div>
+           </div>
          </div>
       </div>
 
@@ -12702,6 +12715,10 @@
 
       const selectedDateStr = realDateInput.value; // YYYY-MM-DD
       const selectedShift = realShiftInput.value; // 'Day', 'Night', 'Both'
+      const forecastEl = document.getElementById('mcrForecast');
+      const isForecast = !!(forecastEl && forecastEl.checked); // show all upcoming changes from selected date onward
+      // Escape any value (DOM- or DB-sourced) before injecting into innerHTML to prevent XSS.
+      const escH = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 
       list.innerHTML = '<div style="padding:20px; text-align:center">Analyzing Master Plan...</div>';
 
@@ -12788,16 +12805,34 @@
             productionDateStr = d.toISOString().split('T')[0];
           }
 
-          if (selectedDateStr !== productionDateStr) continue;
+          // Forecast OFF: only the selected production date.
+          // Forecast ON: this date and every future change onward.
+          if (isForecast) {
+            if (productionDateStr < selectedDateStr) continue;
+          } else {
+            if (selectedDateStr !== productionDateStr) continue;
+          }
           if (selectedShift !== 'Both' && selectedShift !== shift) continue;
+
+          // Compute P/H: prefer mould-master pcsHour, else derive from cycle time + cavity.
+          const ct = Number(curr.cycleTime) || 0;
+          const cav = Number(curr.cavity) || 0;
+          let pcsHour = Number(curr.pcsHour) || 0;
+          if (!pcsHour && ct > 0) pcsHour = Math.round((3600 / ct) * (cav || 1));
 
           changes.push({
             machine: mach,
-            prevMould: prev.mouldName || 'Unknown',
-            prevCode: prev.mouldNo || prev.mould_code || '-',
-            nextMould: curr.mouldName || 'Unknown',
-            nextCode: curr.mouldNo || curr.mould_code || '-',
             time: changeTime,
+            productionDate: productionDateStr,
+            mouldNo: curr.mouldNo || curr.mould_code || '-',
+            mouldName: curr.mouldName || 'Unknown',
+            planQty: Number(curr.planQty) || 0,
+            orderNo: curr.orderNo || '-',
+            wt: (curr.stdWt !== null && curr.stdWt !== undefined && curr.stdWt !== '') ? Number(curr.stdWt) : null,
+            ct: ct,
+            cav: cav,
+            ph: pcsHour,
+            clientName: curr.clientName || '-',
             shift: shift
           });
         }
@@ -12805,37 +12840,39 @@
 
       // Render
       if (!changes.length) {
-        list.innerHTML = `<div class="muted" style="padding:40px; text-align:center; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:8px">No mould changes found on ${selectedDateStr} (${selectedShift}).</div>`;
+        const scope = isForecast ? `from ${escH(selectedDateStr)} onward` : `on ${escH(selectedDateStr)}`;
+        list.innerHTML = `<div class="muted" style="padding:40px; text-align:center; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:8px">No mould changes found ${scope} (${escH(selectedShift)}).</div>`;
         return;
       }
 
       // Sort changes by Time
       changes.sort((a, b) => a.time - b.time);
 
+      const fmtNum = (v) => (v === null || v === undefined || v === '' || isNaN(v)) ? '-' : Number(v).toLocaleString('en-IN');
+      const grid = 'display:grid; grid-template-columns: 130px 110px 90px 1.4fr 90px 110px 70px 70px 60px 70px 1.2fr 70px; gap:8px;';
+
       let html = `
-        <div style="margin-bottom:10px; font-weight:700; color:#64748b; font-size:0.9rem">Found ${changes.length} Changes</div>
-        <!-- Headers are already in HTML for this view, but we can re-render list only OR render full table if we prefer list items -->
-        <!-- Based on HTML structure in Step 261, #mcrBody is just the container for rows -->
-        <div style="display:flex; flex-direction:column; gap:8px">
+        <div style="margin-bottom:10px; font-weight:700; color:#64748b; font-size:0.85rem">Found ${changes.length} Mould Change${changes.length > 1 ? 's' : ''} ${isForecast ? '<span style="color:#15803d">(Forecast)</span>' : ''}</div>
+        <div style="display:flex; flex-direction:column; gap:6px">
       `;
 
       changes.forEach(c => {
-        const timeStr = c.time.toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        const timeStr = c.time.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+        const wtStr = (c.wt === null) ? '-' : Number(c.wt).toLocaleString('en-IN', { maximumFractionDigits: 3 });
         html += `
-             <div class="row" style="display:grid; grid-template-columns: 100px 180px 1fr 1fr 150px 100px; gap:10px; padding:12px 10px; border-bottom:1px solid #f1f5f9; align-items:center; font-size:0.9rem; background:#fff; border:1px solid #e2e8f0; border-radius:6px">
-                 <div style="font-weight:700; color:#0f172a">${selectedDateStr}</div> 
-                 <!-- Using machine column width from header -->
-                 <div style="font-weight:700; color:#334155">${c.machine}</div>
-                 <div style="color:#64748b">
-                    <div style="font-weight:600; color:#dc2626">${c.prevMould}</div>
-                    <div style="font-size:0.75rem; font-family:monospace">${c.prevCode}</div>
-                 </div>
-                 <div style="color:#64748b">
-                    <div style="font-weight:600; color:#16a34a">${c.nextMould}</div>
-                    <div style="font-size:0.75rem; font-family:monospace">${c.nextCode}</div>
-                 </div>
-                 <div style="font-weight:600; font-family:monospace; color:#334155">${timeStr}</div>
-                 <div style="text-align:center"><span class="tag ${c.shift === 'Day' ? 'y' : 'b'}">${c.shift}</span></div>
+             <div class="row" style="${grid} padding:10px; align-items:center; font-size:0.82rem; background:#fff; border:1px solid #e2e8f0; border-radius:6px">
+                 <div style="font-weight:700; color:#334155">${escH(c.machine)}</div>
+                 <div style="font-weight:600; font-family:monospace; color:#0f172a">${escH(timeStr)}</div>
+                 <div style="font-family:monospace; color:#16a34a; font-weight:600">${escH(c.mouldNo)}</div>
+                 <div style="color:#0f172a; font-weight:600">${escH(c.mouldName)}</div>
+                 <div style="text-align:right; font-variant-numeric:tabular-nums">${fmtNum(c.planQty)}</div>
+                 <div style="font-family:monospace; color:#475569">${escH(c.orderNo)}</div>
+                 <div style="text-align:right; font-variant-numeric:tabular-nums">${wtStr}</div>
+                 <div style="text-align:right; font-variant-numeric:tabular-nums">${fmtNum(c.ct)}</div>
+                 <div style="text-align:right; font-variant-numeric:tabular-nums">${fmtNum(c.cav)}</div>
+                 <div style="text-align:right; font-variant-numeric:tabular-nums">${fmtNum(c.ph)}</div>
+                 <div style="color:#475569">${escH(c.clientName)}</div>
+                 <div style="text-align:center"><span class="tag ${c.shift === 'Day' ? 'y' : 'b'}">${escH(c.shift)}</span></div>
              </div>
           `;
       });
