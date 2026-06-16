@@ -14509,14 +14509,18 @@
 
         const plans = visiblePlans(m.code);
 
-        /* load calc — sum run-time of the FULL queue (not just forecast-visible plans)
-           so the machine's true load is shown even when a forecast window is applied */
+        /* load calc — time from NOW until the machine finishes its FULL queue.
+           Plans ripple contiguously from now, so load = (latest plan end) − now.
+           (Summing end−start would wrongly include the running plan's already-
+           elapsed time, overstating the load vs the per-card "finishes in" badges.) */
         const allMachinePlans = etvGroups[m.code] || [];
-        const totalMs = allMachinePlans.reduce((s,p) => {
-          const st = p._rippledStartRaw ? p._rippledStartRaw.getTime() : NaN;
-          const en = p._rippledEndRaw   ? p._rippledEndRaw.getTime()   : NaN;
-          return (Number.isFinite(st) && Number.isFinite(en) && en>st) ? s+(en-st) : s;
-        }, 0);
+        const _nowTs = Date.now();
+        let _maxEnd = 0;
+        allMachinePlans.forEach(p => {
+          const en = p._rippledEndRaw ? p._rippledEndRaw.getTime() : 0;
+          if (Number.isFinite(en) && en > _maxEnd) _maxEnd = en;
+        });
+        const totalMs = _maxEnd > _nowTs ? (_maxEnd - _nowTs) : 0;
         const loadLabel = fmt(totalMs);
         const loadDays = totalMs / 86400000;
         const isOverloaded = loadDays > 30;
