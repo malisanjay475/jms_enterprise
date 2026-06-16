@@ -1738,12 +1738,9 @@ async function migrateOrderCompletionWorkflowSchema() {
       .catch(err => console.warn(`[DB] orders ${name} migration skipped:`, err.message));
   }
 
-  await qIdx(`CREATE INDEX IF NOT EXISTS idx_orders_completion_pending ON orders(completion_confirmation_required)`)
-    .catch(err => console.warn('[DB] orders completion pending index skipped:', err.message));
-  await qIdx(`CREATE INDEX IF NOT EXISTS idx_order_completion_history_order ON order_completion_history(order_no, changed_at DESC)`)
-    .catch(err => console.warn('[DB] order completion history order index skipped:', err.message));
-  await qIdx(`CREATE INDEX IF NOT EXISTS idx_order_completion_history_factory ON order_completion_history(factory_id, changed_at DESC)`)
-    .catch(err => console.warn('[DB] order completion history factory index skipped:', err.message));
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_orders_completion_pending ON orders(completion_confirmation_required)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_order_completion_history_order ON order_completion_history(order_no, changed_at DESC)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_order_completion_history_factory ON order_completion_history(factory_id, changed_at DESC)`);
 
   // Sync columns
   await q(`ALTER TABLE order_completion_history ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
@@ -1858,16 +1855,11 @@ async function migrateWipStockMasterSchema() {
       .catch(err => console.warn(`[DB] wip_stock_movements ${name} migration skipped:`, err.message));
   }
 
-  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_snapshots_factory_date ON wip_stock_snapshots(factory_id, stock_date DESC)`)
-    .catch(err => console.warn('[DB] wip_stock_snapshots factory/date index skipped:', err.message));
-  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_snapshot ON wip_stock_snapshot_lines(snapshot_id, line_type, sr_no)`)
-    .catch(err => console.warn('[DB] wip_stock_snapshot_lines snapshot index skipped:', err.message));
-  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_factory_date ON wip_stock_snapshot_lines(factory_id, stock_date DESC)`)
-    .catch(err => console.warn('[DB] wip_stock_snapshot_lines factory/date index skipped:', err.message));
-  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_comparison_key ON wip_stock_snapshot_lines(factory_id, stock_date DESC, comparison_key)`)
-    .catch(err => console.warn('[DB] wip_stock_snapshot_lines comparison key index skipped:', err.message));
-  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_movements_factory_date ON wip_stock_movements(factory_id, movement_at DESC)`)
-    .catch(err => console.warn('[DB] wip_stock_movements factory/date index skipped:', err.message));
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_snapshots_factory_date ON wip_stock_snapshots(factory_id, stock_date DESC)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_snapshot ON wip_stock_snapshot_lines(snapshot_id, line_type, sr_no)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_factory_date ON wip_stock_snapshot_lines(factory_id, stock_date DESC)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_comparison_key ON wip_stock_snapshot_lines(factory_id, stock_date DESC, comparison_key)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_movements_factory_date ON wip_stock_movements(factory_id, movement_at DESC)`);
 
   // wip_inventory and wip_outward_logs: used by the shifting/WIP approval flow.
   // Must exist on LOCAL servers for sync to work (previously only on MAIN).
