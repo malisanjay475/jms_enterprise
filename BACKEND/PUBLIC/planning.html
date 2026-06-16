@@ -12717,6 +12717,8 @@
       const selectedShift = realShiftInput.value; // 'Day', 'Night', 'Both'
       const forecastEl = document.getElementById('mcrForecast');
       const isForecast = !!(forecastEl && forecastEl.checked); // show all upcoming changes from selected date onward
+      // Escape any value (DOM- or DB-sourced) before injecting into innerHTML to prevent XSS.
+      const escH = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 
       list.innerHTML = '<div style="padding:20px; text-align:center">Analyzing Master Plan...</div>';
 
@@ -12838,8 +12840,8 @@
 
       // Render
       if (!changes.length) {
-        const scope = isForecast ? `from ${selectedDateStr} onward` : `on ${selectedDateStr}`;
-        list.innerHTML = `<div class="muted" style="padding:40px; text-align:center; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:8px">No mould changes found ${scope} (${selectedShift}).</div>`;
+        const scope = isForecast ? `from ${escH(selectedDateStr)} onward` : `on ${escH(selectedDateStr)}`;
+        list.innerHTML = `<div class="muted" style="padding:40px; text-align:center; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:8px">No mould changes found ${scope} (${escH(selectedShift)}).</div>`;
         return;
       }
 
@@ -12859,18 +12861,18 @@
         const wtStr = (c.wt === null) ? '-' : Number(c.wt).toLocaleString('en-IN', { maximumFractionDigits: 3 });
         html += `
              <div class="row" style="${grid} padding:10px; align-items:center; font-size:0.82rem; background:#fff; border:1px solid #e2e8f0; border-radius:6px">
-                 <div style="font-weight:700; color:#334155">${c.machine}</div>
-                 <div style="font-weight:600; font-family:monospace; color:#0f172a">${timeStr}</div>
-                 <div style="font-family:monospace; color:#16a34a; font-weight:600">${c.mouldNo}</div>
-                 <div style="color:#0f172a; font-weight:600">${c.mouldName}</div>
+                 <div style="font-weight:700; color:#334155">${escH(c.machine)}</div>
+                 <div style="font-weight:600; font-family:monospace; color:#0f172a">${escH(timeStr)}</div>
+                 <div style="font-family:monospace; color:#16a34a; font-weight:600">${escH(c.mouldNo)}</div>
+                 <div style="color:#0f172a; font-weight:600">${escH(c.mouldName)}</div>
                  <div style="text-align:right; font-variant-numeric:tabular-nums">${fmtNum(c.planQty)}</div>
-                 <div style="font-family:monospace; color:#475569">${c.orderNo}</div>
+                 <div style="font-family:monospace; color:#475569">${escH(c.orderNo)}</div>
                  <div style="text-align:right; font-variant-numeric:tabular-nums">${wtStr}</div>
                  <div style="text-align:right; font-variant-numeric:tabular-nums">${fmtNum(c.ct)}</div>
                  <div style="text-align:right; font-variant-numeric:tabular-nums">${fmtNum(c.cav)}</div>
                  <div style="text-align:right; font-variant-numeric:tabular-nums">${fmtNum(c.ph)}</div>
-                 <div style="color:#475569">${c.clientName}</div>
-                 <div style="text-align:center"><span class="tag ${c.shift === 'Day' ? 'y' : 'b'}">${c.shift}</span></div>
+                 <div style="color:#475569">${escH(c.clientName)}</div>
+                 <div style="text-align:center"><span class="tag ${c.shift === 'Day' ? 'y' : 'b'}">${escH(c.shift)}</span></div>
              </div>
           `;
       });
