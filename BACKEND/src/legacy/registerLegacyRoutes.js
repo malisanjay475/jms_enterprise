@@ -7890,7 +7890,10 @@ app.get('/api/planning/board', async (req, res) => {
                     COALESCE(dpr.qty, 0) AS "producedQty",
                     dpr.first_entry AS "firstDprEntry",
                     COALESCE(NULLIF(TRIM(mMaster.primary_machine), ''), NULLIF(TRIM(m.primary_machine), ''), '') AS "primaryMachine",
-                    COALESCE(NULLIF(TRIM(mMaster.secondary_machine), ''), NULLIF(TRIM(m.secondary_machine), ''), '') AS "secondaryMachine"
+                    COALESCE(NULLIF(TRIM(mMaster.secondary_machine), ''), NULLIF(TRIM(m.secondary_machine), ''), '') AS "secondaryMachine",
+                    -- Mould Change Report extras: standard weight (WT) + pieces/hour (P/H) from mould master
+                    COALESCE(mMaster.std_wt_kg, m.std_wt_kg) AS "stdWt",
+                    COALESCE(mMaster.pcs_per_hour, m.pcs_per_hour) AS "pcsHour"
       FROM plan_board pb
       LEFT JOIN orders o ON o.order_no = pb.order_no
       LEFT JOIN machines planMachine
