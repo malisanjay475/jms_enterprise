@@ -1969,6 +1969,7 @@
     let setupDone = false;
     let jobColorsData = {};   // colour → {plan, bal}
     let usedSlots = [];       // locked hour slots
+    let sessionDateChoice = null; // 'today' | 'yesterday' — remembered date pick for this page session only (resets on reload)
 
     // [FIX] Factory Isolation Wrapper
     async function apiFetch(url, options = {}) {
@@ -2119,6 +2120,14 @@
 
       // Auto-select calculated date
       selDate.value = isoDate(useDate);
+
+      // Re-apply the supervisor's manual date pick if one was made this session,
+      // so switching to Yesterday "sticks" across job opens / refreshes.
+      if (sessionDateChoice === 'yesterday' && hasOption(selDate, isoDate(yest))) {
+        selDate.value = isoDate(yest);
+      } else if (sessionDateChoice === 'today' && hasOption(selDate, isoDate(today))) {
+        selDate.value = isoDate(today);
+      }
 
       // Auto-select calculated shift if element exists
       if (selShift) {
@@ -3944,6 +3953,17 @@
     }
 
     function onDateShiftChange() {
+      // Remember the supervisor's relative date pick (Today/Yesterday) for this
+      // page session so it isn't wiped when buildDateSelect() re-runs. Session
+      // only: resets on page reload, so a stale "Yesterday" never carries over.
+      try {
+        const v = el('d-date').value;
+        const t = new Date(); t.setHours(0, 0, 0, 0);
+        const y = new Date(t); y.setDate(t.getDate() - 1);
+        if (v === isoDate(t)) sessionDateChoice = 'today';
+        else if (v === isoDate(y)) sessionDateChoice = 'yesterday';
+      } catch (_) { }
+
       loadUsedSlots();
       loadRecent();
     }
@@ -4074,6 +4094,7 @@
           // YES → auto-refresh to current shift/date, then submit
           el('btn-confirm-yes').onclick = function () {
             hide('modal-confirm');
+            sessionDateChoice = 'today'; // user chose to update to current shift — don't let a sticky "Yesterday" override the reset
             buildDateSelect(); // reset to current shift date
             proceedSubmitDPR();
           };
