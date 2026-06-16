@@ -872,13 +872,17 @@
                 return `${Math.max(1, mi)}m`;
             };
 
-            // Load = total run-time of the FULL queue (not just forecast-visible plans)
-            const totalLoadMs = fullMPlans.reduce((sum, p) => {
-                const start = p._rippledStartRaw ? p._rippledStartRaw.getTime() : NaN;
-                const end = p._rippledEndRaw ? p._rippledEndRaw.getTime() : NaN;
-                if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return sum;
-                return sum + (end - start);
-            }, 0);
+            // Load = time from NOW until the machine finishes its FULL queue.
+            // Plans ripple contiguously from now, so load = (latest plan end) − now.
+            // (Summing end−start would wrongly include the running plan's already-
+            // elapsed time, overstating load vs the per-card "finishes in" badges.)
+            const _nowLoadTs = Date.now();
+            let _maxLoadEnd = 0;
+            fullMPlans.forEach(p => {
+                const end = p._rippledEndRaw ? p._rippledEndRaw.getTime() : 0;
+                if (Number.isFinite(end) && end > _maxLoadEnd) _maxLoadEnd = end;
+            });
+            const totalLoadMs = _maxLoadEnd > _nowLoadTs ? (_maxLoadEnd - _nowLoadTs) : 0;
             const isOverloaded = totalLoadMs > (30 * 86400000); // more than 30 days of load
 
             // ROW
