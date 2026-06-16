@@ -3835,6 +3835,10 @@
                   <label class="small-muted" style="color:#15803d; font-weight:600; margin-left:8px; display:flex; align-items:center; gap:5px; cursor:pointer" title="Show all mould changes coming up in the next 24 hours from now">
                      <input type="checkbox" id="mcrNext24" style="accent-color:#ea580c; width:16px; height:16px"> Next 24h
                   </label>
+
+                  <label class="small-muted" style="color:#15803d; font-weight:600; margin-left:8px; display:flex; align-items:center; gap:5px; cursor:pointer" title="Show every mould change across all dates (ignores Date / Next 24h)">
+                     <input type="checkbox" id="mcrAllDates" style="accent-color:#7c3aed; width:16px; height:16px"> All Dates
+                  </label>
                </div>
 
                <button class="btn" onclick="window.loadMouldChangeReport()" style="background:#dcfce7; color:#15803d; border-color:#86efac"><i class="bi bi-arrow-clockwise"></i> Load Report</button>
@@ -12700,10 +12704,21 @@
       const selectedShift = realShiftInput.value; // 'Day', 'Night', 'Both'
       const next24El = document.getElementById('mcrNext24');
       const isNext24 = !!(next24El && next24El.checked); // rolling window: now .. now+24h
+      const allDatesEl = document.getElementById('mcrAllDates');
+      const isAllDates = !!(allDatesEl && allDatesEl.checked); // show every change, no date filter
       // Escape any value (DOM- or DB-sourced) before injecting into innerHTML to prevent XSS.
       const escH = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
       // Derive Line number from machine code, e.g. "B-L-1-OM-350-5" -> "1"
       const lineOf = (machine) => { const m = String(machine || '').match(/(?:^|[-\s_])L[-\s_]?(\d+)/i); return m ? m[1] : '?'; };
+      // Local (not UTC) YYYY-MM-DD so date filtering matches the factory's wall clock.
+      const localDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      // Robust mould identity: ignore the board's '-' placeholder; fall back to mould name.
+      // This is what fixes "changes not showing" when the mould master has no mould number.
+      const moldKey = (p) => {
+        const no = (p && p.mouldNo != null && String(p.mouldNo).trim() !== '' && String(p.mouldNo).trim() !== '-') ? String(p.mouldNo).trim().toUpperCase() : '';
+        const nm = (p && p.mouldName != null && String(p.mouldName).trim() !== '' && String(p.mouldName).trim().toUpperCase() !== 'UNKNOWN') ? String(p.mouldName).trim().toUpperCase() : '';
+        return no || nm;
+      };
       const now = new Date();
       const horizon = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
@@ -12750,12 +12765,12 @@
           const prev = machPlans[i - 1];
           const curr = machPlans[i];
 
-          // Check if Mould Changed
-          // Compare Mould No (Primary) or Name
-          const prevMould = prev.mouldNo || prev.mould_code || prev.mouldName;
-          const currMould = curr.mouldNo || curr.mould_code || curr.mouldName;
+          // Check if Mould Changed (robust key: ignores '-' placeholder, falls back to name)
+          const prevMould = moldKey(prev);
+          const currMould = moldKey(curr);
 
-          // Ignore if same
+          // Ignore if same, or if we cannot identify the incoming mould at all
+          if (!currMould) continue;
           if (prevMould === currMould) continue;
 
           // CHANGE DETECTED
@@ -12770,8 +12785,8 @@
             changeTime = new Date(prev.startDate); // Fallback
           }
 
-          // Filter by Selected Date
-          const chDateStr = changeTime.toISOString().split('T')[0];
+          // Filter by Selected Date (LOCAL date, not UTC)
+          const chDateStr = localDateStr(changeTime);
 
           // Shift Logic
           // Day: 08:00 - 20:00
@@ -12780,21 +12795,20 @@
           const hr = changeTime.getHours();
           if (hr >= 20 || hr < 8) shift = 'Night';
 
-          // Correct Date Logic for Night Shift (If < 8 it belongs to previous Date's Night Shift)
-          // But for Date Picker matching, usually users select "Production Date".
-          // If it's 2 AM on the 21st, that's the Night Shift of the 20th.
-          // So for filtering, if hr < 8, we should check dateStr of (Date - 1 day).
-
+          // Night shift after midnight (00:00-08:00) belongs to the previous production date.
           let productionDateStr = chDateStr;
           if (hr < 8) {
             const d = new Date(changeTime);
             d.setDate(d.getDate() - 1);
-            productionDateStr = d.toISOString().split('T')[0];
+            productionDateStr = localDateStr(d);
           }
 
-          // Next 24h ON: every change due between now and now+24h (ignores Date picker).
-          // OFF: only the selected production date.
-          if (isNext24) {
+          // All Dates ON: no date filter (show everything).
+          // Next 24h ON: every change due between now and now+24h.
+          // Else: only the selected production date.
+          if (isAllDates) {
+            // no date restriction
+          } else if (isNext24) {
             if (changeTime < now || changeTime > horizon) continue;
           } else {
             if (selectedDateStr !== productionDateStr) continue;
@@ -12829,7 +12843,7 @@
 
       // Render
       if (!changes.length) {
-        const scope = isNext24 ? 'in the next 24 hours' : `on ${escH(selectedDateStr)}`;
+        const scope = isAllDates ? 'in the plan' : (isNext24 ? 'in the next 24 hours' : `on ${escH(selectedDateStr)}`);
         list.innerHTML = `<div class="muted" style="padding:40px; text-align:center; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:8px">No mould changes found ${scope} (${escH(selectedShift)}).</div>`;
         return;
       }
@@ -12852,6 +12866,9 @@
       const fmtNum = (v) => (v === null || v === undefined || v === '' || isNaN(v)) ? '-' : Number(v).toLocaleString('en-IN');
       const fmtWt = (v) => (v === null || v === undefined || v === '' || isNaN(v)) ? '-' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: 3 });
       const fmtTime = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      // When the rows span multiple dates, show the date alongside the time so it is unambiguous.
+      const showDate = isAllDates || isNext24;
+      const cellTime = (d) => showDate ? `${d.toLocaleDateString('en-US', { day: '2-digit', month: 'short' })} ${fmtTime(d)}` : fmtTime(d);
 
       // Column headers (label + alignment). Order matches the daily sheet.
       const cols = [
@@ -12874,10 +12891,14 @@
       };
 
       // ---- Title bar (date | title | Day/Night counts) ----
-      const titleDate = isNext24
-        ? `Next 24 Hours`
-        : (selectedDateStr ? new Date(selectedDateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : '');
-      const subDate = isNext24 ? `${fmtTime(now)} → ${horizon.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${fmtTime(horizon)}` : '';
+      const titleDate = isAllDates
+        ? `All Mould Changes`
+        : (isNext24
+          ? `Next 24 Hours`
+          : (selectedDateStr ? new Date(selectedDateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : ''));
+      const subDate = isAllDates
+        ? `${changes.length} change${changes.length > 1 ? 's' : ''} total`
+        : (isNext24 ? `${fmtTime(now)} → ${horizon.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${fmtTime(horizon)}` : '');
 
       let html = `
         <div id="mcrPrintArea" style="min-width:1150px">
@@ -12916,7 +12937,7 @@
           html += `
             <tr>
               <td style="${tdBase} font-weight:700; color:#1e293b; white-space:nowrap">${escH(c.machine)}</td>
-              <td style="${tdBase} text-align:center; font-weight:600; white-space:nowrap">${escH(fmtTime(c.time))}</td>
+              <td style="${tdBase} text-align:center; font-weight:600; white-space:nowrap">${escH(cellTime(c.time))}</td>
               <td style="${tdBase} font-family:monospace; color:#15803d; font-weight:700">${escH(c.mouldNo)}</td>
               <td style="${tdBase} color:#0f172a">${escH(c.mouldName)}</td>
               <td style="${tdBase} text-align:right; font-variant-numeric:tabular-nums">${fmtNum(c.planQty)}</td>
