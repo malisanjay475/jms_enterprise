@@ -1206,6 +1206,21 @@ async function q(text, params) {
   const { rows } = await pool.query(text, params);
   return rows;
 }
+
+// Resilient index creation. CREATE INDEX requires table ownership; on local
+// servers a table can be owned by a different role (e.g. created/restored as
+// `postgres` while the app connects as `jms_v1`), which makes the statement
+// throw "must be owner of table …". Indexes are performance-only — never let
+// one abort the whole DB init. Errors are logged and swallowed; real schema
+// problems (missing tables/columns) still surface from their own q() calls.
+async function qIdx(text, params) {
+  try {
+    return await q(text, params);
+  } catch (e) {
+    console.warn('[DB] index skipped:', (e && e.message) || e);
+    return [];
+  }
+}
 const MOULD_MASTER_FIELDS = [
   'mould_number',
   'mould_name',
@@ -1394,8 +1409,8 @@ async function migrateMouldMasterSchema() {
 
   await q(`DROP INDEX IF EXISTS idx_moulds_product`);
   await q(`DROP INDEX IF EXISTS idx_moulds_erp_item_trim`);
-  await q(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_name ON moulds(mould_name)`);
-  await q(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_trim ON moulds(TRIM(mould_number))`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_name ON moulds(mould_name)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_trim ON moulds(TRIM(mould_number))`);
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_moulds_factory_mould_number_unique ON moulds ((LOWER(mould_number)), (COALESCE(factory_id, 0)))`)
     .catch(err => console.warn('[DB] idx_moulds_factory_mould_number_unique skipped (duplicate mould numbers in data):', err.message));
 
@@ -1417,8 +1432,8 @@ async function migrateMouldMasterSchema() {
   await q(`ALTER TABLE mould_audit_logs ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid()`);
   await q(`ALTER TABLE mould_audit_logs ADD COLUMN IF NOT EXISTS sync_status TEXT`);
   await q(`UPDATE mould_audit_logs SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
-  await q(`CREATE INDEX IF NOT EXISTS idx_mould_audit_mould_id_changed_at ON mould_audit_logs(mould_id, changed_at DESC)`);
-  await q(`CREATE INDEX IF NOT EXISTS idx_mould_audit_sync_id ON mould_audit_logs(sync_id)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_audit_mould_id_changed_at ON mould_audit_logs(mould_id, changed_at DESC)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_audit_sync_id ON mould_audit_logs(sync_id)`);
 
   // Local/main sync can insert explicit audit IDs. Keep the serial sequence ahead
   // of existing rows so future Mould Master uploads never reuse an old primary key.
@@ -1457,8 +1472,8 @@ async function migratePriorityListSchema() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
-  await q(`CREATE INDEX IF NOT EXISTS idx_priority_lists_date ON priority_lists(priority_date DESC)`);
-  await q(`CREATE INDEX IF NOT EXISTS idx_priority_lists_factory ON priority_lists(factory_id)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_priority_lists_date ON priority_lists(priority_date DESC)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_priority_lists_factory ON priority_lists(factory_id)`);
 }
 
 async function migrateOrjrWiseMasterSchema() {
@@ -1652,8 +1667,8 @@ async function migrateOrjrWiseDetailSchema() {
     await q(`ALTER TABLE mould_planning_report ADD COLUMN IF NOT EXISTS ${name} ${typeSql}`);
   }
 
-  await q(`CREATE INDEX IF NOT EXISTS idx_mould_planning_report_factory_id ON mould_planning_report(factory_id)`);
-  await q(`CREATE INDEX IF NOT EXISTS idx_mpr_order ON mould_planning_report(or_jr_no)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_planning_report_factory_id ON mould_planning_report(factory_id)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_mpr_order ON mould_planning_report(or_jr_no)`);
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS mould_report_date_uniq_idx ON mould_planning_report(or_jr_no, mould_no, mould_item_code, plan_date)`);
 
   /* ── Fix: reset serial sequence to max(id) to prevent pkey conflicts
@@ -1723,12 +1738,9 @@ async function migrateOrderCompletionWorkflowSchema() {
       .catch(err => console.warn(`[DB] orders ${name} migration skipped:`, err.message));
   }
 
-  await q(`CREATE INDEX IF NOT EXISTS idx_orders_completion_pending ON orders(completion_confirmation_required)`)
-    .catch(err => console.warn('[DB] orders completion pending index skipped:', err.message));
-  await q(`CREATE INDEX IF NOT EXISTS idx_order_completion_history_order ON order_completion_history(order_no, changed_at DESC)`)
-    .catch(err => console.warn('[DB] order completion history order index skipped:', err.message));
-  await q(`CREATE INDEX IF NOT EXISTS idx_order_completion_history_factory ON order_completion_history(factory_id, changed_at DESC)`)
-    .catch(err => console.warn('[DB] order completion history factory index skipped:', err.message));
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_orders_completion_pending ON orders(completion_confirmation_required)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_order_completion_history_order ON order_completion_history(order_no, changed_at DESC)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_order_completion_history_factory ON order_completion_history(factory_id, changed_at DESC)`);
 
   // Sync columns
   await q(`ALTER TABLE order_completion_history ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
@@ -1843,16 +1855,11 @@ async function migrateWipStockMasterSchema() {
       .catch(err => console.warn(`[DB] wip_stock_movements ${name} migration skipped:`, err.message));
   }
 
-  await q(`CREATE INDEX IF NOT EXISTS idx_wip_stock_snapshots_factory_date ON wip_stock_snapshots(factory_id, stock_date DESC)`)
-    .catch(err => console.warn('[DB] wip_stock_snapshots factory/date index skipped:', err.message));
-  await q(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_snapshot ON wip_stock_snapshot_lines(snapshot_id, line_type, sr_no)`)
-    .catch(err => console.warn('[DB] wip_stock_snapshot_lines snapshot index skipped:', err.message));
-  await q(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_factory_date ON wip_stock_snapshot_lines(factory_id, stock_date DESC)`)
-    .catch(err => console.warn('[DB] wip_stock_snapshot_lines factory/date index skipped:', err.message));
-  await q(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_comparison_key ON wip_stock_snapshot_lines(factory_id, stock_date DESC, comparison_key)`)
-    .catch(err => console.warn('[DB] wip_stock_snapshot_lines comparison key index skipped:', err.message));
-  await q(`CREATE INDEX IF NOT EXISTS idx_wip_stock_movements_factory_date ON wip_stock_movements(factory_id, movement_at DESC)`)
-    .catch(err => console.warn('[DB] wip_stock_movements factory/date index skipped:', err.message));
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_snapshots_factory_date ON wip_stock_snapshots(factory_id, stock_date DESC)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_snapshot ON wip_stock_snapshot_lines(snapshot_id, line_type, sr_no)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_factory_date ON wip_stock_snapshot_lines(factory_id, stock_date DESC)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_comparison_key ON wip_stock_snapshot_lines(factory_id, stock_date DESC, comparison_key)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_movements_factory_date ON wip_stock_movements(factory_id, movement_at DESC)`);
 
   // wip_inventory and wip_outward_logs: used by the shifting/WIP approval flow.
   // Must exist on LOCAL servers for sync to work (previously only on MAIN).
@@ -1958,10 +1965,10 @@ async function migrateRawMaterialSchema() {
   `);
 
   // Ensure indices for performance
-  await q(`CREATE INDEX IF NOT EXISTS idx_rm_issues_plan_id ON raw_material_issues(plan_id)`);
-  await q(`CREATE INDEX IF NOT EXISTS idx_rm_issues_order_no ON raw_material_issues(order_no)`);
-  await q(`CREATE INDEX IF NOT EXISTS idx_rm_issues_status ON raw_material_issues(status)`);
-  await q(`CREATE INDEX IF NOT EXISTS idx_rm_issues_factory_id ON raw_material_issues(factory_id)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_rm_issues_plan_id ON raw_material_issues(plan_id)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_rm_issues_order_no ON raw_material_issues(order_no)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_rm_issues_status ON raw_material_issues(status)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_rm_issues_factory_id ON raw_material_issues(factory_id)`);
 }
 
 async function getAccessibleFactoriesForUser(userOrUsername) {
@@ -4204,8 +4211,8 @@ async function initializeLegacyRuntime() {
       interviewPanelRuntime.ensureTables ? interviewPanelRuntime.ensureTables() : Promise.resolve(),
     ]);
 
-    // Non-blocking index creation
-    await pool.query(`
+    // Non-blocking index creation (resilient — ownership/permission errors are non-fatal)
+    await qIdx(`
             CREATE INDEX IF NOT EXISTS idx_plan_board_machine ON plan_board(machine);
             CREATE INDEX IF NOT EXISTS idx_plan_board_status ON plan_board(status);
             CREATE INDEX IF NOT EXISTS idx_std_actual_plan_id ON std_actual(plan_id);
@@ -4217,7 +4224,9 @@ async function initializeLegacyRuntime() {
             CREATE INDEX IF NOT EXISTS idx_moulds_mould_name ON moulds(mould_name);
             CREATE INDEX IF NOT EXISTS idx_or_jr_report_no_trim ON or_jr_report(TRIM(or_jr_no));
             CREATE INDEX IF NOT EXISTS idx_moulds_mould_number_trim ON moulds(TRIM(mould_number));
+    `);
 
+    await pool.query(`
             CREATE TABLE IF NOT EXISTS roles (
                 code TEXT PRIMARY KEY,
                 label TEXT NOT NULL,
@@ -4463,10 +4472,12 @@ async function initializeLegacyRuntime() {
                 user_name VARCHAR(100),
                 created_at TIMESTAMP DEFAULT NOW()
             );
+        `);
+
+    await qIdx(`
             CREATE INDEX IF NOT EXISTS idx_plan_audit_logs_created ON plan_audit_logs(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_plan_audit_logs_plan_id ON plan_audit_logs(plan_id);
-
-        `);
+    `);
 
     // Fix: reset plan_audit_logs serial sequence to MAX(id)+1 to prevent pkey conflicts
     // after DB restore / sync pushes explicit IDs higher than the current sequence value.
@@ -4676,7 +4687,7 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE machines ADD COLUMN IF NOT EXISTS mould_unload_time NUMERIC`);
     await q(`ALTER TABLE machines ALTER COLUMN machine_process SET DEFAULT 'Moulding'`);
     await q(`UPDATE machines SET machine_process = 'Moulding' WHERE machine_process IS NULL OR TRIM(machine_process) = ''`);
-    await q(`CREATE INDEX IF NOT EXISTS idx_machine_audit_logs_lookup ON machine_audit_logs ((LOWER(machine_id)), (COALESCE(factory_id, 0)), changed_at DESC)`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_machine_audit_logs_lookup ON machine_audit_logs ((LOWER(machine_id)), (COALESCE(factory_id, 0)), changed_at DESC)`);
 
     // QC TABLES
     await q(`
@@ -4788,7 +4799,7 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS supervisor TEXT`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS factory_id INTEGER`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
-    await q(`CREATE INDEX IF NOT EXISTS idx_qc_job_checks_lookup ON qc_job_checks (job_card_no, plan_id, machine, date, shift)`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qc_job_checks_lookup ON qc_job_checks (job_card_no, plan_id, machine, date, shift)`);
 
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_date DATE;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_type TEXT;`);
@@ -4814,11 +4825,11 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS weight_kg NUMERIC;`);
 
     // Performance Indexes
-    await q(`CREATE INDEX IF NOT EXISTS idx_shifting_plan_id ON shifting_records(plan_id);`);
-    await q(`CREATE INDEX IF NOT EXISTS idx_shifting_factory_id ON shifting_records(factory_id);`);
-    await q(`CREATE INDEX IF NOT EXISTS idx_shifting_label_uid ON shifting_records(label_uid);`);
-    await q(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_plan_id ON dpr_hourly(plan_id);`);
-    await q(`CREATE INDEX IF NOT EXISTS idx_plan_board_status ON plan_board(status);`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_shifting_plan_id ON shifting_records(plan_id);`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_shifting_factory_id ON shifting_records(factory_id);`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_shifting_label_uid ON shifting_records(label_uid);`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_plan_id ON dpr_hourly(plan_id);`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_status ON plan_board(status);`);
 
     // Legacy unique on or_jr_no alone — skipped when duplicates exist (composite index is applied later).
     await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_report_unique_no ON or_jr_report(or_jr_no);`).catch(err =>
