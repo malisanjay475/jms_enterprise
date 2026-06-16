@@ -832,6 +832,8 @@
 
         machines.forEach(m => {
             let mPlans = window.timelineGroups[m.code] || [];
+            // Full queue snapshot (before any forecast cutoff) for an accurate load total
+            const fullMPlans = mPlans.slice();
             mPlans.forEach(p => window._tlMap[p.id] = p);
 
             // --- FORECAST CLIP ---
@@ -870,12 +872,14 @@
                 return `${Math.max(1, mi)}m`;
             };
 
-            const totalLoadMs = mPlans.reduce((sum, p) => {
+            // Load = total run-time of the FULL queue (not just forecast-visible plans)
+            const totalLoadMs = fullMPlans.reduce((sum, p) => {
                 const start = p._rippledStartRaw ? p._rippledStartRaw.getTime() : NaN;
                 const end = p._rippledEndRaw ? p._rippledEndRaw.getTime() : NaN;
                 if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return sum;
                 return sum + (end - start);
             }, 0);
+            const isOverloaded = totalLoadMs > (30 * 86400000); // more than 30 days of load
 
             // ROW
             const row = document.createElement('div');
@@ -1042,7 +1046,8 @@
                      <div style="font-size: 0.95rem; font-weight: 700; color: #fff; line-height:1.1; word-wrap:break-word; max-width:100%">${displayName}</div>
                      <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 600; text-transform: uppercase;">${line} • ${building}</div>
                      <div style="margin-top:4px; font-size: 0.7rem; font-weight: 800; color: #0f172a; background: #e2e8f0; padding: 2px 8px; border-radius: 12px;">${mPlans.length} PLANS</div>
-                     <div style="font-size: 0.68rem; font-weight: 900; color: #075985; background: #e0f2fe; border:1px solid #7dd3fc; padding: 2px 8px; border-radius: 12px;">LOAD ${formatLoadDuration(totalLoadMs)}</div>
+                     <div title="Total queued run-time${isOverloaded ? ' — over 30 days of load' : ''}" style="font-size: 0.68rem; font-weight: 900; ${isOverloaded ? 'color:#fff; background:#dc2626; border:1px solid #fca5a5;' : 'color:#075985; background:#e0f2fe; border:1px solid #7dd3fc;'} padding: 2px 8px; border-radius: 12px;">LOAD ${formatLoadDuration(totalLoadMs)}</div>
+                     ${isOverloaded ? `<div title="This machine has more than 30 days of planned load" style="font-size:0.6rem; font-weight:900; color:#fff; background:#b91c1c; padding:2px 7px; border-radius:12px; letter-spacing:.02em; animation: etvLoadPulse 1.6s ease-in-out infinite;"><i class="bi bi-exclamation-triangle-fill"></i> 30+ DAYS</div>` : ''}
                  </div>
 
                  <div class="timeline-track" 
