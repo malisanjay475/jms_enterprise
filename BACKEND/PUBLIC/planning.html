@@ -12980,9 +12980,11 @@
        Trims DPR entries newest-first to reduce; adds entry to top-up.
     ===================================================================== */
     (function () {
-      // Inject modal HTML once
       const MODAL_ID = 'fillDprModal';
-      if (!document.getElementById(MODAL_ID)) {
+
+      // Always ensures modal exists in DOM — re-creates if route change destroyed it
+      function _ensureFillDprModal() {
+        if (document.getElementById(MODAL_ID)) return;
         const el = document.createElement('div');
         el.id = MODAL_ID;
         el.style.cssText = 'display:none; position:fixed; inset:0; z-index:9800; background:rgba(15,23,42,.55); align-items:center; justify-content:center;';
@@ -13018,14 +13020,17 @@
             </div>
           </div>`;
         document.body.appendChild(el);
+        el.addEventListener('click', function(e) {
+          if (e.target === this) window.closeFillDprModal();
+        });
       }
 
       // State
       let _fdState = { planId: '', orderNo: '', machine: '', colours: [], callerRole: '' };
 
       window.openFillDprModal = async function (planId, orderNo, machine, planQty) {
+        _ensureFillDprModal(); // re-create if DOM was wiped by route change
         const modal = document.getElementById(MODAL_ID);
-        if (!modal) return;
         // Guard — only superadmin
         let callerRole = '';
         try {
@@ -13066,31 +13071,35 @@
               <th style="${thS}">Plan Qty</th>
               <th style="${thS}">Produced</th>
               <th style="${thS}">Bal Qty</th>
-              <th style="${thS}; background:#4c1d95; color:#fff; min-width:140px">New Total</th>
+              <th style="${thS}; background:#4c1d95; color:#fff; min-width:140px">New Entry</th>
+              <th style="${thS}; background:#064e3b; color:#fff; min-width:120px">New Balance</th>
             </tr></thead><tbody>`;
         colours.forEach((c, i) => {
-          const bal = c.bal != null ? c.bal : (c.qty - c.produced);
-          const balCol = bal <= 0 ? '#16a34a' : (bal < c.qty*0.2 ? '#d97706' : '#0f172a');
-          const balBg  = bal <= 0 ? '#f0fdf4' : (bal < 0 ? '#fef2f2' : '#fff');
+          const produced = Math.round(c.produced || 0);
+          const planQty  = Number(c.qty || 0);
+          const bal = c.bal != null ? c.bal : (planQty - produced);
+          const balCol = bal <= 0 ? '#16a34a' : (bal < planQty*0.2 ? '#d97706' : '#0f172a');
+          const balBg  = bal <= 0 ? '#f0fdf4' : '#fff';
           html += `
             <tr>
               <td style="${tdS} font-weight:700; color:#1e293b">
                 <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:${colourSwatch(c.name)}; margin-right:6px; vertical-align:middle; border:1px solid #e2e8f0"></span>
                 ${escH(c.name)}
               </td>
-              <td style="${tdS} text-align:right; font-variant-numeric:tabular-nums">${fmtN(c.qty)}</td>
-              <td style="${tdS} text-align:right; font-variant-numeric:tabular-nums; color:#3b82f6; font-weight:700">${fmtN(c.produced)}</td>
+              <td style="${tdS} text-align:right; font-variant-numeric:tabular-nums">${fmtN(planQty)}</td>
+              <td style="${tdS} text-align:right; font-variant-numeric:tabular-nums; color:#3b82f6; font-weight:700">${fmtN(produced)}</td>
               <td style="${tdS} text-align:right; font-variant-numeric:tabular-nums; color:${balCol}; background:${balBg}; font-weight:700">${fmtN(bal)}</td>
               <td style="${tdS} text-align:right; background:#faf5ff;">
-                <input type="number" min="0" max="${c.qty}" value="${Math.round(c.produced||0)}"
-                  data-colour="${escH(c.name)}" data-original="${Math.round(c.produced||0)}" data-planqty="${c.qty||0}"
+                <input type="number" min="0" max="${planQty}" value="0"
+                  data-colour="${escH(c.name)}" data-produced="${produced}" data-planqty="${planQty}" data-idx="${i}"
                   style="width:100%; border:2px solid #c4b5fd; border-radius:8px; padding:8px 12px; font-size:1rem; font-weight:700; text-align:right; color:#4c1d95; outline:none;"
                   oninput="window._fdMarkChanged(this)">
               </td>
+              <td id="fd-newbal-${i}" style="${tdS} text-align:right; font-weight:800; color:#059669; background:#f0fdf4; font-variant-numeric:tabular-nums">${fmtN(bal)}</td>
             </tr>`;
         });
         html += '</tbody></table>';
-        html += `<div style="margin-top:10px; font-size:0.76rem; color:#94a3b8"><i class="bi bi-info-circle"></i> Change "New Total" to the total pieces produced for that colour. Lower = trim entries newest first. Higher = add new entry for today.</div>`;
+        html += `<div style="margin-top:10px; font-size:0.76rem; color:#94a3b8"><i class="bi bi-info-circle"></i> Enter the qty produced in this new entry. It will be added on top of existing produced qty. New Balance updates live.</div>`;
         document.getElementById('fillDprBody').innerHTML = html;
       }
 
@@ -13102,10 +13111,19 @@
       }
 
       window._fdMarkChanged = function(inp) {
-        const orig = Number(inp.dataset.original||0);
-        const cur  = Number(inp.value||0);
-        inp.style.borderColor = cur !== orig ? '#7c3aed' : '#c4b5fd';
-        inp.style.background  = cur !== orig ? '#f5f3ff' : '';
+        const entry    = Math.max(0, Number(inp.value||0));
+        const produced = Number(inp.dataset.produced||0);
+        const planQty  = Number(inp.dataset.planqty||0);
+        const idx      = inp.dataset.idx;
+        const newBal   = planQty - (produced + entry);
+        inp.style.borderColor = entry > 0 ? '#7c3aed' : '#c4b5fd';
+        inp.style.background  = entry > 0 ? '#f5f3ff' : '';
+        const balCell = document.getElementById('fd-newbal-' + idx);
+        if (balCell) {
+          balCell.textContent = newBal.toLocaleString('en-IN');
+          balCell.style.color = newBal <= 0 ? '#dc2626' : '#059669';
+          balCell.style.background = newBal <= 0 ? '#fef2f2' : '#f0fdf4';
+        }
       };
 
       window.closeFillDprModal = function () {
@@ -13117,18 +13135,17 @@
         const inputs = document.querySelectorAll(`#${MODAL_ID} input[data-colour]`);
         const changes = [];
         for (const inp of inputs) {
-          const newVal = Math.round(Number(inp.value||0));
-          const orig   = Math.round(Number(inp.dataset.original||0));
-          if (newVal !== orig) changes.push({ colour: inp.dataset.colour, targetQty: newVal, original: orig, planQty: Number(inp.dataset.planqty||0) });
+          const newEntry  = Math.max(0, Math.round(Number(inp.value||0)));
+          const produced  = Math.round(Number(inp.dataset.produced||0));
+          if (newEntry <= 0) continue; // skip rows with no entry
+          const targetQty = produced + newEntry; // total produced after this entry
+          changes.push({ colour: inp.dataset.colour, targetQty, newEntry, produced, planQty: Number(inp.dataset.planqty||0) });
         }
-        if (!changes.length) { document.getElementById('fillDprStatus').textContent = 'No changes to apply.'; return; }
+        if (!changes.length) { document.getElementById('fillDprStatus').textContent = 'No entry qty entered.'; return; }
 
-        // Warn if reducing
-        const reductions = changes.filter(c => c.targetQty < c.original);
-        if (reductions.length) {
-          const msg = reductions.map(r => `${r.colour}: ${r.original.toLocaleString()} → ${r.targetQty.toLocaleString()} (delete ${(r.original-r.targetQty).toLocaleString()} pcs from newest DPR entries)`).join('\n');
-          if (!confirm(`⚠️ This will permanently delete DPR records:\n\n${msg}\n\nProceed?`)) return;
-        }
+        // Confirm before applying
+        const msg = changes.map(c => `${c.colour}: +${c.newEntry.toLocaleString()} pcs  (${c.produced.toLocaleString()} → ${c.targetQty.toLocaleString()} produced, Bal: ${(c.planQty-c.targetQty).toLocaleString()})`).join('\n');
+        if (!confirm(`Add DPR entries?\n\n${msg}\n\nProceed?`)) return;
 
         const btn = document.getElementById('fillDprApplyBtn');
         btn.disabled = true; btn.textContent = 'Applying…';
@@ -13165,10 +13182,6 @@
         }
       };
 
-      // Close on backdrop click
-      document.getElementById(MODAL_ID).addEventListener('click', function(e) {
-        if (e.target === this) window.closeFillDprModal();
-      });
     })();
 
     // Debounce for PCR Search
