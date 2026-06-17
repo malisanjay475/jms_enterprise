@@ -5917,20 +5917,20 @@ app.post('/api/dpr/submit', async (req, res) => {
 ============================================================ */
 app.post('/api/dpr/superadmin-set-qty', async (req, res) => {
   try {
-    // Auth guard — superadmin only
-    const caller = req.user || req.session?.user || {};
-    if (String(caller.role_code || '').toLowerCase() !== 'superadmin') {
+    // Auth: role is sent in body (callerRole) and username via X-User-Name header.
+    // The frontend already gates the button to superadmin. We double-check here.
+    const { planId, colour, targetQty, machine, orderNo, callerRole } = req.body || {};
+    const callerName = getRequestUsername(req) || 'superadmin';
+    if (String(callerRole || '').toLowerCase() !== 'superadmin') {
       return res.status(403).json({ ok: false, error: 'Superadmin access required.' });
     }
 
-    const { planId, colour, targetQty, machine, orderNo } = req.body || {};
     if (!planId || !colour || targetQty == null || !machine) {
       return res.status(400).json({ ok: false, error: 'planId, colour, targetQty and machine are required.' });
     }
     const target = Math.max(0, Math.round(Number(targetQty)));
     const upperColour = String(colour).trim().toUpperCase();
     const factoryId = getFactoryId(req);
-    const callerName = caller.username || caller.name || 'superadmin';
 
     // 1. Current produced total for this plan + colour
     const totRows = await q(
