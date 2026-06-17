@@ -12987,7 +12987,7 @@
         el.id = MODAL_ID;
         el.style.cssText = 'display:none; position:fixed; inset:0; z-index:9800; background:rgba(15,23,42,.55); align-items:center; justify-content:center;';
         el.innerHTML = `
-          <div style="background:#fff; border-radius:14px; width:780px; max-width:96vw; max-height:88vh; display:flex; flex-direction:column; box-shadow:0 24px 64px rgba(0,0,0,.22); overflow:hidden;">
+          <div style="background:#fff; border-radius:14px; width:1050px; max-width:96vw; max-height:92vh; display:flex; flex-direction:column; box-shadow:0 24px 64px rgba(0,0,0,.22); overflow:hidden;">
             <!-- Header -->
             <div style="background:linear-gradient(135deg,#4c1d95,#7c3aed); padding:16px 20px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
               <div>
@@ -13021,18 +13021,19 @@
       }
 
       // State
-      let _fdState = { planId: '', orderNo: '', machine: '', colours: [] };
+      let _fdState = { planId: '', orderNo: '', machine: '', colours: [], callerRole: '' };
 
       window.openFillDprModal = async function (planId, orderNo, machine, planQty) {
         const modal = document.getElementById(MODAL_ID);
         if (!modal) return;
         // Guard — only superadmin
+        let callerRole = '';
         try {
-          const role = String(window.JPSMS.auth.getUser().role_code||'').toLowerCase();
-          if (role !== 'superadmin') { alert('Fill DPR is for Superadmin only.'); return; }
+          callerRole = String(window.JPSMS.auth.getUser().role_code||'').toLowerCase();
+          if (callerRole !== 'superadmin') { alert('Fill DPR is for Superadmin only.'); return; }
         } catch(_) { alert('Cannot verify role.'); return; }
 
-        _fdState = { planId, orderNo, machine, colours: [] };
+        _fdState = { planId, orderNo, machine, colours: [], callerRole };
         document.getElementById('fillDprOrderLabel').textContent = `OR: ${orderNo}  |  Machine: ${machine}`;
         document.getElementById('fillDprBody').innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8">Loading colour data…</div>';
         document.getElementById('fillDprStatus').textContent = '';
@@ -13056,8 +13057,8 @@
       function renderFillDprTable(colours) {
         const escH = (s) => String(s==null?'':s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
         const fmtN = (v) => (v==null||isNaN(v))?'-':Number(v).toLocaleString('en-IN');
-        const thS = 'padding:9px 12px; background:#ede9fe; color:#4c1d95; font-weight:800; font-size:0.72rem; text-transform:uppercase; border:1px solid #ddd6fe; text-align:right;';
-        const tdS = 'padding:8px 12px; border:1px solid #e2e8f0; font-size:0.85rem; vertical-align:middle;';
+        const thS = 'padding:12px 16px; background:#ede9fe; color:#4c1d95; font-weight:800; font-size:0.8rem; text-transform:uppercase; border:1px solid #ddd6fe; text-align:right;';
+        const tdS = 'padding:11px 16px; border:1px solid #e2e8f0; font-size:0.92rem; vertical-align:middle;';
         let html = `
           <table style="border-collapse:collapse; width:100%">
             <thead><tr>
@@ -13083,7 +13084,7 @@
               <td style="${tdS} text-align:right; background:#faf5ff;">
                 <input type="number" min="0" max="${c.qty}" value="${Math.round(c.produced||0)}"
                   data-colour="${escH(c.name)}" data-original="${Math.round(c.produced||0)}" data-planqty="${c.qty||0}"
-                  style="width:100%; border:1.5px solid #c4b5fd; border-radius:6px; padding:5px 8px; font-size:0.9rem; font-weight:700; text-align:right; color:#4c1d95; outline:none;"
+                  style="width:100%; border:2px solid #c4b5fd; border-radius:8px; padding:8px 12px; font-size:1rem; font-weight:700; text-align:right; color:#4c1d95; outline:none;"
                   oninput="window._fdMarkChanged(this)">
               </td>
             </tr>`;
@@ -13142,7 +13143,8 @@
               colour: ch.colour,
               targetQty: ch.targetQty,
               machine: _fdState.machine,
-              orderNo: _fdState.orderNo
+              orderNo: _fdState.orderNo,
+              callerRole: _fdState.callerRole
             });
             if (!r || !r.ok) errors.push(`${ch.colour}: ${r?.error || 'Unknown error'}`);
           } catch (e) { errors.push(`${ch.colour}: ${e.message||e}`); }
