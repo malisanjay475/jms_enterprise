@@ -8456,20 +8456,20 @@ async function buildDprOrderAnalysis(req) {
   extractDprColourPlanRows(info.colour_details).forEach(row => {
     const colour = getDprColourName(row);
     const plan = getDprColourPlanQty(row);
-    if (!colourStats[colour]) colourStats[colour] = { plan: 0, good: 0, rej: 0 };
-    colourStats[colour].plan += plan;
+    if (!colourStats[colour]) colourStats[colour] = { plan_qty: 0, good_qty: 0, rej_qty: 0 };
+    colourStats[colour].plan_qty += plan;
     seededPlanQty += plan;
   });
 
   logs.forEach(l => {
     const colour = String(l.colour || 'Unknown').trim() || 'Unknown';
-    if (!colourStats[colour]) colourStats[colour] = { plan: 0, good: 0, rej: 0 };
+    if (!colourStats[colour]) colourStats[colour] = { plan_qty: 0, good_qty: 0, rej_qty: 0 };
 
     const good = toDprNumber(l.good_qty);
     const rej = toDprNumber(l.reject_qty);
     const dt = toDprNumber(l.downtime_min);
-    colourStats[colour].good += good;
-    colourStats[colour].rej += rej;
+    colourStats[colour].good_qty += good;
+    colourStats[colour].rej_qty += rej;
     totalGood += good;
     totalRej += rej;
     totalDT += dt;
@@ -8505,7 +8505,7 @@ async function buildDprOrderAnalysis(req) {
 
   const totalPlan = seededPlanQty || toDprNumber(info.plan_qty) || toDprNumber(info.batch_qty);
   if (!Object.keys(colourStats).length && totalPlan > 0) {
-    colourStats.Unknown = { plan: totalPlan, good: totalGood, rej: totalRej };
+    colourStats.Unknown = { plan_qty: totalPlan, good_qty: totalGood, rej_qty: totalRej };
   }
 
   return {

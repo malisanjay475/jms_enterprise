@@ -4773,29 +4773,41 @@
               _s('pjdRej', rej.toLocaleString('en-IN'));
               _s('pjdBalance', bal.toLocaleString('en-IN'));
 
-              // Colour table
-              const colours = Object.entries(colStats);
+              // Colour table — filter out colours with zero plan AND zero production
+              const DOT_COLOURS = ['#3b82f6','#ef4444','#f59e0b','#22c55e','#a855f7','#06b6d4','#f97316','#ec4899','#84cc16','#6366f1'];
+              const allColours = Object.entries(colStats);
+              const colours = allColours.filter(([, s]) => Number(s.plan_qty || 0) > 0 || Number(s.good_qty || 0) > 0);
               if (colours.length) {
-                document.getElementById('pjdColourTable').innerHTML = colours.map(([col, s]) => {
+                document.getElementById('pjdColourTable').innerHTML = colours.map(([col, s], idx) => {
                   const p = Number(s.plan_qty || 0), g = Number(s.good_qty || 0), r = Number(s.rej_qty || 0), b = Math.max(0, p - g);
-                  const pct = p > 0 ? Math.round(g / p * 100) : 0;
+                  const pct = p > 0 ? Math.round(g / p * 100) : (g > 0 ? 100 : 0);
+                  const dot = DOT_COLOURS[idx % DOT_COLOURS.length];
+                  const barW = Math.min(100, pct);
                   return `<tr style="border-bottom:1px solid #f1f5f9">
-                    <td style="padding:7px 8px;font-weight:700;font-size:0.82rem">${esc(col)}</td>
-                    <td style="padding:7px 8px;text-align:right;color:#475569">${p.toLocaleString('en-IN')}</td>
-                    <td style="padding:7px 8px;text-align:right;font-weight:800;color:#15803d">
-                      <span style="display:inline-flex;align-items:center;gap:4px">
-                        <span style="display:inline-block;width:28px;height:28px;border-radius:50%;background:${pct>=100?'#dcfce7':'#f0fdf4'};border:2px solid ${pct>=100?'#22c55e':'#bbf7d0'};text-align:center;line-height:24px;font-size:0.78rem;font-weight:900;color:${pct>=100?'#15803d':'#16a34a'}">${g}</span>
+                    <td style="padding:7px 8px;font-weight:700;font-size:0.82rem">
+                      <span style="display:inline-flex;align-items:center;gap:6px">
+                        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${dot};flex-shrink:0"></span>
+                        ${esc(col)}
                       </span>
                     </td>
-                    <td style="padding:7px 8px;text-align:right;font-weight:800;color:${r>0?'#dc2626':'#94a3b8'}">${r > 0 ? r.toLocaleString('en-IN') : '0'}</td>
-                    <td style="padding:7px 8px;text-align:right;font-weight:800;color:${b>0?'#d97706':'#64748b'}">${b.toLocaleString('en-IN')}</td>
+                    <td style="padding:7px 8px;text-align:right;color:#475569;font-weight:700">${p > 0 ? p.toLocaleString('en-IN') : '<span style="color:#cbd5e1">—</span>'}</td>
+                    <td style="padding:7px 8px;text-align:right;font-weight:800;color:#15803d">
+                      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+                        <span style="font-size:0.88rem">${g.toLocaleString('en-IN')}</span>
+                        <div style="width:72px;height:5px;background:#e2e8f0;border-radius:3px;overflow:hidden">
+                          <div style="height:100%;width:${barW}%;background:${dot};border-radius:3px;transition:width 0.4s"></div>
+                        </div>
+                      </div>
+                    </td>
+                    <td style="padding:7px 8px;text-align:right;font-weight:800;color:${b>0?'#d97706':'#64748b'}">${b > 0 ? b.toLocaleString('en-IN') : '<span style="color:#22c55e;font-size:0.85rem">✓ Done</span>'}</td>
+                    <td style="padding:7px 8px;text-align:right;font-weight:800;color:${pct>=100?'#15803d':pct>0?'#0284c7':'#94a3b8'}">${pct}%</td>
                   </tr>`;
                 }).join('') + `<tr style="background:#f8fafc;font-weight:900;border-top:2px solid #e2e8f0">
                   <td style="padding:7px 8px;font-size:0.82rem">TOTAL</td>
                   <td style="padding:7px 8px;text-align:right">${planQty.toLocaleString('en-IN')}</td>
                   <td style="padding:7px 8px;text-align:right;color:#15803d">${produced.toLocaleString('en-IN')}</td>
-                  <td style="padding:7px 8px;text-align:right;color:${rej>0?'#dc2626':'#94a3b8'}">${rej.toLocaleString('en-IN')}</td>
-                  <td style="padding:7px 8px;text-align:right;color:${bal>0?'#d97706':'#64748b'}">${bal.toLocaleString('en-IN')}</td>
+                  <td style="padding:7px 8px;text-align:right;color:${bal>0?'#d97706':'#22c55e'}">${bal.toLocaleString('en-IN')}</td>
+                  <td style="padding:7px 8px;text-align:right;color:${planQty>0?'#0284c7':'#94a3b8'}">${planQty > 0 ? Math.round(produced/planQty*100) : 0}%</td>
                 </tr>`;
               } else {
                 document.getElementById('pjdColourTable').innerHTML = '<tr><td colspan="5" style="padding:12px;text-align:center;color:#94a3b8;font-size:0.85rem">No colour data yet</td></tr>';
@@ -15209,8 +15221,8 @@
               <th style="padding:8px 8px;text-align:left;font-size:0.75rem;color:#64748b;font-weight:700;text-transform:uppercase">Colour</th>
               <th style="padding:8px 8px;text-align:right;font-size:0.75rem;color:#64748b;font-weight:700;text-transform:uppercase">Plan Qty</th>
               <th style="padding:8px 8px;text-align:right;font-size:0.75rem;color:#64748b;font-weight:700;text-transform:uppercase">Produced</th>
-              <th style="padding:8px 8px;text-align:right;font-size:0.75rem;color:#64748b;font-weight:700;text-transform:uppercase">Reject</th>
               <th style="padding:8px 8px;text-align:right;font-size:0.75rem;color:#64748b;font-weight:700;text-transform:uppercase">Balance</th>
+              <th style="padding:8px 8px;text-align:right;font-size:0.75rem;color:#64748b;font-weight:700;text-transform:uppercase">%</th>
             </tr>
           </thead>
           <tbody id="pjdColourTable"></tbody>
