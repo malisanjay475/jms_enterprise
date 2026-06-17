@@ -897,6 +897,12 @@
             row.style.alignItems = 'stretch';
             row.style.minHeight = '150px';
 
+            // Superadmin detection — computed once per machine row, used in each card
+            const _tlIsSuperAdmin = (() => {
+              try { return String(window.JPSMS.auth.getUser().role_code||'').toLowerCase()==='superadmin'; }
+              catch(_){return false;}
+            })();
+
             const cardsHtml = mPlans.map((p, idx) => {
                 const st = (p.status || '').toLowerCase();
                 let leftBorder = '#94a3b8'; let bgTag = '#f1f5f9'; let txtTag = '#475569';
@@ -1009,15 +1015,22 @@
                            </label>
                            
                            <div style="display:flex; gap:6px;">
+                               ${_tlIsSuperAdmin ? `
+                               <button class="btn icon mini"
+                                   onclick="window.openFillDprModal('${esc(String(p.planId||p.plan_id||p.id))}','${esc(p.orderNo||'')}','${esc(m.code||'')}',${Number(p.planQty||0)}); event.stopPropagation();"
+                                   title="Fill DPR (Superadmin)"
+                                   style="background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe; width:26px; height:26px; display:flex; align-items:center; justify-content:center; border-radius:4px; cursor:pointer;">
+                                   <i class="bi bi-clipboard2-data-fill" style="font-size:0.85rem"></i>
+                               </button>` : ''}
                                ${st !== 'running' && st !== 'completed' ? `
-                               <button class="btn icon mini" 
+                               <button class="btn icon mini"
                                    onclick="window._tlStart('${p.id}'); event.stopPropagation();"
                                    title="Start Plan"
                                    style="background:#eff6ff; color:#3b82f6; border:1px solid #bfdbfe; width:26px; height:26px; display:flex; align-items:center; justify-content:center; border-radius:4px; cursor:pointer;">
                                    <i class="bi bi-play-fill" style="font-size:1.2rem; margin-left:2px;"></i>
                                </button>
                                ` : ''}
-                               <button class="btn icon mini" 
+                               <button class="btn icon mini"
                                    onclick="window._tlComplete('${p.id}'); event.stopPropagation();"
                                    title="Complete Plan"
                                    style="background:#f0fdf4; color:#16a34a; border:1px solid #bbf7d0; width:26px; height:26px; display:flex; align-items:center; justify-content:center; border-radius:4px; cursor:pointer;">
