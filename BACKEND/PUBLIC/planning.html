@@ -12980,9 +12980,11 @@
        Trims DPR entries newest-first to reduce; adds entry to top-up.
     ===================================================================== */
     (function () {
-      // Inject modal HTML once
       const MODAL_ID = 'fillDprModal';
-      if (!document.getElementById(MODAL_ID)) {
+
+      // Always ensures modal exists in DOM — re-creates if route change destroyed it
+      function _ensureFillDprModal() {
+        if (document.getElementById(MODAL_ID)) return;
         const el = document.createElement('div');
         el.id = MODAL_ID;
         el.style.cssText = 'display:none; position:fixed; inset:0; z-index:9800; background:rgba(15,23,42,.55); align-items:center; justify-content:center;';
@@ -13018,14 +13020,17 @@
             </div>
           </div>`;
         document.body.appendChild(el);
+        el.addEventListener('click', function(e) {
+          if (e.target === this) window.closeFillDprModal();
+        });
       }
 
       // State
       let _fdState = { planId: '', orderNo: '', machine: '', colours: [], callerRole: '' };
 
       window.openFillDprModal = async function (planId, orderNo, machine, planQty) {
+        _ensureFillDprModal(); // re-create if DOM was wiped by route change
         const modal = document.getElementById(MODAL_ID);
-        if (!modal) return;
         // Guard — only superadmin
         let callerRole = '';
         try {
@@ -13165,10 +13170,6 @@
         }
       };
 
-      // Close on backdrop click
-      document.getElementById(MODAL_ID).addEventListener('click', function(e) {
-        if (e.target === this) window.closeFillDprModal();
-      });
     })();
 
     // Debounce for PCR Search
