@@ -13144,9 +13144,9 @@
         const inputs = document.querySelectorAll(`#${MODAL_ID} input[data-colour]`);
         const changes = [];
         for (const inp of inputs) {
-          const desiredBal = Math.max(0, Math.round(Number(inp.value||0)));
           const produced   = Math.round(Number(inp.dataset.produced||0));
           const planQty    = Math.round(Number(inp.dataset.planqty||0));
+          const desiredBal = Math.max(0, Math.min(Math.round(Number(inp.value||0)), planQty)); // clamp [0, planQty]
           const targetQty  = Math.max(0, planQty - desiredBal); // target produced qty
           if (targetQty === produced) continue; // no actual change needed
           changes.push({ colour: inp.dataset.colour, targetQty, desiredBal, produced, planQty });
