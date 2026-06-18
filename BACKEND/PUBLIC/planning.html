@@ -13173,7 +13173,9 @@
           document.getElementById('fillDprStatus').innerHTML = `<span style="color:#ef4444">Errors: ${errors.join('; ')}</span>`;
         } else {
           document.getElementById('fillDprStatus').innerHTML = `<span style="color:#16a34a; font-weight:700"><i class="bi bi-check-circle-fill"></i> All ${changes.length} colour(s) updated.</span>`;
-          // Refresh timeline after short delay so supervisor.html also picks up the change
+          // Clear plan board cache so timeline shows fresh balance after Fill DPR
+          if (window._planBoardCache) { window._planBoardCache.data = null; window._planBoardCache.timestamp = 0; }
+          // Refresh timeline after short delay so card balance updates immediately
           setTimeout(() => {
             window.closeFillDprModal();
             if (typeof window.superLoadTimeline === 'function') window.superLoadTimeline();
