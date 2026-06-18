@@ -13071,13 +13071,13 @@
               <th style="${thS}">Plan Qty</th>
               <th style="${thS}">Produced</th>
               <th style="${thS}">Bal Qty</th>
-              <th style="${thS}; background:#4c1d95; color:#fff; min-width:140px">New Entry</th>
+              <th style="${thS}; background:#4c1d95; color:#fff; min-width:140px">BAL QTY</th>
               <th style="${thS}; background:#064e3b; color:#fff; min-width:120px">New Balance</th>
             </tr></thead><tbody>`;
         colours.forEach((c, i) => {
           const produced = Math.round(c.produced || 0);
           const planQty  = Number(c.qty || 0);
-          const bal = c.bal != null ? c.bal : (planQty - produced);
+          const bal = Math.max(0, c.bal != null ? c.bal : (planQty - produced));
           const balCol = bal <= 0 ? '#16a34a' : (bal < planQty*0.2 ? '#d97706' : '#0f172a');
           const balBg  = bal <= 0 ? '#f0fdf4' : '#fff';
           html += `
@@ -13090,8 +13090,8 @@
               <td style="${tdS} text-align:right; font-variant-numeric:tabular-nums; color:#3b82f6; font-weight:700">${fmtN(produced)}</td>
               <td style="${tdS} text-align:right; font-variant-numeric:tabular-nums; color:${balCol}; background:${balBg}; font-weight:700">${fmtN(bal)}</td>
               <td style="${tdS} text-align:right; background:#faf5ff;">
-                <input type="number" min="0" max="${planQty}" value="0"
-                  data-colour="${escH(c.name)}" data-produced="${produced}" data-planqty="${planQty}" data-idx="${i}"
+                <input type="number" min="0" max="${planQty}" value="${bal}"
+                  data-colour="${escH(c.name)}" data-produced="${produced}" data-planqty="${planQty}" data-origbal="${bal}" data-idx="${i}"
                   style="width:100%; border:2px solid #c4b5fd; border-radius:8px; padding:8px 12px; font-size:1rem; font-weight:700; text-align:right; color:#4c1d95; outline:none;"
                   oninput="window._fdMarkChanged(this)">
               </td>
@@ -13099,7 +13099,7 @@
             </tr>`;
         });
         html += '</tbody></table>';
-        html += `<div style="margin-top:10px; font-size:0.76rem; color:#94a3b8"><i class="bi bi-info-circle"></i> Enter the qty produced in this new entry. It will be added on top of existing produced qty. New Balance updates live.</div>`;
+        html += `<div style="margin-top:10px; font-size:0.76rem; color:#94a3b8"><i class="bi bi-info-circle"></i> Type the desired <strong>Balance</strong> for each colour. The system adjusts produced qty automatically. New Balance updates live.</div>`;
         document.getElementById('fillDprBody').innerHTML = html;
       }
 
@@ -13111,18 +13111,19 @@
       }
 
       window._fdMarkChanged = function(inp) {
-        const entry    = Math.max(0, Number(inp.value||0));
-        const produced = Number(inp.dataset.produced||0);
         const planQty  = Number(inp.dataset.planqty||0);
+        const origBal  = Number(inp.dataset.origbal||0);
         const idx      = inp.dataset.idx;
-        const newBal   = planQty - (produced + entry);
-        inp.style.borderColor = entry > 0 ? '#7c3aed' : '#c4b5fd';
-        inp.style.background  = entry > 0 ? '#f5f3ff' : '';
+        // clamp: desired balance must be between 0 and planQty
+        const desiredBal = Math.max(0, Math.min(Number(inp.value||0), planQty));
+        const changed  = Math.round(desiredBal) !== Math.round(origBal);
+        inp.style.borderColor = changed ? '#7c3aed' : '#c4b5fd';
+        inp.style.background  = changed ? '#f5f3ff' : '';
         const balCell = document.getElementById('fd-newbal-' + idx);
         if (balCell) {
-          balCell.textContent = newBal.toLocaleString('en-IN');
-          balCell.style.color = newBal <= 0 ? '#dc2626' : '#059669';
-          balCell.style.background = newBal <= 0 ? '#fef2f2' : '#f0fdf4';
+          balCell.textContent = desiredBal.toLocaleString('en-IN');
+          balCell.style.color = desiredBal <= 0 ? '#dc2626' : '#059669';
+          balCell.style.background = desiredBal <= 0 ? '#fef2f2' : '#f0fdf4';
         }
       };
 
@@ -13135,17 +13136,19 @@
         const inputs = document.querySelectorAll(`#${MODAL_ID} input[data-colour]`);
         const changes = [];
         for (const inp of inputs) {
-          const newEntry  = Math.max(0, Math.round(Number(inp.value||0)));
-          const produced  = Math.round(Number(inp.dataset.produced||0));
-          if (newEntry <= 0) continue; // skip rows with no entry
-          const targetQty = produced + newEntry; // total produced after this entry
-          changes.push({ colour: inp.dataset.colour, targetQty, newEntry, produced, planQty: Number(inp.dataset.planqty||0) });
+          const desiredBal = Math.max(0, Math.round(Number(inp.value||0)));
+          const produced   = Math.round(Number(inp.dataset.produced||0));
+          const planQty    = Math.round(Number(inp.dataset.planqty||0));
+          const origBal    = Math.max(0, planQty - produced);
+          if (Math.round(desiredBal) === origBal) continue; // no change
+          const targetQty  = Math.max(0, planQty - desiredBal); // target produced qty
+          changes.push({ colour: inp.dataset.colour, targetQty, desiredBal, produced, planQty });
         }
-        if (!changes.length) { document.getElementById('fillDprStatus').textContent = 'No entry qty entered.'; return; }
+        if (!changes.length) { document.getElementById('fillDprStatus').textContent = 'No balance changes made.'; return; }
 
         // Confirm before applying
-        const msg = changes.map(c => `${c.colour}: +${c.newEntry.toLocaleString()} pcs  (${c.produced.toLocaleString()} → ${c.targetQty.toLocaleString()} produced, Bal: ${(c.planQty-c.targetQty).toLocaleString()})`).join('\n');
-        if (!confirm(`Add DPR entries?\n\n${msg}\n\nProceed?`)) return;
+        const msg = changes.map(c => `${c.colour}: Balance ${(c.planQty - c.produced).toLocaleString()} → ${c.desiredBal.toLocaleString()}  (Produced: ${c.produced.toLocaleString()} → ${c.targetQty.toLocaleString()})`).join('\n');
+        if (!confirm(`Update balances?\n\n${msg}\n\nProceed?`)) return;
 
         const btn = document.getElementById('fillDprApplyBtn');
         btn.disabled = true; btn.textContent = 'Applying…';
