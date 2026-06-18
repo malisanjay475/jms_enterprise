@@ -8053,6 +8053,7 @@ app.get('/api/planning/board', async (req, res) => {
           SELECT SUM(good_qty) as qty, MIN(created_at) as first_entry
           FROM dpr_hourly dh
           WHERE dh.plan_id = pb.plan_id
+            AND dh.is_deleted = false
       ) dpr ON true
       WHERE ${where}
       ORDER BY pb.machine ASC,
