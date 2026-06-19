@@ -5911,17 +5911,147 @@ app.post('/api/dpr/submit', async (req, res) => {
 });
 
 /* ============================================================
+   DPR SUPERADMIN SET QTY
+   Superadmin-only: set the produced total for a colour on a plan.
+   Trims entries newest-first to reduce, or adds a new entry to top up.
+============================================================ */
+app.post('/api/dpr/superadmin-set-qty', async (req, res) => {
+  try {
+    // Auth: role is sent in body (callerRole) and username via X-User-Name header.
+    // The frontend already gates the button to superadmin. We double-check here.
+    const { planId, colour, targetQty, machine, orderNo, callerRole } = req.body || {};
+    const callerName = getRequestUsername(req) || 'superadmin';
+    if (String(callerRole || '').toLowerCase() !== 'superadmin') {
+      return res.status(403).json({ ok: false, error: 'Superadmin access required.' });
+    }
+
+    if (!planId || !colour || targetQty == null || !machine) {
+      return res.status(400).json({ ok: false, error: 'planId, colour, targetQty and machine are required.' });
+    }
+    const target = Math.max(0, Math.round(Number(targetQty)));
+    const upperColour = String(colour).trim().toUpperCase();
+    const factoryId = getFactoryId(req);
+
+    // 1. Current produced total for this plan + colour + machine
+    const totRows = await q(
+      `SELECT COALESCE(SUM(good_qty),0) AS total FROM dpr_hourly
+       WHERE plan_id=$1 AND UPPER(TRIM(colour))=$2 AND machine=$3 AND is_deleted=false
+       AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)`,
+      [String(planId), upperColour, String(machine), factoryId || null]
+    );
+    const current = Math.round(Number(totRows[0]?.total || 0));
+
+    const auditSuffix = ` [SUPERADMIN-SET by ${callerName} on ${new Date().toISOString().slice(0,10)}]`;
+
+    if (current === target) {
+      return res.json({ ok: true, newProduced: current, message: 'No change needed.' });
+    }
+
+    if (current > target) {
+      // Need to REDUCE: delete/trim rows newest-first until removed = (current - target)
+      let toRemove = current - target;
+      const rows = await q(
+        `SELECT id, good_qty FROM dpr_hourly
+         WHERE plan_id=$1 AND UPPER(TRIM(colour))=$2 AND machine=$3 AND is_deleted=false AND good_qty>0
+         AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
+         ORDER BY dpr_date DESC,
+                  CASE WHEN UPPER(shift)='NIGHT' THEN 0 ELSE 1 END ASC,
+                  hour_slot DESC, id DESC`,
+        [String(planId), upperColour, String(machine), factoryId || null]
+      );
+
+      for (const row of rows) {
+        if (toRemove <= 0) break;
+        const rowQty = Number(row.good_qty || 0);
+        if (rowQty <= toRemove) {
+          // Soft-delete entire row
+          await q(
+            `UPDATE dpr_hourly SET is_deleted=true, remarks=COALESCE(remarks,'')||$2, updated_at=NOW() WHERE id=$1`,
+            [row.id, auditSuffix]
+          );
+          toRemove -= rowQty;
+        } else {
+          // Partial reduce — keep the row but lower good_qty
+          await q(
+            `UPDATE dpr_hourly SET good_qty=good_qty-$2, remarks=COALESCE(remarks,'')||$3, updated_at=NOW() WHERE id=$1`,
+            [row.id, toRemove, auditSuffix]
+          );
+          toRemove = 0;
+        }
+      }
+    } else {
+      // Need to ADD: insert one new entry for today / current shift / hour
+      const toAdd = target - current;
+      const now = new Date();
+      const todayStr = now.toISOString().slice(0,10);
+      const hr = now.getHours();
+      const shift = (hr >= 8 && hr < 20) ? 'Day' : 'Night';
+      // Build an approximate hour slot label matching the DPR convention
+      const slotHr = hr === 0 ? 12 : (hr > 12 ? hr - 12 : hr);
+      const nextHr = (hr + 1) % 24;
+      const nextSlotHr = nextHr === 0 ? 12 : (nextHr > 12 ? nextHr - 12 : nextHr);
+      const amPm = (h) => (h < 12 || h === 0) ? 'AM' : 'PM';
+      const hourSlot = `${String(slotHr).padStart(2,'0')}-${String(nextSlotHr).padStart(2,'0')}`;
+
+      await q(
+        `INSERT INTO dpr_hourly
+         (dpr_date, shift, hour_slot, shots, good_qty, reject_qty, downtime_min,
+          remarks, machine, plan_id, order_no, colour, entry_type, created_by,
+          factory_id, created_at, updated_at)
+         VALUES ($1,$2,$3,0,$4,0,0,$5,$6,$7,$8,$9,'SUPERADMIN',$10,$11,NOW(),NOW())`,
+        [todayStr, shift, hourSlot, toAdd,
+         `Superadmin DPR correction${auditSuffix}`,
+         machine, String(planId), orderNo || null, String(colour).trim(),
+         callerName, factoryId || null]
+      );
+    }
+
+    // Return new totals for this machine only
+    const newTotRows = await q(
+      `SELECT COALESCE(SUM(good_qty),0) AS total FROM dpr_hourly
+       WHERE plan_id=$1 AND UPPER(TRIM(colour))=$2 AND machine=$3 AND is_deleted=false
+       AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)`,
+      [String(planId), upperColour, String(machine), factoryId || null]
+    );
+    const newProduced = Math.round(Number(newTotRows[0]?.total || 0));
+
+    // Also fetch planQty for this colour from colour_details
+    const pbRows = await q(`SELECT colour_details FROM plan_board WHERE plan_id=$1 LIMIT 1`, [String(planId)]);
+    let planQtyForColour = 0;
+    if (pbRows.length) {
+      let cd = pbRows[0].colour_details || [];
+      if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch(_) { cd = []; } }
+      const match = (Array.isArray(cd) ? cd : []).find(r => {
+        const n = String(r.colourName||r.itemColour||r.colour||r.color||r.name||'').trim().toUpperCase();
+        return n === upperColour;
+      });
+      if (match) planQtyForColour = Number(match.planQty??match.batchQty??match.qty??0)||0;
+    }
+
+    console.log(`[SUPERADMIN-DPR] planId=${planId} colour=${colour} ${current}→${newProduced} (target=${target}) by ${callerName}`);
+    res.json({ ok: true, newProduced, newBal: planQtyForColour - newProduced });
+  } catch (e) {
+    console.error('/api/dpr/superadmin-set-qty', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/* ============================================================
    DPR DELETE
 ============================================================ */
 app.post('/api/dpr/delete', async (req, res) => {
   try {
-    const { id } = req.body;
+    const { id, session } = req.body;
     if (!id) return res.json({ ok: false, error: 'ID required' });
+    if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
 
-    // Safety: Ensure it's not a historical entry? 
-    // For now, we'll trust the supervisor.
+    const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
+    if (!u.length) return res.status(403).json({ ok: false, error: 'User not found' });
+    const role = String(u[0].role_code || '').toLowerCase();
+    const allowed = ['supervisor', 'admin', 'superadmin'];
+    if (!allowed.includes(role)) return res.status(403).json({ ok: false, error: 'Supervisor or higher access required' });
+
     await q('UPDATE dpr_hourly SET is_deleted = true, updated_at = NOW() WHERE id = $1', [id]);
-    
     res.json({ ok: true });
   } catch (e) {
     console.error('dpr/delete', e);
@@ -7360,6 +7490,13 @@ app.post('/api/dpr/edit', async (req, res) => {
     const { session, payload } = req.body;
     const { uniqueId, newShots, newReject, newDowntime, newRemarks, newColour, newRejBreakup, newDtBreakup } = payload || {};
 
+    // Auth: Admin or Superadmin only
+    if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    const uAuth = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
+    if (!uAuth.length || !isAdminLikeRole(uAuth[0])) {
+      return res.status(403).json({ ok: false, error: 'Admin or Superadmin access required' });
+    }
+
     // Basic validation
     if (!uniqueId) throw new Error("ID required");
 
@@ -7927,6 +8064,7 @@ app.get('/api/planning/board', async (req, res) => {
           SELECT SUM(good_qty) as qty, MIN(created_at) as first_entry
           FROM dpr_hourly dh
           WHERE dh.plan_id = pb.plan_id
+            AND dh.is_deleted = false
       ) dpr ON true
       WHERE ${where}
       ORDER BY pb.machine ASC,
@@ -12784,7 +12922,16 @@ app.get('/api/machines/supervisor', async (req, res) => {
 // 4. CLEAR DPR HOURLY (Admin/User Action)
 app.post('/api/dpr/hourly/clear', async (req, res) => {
   try {
+    const { session } = req.body;
+    if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
+    if (!u.length || !isAdminLikeRole(u[0])) {
+      return res.status(403).json({ ok: false, error: 'Admin or Superadmin access required' });
+    }
+
     await q('TRUNCATE TABLE dpr_hourly CASCADE');
+    console.log(`[ADMIN] DPR hourly cleared by ${session.username}`);
     syncService.triggerSync(); // [Real-Time Sync]
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
@@ -12793,7 +12940,18 @@ app.post('/api/dpr/hourly/clear', async (req, res) => {
 // 5. CLEAR SETUP DATA (Admin Action)
 app.post('/api/admin/clear-std-actual', async (req, res) => {
   try {
+    const { session, user } = req.body;
+    const username = session?.username || user;
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const u = await q('SELECT role_code, permissions FROM users WHERE username=$1', [username]);
+    if (!u.length) return res.status(403).json({ ok: false, error: 'User not found' });
+    const perms = u[0].permissions || {};
+    const allowed = isAdminLikeRole(u[0]) || (perms.critical_ops && perms.critical_ops.data_wipe);
+    if (!allowed) return res.status(403).json({ ok: false, error: 'Admin or Data Wipe permission required' });
+
     await q('TRUNCATE TABLE std_actual CASCADE');
+    console.log(`[ADMIN] std_actual cleared by ${username}`);
     syncService.triggerSync(); // [Real-Time Sync]
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }

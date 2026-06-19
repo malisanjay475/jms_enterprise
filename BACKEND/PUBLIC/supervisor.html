@@ -4937,7 +4937,7 @@
       try {
         const res = await apiFetch('/api/dpr/delete', {
           method: 'POST',
-          body: JSON.stringify({ id: uid })
+          body: JSON.stringify({ id: uid, session: { username: session.username } })
         });
         const json = await res.json();
         if (json.ok) {
