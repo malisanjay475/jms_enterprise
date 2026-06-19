@@ -5983,15 +5983,22 @@ app.post('/api/dpr/superadmin-set-qty', async (req, res) => {
       // Need to ADD: insert one new entry for today / current shift / hour
       const toAdd = target - current;
       const now = new Date();
-      const todayStr = now.toISOString().slice(0,10);
-      const hr = now.getHours();
+      // [FIX] Use local-time date helper — toISOString() returns UTC and shows the
+      // previous IST calendar day between 00:00 IST and 05:30 IST (18:30-00:00 UTC).
+      const todayStr = todayLocalDateStr(now);
+      const hr = now.getHours(); // local IST hours (container TZ=Asia/Kolkata)
       const shift = (hr >= 8 && hr < 20) ? 'Day' : 'Night';
-      // Build an approximate hour slot label matching the DPR convention
-      const slotHr = hr === 0 ? 12 : (hr > 12 ? hr - 12 : hr);
-      const nextHr = (hr + 1) % 24;
-      const nextSlotHr = nextHr === 0 ? 12 : (nextHr > 12 ? nextHr - 12 : nextHr);
-      const amPm = (h) => (h < 12 || h === 0) ? 'AM' : 'PM';
-      const hourSlot = `${String(slotHr).padStart(2,'0')}-${String(nextSlotHr).padStart(2,'0')}`;
+      // Pick the correct DPR hour-slot label using the same arrays the rest of the
+      // system uses.  The old arithmetic formula produced wrong labels for 24-hour
+      // Night slots (e.g. "11-12" instead of "23-00" at 23:xx IST).
+      const DAY_SLOTS   = ['08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07','07-08'];
+      const NIGHT_SLOTS = ['20-21','21-22','22-23','23-00','00-01','01-02','02-03','03-04','04-05','05-06','06-07','07-08'];
+      const slotBases   = shift === 'Day'
+        ? [8,9,10,11,12,1,2,3,4,5,6,7]
+        : [20,21,22,23,0,1,2,3,4,5,6,7];
+      const slotIndex   = slotBases.indexOf(hr);
+      const slots        = shift === 'Day' ? DAY_SLOTS : NIGHT_SLOTS;
+      const hourSlot     = slotIndex !== -1 ? slots[slotIndex] : slots[0];
 
       await q(
         `INSERT INTO dpr_hourly
@@ -7964,7 +7971,12 @@ app.get('/api/planning/board', async (req, res) => {
     const requestedProcess = getRequestedMachineProcess(req, 'Moulding');
 
     const params = [];
-    let where = `pb.status != 'COMPLETED' AND UPPER(COALESCE(pb.jc_approval_status, 'PENDING')) = 'APPROVED'`;
+    // Show all plans that are not COMPLETED or REJECTED.
+    // Plans with jc_approval_status = NULL / 'PENDING' / 'PPC_APPROVED' / 'APPROVED' are all
+    // visible. Only explicitly REJECTED plans are hidden from the board.
+    // Previously this required APPROVED status, which hid all plans created without going
+    // through the PPC → Moulding approval flow (every new plan on Main/synced from LOCAL).
+    let where = `pb.status NOT IN ('COMPLETED', 'REJECTED') AND UPPER(COALESCE(pb.jc_approval_status, '')) != 'REJECTED'`;
 
     if (explicitPlant) {
       params.push(explicitPlant);
