@@ -606,27 +606,28 @@
                     container.innerHTML = `<div style="padding:40px; text-align:center; color:#64748b"><i class="bi bi-arrow-repeat spin" style="font-size:2rem;display:block;margin-bottom:10px"></i> Loading Matrix...</div>`;
 
                     // P4: Auto-fill elapsed quick-action slots before loading the matrix
-                    // Fire-and-forget — don't block the matrix load; errors are non-fatal
-                    try { await J.api.post('/dpr/auto-fill-ongoing', {}); } catch(_) {}
+                    // Fire-and-forget — use raw fetch to stay completely silent on errors (no toast)
+                    try { await fetch('/api/dpr/auto-fill-ongoing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); } catch(_) {}
 
                     // Prepare Requests based on Shift Mode
+                    const tag = (label, p) => p.catch(e => { throw new Error(`[${label}] ${e.message}`); });
                     const promises = [];
-                    const scopedMachinesPromise = J.api.get(`/masters/machines?process=${encodeURIComponent(dprProcess)}`);
+                    const scopedMachinesPromise = tag('machines', J.api.get(`/masters/machines?process=${encodeURIComponent(dprProcess)}`));
                     if (shiftMode === 'Both') {
-                        promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}`));
-                        promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}`));
-                        promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Day`));
-                        promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night`));
+                        promises.push(tag('matrix-day', J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}`)));
+                        promises.push(tag('matrix-night', J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}`)));
+                        promises.push(tag('team-day', J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Day`)));
+                        promises.push(tag('team-night', J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night`)));
                     } else if (shiftMode === 'Day') {
-                        promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}`));
+                        promises.push(tag('matrix-day', J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}`)));
                         promises.push(Promise.resolve({ ok: true, data: { dates: {} } }));
-                        promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Day`));
+                        promises.push(tag('team-day', J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Day`)));
                         promises.push(Promise.resolve({ ok: true, data: {} }));
                     } else { // Night
                         promises.push(Promise.resolve({ ok: true, data: { dates: {} } }));
-                        promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}`));
+                        promises.push(tag('matrix-night', J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}`)));
                         promises.push(Promise.resolve({ ok: true, data: {} }));
-                        promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night`));
+                        promises.push(tag('team-night', J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night`)));
                     }
 
                     Promise.all([...promises, scopedMachinesPromise]).then(([resDayMat, resNightMat, resDayTeam, resNightTeam, scopedMachinesRes]) => {
