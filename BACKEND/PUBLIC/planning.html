@@ -12734,8 +12734,11 @@
       const realShiftInput = document.getElementById('mcrShift') || shiftInput;
 
       // Default to Today if empty
+      // [FIX] Do NOT use valueAsDate = new Date() — it uses UTC which shows yesterday's date
+      // in IST between 00:00 and 05:30. Use local-time getters instead.
       if (!realDateInput.value) {
-        realDateInput.valueAsDate = new Date();
+        const _n = new Date();
+        realDateInput.value = `${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,'0')}-${String(_n.getDate()).padStart(2,'0')}`;
       }
 
       const selectedDateStr = realDateInput.value; // YYYY-MM-DD
@@ -12794,10 +12797,18 @@
         return;
       }
 
-      // 2. Sort by Machine > Start Date
+      // 2. Sort by Machine > Seq (primary) > Start Date (secondary)
+      // [FIX] seq is the authoritative plan order on a machine — sorting only by startDate
+      // gave wrong order because startDate is often null or date-only (midnight UTC), causing
+      // false mould-change detections between non-adjacent plans.
       plans.sort((a, b) => {
         if (a.machine !== b.machine) return (a.machine || '').localeCompare(b.machine || '');
-        return new Date(a.startDate) - new Date(b.startDate);
+        const sa = (a.seq != null && a.seq !== '') ? Number(a.seq) : Infinity;
+        const sb = (b.seq != null && b.seq !== '') ? Number(b.seq) : Infinity;
+        if (sa !== sb) return sa - sb;
+        const da = a.startDate ? new Date(a.startDate).getTime() : 0;
+        const db = b.startDate ? new Date(b.startDate).getTime() : 0;
+        return da - db;
       });
 
       const changes = [];
@@ -12823,9 +12834,16 @@
           if (prevMould === currMould) continue;
 
           // CHANGE DETECTED
-          // Time of change = End of Prev Plan
-          // P3-Fix2: Use rippled end (most accurate, computed from cycle time + bal qty)
-          // then calculatedEndRaw, then stored endDate, then startDate as last resort.
+          // Time of change = End of Prev Plan (when previous plan finishes, new mould goes on).
+          // Priority:
+          //   1. _rippledEndRaw   — dynamic schedule end (most accurate, from ripple scheduler)
+          //   2. _calculatedEndRaw — set by renderMasterTable() when Master view was loaded
+          //   3. endDate from DB   — only set on COMPLETED plans (rarely populated for active plans)
+          //   4. startDate + planQty × cycleTime — computed estimate (correct for queued plans)
+          //   5. startDate of CURRENT plan — best proxy if prev has no CT
+          //   6. prev.startDate   — last resort
+          // [FIX] The old code fell back directly to prev.startDate which showed the START of the
+          // previous plan as the change time — always wrong when _calculatedEndRaw wasn't available.
           let changeTime = null;
           if (prev._rippledEndRaw) {
             changeTime = new Date(prev._rippledEndRaw);
@@ -12833,8 +12851,14 @@
             changeTime = new Date(prev._calculatedEndRaw);
           } else if (prev.endDate) {
             changeTime = new Date(prev.endDate);
+          } else if (prev.startDate && Number(prev.planQty) > 0 && Number(prev.cycleTime) > 0) {
+            // Estimate: plan start + (qty × cycle-time-in-seconds)
+            changeTime = new Date(new Date(prev.startDate).getTime() + Number(prev.planQty) * Number(prev.cycleTime) * 1000);
+          } else if (curr.startDate) {
+            // If prev has no cycle time, the next plan's start is the best proxy for change time
+            changeTime = new Date(curr.startDate);
           } else {
-            changeTime = new Date(prev.startDate); // Fallback
+            changeTime = new Date(prev.startDate || Date.now()); // Last resort
           }
 
           // Filter by Selected Date (LOCAL date, not UTC)
