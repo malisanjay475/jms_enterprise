@@ -7490,6 +7490,13 @@ app.post('/api/dpr/edit', async (req, res) => {
     const { session, payload } = req.body;
     const { uniqueId, newShots, newReject, newDowntime, newRemarks, newColour, newRejBreakup, newDtBreakup } = payload || {};
 
+    // Auth: Admin or Superadmin only
+    if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    const uAuth = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
+    if (!uAuth.length || !isAdminLikeRole(uAuth[0])) {
+      return res.status(403).json({ ok: false, error: 'Admin or Superadmin access required' });
+    }
+
     // Basic validation
     if (!uniqueId) throw new Error("ID required");
 
@@ -12915,7 +12922,16 @@ app.get('/api/machines/supervisor', async (req, res) => {
 // 4. CLEAR DPR HOURLY (Admin/User Action)
 app.post('/api/dpr/hourly/clear', async (req, res) => {
   try {
+    const { session } = req.body;
+    if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
+    if (!u.length || !isAdminLikeRole(u[0])) {
+      return res.status(403).json({ ok: false, error: 'Admin or Superadmin access required' });
+    }
+
     await q('TRUNCATE TABLE dpr_hourly CASCADE');
+    console.log(`[ADMIN] DPR hourly cleared by ${session.username}`);
     syncService.triggerSync(); // [Real-Time Sync]
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
@@ -12924,7 +12940,18 @@ app.post('/api/dpr/hourly/clear', async (req, res) => {
 // 5. CLEAR SETUP DATA (Admin Action)
 app.post('/api/admin/clear-std-actual', async (req, res) => {
   try {
+    const { session, user } = req.body;
+    const username = session?.username || user;
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const u = await q('SELECT role_code, permissions FROM users WHERE username=$1', [username]);
+    if (!u.length) return res.status(403).json({ ok: false, error: 'User not found' });
+    const perms = u[0].permissions || {};
+    const allowed = isAdminLikeRole(u[0]) || (perms.critical_ops && perms.critical_ops.data_wipe);
+    if (!allowed) return res.status(403).json({ ok: false, error: 'Admin or Data Wipe permission required' });
+
     await q('TRUNCATE TABLE std_actual CASCADE');
+    console.log(`[ADMIN] std_actual cleared by ${username}`);
     syncService.triggerSync(); // [Real-Time Sync]
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
