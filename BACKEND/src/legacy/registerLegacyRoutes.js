@@ -5932,12 +5932,12 @@ app.post('/api/dpr/superadmin-set-qty', async (req, res) => {
     const upperColour = String(colour).trim().toUpperCase();
     const factoryId = getFactoryId(req);
 
-    // 1. Current produced total for this plan + colour
+    // 1. Current produced total for this plan + colour + machine
     const totRows = await q(
       `SELECT COALESCE(SUM(good_qty),0) AS total FROM dpr_hourly
-       WHERE plan_id=$1 AND UPPER(TRIM(colour))=$2 AND is_deleted=false
-       AND ($3::int IS NULL OR factory_id=$3 OR factory_id IS NULL)`,
-      [String(planId), upperColour, factoryId || null]
+       WHERE plan_id=$1 AND UPPER(TRIM(colour))=$2 AND machine=$3 AND is_deleted=false
+       AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)`,
+      [String(planId), upperColour, String(machine), factoryId || null]
     );
     const current = Math.round(Number(totRows[0]?.total || 0));
 
@@ -5952,12 +5952,12 @@ app.post('/api/dpr/superadmin-set-qty', async (req, res) => {
       let toRemove = current - target;
       const rows = await q(
         `SELECT id, good_qty FROM dpr_hourly
-         WHERE plan_id=$1 AND UPPER(TRIM(colour))=$2 AND is_deleted=false AND good_qty>0
-         AND ($3::int IS NULL OR factory_id=$3 OR factory_id IS NULL)
+         WHERE plan_id=$1 AND UPPER(TRIM(colour))=$2 AND machine=$3 AND is_deleted=false AND good_qty>0
+         AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
          ORDER BY dpr_date DESC,
                   CASE WHEN UPPER(shift)='NIGHT' THEN 0 ELSE 1 END ASC,
                   hour_slot DESC, id DESC`,
-        [String(planId), upperColour, factoryId || null]
+        [String(planId), upperColour, String(machine), factoryId || null]
       );
 
       for (const row of rows) {
@@ -6006,12 +6006,12 @@ app.post('/api/dpr/superadmin-set-qty', async (req, res) => {
       );
     }
 
-    // Return new totals
+    // Return new totals for this machine only
     const newTotRows = await q(
       `SELECT COALESCE(SUM(good_qty),0) AS total FROM dpr_hourly
-       WHERE plan_id=$1 AND UPPER(TRIM(colour))=$2 AND is_deleted=false
-       AND ($3::int IS NULL OR factory_id=$3 OR factory_id IS NULL)`,
-      [String(planId), upperColour, factoryId || null]
+       WHERE plan_id=$1 AND UPPER(TRIM(colour))=$2 AND machine=$3 AND is_deleted=false
+       AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)`,
+      [String(planId), upperColour, String(machine), factoryId || null]
     );
     const newProduced = Math.round(Number(newTotRows[0]?.total || 0));
 
@@ -6041,13 +6041,17 @@ app.post('/api/dpr/superadmin-set-qty', async (req, res) => {
 ============================================================ */
 app.post('/api/dpr/delete', async (req, res) => {
   try {
-    const { id } = req.body;
+    const { id, session } = req.body;
     if (!id) return res.json({ ok: false, error: 'ID required' });
+    if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
 
-    // Safety: Ensure it's not a historical entry? 
-    // For now, we'll trust the supervisor.
+    const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
+    if (!u.length) return res.status(403).json({ ok: false, error: 'User not found' });
+    const role = String(u[0].role_code || '').toLowerCase();
+    const allowed = ['supervisor', 'admin', 'superadmin'];
+    if (!allowed.includes(role)) return res.status(403).json({ ok: false, error: 'Supervisor or higher access required' });
+
     await q('UPDATE dpr_hourly SET is_deleted = true, updated_at = NOW() WHERE id = $1', [id]);
-    
     res.json({ ok: true });
   } catch (e) {
     console.error('dpr/delete', e);
@@ -7485,6 +7489,13 @@ app.post('/api/dpr/edit', async (req, res) => {
   try {
     const { session, payload } = req.body;
     const { uniqueId, newShots, newReject, newDowntime, newRemarks, newColour, newRejBreakup, newDtBreakup } = payload || {};
+
+    // Auth: Admin or Superadmin only
+    if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    const uAuth = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
+    if (!uAuth.length || !isAdminLikeRole(uAuth[0])) {
+      return res.status(403).json({ ok: false, error: 'Admin or Superadmin access required' });
+    }
 
     // Basic validation
     if (!uniqueId) throw new Error("ID required");
@@ -12911,7 +12922,16 @@ app.get('/api/machines/supervisor', async (req, res) => {
 // 4. CLEAR DPR HOURLY (Admin/User Action)
 app.post('/api/dpr/hourly/clear', async (req, res) => {
   try {
+    const { session } = req.body;
+    if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
+    if (!u.length || !isAdminLikeRole(u[0])) {
+      return res.status(403).json({ ok: false, error: 'Admin or Superadmin access required' });
+    }
+
     await q('TRUNCATE TABLE dpr_hourly CASCADE');
+    console.log(`[ADMIN] DPR hourly cleared by ${session.username}`);
     syncService.triggerSync(); // [Real-Time Sync]
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
@@ -12920,7 +12940,18 @@ app.post('/api/dpr/hourly/clear', async (req, res) => {
 // 5. CLEAR SETUP DATA (Admin Action)
 app.post('/api/admin/clear-std-actual', async (req, res) => {
   try {
+    const { session, user } = req.body;
+    const username = session?.username || user;
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const u = await q('SELECT role_code, permissions FROM users WHERE username=$1', [username]);
+    if (!u.length) return res.status(403).json({ ok: false, error: 'User not found' });
+    const perms = u[0].permissions || {};
+    const allowed = isAdminLikeRole(u[0]) || (perms.critical_ops && perms.critical_ops.data_wipe);
+    if (!allowed) return res.status(403).json({ ok: false, error: 'Admin or Data Wipe permission required' });
+
     await q('TRUNCATE TABLE std_actual CASCADE');
+    console.log(`[ADMIN] std_actual cleared by ${username}`);
     syncService.triggerSync(); // [Real-Time Sync]
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
