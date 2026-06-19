@@ -3285,6 +3285,23 @@
       const j = window.JPSMS;
       if (!j || !j.api) { alert('System not fully loaded. Please wait.'); return; }
 
+      // P1: JC Guard — check plan's jcNo and job_card_given before activation
+      // Use allMasterPlans if available (loaded by loadMasterPlan), else fall through to backend check
+      const planList = window.allMasterPlans || [];
+      const planForJc = planList.find(p => String(p.id) === String(id));
+      if (planForJc) {
+        const jcLinked = planForJc.jcNo || planForJc.jc_no || planForJc.job_card_no || '';
+        const jcGiven  = planForJc.job_card_given;
+        if (!jcLinked) {
+          alert(`Cannot activate plan — Job Card is not linked to Order ${orderNo}.\n\nPlease link a Job Card before activating.`);
+          return;
+        }
+        if (!jcGiven) {
+          alert(`Cannot activate plan — "JC Given" is not marked for Order ${orderNo}.\n\nPlease mark JC Given before activating.`);
+          return;
+        }
+      }
+
       const msg = confirmMsg || `Activate Order ${orderNo}? This will push it to the Supervisor Queue.`;
       if (!confirm(msg)) return;
 

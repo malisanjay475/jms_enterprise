@@ -799,6 +799,20 @@
     };
 
     window._tlStart = async function (id) {
+        // P1: JC Guard — Job Card must be linked before activating/starting a plan
+        const plan = (window._tlMap && window._tlMap[id]) ||
+                     (window.allMasterPlans || []).find(p => String(p.id) === String(id));
+        if (plan) {
+            const jcLinked = plan.jcNo || plan.jc_no || plan.job_card_no || '';
+            const jcGiven  = plan.job_card_given;
+            if (!jcLinked || !jcGiven) {
+                const missing = !jcLinked ? 'Job Card number is not linked to this plan.'
+                                          : 'Job Card has not been marked as "JC Given".';
+                alert(`Cannot start plan — ${missing}\n\nPlease link a Job Card and mark JC Given before starting.`);
+                return;
+            }
+        }
+
         if (!confirm('Start this plan now?')) return;
         try {
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
@@ -913,6 +927,15 @@
                 let isMouldChange = idx > 0 && ((p.mouldNo || '') !== (mPlans[idx - 1].mouldNo || ''));
                 let isUrgentChange = isMouldChange && p._rippledStartRaw && ((p._rippledStartRaw.getTime() - Date.now()) < 7200000 && (p._rippledStartRaw.getTime() - Date.now()) > 0);
 
+                // P6: JC warning — mould change due in 24h on NEXT plan, but current plan has no JC given/linked
+                const nextPlan = mPlans[idx + 1];
+                const nextIsMouldChange = nextPlan && (nextPlan.mouldNo || '') !== (p.mouldNo || '');
+                const nextChangeIn24h = nextIsMouldChange && nextPlan._rippledStartRaw &&
+                    (nextPlan._rippledStartRaw.getTime() - Date.now()) <= 86400000 &&
+                    (nextPlan._rippledStartRaw.getTime() - Date.now()) > 0;
+                const hasNoJc = !p.job_card_given || !(p.jcNo || p.jc_no || p.job_card_no || '');
+                const isJcWarning = nextChangeIn24h && hasNoJc;
+
                 let timeBadge = '';
                 if (idx === 0 && p._rippledEndRaw) {
                     let msDiff = 0; let label = ''; let col = '#4f46e5';
@@ -1001,6 +1024,10 @@
                             ? `<strong style="color:#dc2626">${formatNum(p.balQty)}</strong> <span style="font-size:0.65rem;font-weight:800;background:#fee2e2;color:#dc2626;padding:1px 4px;border-radius:3px;letter-spacing:0.04em">OVER</span>`
                             : `<strong style="color:${p.balQty > 0 ? '#f59e0b' : '#10b981'}">${formatNum(p.balQty)}</strong>`}</div>
                           ${jcNo ? `<div style="grid-column:1/-1;" onclick="window.openJcDrilldown('${esc(jcNo)}','${esc(jcNo)}','${esc(p.planId||p.plan_id||'')}','${esc(p.orderNo||'')}'); event.stopPropagation();">JC: <span class="dd-jc-link" style="font-size:0.78rem">${esc(jcNo)} <i class="bi bi-bar-chart-line-fill" style="font-size:0.68rem"></i></span></div>` : ''}
+                          ${isJcWarning ? `<div style="grid-column:1/-1;margin-top:2px;display:flex;align-items:center;gap:5px;background:#fef3c7;border:1px solid #fcd34d;border-radius:5px;padding:3px 6px;font-size:0.72rem;font-weight:800;color:#92400e;">
+                            <i class="bi bi-exclamation-triangle-fill" style="color:#f59e0b;font-size:0.8rem"></i>
+                            Mould change in &lt;24h — JC needed!
+                          </div>` : ''}
                        </div>
 
                        <div style="display:grid; grid-template-columns:auto 1fr; gap:0px 6px; font-size:0.75rem; color:#64748b;">
