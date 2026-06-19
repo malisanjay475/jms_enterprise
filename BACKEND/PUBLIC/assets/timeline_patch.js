@@ -947,18 +947,21 @@
                     ((p.jcNo || p.jc_no || p.job_card_no || p.jc_id || '').toLowerCase().includes(searchVal))
                 );
 
-                const cardBg = isMatched ? '#fef9c3' : (isMouldChange ? '#fff3e6' : '#ffffff');
-                const cardBorder = isMatched ? '#eab308' : (isMouldChange ? '#fdba74' : '#e2e8f0');
-                const cardShadow = isMatched ? '0 0 16px rgba(234, 179, 8, 0.75)' : '0 1px 2px rgba(0,0,0,0.05)';
-                const cardBorderWidth = isMatched ? '2.5px' : '1px';
+                // P2: over-produced flag
+                const isOverProduced = (p.balQty || 0) < 0;
+                const cardBg = isMatched ? '#fef9c3' : isOverProduced ? '#fff1f2' : (isMouldChange ? '#fff3e6' : '#ffffff');
+                const cardBorder = isMatched ? '#eab308' : isOverProduced ? '#fca5a5' : (isMouldChange ? '#fdba74' : '#e2e8f0');
+                const cardShadow = isMatched ? '0 0 16px rgba(234, 179, 8, 0.75)' : isOverProduced ? '0 0 10px rgba(239,68,68,0.18)' : '0 1px 2px rgba(0,0,0,0.05)';
+                const cardBorderWidth = isMatched ? '2.5px' : isOverProduced ? '2px' : '1px';
 
                 return `
-                   <div class="timeline-card ${isUrgentChange ? 'blink-urgent-border' : ''}" 
+                   <div class="timeline-card ${isUrgentChange ? 'blink-urgent-border' : ''}"
                         draggable="true"
                         data-pid="${p.id}"
                         data-machine="${m.code}"
                         data-primary-machine="${esc(p.primaryMachine || '')}"
                         data-secondary-machine="${esc(p.secondaryMachine || '')}"
+                        data-overproduced="${isOverProduced ? '1' : '0'}"
                         ondragstart="window.handleDragStart(event, this)"
                         ondragend="window.handleDragEnd(event, this)"
                         onclick="window.openOrderModal('${esc(p.orderNo)}', '${esc(p.id)}')"
@@ -994,7 +997,9 @@
 
                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:0.8rem; color:#64748b; padding-bottom:4px; border-bottom:1px solid #f1f5f9;">
                           <div>Qty: <strong style="color:#1e293b">${formatNum(p.planQty)}</strong></div>
-                          <div>Bal: <strong style="color:${p.balQty > 0 ? '#f59e0b' : '#10b981'}">${formatNum(p.balQty)}</strong></div>
+                          <div>Bal: ${isOverProduced
+                            ? `<strong style="color:#dc2626">${formatNum(p.balQty)}</strong> <span style="font-size:0.65rem;font-weight:800;background:#fee2e2;color:#dc2626;padding:1px 4px;border-radius:3px;letter-spacing:0.04em">OVER</span>`
+                            : `<strong style="color:${p.balQty > 0 ? '#f59e0b' : '#10b981'}">${formatNum(p.balQty)}</strong>`}</div>
                           ${jcNo ? `<div style="grid-column:1/-1;" onclick="window.openJcDrilldown('${esc(jcNo)}','${esc(jcNo)}','${esc(p.planId||p.plan_id||'')}','${esc(p.orderNo||'')}'); event.stopPropagation();">JC: <span class="dd-jc-link" style="font-size:0.78rem">${esc(jcNo)} <i class="bi bi-bar-chart-line-fill" style="font-size:0.68rem"></i></span></div>` : ''}
                        </div>
 
@@ -1114,6 +1119,10 @@
                          <option value="48">Next 48 Hours</option>
                          <option value="72">Next 72 Hours</option>
                     </select>
+                    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.82rem;font-weight:700;color:#dc2626;white-space:nowrap;border:1px solid #fca5a5;border-radius:6px;padding:4px 8px;background:#fff1f2;" title="Show only over-produced plans">
+                        <input type="checkbox" id="filt-overproduced" onchange="window.superFilterTimeline()" style="cursor:pointer;accent-color:#dc2626;">
+                        Over-produced
+                    </label>
 
                     <button class="mod-btn-reset" onclick="window.switchView(null)" title="Dashboard" style="margin-right:4px">
                         <i class="bi bi-grid-1x2" style="font-size:1.1rem"></i>
@@ -1302,8 +1311,9 @@
                 byMach[m].forEach((p, i) => {
                     const st = (p.status || '').toUpperCase(); const isRun = st === 'RUNNING';
                     const ct = Number(p.cycleTime || 120); const cav = Number(p.cavity || 1); const pcsHr = (ct > 0) ? (3600 / ct) * cav : 30;
-                    const qty = Number(p.planQty || 0); const bal = Math.max(0, qty - Number(p.producedQty || 0));
-                    p.balQty = bal; const durMs = ((isRun ? bal : qty) * 3600 * 1000) / pcsHr;
+                    const qty = Number(p.planQty || 0); const bal = qty - Number(p.producedQty || 0);
+                    p.balQty = bal; // P2: allow negative (over-produced)
+                    const durMs = ((isRun ? Math.max(0, bal) : qty) * 3600 * 1000) / pcsHr;
                     let start, end;
                     if (isRun) { start = p.firstDprEntry ? new Date(p.firstDprEntry).getTime() : (p.startDate ? new Date(p.startDate).getTime() : Date.now()); end = Date.now() + durMs; }
                     else { start = (i === 0) ? Date.now() : cursor; end = start + durMs; }
@@ -1408,13 +1418,14 @@
         const l = document.getElementById('filt-line')?.value;
         const s = document.getElementById('filt-status')?.value;
         const f = document.getElementById('filt-forecast')?.value; // "24", "48", etc.
+        const overOnly = document.getElementById('filt-overproduced')?.checked; // P2
 
         const norm = (v) => String(v || '').trim().toUpperCase();
 
         const now = Date.now();
         const cutoffTime = f ? (now + parseInt(f) * 3600000) : 0;
 
-        console.log(`[SuperFilter] B: "${b}", L: "${l}", S: "${s}", Q: "${q}", Forecast: ${f} (${cutoffTime})`);
+        console.log(`[SuperFilter] B: "${b}", L: "${l}", S: "${s}", Q: "${q}", Forecast: ${f} (${cutoffTime}), OverOnly: ${overOnly}`);
 
         const filtered = window.timelineMachines.filter(m => {
             const build = m._finalBuilding || '?';
@@ -1424,6 +1435,9 @@
             if (l && line !== norm(l)) return false;
 
             const mPlans = window.timelineGroups[m.code] || [];
+
+            // P2: Over-produced filter — show machines with at least one over-produced plan
+            if (overOnly && !mPlans.some(p => (p.balQty || 0) < 0)) return false;
 
             // --- FORECAST FILTER ---
             // If Forecast ON: Show machine ONLY if it has a Mould Change (or new plan) STARTING in [Now, Cutoff]
@@ -1486,7 +1500,11 @@
         window.superFilterTimeline();
     };
 
-    window.superResetTimelineFilters = function () { ['filt-search', 'filt-bldg', 'filt-line', 'filt-status', 'filt-forecast'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; }); window.superUpdateLineOptions(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    window.superResetTimelineFilters = function () {
+        ['filt-search', 'filt-bldg', 'filt-line', 'filt-status', 'filt-forecast'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        const overEl = document.getElementById('filt-overproduced'); if (overEl) overEl.checked = false;
+        window.superUpdateLineOptions(); window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
 
     // --- STUB LEGACY (Fix Init Error) ---
     window.loadTimeline = function () { console.log('Legacy loadTimeline suppressed by v51'); };
@@ -1572,8 +1590,8 @@
             }
         });
 
-        // ALWAYS list every machine from Machine Master so the picker is never empty.
-        // Each entry is tagged Primary / Secondary / Current where applicable, else "Other".
+        // P5: Only show machines mapped in Mould Master (Primary / Secondary / Current).
+        // Do NOT fall back to showing all machines — an unmapped machine should not appear.
         const currentEntryTop = findInMaster(currentMachine);
         const currentKey = currentEntryTop ? simplify(currentEntryTop.code || currentEntryTop.name || currentEntryTop.machine || '') : simplify(currentMachine);
 
@@ -1584,7 +1602,8 @@
                 if (k && k === currentKey) type = 'Current';
                 return { machine: entry.code || entry.name || entry.machine || '', type, _entry: entry, _key: k };
             })
-            .filter(o => o._key);
+            // Only show Primary, Secondary or Current — hide every unrelated machine
+            .filter(o => o._key && o.type !== 'Other');
 
         // Sort the picker list into the same perfect series (building → line → number).
         matchedMachines.sort((a, b) => window.tlMachineSort(a._entry, b._entry));
@@ -1596,9 +1615,9 @@
         let optHtml = '';
         if (!matchedMachines.length) {
             optHtml = `<div style="padding:20px;text-align:center;color:#94a3b8">
-                <div style="font-size:2rem;margin-bottom:8px">🔍</div>
-                <div style="font-weight:700;color:#64748b;margin-bottom:4px">No machines available</div>
-                <div style="font-size:0.85rem">No machines found in Machine Master. Add machines in Masters, then reload the timeline.</div>
+                <div style="font-size:2rem;margin-bottom:8px">⚙️</div>
+                <div style="font-weight:700;color:#64748b;margin-bottom:4px">No machines mapped for this mould</div>
+                <div style="font-size:0.85rem;color:#94a3b8">Go to Masters → Moulds and set Primary / Secondary machines for this mould, then reload the timeline.</div>
             </div>`;
         } else {
             optHtml = matchedMachines.map(opt => {
