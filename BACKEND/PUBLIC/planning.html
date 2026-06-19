@@ -8281,6 +8281,15 @@
             }
             renderCpColourMachineCards(modal, colourRows);
             recalcCpColourPlanModal();
+
+            // P7: Pre-populate plan qty from batch qty when modal opens
+            // If activeBatchQty > 0, fill the total-plan input and auto-split across colour rows
+            if (activeBatchQty > 0 && totalPlanInput) {
+              const cappedBatch = mouldBalanceQty > 0 ? Math.min(activeBatchQty, mouldBalanceQty) : activeBatchQty;
+              totalPlanInput.value = String(cappedBatch);
+              cpAutoSplitPlanQty(cappedBatch);
+            }
+
             modal.querySelector('[data-cp-colour-submit="queue"]').onclick = () => {
               if (!cpSelectedMachine) return toast('Select a machine first.', 'error');
               addToQueue();
@@ -12769,6 +12778,17 @@
         } catch (e) { console.error(e); }
       }
 
+      // P3-Fix1: Deduplicate plans by ID to prevent ghost mould-changes from duplicate entries
+      {
+        const seenIds = new Set();
+        plans = plans.filter(p => {
+          const key = String(p.id || p.planId || p.plan_id || '');
+          if (!key || seenIds.has(key)) return false;
+          seenIds.add(key);
+          return true;
+        });
+      }
+
       if (!plans.length) {
         list.innerHTML = '<div class="muted" style="padding:20px; text-align:center">No planning data available.</div>';
         return;
@@ -12804,9 +12824,12 @@
 
           // CHANGE DETECTED
           // Time of change = End of Prev Plan
-          // Use _calculatedEndRaw if available (highest precision), else endDate, else startDate + duration
+          // P3-Fix2: Use rippled end (most accurate, computed from cycle time + bal qty)
+          // then calculatedEndRaw, then stored endDate, then startDate as last resort.
           let changeTime = null;
-          if (prev._calculatedEndRaw) {
+          if (prev._rippledEndRaw) {
+            changeTime = new Date(prev._rippledEndRaw);
+          } else if (prev._calculatedEndRaw) {
             changeTime = new Date(prev._calculatedEndRaw);
           } else if (prev.endDate) {
             changeTime = new Date(prev.endDate);
@@ -12983,6 +13006,30 @@
       });
 
       html += `</tbody></table></div>`;
+
+      // P3-Fix3: Show idle machines (machines in Machine Master with no active plans)
+      const activeMachCodes = new Set(Object.keys(byMach));
+      const idleMachines = (window.allMachines || window.timelineMachines || [])
+        .filter(m => {
+          const code = m.code || m.name || '';
+          return code && !activeMachCodes.has(code);
+        })
+        .map(m => m.code || m.name || '')
+        .filter(Boolean)
+        .sort();
+
+      if (idleMachines.length) {
+        html += `
+          <div style="margin-top:18px; padding:12px 16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-family:'Segoe UI',Arial,sans-serif">
+            <div style="font-weight:800; font-size:0.85rem; color:#64748b; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.05em;">
+              <i class="bi bi-pause-circle" style="color:#94a3b8"></i> Idle Machines (No Active Plans)
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px;">
+              ${idleMachines.map(c => `<span style="font-size:0.78rem; font-weight:700; background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:3px 8px; border-radius:5px;">${escH(c)}</span>`).join('')}
+            </div>
+          </div>`;
+      }
+
       list.innerHTML = html;
     };
 

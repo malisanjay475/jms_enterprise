@@ -15395,6 +15395,99 @@ app.get('/api/dpr/hourly', async (req, res) => {
   }
 });
 
+// POST /api/dpr/auto-fill-ongoing
+// P4: Auto-fill elapsed hour slots for machines that have an ongoing quick-action entry.
+// Called from the DPR compliance view on load so the matrix is always up-to-date.
+app.post('/api/dpr/auto-fill-ongoing', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+
+    // Determine current shift and elapsed slots
+    const now = new Date();
+    const hr = now.getHours();
+    const DAY_SLOTS   = ['08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07','07-08'];
+    const NIGHT_SLOTS = ['08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07','07-08'];
+    // Night shift = 20:00–08:00, Day shift = 08:00–20:00
+    const isNight = hr >= 20 || hr < 8;
+    const currentShift = isNight ? 'Night' : 'Day';
+    const SHIFT_SLOTS = isNight ? NIGHT_SLOTS : DAY_SLOTS;
+
+    // Current slot index based on wall-clock hour
+    // Day slots: 08→0, 09→1 ... 19→11; Night: 20→0, 21→1, 22→2, 23→3, 00→4 ...07→11
+    let currentSlotIdx;
+    if (!isNight) {
+      currentSlotIdx = Math.min(11, hr - 8); // 08→0 … 19→11
+    } else {
+      currentSlotIdx = hr >= 20 ? hr - 20 : hr + 4; // 20→0,21→1,22→2,23→3,00→4…07→11
+    }
+
+    // Production date: night-before-midnight belongs to yesterday
+    const todayLocal = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    let dprDate;
+    if (isNight && hr < 8) {
+      const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1);
+      dprDate = todayLocal(yesterday);
+    } else {
+      dprDate = todayLocal(now);
+    }
+
+    const QUICK_TYPES = ['Maintenance','ManPowerShortage','MouldChangeover','MouldTrial','MouldMaintenance','NoPlan'];
+
+    // Find all machines whose last entry today is a quick-action type
+    const lastEntryQ = `
+      SELECT DISTINCT ON (machine) machine, hour_slot, entry_type, shots, good_qty,
+        reject_qty, downtime_min, remarks, plan_id, order_no, mould_no, jobcard_no,
+        colour, reject_breakup, downtime_breakup, supervisor
+      FROM dpr_hourly
+      WHERE dpr_date = $1 AND shift = $2 AND is_deleted = false
+        AND entry_type = ANY($3::text[])
+        AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+      ORDER BY machine, id DESC
+    `;
+    const lastEntries = await q(lastEntryQ, [dprDate, currentShift, QUICK_TYPES, factoryId || null]);
+
+    let filled = 0;
+    for (const last of lastEntries) {
+      const lastIdx = SHIFT_SLOTS.indexOf(last.hour_slot);
+      if (lastIdx === -1 || currentSlotIdx <= lastIdx) continue; // nothing to fill
+
+      for (let i = lastIdx + 1; i <= currentSlotIdx; i++) {
+        const gapSlot = SHIFT_SLOTS[i];
+        // Skip current (incomplete) slot — only fill fully elapsed slots
+        if (i >= currentSlotIdx) continue;
+
+        const exists = await q(
+          'SELECT id FROM dpr_hourly WHERE machine=$1 AND dpr_date=$2 AND shift=$3 AND hour_slot=$4 AND is_deleted=false AND ($5::int IS NULL OR factory_id=$5 OR factory_id IS NULL)',
+          [last.machine, dprDate, currentShift, gapSlot, factoryId || null]
+        );
+        if (exists.length === 0) {
+          await q(
+            `INSERT INTO dpr_hourly (
+              dpr_date, shift, hour_slot, shots, good_qty, reject_qty, downtime_min,
+              remarks, machine, plan_id, order_no, mould_no, jobcard_no,
+              colour, reject_breakup, downtime_breakup, entry_type,
+              created_by, supervisor, factory_id, created_at, updated_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW(),NOW())`,
+            [
+              dprDate, currentShift, gapSlot, 0, 0, 0, 60,
+              (last.remarks ? (last.remarks.includes('[Auto-Filled]') ? last.remarks : last.remarks + ' [Auto-Filled]') : '[Auto-Filled]'),
+              last.machine, last.plan_id, last.order_no, last.mould_no, last.jobcard_no,
+              last.colour, last.reject_breakup, last.downtime_breakup, last.entry_type,
+              'SYSTEM-AUTOFILL', last.supervisor, factoryId || 1
+            ]
+          );
+          filled++;
+        }
+      }
+    }
+
+    res.json({ ok: true, filled, machines: lastEntries.length, date: dprDate, shift: currentShift });
+  } catch (e) {
+    console.error('dpr/auto-fill-ongoing', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // GET /api/dpr/summary-matrix
 app.get('/api/dpr/summary-matrix', async (req, res) => {
   try {
