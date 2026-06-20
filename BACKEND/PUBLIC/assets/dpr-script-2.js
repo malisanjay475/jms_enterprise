@@ -244,7 +244,7 @@
                 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(105px,1fr)); gap:10px">
                     <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:10px">
                         <div style="font-size:0.7rem; color:#64748b; font-weight:800; text-transform:uppercase">STD Weight</div>
-                        <div style="font-weight:800; color:#0f172a">${stdWeight || '-'}</div>
+                        <div style="font-weight:800; color:#0f172a">${dprEsc(stdWeight || '-')}</div>
                     </div>
                     <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:10px">
                         <div style="font-size:0.7rem; color:#1d4ed8; font-weight:800; text-transform:uppercase">Supervisor</div>

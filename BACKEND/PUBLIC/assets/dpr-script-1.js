@@ -1,3 +1,7 @@
+        function dprEscHtml(value) {
+            return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        }
+
         // --- CODE MAPPINGS ---
         const REJECTION_CODES = {
             'A': 'Short Shot',
@@ -707,7 +711,7 @@
 
                             masterHtml += `<div style="background:#0f172a; color:white; padding:12px 20px; font-weight:800; border-radius:12px; margin:40px 0 20px 0; font-size:1.2rem; display:flex; justify-content:space-between; align-items:center; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1)">
                                 <span><i class="bi bi-calendar3" style="margin-right:10px"></i>Compliance Summary for ${new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                                <span style="font-size:0.9rem; opacity:0.8">${dprProcess} • ${shiftMode} Shift</span>
+                                <span style="font-size:0.9rem; opacity:0.8">${dprEscHtml(dprProcess)} • ${dprEscHtml(shiftMode)} Shift</span>
                             </div>`;
 
                             const machineMap = new Map();
