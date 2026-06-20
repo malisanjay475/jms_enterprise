@@ -1161,17 +1161,14 @@
         </div>
 
         <hr class="hr">
-        <h3>Complete Job</h3>
+        <h3>Switch Job</h3>
         <div class="row">
           <div class="muted" style="margin-bottom:8px;font-size:13px">
-            Mark this job as <b>Completed</b>. It will be sent to the Manager for Approval.
+            Switch to the next <b>Priority Job</b> (P1 → P2 → P3 → P4 → P1) on this machine.
           </div>
           <input type="hidden" id="complete-action" value="Complete">
 
-          <!-- Image Optional/Mandatory? User didn't specify, but let's keep it hidden if they just want to click Complete. -->
-          <!-- Actually, let's keep it clean. Just a Complete Button. -->
-
-          <button class="primary" onclick="completeJob()">✅ Mark Job as Completed</button>
+          <button class="primary" onclick="switchJob()">🔄 Switch Job</button>
           <span id="complete-msg" class="muted" role="status" aria-live="polite"
             style="display:block;margin-top:8px"></span>
         </div>
@@ -3418,13 +3415,20 @@
             const isRunning = item.statusNorm && item.statusNorm.startsWith('RUN');
             const showButton = isActiveFirst && isRunning;
 
+            // P1-P4 priority badge
+            const machinePri = job.machinePriority || job['MachinePriority'] || null;
+            const _priColors = { P1: '#2563eb', P2: '#16a34a', P3: '#f59e0b', P4: '#dc2626' };
+            const priBadge = machinePri
+              ? `<span style="display:inline-block;font-size:0.62rem;font-weight:900;color:#fff;padding:1px 6px;border-radius:4px;background:${_priColors[machinePri] || '#64748b'};margin-left:5px;vertical-align:middle;">${machinePri}</span>`
+              : '';
+
             const card = document.createElement('div');
             card.className = 'job';
             card.innerHTML = `
           <div class="inline" style="justify-content:space-between;align-items:flex-start">
             <div class="row" style="gap:6px">
               <div style="font-weight:700">
-                ${orderNo}
+                ${orderNo}${priBadge}
                 ${orderDate
                 ? ` <span class="muted">•</span> <span style="font-weight:700">${orderDate}</span>`
                 : ''
@@ -5171,6 +5175,40 @@
         .catch(err => {
           msgEl.innerHTML = '<span class="err">' + String(err) + '</span>';
         })
+        .finally(() => hideLoading());
+    }
+
+    /* SWITCH JOB — cycles through P1→P2→P3→P4→P1 priority plans on this machine */
+    function switchJob() {
+      const machine = session.machine || (el('dd-machine') && el('dd-machine').value) || '';
+      const msgEl = el('complete-msg');
+      msgEl.textContent = '';
+
+      if (!machine) {
+        msgEl.innerHTML = '<span class="err">No machine selected.</span>';
+        return;
+      }
+      if (!confirm('Switch to the next priority job (P1→P2→P3→P4→P1) on this machine?')) return;
+
+      msgEl.textContent = 'Switching job...';
+      showLoading();
+
+      apiFetch('/api/planning/switch-priority-job', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ machine })
+      })
+        .then(r => r.json())
+        .then(r => {
+          if (r && r.ok) {
+            const p = r.activated || {};
+            msgEl.innerHTML = `<span class="ok">Switched to ${p.machine_priority || 'next job'}: ${p.order_no || ''}.</span>`;
+            loadQueue();
+          } else {
+            msgEl.innerHTML = `<span class="err">${(r && r.error) || 'Failed to switch job.'}</span>`;
+          }
+        })
+        .catch(err => { msgEl.innerHTML = `<span class="err">${String(err)}</span>`; })
         .finally(() => hideLoading());
     }
 

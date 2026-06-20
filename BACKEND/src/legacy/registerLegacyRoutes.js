@@ -8252,6 +8252,81 @@ app.get('/api/planning/machine-priority', async (req, res) => {
   }
 });
 
+// POST /api/planning/switch-priority-job
+// Cycles the running plan on a machine through its P1→P2→P3→P4→P1 priority plans.
+// Body: { machine }
+app.post('/api/planning/switch-priority-job', async (req, res) => {
+  try {
+    const machine = String(req.body.machine || '').trim();
+    if (!machine) return res.status(400).json({ ok: false, error: 'machine required' });
+    const factoryId = getFactoryId(req);
+    const fClause = factoryId ? ` AND factory_id = ${factoryId}` : '';
+
+    // 1. Get all priority plans on this machine, sorted P1→P4
+    const priorityPlans = await q(
+      `SELECT id, plan_id, order_no, machine_priority, status
+         FROM plan_board
+        WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
+          AND machine_priority IS NOT NULL${fClause}
+        ORDER BY machine_priority ASC`,
+      [machine]
+    );
+    if (!priorityPlans.length) {
+      return res.status(400).json({ ok: false, error: 'No P1-P4 priority plans set for this machine' });
+    }
+
+    // 2. Find currently RUNNING priority plan; determine next in cycle
+    const runningIdx = priorityPlans.findIndex(p => (p.status || '').toUpperCase() === 'RUNNING');
+    const nextIdx = runningIdx === -1 ? 0 : (runningIdx + 1) % priorityPlans.length;
+    const nextPlan = priorityPlans[nextIdx];
+    const currentPlan = runningIdx !== -1 ? priorityPlans[runningIdx] : null;
+
+    // 3. Stop ALL currently running plans on this machine
+    const stopped = await q(
+      `UPDATE plan_board SET status = 'Stopped', updated_at = NOW()
+        WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
+          AND UPPER(status) = 'RUNNING'${fClause}
+        RETURNING id, order_no`,
+      [machine]
+    );
+    for (const s of stopped) {
+      await q(
+        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SWAP_STOP', $2, 'System')",
+        [s.id, JSON.stringify({ reason: `Switch Job to ${nextPlan.machine_priority}`, machine })]
+      );
+    }
+
+    // 4. Activate next priority plan
+    await q(
+      `UPDATE plan_board SET status = 'Running', start_date = COALESCE(start_date, NOW()), updated_at = NOW()
+        WHERE id = $1`,
+      [nextPlan.id]
+    );
+    await q(
+      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SWITCH_JOB', $2, 'System')",
+      [nextPlan.id, JSON.stringify({
+        from: currentPlan ? currentPlan.machine_priority : null,
+        to: nextPlan.machine_priority,
+        machine
+      })]
+    );
+
+    syncService.triggerSync();
+    res.json({
+      ok: true,
+      activated: {
+        id: nextPlan.id,
+        plan_id: nextPlan.plan_id,
+        order_no: nextPlan.order_no,
+        machine_priority: nextPlan.machine_priority
+      }
+    });
+  } catch (e) {
+    console.error('/api/planning/switch-priority-job', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // POST /api/planning/set-jc
 app.post('/api/planning/set-jc', async (req, res) => {
   console.log('API HIT: /api/planning/set-jc', req.body);
@@ -18167,6 +18242,9 @@ WITH RankedPlans AS (
       CASE WHEN m.material IS NOT NULL THEN m.material || ' ' ELSE '' END,
       ''
     ) as "Mixing Ratio",
+
+    --Machine Priority (P1-P4)
+    pb.machine_priority AS "machinePriority",
 
     --Normalize status for sorting: Running = 1, Planned = 2
     CASE WHEN UPPER(pb.status) = 'RUNNING' THEN 1 ELSE 2 END as sort_order,

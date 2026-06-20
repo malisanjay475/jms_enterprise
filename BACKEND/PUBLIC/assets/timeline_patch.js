@@ -1049,16 +1049,6 @@
                        </div>
                        ${timeBadge}
 
-                       <!-- P1-P4 PRIORITY BUTTONS -->
-                       <div style="display:flex;gap:3px;padding-top:4px;" onclick="event.stopPropagation()">
-                           ${['P1','P2','P3','P4'].map(px => {
-                               const isAct = p.machinePriority === px;
-                               const cols = {P1:'#2563eb',P2:'#16a34a',P3:'#f59e0b',P4:'#dc2626'};
-                               const c = cols[px];
-                               return `<button onclick="window.tlSetMachinePriority('${p.id}','${esc(m.code)}','${px}',${isAct}); event.stopPropagation();" title="${isAct ? 'Clear '+px : 'Set as '+px}" style="flex:1;font-size:0.68rem;font-weight:800;border-radius:4px;padding:3px 0;cursor:pointer;transition:all 0.15s;${isAct ? `background:${c};color:#fff;border:1.5px solid ${c};` : `background:#fff;color:${c};border:1.5px solid ${c};`}">${px}</button>`;
-                           }).join('')}
-                       </div>
-
                        <!-- ACTIONS FOOTER -->
                        <div style="margin-top:auto; padding-top:6px; border-top:1px dashed #e2e8f0; display:flex; justify-content:space-between; align-items:center">
                            <label style="font-size:0.75rem; color:#64748b; display:flex; align-items:center; gap:4px; cursor:pointer;" onclick="event.stopPropagation()">
@@ -1780,19 +1770,4 @@
         }
     };
 
-    window.tlSetMachinePriority = async function (planId, machineCode, priority, isActive) {
-        try {
-            const res = await fetch('/api/planning/machine-priority', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ planId, machine: machineCode, priority: isActive ? null : priority })
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to set priority');
-            if (typeof window.superLoadTimeline === 'function') window.superLoadTimeline();
-        } catch (e) {
-            console.error(e);
-            alert('Error setting priority: ' + e.message);
-        }
-    };
 })();
