@@ -18182,7 +18182,9 @@ app.get('/api/queue', async (req, res) => {
     // User logic: "Running Plan First ... other then its all in waiting"
     // So filter for Running + Planned (Waiting) + Stopped
     whereClause += ` AND UPPER(pb.status) IN('RUNNING', 'PLANNED', 'STOPPED')`;
-    whereClause += ` AND UPPER(COALESCE(pb.jc_approval_status, 'PENDING')) = 'APPROVED'`;
+    // Priority plans (machine_priority IS NOT NULL) always appear regardless of JC approval status,
+    // so the supervisor can always see and switch between P1-P4 jobs on this machine.
+    whereClause += ` AND (UPPER(COALESCE(pb.jc_approval_status, 'PENDING')) = 'APPROVED' OR pb.machine_priority IS NOT NULL)`;
 
     const sql = `
 WITH RankedPlans AS (
