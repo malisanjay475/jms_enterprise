@@ -1,6 +1,12 @@
 window.JPSMS = window.JPSMS || {};
 const BRAND_NAME = 'JMS OCEAN';
 
+function escHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+}
+
 (function ensureBrandAssets() {
     if (typeof document === 'undefined') return;
 
@@ -1444,14 +1450,14 @@ const BRAND_NAME = 'JMS OCEAN';
       <div class="user-profile">
         <div class="sidebar-avatar-shell">
           <div class="sidebar-avatar-fallback">
-            ${(user.username || 'U').charAt(0).toUpperCase()}
+            ${escHtml((user.username || 'U').charAt(0).toUpperCase())}
           </div>
           <span class="sidebar-avatar-dot"></span>
         </div>
           <div class="sidebar-user-meta">
-          <div class="sidebar-user-name">${user.username || 'Guest'}</div>
-          <div class="sidebar-role-label">${roleLabel}</div>
-          <div class="sidebar-user-unit">${inferredFactoryName || 'No Unit Selected'}</div>
+          <div class="sidebar-user-name">${escHtml(user.username || 'Guest')}</div>
+          <div class="sidebar-role-label">${escHtml(roleLabel)}</div>
+          <div class="sidebar-user-unit">${escHtml(inferredFactoryName || 'No Unit Selected')}</div>
         </div>
         
         <div class="sidebar-user-actions">
