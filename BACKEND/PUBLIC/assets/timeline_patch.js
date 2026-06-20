@@ -866,6 +866,10 @@
                 const isRunB = (b.status || '').toLowerCase() === 'running';
                 if (isRunA && !isRunB) return -1;
                 if (!isRunA && isRunB) return 1;
+                const priOrder = { P1: 1, P2: 2, P3: 3, P4: 4 };
+                const priA = priOrder[a.machinePriority] || 999;
+                const priB = priOrder[b.machinePriority] || 999;
+                if (priA !== priB) return priA - priB;
                 const seqDiff = (Number(a.seq || 0) - Number(b.seq || 0));
                 if (seqDiff) return seqDiff;
                 const startA = a.startDate ? new Date(a.startDate).getTime() : 0;
@@ -1001,6 +1005,7 @@
                            transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
                         ">
                        <div class="tl-pos-badge" title="Position ${idx + 1} on this machine">${idx + 1}</div>
+                       ${p.machinePriority ? `<div style="position:absolute;top:4px;right:4px;font-size:0.65rem;font-weight:900;padding:2px 6px;border-radius:4px;color:#fff;background:${'P1'===p.machinePriority?'#2563eb':'P2'===p.machinePriority?'#16a34a':'P3'===p.machinePriority?'#f59e0b':'#dc2626'};">${p.machinePriority}</div>` : ''}
                        <div style="display:flex; justify-content:space-between; align-items:start;">
                           <div style="font-weight:800; color:#0f172a; font-size:0.9rem; line-height:1.1">${esc(p.orderNo || '-')}</div>
                           <div style="font-size:0.7rem; font-weight:700; text-transform:uppercase; background:${bgTag}; color:${txtTag}; padding:2px 5px; border-radius:4px; white-space:nowrap">${st}</div>
@@ -1036,6 +1041,16 @@
                            <div style="color:#2563eb; text-align:right; font-weight:700">Exp. Date:</div> <div style="font-weight:700; color:#2563eb">${expStr}</div>
                        </div>
                        ${timeBadge}
+
+                       <!-- P1-P4 PRIORITY BUTTONS -->
+                       <div style="display:flex;gap:3px;padding-top:4px;" onclick="event.stopPropagation()">
+                           ${['P1','P2','P3','P4'].map(px => {
+                               const isAct = p.machinePriority === px;
+                               const cols = {P1:'#2563eb',P2:'#16a34a',P3:'#f59e0b',P4:'#dc2626'};
+                               const c = cols[px];
+                               return `<button onclick="window.tlSetMachinePriority('${p.id}','${esc(m.code)}','${px}',${isAct}); event.stopPropagation();" title="${isAct ? 'Clear '+px : 'Set as '+px}" style="flex:1;font-size:0.68rem;font-weight:800;border-radius:4px;padding:3px 0;cursor:pointer;transition:all 0.15s;${isAct ? `background:${c};color:#fff;border:1.5px solid ${c};` : `background:#fff;color:${c};border:1.5px solid ${c};`}">${px}</button>`;
+                           }).join('')}
+                       </div>
 
                        <!-- ACTIONS FOOTER -->
                        <div style="margin-top:auto; padding-top:6px; border-top:1px dashed #e2e8f0; display:flex; justify-content:space-between; align-items:center">
@@ -1149,6 +1164,10 @@
                     <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.82rem;font-weight:700;color:#dc2626;white-space:nowrap;border:1px solid #fca5a5;border-radius:6px;padding:4px 8px;background:#fff1f2;" title="Show only over-produced plans">
                         <input type="checkbox" id="filt-overproduced" onchange="window.superFilterTimeline()" style="cursor:pointer;accent-color:#dc2626;">
                         Over-produced
+                    </label>
+                    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.82rem;font-weight:700;color:#7c3aed;white-space:nowrap;border:1px solid #c4b5fd;border-radius:6px;padding:4px 8px;background:#f5f3ff;" title="Show only machines with P1-P4 priority plans">
+                        <input type="checkbox" id="filt-priority-view" onchange="window.superFilterTimeline()" style="cursor:pointer;accent-color:#7c3aed;">
+                        Priority View
                     </label>
 
                     <button class="mod-btn-reset" onclick="window.switchView(null)" title="Dashboard" style="margin-right:4px">
@@ -1445,7 +1464,8 @@
         const l = document.getElementById('filt-line')?.value;
         const s = document.getElementById('filt-status')?.value;
         const f = document.getElementById('filt-forecast')?.value; // "24", "48", etc.
-        const overOnly = document.getElementById('filt-overproduced')?.checked; // P2
+        const overOnly = document.getElementById('filt-overproduced')?.checked;
+        const priorityOnly = document.getElementById('filt-priority-view')?.checked;
 
         const norm = (v) => String(v || '').trim().toUpperCase();
 
@@ -1463,8 +1483,8 @@
 
             const mPlans = window.timelineGroups[m.code] || [];
 
-            // P2: Over-produced filter — show machines with at least one over-produced plan
             if (overOnly && !mPlans.some(p => (p.balQty || 0) < 0)) return false;
+            if (priorityOnly && !mPlans.some(p => p.machinePriority)) return false;
 
             // --- FORECAST FILTER ---
             // If Forecast ON: Show machine ONLY if it has a Mould Change (or new plan) STARTING in [Now, Cutoff]
@@ -1750,6 +1770,22 @@
             console.error(e);
             alert('Error changing machine: ' + e.message);
             modal.innerHTML = originalContent;
+        }
+    };
+
+    window.tlSetMachinePriority = async function (planId, machineCode, priority, isActive) {
+        try {
+            const res = await fetch('/api/planning/machine-priority', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ planId, machineCode, priority: isActive ? null : priority })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to set priority');
+            if (typeof window.superLoadTimeline === 'function') window.superLoadTimeline();
+        } catch (e) {
+            console.error(e);
+            alert('Error setting priority: ' + e.message);
         }
     };
 })();

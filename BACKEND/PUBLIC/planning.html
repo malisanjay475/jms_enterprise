@@ -13880,6 +13880,18 @@
       }
       .etv-empty-inner { position: relative; }
       .etv-empty-inner .etv-slot-num { background: #94a3b8; }
+      /* P1-P4 machine priority buttons and badge on ETV cards */
+      .etv-mp-badge {
+        display: inline-block; font-size: 0.58rem; font-weight: 900;
+        color: #fff; padding: 1px 5px; border-radius: 3px; margin-bottom: 2px;
+      }
+      .etv-mp-btns { display:flex; gap:2px; padding-top:3px; }
+      .etv-mp-btn {
+        flex: 1; font-size: 0.6rem; font-weight: 800; border-radius: 3px;
+        padding: 2px 0; cursor: pointer; border-width: 1.5px; border-style: solid;
+        background: #fff; transition: all 0.15s; line-height: 1;
+      }
+      .etv-mp-btn:hover { opacity: 0.8; }
       /* drop-target highlight while dragging */
       .etv-plan-cell.etv-drop-hot { background: #ecfdf5 !important; box-shadow: inset 0 0 0 2px #16a34a; }
       .etv-plan-cell.etv-drop-hot .etv-slot-num { background: #16a34a; transform: scale(1.15); transition: transform .1s; }
@@ -14170,6 +14182,9 @@
             byMach[code].sort((a,b) => {
               if ((a.status||'').toUpperCase()==='RUNNING') return -1;
               if ((b.status||'').toUpperCase()==='RUNNING') return 1;
+              const _priOrd = {P1:1,P2:2,P3:3,P4:4};
+              const _pa = _priOrd[a.machinePriority]||999, _pb = _priOrd[b.machinePriority]||999;
+              if (_pa !== _pb) return _pa - _pb;
               return (Number(a.seq||0)-Number(b.seq||0)) || (Number(a.id||0)-Number(b.id||0));
             });
             let cursor = now;
@@ -14300,11 +14315,11 @@
                   <i class="bi bi-stars"></i> Smart Suggestions
                   <span id="etv-smart-badge" style="display:none"></span>
                 </button>
-                <button id="etv-priority-btn" type="button" onclick="window.etvCreatePriority()" title="Create an ordered priority list by picking plan cards one by one" style="display:none">
-                  <i class="bi bi-list-ol"></i> Create Priority
+                <button id="etv-priority-btn" type="button" onclick="window.etvCreatePriority()" title="Create an ordered MC/MP schedule by picking plan cards one by one" style="display:none">
+                  <i class="bi bi-list-ol"></i> MC/MP SCH
                 </button>
-                <button id="etv-saved-priority-btn" type="button" onclick="window.etvOpenSavedPriorities()" title="View saved priority lists" style="display:none">
-                  <i class="bi bi-clock-history"></i> Saved Priorities
+                <button id="etv-saved-priority-btn" type="button" onclick="window.etvOpenSavedPriorities()" title="View saved MC/MP schedules" style="display:none">
+                  <i class="bi bi-clock-history"></i> Saved MC/MP SCH
                 </button>
                 <div id="etv-count">0 machines</div>
               </div>
@@ -14422,7 +14437,7 @@
       host.innerHTML = `
         <div class="pm-box">
           <div class="pm-head">
-            <h3><i class="bi bi-list-ol"></i> Create Priority</h3>
+            <h3><i class="bi bi-list-ol"></i> MC/MP SCH</h3>
             <button class="pm-close" onclick="document.getElementById('etv-prio-modal').remove()">&times;</button>
           </div>
           <div class="pm-body">
@@ -14544,7 +14559,7 @@
         <div class="pp-foot">
           <div class="pp-total"><span>Total Manpower</span><strong>${total}</strong></div>
           <button class="pp-btn savepdf" ${items.length?'':'disabled'} onclick="window.etvPrioritySave(true)"><i class="bi bi-file-earmark-pdf"></i> Save &amp; Generate PDF</button>
-          <button class="pp-btn save" ${items.length?'':'disabled'} onclick="window.etvPrioritySave(false)"><i class="bi bi-save"></i> Save Only</button>
+          <button class="pp-btn save" ${items.length?'':'disabled'} onclick="window.etvPrioritySave(false)"><i class="bi bi-save"></i> Save MC/MP SCH</button>
           <button class="pp-btn cancel" onclick="window.etvPriorityCancel()">Cancel</button>
         </div>`;
       requestAnimationFrame(() => panel.classList.add('open'));
@@ -15059,6 +15074,7 @@
                 ${prioBadge}
                 ${isPrevMould ? '<span class="etv-card-chg-badge">CHG</span>' : ''}
                 ${changeBadge}
+                ${p.machinePriority ? `<span class="etv-mp-badge" style="background:${'P1'===p.machinePriority?'#2563eb':'P2'===p.machinePriority?'#16a34a':'P3'===p.machinePriority?'#f59e0b':'#dc2626'}">${p.machinePriority}</span>` : ''}
                 <div class="etv-card-row1">
                   <div class="etv-card-order">${esc(orderDisp)}</div>
                   <div class="etv-card-status ${statusClass}">${stLabel}</div>
@@ -15072,6 +15088,15 @@
                 ${estBadge}
                 ${(p.jcNo || p.jc_no || p.job_card_no) ? `<div onclick="if(window.openJcDrilldown)window.openJcDrilldown('${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.planId||p.plan_id||'')}','${esc(p.orderNo||'')}'); event.stopPropagation();" style="font-size:.62rem;font-family:monospace;color:#2563eb;font-weight:700;text-decoration:underline;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px" title="Click: Colour/Shift/Hourly drill-down">JC: ${esc(p.jcNo||p.jc_no||p.job_card_no||'')} ↗</div>` : ''}
                 ${timeBadge}
+                <!-- P1-P4 MACHINE PRIORITY BUTTONS -->
+                <div class="etv-mp-btns" onclick="event.stopPropagation()">
+                  ${['P1','P2','P3','P4'].map(px => {
+                    const isAct = p.machinePriority === px;
+                    const cols = {P1:'#2563eb',P2:'#16a34a',P3:'#f59e0b',P4:'#dc2626'};
+                    const c = cols[px];
+                    return `<button class="etv-mp-btn${isAct?' etv-mp-btn-active':''}" data-color="${c}" style="${isAct?`background:${c};color:#fff;border-color:${c};`:`color:${c};border-color:${c};`}" onclick="window.etvSetMachinePriority('${esc(String(p.id||p.planId||p.plan_id||''))}','${esc(m.code)}','${px}',${isAct}); event.stopPropagation();" title="${isAct?'Clear '+px:'Set as '+px}">${px}</button>`;
+                  }).join('')}
+                </div>
               </div>
             </td>`;
         }).join('');
@@ -15081,6 +15106,23 @@
 
       tbody.innerHTML = rows.join('');
     }
+
+    /* ── Set / clear P1-P4 machine priority ─────────────────────────── */
+    window.etvSetMachinePriority = async function (planId, machineCode, priority, isActive) {
+      try {
+        const res = await fetch('/api/planning/machine-priority', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ planId, machineCode, priority: isActive ? null : priority })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to set priority');
+        if (typeof window.loadExcelTimeline === 'function') window.loadExcelTimeline();
+      } catch (e) {
+        console.error(e);
+        alert('Error setting priority: ' + e.message);
+      }
+    };
 
     /* ── Click machine name to search ───────────────────────────────── */
     window.etvMachineClick = function (code) {
