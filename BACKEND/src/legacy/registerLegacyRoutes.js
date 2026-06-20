@@ -18314,18 +18314,15 @@ WITH RankedPlans AS (
     ROW_NUMBER() OVER(PARTITION BY pb.plan_id ORDER BY r.job_card_no DESC) as rn
   FROM plan_board pb
   LEFT JOIN orders o ON pb.order_no = o.order_no
+  LEFT JOIN mould_planning_summary mps ON(mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
   LEFT JOIN LATERAL (
     SELECT mm.*
     FROM moulds mm
-    WHERE
-      CASE WHEN TRIM(COALESCE(pb.mould_code, '')) <> ''
-        THEN TRIM(mm.mould_number) ILIKE TRIM(pb.mould_code)
-        ELSE TRIM(mm.mould_name) ILIKE TRIM(pb.mould_name)
-      END
+    WHERE TRIM(mm.mould_number) ILIKE TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), ''))
+      AND TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')) <> ''
     ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
     LIMIT 1
   ) m ON TRUE
-  LEFT JOIN mould_planning_summary mps ON(mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
   LEFT JOIN or_jr_report r ON r.or_jr_no = pb.order_no
   ${whereClause}
 )
@@ -20057,11 +20054,8 @@ app.get('/api/std-actual/status', async (req, res) => {
       LEFT JOIN LATERAL (
         SELECT mm.*
         FROM moulds mm
-        WHERE
-          CASE WHEN TRIM(COALESCE(pb.mould_code, mps.mould_no, '')) <> ''
-            THEN TRIM(mm.mould_number) ILIKE TRIM(COALESCE(pb.mould_code, mps.mould_no, ''))
-            ELSE TRIM(mm.mould_name) ILIKE TRIM(pb.mould_name)
-          END
+        WHERE TRIM(mm.mould_number) ILIKE TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), ''))
+          AND TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')) <> ''
         ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
         LIMIT 1
       ) m ON TRUE
@@ -20082,11 +20076,8 @@ app.get('/api/std-actual/status', async (req, res) => {
       LEFT JOIN LATERAL (
         SELECT mm.*
         FROM moulds mm
-        WHERE
-          CASE WHEN TRIM(COALESCE(pb.mould_code, mps.mould_no, '')) <> ''
-            THEN TRIM(mm.mould_number) ILIKE TRIM(COALESCE(pb.mould_code, mps.mould_no, ''))
-            ELSE TRIM(mm.mould_name) ILIKE TRIM(pb.mould_name)
-          END
+        WHERE TRIM(mm.mould_number) ILIKE TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), ''))
+          AND TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')) <> ''
         ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
         LIMIT 1
       ) m ON TRUE
