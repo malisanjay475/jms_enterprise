@@ -1982,7 +1982,7 @@
 
       // 60s Timeout
       const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 60000); // 60s
+      const id = setTimeout(() => controller.abort(), 15000); // 15s
       options.signal = controller.signal;
 
       try {
@@ -2004,26 +2004,28 @@
         updateGeoUI();
         buildDateSelect(); // Ensure dates are populated
 
-        // Load Settings & Reasons
-        apiFetch('/api/settings').then(r => r.json()).then(res => { if (res.ok && res.data) appSettings = res.data; });
-        apiFetch('/api/dpr/reasons').then(r => r.json()).then(res => {
-          if (res.ok && res.data && res.data.length) {
-            const r = [], d = [], o = [];
-            res.data.forEach(x => {
-              // Use Code if available (e.g., 'A', '1'), else ID
-              const code = x.code || String(x.id);
-              if (x.type === 'REJECTION') r.push([code, x.reason]);
-              if (x.type === 'DOWNTIME') d.push([code, x.reason]);
-              if (x.type === 'OPERATOR_ACTIVITY') o.push([x.reason]); // Only need name
-            });
-            // Sort arrays by code naturally (1, 2, 10, A, B, C)
-            r.sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: 'base' }));
-            d.sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: 'base' }));
+        // Load Settings & Reasons in one request
+        apiFetch('/api/supervisor/bootstrap').then(r => r.json()).then(res => {
+          if (res.ok) {
+            if (res.settings) appSettings = res.settings;
+            if (res.reasons && res.reasons.length) {
+              const r = [], d = [], o = [];
+              res.reasons.forEach(x => {
+                // Use Code if available (e.g., 'A', '1'), else ID
+                const code = x.code || String(x.id);
+                if (x.type === 'REJECTION') r.push([code, x.reason]);
+                if (x.type === 'DOWNTIME') d.push([code, x.reason]);
+                if (x.type === 'OPERATOR_ACTIVITY') o.push([x.reason]); // Only need name
+              });
+              // Sort arrays by code naturally (1, 2, 10, A, B, C)
+              r.sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: 'base' }));
+              d.sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: 'base' }));
 
-            // Ensure OTHER is always included at the end
-            if (r.length) { r.push(['OTHER', 'Other (Please Specify)']); REJECT_REASONS = r; }
-            if (d.length) { d.push(['OTHER', 'Other (Please Specify)']); DOWNTIME_REASONS = d; }
-            if (o.length) OPERATOR_ACTIVITIES = o.map(x => x[0]);
+              // Ensure OTHER is always included at the end
+              if (r.length) { r.push(['OTHER', 'Other (Please Specify)']); REJECT_REASONS = r; }
+              if (d.length) { d.push(['OTHER', 'Other (Please Specify)']); DOWNTIME_REASONS = d; }
+              if (o.length) OPERATOR_ACTIVITIES = o.map(x => x[0]);
+            }
           }
         });
         try {
