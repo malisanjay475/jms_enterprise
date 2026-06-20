@@ -1971,11 +1971,24 @@ async function migrateRawMaterialSchema() {
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_rm_issues_factory_id ON raw_material_issues(factory_id)`);
 }
 
+// ── In-memory cache: factory scope per username (60s TTL) ──────────────────
+const _factoryScopeCache = new Map(); // username → { data, exp }
+function _invalidateFactoryCache(username) {
+  if (username) _factoryScopeCache.delete(username);
+}
+
 async function getAccessibleFactoriesForUser(userOrUsername) {
   let user = userOrUsername;
 
   if (!user) {
     return { user: null, factories: [], canSelectAllFactories: false };
+  }
+
+  // Cache key is always the username string
+  const cacheKey = typeof userOrUsername === 'string' ? userOrUsername : userOrUsername?.username;
+  if (cacheKey) {
+    const hit = _factoryScopeCache.get(cacheKey);
+    if (hit && hit.exp > Date.now()) return hit.data;
   }
 
   if (typeof userOrUsername === 'string') {
@@ -2009,7 +2022,9 @@ async function getAccessibleFactoriesForUser(userOrUsername) {
       [user.id, role || 'member']
     );
 
-  return { user, factories, canSelectAllFactories };
+  const result = { user, factories, canSelectAllFactories };
+  if (cacheKey) _factoryScopeCache.set(cacheKey, { data: result, exp: Date.now() + 60_000 });
+  return result;
 }
 
 function isAdminLikeRole(user) {
@@ -5290,6 +5305,7 @@ app.post('/api/users/save', async (req, res) => {
       }
     }
 
+    _invalidateFactoryCache(username);
     res.json({ ok: true });
   } catch (e) {
     console.error('user save error', e);
@@ -5322,6 +5338,7 @@ app.post('/api/users/delete', async (req, res) => {
     } else {
       return res.json({ ok: false, error: 'ID or Username required' });
     }
+    _invalidateFactoryCache(targetUser.username);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -5341,6 +5358,7 @@ app.post('/api/users/password', async (req, res) => {
     }
     const hash = await bcrypt.hash(password, 12);
     await q('UPDATE users SET password=$1 WHERE username=$2', [hash, username]);
+    _invalidateFactoryCache(username);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -16122,12 +16140,46 @@ app.post('/api/dpr/setup/clear', async (req, res) => {
 // DPR SETTINGS APIs
 // ------------------------------------
 
+// ── In-memory cache for stable read-only data (5 min TTL) ──────────────────
+let _settingsCache = null;  // { data, exp }
+let _reasonsCache  = null;  // { data, exp }
+const _CACHE_TTL   = 5 * 60_000; // 5 minutes
+
+// GET /api/supervisor/bootstrap — returns settings + reasons in one request (reduces 2 boot round-trips to 1)
+app.get('/api/supervisor/bootstrap', async (req, res) => {
+  try {
+    const [settingsRows, reasonRows] = await Promise.all([
+      (_settingsCache && _settingsCache.exp > Date.now())
+        ? Promise.resolve(null)
+        : q('SELECT * FROM app_settings'),
+      (_reasonsCache && _reasonsCache.exp > Date.now())
+        ? Promise.resolve(null)
+        : q('SELECT * FROM dpr_reasons WHERE is_active=true ORDER BY type, reason')
+    ]);
+
+    if (settingsRows !== null) {
+      const settings = {};
+      settingsRows.forEach(r => settings[r.key] = r.value);
+      _settingsCache = { data: settings, exp: Date.now() + _CACHE_TTL };
+    }
+    if (reasonRows !== null) {
+      _reasonsCache = { data: reasonRows, exp: Date.now() + _CACHE_TTL };
+    }
+
+    res.json({ ok: true, settings: _settingsCache.data, reasons: _reasonsCache.data });
+  } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+});
+
 // GET /api/settings
 app.get('/api/settings', async (req, res) => {
   try {
+    if (_settingsCache && _settingsCache.exp > Date.now()) {
+      return res.json({ ok: true, data: _settingsCache.data });
+    }
     const rows = await q('SELECT * FROM app_settings');
     const settings = {};
     rows.forEach(r => settings[r.key] = r.value);
+    _settingsCache = { data: settings, exp: Date.now() + _CACHE_TTL };
     res.json({ ok: true, data: settings });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
@@ -16137,6 +16189,7 @@ app.post('/api/settings', async (req, res) => {
   try {
     const { key, value } = req.body;
     await q(`INSERT INTO app_settings(key, value) VALUES($1, $2) ON CONFLICT(key) DO UPDATE SET value = $2`, [key, String(value)]);
+    _settingsCache = null; // invalidate
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
@@ -16144,7 +16197,11 @@ app.post('/api/settings', async (req, res) => {
 // GET /api/dpr/reasons
 app.get('/api/dpr/reasons', async (req, res) => {
   try {
+    if (_reasonsCache && _reasonsCache.exp > Date.now()) {
+      return res.json({ ok: true, data: _reasonsCache.data });
+    }
     const rows = await q('SELECT * FROM dpr_reasons WHERE is_active=true ORDER BY type, reason');
+    _reasonsCache = { data: rows, exp: Date.now() + _CACHE_TTL };
     res.json({ ok: true, data: rows });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
@@ -16155,6 +16212,7 @@ app.post('/api/dpr/reasons', async (req, res) => {
     const { type, reason, code } = req.body;
     if (!reason) return res.status(400).json({ ok: false, error: 'Reason required' });
     await q('INSERT INTO dpr_reasons (type, reason, code) VALUES ($1, $2, $3)', [type, reason, code || null]);
+    _reasonsCache = null; // invalidate
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
@@ -16208,6 +16266,7 @@ app.get('/api/admin/fix-sync-schema', async (req, res) => {
 app.delete('/api/dpr/reasons/:id', async (req, res) => {
   try {
     await q('UPDATE dpr_reasons SET is_active=false WHERE id=$1', [req.params.id]);
+    _reasonsCache = null; // invalidate
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
