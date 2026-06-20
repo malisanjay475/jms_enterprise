@@ -861,6 +861,13 @@
                 });
             }
 
+            // --- PRIORITY VIEW CLIP ---
+            // When Priority View is active, show ONLY plans that have a priority (P1-P4) assigned.
+            // Non-priority plans are hidden entirely within each machine row.
+            if (document.getElementById('filt-priority-view')?.checked) {
+                mPlans = mPlans.filter(p => !!p.machinePriority);
+            }
+
             mPlans.sort((a, b) => {
                 const isRunA = (a.status || '').toLowerCase() === 'running';
                 const isRunB = (b.status || '').toLowerCase() === 'running';
