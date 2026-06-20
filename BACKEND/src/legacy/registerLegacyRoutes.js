@@ -18253,7 +18253,17 @@ WITH RankedPlans AS (
     ROW_NUMBER() OVER(PARTITION BY pb.plan_id ORDER BY r.job_card_no DESC) as rn
   FROM plan_board pb
   LEFT JOIN orders o ON pb.order_no = o.order_no
-  LEFT JOIN moulds m ON m.mould_name = pb.mould_name
+  LEFT JOIN LATERAL (
+    SELECT mm.*
+    FROM moulds mm
+    WHERE
+      CASE WHEN TRIM(COALESCE(pb.mould_code, '')) <> ''
+        THEN TRIM(mm.mould_number) ILIKE TRIM(pb.mould_code)
+        ELSE TRIM(mm.mould_name) ILIKE TRIM(pb.mould_name)
+      END
+    ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
+    LIMIT 1
+  ) m ON TRUE
   LEFT JOIN mould_planning_summary mps ON(mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
   LEFT JOIN or_jr_report r ON r.or_jr_no = pb.order_no
   ${whereClause}
@@ -19973,13 +19983,27 @@ app.get('/api/std-actual/status', async (req, res) => {
       const row = exists[0];
 
       // Fetch Master Standards for this Mould
+      // NOTE: moulds has no uniqueness constraint on mould_number/mould_name, so duplicate
+      // master rows can exist. Use a LATERAL join to deterministically pick one match:
+      // exact mould_number match wins over mould_name match, ties broken by most recently
+      // updated row. Without this, an OR-based join could arbitrarily match a stale duplicate.
       const mRes = await q(`
       SELECT m.std_wt_kg as article_std, m.runner_weight as runner_std, m.no_of_cav as cavity_std,
   m.cycle_time as cycle_std, m.pcs_per_hour as pcshr_std, m.manpower as man_std,
   m.sfg_std_packing as sfgqty_std
       FROM plan_board pb
       LEFT JOIN mould_planning_summary mps ON mps.mould_name = pb.mould_name
-      LEFT JOIN moulds m ON(TRIM(m.mould_number) ILIKE TRIM(COALESCE(pb.mould_code, mps.mould_no)) OR TRIM(m.mould_name) ILIKE TRIM(pb.mould_name))
+      LEFT JOIN LATERAL (
+        SELECT mm.*
+        FROM moulds mm
+        WHERE
+          CASE WHEN TRIM(COALESCE(pb.mould_code, mps.mould_no, '')) <> ''
+            THEN TRIM(mm.mould_number) ILIKE TRIM(COALESCE(pb.mould_code, mps.mould_no, ''))
+            ELSE TRIM(mm.mould_name) ILIKE TRIM(pb.mould_name)
+          END
+        ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
+        LIMIT 1
+      ) m ON TRUE
         WHERE pb.plan_id = $1
   `, [planId]);
 
@@ -19994,7 +20018,17 @@ app.get('/api/std-actual/status', async (req, res) => {
   m.sfg_std_packing as sfgqty_std
       FROM plan_board pb
       LEFT JOIN mould_planning_summary mps ON mps.mould_name = pb.mould_name
-      LEFT JOIN moulds m ON(TRIM(m.mould_number) ILIKE TRIM(COALESCE(pb.mould_code, mps.mould_no)) OR TRIM(m.mould_name) ILIKE TRIM(pb.mould_name))
+      LEFT JOIN LATERAL (
+        SELECT mm.*
+        FROM moulds mm
+        WHERE
+          CASE WHEN TRIM(COALESCE(pb.mould_code, mps.mould_no, '')) <> ''
+            THEN TRIM(mm.mould_number) ILIKE TRIM(COALESCE(pb.mould_code, mps.mould_no, ''))
+            ELSE TRIM(mm.mould_name) ILIKE TRIM(pb.mould_name)
+          END
+        ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
+        LIMIT 1
+      ) m ON TRUE
       WHERE pb.plan_id = $1
   `, [planId]);
     console.log('[STD DEBUG] Result:', mRes[0]);
