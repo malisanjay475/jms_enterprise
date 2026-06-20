@@ -6574,6 +6574,53 @@ app.get('/api/dpr/job-summary', async (req, res) => {
   }
 });
 
+// DEBUG: Full status check for a specific OR number
+app.get('/api/debug/or-status', async (req, res) => {
+  try {
+    const orNo = String(req.query.or || '').trim();
+    if (!orNo) return res.json({ ok: false, error: 'Pass ?or=OR_NUMBER' });
+
+    const [planRows, orjrRows, orderRow, summaryRow] = await Promise.all([
+      q(`SELECT id, plan_id, order_no, machine, status, jc_approval_status, created_at, updated_at
+         FROM plan_board
+         WHERE TRIM(order_no) ILIKE $1
+         ORDER BY created_at DESC`, [`%${orNo}%`]),
+      q(`SELECT id, or_jr_no, jr_close, is_closed, mld_status, job_card_no, factory_id, created_date, updated_at
+         FROM or_jr_report
+         WHERE TRIM(or_jr_no) ILIKE $1
+         ORDER BY created_date DESC`, [`%${orNo}%`]),
+      q(`SELECT order_no, status, completion_confirmation_required, completion_confirmed_at, updated_at
+         FROM orders
+         WHERE TRIM(order_no) ILIKE $1
+         LIMIT 5`, [`%${orNo}%`]),
+      q(`SELECT or_jr_no, mld_status, is_dropped, factory_id
+         FROM mould_planning_summary
+         WHERE TRIM(or_jr_no) ILIKE $1
+         LIMIT 5`, [`%${orNo}%`])
+    ]);
+
+    res.json({
+      ok: true,
+      searched_for: orNo,
+      plan_board: planRows,
+      or_jr_report: orjrRows,
+      orders_table: orderRow,
+      mould_planning_summary: summaryRow,
+      diagnosis: {
+        has_plans: planRows.length > 0,
+        plan_statuses: [...new Set(planRows.map(r => r.status))],
+        plan_jc_approval: [...new Set(planRows.map(r => r.jc_approval_status))],
+        order_status: orderRow[0]?.status || 'NOT FOUND in orders table',
+        jr_close_values: [...new Set(orjrRows.map(r => r.jr_close))],
+        is_closed_values: [...new Set(orjrRows.map(r => r.is_closed))],
+        in_mould_summary: summaryRow.length > 0
+      }
+    });
+  } catch (e) {
+    res.json({ ok: false, error: String(e) });
+  }
+});
+
 // DEBUG: Inspect IDs for Shifting Mismatch
 app.get('/api/debug/ids', async (req, res) => {
   try {
