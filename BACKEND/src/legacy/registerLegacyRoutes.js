@@ -6593,7 +6593,7 @@ app.get('/api/debug/or-status', async (req, res) => {
          FROM orders
          WHERE TRIM(order_no) ILIKE $1
          LIMIT 5`, [`%${orNo}%`]),
-      q(`SELECT or_jr_no, mld_status, is_dropped, factory_id
+      q(`SELECT or_jr_no, factory_id
          FROM mould_planning_summary
          WHERE TRIM(or_jr_no) ILIKE $1
          LIMIT 5`, [`%${orNo}%`])
