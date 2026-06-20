@@ -13276,7 +13276,7 @@ function toIsoDateText(val) {
 }
 
 // 1. PREVIEW (Compare Excel vs DB)
-app.post('/api/upload/or-jr-preview', upload.single('file'), async (req, res) => {
+app.post('/api/upload/or-jr-preview', (req, res, next) => { upload.single('file')(req, res, (err) => { if (err) return res.status(400).json({ ok: false, error: err.message || 'File upload error' }); next(); }); }, async (req, res) => {
   try {
     const writeContext = await getWritableFactoryContext(req, 'preview OR-JR Status uploads');
     if (!writeContext.ok) {
@@ -16417,7 +16417,7 @@ app.post('/api/planning/auto-assign-p1', async (req, res) => {
    ============================================================ */
 
 // 1. PREVIEW (Upload logic for Review)
-app.post('/api/upload/machines-preview', upload.single('file'), async (req, res) => {
+app.post('/api/upload/machines-preview', (req, res, next) => { upload.single('file')(req, res, (err) => { if (err) return res.status(400).json({ ok: false, error: err.message || 'File upload error' }); next(); }); }, async (req, res) => {
   try {
     const writeContext = await getWritableFactoryContext(req, 'preview machine uploads');
     if (!writeContext.ok) {
@@ -16750,7 +16750,7 @@ app.post('/api/upload/machines-confirm', async (req, res) => {
   }
 });
 
-app.post('/api/upload/wipstock-preview', upload.single('file'), async (req, res) => {
+app.post('/api/upload/wipstock-preview', (req, res, next) => { upload.single('file')(req, res, (err) => { if (err) return res.status(400).json({ ok: false, error: err.message || 'File upload error' }); next(); }); }, async (req, res) => {
   try {
     const writeContext = await getWritableFactoryContext(req, 'preview WIP Stock uploads');
     if (!writeContext.ok) {
@@ -18599,7 +18599,7 @@ app.post('/api/hr/operators', async (req, res) => {
 });
 
 // POST /api/hr/upload-operators
-app.post('/api/hr/upload-operators', upload.single('file'), async (req, res) => {
+app.post('/api/hr/upload-operators', (req, res, next) => { upload.single('file')(req, res, (err) => { if (err) return res.status(400).json({ ok: false, error: err.message || 'File upload error' }); next(); }); }, async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ ok: false, error: 'No file uploaded' });
     const factoryId = getFactoryId(req);
