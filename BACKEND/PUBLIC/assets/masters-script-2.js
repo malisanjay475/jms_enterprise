@@ -1,3 +1,7 @@
+    function mEscHtml(value) {
+      return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+
     // Custom "Natural" Sort: Splits strings into text/number chunks and compares them.
     // Fixes "Line>Machine-1" vs "Line>Machine-10" deterministically.
     function naturalCompare(a, b) {
@@ -2012,7 +2016,7 @@
       if (!preview || !empty) return;
 
       if (cleanSrc) {
-        preview.src = cleanSrc;
+        preview.src = mEscHtml(cleanSrc);
         preview.onerror = function () {
           preview.removeAttribute('src');
           preview.style.display = 'none';

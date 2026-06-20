@@ -1,12 +1,26 @@
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$liveRoot = "C:\Users\SanjayMali\Downloads\jms-local-server-jms-01\JMS_LOCAL_SERVER_jms-01"
+# Active factory LOCAL server root (the path pm2 actually runs the backend from).
+# The old Downloads\jms-local-server-jms-01 copy is inactive — do not sync there.
+$liveRoot = "D:\JMS_LOCAL_SERVER_factory-1-3cbb2e3f"
 
 $pairs = @(
   @{ Source = "BACKEND\PUBLIC\planning.html"; Destination = "BACKEND\PUBLIC\planning.html" },
+  @{ Source = "BACKEND\PUBLIC\assets\planning-script-1.js"; Destination = "BACKEND\PUBLIC\assets\planning-script-1.js" },
+  @{ Source = "BACKEND\PUBLIC\assets\planning-script-2.js"; Destination = "BACKEND\PUBLIC\assets\planning-script-2.js" },
+  @{ Source = "BACKEND\PUBLIC\assets\planning-script-3.js"; Destination = "BACKEND\PUBLIC\assets\planning-script-3.js" },
   @{ Source = "BACKEND\PUBLIC\supervisor.html"; Destination = "BACKEND\PUBLIC\supervisor.html" },
+  @{ Source = "BACKEND\PUBLIC\assets\supervisor-script-1.js"; Destination = "BACKEND\PUBLIC\assets\supervisor-script-1.js" },
+  @{ Source = "BACKEND\PUBLIC\shifting_supervisor.html"; Destination = "BACKEND\PUBLIC\shifting_supervisor.html" },
   @{ Source = "BACKEND\PUBLIC\masters.html"; Destination = "BACKEND\PUBLIC\masters.html" },
+  @{ Source = "BACKEND\PUBLIC\assets\masters-script-1.js"; Destination = "BACKEND\PUBLIC\assets\masters-script-1.js" },
+  @{ Source = "BACKEND\PUBLIC\assets\masters-script-2.js"; Destination = "BACKEND\PUBLIC\assets\masters-script-2.js" },
+  @{ Source = "BACKEND\PUBLIC\dpr.html"; Destination = "BACKEND\PUBLIC\dpr.html" },
+  @{ Source = "BACKEND\PUBLIC\assets\dpr-script-1.js"; Destination = "BACKEND\PUBLIC\assets\dpr-script-1.js" },
+  @{ Source = "BACKEND\PUBLIC\assets\dpr-script-2.js"; Destination = "BACKEND\PUBLIC\assets\dpr-script-2.js" },
+  @{ Source = "BACKEND\PUBLIC\QCSupervisor.html"; Destination = "BACKEND\PUBLIC\QCSupervisor.html" },
+  @{ Source = "BACKEND\PUBLIC\assets\QCSupervisor-script-1.js"; Destination = "BACKEND\PUBLIC\assets\QCSupervisor-script-1.js" },
   @{ Source = "BACKEND\PUBLIC\assets\app.css"; Destination = "BACKEND\PUBLIC\assets\app.css" },
   @{ Source = "BACKEND\PUBLIC\assets\app.js"; Destination = "BACKEND\PUBLIC\assets\app.js" },
   @{ Source = "BACKEND\PUBLIC\assets\timeline_patch.js"; Destination = "BACKEND\PUBLIC\assets\timeline_patch.js" },

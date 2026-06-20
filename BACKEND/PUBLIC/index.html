@@ -1348,7 +1348,7 @@
             document.getElementById('welcomeMeta').textContent = `${fullDateTime} | A clean start screen for planning, DPR, quality, approvals, and live plant coordination.`;
             document.getElementById('headerTime').innerHTML = `<i class="bi bi-clock-history"></i><span>${shortTime} IST</span>`;
             document.getElementById('contextRole').innerHTML = `<i class="bi bi-person-badge"></i><span>${roleName}</span>`;
-            document.getElementById('contextFactory').innerHTML = `<i class="bi bi-building"></i><span>${factoryName}</span>`;
+            document.getElementById('contextFactory').innerHTML = `<i class="bi bi-building"></i><span>${escapeHtml(factoryName)}</span>`;
             document.getElementById('contextTime').innerHTML = `<i class="bi bi-geo-alt"></i><span>${shortTime} IST | Asia/Kolkata</span>`;
             document.getElementById('statusGreeting').textContent = greeting;
             document.getElementById('statusMessage').textContent = `${greeting} is shown from India time (GMT+5:30) for every login session.`;

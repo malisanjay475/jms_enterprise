@@ -3388,7 +3388,7 @@
 
           // Edit Button Logic (Only for first row)
           const canEdit = (i === 0);
-          const safeRemarks = (r.Remarks || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+          const safeRemarks = (r.Remarks || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
           const rBk = r.RejectBreakup ? JSON.stringify(r.RejectBreakup).replace(/"/g, '&quot;') : '{}';
           const dBk = r.DowntimeBreakup ? JSON.stringify(r.DowntimeBreakup).replace(/"/g, '&quot;') : '{}';
           

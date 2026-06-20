@@ -440,11 +440,15 @@
         let currentLogs = [];
         let globalReasonMap = { DOWNTIME: {}, REJECTION: {} };
 
+        function escapeHtml(value) {
+            return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             JPSMS.renderShell();
             initSearch();
             const fname = localStorage.getItem('jpsms_factory_name') || 'Main Factory';
-            document.getElementById('factory-tag').innerHTML = `<i class="bi bi-building"></i> ${fname}`;
+            document.getElementById('factory-tag').innerHTML = `<i class="bi bi-building"></i> ${escapeHtml(fname)}`;
         });
 
         async function initSearch() {
