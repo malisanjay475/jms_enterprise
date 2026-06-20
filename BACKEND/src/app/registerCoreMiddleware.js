@@ -108,8 +108,14 @@ function registerCoreMiddleware(app) {
       // 5 min cache + stale-while-revalidate so browser reuses instantly while
       // revalidating in background. Revalidation uses ETag (Express sets it).
       res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+    } else if (p.startsWith('/assets/vendor/') || req.query.v) {
+      // Third-party libs are pinned by version in their path (…/1.13.4/…), and
+      // our own assets are busted with ?v= query strings. Either way the URL
+      // changes when the content changes, so cache for a year + immutable
+      // (browser never even revalidates → instant repeat loads).
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     } else if (/\.(js|css)$/i.test(p)) {
-      // JS/CSS are versioned with ?v= query strings → long cache is safe.
+      // Un-versioned JS/CSS → moderate cache with background revalidation.
       res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=3600');
     } else if (/\.(woff2?|ttf|eot|otf)$/i.test(p)) {
       // Fonts never change — 7-day cache.
