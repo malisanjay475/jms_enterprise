@@ -4831,6 +4831,10 @@ async function initializeLegacyRuntime() {
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_plan_id ON dpr_hourly(plan_id);`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_status ON plan_board(status);`);
 
+    // Per-machine P1–P4 priority labels
+    await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_machine_priority ON plan_board(machine, machine_priority) WHERE machine_priority IS NOT NULL`);
+
     // Legacy unique on or_jr_no alone — skipped when duplicates exist (composite index is applied later).
     await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_report_unique_no ON or_jr_report(or_jr_no);`).catch(err =>
       console.warn('[DB] idx_or_jr_report_unique_no skipped (duplicate or_jr_no rows in data):', err.message)
@@ -8089,7 +8093,8 @@ app.get('/api/planning/board', async (req, res) => {
                     COALESCE(NULLIF(TRIM(mMaster.secondary_machine), ''), NULLIF(TRIM(m.secondary_machine), ''), '') AS "secondaryMachine",
                     -- Mould Change Report extras: standard weight (WT) + pieces/hour (P/H) from mould master
                     COALESCE(mMaster.std_wt_kg, m.std_wt_kg) AS "stdWt",
-                    COALESCE(mMaster.pcs_per_hour, m.pcs_per_hour) AS "pcsHour"
+                    COALESCE(mMaster.pcs_per_hour, m.pcs_per_hour) AS "pcsHour",
+                    pb.machine_priority AS "machinePriority"
       FROM plan_board pb
       LEFT JOIN orders o ON o.order_no = pb.order_no
       LEFT JOIN machines planMachine
@@ -8150,6 +8155,86 @@ app.get('/api/planning/board', async (req, res) => {
 
     res.json({ ok: true, data: { plans: normalized } });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+/* ============================================================
+   MACHINE PRIORITY (P1–P4) API
+   Each machine can have at most one plan per label.
+   Assigning a label clears any previous holder of that label
+   on the same machine, then sets it on the target plan.
+   After any change the remaining labels are compacted so there
+   are never gaps (P1, P3 → P1, P2).
+============================================================ */
+app.post('/api/planning/machine-priority', async (req, res) => {
+  try {
+    const { planId, machine, priority } = req.body;
+    if (!planId || !machine) return res.status(400).json({ ok: false, error: 'planId and machine required' });
+    const allowed = ['P1', 'P2', 'P3', 'P4', null];
+    if (!allowed.includes(priority)) return res.status(400).json({ ok: false, error: 'priority must be P1–P4 or null' });
+    const factoryId = getFactoryId(req);
+    const fClause = factoryId ? ` AND factory_id = ${factoryId}` : '';
+
+    if (priority === null) {
+      // Clear this plan's label only
+      await q(`UPDATE plan_board SET machine_priority = NULL, updated_at = NOW()
+               WHERE id = $1${fClause}`, [planId]);
+    } else {
+      // 1. Clear any existing holder of this label on this machine
+      await q(`UPDATE plan_board SET machine_priority = NULL, updated_at = NOW()
+               WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
+                 AND machine_priority = $2
+                 AND id != $3${fClause}`, [machine, priority, planId]);
+      // 2. Clear old label on this plan
+      await q(`UPDATE plan_board SET machine_priority = NULL, updated_at = NOW()
+               WHERE id = $1 AND machine_priority IS NOT NULL${fClause}`, [planId]);
+      // 3. Set new label
+      await q(`UPDATE plan_board SET machine_priority = $1, updated_at = NOW()
+               WHERE id = $2${fClause}`, [priority, planId]);
+    }
+
+    // 4. Compact: re-read all labelled plans on this machine sorted by label,
+    //    then reassign P1, P2, P3... filling gaps.
+    const labelled = await q(
+      `SELECT id, machine_priority FROM plan_board
+       WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
+         AND machine_priority IS NOT NULL${fClause}
+       ORDER BY machine_priority ASC`, [machine]
+    );
+    const labels = ['P1', 'P2', 'P3', 'P4'];
+    for (let i = 0; i < labelled.length; i++) {
+      const newLabel = labels[i];
+      if (labelled[i].machine_priority !== newLabel) {
+        await q(`UPDATE plan_board SET machine_priority = $1, updated_at = NOW() WHERE id = $2`, [newLabel, labelled[i].id]);
+      }
+    }
+
+    // Return updated map for this machine
+    const updated = await q(
+      `SELECT id, plan_id, order_no, machine_priority FROM plan_board
+       WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
+         AND machine_priority IS NOT NULL${fClause}
+       ORDER BY machine_priority ASC`, [machine]
+    );
+    res.json({ ok: true, priorities: updated });
+  } catch (e) {
+    console.error('/api/planning/machine-priority POST', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+app.get('/api/planning/machine-priority', async (req, res) => {
+  try {
+    const machine = req.query.machine ? String(req.query.machine).trim() : null;
+    const factoryId = getFactoryId(req);
+    const params = [];
+    let where = `machine_priority IS NOT NULL`;
+    if (machine) { params.push(machine); where += ` AND TRIM(UPPER(machine)) = TRIM(UPPER($${params.length}))`; }
+    if (factoryId) { params.push(factoryId); where += ` AND factory_id = $${params.length}`; }
+    const rows = await q(`SELECT id, plan_id, order_no, machine, machine_priority FROM plan_board WHERE ${where} ORDER BY machine, machine_priority ASC`, params);
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
 });
 
 // POST /api/planning/set-jc
