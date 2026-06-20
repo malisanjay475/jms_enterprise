@@ -1983,6 +1983,56 @@ function _invalidateFactoryCache(username) {
   if (username) _factoryScopeCache.delete(username);
 }
 
+// ── Throttle guard for idempotent self-heal blocks ─────────────────────────
+// Some hot endpoints (e.g. /api/planning/board) run a series of idempotent
+// data-normalisation UPDATEs on every request. Those only have real work to do
+// right after an import/sync; running them on every load just adds latency.
+// shouldRunSelfHeal(key, ms) returns true at most once per `ms` window per
+// process, so the heavy block runs occasionally instead of every request.
+// The SELECTs that follow already COALESCE/strip dirty values inline, so a
+// short skip window never changes what the user sees.
+const _selfHealLast = new Map(); // key → last-run epoch ms
+function shouldRunSelfHeal(key, ms = 60000) {
+  const now = Date.now();
+  const last = _selfHealLast.get(key) || 0;
+  if (now - last < ms) return false;
+  _selfHealLast.set(key, now);
+  return true;
+}
+
+// ── Generic short-TTL read cache for read-mostly list endpoints ────────────
+// Keyed by namespace + a key derived from the effective query (factory/line/etc).
+// Writes that change the underlying data call ttlCacheClear(namespace) so the
+// next read repopulates — this keeps the cache correct (no stale lists after an
+// edit) while absorbing the repeated identical reads that the hot pages fire on
+// every load. TTL is a safety net in case an invalidation path is ever missed.
+const _ttlCaches = new Map(); // namespace → Map(key → { data, exp })
+function ttlCacheGet(ns, key) {
+  const m = _ttlCaches.get(ns);
+  if (!m) return undefined;
+  const hit = m.get(key);
+  if (!hit) return undefined;
+  if (hit.exp <= Date.now()) { m.delete(key); return undefined; }
+  return hit.data;
+}
+function ttlCacheSet(ns, key, data, ttlMs = 30000) {
+  let m = _ttlCaches.get(ns);
+  if (!m) { m = new Map(); _ttlCaches.set(ns, m); }
+  // Bound memory: a namespace should never hold an unbounded number of variants.
+  if (m.size > 200) m.clear();
+  m.set(key, { data, exp: Date.now() + ttlMs });
+}
+function ttlCacheClear(ns) { _ttlCaches.delete(ns); }
+
+// ── Boot schema-heal version ───────────────────────────────────────────────
+// Stamp recorded in server_config after a successful boot data-heal. The one-time
+// data-backfill UPDATEs (e.g. filling NULL sync_id / factory_id across every sync
+// table) only have work right after a column is first added; once healed under a
+// given version they stay healed. Gating them behind this stamp avoids ~100
+// full-table UPDATE scans on every subsequent boot. Bump the suffix whenever a
+// change requires those one-time heals to run again.
+const LEGACY_SCHEMA_HEAL_VERSION = '2026-06-20-r3';
+
 async function getAccessibleFactoriesForUser(userOrUsername) {
   let user = userOrUsername;
 
@@ -4654,23 +4704,50 @@ async function initializeLegacyRuntime() {
 
     const FID = process.env.LOCAL_FACTORY_ID || 1;
 
+    // One-time data-heal gate: the per-table "fill NULL sync_id / factory_id"
+    // UPDATEs scan every row of every sync table. They only have work right after
+    // a column is first added; once a boot completes them under the current
+    // version they never find NULLs again. Skip them when the stored version
+    // already matches, but ALWAYS run the structural ALTER/CREATE INDEX below so
+    // a fresh or partially-restored DB still gets its columns and indexes.
+    let _healStamp = null;
+    try {
+      const r = await q(`SELECT value FROM server_config WHERE key = 'legacy_schema_heal_version'`);
+      _healStamp = r && r[0] ? r[0].value : null;
+    } catch (_) { _healStamp = null; }
+    const needsSyncHeal = _healStamp !== LEGACY_SCHEMA_HEAL_VERSION;
+    if (!needsSyncHeal) {
+      console.log(`[DB] Sync data-heal up to date (${LEGACY_SCHEMA_HEAL_VERSION}); skipping per-table backfill scans.`);
+    }
+
     for (const table of SYNC_TABLES) {
       if (!(await tableExistsPublic(table))) {
         console.warn(`[DB] Sync column bootstrap skipped (table not created yet): ${table}`);
         continue;
       }
-      // 1. Ensure Columns
+      // 1. Ensure Columns (always — cheap catalog check, required for fresh DBs)
       await q(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid();`);
       await q(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS sync_status TEXT;`);
       await q(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS factory_id INTEGER;`);
 
-      // 2. Heal Data (Fill Nulls)
-      await q(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
-      await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
+      // 2. Heal Data (Fill Nulls) — one-time per version, gated to avoid full scans every boot
+      if (needsSyncHeal) {
+        await q(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
+        await q(`UPDATE ${table} SET factory_id = $1 WHERE factory_id IS NULL`, [FID]);
+      }
 
       // 3. Create Unique Index (Required for ON CONFLICT upsert)
       // Note: We use a generic name pattern to avoid collisions
       await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_sync_id ON ${table}(sync_id);`);
+    }
+
+    // Stamp the heal version so subsequent boots skip the full-table backfill scans.
+    if (needsSyncHeal) {
+      await q(
+        `INSERT INTO server_config (key, value) VALUES ('legacy_schema_heal_version', $1)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [LEGACY_SCHEMA_HEAL_VERSION]
+      ).catch(err => console.warn('[DB] heal-version stamp skipped:', err.message));
     }
 
     // [FIX] Restore Legacy Unique Index to support local UPSERT logic (line 1069)
@@ -5451,6 +5528,14 @@ app.get('/api/machines', async (req, res) => {
       whereClause += ` AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = $${params.length}`;
     }
 
+    // Read-mostly: serve from short-TTL cache keyed by the effective filters.
+    // Invalidated by machine write endpoints (ttlCacheClear('machines')).
+    const cacheKey = `${factoryId || ''}|${lineQuery}|${requestedProcess || ''}`;
+    const cachedList = ttlCacheGet('machines', cacheKey);
+    if (cachedList !== undefined) {
+      return res.json({ ok: true, data: cachedList });
+    }
+
     const rows = await q(
       `SELECT machine, line, COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') AS machine_process
          FROM machines
@@ -5460,6 +5545,7 @@ app.get('/api/machines', async (req, res) => {
     );
     // Natural Sort in Application Layer
     const list = rows.map(r => r.machine).sort(naturalCompare);
+    ttlCacheSet('machines', cacheKey, list, 30000);
     res.json({ ok: true, data: list });
   } catch (e) {
     console.error('machines error', e);
@@ -5573,8 +5659,17 @@ app.get('/api/masters/moulds', async (req, res) => {
 
     query += ' ORDER BY id ASC';
 
+    // Read-mostly: serve from short-TTL cache keyed by factory.
+    // Invalidated by mould write endpoints (ttlCacheClear('moulds')).
+    const cacheKey = String(factoryId || '');
+    const cachedMoulds = ttlCacheGet('moulds', cacheKey);
+    if (cachedMoulds !== undefined) {
+      return res.json({ ok: true, data: cachedMoulds });
+    }
+
     const rows = await q(query, params);
     // console.log('[API] Moulds Found:', rows.length);
+    ttlCacheSet('moulds', cacheKey, rows, 30000);
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('moulds fetch error', e);
@@ -7858,6 +7953,12 @@ app.delete('/api/planning/priority/:id', async (req, res) => {
 // GET /api/planning/board?plant=DUNGRA&date=2025-12-12
 app.get('/api/planning/board', async (req, res) => {
   try {
+    // The self-heal block below is a set of idempotent data-normalisation UPDATEs.
+    // They only have real work right after an import/sync, yet they used to run on
+    // EVERY board load (~9 write queries). Throttle to at most once per 60s per
+    // process; the SELECT further down COALESCEs/strips any not-yet-healed values
+    // inline, so a short skip window is invisible to the user.
+    if (shouldRunSelfHeal('planning/board', 60000)) {
     // Self-heal 1 (factory-scoped): Normalise plan_board.machine to the exact value stored
     // in the machines master for the SAME factory. This covers:
     //   a) Legacy prefix codes like "E -L1>HYD-350-1"  → "HYD-350-1"
@@ -8033,6 +8134,7 @@ app.get('/api/planning/board', async (req, res) => {
         WHERE rn > 1
       )
     `);
+    } // end throttled self-heal block
 
     // [FIX] Factory Isolation
     const factoryId = getFactoryId(req); // Moved up
@@ -14753,6 +14855,9 @@ app.post('/api/upload/:type', async (req, res, next) => {
     }
 
     try {
+      // Bulk master import can change moulds/machines — drop cached list reads.
+      ttlCacheClear('moulds');
+      ttlCacheClear('machines');
       const writeContext = await getWritableFactoryContext(req, 'upload master data');
       if (!writeContext.ok) {
         return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
@@ -16768,6 +16873,7 @@ app.post('/api/upload/machines-preview', (req, res, next) => { upload.single('fi
 // 2. CONFIRM (Apply changes)
 app.post('/api/upload/machines-confirm', async (req, res) => {
   try {
+    ttlCacheClear('machines'); // machine list changes — drop cached reads
     const { rows, user } = req.body; // Expecting { rows: [...] }
     const writeContext = await getWritableFactoryContext(req, 'confirm machine uploads');
     if (!writeContext.ok) {
@@ -17000,6 +17106,7 @@ app.post('/api/upload/wipstock-confirm', async (req, res) => {
 // 3. CRUD: Create
 app.post('/api/machines', async (req, res) => {
   try {
+    ttlCacheClear('machines'); // machine list changes — drop cached reads
     const { machine, line, building, tonnage, mould_load_time, mould_unload_time, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64 } = req.body;
     const cleanMachine = normalizeMachineName(machine);
     const cleanProcess = normalizeMachineProcess(machine_process, 'Moulding');
@@ -17056,6 +17163,7 @@ app.post('/api/machines', async (req, res) => {
 // 4. CRUD: Update/Delete
 app.put('/api/machines/:id', async (req, res) => { // ID is machine name
   try {
+    ttlCacheClear('machines'); // machine list changes — drop cached reads
     const { id } = req.params; // old machine name
     const { machine, line, building, tonnage, mould_load_time, mould_unload_time, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64 } = req.body;
     const writeContext = await getWritableFactoryContext(req, 'edit machines');
@@ -17157,6 +17265,7 @@ app.put('/api/machines/:id', async (req, res) => { // ID is machine name
 
 app.delete('/api/machines/:id', async (req, res) => {
   try {
+    ttlCacheClear('machines'); // machine list changes — drop cached reads
     const writeContext = await getWritableFactoryContext(req, 'delete machines');
     if (!writeContext.ok) {
       return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
@@ -17224,6 +17333,7 @@ app.get('/api/machines/history/:id', async (req, res) => {
 // 1. CREATE Mould
 app.post('/api/moulds', async (req, res) => {
   try {
+    ttlCacheClear('moulds'); // mould list changes — drop cached reads
     const payload = normalizeMouldMasterPayload(req.body || {});
     const actor = req.body?._user || req.body?.user || getRequestUsername(req) || 'System';
     const writeContext = await getWritableFactoryContext(req, 'add moulds');
@@ -17271,6 +17381,7 @@ app.post('/api/moulds', async (req, res) => {
 // 2. UPDATE Mould (With Audit)
 app.put('/api/moulds/:id', async (req, res) => {
   try {
+    ttlCacheClear('moulds'); // mould list changes — drop cached reads
     const { id } = req.params;
     const writeContext = await getWritableFactoryContext(req, 'edit moulds');
     if (!writeContext.ok) {
