@@ -15113,7 +15113,7 @@
         const res = await fetch('/api/planning/machine-priority', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ planId, machineCode, priority: isActive ? null : priority })
+          body: JSON.stringify({ planId, machine: machineCode, priority: isActive ? null : priority })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to set priority');
