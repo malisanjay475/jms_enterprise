@@ -8167,12 +8167,20 @@ app.get('/api/planning/board', async (req, res) => {
 ============================================================ */
 app.post('/api/planning/machine-priority', async (req, res) => {
   try {
-    const { planId, machine, priority } = req.body;
-    if (!planId || !machine) return res.status(400).json({ ok: false, error: 'planId and machine required' });
+    const { priority } = req.body;
+    const planId = String(req.body.planId || '').trim();
+    if (!planId) return res.status(400).json({ ok: false, error: 'planId required' });
     const allowed = ['P1', 'P2', 'P3', 'P4', null];
     if (!allowed.includes(priority)) return res.status(400).json({ ok: false, error: 'priority must be P1–P4 or null' });
     const factoryId = getFactoryId(req);
     const fClause = factoryId ? ` AND factory_id = ${factoryId}` : '';
+    // Derive machine from plan if not sent (or sent empty)
+    let machine = String(req.body.machine || '').trim();
+    if (!machine) {
+      const planRow = await q(`SELECT machine FROM plan_board WHERE id = $1${fClause}`, [planId]);
+      machine = (planRow[0] && planRow[0].machine) ? String(planRow[0].machine).trim() : '';
+    }
+    if (!machine) return res.status(400).json({ ok: false, error: 'machine not found for plan' });
 
     await q('BEGIN');
     try {
