@@ -1,3 +1,7 @@
+    function pEsc(value) {
+      return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+
     window.forceActivatePlan = async function (id, orderNo) {
       console.log('[Override] Activating Plan via FORCE:', id);
       try {
@@ -403,7 +407,7 @@
       if (countEl) countEl.textContent = plans.length ? `${plans.length} plan${plans.length === 1 ? '' : 's'}` : '';
 
       if (plans.length === 0) {
-        list.innerHTML = '<div style="padding:48px; text-align:center; color:#94a3b8; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:12px"><i class="bi bi-inbox" style="font-size:1.8rem; display:block; margin-bottom:8px"></i>No completed plans found' + (search ? ' matching "' + search + '"' : '') + '.</div>';
+        list.innerHTML = '<div style="padding:48px; text-align:center; color:#94a3b8; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:12px"><i class="bi bi-inbox" style="font-size:1.8rem; display:block; margin-bottom:8px"></i>No completed plans found' + (search ? ' matching "' + pEsc(search) + '"' : '') + '.</div>';
         return;
       }
 
@@ -514,7 +518,7 @@
         });
         list.innerHTML = html;
       } catch (e) {
-        list.innerHTML = `<div style="color:red; padding:20px">Error: ${e.message}</div>`;
+        list.innerHTML = `<div style="color:red; padding:20px">Error: ${pEsc(e.message)}</div>`;
       }
     };
 
