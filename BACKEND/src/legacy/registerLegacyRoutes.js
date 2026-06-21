@@ -6299,14 +6299,14 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
     let planRow = null;
     if (planId) {
       const rows = await q(
-        `SELECT plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
+        `SELECT id, plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
          FROM plan_board WHERE plan_id = $1 LIMIT 1`, [planId]
       );
       planRow = rows[0] || null;
     }
     if (!planRow && orderNo) {
       const rows = await q(
-        `SELECT plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
+        `SELECT id, plan_id, order_no, plan_qty, bal_qty, colour_details, mould_name, factory_id
          FROM plan_board WHERE order_no = $1 LIMIT 1`, [orderNo]
       );
       planRow = rows[0] || null;
@@ -6369,6 +6369,16 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
       ORDER BY h.dpr_date ASC, h.shift ASC, h.hour_slot ASC
     `, params);
 
+    // 1b. Fetch order qty from orders table
+    let orderQty = 0;
+    const effectiveOrderNoForOrders = planRow?.order_no || orderNo || null;
+    if (effectiveOrderNoForOrders) {
+      const ordRows = await q(
+        `SELECT order_qty FROM orders WHERE order_no = $1 LIMIT 1`, [effectiveOrderNoForOrders]
+      );
+      if (ordRows[0]) orderQty = Number(ordRows[0].order_qty || 0);
+    }
+
     // 3. Group entries: colour → shifts → hourly
     const colourMap = {}; // { colour: { planQty, shifts: { 'Day|2026-05-28': { shift, date, entries[] } } } }
 
@@ -6403,11 +6413,19 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
       });
     });
 
+    // 3b. Include planned colours that have no DPR entries yet (show with 0 produced)
+    Object.entries(colourPlanMap).forEach(([col, qty]) => {
+      if (!colourMap[col] && qty > 0) {
+        colourMap[col] = { planQty: qty, shifts: {} };
+      }
+    });
+
     // 4. Shape into final response
     const totalGood   = entries.reduce((s, e) => s + Number(e.good_qty   || 0), 0);
     const totalReject = entries.reduce((s, e) => s + Number(e.reject_qty || 0), 0);
     const planQty     = Number(planRow?.plan_qty  || 0);
-    const balQty      = Number(planRow?.bal_qty   || 0);
+    // Balance = actual remaining (planQty - actual produced), NOT the stale stored bal_qty
+    const balQty      = Math.max(0, planQty - totalGood);
 
     const colours = Object.entries(colourMap).map(([colour, data]) => {
       const shifts = Object.values(data.shifts).sort((a, b) =>
@@ -6428,7 +6446,9 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
       ok: true,
       data: {
         planId: effectivePlanId,
+        planDbId: planRow?.id || null,         // integer PK for reference
         orderNo: effectiveOrderNo,
+        orderQty,                              // total order quantity from orders table
         planQty,
         producedQty: totalGood,
         balQty,
