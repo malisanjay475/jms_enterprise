@@ -47,3 +47,40 @@ Test: Actions → "Sync Health Check" → Run workflow → should report `health
 | Uptime | UptimeRobot shows "Up" |
 
 Result: max data loss ≈ **6 hours**; recovery from offsite ≈ **15 min**; broken backup / stuck sync alerts you in **hours, not days**.
+
+---
+
+## Monthly restore test (a backup you never restored is only a hope)
+
+The **"Backup Restore Test"** workflow runs on the 1st of each month (09:00 IST)
+and can be triggered manually. It restores the newest dump into a throwaway
+Postgres container on the VPS, asserts table/row counts, then tears it down —
+never touching production. If it fails you get an email: the backup is unusable
+and must be fixed *before* you ever need it.
+
+Run manually: **Actions → "Backup Restore Test" → Run workflow**.
+On the VPS directly: `BACKUP_ROOT=/opt/jms-backups bash scripts/verify-backup-restore.sh`
+
+## Enforce offsite (no silent local-only backups)
+
+`vps-backup-to-cloud.sh` now prints a loud `OFFSITE-WARNING` to stderr when the
+`gdrive` rclone remote is missing. To make a missing offsite copy a hard
+failure (recommended once Drive is set up), run the backup with
+`STRICT_OFFSITE=1` — the job then fails (and emails you) rather than reporting
+success with backups that only exist on the VPS.
+
+## Point-In-Time Recovery (PITR) — shrink 6h loss to seconds
+
+The 6-hour dump cadence means up to 6h of data loss in a disaster. For an ERP
+this is the next upgrade. Enable WAL archiving on the production Postgres:
+
+1. In `postgresql.conf` (or compose command flags):
+   `wal_level = replica`, `archive_mode = on`,
+   `archive_command = 'rclone copy %p gdrive:JMS-Backups/wal/'` (or copy to a
+   local archive dir that the backup script tars/uploads).
+2. Keep one weekly **base backup** (`pg_basebackup`) alongside the WAL stream.
+3. Recovery = restore the base backup, then replay WAL up to the exact second
+   before the incident (`recovery_target_time`).
+
+With PITR in place, worst-case data loss drops from ~6 hours to **the last
+archived WAL segment (seconds–minutes)**.
