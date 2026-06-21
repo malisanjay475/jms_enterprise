@@ -948,12 +948,14 @@
                 const isJcWarning = nextChangeIn24h && hasNoJc;
 
                 let timeBadge = '';
-                if (idx === 0 && p._rippledEndRaw) {
+                if (p._rippledEndRaw) {
                     let msDiff = 0; let label = ''; let col = '#4f46e5';
                     if (st === 'running') {
-                        msDiff = p._rippledEndRaw.getTime() - Date.now(); col = '#16a34a';
+                        // Running: show time remaining until Exp End (live balance-based)
+                        msDiff = (p._rippledExpRaw || p._rippledEndRaw).getTime() - Date.now(); col = '#16a34a';
                         if (msDiff < 0) { msDiff = Math.abs(msDiff); col = '#ef4444'; label = 'OD '; }
                     } else {
+                        // Queued: show full plan duration (End - Start)
                         if (p._rippledStartRaw) msDiff = p._rippledEndRaw.getTime() - p._rippledStartRaw.getTime();
                         col = '#3b82f6';
                     }
@@ -1356,11 +1358,24 @@
                     const ct = Number(p.cycleTime || 120); const cav = Number(p.cavity || 1); const pcsHr = (ct > 0) ? (3600 / ct) * cav : 30;
                     const qty = Number(p.planQty || 0); const bal = qty - Number(p.producedQty || 0);
                     p.balQty = bal; // P2: allow negative (over-produced)
-                    const durMs = ((isRun ? Math.max(0, bal) : qty) * 3600 * 1000) / pcsHr;
-                    let start, end;
-                    if (isRun) { start = p.firstDprEntry ? new Date(p.firstDprEntry).getTime() : (p.startDate ? new Date(p.startDate).getTime() : Date.now()); end = Date.now() + durMs; }
-                    else { start = (i === 0) ? Date.now() : cursor; end = start + durMs; }
-                    p._rippledStartRaw = new Date(start); p._rippledEndRaw = new Date(end); p._rippledExpRaw = new Date(end); cursor = end;
+                    // End Date = start + full planQty time (constant, never changes)
+                    const durFull = (qty * 3600 * 1000) / pcsHr;
+                    // Exp Date = based on remaining balQty (moves as production happens)
+                    const durBal  = (Math.max(0, bal) * 3600 * 1000) / pcsHr;
+                    let start, endFixed, endExp;
+                    if (isRun) {
+                        start    = p.firstDprEntry ? new Date(p.firstDprEntry).getTime() : (p.startDate ? new Date(p.startDate).getTime() : Date.now());
+                        endFixed = start + durFull;          // fixed: start + total qty time
+                        endExp   = Date.now() + durBal;      // live:  now + remaining bal time
+                    } else {
+                        start    = (i === 0) ? Date.now() : cursor;
+                        endFixed = start + durFull;          // queued: start + full qty
+                        endExp   = start + durBal;           // queued: same initially, shrinks as produced
+                    }
+                    p._rippledStartRaw = new Date(start);
+                    p._rippledEndRaw   = new Date(endFixed); // End Date — constant
+                    p._rippledExpRaw   = new Date(endExp);   // Exp Date — changes with production
+                    cursor = endFixed;                       // ripple next plan from End Date
                 });
             });
             window.allMasterPlans = plans; window.timelineGroups = byMach;
