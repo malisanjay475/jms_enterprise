@@ -86,3 +86,99 @@ describe('Sync service pull resilience', () => {
     expect(configWrites.some(([key]) => key === 'LAST_PULL')).toBe(false);
   });
 });
+
+describe('Sync service push outbox (no row loss)', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  it('parks unsent rows in the outbox when the push to MAIN fails', async () => {
+    const syncService = require('../services/sync.service');
+    const outboxInserts = [];
+    const pool = {
+      query: jest.fn(async (sql, params = []) => {
+        const text = String(sql);
+        if (text.includes('information_schema') || text.includes('column_name')) {
+          // pretend the table exists and has no factory_id column
+          return { rows: [], rowCount: 0 };
+        }
+        if (text.includes('FROM orders')) {
+          // one batch of two rows, then nothing
+          if (!pool._served) {
+            pool._served = true;
+            return { rows: [{ id: 1, updated_at: 'x' }, { id: 2, updated_at: 'y' }], rowCount: 2 };
+          }
+          return { rows: [], rowCount: 0 };
+        }
+        if (text.includes('INSERT INTO sync_failed_rows')) {
+          outboxInserts.push(params);
+          return { rows: [], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      })
+    };
+
+    syncService.__test.setRuntimeForTests({
+      pool,
+      MAIN_SERVER_URL: 'http://main.example',
+      LOCAL_FACTORY_ID: 1,
+      API_KEY: 'test-key'
+    });
+
+    global.fetch = jest.fn().mockResolvedValue(mockResponse(500, 'boom'));
+
+    const stats = await syncService.__test.pushTableAllBatches('orders', '1970-01-01');
+
+    expect(stats.failed).toBe(2);
+    // both rows recorded in the outbox for retry
+    expect(outboxInserts.length).toBe(2);
+    expect(outboxInserts.map((p) => p[0])).toEqual(['orders', 'orders']);
+  });
+
+  it('recovers and clears outbox rows once MAIN accepts them', async () => {
+    const syncService = require('../services/sync.service');
+    const deletes = [];
+    const pool = {
+      query: jest.fn(async (sql, params = []) => {
+        const text = String(sql);
+        if (text.includes('SELECT DISTINCT table_name FROM sync_failed_rows')) {
+          return { rows: [{ table_name: 'orders' }], rowCount: 1 };
+        }
+        if (text.includes('SELECT id, payload FROM sync_failed_rows')) {
+          return { rows: [{ id: 10, payload: { id: 2 } }], rowCount: 1 };
+        }
+        if (text.includes('DELETE FROM sync_failed_rows')) {
+          deletes.push(params);
+          return { rows: [], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      })
+    };
+
+    syncService.__test.setRuntimeForTests({
+      pool,
+      SERVER_TYPE: 'LOCAL',
+      MAIN_SERVER_URL: 'http://main.example',
+      LOCAL_FACTORY_ID: 1,
+      API_KEY: 'test-key'
+    });
+
+    global.fetch = jest.fn().mockResolvedValue(mockResponse(200, { ok: true }));
+
+    const stats = await syncService.__test.drainOutbox();
+
+    expect(stats.recovered).toBe(1);
+    expect(stats.stillFailed).toBe(0);
+    expect(deletes.length).toBe(1);
+  });
+});
