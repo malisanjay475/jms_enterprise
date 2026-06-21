@@ -1,0 +1,84 @@
+name: Backup Restore Test
+
+# Monthly (+ manual) proof that the latest backup is actually restorable.
+# Runs on the VPS over SSH: restores the newest dump into a THROWAWAY postgres
+# container, asserts table/row counts, then tears it down. Never touches prod.
+# Emails joyo44064@gmail.com if verification fails (when MAIL_* secrets are set).
+#
+# Cron UTC 03:30 on the 1st = 09:00 IST on the 1st of each month.
+on:
+  schedule:
+    - cron: '30 3 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jms-backup-restore-test
+  cancel-in-progress: false
+
+jobs:
+  restore-test:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      HAS_MAIL: ${{ secrets.MAIL_PASSWORD != '' }}
+    steps:
+      - name: Verify SSH secrets
+        shell: bash
+        env:
+          HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          USER: ${{ secrets.HOSTINGER_SSH_USER }}
+          KEY:  ${{ secrets.HOSTINGER_SSH_KEY }}
+          DPATH: ${{ secrets.VPS_DEPLOY_PATH }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ] || [ -z "$DPATH" ]; then
+            echo "::error::Missing SSH secrets (HOSTINGER_SSH_HOST/USER/KEY, VPS_DEPLOY_PATH)."
+            exit 1
+          fi
+
+      - name: Verify latest backup is restorable (on VPS, throwaway container)
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
+          port: 22
+          command_timeout: 20m
+          script_stop: true
+          envs: DEPLOY_PATH
+          script: |
+            set -eo pipefail
+            cd "$DEPLOY_PATH"
+            git fetch --prune origin >/dev/null 2>&1 || true
+            git checkout main >/dev/null 2>&1 || true
+            git pull --ff-only origin main >/dev/null 2>&1 || true
+            chmod +x scripts/verify-backup-restore.sh
+            BACKUP_ROOT=/opt/jms-backups bash scripts/verify-backup-restore.sh
+
+      - name: Email alert on failure
+        if: failure() && env.HAS_MAIL == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "🔴 JMS BACKUP RESTORE TEST FAILED — backups may be unusable"
+          to: joyo44064@gmail.com
+          from: JMS Backup Bot <${{ secrets.MAIL_USERNAME }}>
+          body: |
+            The monthly JMS backup RESTORE TEST FAILED.
+
+            This means the latest backup could NOT be restored into a clean
+            database — your backups may be incomplete or corrupt.
+
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ACTION: open the run, read the logs, and fix the backup pipeline
+            BEFORE you ever need to rely on a restore.
