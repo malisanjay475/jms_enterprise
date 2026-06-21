@@ -2625,6 +2625,14 @@ async function getFactoryScopeForRequest(req) {
 function applyFactoryScopeCondition(conditions, params, column, scope) {
   if (!scope) return;
 
+  // Defensive: `column` is interpolated directly into SQL, so it must be a
+  // trusted identifier. All internal callers pass string literals (e.g.
+  // 'factory_id', 's.factory_id'); reject anything that is not a plain
+  // [schema.]column identifier to eliminate any SQL-injection surface.
+  if (typeof column !== 'string' || !/^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$/.test(column)) {
+    throw new Error(`applyFactoryScopeCondition: invalid column identifier "${column}"`);
+  }
+
   if (scope.hasAccessControl === false) {
     if (scope.factoryId !== null && scope.factoryId !== undefined) {
       params.push(scope.factoryId);
