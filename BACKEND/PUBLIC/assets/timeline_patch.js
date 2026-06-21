@@ -232,6 +232,7 @@
                         <table class="om-table">
                             <thead>
                                 <tr>
+                                    <th>Plan ID</th>
                                     <th>Mould / Sub Part</th>
                                     <th>Machine</th>
                                     <th>JC Number</th>
@@ -257,7 +258,7 @@
     function _omRenderRows(mergedList, orderNo, headerProd, headerClient) {
         if (mergedList.length === 0) {
             document.getElementById('om-tbody').innerHTML =
-                '<tr><td colspan="8" style="text-align:center; padding:30px;">No data found.</td></tr>';
+                '<tr><td colspan="9" style="text-align:center; padding:30px;">No data found.</td></tr>';
             return;
         }
         document.getElementById('om-product').textContent = headerProd;
@@ -335,7 +336,9 @@
                 ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : '')}','${esc(item._planObj ? (item._planObj.orderNo || '') : '')}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
                 : '<span style="color:#cbd5e1">—</span>';
 
+            const planIdText = esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '-') : '-');
             return `<tr ${rowClass} ${isHighlighted ? 'data-highlighted="true"' : ''}>
+                <td style="font-family:monospace;font-size:0.78rem;font-weight:700;color:#7c3aed;white-space:nowrap">${planIdText}</td>
                 <td><div style="font-weight:700;color:#334155">${esc(item.mouldName || '-')}</div>
                     <div style="font-size:0.8rem;color:#64748b;font-family:monospace">${esc(item.mouldNo)}</div></td>
                 <td style="font-weight:600;color:#334155">${machDisplay}</td>
@@ -394,7 +397,7 @@
 
         if (mergedFromCache.length === 0) {
             document.getElementById('om-tbody').innerHTML =
-                '<tr><td colspan="8" style="text-align:center;padding:30px;color:#94a3b8">No active plans for this order.</td></tr>';
+                '<tr><td colspan="9" style="text-align:center;padding:30px;color:#94a3b8">No active plans for this order.</td></tr>';
         } else {
             _omRenderRows(mergedFromCache, orderNo, headerProd, headerClient);
         }
@@ -556,7 +559,8 @@
 
     function _ddRenderColours(data) {
         const body = document.getElementById('om-dd-body');
-        const { colours = [], planQty = 0, producedQty = 0, balQty = 0, totalReject = 0, mouldName = '' } = data;
+        const { colours = [], planQty = 0, producedQty = 0, balQty = 0, totalReject = 0, mouldName = '',
+                planId = '', orderQty = 0 } = data;
         const jcLabel = window._ddState.jcNo;
 
         _ddBreadcrumb([
@@ -566,7 +570,7 @@
 
         let colourRows = '';
         if (colours.length === 0) {
-            colourRows = `<tr><td colspan="5" class="dd-empty">No production entries found for this plan.</td></tr>`;
+            colourRows = `<tr><td colspan="5" class="dd-empty">No colour plan or production entries found for this plan.</td></tr>`;
         } else {
             // Store colour names in a lookup so onclick uses an index — no string escaping needed
             window._ddColourLookup = colours.map(c => c.colour);
@@ -590,10 +594,15 @@
         }
 
         body.innerHTML = `<div class="dd-panel">
+            ${(planId || orderQty > 0) ? `
+            <div style="padding:10px 16px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                ${planId ? `<span style="font-family:monospace;font-size:0.78rem;font-weight:800;color:#7c3aed;background:#f5f3ff;padding:3px 10px;border-radius:6px;border:1px solid #c4b5fd;">Plan ID: ${planId}</span>` : ''}
+                ${orderQty > 0 ? `<span style="font-size:0.78rem;font-weight:800;color:#0369a1;background:#e0f2fe;padding:3px 10px;border-radius:6px;border:1px solid #7dd3fc;">OR Qty: ${_ddN(orderQty)}</span>` : ''}
+            </div>` : ''}
             <div class="dd-summary-bar">
                 <div class="dd-stat"><div class="dd-stat-label">Plan Qty</div><div class="dd-stat-val" style="color:#1e293b">${_ddN(planQty)}</div></div>
                 <div class="dd-stat"><div class="dd-stat-label">Produced</div><div class="dd-stat-val" style="color:#16a34a">${_ddN(producedQty)}</div></div>
-                <div class="dd-stat"><div class="dd-stat-label">Balance</div><div class="dd-stat-val" style="color:#f59e0b">${_ddN(balQty)}</div></div>
+                <div class="dd-stat"><div class="dd-stat-label">Balance</div><div class="dd-stat-val" style="color:${balQty > 0 ? '#f59e0b' : '#10b981'}">${_ddN(balQty)}</div></div>
                 <div class="dd-stat"><div class="dd-stat-label">Rejection</div><div class="dd-stat-val" style="color:#ef4444">${_ddN(totalReject)}</div></div>
             </div>
             <div style="padding:16px">
