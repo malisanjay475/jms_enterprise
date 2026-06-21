@@ -13,11 +13,31 @@
  */
 'use strict';
 
-const CACHE_VERSION = 'jms-v1-2026-06-21';
+const CACHE_VERSION = 'jms-v2-2026-06-21';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGE_CACHE = `${CACHE_VERSION}-pages`;
 
+// Critical QC Supervisor shell — precached on install so the installed
+// Android (TWA) app cold-starts instantly, even on a flaky factory network.
+const QC_SHELL = [
+  '/QCSupervisor.html',
+  '/qc-manifest.json',
+  '/assets/app.css',
+  '/assets/QCSupervisor-script-1.js?v=release63',
+  '/assets/register-sw.js?v=release63',
+  '/assets/jms-logo.png',
+  '/assets/icon-192.png',
+  '/assets/icon-512.png',
+];
+
 self.addEventListener('install', (event) => {
+  event.waitUntil((async () => {
+    try {
+      const cache = await caches.open(STATIC_CACHE);
+      // Best-effort: don't fail the install if one asset 404s.
+      await Promise.allSettled(QC_SHELL.map((u) => cache.add(u)));
+    } catch (e) { /* non-fatal */ }
+  })());
   // Activate the new worker immediately rather than waiting for old tabs.
   self.skipWaiting();
 });
