@@ -104,7 +104,11 @@ function registerCoreMiddleware(app) {
   app.use((req, res, next) => {
     if (req.method !== 'GET') return next();
     const p = req.path;
-    if (/\.html$/i.test(p)) {
+    if (p === '/sw.js') {
+      // The service worker must update promptly — never cache it. The browser
+      // re-checks /sw.js on navigation; a stale SW would pin old asset logic.
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    } else if (/\.html$/i.test(p)) {
       // 5 min cache + stale-while-revalidate so browser reuses instantly while
       // revalidating in background. Revalidation uses ETag (Express sets it).
       res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
@@ -123,6 +127,26 @@ function registerCoreMiddleware(app) {
     } else if (/\.(png|jpg|jpeg|gif|webp|svg|ico)$/i.test(p)) {
       // Images — 24h cache.
       res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=3600');
+    }
+    next();
+  });
+
+  // ── Read-mostly API cache hints ─────────────────────────────────────────
+  // These config endpoints already have a ~30s server-side cache and change
+  // rarely. A short private browser cache + stale-while-revalidate makes repeat
+  // loads instant while a background revalidation (cheap 304 via Express ETag)
+  // keeps them fresh. Scoped to an allowlist so live/transactional endpoints
+  // (DPR counts, planning board, etc.) are never cached.
+  const READ_MOSTLY_GET = [
+    /^\/api\/machines(?:\/|$)/,
+    /^\/api\/masters\/moulds(?:\/|$)/,
+    /^\/api\/moulds(?:\/|$)/,
+    /^\/api\/settings(?:\/|$)/,
+    /^\/api\/reasons(?:\/|$)/
+  ];
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && READ_MOSTLY_GET.some((re) => re.test(req.path))) {
+      res.setHeader('Cache-Control', 'private, max-age=15, stale-while-revalidate=30');
     }
     next();
   });
