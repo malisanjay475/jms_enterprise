@@ -28,6 +28,7 @@ const QC_SHELL = [
   '/assets/jms-logo.png',
   '/assets/icon-192.png',
   '/assets/icon-512.png',
+  '/assets/icon-512-maskable.png',
 ];
 
 self.addEventListener('install', (event) => {
