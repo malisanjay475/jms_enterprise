@@ -812,11 +812,24 @@
               const pcsHr=(ct>0)?(3600/ct)*cav:30;
               const qty=Number(p.planQty||0), bal=Math.max(0,qty-Number(p.producedQty||0));
               p.balQty=bal;
-              const durMs=((isRun?bal:qty)*3600000)/pcsHr;
-              let start, end;
-              if(isRun){start=p.firstDprEntry?new Date(p.firstDprEntry).getTime():(p.startDate?new Date(p.startDate).getTime():now);end=now+durMs;}
-              else{start=(i===0)?now:cursor;end=start+durMs;}
-              p._rippledStartRaw=new Date(start); p._rippledEndRaw=new Date(end); cursor=end;
+              // End Date = start + full planQty time (constant)
+              const durFull=(qty*3600000)/pcsHr;
+              // Exp Date = based on remaining balQty (changes with production)
+              const durBal=(bal*3600000)/pcsHr;
+              let start, endFixed, endExp;
+              if(isRun){
+                start=p.firstDprEntry?new Date(p.firstDprEntry).getTime():(p.startDate?new Date(p.startDate).getTime():now);
+                endFixed=start+durFull;    // constant: start + total qty
+                endExp=now+durBal;         // live: now + remaining bal
+              } else {
+                start=(i===0)?now:cursor;
+                endFixed=start+durFull;    // queued: start + full qty
+                endExp=start+durBal;       // queued: same initially, shrinks as produced
+              }
+              p._rippledStartRaw=new Date(start);
+              p._rippledEndRaw=new Date(endFixed);   // End Date — constant
+              p._rippledExpRaw=new Date(endExp);     // Exp Date — changes with production
+              cursor=endFixed;                        // ripple next plan from End Date
             });
           });
 
@@ -1628,17 +1641,29 @@
             cardStyle = `background: #fef9c3 !important; border-color: #eab308 !important; border-left-color: ${leftBorderColor} !important; border-width: 2.5px !important; box-shadow: 0 0 16px rgba(234, 179, 8, 0.75) !important;`;
           }
 
-          /* time remaining badge */
+          /* time duration/remaining badge + end date rows */
+          const fmtDt = (d) => d ? d.toLocaleString('en-GB', { day:'numeric', month:'numeric', hour:'2-digit', minute:'2-digit' }) : '-';
           let timeBadge = '';
           if (p._rippledEndRaw) {
-            const msDiff = p._rippledEndRaw.getTime() - Date.now();
-            const tStr   = fmt(Math.abs(msDiff));
-            if (tStr) {
-              const col = (st==='running') ? (msDiff<0?'#dc2626':'#16a34a') : '#2563eb';
-              const pfx = (st==='running' && msDiff<0) ? 'OD ' : '';
-              timeBadge = `<div class="etv-card-time" style="color:${col}"><i class="bi bi-clock" style="font-size:.6rem"></i>${pfx}${tStr}</div>`;
+            // Duration badge: running → time remaining (exp-based); queued → full plan duration
+            let msDiff = 0, pfx = '', col = '#2563eb';
+            if (st === 'running') {
+              msDiff = (p._rippledExpRaw || p._rippledEndRaw).getTime() - Date.now();
+              col = msDiff < 0 ? '#dc2626' : '#16a34a';
+              if (msDiff < 0) { pfx = 'OD '; msDiff = Math.abs(msDiff); }
+            } else {
+              msDiff = p._rippledEndRaw.getTime() - (p._rippledStartRaw ? p._rippledStartRaw.getTime() : Date.now());
             }
+            const tStr = fmt(Math.abs(msDiff));
+            if (tStr) timeBadge = `<div class="etv-card-time" style="color:${col}"><i class="bi bi-clock" style="font-size:.6rem"></i>${pfx}${tStr}</div>`;
           }
+          // End Date / Exp Date rows shown on every card
+          const endDateStr = fmtDt(p._rippledEndRaw);
+          const expDateStr = fmtDt(p._rippledExpRaw);
+          const showExpRow = p._rippledExpRaw && p._rippledEndRaw && Math.abs(p._rippledExpRaw.getTime() - p._rippledEndRaw.getTime()) > 60000;
+          const dateBadge = `<div style="font-size:.58rem;color:#64748b;line-height:1.4;margin-top:2px;border-top:1px dashed #e2e8f0;padding-top:2px;">
+            <span style="color:#94a3b8">End:</span> <span style="font-weight:700;color:#334155">${endDateStr}</span>${showExpRow ? `<br><span style="color:#2563eb">Exp:</span> <span style="font-weight:700;color:#2563eb">${expDateStr}</span>` : ''}
+          </div>`;
 
           /* ── Cycle-time estimate badge: realistic output learned from history vs standard ── */
           let estBadge = '';
@@ -1705,6 +1730,7 @@
                 </div>
                 ${estBadge}
                 ${(p.jcNo || p.jc_no || p.job_card_no) ? `<div onclick="if(window.openJcDrilldown)window.openJcDrilldown('${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.planId||p.plan_id||'')}','${esc(p.orderNo||'')}'); event.stopPropagation();" style="font-size:.62rem;font-family:monospace;color:#2563eb;font-weight:700;text-decoration:underline;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px" title="Click: Colour/Shift/Hourly drill-down">JC: ${esc(p.jcNo||p.jc_no||p.job_card_no||'')} ↗</div>` : ''}
+                ${dateBadge}
                 ${timeBadge}
                 <!-- P1-P4 MACHINE PRIORITY BUTTONS -->
                 <div class="etv-mp-btns" onclick="event.stopPropagation()">
