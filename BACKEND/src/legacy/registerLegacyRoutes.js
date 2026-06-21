@@ -6374,9 +6374,9 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
     const effectiveOrderNoForOrders = planRow?.order_no || orderNo || null;
     if (effectiveOrderNoForOrders) {
       const ordRows = await q(
-        `SELECT order_qty FROM orders WHERE order_no = $1 LIMIT 1`, [effectiveOrderNoForOrders]
+        `SELECT qty FROM orders WHERE order_no = $1 LIMIT 1`, [effectiveOrderNoForOrders]
       );
-      if (ordRows[0]) orderQty = Number(ordRows[0].order_qty || 0);
+      if (ordRows[0]) orderQty = Number(ordRows[0].qty || 0);
     }
 
     // 3. Group entries: colour → shifts → hourly
