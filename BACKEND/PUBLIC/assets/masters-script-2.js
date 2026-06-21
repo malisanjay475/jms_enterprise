@@ -308,7 +308,7 @@
       if (_xlsxLoadPromise) return _xlsxLoadPromise;
       _xlsxLoadPromise = new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = '/assets/vendor/jsdelivr/xlsx@0.18.5/dist/xlsx.full.min.js';
+        s.src = '/assets/vendor/jsdelivr/xlsx@0.18.5/xlsx.full.min.js';
         s.onload = () => resolve();
         s.onerror = () => { _xlsxLoadPromise = null; reject(new Error('Preview library failed to load. Check your connection and try again.')); };
         document.head.appendChild(s);
