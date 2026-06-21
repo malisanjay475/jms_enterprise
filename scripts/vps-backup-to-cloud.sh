@@ -66,7 +66,11 @@ if command -v rclone >/dev/null 2>&1 && rclone listremotes 2>/dev/null | grep -q
   rclone delete "${RCLONE_REMOTE}:${RCLONE_DEST}/db"      --min-age 35d 2>/dev/null || true
   rclone delete "${RCLONE_REMOTE}:${RCLONE_DEST}/uploads" --min-age 35d 2>/dev/null || true
 else
-  log "NOTE: rclone remote '${RCLONE_REMOTE}' not set — Google Drive skipped. Local copy: $DB_FILE"
+  echo "[backup][OFFSITE-WARNING] rclone remote '${RCLONE_REMOTE}' is NOT configured — the ONLY backup copy lives on this VPS. A disk/VPS loss would lose all backups. Set up the 'gdrive' remote (docs/OPS-SETUP.md)." >&2
+  if [ "${STRICT_OFFSITE:-0}" = "1" ]; then
+    fail "STRICT_OFFSITE=1 and no offsite remote configured — refusing to report success without an offsite copy."
+  fi
+  log "NOTE: Google Drive skipped. Local copy only: $DB_FILE"
 fi
 
 DISK_PCT="$(df --output=pcent "$BACKUP_ROOT" 2>/dev/null | tail -1 | tr -dc '0-9')"
