@@ -248,7 +248,7 @@ const GLOBAL_MASTER_TABLES = new Set([
 
 const SYNC_ID_REQUIRED_TABLES = ['notifications'];
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
-const SYNC_SCHEMA_READY_VERSION = '2026-05-27-pull-constraint-fixes-v1';
+const SYNC_SCHEMA_READY_VERSION = '2026-06-21-failed-row-outbox-v1';
 
 // Tables that carry a UNIQUE constraint on sync_id created by the app schema (outside
 // the sync service).  When a pull-upsert fails because another LOCAL row already owns
@@ -749,6 +749,7 @@ async function ensureSyncRuntimeSchema(config = {}) {
     await ensureSyncIdSchema();
     await ensureSyncConflictIndexes();
     await ensureDeleteTrackingSchema();
+    await ensureSyncOutboxSchema();
 
     await setServerConfigValue(SYNC_SCHEMA_READY_KEY, SYNC_SCHEMA_READY_VERSION).catch((e) => {
         console.warn('[Sync] Could not persist schema version marker:', e.message);
@@ -864,6 +865,106 @@ async function runSyncCycle() {
 //
 //   This function pages through ALL pending rows in batches of 100 (like pullTableAllPages
 //   does for pull) so no rows are skipped before LAST_PUSH advances.
+// POST a batch of rows to MAIN. Returns {ok, error} instead of throwing so
+// callers can decide whether to record the rows in the outbox.
+async function pushRowsToMain(table, rows) {
+    const payload = { factoryId: LOCAL_FACTORY_ID, table, data: rows, apiKey: API_KEY };
+    try {
+        const response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            return { ok: false, error: `HTTP ${response.status}: ${text.slice(0, 200)}` };
+        }
+        return { ok: true };
+    } catch (err) {
+        return { ok: false, error: err.message };
+    }
+}
+
+// Park rows that could not reach MAIN so they are retried on later cycles.
+// Keyed by (table, record_pk): a newer edit of the same row overwrites the
+// stale payload rather than creating a duplicate outbox entry.
+async function recordFailedRows(table, rows, errMsg) {
+    if (!rows || rows.length === 0) return;
+    const err = String(errMsg || '').slice(0, 500);
+    for (const row of rows) {
+        const pk = rowRecordPk(table, row);
+        if (!pk) continue;
+        try {
+            await pool.query(
+                `INSERT INTO sync_failed_rows (table_name, record_pk, payload, attempts, last_error)
+                 VALUES ($1, $2, $3, 1, $4)
+                 ON CONFLICT (table_name, record_pk)
+                 DO UPDATE SET payload = EXCLUDED.payload,
+                               attempts = sync_failed_rows.attempts + 1,
+                               last_error = EXCLUDED.last_error,
+                               updated_at = NOW()`,
+                [table, pk, JSON.stringify(row), err]
+            );
+        } catch (e) {
+            console.error(`[Sync] Could not record failed row for ${table}:`, e.message);
+        }
+    }
+    console.warn(`[Sync] Parked ${rows.length} unsent row(s) for ${table} in outbox (will retry next cycle).`);
+}
+
+// Re-push previously-failed rows before the normal watermark push, so nothing
+// is lost when a cycle advanced LAST_PUSH past a row that never reached MAIN.
+async function drainOutbox() {
+    const stats = { retried: 0, recovered: 0, stillFailed: 0 };
+    const DRAIN_LIMIT = 500;
+    let tables;
+    try {
+        const r = await pool.query('SELECT DISTINCT table_name FROM sync_failed_rows');
+        tables = r.rows.map((x) => x.table_name);
+    } catch (e) {
+        return stats; // outbox table not present yet (very old server) — nothing to drain
+    }
+
+    for (const table of tables) {
+        if (!TABLES_TO_PUSH.includes(table)) continue;
+        if (SERVER_TYPE === 'LOCAL' && LOCAL_NO_PUSH_TABLES.includes(table)) continue;
+
+        let res;
+        try {
+            res = await pool.query(
+                `SELECT id, payload FROM sync_failed_rows WHERE table_name = $1 ORDER BY id ASC LIMIT ${DRAIN_LIMIT}`,
+                [table]
+            );
+        } catch (e) {
+            console.error(`[Sync] Outbox read failed for ${table}:`, e.message);
+            continue;
+        }
+        if (res.rows.length === 0) continue;
+
+        const ids = res.rows.map((r) => r.id);
+        const rows = res.rows.map((r) => r.payload);
+        stats.retried += rows.length;
+
+        const result = await pushRowsToMain(table, rows);
+        if (result.ok) {
+            await pool.query('DELETE FROM sync_failed_rows WHERE id = ANY($1::bigint[])', [ids]).catch((e) => {
+                console.error(`[Sync] Outbox cleanup failed for ${table}:`, e.message);
+            });
+            stats.recovered += rows.length;
+            console.log(`[Sync] Outbox recovered ${rows.length} row(s) for ${table}.`);
+        } else {
+            stats.stillFailed += rows.length;
+            await pool.query(
+                'UPDATE sync_failed_rows SET attempts = attempts + 1, last_error = $2, updated_at = NOW() WHERE id = ANY($1::bigint[])',
+                [ids, String(result.error || '').slice(0, 500)]
+            ).catch(() => {});
+            console.warn(`[Sync] Outbox retry still failing for ${table}: ${result.error}`);
+        }
+    }
+
+    return stats;
+}
+
 async function pushTableAllBatches(table, lastPush) {
     const PUSH_BATCH_SIZE = 100;
     const stats = { pushed: 0, failed: 0 };
@@ -895,25 +996,14 @@ async function pushTableAllBatches(table, lastPush) {
             console.log(`[Sync] Pushing ${rows.length} rows for ${table}...`);
         }
 
-        const payload = { factoryId: LOCAL_FACTORY_ID, table, data: rows, apiKey: API_KEY };
-        let response;
-        try {
-            response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-        } catch (err) {
-            console.error(`[Sync] Push request failed ${table} batch ${batchNum}:`, err.message);
+        const result = await pushRowsToMain(table, rows);
+        if (!result.ok) {
+            console.error(`[Sync] Push failed ${table} batch ${batchNum}: ${result.error}`);
             stats.failed += rows.length;
-            break;
-        }
-
-        if (!response.ok) {
-            const text = await response.text().catch(() => '');
-            console.error(`[Sync] Push HTTP error ${table} batch ${batchNum}:`, text.slice(0, 200));
-            stats.failed += rows.length;
-            // Keep moving so a bad table cannot block the rest of the push cycle.
+            // Park the unsent rows so they are retried next cycle instead of
+            // being skipped once LAST_PUSH advances past them. Then stop so a
+            // bad table cannot block the rest of the push cycle.
+            await recordFailedRows(table, rows, result.error);
             break;
         }
 
@@ -931,6 +1021,16 @@ async function pushTableAllBatches(table, lastPush) {
 
 async function pushChanges() {
     const stats = { pushed: 0, failed: 0 };
+
+    // Retry anything parked from previous failed cycles first, so a row that
+    // missed its watermark window is recovered rather than lost forever.
+    const drained = await drainOutbox().catch((e) => {
+        console.error('[Sync] Outbox drain failed:', e.message);
+        return { retried: 0, recovered: 0, stillFailed: 0 };
+    });
+    stats.pushed += drained.recovered;
+    stats.failed += drained.stillFailed;
+
     const res = await pool.query(`SELECT value FROM server_config WHERE key = 'LAST_PUSH'`);
     const lastPush = res.rows.length ? res.rows[0].value : '1970-01-01';
     const cycleWatermark = await getDatabaseNowIso();
@@ -957,11 +1057,12 @@ async function pushChanges() {
 
     // Always advance the watermark so new data is never permanently blocked by
     // a persistently-failing table (e.g. stale notification constraint violations).
-    // Network-level failures (fetch throws) still count as failed but we advance
-    // anyway — the VPS will deduplicate on the next cycle via upsert conflict keys.
+    // Rows that failed to reach MAIN are not lost: pushTableAllBatches parked
+    // them in the sync_failed_rows outbox and drainOutbox() retries them at the
+    // start of every cycle until they succeed.
     await setServerConfigValue('LAST_PUSH', cycleWatermark);
     if (stats.failed > 0) {
-        console.warn(`[Sync] LAST_PUSH advanced despite ${stats.failed} push error(s) — failed rows will not be retried.`);
+        console.warn(`[Sync] LAST_PUSH advanced; ${stats.failed} row(s) parked in outbox for retry next cycle.`);
     }
     return stats;
 }
@@ -1132,6 +1233,18 @@ function getConflictColumns(table, row) {
     }
     if (row && row.sync_id) return ['sync_id'];
     return ['id'];
+}
+
+// Stable identity for a row, used as the outbox de-dup key. Mirrors the
+// conflict-key logic so a retried row upserts onto the same target row on MAIN.
+function rowRecordPk(table, row) {
+    const columns = getConflictColumns(table, row);
+    if (columns.length === 1) {
+        return String(row?.[columns[0]] ?? row?.id ?? '');
+    }
+    const key = {};
+    columns.forEach((col) => { key[col] = row?.[col] ?? null; });
+    return JSON.stringify(key);
 }
 
 function parseDeletionRecordPk(table, recordPk) {
@@ -1656,6 +1769,31 @@ async function ensureDeleteTrackingSchema() {
     console.log('[Sync] Delete tracking ready');
 }
 
+// Durable outbox so a row that fails to reach MAIN (network blip, HTTP 5xx,
+// mid-batch outage) is retried on later cycles instead of being silently
+// skipped once LAST_PUSH advances past it. Stores the full row payload so the
+// retry is self-contained and order-independent.
+async function ensureSyncOutboxSchema() {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS sync_failed_rows (
+            id BIGSERIAL PRIMARY KEY,
+            table_name TEXT NOT NULL,
+            record_pk TEXT NOT NULL,
+            payload JSONB NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 1,
+            last_error TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (table_name, record_pk)
+        )
+    `);
+    await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_sync_failed_rows_table
+        ON sync_failed_rows (table_name)
+    `);
+    console.log('[Sync] Failed-row outbox ready');
+}
+
 async function ensureSyncUpdatedAtSchema() {
     await pool.query(`
         CREATE OR REPLACE FUNCTION touch_sync_updated_at_column() RETURNS trigger AS $$
@@ -1932,6 +2070,10 @@ module.exports = {
         fetchWithSyncRetry,
         pullChanges,
         pullTableAllPages,
+        pushTableAllBatches,
+        drainOutbox,
+        recordFailedRows,
+        rowRecordPk,
         setRuntimeForTests
     }
 };
