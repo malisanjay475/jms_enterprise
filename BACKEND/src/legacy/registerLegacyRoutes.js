@@ -900,6 +900,15 @@ const PUBLIC_DIR = path.join(
 );
 const PRIMARY_UPLOADS_DIR = path.join(STATIC_PUBLIC_DIR, 'uploads');
 const LEGACY_UPLOADS_DIR = path.join(BACKEND_ROOT, 'public', 'uploads');
+// Digital Asset Links for the QC Supervisor Android app (TWA / Bubblewrap).
+// express.static ignores dotfiles, so /.well-known/* must be served explicitly.
+// Removes the browser URL bar once the app's signing SHA-256 is filled in.
+app.get('/.well-known/assetlinks.json', (req, res) => {
+  res.type('application/json');
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.sendFile(path.join(PUBLIC_DIR, '.well-known', 'assetlinks.json'));
+});
+
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
     const normalized = filePath.replace(/\\/g, '/');
