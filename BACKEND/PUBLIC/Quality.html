@@ -527,7 +527,7 @@
                     container.innerHTML = html;
 
                 } catch (e) {
-                    container.innerHTML = `<div style="color:red; text-align:center; padding:20px">Error: ${e.message}</div>`;
+                    container.innerHTML = `<div style="color:red; text-align:center; padding:20px">Error: ${escHtml(e.message)}</div>`;
                 }
             }
 
@@ -601,7 +601,7 @@
 
                 } catch (e) {
                     console.error(e);
-                    container.innerHTML = `<div style="text-align:center; color:red; padding:40px">Error: ${e.message}</div>`;
+                    container.innerHTML = `<div style="text-align:center; color:red; padding:40px">Error: ${escHtml(e.message)}</div>`;
                 }
             }
 

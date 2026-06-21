@@ -1,5 +1,9 @@
     // --- Boot Routing Logic ---
 
+    function pEsc(value) {
+      return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+
     // ROBUST NAV (Hoisted)
     // ROBUST NAV (Hoisted)
     window.openMouldReport = function () {
@@ -1243,8 +1247,8 @@
             ? `${visible} ${process.toLowerCase()} machines visible. ${running} running, ${planned} planned, ${available} available, ${blocked} off or maintenance.`
             : 'No machines match the current planning filters.';
 
-          if (scopeChip) scopeChip.innerHTML = `<i class="bi bi-building"></i><span>${scopeText}</span>`;
-          if (filterChip) filterChip.innerHTML = `<i class="bi bi-funnel"></i><span>${filterText}</span>`;
+          if (scopeChip) scopeChip.innerHTML = `<i class="bi bi-building"></i><span>${pEsc(scopeText)}</span>`;
+          if (filterChip) filterChip.innerHTML = `<i class="bi bi-funnel"></i><span>${pEsc(filterText)}</span>`;
           if (scopeTitle) scopeTitle.textContent = scopeText;
           if (summaryText) summaryText.textContent = summary;
           if (visibleEl) visibleEl.textContent = visible;
