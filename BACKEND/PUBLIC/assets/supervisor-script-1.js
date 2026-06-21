@@ -2018,7 +2018,33 @@
             const all = job._all || {};
 
             const st = fmtDT(job.StartDateTime) || '—';
-            const en = fmtDT(job.CalcEndDateTime) || '—';
+
+            // Compute Plan End Date client-side: Start + (planQty × CT / cavity)
+            // Exp End Date: NOW + (balQty × CT / cavity)  [for running], Start + balQty time [for queued]
+            const _svCt    = Number(job.CycleTime || job.cycleTime || all['Cycle Time'] || 120);
+            const _svCav   = Number(job.Cavity || job.cavity || all['Cavity'] || 1);
+            const _svQty   = Number(job.PlanQty || job.planQty || all['Plan Qty'] || 0);
+            const _svBal   = Number(job.BalQty || job.balQty || all['Bal Qty'] || _svQty);
+            const _svPcsHr = (_svCt > 0) ? (3600 / _svCt) * _svCav : 30;
+            const _svStartTs = job.StartDateTime ? new Date(job.StartDateTime).getTime() : null;
+            const _svEndTs   = _svStartTs ? (_svStartTs + (_svQty * 3600000) / _svPcsHr) : null;
+            const _svExpTs   = item.statusNorm && item.statusNorm.startsWith('RUN')
+              ? (Date.now() + (Math.max(0, _svBal) * 3600000) / _svPcsHr)
+              : (_svStartTs ? (_svStartTs + (Math.max(0, _svBal) * 3600000) / _svPcsHr) : null);
+            const _fmtTs = (ts) => ts ? new Date(ts).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '—';
+            const planEndStr = _fmtTs(_svEndTs);
+            const planExpStr = _fmtTs(_svExpTs);
+            const showExp = _svExpTs && _svEndTs && Math.abs(_svExpTs - _svEndTs) > 60000;
+
+            // Duration badge: running → remaining time; queued → full plan duration
+            const _svDurMs = item.statusNorm && item.statusNorm.startsWith('RUN')
+              ? Math.max(0, (_svExpTs || 0) - Date.now())
+              : (_svEndTs && _svStartTs ? _svEndTs - _svStartTs : 0);
+            const _svDurFmt = (() => {
+              const ms = _svDurMs; if (!ms) return '';
+              const d = Math.floor(ms/86400000), h = Math.floor((ms%86400000)/3600000), mi = Math.floor((ms%3600000)/60000);
+              if (d > 0) return `${d}d ${h}h`; if (h > 0) return `${h}h ${mi}m`; return `${mi}m`;
+            })();
 
             const orderNo = safe(job.OrderNo || all['Order No'] || all['ORDER NO'] || '');
             const orderDate = safe(all['Order Date'] || all['ORDER DATE'] || '');
@@ -2072,8 +2098,12 @@
 
           <div class="grid-2" style="font-size:var(--fs-sm);margin-top:8px">
             <div><small class="muted">Start</small><br>${st}</div>
-            <div><small class="muted">End</small><br>${en}</div>
+            <div><small class="muted">Plan End</small><br><strong style="color:#334155">${planEndStr}</strong></div>
           </div>
+          ${showExp ? `<div style="font-size:var(--fs-sm);margin-top:4px;padding:4px 8px;background:#eff6ff;border-radius:6px;border:1px solid #bfdbfe;">
+            <small class="muted">Exp. End (remaining)</small><br><strong style="color:#2563eb">${planExpStr}</strong>
+            ${_svDurFmt ? `<span style="float:right;font-size:0.72rem;font-weight:800;color:#16a34a"><i class="bi bi-clock-fill"></i> ${_svDurFmt}</span>` : ''}
+          </div>` : _svDurFmt ? `<div style="font-size:0.72rem;margin-top:4px;font-weight:800;color:${isRunning?'#16a34a':'#3b82f6'}"><i class="bi bi-clock-fill"></i> ${_svDurFmt}</div>` : ''}
         `;
 
             frag.appendChild(card);
