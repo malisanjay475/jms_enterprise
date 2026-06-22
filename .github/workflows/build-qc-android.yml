@@ -1,0 +1,58 @@
+name: Build QC Supervisor Android APK
+
+# Manual build of the JMS QC Supervisor Android wrapper (Capacitor WebView).
+# The app loads the local-server PWA at http://192.168.1.173:3001/QCSupervisor.html.
+# GitHub's ubuntu runners ship the Android SDK, so no local Android tooling is needed.
+# Download the APK from this run's "Artifacts" section and sideload it onto the
+# factory phones.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'mobile-qc/**'
+      - '.github/workflows/build-qc-android.yml'
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile-qc
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install JS deps (provides capacitor-android gradle module)
+        run: npm ci || npm install
+
+      - name: Sync Capacitor config into android project
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: mobile-qc/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jms-qc-supervisor-debug-apk
+          path: mobile-qc/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
