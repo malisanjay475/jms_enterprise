@@ -10337,6 +10337,42 @@ app.get('/api/planning/orders/:orderNo/details', async (req, res) => {
   }
 });
 
+// 2B. GET /api/planning/orders/:orderNo/history — completed + dropped plans
+app.get('/api/planning/orders/:orderNo/history', async (req, res) => {
+  try {
+    const { orderNo } = req.params;
+    const factoryId = getFactoryId(req);
+
+    const completedRows = await q(
+      `SELECT id, mould_name, mould_no, machine, plan_qty, produced_qty,
+              completed_by, completed_at
+       FROM plan_board
+       WHERE TRIM(COALESCE(order_no,'')) = TRIM($1)
+         AND status = 'COMPLETED'
+         AND factory_id = $2
+       ORDER BY completed_at DESC NULLS LAST`,
+      [orderNo, factoryId]
+    );
+
+    const droppedRows = await q(
+      `SELECT id, mould_name, mould_no, remarks, dropped_by, created_at
+       FROM planning_drops
+       WHERE TRIM(COALESCE(order_no,'')) = TRIM($1)
+       ORDER BY created_at DESC NULLS LAST`,
+      [orderNo]
+    );
+
+    res.json({
+      ok: true,
+      completed: completedRows || [],
+      dropped:   droppedRows  || []
+    });
+  } catch (e) {
+    console.error('planning/orders/history', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // 2A. GET /api/planning/orders/:orderNo/colour-plan
 app.get('/api/planning/orders/:orderNo/colour-plan', async (req, res) => {
   try {

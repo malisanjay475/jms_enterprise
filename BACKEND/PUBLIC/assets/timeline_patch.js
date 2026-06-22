@@ -247,6 +247,15 @@
                             </tbody>
                         </table>
                     </div>
+                    <!-- HISTORY SECTION: completed + dropped plans -->
+                    <div id="om-history-area" style="padding:4px 4px 16px">
+                        <button id="om-history-btn"
+                            onclick="window.toggleOrderHistory()"
+                            style="background:#f1f5f9;border:1px solid #e2e8f0;color:#94a3b8;padding:9px 16px;border-radius:8px;cursor:pointer;font-size:0.83rem;font-weight:600;width:100%;text-align:left;margin-top:8px;transition:all 0.2s;">
+                            📋 Loading plan history…
+                        </button>
+                        <div id="om-history-body" style="display:none;margin-top:8px;"></div>
+                    </div>
                 </div>
             </div>
         `;
@@ -461,6 +470,42 @@
             document.getElementById('om-client').textContent  = headerClient;
             document.getElementById('om-orderno').textContent = orderNo;
         }
+
+        // ── STEP 3: Fetch plan history (completed + dropped) in background ──
+        try {
+            const histRaw = await fetchWithTimeout(
+                `${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/history`, 4000
+            );
+            if (histRaw.ok) {
+                const histJson = await histRaw.json();
+                if (histJson.ok && modal.classList.contains('active')) {
+                    const completedList = histJson.completed || [];
+                    const droppedList   = histJson.dropped   || [];
+                    const total = completedList.length + droppedList.length;
+                    const btn = document.getElementById('om-history-btn');
+                    if (btn) {
+                        btn.dataset.completed = JSON.stringify(completedList);
+                        btn.dataset.dropped   = JSON.stringify(droppedList);
+                        if (total === 0) {
+                            btn.innerHTML = '📋 No plan history (no completed or dropped plans)';
+                            btn.style.color  = '#94a3b8';
+                            btn.style.cursor = 'default';
+                            btn.onclick = null;
+                        } else {
+                            btn.innerHTML = `📋 Show Plan History — <strong>${total}</strong> record${total !== 1 ? 's' : ''} &nbsp;<span style="color:#15803d">(${completedList.length} ✅ completed</span>&nbsp;<span style="color:#dc2626">${droppedList.length} 🔴 dropped)</span>`;
+                            btn.style.color       = '#1e40af';
+                            btn.style.borderColor = '#bfdbfe';
+                            btn.style.background  = '#eff6ff';
+                            btn.style.cursor      = 'pointer';
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            // History fetch failed — hide the button gracefully
+            const btn = document.getElementById('om-history-btn');
+            if (btn) { btn.style.display = 'none'; }
+        }
     };
 
     window.closeOrderModal = function () {
@@ -470,6 +515,74 @@
             window.lastClickedPlanId = null; // Clear highlight on close
             setTimeout(() => { modal.style.display = 'none'; window._ddHideDrill(); }, 300);
         }
+    };
+
+    // Toggle: show/hide plan history (completed + dropped)
+    window.toggleOrderHistory = function () {
+        const btn  = document.getElementById('om-history-btn');
+        const body = document.getElementById('om-history-body');
+        if (!btn || !body) return;
+
+        const isOpen = body.style.display !== 'none';
+        if (isOpen) {
+            body.style.display = 'none';
+            btn.innerHTML = btn.innerHTML.replace('▲ Hide', '📋 Show');
+            return;
+        }
+
+        const completed = JSON.parse(btn.dataset.completed || '[]');
+        const dropped   = JSON.parse(btn.dataset.dropped   || '[]');
+        const fmt = (d) => d ? new Date(d).toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '–';
+        const esc = (s) => (s || '').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const stripMach = (s) => { const t = String(s||'').trim(); return t.includes('>') ? t.split('>').pop().trim() : t; };
+
+        let html = '';
+
+        if (completed.length > 0) {
+            html += `<div style="font-size:0.8rem;font-weight:700;color:#15803d;padding:8px 0 4px;border-bottom:2px solid #bbf7d0;margin-bottom:8px">✅ COMPLETED PLANS (${completed.length})</div>
+            <table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin-bottom:12px">
+                <thead><tr style="background:#f0fdf4;color:#166534">
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">Mould / Sub Part</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">Machine</th>
+                    <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #bbf7d0;font-weight:700">Plan Qty</th>
+                    <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #bbf7d0;font-weight:700">Produced</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">Completed By</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">Completed At</th>
+                </tr></thead>
+                <tbody>${completed.map(c => `<tr style="border-bottom:1px solid #f0fdf4">
+                    <td style="padding:5px 8px"><div style="font-weight:600;color:#15803d">${esc(c.mould_name||'-')}</div><div style="font-size:0.75rem;color:#6b7280;font-family:monospace">${esc(c.mould_no||'')}</div></td>
+                    <td style="padding:5px 8px;color:#334155;font-weight:600">${esc(stripMach(c.machine)||'–')}</td>
+                    <td style="padding:5px 8px;text-align:right;font-weight:700;color:#334155">${Number(c.plan_qty||0).toLocaleString()}</td>
+                    <td style="padding:5px 8px;text-align:right;font-weight:700;color:#16a34a">${Number(c.produced_qty||0).toLocaleString()}</td>
+                    <td style="padding:5px 8px;color:#64748b">${esc(c.completed_by||'–')}</td>
+                    <td style="padding:5px 8px;color:#64748b;white-space:nowrap">${fmt(c.completed_at)}</td>
+                </tr>`).join('')}</tbody>
+            </table>`;
+        }
+
+        if (dropped.length > 0) {
+            html += `<div style="font-size:0.8rem;font-weight:700;color:#dc2626;padding:${completed.length > 0 ? '12' : '8'}px 0 4px;border-bottom:2px solid #fecaca;margin-bottom:8px">🔴 DROPPED PLANS (${dropped.length})</div>
+            <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+                <thead><tr style="background:#fef2f2;color:#991b1b">
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #fecaca;font-weight:700">Mould / Sub Part</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #fecaca;font-weight:700">Remarks</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #fecaca;font-weight:700">Dropped By</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #fecaca;font-weight:700">Dropped At</th>
+                </tr></thead>
+                <tbody>${dropped.map(d => `<tr style="border-bottom:1px solid #fef2f2">
+                    <td style="padding:5px 8px"><div style="font-weight:600;color:#dc2626">${esc(d.mould_name||'-')}</div><div style="font-size:0.75rem;color:#6b7280;font-family:monospace">${esc(d.mould_no||'')}</div></td>
+                    <td style="padding:5px 8px;color:#7f1d1d;font-style:italic">${esc(d.remarks||'No remarks')}</td>
+                    <td style="padding:5px 8px;color:#64748b">${esc(d.dropped_by||'User')}</td>
+                    <td style="padding:5px 8px;color:#64748b;white-space:nowrap">${fmt(d.created_at)}</td>
+                </tr>`).join('')}</tbody>
+            </table>`;
+        }
+
+        if (!html) html = '<div style="color:#94a3b8;text-align:center;padding:20px;font-size:0.85rem">No completed or dropped plans for this order.</div>';
+
+        body.innerHTML = html;
+        body.style.display = '';
+        btn.innerHTML = btn.innerHTML.replace('📋 Show', '▲ Hide');
     };
 
     /* ================================================================
