@@ -344,11 +344,14 @@
                         <span>Unassigned</span>
                         <i class="bi bi-chevron-down" style="font-size:0.75rem; color:#94a3b8;"></i>
                     </div>`;
+            } else if (cleanMachine && cleanMachine !== '-') {
+                // Completed plan — show machine as plain text (no dropdown, can't re-assign)
+                machDisplay = `<span style="font-weight:600;color:#334155">${esc(cleanMachine)}</span>`;
             } else {
                 machDisplay = '<span style="color:#cbd5e1;font-style:italic">Unassigned</span>';
             }
             const jcClickable = jc && jc !== '-'
-                ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : '')}','${esc(item._planObj ? (item._planObj.orderNo || '') : '')}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
+                ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : (item.completedPlanId || ''))}','${esc(item._planObj ? (item._planObj.orderNo || '') : '')}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
                 : '<span style="color:#cbd5e1">—</span>';
 
             const planIdText = esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '-') : (item.completedPlanId || '-'));
@@ -361,7 +364,7 @@
                 <td>${jcClickable}</td>
                 <td><span class="om-badge ${badgeClass}">${esc(item.status || 'Pending')}</span></td>
                 <td style="text-align:right;font-weight:700;color:#1e293b">${(item.planQty || 0).toLocaleString()}</td>
-                <td style="text-align:right;font-weight:700;color:#16a34a">${(item.producedQty || 0).toLocaleString()}</td>
+                <td style="text-align:right;font-weight:700;color:#16a34a">${(item.producedQty || 0).toLocaleString()}${item.extraQty > 0 ? `<div style="font-size:0.72rem;color:#15803d;font-weight:700">+${Number(item.extraQty).toLocaleString()} extra</div>` : ''}</td>
                 <td style="text-align:right;font-weight:700;color:${item.balQty > 0 ? '#f59e0b' : '#10b981'}">${(item.balQty || 0).toLocaleString()}</td>
                 <td>${datesHtml}</td>
             </tr>`;
@@ -474,11 +477,12 @@
                             mouldName:    s.mould_name || s.mouldName || (ap ? ap.mouldName : (cp ? cp.mould_name : 'Unknown Mould')),
                             mouldNo,
                             machine:      ap ? ap.machine : (cp ? cp.machine : '-'),
-                            jcNo:         ap ? (ap.jcNo || ap.jc_no || ap.job_card_no) : (s.jc_no || '-'),
+                            jcNo:         ap ? (ap.jcNo || ap.jc_no || ap.job_card_no) : (cp ? cp.job_card_no : (s.jc_no || null)),
                             status:       ap ? ap.status : (cp ? 'COMPLETED' : 'Pending'),
                             planQty:      s.plan_qty || s.qty || (ap ? ap.planQty : (cp ? cp.plan_qty : 0)),
-                            balQty:       ap ? ap.balQty : (cp ? 0 : (s.plan_qty || s.qty || 0)),
-                            producedQty:  ap ? ap.producedQty : (cp ? cp.produced_qty : 0),
+                            balQty:       ap ? ap.balQty : (cp ? Number(cp.bal_qty || 0) : (s.plan_qty || s.qty || 0)),
+                            producedQty:  ap ? ap.producedQty : (cp ? Number(cp.produced_qty || 0) : 0),
+                            extraQty:     cp ? Number(cp.extra_qty || 0) : 0,
                             completedBy:  cp ? cp.completed_by : null,
                             completedAt:  cp ? cp.completed_at : null,
                             completedPlanId: cp ? cp.id : null,
@@ -562,16 +566,20 @@
                 <thead><tr style="background:#f0fdf4;color:#166534">
                     <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">Mould / Sub Part</th>
                     <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">Machine</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">JC Number</th>
                     <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #bbf7d0;font-weight:700">Plan Qty</th>
                     <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #bbf7d0;font-weight:700">Produced</th>
+                    <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #bbf7d0;font-weight:700">Bal</th>
                     <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">Completed By</th>
                     <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">Completed At</th>
                 </tr></thead>
                 <tbody>${completed.map(c => `<tr style="border-bottom:1px solid #f0fdf4">
                     <td style="padding:5px 8px"><div style="font-weight:600;color:#15803d">${esc(c.mould_name||'-')}</div><div style="font-size:0.75rem;color:#6b7280;font-family:monospace">${esc(c.mould_no||'')}</div></td>
                     <td style="padding:5px 8px;color:#334155;font-weight:600">${esc(stripMach(c.machine)||'–')}</td>
+                    <td style="padding:5px 8px;font-family:monospace;color:#2563eb;font-weight:600;font-size:0.78rem">${esc(c.job_card_no||'—')}</td>
                     <td style="padding:5px 8px;text-align:right;font-weight:700;color:#334155">${Number(c.plan_qty||0).toLocaleString()}</td>
-                    <td style="padding:5px 8px;text-align:right;font-weight:700;color:#16a34a">${Number(c.produced_qty||0).toLocaleString()}</td>
+                    <td style="padding:5px 8px;text-align:right;font-weight:700;color:#16a34a">${Number(c.produced_qty||0).toLocaleString()}${Number(c.extra_qty||0)>0?`<div style="font-size:0.7rem;color:#15803d;font-weight:700">+${Number(c.extra_qty).toLocaleString()} extra</div>`:''}</td>
+                    <td style="padding:5px 8px;text-align:right;font-weight:700;color:${Number(c.bal_qty||0)>0?'#f59e0b':'#10b981'}">${Number(c.bal_qty||0).toLocaleString()}</td>
                     <td style="padding:5px 8px;color:#64748b">${esc(c.completed_by||'–')}</td>
                     <td style="padding:5px 8px;color:#64748b;white-space:nowrap">${fmt(c.completed_at)}</td>
                 </tr>`).join('')}</tbody>
