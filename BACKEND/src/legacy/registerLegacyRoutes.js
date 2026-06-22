@@ -11245,7 +11245,9 @@ app.get('/api/planning/completed', async (req, res) => {
              AND rpt.job_card_no IS NOT NULL AND rpt.job_card_no <> '' LIMIT 1
         ) ojr ON true
         LEFT JOIN LATERAL (
-           SELECT SUM(good_qty) as qty FROM dpr_hourly dh WHERE dh.order_no = pb.order_no
+           SELECT SUM(good_qty) as qty FROM dpr_hourly dh
+           WHERE (dh.plan_id = pb.plan_id OR dh.plan_id = pb.id::TEXT)
+             AND (dh.is_deleted IS NULL OR dh.is_deleted = false)
         ) dpr ON true
         LEFT JOIN LATERAL (
            SELECT created_at FROM plan_audit_logs 
