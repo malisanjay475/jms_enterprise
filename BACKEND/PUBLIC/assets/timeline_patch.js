@@ -316,6 +316,12 @@
                         ${exp ? `<div style="text-align:right;color:#2563eb;font-weight:700">Exp:</div><div style="font-weight:700;color:#2563eb">${xStr}</div>` : ''}
                     </div>`;
                 }
+            } else if (st === 'completed' && (item.completedBy || item.completedAt)) {
+                // Completed plan — show who completed and when
+                datesHtml = `<div style="display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:0.8rem">
+                    <div style="text-align:right;color:#15803d;font-weight:700">By:</div><div style="font-weight:700;color:#15803d">${esc(item.completedBy || '–')}</div>
+                    <div style="text-align:right;color:#94a3b8">At:</div><div style="font-weight:600;color:#334155">${fmt(item.completedAt)}</div>
+                </div>`;
             }
 
             const jc = item.jcNo || '-';
@@ -345,8 +351,9 @@
                 ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : '')}','${esc(item._planObj ? (item._planObj.orderNo || '') : '')}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
                 : '<span style="color:#cbd5e1">—</span>';
 
-            const planIdText = esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '-') : '-');
-            return `<tr ${rowClass} ${isHighlighted ? 'data-highlighted="true"' : ''}>
+            const planIdText = esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '-') : (item.completedPlanId || '-'));
+            const completedRowStyle = st === 'completed' ? ' style="background:#f0fdf4;"' : '';
+            return `<tr ${rowClass}${completedRowStyle} ${isHighlighted ? 'data-highlighted="true"' : ''}>
                 <td style="font-family:monospace;font-size:0.78rem;font-weight:700;color:#7c3aed;white-space:nowrap">${planIdText}</td>
                 <td><div style="font-weight:700;color:#334155">${esc(item.mouldName || '-')}</div>
                     <div style="font-size:0.8rem;color:#64748b;font-family:monospace">${esc(item.mouldNo)}</div></td>
@@ -411,60 +418,100 @@
             _omRenderRows(mergedFromCache, orderNo, headerProd, headerClient);
         }
 
-        // ── STEP 2: Fetch mould-planning summary in background to enrich rows ──
-        // This is purely additive — it fills in mould_no / plan_qty from ERP data.
-        // If it's slow or fails the user already sees all the plan data above.
+        // ── STEP 2+3: Fetch mould details AND history in parallel ──
+        // Details fills in mould_no / plan_qty from ERP data.
+        // History brings in completed + dropped plans so we can show proper status.
         try {
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-            // 3-second timeout so a slow API never blocks the UI
             const fetchWithTimeout = (url, ms) => {
                 const ctrl = new AbortController();
                 const timer = setTimeout(() => ctrl.abort(), ms);
                 return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
             };
             const baseUrl = api._base || window.location.origin;
-            const raw = await fetchWithTimeout(
-                `${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/details`, 3000
-            );
-            if (!raw.ok) throw new Error('non-ok');
-            const resJson = await raw.json();
-            const summaryItems = (resJson && resJson.data) ? resJson.data : [];
 
-            if (summaryItems.length > 0) {
-                // Re-derive header from summary if better info available
-                const validSummary = summaryItems.find(s => s.product_name && s.product_name !== 'null');
-                if (validSummary) {
-                    headerProd   = validSummary.product_name;
-                    if (validSummary.client_name) headerClient = validSummary.client_name;
+            // Fetch both in parallel
+            const [detailsResult, historyResult] = await Promise.allSettled([
+                fetchWithTimeout(`${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/details`, 3000),
+                fetchWithTimeout(`${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/history`, 4000)
+            ]);
+
+            // Parse history first so we can merge into enriched rows
+            let completedPlans = [];
+            let droppedPlans   = [];
+            if (historyResult.status === 'fulfilled' && historyResult.value.ok) {
+                try {
+                    const hj = await historyResult.value.json();
+                    if (hj.ok) { completedPlans = hj.completed || []; droppedPlans = hj.dropped || []; }
+                } catch (e) { /* ignore parse error */ }
+            }
+
+            // Parse details and build enriched list
+            if (detailsResult.status === 'fulfilled' && detailsResult.value.ok) {
+                const resJson = await detailsResult.value.json();
+                const summaryItems = (resJson && resJson.data) ? resJson.data : [];
+
+                if (summaryItems.length > 0) {
+                    const validSummary = summaryItems.find(s => s.product_name && s.product_name !== 'null');
+                    if (validSummary) {
+                        headerProd   = validSummary.product_name;
+                        if (validSummary.client_name) headerClient = validSummary.client_name;
+                    }
+
+                    const enriched = summaryItems.map(s => {
+                        const mouldNo = (s.mould_no || s.mouldNo || '').trim();
+                        // Active plan for this mould?
+                        const ap = activePlans.find(p => (p.mouldNo || p.mould_no || '').trim() === mouldNo);
+                        // Completed plan for this mould (only if no active plan)?
+                        const cp = !ap ? completedPlans.find(c => (c.mould_no || '').trim() === mouldNo) : null;
+                        if (headerProd   === 'Product Name Not Available' && ap && ap.productName) headerProd   = ap.productName;
+                        if (headerClient === 'Unknown Client'             && ap && ap.clientName)  headerClient = ap.clientName;
+                        return {
+                            isSummary:    true,
+                            mouldName:    s.mould_name || s.mouldName || (ap ? ap.mouldName : (cp ? cp.mould_name : 'Unknown Mould')),
+                            mouldNo,
+                            machine:      ap ? ap.machine : (cp ? cp.machine : '-'),
+                            jcNo:         ap ? (ap.jcNo || ap.jc_no || ap.job_card_no) : (s.jc_no || '-'),
+                            status:       ap ? ap.status : (cp ? 'COMPLETED' : 'Pending'),
+                            planQty:      s.plan_qty || s.qty || (ap ? ap.planQty : (cp ? cp.plan_qty : 0)),
+                            balQty:       ap ? ap.balQty : (cp ? 0 : (s.plan_qty || s.qty || 0)),
+                            producedQty:  ap ? ap.producedQty : (cp ? cp.produced_qty : 0),
+                            completedBy:  cp ? cp.completed_by : null,
+                            completedAt:  cp ? cp.completed_at : null,
+                            completedPlanId: cp ? cp.id : null,
+                            _planObj:     ap
+                        };
+                    });
+
+                    if (modal.classList.contains('active') &&
+                        document.getElementById('om-orderno')?.textContent === orderNo) {
+                        _omRenderRows(enriched, orderNo, headerProd, headerClient);
+                    }
                 }
+            }
 
-                const enriched = summaryItems.map(s => {
-                    const mouldNo = s.mould_no || s.mouldNo;
-                    const ap = activePlans.find(p => (p.mouldNo || p.mould_no || '').trim() === (mouldNo || '').trim());
-                    if (headerProd   === 'Product Name Not Available' && ap && ap.productName) headerProd   = ap.productName;
-                    if (headerClient === 'Unknown Client'             && ap && ap.clientName)  headerClient = ap.clientName;
-                    return {
-                        isSummary: true,
-                        mouldName:   s.mould_name || s.mouldName || (ap ? ap.mouldName : 'Unknown Mould'),
-                        mouldNo,
-                        machine:     ap ? ap.machine : '-',
-                        jcNo:        ap ? (ap.jcNo || ap.jc_no || ap.job_card_no) : (s.jc_no || '-'),
-                        status:      ap ? ap.status : 'Pending',
-                        planQty:     s.plan_qty || s.qty || (ap ? ap.planQty : 0),
-                        balQty:      ap ? ap.balQty : (s.plan_qty || s.qty || 0),
-                        producedQty: ap ? ap.producedQty : 0,
-                        _planObj:    ap
-                    };
-                });
-                // Only update if modal is still open for this order
-                if (modal.classList.contains('active') &&
-                    document.getElementById('om-orderno')?.textContent === orderNo) {
-                    _omRenderRows(enriched, orderNo, headerProd, headerClient);
+            // Update history toggle button
+            if (modal.classList.contains('active')) {
+                const total = completedPlans.length + droppedPlans.length;
+                const btn = document.getElementById('om-history-btn');
+                if (btn) {
+                    btn.dataset.completed = JSON.stringify(completedPlans);
+                    btn.dataset.dropped   = JSON.stringify(droppedPlans);
+                    if (total === 0) {
+                        btn.style.display = 'none';
+                    } else {
+                        btn.innerHTML = `📋 Show Plan History — <strong>${total}</strong> record${total !== 1 ? 's' : ''} &nbsp;<span style="color:#15803d">(${completedPlans.length} ✅ completed</span>&nbsp;<span style="color:#dc2626">${droppedPlans.length} 🔴 dropped)</span>`;
+                        btn.style.color       = '#1e40af';
+                        btn.style.borderColor = '#bfdbfe';
+                        btn.style.background  = '#eff6ff';
+                        btn.style.cursor      = 'pointer';
+                    }
                 }
             }
         } catch (e) {
-            // Timeout or network error — cached data already showing, nothing to do
-            if (e.name !== 'AbortError') console.warn('[OrderModal] summary fetch failed:', e.message);
+            if (e.name !== 'AbortError') console.warn('[OrderModal] fetch failed:', e.message);
+            const btn = document.getElementById('om-history-btn');
+            if (btn) btn.style.display = 'none';
         }
 
         // Final: ensure header is set
@@ -474,41 +521,6 @@
             document.getElementById('om-orderno').textContent = orderNo;
         }
 
-        // ── STEP 3: Fetch plan history (completed + dropped) in background ──
-        try {
-            const histRaw = await fetchWithTimeout(
-                `${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/history`, 4000
-            );
-            if (histRaw.ok) {
-                const histJson = await histRaw.json();
-                if (histJson.ok && modal.classList.contains('active')) {
-                    const completedList = histJson.completed || [];
-                    const droppedList   = histJson.dropped   || [];
-                    const total = completedList.length + droppedList.length;
-                    const btn = document.getElementById('om-history-btn');
-                    if (btn) {
-                        btn.dataset.completed = JSON.stringify(completedList);
-                        btn.dataset.dropped   = JSON.stringify(droppedList);
-                        if (total === 0) {
-                            btn.innerHTML = '📋 No plan history (no completed or dropped plans)';
-                            btn.style.color  = '#94a3b8';
-                            btn.style.cursor = 'default';
-                            btn.onclick = null;
-                        } else {
-                            btn.innerHTML = `📋 Show Plan History — <strong>${total}</strong> record${total !== 1 ? 's' : ''} &nbsp;<span style="color:#15803d">(${completedList.length} ✅ completed</span>&nbsp;<span style="color:#dc2626">${droppedList.length} 🔴 dropped)</span>`;
-                            btn.style.color       = '#1e40af';
-                            btn.style.borderColor = '#bfdbfe';
-                            btn.style.background  = '#eff6ff';
-                            btn.style.cursor      = 'pointer';
-                        }
-                    }
-                }
-            }
-        } catch (e) {
-            // History fetch failed — hide the button gracefully
-            const btn = document.getElementById('om-history-btn');
-            if (btn) { btn.style.display = 'none'; }
-        }
     };
 
     window.closeOrderModal = function () {
