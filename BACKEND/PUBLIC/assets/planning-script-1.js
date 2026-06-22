@@ -1774,8 +1774,10 @@
                 ${estBadge}
                 ${(p.jcNo || p.jc_no || p.job_card_no) ? `<div onclick="if(window.openJcDrilldown)window.openJcDrilldown('${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.planId||p.plan_id||'')}','${esc(p.orderNo||'')}'); event.stopPropagation();" style="font-size:.62rem;font-family:monospace;color:#2563eb;font-weight:700;text-decoration:underline;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px" title="Click: Colour/Shift/Hourly drill-down">JC: ${esc(p.jcNo||p.jc_no||p.job_card_no||'')} ↗</div>` : ''}
                 ${dateBadge}
-                ${timeBadge}
-                <div onclick="window.etvToggleJcGiven(event,'${esc(String(p.id||p.planId||p.plan_id||''))}',${p.job_card_given?'true':'false'})" style="margin-top:3px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;font-size:.6rem;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid ${p.job_card_given?'#bbf7d0':'#e2e8f0'};background:${p.job_card_given?'#dcfce7':'#f8fafc'};color:${p.job_card_given?'#15803d':'#94a3b8'};transition:all .15s;" title="${p.job_card_given?'JC Given — Click to remove':'Click to mark Job Card as Given'}"><i class="bi bi-file-earmark-check${p.job_card_given?'-fill':''}"></i>&nbsp;${p.job_card_given?'JC Given ✓':'Give JC'}</div>
+                <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;">
+                  ${timeBadge}
+                  <div onclick="window.etvToggleJcGiven(event,'${esc(String(p.id||p.planId||p.plan_id||''))}',${p.job_card_given?'true':'false'})" style="cursor:pointer;display:inline-flex;align-items:center;gap:2px;font-size:.58rem;font-weight:700;padding:1px 5px;border-radius:4px;border:1px solid ${p.job_card_given?'#bbf7d0':'#e2e8f0'};background:${p.job_card_given?'#dcfce7':'#f8fafc'};color:${p.job_card_given?'#15803d':'#94a3b8'};white-space:nowrap;transition:all .15s;" title="${p.job_card_given?'JC Given — Click to remove':'Click to mark Job Card as Given'}"><i class="bi bi-file-earmark-check${p.job_card_given?'-fill':''}"></i>&nbsp;${p.job_card_given?'JC✓':'JC?'}</div>
+                </div>
                 <!-- P1-P4 MACHINE PRIORITY BUTTONS -->
                 <div class="etv-mp-btns" onclick="event.stopPropagation()">
                   ${['P1','P2','P3','P4'].map(px => {
