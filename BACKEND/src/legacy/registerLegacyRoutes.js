@@ -10381,14 +10381,23 @@ app.get('/api/planning/orders/:orderNo/history', async (req, res) => {
     const factoryId = getFactoryId(req);
 
     const completedRows = await q(
-      `SELECT id, mould_name, mould_code AS mould_no, machine, plan_qty,
-              (COALESCE(plan_qty,0) - COALESCE(bal_qty,0)) AS produced_qty,
-              completed_by, completed_at
-       FROM plan_board
-       WHERE TRIM(COALESCE(order_no,'')) = TRIM($1)
-         AND status = 'COMPLETED'
-         AND factory_id = $2
-       ORDER BY completed_at DESC NULLS LAST`,
+      `SELECT pb.id, pb.mould_name, pb.mould_code AS mould_no, pb.machine,
+              pb.plan_qty, pb.job_card_no,
+              COALESCE(dpr.produced, 0) AS produced_qty,
+              GREATEST(0, pb.plan_qty - COALESCE(dpr.produced, 0)) AS bal_qty,
+              GREATEST(0, COALESCE(dpr.produced, 0) - pb.plan_qty) AS extra_qty,
+              pb.completed_by, pb.completed_at
+       FROM plan_board pb
+       LEFT JOIN LATERAL (
+           SELECT SUM(good_qty) AS produced
+           FROM dpr_hourly dh
+           WHERE dh.plan_id = pb.plan_id
+             AND dh.is_deleted = false
+       ) dpr ON true
+       WHERE TRIM(COALESCE(pb.order_no,'')) = TRIM($1)
+         AND pb.status = 'COMPLETED'
+         AND pb.factory_id = $2
+       ORDER BY pb.completed_at DESC NULLS LAST`,
       [orderNo, factoryId]
     );
 
