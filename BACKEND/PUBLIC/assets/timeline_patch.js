@@ -459,11 +459,14 @@
                     }
 
                     const enriched = summaryItems.map(s => {
-                        const mouldNo = (s.mould_no || s.mouldNo || '').trim();
+                        const mouldNo   = (s.mould_no || s.mouldNo || '').trim();
+                        const mouldName = (s.mould_name || s.mouldName || '').trim().toLowerCase();
                         // Active plan for this mould?
                         const ap = activePlans.find(p => (p.mouldNo || p.mould_no || '').trim() === mouldNo);
-                        // Completed plan for this mould (only if no active plan)?
-                        const cp = !ap ? completedPlans.find(c => (c.mould_no || '').trim() === mouldNo) : null;
+                        // Completed plan for this mould (match by mould_name since plan_board stores mould_name, not mould_no)
+                        const cp = !ap ? completedPlans.find(c =>
+                            (c.mould_name || '').trim().toLowerCase() === mouldName
+                        ) : null;
                         if (headerProd   === 'Product Name Not Available' && ap && ap.productName) headerProd   = ap.productName;
                         if (headerClient === 'Unknown Client'             && ap && ap.clientName)  headerClient = ap.clientName;
                         return {
