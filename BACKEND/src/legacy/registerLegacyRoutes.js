@@ -10381,7 +10381,8 @@ app.get('/api/planning/orders/:orderNo/history', async (req, res) => {
     const factoryId = getFactoryId(req);
 
     const completedRows = await q(
-      `SELECT id, mould_name, mould_no, machine, plan_qty, produced_qty,
+      `SELECT id, mould_name, mould_code AS mould_no, machine, plan_qty,
+              (COALESCE(plan_qty,0) - COALESCE(bal_qty,0)) AS produced_qty,
               completed_by, completed_at
        FROM plan_board
        WHERE TRIM(COALESCE(order_no,'')) = TRIM($1)
