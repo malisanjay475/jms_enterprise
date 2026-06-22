@@ -884,11 +884,31 @@
         } catch (e) { console.warn('[ExcelTimeline] cycle prediction failed', e); }
 
         renderExcelView(wrap);
+        /* Fix 5: stamp last-refreshed time and start the "X min ago" ticker */
+        window._etvLastRefresh = Date.now();
+        window._etvUpdateRefreshLabel();
       } catch (e) {
         console.error('[ExcelTimeline]', e);
         document.getElementById('excelTimelineView').innerHTML =
           `<div style="padding:40px;text-align:center;color:#dc2626;font-weight:700"><i class="bi bi-exclamation-triangle-fill"></i> Failed to load: ${esc(e.message)}</div>`;
       }
+    };
+
+    /* Fix 5: "last refreshed X ago" label — updates every 30 s */
+    window._etvLastRefresh = 0;
+    window._etvUpdateRefreshLabel = function () {
+      clearInterval(window._etvRefreshTicker);
+      const tick = () => {
+        const el = document.getElementById('etv-refresh-label');
+        if (!el || !window._etvLastRefresh) return;
+        const sec = Math.round((Date.now() - window._etvLastRefresh) / 1000);
+        if (sec < 10)        el.textContent = 'Just now';
+        else if (sec < 60)   el.textContent = sec + 's ago';
+        else if (sec < 3600) el.textContent = Math.floor(sec/60) + ' min ago';
+        else                 el.textContent = Math.floor(sec/3600) + ' hr ago';
+      };
+      tick();
+      window._etvRefreshTicker = setInterval(tick, 30000);
     };
 
     /* ── Render full view ────────────────────────────────────────────── */
@@ -953,6 +973,11 @@
                   <i class="bi bi-clock-history"></i> Saved MC/MP SCH
                 </button>
                 <div id="etv-count">0 machines</div>
+                <!-- Fix 7: Refresh button + Fix 5: last-refreshed label -->
+                <button id="etv-refresh-btn" type="button" onclick="window.loadExcelTimeline()" title="Refresh all data from server" style="display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;color:#475569;font-weight:700;font-size:.8rem;cursor:pointer;white-space:nowrap">
+                  <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+                <span id="etv-refresh-label" style="font-size:.72rem;color:#94a3b8;white-space:nowrap;min-width:56px;text-align:right"></span>
               </div>
             </div>
 
@@ -968,6 +993,16 @@
               ${etvMsHtml('tonnage', 'Tonnage', tonOpts)}
               ${etvMsHtml('bldg', proc === 'Moulding' ? 'Buildings' : proc, bldgOpts)}
               ${etvMsHtml('line', 'Lines', lineOpts)}
+              <!-- Fix 6: Priority filter -->
+              <select id="etv-priority-filter" onchange="window.etvFilter()" style="min-width:140px;border-color:#2563eb;color:#1d4ed8;font-weight:700">
+                <option value="">Priority: All</option>
+                <option value="any">⭐ Has Priority</option>
+                <option value="P1">🔵 P1 Only</option>
+                <option value="P2">🟢 P2 Only</option>
+                <option value="P3">🟡 P3 Only</option>
+                <option value="P4">🔴 P4 Only</option>
+                <option value="none">— No Priority</option>
+              </select>
               <select id="etv-status" onchange="window.etvFilter()" style="min-width:130px">
                 <option value="">All Statuses</option>
                 <option value="Running">🟢 Running</option>
@@ -1340,6 +1375,7 @@
       const q     = ((document.getElementById('etv-search')?.value || '')).toLowerCase();
       const sVal  = document.getElementById('etv-status')?.value || '';
       const fVal  = document.getElementById('etv-forecast')?.value || '';
+      const pVal  = document.getElementById('etv-priority-filter')?.value || ''; /* Fix 6 */
       const norm  = v => String(v||'').trim().toUpperCase();
 
       const ms    = window.etvMs || { tonnage:new Set(), bldg:new Set(), line:new Set() };
@@ -1356,6 +1392,13 @@
         if (tSet.size && !tSet.has(String(m._tonnage || ''))) return false;
 
         const mPlans = etvGroups[m.code] || [];
+
+        /* Fix 6: priority filter — check any plan on this machine */
+        if (pVal === 'any'  && !mPlans.some(p => p.machinePriority)) return false;
+        if (pVal === 'none' &&  mPlans.some(p => p.machinePriority)) return false;
+        if (pVal === 'P1' || pVal === 'P2' || pVal === 'P3' || pVal === 'P4') {
+          if (!mPlans.some(p => p.machinePriority === pVal)) return false;
+        }
 
         /* ── FORECAST: keep only machines whose mould change / new job starts within the window ── */
         if (cutoffTime > 0) {
@@ -1456,7 +1499,7 @@
     }
 
     window.etvReset = function () {
-      ['etv-search','etv-status','etv-forecast'].forEach(id => {
+      ['etv-search','etv-status','etv-forecast','etv-priority-filter'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
       });
@@ -1752,19 +1795,105 @@
     }
 
     /* ── Set / clear P1-P4 machine priority ─────────────────────────── */
+    /* In-flight guard: planId → true while a save is in progress (Fix 3: race protection) */
+    window._etvMpInFlight = window._etvMpInFlight || {};
+
     window.etvSetMachinePriority = async function (planId, machineCode, priority, isActive) {
+      const key = String(planId) + '|' + machineCode;
+      if (window._etvMpInFlight[key]) return; // Fix 3: block double-click
+
+      /* Fix 8: visual save feedback — dim the button row while saving */
+      const cardEl = document.querySelector(`.etv-plan-cell[data-slot-pid="${CSS.escape(String(planId))}"] .etv-mp-btns`);
+      if (cardEl) { cardEl.style.opacity = '0.4'; cardEl.style.pointerEvents = 'none'; }
+
+      window._etvMpInFlight[key] = true;
+      const newPriority = isActive ? null : priority; // toggle: clear if already active
+
       try {
         const res = await fetch('/api/planning/machine-priority', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ planId, machine: machineCode, priority: isActive ? null : priority })
+          body: JSON.stringify({ planId, machine: machineCode, priority: newPriority })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to set priority');
-        if (typeof window.loadExcelTimeline === 'function') window.loadExcelTimeline();
+
+        /* Fix 1: patch in-memory data — no API reload needed */
+        const queue = (typeof etvGroups !== 'undefined' ? etvGroups : window.etvGroups || {})[machineCode];
+        if (queue) {
+          const pid = String(planId);
+          const plan = queue.find(p => String(p.id||p.planId||p.plan_id||'') === pid);
+          if (plan) {
+            plan.machinePriority = newPriority || undefined;
+
+            /* Fix 4: re-sort queue by new priority and recalculate ripple dates */
+            queue.sort((a, b) => {
+              if ((a.status||'').toUpperCase() === 'RUNNING') return -1;
+              if ((b.status||'').toUpperCase() === 'RUNNING') return 1;
+              const _o = {P1:1,P2:2,P3:3,P4:4};
+              const pa = _o[a.machinePriority]||999, pb = _o[b.machinePriority]||999;
+              if (pa !== pb) return pa - pb;
+              return (Number(a.seq||0) - Number(b.seq||0)) || (Number(a.id||0) - Number(b.id||0));
+            });
+            const nowMs = Date.now();
+            let cursor = nowMs;
+            queue.forEach((p, i) => {
+              const st = (p.status||'').toUpperCase(), isRun = st === 'RUNNING';
+              const ct = Number(p.cycleTime||120), cav = Number(p.cavity||1);
+              const pcsHr = ct > 0 ? (3600/ct)*cav : 30;
+              const qty = Number(p.planQty||0), bal = Math.max(0, qty - Number(p.producedQty||0));
+              p.balQty = bal;
+              const durFull = (qty * 3600000) / pcsHr;
+              const durBal  = (bal  * 3600000) / pcsHr;
+              let start, endFixed, endExp;
+              if (isRun) {
+                start    = p.firstDprEntry ? new Date(p.firstDprEntry).getTime() : (p.startDate ? new Date(p.startDate).getTime() : nowMs);
+                endFixed = start + durFull;
+                endExp   = nowMs + durBal;
+              } else {
+                start    = (i === 0) ? nowMs : cursor;
+                endFixed = start + durFull;
+                endExp   = start + durBal;
+              }
+              p._rippledStartRaw = new Date(start);
+              p._rippledEndRaw   = new Date(endFixed);
+              p._rippledExpRaw   = new Date(endExp);
+              cursor = endFixed;
+            });
+          }
+        }
+
+        /* Fix 2: re-render from memory — instant, zero API calls */
+        if (typeof window.etvFilter === 'function') window.etvFilter();
+
+        /* Fix 8: brief green flash on the saved card */
+        const savedCard = document.querySelector(`.etv-plan-cell[data-slot-pid="${CSS.escape(String(planId))}"] .etv-card`);
+        if (savedCard) {
+          savedCard.style.transition = 'outline 0.15s';
+          savedCard.style.outline = '2px solid #16a34a';
+          setTimeout(() => { if (savedCard) savedCard.style.outline = ''; }, 600);
+        }
+
       } catch (e) {
-        console.error(e);
-        alert('Error setting priority: ' + e.message);
+        console.error('[ETV priority]', e);
+        /* Fix 2: rollback — re-enable buttons, no UI state change */
+        if (cardEl) { cardEl.style.opacity = ''; cardEl.style.pointerEvents = ''; }
+        /* Brief red toast */
+        let toast = document.getElementById('etv-toast');
+        if (!toast) {
+          toast = document.createElement('div');
+          toast.id = 'etv-toast';
+          toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#dc2626;color:#fff;padding:10px 20px;border-radius:8px;font-weight:700;font-size:.85rem;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.25);pointer-events:none;transition:opacity .3s';
+          document.body.appendChild(toast);
+        }
+        toast.textContent = '✕ Couldn\'t save priority — ' + (e.message || 'try again');
+        toast.style.opacity = '1';
+        clearTimeout(window._etvToastTimer);
+        window._etvToastTimer = setTimeout(() => { if (toast) toast.style.opacity = '0'; }, 3000);
+      } finally {
+        delete window._etvMpInFlight[key];
+        /* Fix 8: always restore button interactivity */
+        if (cardEl) { cardEl.style.opacity = ''; cardEl.style.pointerEvents = ''; }
       }
     };
 
