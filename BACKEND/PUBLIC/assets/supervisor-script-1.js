@@ -2727,6 +2727,13 @@
       const selDate = el('d-date').value;
       const selShift = el('d-shift').value;
 
+      // If the user explicitly chose "Yesterday" from the date picker, skip the
+      // confirmation dialog — the backfill is intentional.
+      if (sessionDateChoice === 'yesterday') {
+        proceedSubmitDPR();
+        return;
+      }
+
       // [FIX] Compute the CURRENT expected shift/date from the browser clock at submit time.
       // Previously we used session.shiftDate (set at login) which is stale: an operator who
       // opens a job before 8 AM (Night shift → yesterday) would NEVER see the "last shift?"
