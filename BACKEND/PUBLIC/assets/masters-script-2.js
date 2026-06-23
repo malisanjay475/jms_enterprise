@@ -44,7 +44,7 @@
     let currentWriteScope = { id: null, name: '', isAll: false };
     let currentMachineIconBase64 = null;
     const templateSupportedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
-    const reportOnlyTypes = [];
+    const reportOnlyTypes = ['labour-parties'];
     const clientPreviewSchemas = {
       boplanningdetail: {
         label: 'BO Planning Detail',
@@ -573,6 +573,10 @@
         addMachineBtn.style.opacity = canWriteScope ? '1' : '0.55';
         addMachineBtn.title = canWriteScope ? '' : getWriteLockReason('add or edit machines');
       }
+      const addLabourPartyBtn = document.getElementById('addLabourPartyBtn');
+      if (addLabourPartyBtn) {
+        addLabourPartyBtn.style.display = currentType === 'labour-parties' && canEditMasters ? 'inline-block' : 'none';
+      }
     }
 
     function updateTemplateButtons(type) {
@@ -631,7 +635,7 @@
       JPSMS.auth.requireAuth();
 
       const params = new URLSearchParams(window.location.search);
-      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users'];
+      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users', 'labour-parties'];
       const requestedType = params.get('type') || 'orders';
         const optionalDateTypes = ['orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
       const manualDateTypes = ['orjr'];
@@ -719,7 +723,8 @@
         'jcdetails': { title: 'JC Detail', hint: 'Upload .xlsx', hasDates: true, icon: 'bi-journal-richtext' },
         'boplanningdetail': { title: 'BO Planning Detail', hint: 'Upload .xlsx', hasDates: true, icon: 'bi-clipboard-data' },
         'wipstock': { title: 'WIP Stock', hint: 'Upload dated WIP stock sheet', hasDates: true, icon: 'bi-box-seam-fill' },
-        'users': { title: 'User Master', hint: 'Admin Only', hasDates: false }
+        'users': { title: 'User Master', hint: 'Admin Only', hasDates: false },
+        'labour-parties': { title: 'Labour Job Parties', hint: 'N/A', hasDates: false }
       };
 
       const cfg = configs[type] || { title: 'Master Data', hint: 'Upload file', hasDates: false };
@@ -888,6 +893,12 @@
     }
 
     async function loadMasterData() {
+      // Labour Parties has its own dedicated UI — bypass the generic DataTable rendering
+      if (currentType === 'labour-parties') {
+        masterDataLoading = false;
+        await loadLabourParties();
+        return;
+      }
       if (masterDataLoading) return;
       masterDataLoading = true;
       const from = document.getElementById('filterFrom').value;
@@ -2116,6 +2127,21 @@
       currentMachineIconBase64 = null;
       setMachineIconPreview(data.machine_icon || '');
       updateMachineModalProcessView(machineProcess);
+      // After process view is updated (which populates party dropdown), set the selected party
+      if (machineProcess === 'Labour Job' && data.labour_party_id) {
+        // Wait for the async party load triggered by updateMachineModalProcessView, then set value
+        const trySetParty = (attempts) => {
+          const partySelect = document.getElementById('m_labour_party_id');
+          if (!partySelect) return;
+          // If options already loaded (> 1 = the placeholder + at least one party)
+          if (partySelect.options.length > 1) {
+            partySelect.value = String(data.labour_party_id);
+          } else if (attempts > 0) {
+            setTimeout(() => trySetParty(attempts - 1), 150);
+          }
+        };
+        setTimeout(() => trySetParty(10), 100);
+      }
       modal.setAttribute('data-mode', mode);
       modal.style.display = 'flex';
     }
@@ -2129,7 +2155,9 @@
       const mode = document.getElementById('machineModal').getAttribute('data-mode');
       const id = document.getElementById('machineId').value;
       const process = document.getElementById('m_machine_process').value;
-      const isPrinting = normalizeMachineProcessValue(process, 'Moulding') === 'Printing';
+      const normalizedProc = normalizeMachineProcessValue(process, 'Moulding');
+      const isPrinting = normalizedProc === 'Printing';
+      const isLabourJob = normalizedProc === 'Labour Job';
       const body = {
         machine: document.getElementById('m_machine').value,
         building: isPrinting ? '' : document.getElementById('m_building').value,
@@ -2142,7 +2170,8 @@
         model_no: isPrinting ? document.getElementById('m_model_no').value : '',
         machine_type: isPrinting ? document.getElementById('m_machine_type').value : '',
         machine_icon: document.getElementById('m_machine_icon').value,
-        machine_icon_base64: currentMachineIconBase64
+        machine_icon_base64: currentMachineIconBase64,
+        labour_party_id: isLabourJob ? (document.getElementById('m_labour_party_id')?.value || null) : null
       };
 
       try {
@@ -2317,4 +2346,146 @@
       if (openModal) return;
       if (typeof loadMasterData === 'function') loadMasterData();
     });
+    /* =====================================================================
+       LABOUR PARTIES MASTER — dedicated list + modal functions
+       ===================================================================== */
+
+    let labourPartyMode = 'add';
+    let labourPartyEditId = null;
+
+    async function loadLabourParties() {
+      const tbody = document.querySelector('#masterTable tbody');
+      const thead = document.querySelector('#masterTable thead');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center p-3">Loading...</td></tr>';
+      if (thead) thead.innerHTML = '';
+
+      // Show Add button
+      const addBtn = document.getElementById('addLabourPartyBtn');
+      if (addBtn) addBtn.style.display = JPSMS.auth.can('masters', 'edit') ? 'inline-block' : 'none';
+
+      try {
+        const res = await JPSMS.api.get('/labour-parties');
+        const parties = res.data || [];
+
+        if (thead) {
+          thead.innerHTML = `<tr>
+            <th style="width:50px">Actions</th>
+            <th>#</th>
+            <th>Party Name</th>
+            <th>Party Type</th>
+            <th>Status</th>
+            <th>Assigned Machines</th>
+          </tr>`;
+        }
+
+        if (!parties.length) {
+          if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center p-3" style="color:#64748b">No labour parties found. Click <b>Add Party</b> to create one.</td></tr>';
+          return;
+        }
+
+        const canEdit = JPSMS.auth.can('masters', 'edit');
+        // Cache parties for delegated click handlers (avoids inline onclick with user data)
+        window._labourPartiesCache = {};
+        parties.forEach(p => { window._labourPartiesCache[p.id] = p; });
+
+        if (tbody) {
+          tbody.innerHTML = parties.map((p, i) => `
+            <tr>
+              <td>
+                ${canEdit ? `
+                  <button class="lp-edit-btn" data-party-id="${p.id}"
+                    style="background:#2563eb;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:0.75rem;margin-right:3px">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <button class="lp-del-btn" data-party-id="${p.id}"
+                    style="background:#dc2626;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:0.75rem">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                ` : ''}
+              </td>
+              <td>${i + 1}</td>
+              <td style="font-weight:600">${escHtml(p.party_name || '')}</td>
+              <td><span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700">${escHtml(p.party_type || 'Labour Job')}</span></td>
+              <td>${p.is_active
+                ? '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700">Active</span>'
+                : '<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700">Inactive</span>'}</td>
+              <td style="color:#475569;font-size:0.78rem">${
+                (p.machines && p.machines.length)
+                  ? p.machines.map(m => `<span style="background:#eff6ff;color:#1d4ed8;padding:1px 6px;border-radius:8px;font-size:0.7rem;margin-right:3px">${escHtml(m)}</span>`).join('')
+                  : '<span style="color:#94a3b8">None assigned</span>'
+              }</td>
+            </tr>
+          `).join('');
+
+          // Delegated event listeners — no user data in onclick (CodeQL safe)
+          tbody.addEventListener('click', (ev) => {
+            const editBtn = ev.target.closest('.lp-edit-btn');
+            const delBtn = ev.target.closest('.lp-del-btn');
+            if (editBtn) {
+              const party = window._labourPartiesCache[editBtn.dataset.partyId];
+              if (party) openLabourPartyModal('edit', party);
+            } else if (delBtn) {
+              const party = window._labourPartiesCache[delBtn.dataset.partyId];
+              if (party) deleteLabourParty(party.id, party.party_name);
+            }
+          });
+        }
+      } catch (e) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="text-center p-3" style="color:#dc2626">Error: ${escHtml(e.message)}</td></tr>`;
+      }
+    }
+
+    function openLabourPartyModal(mode, data = {}) {
+      labourPartyMode = mode;
+      labourPartyEditId = data.id || null;
+      const modal = document.getElementById('labourPartyModal');
+      if (!modal) return;
+      document.getElementById('labourPartyModalTitle').textContent = mode === 'add' ? 'Add Labour Party' : 'Edit Labour Party';
+      document.getElementById('lp_party_name').value = data.party_name || '';
+      const isActiveEl = document.getElementById('lp_is_active');
+      if (isActiveEl) isActiveEl.checked = data.is_active !== false; // default true for new
+      modal.style.display = 'flex';
+    }
+
+    function closeLabourPartyModal() {
+      const modal = document.getElementById('labourPartyModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function saveLabourParty() {
+      const partyName = (document.getElementById('lp_party_name')?.value || '').trim();
+      if (!partyName) { alert('Party Name is required'); return; }
+      const isActive = document.getElementById('lp_is_active')?.checked !== false;
+
+      const body = { party_name: partyName, is_active: isActive };
+
+      try {
+        if (labourPartyMode === 'add') {
+          const res = await JPSMS.api.post('/labour-parties', body);
+          if (!res.ok) throw new Error(res.error || 'Failed to create party');
+          JPSMS.toast('Labour party created', 'success');
+        } else {
+          const res = await JPSMS.api.request(`/labour-parties/${labourPartyEditId}`, { method: 'PUT', body: JSON.stringify(body) });
+          if (!res.ok) throw new Error(res.error || 'Failed to update party');
+          JPSMS.toast('Labour party updated', 'success');
+        }
+        closeLabourPartyModal();
+        await loadLabourParties();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function deleteLabourParty(id, name) {
+      if (!confirm(`Delete labour party "${name}"? Machines assigned to this party will be unlinked.`)) return;
+      try {
+        const res = await JPSMS.api.request(`/labour-parties/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(res.error || 'Failed to delete party');
+        JPSMS.toast('Labour party deleted', 'success');
+        await loadLabourParties();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
     /* --------------------------------------------------------------------- */

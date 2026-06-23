@@ -1338,7 +1338,7 @@
 
         const processFilter = document.getElementById('filt-process');
         if (processFilter) {
-            processFilter.innerHTML = ['Moulding', 'Printing', 'Tuffting'].map(option => {
+            processFilter.innerHTML = ['Moulding', 'Printing', 'Tuffting', 'Labour Job'].map(option => {
                 const isActive = option === currentProcess;
                 const style = isActive
                     ? 'background:linear-gradient(135deg,#0f8ea8,#024c81); color:#fff; border-color:transparent; box-shadow:0 12px 24px rgba(2,76,129,0.2);'
