@@ -20,19 +20,59 @@ const BACKUP_DIR   = process.env.BACKUP_DIR || path.join(process.cwd(), 'backups
 const MAX_BACKUPS  = Number(process.env.BACKUP_MAX_COUNT || 48); // 48 × 5 min = 4 hours
 const INTERVAL_MS  = Number(process.env.BACKUP_INTERVAL_MS || 5 * 60 * 1000); // 5 minutes
 
-// Resolve pg_dump: prefer the one shipped with PostgreSQL client tools in the Docker image
-const PG_DUMP = (() => {
-  const candidates = [
-    '/usr/bin/pg_dump',
-    '/usr/local/bin/pg_dump',
-    'pg_dump' // fall back to PATH
-  ];
-  for (const c of candidates) {
-    if (c === 'pg_dump') return c; // always try PATH as last resort
-    try { fs.accessSync(c, fs.constants.X_OK); return c; } catch (_) { /* try next */ }
+// Resolve pg_dump across environments:
+//   - Docker/Linux: postgresql-client installs it on PATH (/usr/bin).
+//   - Windows factory servers: PostgreSQL installs to
+//     C:\Program Files\PostgreSQL\<ver>\bin\pg_dump.exe, which is NOT added to
+//     PATH by the installer — so a bare `pg_dump` spawn fails with ENOENT and
+//     local backups silently never run. We scan the standard install dirs and
+//     pick the newest version, with an env override for non-standard installs.
+function resolvePgDump() {
+  // 1. Explicit override always wins (full path to pg_dump[.exe], or a bin dir).
+  const override = process.env.PG_DUMP_PATH || process.env.PG_DUMP || process.env.PGBIN;
+  if (override) {
+    const candidate = /pg_dump(\.exe)?$/i.test(override)
+      ? override
+      : path.join(override, process.platform === 'win32' ? 'pg_dump.exe' : 'pg_dump');
+    try { fs.accessSync(candidate, fs.constants.X_OK); return candidate; } catch (_) { /* fall through */ }
   }
-  return 'pg_dump';
-})();
+
+  if (process.platform === 'win32') {
+    // Scan C:\Program Files[ (x86)]\PostgreSQL\<ver>\bin\pg_dump.exe, newest first.
+    const programDirs = [
+      process.env.ProgramW6432,
+      process.env.ProgramFiles,
+      process.env['ProgramFiles(x86)']
+    ].filter(Boolean);
+
+    const found = [];
+    for (const base of programDirs) {
+      const pgRoot = path.join(base, 'PostgreSQL');
+      let versions = [];
+      try { versions = fs.readdirSync(pgRoot); } catch (_) { continue; }
+      for (const ver of versions) {
+        const exe = path.join(pgRoot, ver, 'bin', 'pg_dump.exe');
+        if (fs.existsSync(exe)) {
+          const numericVersion = parseInt(String(ver).replace(/[^0-9].*$/, ''), 10) || 0;
+          found.push({ exe, numericVersion });
+        }
+      }
+    }
+    if (found.length) {
+      found.sort((a, b) => b.numericVersion - a.numericVersion); // newest major version first
+      return found[0].exe;
+    }
+  } else {
+    const candidates = ['/usr/bin/pg_dump', '/usr/local/bin/pg_dump'];
+    for (const c of candidates) {
+      try { fs.accessSync(c, fs.constants.X_OK); return c; } catch (_) { /* try next */ }
+    }
+  }
+
+  return 'pg_dump'; // last resort: rely on PATH
+}
+
+const PG_DUMP = resolvePgDump();
 
 function resolveDbConfig() {
   return {

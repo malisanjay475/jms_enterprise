@@ -4916,6 +4916,35 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qc_job_checks_lookup ON qc_job_checks (job_card_no, plan_id, machine, date, shift)`);
 
+    // QC VERIFICATION TABLE — QC supervisor verifies hourly DPR entries every 2 hrs
+    // UNIQUE on (machine, dpr_date, shift, hour_slot) — not dpr_entry_id, because
+    // NULL dpr_entry_id values are never equal in SQL so the constraint would not
+    // prevent duplicates when no DPR entry exists yet.
+    await q(`
+      CREATE TABLE IF NOT EXISTS qc_verifications (
+        id               SERIAL PRIMARY KEY,
+        factory_id       INTEGER,
+        dpr_entry_id     INTEGER,
+        machine          TEXT NOT NULL,
+        dpr_date         DATE NOT NULL,
+        shift            TEXT NOT NULL,
+        hour_slot        TEXT NOT NULL,
+        sup_good_qty     INTEGER,
+        sup_reject_qty   INTEGER,
+        sup_shots        INTEGER,
+        qc_good_qty      INTEGER NOT NULL,
+        qc_reject_qty    INTEGER NOT NULL,
+        verified_by      TEXT NOT NULL,
+        verified_at      TIMESTAMPTZ DEFAULT NOW(),
+        remarks          TEXT,
+        status           TEXT DEFAULT 'Verified',
+        created_at       TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(machine, dpr_date, shift, hour_slot)
+      );
+    `);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcv_machine_date ON qc_verifications (machine, dpr_date, shift)`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcv_entry       ON qc_verifications (dpr_entry_id)`);
+
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_date DATE;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_type TEXT;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS status TEXT;`);
@@ -4950,10 +4979,12 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_machine_priority ON plan_board(machine, machine_priority) WHERE machine_priority IS NOT NULL`);
 
-    // Legacy unique on or_jr_no alone — skipped when duplicates exist (composite index is applied later).
-    await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_report_unique_no ON or_jr_report(or_jr_no);`).catch(err =>
-      console.warn('[DB] idx_or_jr_report_unique_no skipped (duplicate or_jr_no rows in data):', err.message)
-    );
+    // NOTE: the legacy single-column unique idx_or_jr_report_unique_no on or_jr_no is
+    // intentionally NOT created here. It is harmful — one OR/JR can have many job cards,
+    // so a unique on or_jr_no alone makes the second job-card row fail and get skipped.
+    // The migration below drops any pre-existing copy and replaces it with the composite
+    // idx_or_jr_jc_unique ON (or_jr_no, COALESCE(job_card_no, '')). Recreating it here
+    // only to drop it moments later churned the schema and logged a spurious warning.
     await migrateOrderCompletionWorkflowSchema();
 
     console.log('Database initialized');
@@ -19573,6 +19604,168 @@ app.post('/api/qc/deviation', async (req, res) => {
 VALUES($1, $2, $3, $4, $5, $6, $7, $8)`,
       [date, part_name, machine, deviation_details, reason, approved_by, valid_upto, factoryId]);
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// ── QC VERIFICATION ROUTES ──────────────────────────────────────────────────
+// QC Supervisor verifies Supervisor's hourly DPR entries every 2 hours.
+
+// GET /api/qc/verify/pending
+// Returns all dpr_hourly slots for machine+date+shift, joined with any
+// existing QC verification so the app can show Pending / Verified / Discrepancy.
+app.get('/api/qc/verify/pending', async (req, res) => {
+  try {
+    const { machine, date, shift } = req.query;
+    if (!machine || !date || !shift) return res.json({ ok: false, error: 'machine, date, shift required' });
+    const factoryId = getFactoryId(req);
+    const rows = await q(`
+      SELECT
+        d.id                                          AS dpr_entry_id,
+        d.hour_slot,
+        d.good_qty                                    AS sup_good_qty,
+        d.reject_qty                                  AS sup_reject_qty,
+        d.shots                                       AS sup_shots,
+        d.supervisor,
+        d.entry_type,
+        (v.id IS NOT NULL)                            AS qc_verified,
+        v.id                                          AS verify_id,
+        v.qc_good_qty,
+        v.qc_reject_qty,
+        v.verified_by,
+        to_char(v.verified_at AT TIME ZONE 'Asia/Kolkata', 'HH24:MI')  AS verified_at,
+        v.status                                      AS verify_status,
+        v.remarks                                     AS qc_remarks
+      FROM dpr_hourly d
+      LEFT JOIN qc_verifications v
+        ON  v.dpr_entry_id = d.id
+        AND v.machine      = d.machine
+        AND v.dpr_date     = d.dpr_date
+        AND v.shift        = d.shift
+        AND v.hour_slot    = d.hour_slot
+      WHERE d.machine    = $1
+        AND d.dpr_date   = $2::date
+        AND d.shift      = $3
+        AND d.is_deleted = false
+        AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
+      ORDER BY d.hour_slot ASC
+    `, [machine, date, shift, factoryId]);
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('/api/qc/verify/pending', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/verify/submit
+// Upsert a QC verification for a single hour slot.
+// Body: { session, machine, dpr_date, shift, hour_slot,
+//         qc_good_qty, qc_reject_qty, remarks }
+// NOTE: dpr_entry_id is resolved server-side — never trusted from client.
+app.post('/api/qc/verify/submit', async (req, res) => {
+  try {
+    const { session, machine, dpr_date, shift, hour_slot,
+            qc_good_qty, qc_reject_qty, remarks } = req.body || {};
+
+    // Validate required fields
+    if (!machine || !dpr_date || !shift || !hour_slot) {
+      return res.json({ ok: false, error: 'machine, dpr_date, shift, hour_slot required' });
+    }
+
+    // Validate hour_slot format (e.g. "07-08") to prevent injection via slot key
+    if (!/^\d{2}-\d{2}$/.test(String(hour_slot))) {
+      return res.json({ ok: false, error: 'Invalid hour_slot format' });
+    }
+
+    // Validate shift
+    if (!['Day', 'Night'].includes(String(shift))) {
+      return res.json({ ok: false, error: 'Invalid shift value' });
+    }
+
+    // SECURITY: derive verified_by from server-side session, sanitized + truncated.
+    // Never trust the raw client value.
+    const rawUser   = (session && (session.username || session.supervisor || session.user)) || '';
+    const verified_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
+
+    const factoryId = getFactoryId(req);
+    const good  = parseInt(qc_good_qty,  10);
+    const rej   = parseInt(qc_reject_qty, 10);
+    if (isNaN(good) || isNaN(rej) || good < 0 || rej < 0) {
+      return res.json({ ok: false, error: 'qc_good_qty and qc_reject_qty must be non-negative integers' });
+    }
+
+    // DATA INTEGRITY: resolve dpr_entry_id server-side by looking up the actual
+    // DPR entry — never trust the client-supplied value.
+    const dprRows = await q(
+      `SELECT id, good_qty, reject_qty, shots FROM dpr_hourly
+       WHERE machine   = $1
+         AND dpr_date  = $2::date
+         AND shift     = $3
+         AND hour_slot = $4
+         AND is_deleted = false
+         AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)
+       ORDER BY id DESC LIMIT 1`,
+      [machine, dpr_date, shift, hour_slot, factoryId]
+    );
+
+    const dprRow       = dprRows[0] || null;
+    const dpr_entry_id = dprRow ? dprRow.id : null;
+    const sgood        = dprRow ? (parseInt(dprRow.good_qty,   10) || 0) : 0;
+    const srej         = dprRow ? (parseInt(dprRow.reject_qty, 10) || 0) : 0;
+    const sshots       = dprRow ? (parseInt(dprRow.shots,      10) || 0) : 0;
+    const status       = (good !== sgood || rej !== srej) ? 'Discrepancy' : 'Verified';
+
+    await q(`
+      INSERT INTO qc_verifications
+        (factory_id, dpr_entry_id, machine, dpr_date, shift, hour_slot,
+         sup_good_qty, sup_reject_qty, sup_shots,
+         qc_good_qty, qc_reject_qty, verified_by, verified_at, remarks, status)
+      VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),$13,$14)
+      ON CONFLICT (machine, dpr_date, shift, hour_slot)
+      DO UPDATE SET
+        dpr_entry_id   = EXCLUDED.dpr_entry_id,
+        qc_good_qty    = EXCLUDED.qc_good_qty,
+        qc_reject_qty  = EXCLUDED.qc_reject_qty,
+        sup_good_qty   = EXCLUDED.sup_good_qty,
+        sup_reject_qty = EXCLUDED.sup_reject_qty,
+        sup_shots      = EXCLUDED.sup_shots,
+        verified_by    = EXCLUDED.verified_by,
+        verified_at    = NOW(),
+        remarks        = EXCLUDED.remarks,
+        status         = EXCLUDED.status
+    `, [factoryId, dpr_entry_id, machine, dpr_date, shift, hour_slot,
+        sgood, srej, sshots, good, rej, verified_by, remarks || null, status]);
+
+    res.json({ ok: true, status });
+  } catch (e) {
+    console.error('/api/qc/verify/submit', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/verify/summary
+// Today's verification stats per machine — for the Recent tab dashboard.
+app.get('/api/qc/verify/summary', async (req, res) => {
+  try {
+    const { machine, date } = req.query;
+    const factoryId = getFactoryId(req);
+    // FIX: default to IST local date, not UTC, so night-shift queries return correct day
+    const d = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    const rows = await q(`
+      SELECT
+        machine,
+        COUNT(*)                                  AS total_verified,
+        COUNT(*) FILTER (WHERE status='Discrepancy') AS discrepancies,
+        MAX(verified_at)                          AS last_verified_at
+      FROM qc_verifications
+      WHERE dpr_date = $1::date
+        AND ($2 IS NULL OR machine = $2)
+        AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+      GROUP BY machine
+      ORDER BY machine
+    `, [d, machine || null, factoryId]);
+    res.json({ ok: true, data: rows });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }

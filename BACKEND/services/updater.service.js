@@ -95,50 +95,14 @@ function ensureClientBridgeDeps() {
   runProductionNpmInstall('CLIENT_BRIDGE', CLIENT_BRIDGE_DIR);
 }
 
-// ---------------------------------------------------------------------------
-// Self-heal BACKEND node_modules when package.json has changed or node_modules
-// is missing entirely.
-//
-// WHY THIS EXISTS HERE:
-//   When an auto-update ships a new package (e.g. morgan was added in a release
-//   after some factory servers were provisioned), the updater extracts the new
-//   package.json onto disk but never re-runs npm install.  On the next
-//   BACKEND restart the server crashes with "Cannot find module '<new-pkg>'".
-//
-//   We use a marker file (node_modules/.npm-install-marker) that stores the
-//   mtime of the last package.json that was fully installed.  If the current
-//   package.json is newer than the marker, npm install is re-run automatically.
-//   The check is O(1) on normal boots so it adds negligible startup latency.
-// ---------------------------------------------------------------------------
-function ensureBackendDeps() {
-  const BACKEND_DIR = path.resolve(__dirname, '..');
-  const pkgPath  = path.join(BACKEND_DIR, 'package.json');
-  const nmPath   = path.join(BACKEND_DIR, 'node_modules');
-  const marker   = path.join(BACKEND_DIR, 'node_modules', '.npm-install-marker');
-
-  if (!fs.existsSync(pkgPath)) return; // nothing to do
-
-  const pkgMtime = fs.statSync(pkgPath).mtimeMs;
-  let markerMtime = 0;
-  try { markerMtime = parseFloat(fs.readFileSync(marker, 'utf8')); } catch (_) {}
-
-  if (fs.existsSync(nmPath) && markerMtime >= pkgMtime) return; // already up to date
-
-  console.log('[Updater] BACKEND dependencies outdated or missing — running npm install...');
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const result = spawnSync(npm, ['install', '--production', '--no-audit'], {
-    cwd: BACKEND_DIR,
-    stdio: 'inherit',
-    shell: false
-  });
-
-  if (result.status !== 0) {
-    console.error(`[Updater] BACKEND npm install failed (exit code ${result.status}).`);
-  } else {
-    try { fs.writeFileSync(marker, String(pkgMtime), 'utf8'); } catch (_) {}
-    console.log('[Updater] BACKEND deps installed successfully.');
-  }
-}
+// NOTE: ensureBackendDeps() is defined once above (content-signature based).
+// A second, mtime-based copy used to live here and silently overrode the first
+// via hoisting — which (a) reinstalled deps on every auto-update because zip
+// extraction always bumps package.json's mtime even when content is identical,
+// and (b) returned undefined, so downloadAndApply()'s `if (!ensureBackendDeps())`
+// guard treated every SUCCESSFUL update as a failure. Removed in favour of the
+// single signature-based implementation, which only reinstalls when the
+// package.json / package-lock.json content actually changes.
 
 let pool = null;
 let configMap = {};
@@ -327,12 +291,11 @@ async function init(dbPool) {
   pool = dbPool;
   await loadServerConfig();
 
-  // Heal BACKEND deps on every boot — detects new packages (e.g. morgan) added
-  // after initial provisioning and re-runs npm install automatically.
-  ensureBackendDeps();
-
-  // Heal CLIENT_BRIDGE deps on every BACKEND boot — works even if old supervisor
-  // is still running in memory (pre-fix servers auto-heal on next BACKEND restart).
+  // Heal deps on every boot — detects new packages added after initial
+  // provisioning and re-runs npm install automatically (only when the
+  // package.json / package-lock.json content signature actually changes).
+  // Works even if an old supervisor is still running in memory, because the
+  // BACKEND process is restarted on every auto-update and crash-restart.
   ensureBackendDeps();
   ensureClientBridgeDeps();
 
