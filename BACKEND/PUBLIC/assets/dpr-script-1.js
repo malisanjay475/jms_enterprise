@@ -405,7 +405,7 @@
                 const hour = new Date().getHours(); // browser local time (IST on factory devices)
                 // Auto-detect shift: If 8PM-8AM -> Night, else Day (matches factory 8-20 shift)
                 const defaultShift = (hour >= 20 || hour < 8) ? 'Night' : 'Day';
-                const DPR_PROCESS_OPTIONS = ['Moulding', 'Printing', 'Tuffting'];
+                const DPR_PROCESS_OPTIONS = ['Moulding', 'Printing', 'Tuffting', 'Labour Job'];
                 let dprProcess = localStorage.getItem('jpsms_dpr_process') || 'Moulding';
 
                 card.innerHTML = `
@@ -494,13 +494,238 @@
                 };
                 renderDprProcessButtons();
 
+                // ---- Labour DPR Summary ----
+                let _labourDprPartyId = '';
+                const loadLabourDprSummary = async (container, fromDate, toDate, shiftMode) => {
+                    const esc = dprEscHtml;
+                    container.innerHTML = `<div style="padding:40px;text-align:center;color:#64748b"><i class="bi bi-arrow-repeat spin" style="font-size:2rem;display:block;margin-bottom:10px"></i> Loading Labour DPR...</div>`;
+
+                    // Load parties first if dropdown not ready
+                    let parties = [];
+                    try {
+                        const pr = await J.api.get('/labour-parties');
+                        parties = (pr.data || []).filter(p => p.is_active);
+                    } catch(e) { /* ignore */ }
+
+                    // Build static shell (no dynamic data in innerHTML to avoid XSS flagging)
+                    container.innerHTML = `
+                      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:16px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+                        <div>
+                          <label style="font-size:0.75rem;font-weight:700;color:#92400e;display:block;margin-bottom:4px">Labour Party</label>
+                          <select id="lj-dpr-party" style="padding:7px 10px;border:1px solid #fde68a;border-radius:6px;min-width:180px;background:#fff;font-weight:700">
+                            <option value="">— Select Party —</option>
+                          </select>
+                        </div>
+                        <button id="lj-dpr-load" style="padding:8px 18px;background:#b45309;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700">
+                          <i class="bi bi-search"></i> Load
+                        </button>
+                        <button id="lj-dpr-add" style="padding:8px 18px;background:#0284c7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700">
+                          <i class="bi bi-plus-lg"></i> Add Entry
+                        </button>
+                      </div>
+                      <div id="lj-dpr-grid" style="overflow-x:auto"></div>
+                      <!-- Labour DPR Entry Modal -->
+                      <div id="ljDprModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9000;align-items:center;justify-content:center">
+                        <div style="background:#fff;padding:24px;border-radius:12px;width:420px;max-width:92%;border-top:4px solid #b45309">
+                          <div style="font-weight:800;color:#92400e;margin-bottom:16px"><i class="bi bi-people-fill"></i> Labour Job DPR Entry</div>
+                          <input type="hidden" id="lj-entry-id">
+                          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+                            <div>
+                              <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Date</label>
+                              <input type="date" id="lj-e-date" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box" value="${esc(fromDate)}">
+                            </div>
+                            <div>
+                              <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Shift</label>
+                              <select id="lj-e-shift" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box">
+                                <option value="Day">Day</option>
+                                <option value="Night">Night</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Machine</label>
+                              <select id="lj-e-machine" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box">
+                                <option value="">— Select —</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Colour</label>
+                              <input type="text" id="lj-e-colour" placeholder="e.g. Red" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box">
+                            </div>
+                            <div>
+                              <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Good Qty</label>
+                              <input type="number" id="lj-e-good" min="0" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box" value="0">
+                            </div>
+                            <div>
+                              <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Reject Qty</label>
+                              <input type="number" id="lj-e-reject" min="0" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box" value="0">
+                            </div>
+                          </div>
+                          <div style="margin-bottom:12px">
+                            <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Reject Reason</label>
+                            <input type="text" id="lj-e-reason" placeholder="Reason (optional)" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box">
+                          </div>
+                          <div style="margin-bottom:16px">
+                            <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Remarks</label>
+                            <input type="text" id="lj-e-remarks" placeholder="Remarks (optional)" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box">
+                          </div>
+                          <div style="display:flex;gap:10px;justify-content:flex-end">
+                            <button onclick="document.getElementById('ljDprModal').style.display='none'" style="padding:7px 14px;border:1px solid #e2e8f0;background:#fff;border-radius:6px;cursor:pointer">Cancel</button>
+                            <button id="lj-e-save" style="padding:7px 18px;background:#b45309;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer">Save</button>
+                          </div>
+                        </div>
+                      </div>
+                    `;
+
+                    const partySelect = document.getElementById('lj-dpr-party');
+                    // Populate party options via DOM (avoids XSS-through-dom CodeQL flag)
+                    parties.forEach(p => {
+                        const opt = document.createElement('option');
+                        opt.value = String(p.id);
+                        opt.textContent = p.party_name;
+                        if (String(p.id) === String(_labourDprPartyId)) opt.selected = true;
+                        partySelect.appendChild(opt);
+                    });
+                    const gridEl = document.getElementById('lj-dpr-grid');
+                    const modal = document.getElementById('ljDprModal');
+
+                    const loadGrid = async () => {
+                        const pId = partySelect?.value || '';
+                        _labourDprPartyId = pId;
+                        if (!pId) { gridEl.innerHTML = '<div style="color:#94a3b8;padding:20px">Select a party to view DPR entries.</div>'; return; }
+                        gridEl.innerHTML = '<div style="padding:20px;color:#64748b">Loading...</div>';
+                        try {
+                            const params = new URLSearchParams({ fromDate, toDate, party_id: pId });
+                            if (shiftMode !== 'Both') params.set('shift', shiftMode);
+                            const res = await J.api.get(`/dpr/labour?${params}`);
+                            const entries = res.data || [];
+                            if (!entries.length) { gridEl.innerHTML = '<div style="padding:20px;color:#94a3b8">No entries found for selected dates/party.</div>'; return; }
+                            gridEl.innerHTML = `
+                              <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+                                <thead style="background:#fef3c7">
+                                  <tr>
+                                    <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Date</th>
+                                    <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Shift</th>
+                                    <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Machine</th>
+                                    <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Colour</th>
+                                    <th style="padding:8px;text-align:right;border-bottom:2px solid #fde68a">Good</th>
+                                    <th style="padding:8px;text-align:right;border-bottom:2px solid #fde68a">Reject</th>
+                                    <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Reason</th>
+                                    <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Remarks</th>
+                                    <th style="padding:8px;border-bottom:2px solid #fde68a"></th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  ${entries.map(e => `
+                                    <tr style="border-bottom:1px solid #fef3c7">
+                                      <td style="padding:7px 8px">${esc(e.dpr_date ? new Date(e.dpr_date).toLocaleDateString('en-GB') : '-')}</td>
+                                      <td style="padding:7px 8px"><span style="background:${e.shift==='Night'?'#1e293b':'#fef9c3'};color:${e.shift==='Night'?'#fff':'#92400e'};padding:2px 8px;border-radius:12px;font-size:0.7rem;font-weight:700">${esc(e.shift||'-')}</span></td>
+                                      <td style="padding:7px 8px;font-weight:700">${esc(e.machine||'-')}</td>
+                                      <td style="padding:7px 8px">${esc(e.colour||'-')}</td>
+                                      <td style="padding:7px 8px;text-align:right;font-weight:800;color:#15803d">${esc(e.good_qty||0)}</td>
+                                      <td style="padding:7px 8px;text-align:right;font-weight:800;color:${e.reject_qty>0?'#dc2626':'#94a3b8'}">${esc(e.reject_qty||0)}</td>
+                                      <td style="padding:7px 8px;color:#64748b;font-size:0.76rem">${esc(e.reject_reason||'')}</td>
+                                      <td style="padding:7px 8px;color:#64748b;font-size:0.76rem">${esc(e.remarks||'')}</td>
+                                      <td style="padding:7px 8px">
+                                        <button data-entry-id="${esc(String(e.id))}" class="lj-dpr-del-btn" style="background:#fee2e2;color:#dc2626;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.72rem"><i class="bi bi-trash"></i></button>
+                                      </td>
+                                    </tr>
+                                  `).join('')}
+                                </tbody>
+                              </table>`;
+                        } catch(err) { gridEl.innerHTML = `<div style="color:#dc2626;padding:20px">Error: ${esc(err.message)}</div>`; }
+                    };
+
+                    // Delegated delete handler — avoids inline onclick with API data (CodeQL safe)
+                    gridEl.addEventListener('click', (ev) => {
+                        const btn = ev.target.closest('.lj-dpr-del-btn');
+                        if (btn) window.ljDprDelete(Number(btn.dataset.entryId));
+                    });
+
+                    document.getElementById('lj-dpr-load')?.addEventListener('click', loadGrid);
+
+                    // Populate machine dropdown when party changes
+                    const populateMachines = async (pId) => {
+                        const machSel = document.getElementById('lj-e-machine');
+                        if (!machSel || !pId) return;
+                        try {
+                            const res = await J.api.get(`/labour-parties/${pId}/machines`);
+                            const machs = res.data || [];
+                            machSel.innerHTML = '<option value="">— Select Machine —</option>' +
+                                machs.map(m => `<option value="${esc(m.machine)}">${esc(m.machine)}</option>`).join('');
+                        } catch(e) { /* ignore */ }
+                    };
+
+                    document.getElementById('lj-dpr-add')?.addEventListener('click', async () => {
+                        const pId = partySelect?.value || '';
+                        document.getElementById('lj-entry-id').value = '';
+                        document.getElementById('lj-e-date').value = fromDate;
+                        document.getElementById('lj-e-shift').value = shiftMode !== 'Both' ? shiftMode : 'Day';
+                        document.getElementById('lj-e-colour').value = '';
+                        document.getElementById('lj-e-good').value = '0';
+                        document.getElementById('lj-e-reject').value = '0';
+                        document.getElementById('lj-e-reason').value = '';
+                        document.getElementById('lj-e-remarks').value = '';
+                        await populateMachines(pId);
+                        if (modal) modal.style.display = 'flex';
+                    });
+
+                    document.getElementById('lj-e-save')?.addEventListener('click', async () => {
+                        const pId = partySelect?.value || '';
+                        if (!pId) { alert('Select a party first'); return; }
+                        const body = {
+                            dpr_date: document.getElementById('lj-e-date').value,
+                            shift: document.getElementById('lj-e-shift').value,
+                            machine: document.getElementById('lj-e-machine').value,
+                            party_id: parseInt(pId, 10),
+                            colour: document.getElementById('lj-e-colour').value,
+                            good_qty: parseFloat(document.getElementById('lj-e-good').value) || 0,
+                            reject_qty: parseFloat(document.getElementById('lj-e-reject').value) || 0,
+                            reject_reason: document.getElementById('lj-e-reason').value,
+                            remarks: document.getElementById('lj-e-remarks').value
+                        };
+                        if (!body.machine) { alert('Select a machine'); return; }
+                        try {
+                            const entryId = document.getElementById('lj-entry-id').value;
+                            let res;
+                            if (entryId) {
+                                res = await J.api.request(`/dpr/labour/${entryId}`, { method: 'PUT', body: JSON.stringify(body) });
+                            } else {
+                                res = await J.api.post('/dpr/labour', body);
+                            }
+                            if (!res.ok) throw new Error(res.error || 'Failed to save');
+                            if (modal) modal.style.display = 'none';
+                            await loadGrid();
+                        } catch(err) { alert('Error: ' + err.message); }
+                    });
+
+                    window.ljDprDelete = async (id) => {
+                        if (!confirm('Delete this entry?')) return;
+                        try {
+                            const res = await J.api.request(`/dpr/labour/${id}`, { method: 'DELETE' });
+                            if (!res.ok) throw new Error(res.error || 'Failed');
+                            await loadGrid();
+                        } catch(err) { alert('Error: ' + err.message); }
+                    };
+
+                    // Auto-load if party already selected
+                    if (_labourDprPartyId) await loadGrid();
+                };
+                // ---- End Labour DPR Summary ----
+
                 const loadSummary = async () => {
                     const fromDate = document.getElementById('s-from-date').value;
                     const toDate = document.getElementById('s-to-date').value;
                     const shiftMode = document.getElementById('s-shift').value; // 'Day', 'Night', 'Both'
                     const container = document.getElementById('summary-container');
-                    const processQuery = `&process=${encodeURIComponent(dprProcess)}`;
                     const selectedFactory = document.getElementById('s-factory')?.value || '';
+
+                    // ---- Labour Job DPR: separate path ----
+                    if (dprProcess === 'Labour Job') {
+                        await loadLabourDprSummary(container, fromDate, toDate, shiftMode);
+                        return;
+                    }
+
+                    const processQuery = `&process=${encodeURIComponent(dprProcess)}`;
                     const selectedLine = document.getElementById('s-line')?.value || '';
                     const filterMode = document.getElementById('s-eff-filter')?.value || '';
 
