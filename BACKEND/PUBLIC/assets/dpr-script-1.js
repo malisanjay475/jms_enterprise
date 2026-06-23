@@ -532,7 +532,7 @@
                           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
                             <div>
                               <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Date</label>
-                              <input type="date" id="lj-e-date" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box" value="${fromDate}">
+                              <input type="date" id="lj-e-date" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box" value="${esc(fromDate)}">
                             </div>
                             <div>
                               <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Shift</label>
