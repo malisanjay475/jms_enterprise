@@ -416,6 +416,7 @@
 
     async function initializeFactoryScope() {
       allowedFactories = Array.isArray(JPSMS.factories.getAllowed()) ? JPSMS.factories.getAllowed() : [];
+      window.allowedFactories = allowedFactories; // expose for Labour Job machine modal
 
       if (!allowedFactories.length) {
         try {
@@ -532,13 +533,19 @@
       const canWriteScope = canWriteCurrentFactoryScope();
       const canEditMasters = JPSMS.auth.can('masters', 'edit');
 
+      // Labour parties has its own action bar outside uploadSection
+      const labourPartyActionBar = document.getElementById('labourPartyActionBar');
+      if (labourPartyActionBar) {
+        labourPartyActionBar.style.display = currentType === 'labour-parties' ? 'block' : 'none';
+      }
+
       if (uploadSection && reportOnlyTypes.includes(currentType)) {
         uploadSection.style.display = 'none';
         if (allFactoryUploadLock) allFactoryUploadLock.style.display = 'none';
+        return;
       }
 
       if (uploadSection && currentType !== 'users') {
-        if (reportOnlyTypes.includes(currentType)) return;
         if (!canEditMasters) {
           uploadSection.style.display = 'none';
           if (allFactoryUploadLock) allFactoryUploadLock.style.display = 'none';
@@ -572,10 +579,6 @@
         addMachineBtn.disabled = !canWriteScope;
         addMachineBtn.style.opacity = canWriteScope ? '1' : '0.55';
         addMachineBtn.title = canWriteScope ? '' : getWriteLockReason('add or edit machines');
-      }
-      const addLabourPartyBtn = document.getElementById('addLabourPartyBtn');
-      if (addLabourPartyBtn) {
-        addLabourPartyBtn.style.display = currentType === 'labour-parties' && canEditMasters ? 'inline-block' : 'none';
       }
     }
 
@@ -999,7 +1002,15 @@
               ...orderedPrintingCols.filter(c => Object.prototype.hasOwnProperty.call(rows[0], c))
             ];
           } else {
+            const isLabourJobView = getSelectedMachineProcessFilter() === 'Labour Job';
             cols = cols.filter(c => !['vendor_name', 'model_no', 'machine_type'].includes(c));
+            // Hide raw labour_party_id in all views; hide party_name in non-Labour-Job views
+            cols = cols.filter(c => c !== 'labour_party_id');
+            if (!isLabourJobView) {
+              cols = cols.filter(c => c !== 'party_name');
+            }
+            // Also hide raw factory_id / factory_code (factory_name is enough)
+            cols = cols.filter(c => !['factory_id', 'factory_code'].includes(c));
             const machineIdx = cols.indexOf('machine');
             if (machineIdx !== -1) {
               cols.splice(machineIdx + 1, 0, 'machine_process', 'machine_icon');
@@ -1806,6 +1817,7 @@
           'machine_name': 'Machine',
           'tonnage': 'Tonnage',
           'factory_id': 'Factory ID',
+          'party_name': 'Labour Party',
           'or_jr_no': 'OR/JR No',
           'or_jr_date': 'OR/JR Date',
           'jr_date': 'JR Date',
@@ -2127,20 +2139,32 @@
       currentMachineIconBase64 = null;
       setMachineIconPreview(data.machine_icon || '');
       updateMachineModalProcessView(machineProcess);
-      // After process view is updated (which populates party dropdown), set the selected party
-      if (machineProcess === 'Labour Job' && data.labour_party_id) {
-        // Wait for the async party load triggered by updateMachineModalProcessView, then set value
-        const trySetParty = (attempts) => {
-          const partySelect = document.getElementById('m_labour_party_id');
-          if (!partySelect) return;
-          // If options already loaded (> 1 = the placeholder + at least one party)
-          if (partySelect.options.length > 1) {
-            partySelect.value = String(data.labour_party_id);
-          } else if (attempts > 0) {
-            setTimeout(() => trySetParty(attempts - 1), 150);
-          }
-        };
-        setTimeout(() => trySetParty(10), 100);
+      if (machineProcess === 'Labour Job') {
+        // Restore Labour Job tonnage
+        const ljTonnage = document.getElementById('m_lj_tonnage');
+        if (ljTonnage) ljTonnage.value = data.tonnage || '';
+        // Restore factory selection
+        const ljFactory = document.getElementById('m_lj_factory_id');
+        if (ljFactory && data.factory_id) {
+          const trySetFactory = (attempts) => {
+            if (ljFactory.options.length > 1) ljFactory.value = String(data.factory_id);
+            else if (attempts > 0) setTimeout(() => trySetFactory(attempts - 1), 150);
+          };
+          setTimeout(() => trySetFactory(10), 100);
+        }
+        // Restore party selection
+        if (data.labour_party_id) {
+          const trySetParty = (attempts) => {
+            const partySelect = document.getElementById('m_labour_party_id');
+            if (!partySelect) return;
+            if (partySelect.options.length > 1) {
+              partySelect.value = String(data.labour_party_id);
+            } else if (attempts > 0) {
+              setTimeout(() => trySetParty(attempts - 1), 150);
+            }
+          };
+          setTimeout(() => trySetParty(10), 100);
+        }
       }
       modal.setAttribute('data-mode', mode);
       modal.style.display = 'flex';
@@ -2158,20 +2182,23 @@
       const normalizedProc = normalizeMachineProcessValue(process, 'Moulding');
       const isPrinting = normalizedProc === 'Printing';
       const isLabourJob = normalizedProc === 'Labour Job';
+      const ljFactoryId = isLabourJob ? (document.getElementById('m_lj_factory_id')?.value || null) : null;
+      const ljTonnage = isLabourJob ? (document.getElementById('m_lj_tonnage')?.value || '') : '';
       const body = {
         machine: document.getElementById('m_machine').value,
-        building: isPrinting ? '' : document.getElementById('m_building').value,
-        line: isPrinting ? '' : document.getElementById('m_line').value,
+        building: (isPrinting || isLabourJob) ? '' : document.getElementById('m_building').value,
+        line: (isPrinting || isLabourJob) ? '' : document.getElementById('m_line').value,
         machine_process: process,
-        tonnage: isPrinting ? '' : document.getElementById('m_tonnage').value,
-        mould_load_time: isPrinting ? '' : document.getElementById('m_mould_load_time').value,
-        mould_unload_time: isPrinting ? '' : document.getElementById('m_mould_unload_time').value,
+        tonnage: isPrinting ? '' : (isLabourJob ? ljTonnage : document.getElementById('m_tonnage').value),
+        mould_load_time: (isPrinting || isLabourJob) ? '' : document.getElementById('m_mould_load_time').value,
+        mould_unload_time: (isPrinting || isLabourJob) ? '' : document.getElementById('m_mould_unload_time').value,
         vendor_name: isPrinting ? document.getElementById('m_vendor_name').value : '',
         model_no: isPrinting ? document.getElementById('m_model_no').value : '',
         machine_type: isPrinting ? document.getElementById('m_machine_type').value : '',
         machine_icon: document.getElementById('m_machine_icon').value,
         machine_icon_base64: currentMachineIconBase64,
-        labour_party_id: isLabourJob ? (document.getElementById('m_labour_party_id')?.value || null) : null
+        labour_party_id: isLabourJob ? (document.getElementById('m_labour_party_id')?.value || null) : null,
+        ...(isLabourJob && ljFactoryId ? { factory_id_override: ljFactoryId } : {})
       };
 
       try {
@@ -2359,7 +2386,9 @@
       if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center p-3">Loading...</td></tr>';
       if (thead) thead.innerHTML = '';
 
-      // Show Add button
+      // Show action bar + Add button
+      const actionBar = document.getElementById('labourPartyActionBar');
+      if (actionBar) actionBar.style.display = 'block';
       const addBtn = document.getElementById('addLabourPartyBtn');
       if (addBtn) addBtn.style.display = JPSMS.auth.can('masters', 'edit') ? 'inline-block' : 'none';
 
