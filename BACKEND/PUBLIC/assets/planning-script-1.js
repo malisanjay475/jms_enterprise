@@ -1057,7 +1057,7 @@
       /* Process pills */
       const procDiv = document.getElementById('etv-proc');
       if (procDiv) {
-        ['Moulding','Printing','Tuffting'].forEach(opt => {
+        ['Moulding','Printing','Tuffting','Labour Job'].forEach(opt => {
           const active = opt === proc;
           const btn = document.createElement('button');
           btn.className = 'etv-btn' + (active ? ' primary' : '');
@@ -1657,7 +1657,9 @@
           <td class="etv-mach-cell" onclick="window.etvMachineClick('${esc(m.code)}')" title="${esc(m.code)} — click to filter">
             <div class="etv-mach-inner">
               <div class="etv-mach-code" title="${esc(m.code)}">${esc(stripMachPfx(m.code))}${zeroBalCount > 0 ? `<span style="margin-left:5px;background:#fef3c7;color:#b45309;font-size:.58rem;font-weight:800;border-radius:999px;padding:1px 6px;vertical-align:middle" title="${zeroBalCount} plan(s) with zero/negative balance — sorted to end">(${zeroBalCount})</span>` : ''}</div>
-              <div class="etv-mach-meta">${esc(m._finalBuilding||'?')} · Line ${esc(m._finalLine||'?')}</div>
+              <div class="etv-mach-meta">${(m.machine_process||'').toLowerCase() === 'labour job' && m.partyName
+                ? `<i class="bi bi-people-fill" style="color:#b45309"></i> ${esc(m.partyName)}`
+                : `${esc(m._finalBuilding||'?')} · Line ${esc(m._finalLine||'?')}`}</div>
               ${plans.length > 0 ? `<div class="etv-mach-plans">${plans.length} plan${plans.length>1?'s':''} queued</div>` : `<div class="etv-mach-plans" style="color:#2d3f55">No plans</div>`}
               ${loadLabel ? `<div class="etv-mach-load${isOverloaded ? ' etv-mach-load-over' : ''}" title="Total queued run-time${isOverloaded ? ' — over 30 days of load' : ''}"><i class="bi bi-clock" style="font-size:.5rem"></i> Load: ${esc(loadLabel)}</div>` : ''}
               ${isOverloaded ? `<div class="etv-load-badge" title="This machine has more than 30 days of planned load"><i class="bi bi-exclamation-triangle-fill"></i> 30+ days load</div>` : ''}

@@ -180,6 +180,7 @@
       const normalizedProcess = normalizeMachineProcessValue(processValue, 'Moulding');
       const standardFields = document.getElementById('machineStandardFields');
       const printingFields = document.getElementById('machinePrintingFields');
+      const labourFields = document.getElementById('machineLabourFields');
       const machineLabel = document.getElementById('m_machine_label');
       const machineInput = document.getElementById('m_machine');
 
@@ -189,6 +190,28 @@
       }
       if (standardFields) standardFields.style.display = normalizedProcess === 'Printing' ? 'none' : 'block';
       if (printingFields) printingFields.style.display = normalizedProcess === 'Printing' ? 'block' : 'none';
+      if (labourFields) {
+        if (normalizedProcess === 'Labour Job') {
+          labourFields.style.display = 'block';
+          // Populate party dropdown if empty
+          const partySelect = document.getElementById('m_labour_party_id');
+          if (partySelect && partySelect.options.length <= 1) {
+            JPSMS.api.get('/labour-parties').then(res => {
+              if (res.ok) {
+                const parties = res.data || [];
+                parties.forEach(p => {
+                  const opt = document.createElement('option');
+                  opt.value = p.id;
+                  opt.textContent = p.party_name;
+                  partySelect.appendChild(opt);
+                });
+              }
+            }).catch(() => {});
+          }
+        } else {
+          labourFields.style.display = 'none';
+        }
+      }
     }
 
     function openMouldModal(mode, data) {
