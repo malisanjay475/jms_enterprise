@@ -248,6 +248,15 @@
                             </tbody>
                         </table>
                     </div>
+                    <!-- HISTORY SECTION: completed + dropped plans -->
+                    <div id="om-history-area" style="padding:4px 4px 16px">
+                        <button id="om-history-btn"
+                            onclick="window.toggleOrderHistory()"
+                            style="background:#f1f5f9;border:1px solid #e2e8f0;color:#94a3b8;padding:9px 16px;border-radius:8px;cursor:pointer;font-size:0.83rem;font-weight:600;width:100%;text-align:left;margin-top:8px;transition:all 0.2s;">
+                            📋 Loading plan history…
+                        </button>
+                        <div id="om-history-body" style="display:none;margin-top:8px;"></div>
+                    </div>
                 </div>
             </div>
         `;
@@ -307,6 +316,12 @@
                         ${exp ? `<div style="text-align:right;color:#2563eb;font-weight:700">Exp:</div><div style="font-weight:700;color:#2563eb">${xStr}</div>` : ''}
                     </div>`;
                 }
+            } else if (st === 'completed' && (item.completedBy || item.completedAt)) {
+                // Completed plan — show who completed and when
+                datesHtml = `<div style="display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:0.8rem">
+                    <div style="text-align:right;color:#15803d;font-weight:700">By:</div><div style="font-weight:700;color:#15803d">${esc(item.completedBy || '–')}</div>
+                    <div style="text-align:right;color:#94a3b8">At:</div><div style="font-weight:600;color:#334155">${fmt(item.completedAt)}</div>
+                </div>`;
             }
 
             const jc = item.jcNo || '-';
@@ -329,15 +344,19 @@
                         <span>Unassigned</span>
                         <i class="bi bi-chevron-down" style="font-size:0.75rem; color:#94a3b8;"></i>
                     </div>`;
+            } else if (cleanMachine && cleanMachine !== '-') {
+                // Completed plan — show machine as plain text (no dropdown, can't re-assign)
+                machDisplay = `<span style="font-weight:600;color:#334155">${esc(cleanMachine)}</span>`;
             } else {
                 machDisplay = '<span style="color:#cbd5e1;font-style:italic">Unassigned</span>';
             }
             const jcClickable = jc && jc !== '-'
-                ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : '')}','${esc(item._planObj ? (item._planObj.orderNo || '') : '')}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
+                ? `<span class="dd-jc-link" onclick="window.openJcDrilldown('${esc(jc)}','${esc(jc)}','${esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '') : (item.completedPlanId || ''))}','${esc(item._planObj ? (item._planObj.orderNo || '') : '')}');event.stopPropagation();" title="Click to see colour/shift/hourly drill-down">${esc(jc)} <i class="bi bi-bar-chart-line-fill" style="font-size:.75rem"></i></span>`
                 : '<span style="color:#cbd5e1">—</span>';
 
-            const planIdText = esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '-') : '-');
-            return `<tr ${rowClass} ${isHighlighted ? 'data-highlighted="true"' : ''}>
+            const planIdText = esc(item._planObj ? (item._planObj.planId || item._planObj.plan_id || '-') : (item.completedPlanId || '-'));
+            const completedRowStyle = st === 'completed' ? ' style="background:#f0fdf4;"' : '';
+            return `<tr ${rowClass}${completedRowStyle} ${isHighlighted ? 'data-highlighted="true"' : ''}>
                 <td style="font-family:monospace;font-size:0.78rem;font-weight:700;color:#7c3aed;white-space:nowrap">${planIdText}</td>
                 <td><div style="font-weight:700;color:#334155">${esc(item.mouldName || '-')}</div>
                     <div style="font-size:0.8rem;color:#64748b;font-family:monospace">${esc(item.mouldNo)}</div></td>
@@ -345,7 +364,7 @@
                 <td>${jcClickable}</td>
                 <td><span class="om-badge ${badgeClass}">${esc(item.status || 'Pending')}</span></td>
                 <td style="text-align:right;font-weight:700;color:#1e293b">${(item.planQty || 0).toLocaleString()}</td>
-                <td style="text-align:right;font-weight:700;color:#16a34a">${(item.producedQty || 0).toLocaleString()}</td>
+                <td style="text-align:right;font-weight:700;color:#16a34a">${(item.producedQty || 0).toLocaleString()}${item.extraQty > 0 ? `<div style="font-size:0.72rem;color:#15803d;font-weight:700">+${Number(item.extraQty).toLocaleString()} extra</div>` : ''}</td>
                 <td style="text-align:right;font-weight:700;color:${item.balQty > 0 ? '#f59e0b' : '#10b981'}">${(item.balQty || 0).toLocaleString()}</td>
                 <td>${datesHtml}</td>
             </tr>`;
@@ -402,60 +421,104 @@
             _omRenderRows(mergedFromCache, orderNo, headerProd, headerClient);
         }
 
-        // ── STEP 2: Fetch mould-planning summary in background to enrich rows ──
-        // This is purely additive — it fills in mould_no / plan_qty from ERP data.
-        // If it's slow or fails the user already sees all the plan data above.
+        // ── STEP 2+3: Fetch mould details AND history in parallel ──
+        // Details fills in mould_no / plan_qty from ERP data.
+        // History brings in completed + dropped plans so we can show proper status.
         try {
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-            // 3-second timeout so a slow API never blocks the UI
             const fetchWithTimeout = (url, ms) => {
                 const ctrl = new AbortController();
                 const timer = setTimeout(() => ctrl.abort(), ms);
                 return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
             };
             const baseUrl = api._base || window.location.origin;
-            const raw = await fetchWithTimeout(
-                `${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/details`, 3000
-            );
-            if (!raw.ok) throw new Error('non-ok');
-            const resJson = await raw.json();
-            const summaryItems = (resJson && resJson.data) ? resJson.data : [];
 
-            if (summaryItems.length > 0) {
-                // Re-derive header from summary if better info available
-                const validSummary = summaryItems.find(s => s.product_name && s.product_name !== 'null');
-                if (validSummary) {
-                    headerProd   = validSummary.product_name;
-                    if (validSummary.client_name) headerClient = validSummary.client_name;
+            // Fetch both in parallel
+            const [detailsResult, historyResult] = await Promise.allSettled([
+                fetchWithTimeout(`${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/details`, 3000),
+                fetchWithTimeout(`${baseUrl}/api/planning/orders/${encodeURIComponent(orderNo)}/history`, 4000)
+            ]);
+
+            // Parse history first so we can merge into enriched rows
+            let completedPlans = [];
+            let droppedPlans   = [];
+            if (historyResult.status === 'fulfilled' && historyResult.value.ok) {
+                try {
+                    const hj = await historyResult.value.json();
+                    if (hj.ok) { completedPlans = hj.completed || []; droppedPlans = hj.dropped || []; }
+                } catch (e) { /* ignore parse error */ }
+            }
+
+            // Parse details and build enriched list
+            if (detailsResult.status === 'fulfilled' && detailsResult.value.ok) {
+                const resJson = await detailsResult.value.json();
+                const summaryItems = (resJson && resJson.data) ? resJson.data : [];
+
+                if (summaryItems.length > 0) {
+                    const validSummary = summaryItems.find(s => s.product_name && s.product_name !== 'null');
+                    if (validSummary) {
+                        headerProd   = validSummary.product_name;
+                        if (validSummary.client_name) headerClient = validSummary.client_name;
+                    }
+
+                    const enriched = summaryItems.map(s => {
+                        const mouldNo   = (s.mould_no || s.mouldNo || '').trim();
+                        const mouldName = (s.mould_name || s.mouldName || '').trim().toLowerCase();
+                        // Active plan for this mould?
+                        const ap = activePlans.find(p => (p.mouldNo || p.mould_no || '').trim() === mouldNo);
+                        // Completed plan for this mould (match by mould_name since plan_board stores mould_name, not mould_no)
+                        const cp = !ap ? completedPlans.find(c =>
+                            (c.mould_name || '').trim().toLowerCase() === mouldName
+                        ) : null;
+                        if (headerProd   === 'Product Name Not Available' && ap && ap.productName) headerProd   = ap.productName;
+                        if (headerClient === 'Unknown Client'             && ap && ap.clientName)  headerClient = ap.clientName;
+                        return {
+                            isSummary:    true,
+                            mouldName:    s.mould_name || s.mouldName || (ap ? ap.mouldName : (cp ? cp.mould_name : 'Unknown Mould')),
+                            mouldNo,
+                            machine:      ap ? ap.machine : (cp ? cp.machine : '-'),
+                            jcNo:         ap ? (ap.jcNo || ap.jc_no || ap.job_card_no) : (cp ? cp.job_card_no : (s.jc_no || null)),
+                            status:       ap ? ap.status : (cp ? 'COMPLETED' : 'Pending'),
+                            planQty:      s.plan_qty || s.qty || (ap ? ap.planQty : (cp ? cp.plan_qty : 0)),
+                            balQty:       ap ? ap.balQty : (cp ? Number(cp.bal_qty || 0) : (s.plan_qty || s.qty || 0)),
+                            producedQty:  ap ? ap.producedQty : (cp ? Number(cp.produced_qty || 0) : 0),
+                            extraQty:     cp ? Number(cp.extra_qty || 0) : 0,
+                            completedBy:  cp ? cp.completed_by : null,
+                            completedAt:  cp ? cp.completed_at : null,
+                            completedPlanId: cp ? cp.id : null,
+                            _planObj:     ap
+                        };
+                    });
+
+                    if (modal.classList.contains('active') &&
+                        document.getElementById('om-orderno')?.textContent === orderNo) {
+                        _omRenderRows(enriched, orderNo, headerProd, headerClient);
+                    }
                 }
+            }
 
-                const enriched = summaryItems.map(s => {
-                    const mouldNo = s.mould_no || s.mouldNo;
-                    const ap = activePlans.find(p => (p.mouldNo || p.mould_no || '').trim() === (mouldNo || '').trim());
-                    if (headerProd   === 'Product Name Not Available' && ap && ap.productName) headerProd   = ap.productName;
-                    if (headerClient === 'Unknown Client'             && ap && ap.clientName)  headerClient = ap.clientName;
-                    return {
-                        isSummary: true,
-                        mouldName:   s.mould_name || s.mouldName || (ap ? ap.mouldName : 'Unknown Mould'),
-                        mouldNo,
-                        machine:     ap ? ap.machine : '-',
-                        jcNo:        ap ? (ap.jcNo || ap.jc_no || ap.job_card_no) : (s.jc_no || '-'),
-                        status:      ap ? ap.status : 'Pending',
-                        planQty:     s.plan_qty || s.qty || (ap ? ap.planQty : 0),
-                        balQty:      ap ? ap.balQty : (s.plan_qty || s.qty || 0),
-                        producedQty: ap ? ap.producedQty : 0,
-                        _planObj:    ap
-                    };
-                });
-                // Only update if modal is still open for this order
-                if (modal.classList.contains('active') &&
-                    document.getElementById('om-orderno')?.textContent === orderNo) {
-                    _omRenderRows(enriched, orderNo, headerProd, headerClient);
+            // Update history toggle button
+            if (modal.classList.contains('active')) {
+                const total = completedPlans.length + droppedPlans.length;
+                const btn = document.getElementById('om-history-btn');
+                if (btn) {
+                    btn.dataset.completed = JSON.stringify(completedPlans);
+                    btn.dataset.dropped   = JSON.stringify(droppedPlans);
+                    if (total === 0) {
+                        btn.style.display = 'none';
+                    } else {
+                        btn.innerHTML = `📋 Show Plan History — <strong>${total}</strong> record${total !== 1 ? 's' : ''} &nbsp;<span style="color:#15803d">(${completedPlans.length} ✅ completed</span>&nbsp;<span style="color:#dc2626">${droppedPlans.length} 🔴 dropped)</span>`;
+                        btn.style.color       = '#1e40af';
+                        btn.style.borderColor = '#bfdbfe';
+                        btn.style.background  = '#eff6ff';
+                        btn.style.cursor      = 'pointer';
+                    }
                 }
             }
         } catch (e) {
-            // Timeout or network error — cached data already showing, nothing to do
-            if (e.name !== 'AbortError') console.warn('[OrderModal] summary fetch failed:', e.message);
+            if (e.name !== 'AbortError') console.warn('[OrderModal] fetch failed:', e.message);
+            const btn = document.getElementById('om-history-btn');
+            if (btn) btn.style.display = 'none';
         }
 
         // Final: ensure header is set
@@ -464,6 +527,7 @@
             document.getElementById('om-client').textContent  = headerClient;
             document.getElementById('om-orderno').textContent = orderNo;
         }
+
     };
 
     window.closeOrderModal = function () {
@@ -473,6 +537,78 @@
             window.lastClickedPlanId = null; // Clear highlight on close
             setTimeout(() => { modal.style.display = 'none'; window._ddHideDrill(); }, 300);
         }
+    };
+
+    // Toggle: show/hide plan history (completed + dropped)
+    window.toggleOrderHistory = function () {
+        const btn  = document.getElementById('om-history-btn');
+        const body = document.getElementById('om-history-body');
+        if (!btn || !body) return;
+
+        const isOpen = body.style.display !== 'none';
+        if (isOpen) {
+            body.style.display = 'none';
+            btn.innerHTML = btn.innerHTML.replace('▲ Hide', '📋 Show');
+            return;
+        }
+
+        const completed = JSON.parse(btn.dataset.completed || '[]');
+        const dropped   = JSON.parse(btn.dataset.dropped   || '[]');
+        const fmt = (d) => d ? new Date(d).toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '–';
+        const esc = (s) => (s || '').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const stripMach = (s) => { const t = String(s||'').trim(); return t.includes('>') ? t.split('>').pop().trim() : t; };
+
+        let html = '';
+
+        if (completed.length > 0) {
+            html += `<div style="font-size:0.8rem;font-weight:700;color:#15803d;padding:8px 0 4px;border-bottom:2px solid #bbf7d0;margin-bottom:8px">✅ COMPLETED PLANS (${completed.length})</div>
+            <table style="width:100%;border-collapse:collapse;font-size:0.82rem;margin-bottom:12px">
+                <thead><tr style="background:#f0fdf4;color:#166534">
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">Mould / Sub Part</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">Machine</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">JC Number</th>
+                    <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #bbf7d0;font-weight:700">Plan Qty</th>
+                    <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #bbf7d0;font-weight:700">Produced</th>
+                    <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #bbf7d0;font-weight:700">Bal</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">Completed By</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #bbf7d0;font-weight:700">Completed At</th>
+                </tr></thead>
+                <tbody>${completed.map(c => `<tr style="border-bottom:1px solid #f0fdf4">
+                    <td style="padding:5px 8px"><div style="font-weight:600;color:#15803d">${esc(c.mould_name||'-')}</div><div style="font-size:0.75rem;color:#6b7280;font-family:monospace">${esc(c.mould_no||'')}</div></td>
+                    <td style="padding:5px 8px;color:#334155;font-weight:600">${esc(stripMach(c.machine)||'–')}</td>
+                    <td style="padding:5px 8px;font-family:monospace;color:#2563eb;font-weight:600;font-size:0.78rem">${esc(c.job_card_no||'—')}</td>
+                    <td style="padding:5px 8px;text-align:right;font-weight:700;color:#334155">${Number(c.plan_qty||0).toLocaleString()}</td>
+                    <td style="padding:5px 8px;text-align:right;font-weight:700;color:#16a34a">${Number(c.produced_qty||0).toLocaleString()}${Number(c.extra_qty||0)>0?`<div style="font-size:0.7rem;color:#15803d;font-weight:700">+${Number(c.extra_qty).toLocaleString()} extra</div>`:''}</td>
+                    <td style="padding:5px 8px;text-align:right;font-weight:700;color:${Number(c.bal_qty||0)>0?'#f59e0b':'#10b981'}">${Number(c.bal_qty||0).toLocaleString()}</td>
+                    <td style="padding:5px 8px;color:#64748b">${esc(c.completed_by||'–')}</td>
+                    <td style="padding:5px 8px;color:#64748b;white-space:nowrap">${fmt(c.completed_at)}</td>
+                </tr>`).join('')}</tbody>
+            </table>`;
+        }
+
+        if (dropped.length > 0) {
+            html += `<div style="font-size:0.8rem;font-weight:700;color:#dc2626;padding:${completed.length > 0 ? '12' : '8'}px 0 4px;border-bottom:2px solid #fecaca;margin-bottom:8px">🔴 DROPPED PLANS (${dropped.length})</div>
+            <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+                <thead><tr style="background:#fef2f2;color:#991b1b">
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #fecaca;font-weight:700">Mould / Sub Part</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #fecaca;font-weight:700">Remarks</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #fecaca;font-weight:700">Dropped By</th>
+                    <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #fecaca;font-weight:700">Dropped At</th>
+                </tr></thead>
+                <tbody>${dropped.map(d => `<tr style="border-bottom:1px solid #fef2f2">
+                    <td style="padding:5px 8px"><div style="font-weight:600;color:#dc2626">${esc(d.mould_name||'-')}</div><div style="font-size:0.75rem;color:#6b7280;font-family:monospace">${esc(d.mould_no||'')}</div></td>
+                    <td style="padding:5px 8px;color:#7f1d1d;font-style:italic">${esc(d.remarks||'No remarks')}</td>
+                    <td style="padding:5px 8px;color:#64748b">${esc(d.dropped_by||'User')}</td>
+                    <td style="padding:5px 8px;color:#64748b;white-space:nowrap">${fmt(d.created_at)}</td>
+                </tr>`).join('')}</tbody>
+            </table>`;
+        }
+
+        if (!html) html = '<div style="color:#94a3b8;text-align:center;padding:20px;font-size:0.85rem">No completed or dropped plans for this order.</div>';
+
+        body.innerHTML = html;
+        body.style.display = '';
+        btn.innerHTML = btn.innerHTML.replace('📋 Show', '▲ Hide');
     };
 
     /* ================================================================
