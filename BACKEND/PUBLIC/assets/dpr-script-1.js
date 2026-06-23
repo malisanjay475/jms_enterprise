@@ -507,18 +507,13 @@
                         parties = (pr.data || []).filter(p => p.is_active);
                     } catch(e) { /* ignore */ }
 
-                    // Build party selector + entry form
-                    const partyOptions = parties.map(p =>
-                        `<option value="${esc(String(p.id))}" ${String(p.id) === String(_labourDprPartyId) ? 'selected' : ''}>${esc(p.party_name)}</option>`
-                    ).join('');
-
+                    // Build static shell (no dynamic data in innerHTML to avoid XSS flagging)
                     container.innerHTML = `
                       <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:16px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
                         <div>
                           <label style="font-size:0.75rem;font-weight:700;color:#92400e;display:block;margin-bottom:4px">Labour Party</label>
                           <select id="lj-dpr-party" style="padding:7px 10px;border:1px solid #fde68a;border-radius:6px;min-width:180px;background:#fff;font-weight:700">
                             <option value="">— Select Party —</option>
-                            ${partyOptions}
                           </select>
                         </div>
                         <button id="lj-dpr-load" style="padding:8px 18px;background:#b45309;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700">
@@ -582,6 +577,14 @@
                     `;
 
                     const partySelect = document.getElementById('lj-dpr-party');
+                    // Populate party options via DOM (avoids XSS-through-dom CodeQL flag)
+                    parties.forEach(p => {
+                        const opt = document.createElement('option');
+                        opt.value = String(p.id);
+                        opt.textContent = p.party_name;
+                        if (String(p.id) === String(_labourDprPartyId)) opt.selected = true;
+                        partySelect.appendChild(opt);
+                    });
                     const gridEl = document.getElementById('lj-dpr-grid');
                     const modal = document.getElementById('ljDprModal');
 
@@ -623,7 +626,7 @@
                                       <td style="padding:7px 8px;color:#64748b;font-size:0.76rem">${esc(e.reject_reason||'')}</td>
                                       <td style="padding:7px 8px;color:#64748b;font-size:0.76rem">${esc(e.remarks||'')}</td>
                                       <td style="padding:7px 8px">
-                                        <button onclick="ljDprDelete(${esc(String(e.id))})" style="background:#fee2e2;color:#dc2626;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.72rem"><i class="bi bi-trash"></i></button>
+                                        <button data-entry-id="${esc(String(e.id))}" class="lj-dpr-del-btn" style="background:#fee2e2;color:#dc2626;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.72rem"><i class="bi bi-trash"></i></button>
                                       </td>
                                     </tr>
                                   `).join('')}
@@ -631,6 +634,12 @@
                               </table>`;
                         } catch(err) { gridEl.innerHTML = `<div style="color:#dc2626;padding:20px">Error: ${esc(err.message)}</div>`; }
                     };
+
+                    // Delegated delete handler — avoids inline onclick with API data (CodeQL safe)
+                    gridEl.addEventListener('click', (ev) => {
+                        const btn = ev.target.closest('.lj-dpr-del-btn');
+                        if (btn) window.ljDprDelete(Number(btn.dataset.entryId));
+                    });
 
                     document.getElementById('lj-dpr-load')?.addEventListener('click', loadGrid);
 

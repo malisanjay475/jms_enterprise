@@ -2384,37 +2384,54 @@
         }
 
         const canEdit = JPSMS.auth.can('masters', 'edit');
+        // Cache parties for delegated click handlers (avoids inline onclick with user data)
+        window._labourPartiesCache = {};
+        parties.forEach(p => { window._labourPartiesCache[p.id] = p; });
+
         if (tbody) {
           tbody.innerHTML = parties.map((p, i) => `
             <tr>
               <td>
                 ${canEdit ? `
-                  <button onclick="openLabourPartyModal('edit', ${JSON.stringify(p).replace(/"/g, '&quot;')})"
+                  <button class="lp-edit-btn" data-party-id="${p.id}"
                     style="background:#2563eb;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:0.75rem;margin-right:3px">
                     <i class="bi bi-pencil"></i>
                   </button>
-                  <button onclick="deleteLabourParty(${p.id}, ${JSON.stringify(p.party_name || '')})"
+                  <button class="lp-del-btn" data-party-id="${p.id}"
                     style="background:#dc2626;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:0.75rem">
                     <i class="bi bi-trash"></i>
                   </button>
                 ` : ''}
               </td>
               <td>${i + 1}</td>
-              <td style="font-weight:600">${p.party_name || ''}</td>
-              <td><span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700">${p.party_type || 'Labour Job'}</span></td>
+              <td style="font-weight:600">${escHtml(p.party_name || '')}</td>
+              <td><span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700">${escHtml(p.party_type || 'Labour Job')}</span></td>
               <td>${p.is_active
                 ? '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700">Active</span>'
                 : '<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700">Inactive</span>'}</td>
               <td style="color:#475569;font-size:0.78rem">${
                 (p.machines && p.machines.length)
-                  ? p.machines.map(m => `<span style="background:#eff6ff;color:#1d4ed8;padding:1px 6px;border-radius:8px;font-size:0.7rem;margin-right:3px">${m}</span>`).join('')
+                  ? p.machines.map(m => `<span style="background:#eff6ff;color:#1d4ed8;padding:1px 6px;border-radius:8px;font-size:0.7rem;margin-right:3px">${escHtml(m)}</span>`).join('')
                   : '<span style="color:#94a3b8">None assigned</span>'
               }</td>
             </tr>
           `).join('');
+
+          // Delegated event listeners — no user data in onclick (CodeQL safe)
+          tbody.addEventListener('click', (ev) => {
+            const editBtn = ev.target.closest('.lp-edit-btn');
+            const delBtn = ev.target.closest('.lp-del-btn');
+            if (editBtn) {
+              const party = window._labourPartiesCache[editBtn.dataset.partyId];
+              if (party) openLabourPartyModal('edit', party);
+            } else if (delBtn) {
+              const party = window._labourPartiesCache[delBtn.dataset.partyId];
+              if (party) deleteLabourParty(party.id, party.party_name);
+            }
+          });
         }
       } catch (e) {
-        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="text-center p-3" style="color:#dc2626">Error: ${e.message}</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="text-center p-3" style="color:#dc2626">Error: ${escHtml(e.message)}</td></tr>`;
       }
     }
 
