@@ -2393,7 +2393,7 @@
                     style="background:#2563eb;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:0.75rem;margin-right:3px">
                     <i class="bi bi-pencil"></i>
                   </button>
-                  <button onclick="deleteLabourParty(${p.id}, '${(p.party_name||'').replace(/'/g, "\\'")}')"
+                  <button onclick="deleteLabourParty(${p.id}, ${JSON.stringify(p.party_name || '')})"
                     style="background:#dc2626;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:0.75rem">
                     <i class="bi bi-trash"></i>
                   </button>

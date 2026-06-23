@@ -509,7 +509,7 @@
 
                     // Build party selector + entry form
                     const partyOptions = parties.map(p =>
-                        `<option value="${p.id}" ${String(p.id) === String(_labourDprPartyId) ? 'selected' : ''}>${esc(p.party_name)}</option>`
+                        `<option value="${esc(String(p.id))}" ${String(p.id) === String(_labourDprPartyId) ? 'selected' : ''}>${esc(p.party_name)}</option>`
                     ).join('');
 
                     container.innerHTML = `
@@ -623,7 +623,7 @@
                                       <td style="padding:7px 8px;color:#64748b;font-size:0.76rem">${esc(e.reject_reason||'')}</td>
                                       <td style="padding:7px 8px;color:#64748b;font-size:0.76rem">${esc(e.remarks||'')}</td>
                                       <td style="padding:7px 8px">
-                                        <button onclick="ljDprDelete(${e.id})" style="background:#fee2e2;color:#dc2626;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.72rem"><i class="bi bi-trash"></i></button>
+                                        <button onclick="ljDprDelete(${esc(String(e.id))})" style="background:#fee2e2;color:#dc2626;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.72rem"><i class="bi bi-trash"></i></button>
                                       </td>
                                     </tr>
                                   `).join('')}
