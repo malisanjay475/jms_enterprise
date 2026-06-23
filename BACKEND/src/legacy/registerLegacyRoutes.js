@@ -4979,10 +4979,12 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_machine_priority ON plan_board(machine, machine_priority) WHERE machine_priority IS NOT NULL`);
 
-    // Legacy unique on or_jr_no alone — skipped when duplicates exist (composite index is applied later).
-    await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_report_unique_no ON or_jr_report(or_jr_no);`).catch(err =>
-      console.warn('[DB] idx_or_jr_report_unique_no skipped (duplicate or_jr_no rows in data):', err.message)
-    );
+    // NOTE: the legacy single-column unique idx_or_jr_report_unique_no on or_jr_no is
+    // intentionally NOT created here. It is harmful — one OR/JR can have many job cards,
+    // so a unique on or_jr_no alone makes the second job-card row fail and get skipped.
+    // The migration below drops any pre-existing copy and replaces it with the composite
+    // idx_or_jr_jc_unique ON (or_jr_no, COALESCE(job_card_no, '')). Recreating it here
+    // only to drop it moments later churned the schema and logged a spurious warning.
     await migrateOrderCompletionWorkflowSchema();
 
     console.log('Database initialized');
