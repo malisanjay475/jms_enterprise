@@ -1984,3 +1984,469 @@
         window.addEventListener('error', e => {
             const s = el('submit-errors'); if (s) { s.textContent = 'Script error: ' + e.message; }
         });
+
+        /* ================================================================
+           PRIORITY BADGE + END TIME — job card rendering helpers
+           ================================================================ */
+        function priorityBadge(machinePriority) {
+            if (!machinePriority) return '';
+            const map = { P1: '#dc2626', P2: '#d97706', P3: '#854d0e', P4: '#64748b' };
+            const bg  = { P1: '#fef2f2', P2: '#fffbeb', P3: '#fefce8', P4: '#f8fafc' };
+            const c = map[machinePriority] || '#64748b';
+            const b = bg[machinePriority]  || '#f8fafc';
+            return `<span style="display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;background:${b};border:1px solid ${c};color:${c};font-size:11px;font-weight:800;margin-right:4px">${machinePriority}</span>`;
+        }
+
+        function endTimeBadge(calcEndDT) {
+            if (!calcEndDT) return '<span class="muted" style="font-size:12px">—</span>';
+            const end = new Date(calcEndDT);
+            const now = new Date();
+            const diffDays = Math.round((end - now) / 86400000);
+            let label, color;
+            if (diffDays < 0)       { label = `Overdue ${Math.abs(diffDays)}d`; color = '#dc2626'; }
+            else if (diffDays === 0){ label = 'Due Today';  color = '#d97706'; }
+            else if (diffDays === 1){ label = 'Due Tomorrow'; color = '#d97706'; }
+            else if (diffDays <= 3) { label = `${diffDays}d left`; color = '#d97706'; }
+            else {
+                label = end.getDate().toString().padStart(2,'0') + '/' + (end.getMonth()+1).toString().padStart(2,'0');
+                color = '#059669';
+            }
+            return `<span style="font-size:12px;font-weight:600;color:${color}">⏰ ${label}</span>`;
+        }
+
+        function statusBadge(statusRaw) {
+            const s = (statusRaw || '').toUpperCase();
+            if (s.startsWith('RUN')) return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:#ecfdf5;border:1px solid #059669;color:#059669;font-size:11px;font-weight:700"><span style="width:6px;height:6px;border-radius:50%;background:#059669;animation:pulse 1.2s infinite"></span>Running</span>`;
+            if (s.startsWith('STOP')) return `<span style="padding:2px 8px;border-radius:999px;background:#fef2f2;border:1px solid #dc2626;color:#dc2626;font-size:11px;font-weight:700">Stopped</span>`;
+            return `<span style="padding:2px 8px;border-radius:999px;background:var(--pill);border:1px solid rgba(99,120,180,.2);color:var(--muted);font-size:11px;font-weight:600">${statusRaw || 'Waiting'}</span>`;
+        }
+
+        /* Override job card render to include priority + end-time */
+        function buildJobCard(item, idx, activeIndex) {
+            const job = item.job;
+            const all = job._all || {};
+
+            const orderNo  = safe(job.OrderNo  || all['Order No']  || '');
+            const jcNo     = safe(job.JobCardNo || all['JobCardNo'] || '');
+            const prodName = safe(all['SFG Name'] || all['Item Name'] || job.product_name || '');
+            const planQty  = safe(job.PlanQty  || all['Plan Qty']  || '');
+            const st       = fmtDT(job.StartDateTime)  || '—';
+            const machinePriority = job.machinePriority || all['machinePriority'] || null;
+            const calcEnd  = job.CalcEndDateTime || all['CalcEndDateTime'] || null;
+
+            const card = document.createElement('div');
+            card.className = 'job';
+            if (idx === activeIndex) card.style.borderColor = 'var(--primary)';
+            card.innerHTML = `
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">
+                  ${priorityBadge(machinePriority)}
+                  ${statusBadge(item.statusRaw)}
+                  ${endTimeBadge(calcEnd)}
+                </div>
+                <div class="qc-action-row">
+                  <button class="small primary" onclick="selectJobAndOpenQC(${idx})">QC Check</button>
+                  <button class="small ghost"   onclick="selectJobAndOpenFPA(${idx})">FPA</button>
+                </div>
+              </div>
+              <div style="font-weight:700;font-size:15px;margin-top:6px">${prodName || orderNo}</div>
+              <div style="font-size:13px;color:var(--muted);margin-top:2px">
+                JR: ${orderNo} · JC: ${jcNo}${planQty ? ' · Qty: '+Number(planQty).toLocaleString() : ''}
+              </div>
+              <div style="font-size:12px;color:var(--muted);margin-top:4px">Start: ${st}</div>`;
+
+            card.dataset.queueIndex = String(idx);
+            card._qcJob = job;
+            return card;
+        }
+
+        /* Patch loadQueue to use new card builder */
+        const _origLoadQueue = loadQueue;
+        loadQueue = function() {
+            const jobsDiv = el('jobs');
+            jobsDiv.innerHTML = '';
+            el('no-jobs').classList.add('hidden');
+            session.activeJob = null;
+            el('job-summary').innerHTML = '';
+            showLoading();
+            const line    = session.line    || '';
+            const machine = session.machine || el('dd-machine').value || '';
+            fetch(`/api/queue?line=${encodeURIComponent(line)}&machine=${encodeURIComponent(machine)}`)
+                .then(r => r.json())
+                .then(r => {
+                    hideLoading();
+                    if (!r || !r.ok || !(r.data || []).length) {
+                        el('no-jobs').classList.remove('hidden');
+                        return;
+                    }
+                    const mapped = (r.data || [])
+                        .map((job, originalIndex) => {
+                            const statusRaw  = getJobStatus(job);
+                            const statusNorm = statusRaw.toUpperCase();
+                            if (['DONE','COMPLETED','CLOSED'].includes(statusNorm)) return null;
+                            let pri = 4;
+                            if (statusNorm.startsWith('RUN'))  pri = 1;
+                            else if (statusNorm.startsWith('WAIT') || statusNorm === '') pri = 2;
+                            else if (statusNorm.startsWith('POST')) pri = 3;
+                            return { job, originalIndex, statusRaw, statusNorm, pri };
+                        })
+                        .filter(Boolean);
+                    if (!mapped.length) { el('no-jobs').classList.remove('hidden'); return; }
+                    mapped.sort((a, b) => a.pri !== b.pri ? a.pri - b.pri : a.originalIndex - b.originalIndex);
+                    session.activeJob = mapped[0].job;
+                    const frag = document.createDocumentFragment();
+                    mapped.forEach((item, idx) => frag.appendChild(buildJobCard(item, idx, 0)));
+                    jobsDiv.appendChild(frag);
+                    // Check pending verifications after loading queue
+                    checkVerifyPending();
+                })
+                .catch(err => {
+                    console.error(err);
+                    jobsDiv.innerHTML = '<span class="err">Failed to load queue.</span>';
+                    hideLoading();
+                });
+        };
+
+        /* ================================================================
+           QC VERIFICATION — Verify tab logic
+           ================================================================ */
+        function populateVerifyDate() {
+            const sel = el('vfy-date');
+            if (!sel) return;
+            sel.innerHTML = '';
+            const today = new Date(), yest = new Date();
+            yest.setDate(yest.getDate() - 1);
+            const fmt  = d => d.toISOString().split('T')[0];
+            const nice = d => d.getDate().toString().padStart(2,'0') + '/' + (d.getMonth()+1).toString().padStart(2,'0');
+            sel.add(new Option('Today (' + nice(today) + ')', fmt(today)));
+            sel.add(new Option('Yesterday (' + nice(yest) + ')', fmt(yest)));
+            sel.value = fmt(today);
+            // Pre-select shift based on time
+            const vShift = el('vfy-shift');
+            if (vShift) vShift.value = getShiftFromTime();
+        }
+
+        function loadVerifySlots() {
+            populateVerifyDate();
+            const machine = session.machine || el('dd-machine').value || '';
+            const date    = el('vfy-date')  ? el('vfy-date').value   : new Date().toISOString().split('T')[0];
+            const shift   = el('vfy-shift') ? el('vfy-shift').value  : getShiftFromTime();
+            const wrap    = el('vfy-slots');
+            const empty   = el('vfy-empty');
+            if (!machine) {
+                wrap.innerHTML = '<div class="no-jobs">Select a machine first.</div>';
+                return;
+            }
+            wrap.innerHTML = '<div class="muted" style="text-align:center;padding:16px">Loading…</div>';
+            empty.classList.add('hidden');
+            fetch(`/api/qc/verify/pending?machine=${encodeURIComponent(machine)}&date=${date}&shift=${encodeURIComponent(shift)}`)
+                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok || !r.data || !r.data.length) {
+                        wrap.innerHTML = '';
+                        empty.classList.remove('hidden');
+                        return;
+                    }
+                    wrap.innerHTML = '';
+                    const now = new Date();
+                    const currentHour = now.getHours();
+                    r.data.forEach(slot => {
+                        wrap.appendChild(buildVerifySlotCard(slot, machine, date, shift, currentHour));
+                    });
+                    updateVerifyBadge(r.data);
+                })
+                .catch(() => { wrap.innerHTML = '<span class="err">Failed to load slots.</span>'; });
+        }
+
+        function slotToHour(slotStr) {
+            // "07-08" → 7, "01-02" → 1 (afternoon slot), night handled by shift
+            const parts = slotStr.split('-');
+            return parseInt(parts[0], 10);
+        }
+
+        function isSlotOverdue(slotStr, shift, currentHour) {
+            // 2-hour verification window: slot should be verified within 2h of its END
+            const slotEnd = slotToHour(slotStr.split('-')[1]) || (slotToHour(slotStr) + 1);
+            if (shift === 'Day') {
+                return currentHour >= (slotEnd + 2) % 24;
+            }
+            return true; // Night shift: show all as overdue if not verified
+        }
+
+        function buildVerifySlotCard(slot, machine, date, shift, currentHour) {
+            const div = document.createElement('div');
+            const verified = slot.qc_verified;
+            const isDisc   = slot.verify_status === 'Discrepancy';
+
+            let borderColor = 'var(--line)';
+            let badge = '';
+            if (verified && !isDisc) {
+                borderColor = '#059669';
+                badge = `<span style="padding:2px 8px;border-radius:999px;background:#ecfdf5;border:1px solid #059669;color:#059669;font-size:11px;font-weight:700">✓ Verified</span>`;
+            } else if (verified && isDisc) {
+                borderColor = '#d97706';
+                badge = `<span style="padding:2px 8px;border-radius:999px;background:#fffbeb;border:1px solid #d97706;color:#d97706;font-size:11px;font-weight:700">⚠ Discrepancy</span>`;
+            } else {
+                const overdue = isSlotOverdue(slot.hour_slot, shift, currentHour);
+                borderColor = overdue ? '#dc2626' : 'var(--primary)';
+                badge = overdue
+                    ? `<span style="padding:2px 8px;border-radius:999px;background:#fef2f2;border:1px solid #dc2626;color:#dc2626;font-size:11px;font-weight:700">Overdue</span>`
+                    : `<span style="padding:2px 8px;border-radius:999px;background:var(--primary-bg);border:1px solid var(--primary);color:var(--primary);font-size:11px;font-weight:700">Pending</span>`;
+            }
+
+            const supGood = slot.sup_good_qty  ?? '—';
+            const supRej  = slot.sup_reject_qty ?? '—';
+            const verifiedLine = verified
+                ? `<div class="muted" style="font-size:11px;margin-top:4px">By ${slot.verified_by} at ${slot.verified_at}${isDisc ? ` · Good Δ${(slot.qc_good_qty-slot.sup_good_qty>=0?'+':'')}${slot.qc_good_qty-slot.sup_good_qty} Rej Δ${(slot.qc_reject_qty-slot.sup_reject_qty>=0?'+':'')}${slot.qc_reject_qty-slot.sup_reject_qty}` : ''}</div>`
+                : '';
+
+            div.innerHTML = `
+              <div style="border:1.5px solid ${borderColor};border-radius:14px;padding:12px;background:var(--surface)">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <span style="font-weight:800;font-size:15px">${slot.hour_slot}</span>
+                  ${badge}
+                </div>
+                <div class="grid-2" style="font-size:13px;margin-bottom:8px">
+                  <div><span class="muted">Sup Good</span><br><b>${supGood}</b></div>
+                  <div><span class="muted">Sup Reject</span><br><b>${supRej}</b></div>
+                </div>
+                ${verifiedLine}
+                <div id="vfy-form-${slot.hour_slot.replace('-','_')}" class="${verified ? 'hidden' : ''}">
+                  <div class="grid-2" style="gap:8px;margin-top:8px">
+                    <label style="margin:0">QC Good
+                      <input type="number" id="vfy-good-${slot.hour_slot.replace('-','_')}"
+                        value="${slot.qc_good_qty ?? supGood}" min="0" inputmode="numeric"
+                        style="margin-top:4px">
+                    </label>
+                    <label style="margin:0">QC Reject
+                      <input type="number" id="vfy-rej-${slot.hour_slot.replace('-','_')}"
+                        value="${slot.qc_reject_qty ?? supRej}" min="0" inputmode="numeric"
+                        style="margin-top:4px">
+                    </label>
+                  </div>
+                  <input type="text" id="vfy-rmk-${slot.hour_slot.replace('-','_')}"
+                    placeholder="Remarks (optional)" style="margin-top:8px">
+                  <button class="primary" style="width:100%;margin-top:8px"
+                    onclick="submitVerify(${JSON.stringify(slot).replace(/"/g,'&quot;')}, '${machine}', '${date}', '${shift}', this)">
+                    ✓ Verify This Slot
+                  </button>
+                </div>
+                ${verified ? `<button class="small ghost" style="margin-top:6px;width:100%"
+                    onclick="this.closest('div').parentElement.querySelector('[id^=vfy-form]').classList.toggle('hidden')">
+                    Re-verify</button>` : ''}
+              </div>`;
+            return div;
+        }
+
+        function submitVerify(slot, machine, date, shift, btn) {
+            const key   = slot.hour_slot.replace('-','_');
+            const good  = parseInt(el('vfy-good-'+key)?.value, 10);
+            const rej   = parseInt(el('vfy-rej-'+key)?.value,  10);
+            const rmk   = el('vfy-rmk-'+key)?.value || '';
+            if (isNaN(good) || isNaN(rej)) return alert('Enter both Good Qty and Reject Qty.');
+            btn.disabled = true; btn.textContent = 'Saving…';
+            fetch('/api/qc/verify/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session,
+                    machine, dpr_date: date, shift, hour_slot: slot.hour_slot,
+                    dpr_entry_id: slot.dpr_entry_id,
+                    qc_good_qty: good, qc_reject_qty: rej,
+                    sup_good_qty: slot.sup_good_qty, sup_reject_qty: slot.sup_reject_qty,
+                    sup_shots: slot.sup_shots, remarks: rmk
+                })
+            }).then(r => r.json()).then(r => {
+                if (r.ok) { loadVerifySlots(); checkVerifyPending(); }
+                else { alert('Error: ' + r.error); btn.disabled = false; btn.textContent = '✓ Verify This Slot'; }
+            }).catch(() => { btn.disabled = false; btn.textContent = '✓ Verify This Slot'; });
+        }
+
+        function updateVerifyBadge(slots) {
+            const pending = slots.filter(s => !s.qc_verified).length;
+            const badge = el('verify-badge');
+            if (!badge) return;
+            if (pending > 0) {
+                badge.textContent = pending;
+                badge.classList.remove('hidden');
+                badge.style.display = 'inline-flex';
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        function checkVerifyPending() {
+            const machine = session.machine || (el('dd-machine') ? el('dd-machine').value : '');
+            if (!machine) return;
+            const date  = new Date().toISOString().split('T')[0];
+            const shift = getShiftFromTime();
+            fetch(`/api/qc/verify/pending?machine=${encodeURIComponent(machine)}&date=${date}&shift=${encodeURIComponent(shift)}`)
+                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok) return;
+                    const now = new Date();
+                    const overdue = (r.data || []).filter(s => !s.qc_verified && isSlotOverdue(s.hour_slot, shift, now.getHours()));
+                    const banner  = el('verify-banner');
+                    const msg     = el('verify-banner-msg');
+                    if (!banner) return;
+                    if (overdue.length) {
+                        const slots = overdue.map(s => s.hour_slot).join(', ');
+                        if (msg) msg.textContent = `${overdue.length} slot${overdue.length>1?'s':''} overdue: ${slots}`;
+                        banner.classList.remove('hidden');
+                        banner.style.display = 'flex';
+                    } else {
+                        banner.classList.add('hidden');
+                    }
+                    updateVerifyBadge(r.data || []);
+                })
+                .catch(() => {});
+        }
+
+        /* ================================================================
+           FPA — enhanced image capture with compression
+           ================================================================ */
+        const fpaProductBlobs = [];   // Array of { blob, url } for product reference images
+        const FPA_MAX_PX   = 1280;
+        const FPA_QUALITY  = 0.82;
+        const FPA_MAX_IMGS = 6;
+
+        let fpaFormBlob = null;  // Single form image blob
+
+        async function compressImage(file) {
+            return new Promise(resolve => {
+                const img = new Image();
+                const fr  = new FileReader();
+                fr.onload = e => { img.src = e.target.result; };
+                img.onload = () => {
+                    const scale = Math.min(1, FPA_MAX_PX / Math.max(img.width, img.height));
+                    const w = Math.round(img.width * scale);
+                    const h = Math.round(img.height * scale);
+                    const c = document.createElement('canvas');
+                    c.width = w; c.height = h;
+                    c.getContext('2d').drawImage(img, 0, 0, w, h);
+                    c.toBlob(blob => resolve(blob), 'image/jpeg', FPA_QUALITY);
+                };
+                fr.readAsDataURL(file);
+            });
+        }
+
+        async function fpaFormImageChanged(input) {
+            if (!input.files || !input.files[0]) return;
+            const blob = await compressImage(input.files[0]);
+            fpaFormBlob = blob;
+            const url = URL.createObjectURL(blob);
+            const preview = el('fpa-form-preview');
+            const placeholder = el('fpa-form-placeholder');
+            if (preview) { preview.src = url; preview.style.display = 'block'; }
+            if (placeholder) placeholder.style.display = 'none';
+        }
+
+        async function fpaProductImageCaptured(input) {
+            if (!input.files || !input.files[0]) return;
+            if (fpaProductBlobs.length >= FPA_MAX_IMGS) {
+                alert('Maximum ' + FPA_MAX_IMGS + ' product images allowed.');
+                return;
+            }
+            const blob = await compressImage(input.files[0]);
+            const url  = URL.createObjectURL(blob);
+            fpaProductBlobs.push({ blob, url });
+            renderFPAProductGrid();
+            input.value = '';  // reset so same image can be re-captured
+        }
+
+        function renderFPAProductGrid() {
+            const grid = el('fpa-product-grid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            fpaProductBlobs.forEach((item, i) => {
+                const cell = document.createElement('div');
+                cell.style.cssText = 'position:relative;width:100%;aspect-ratio:1;border-radius:10px;overflow:hidden;border:1px solid var(--line)';
+                cell.innerHTML = `
+                  <img src="${item.url}" style="width:100%;height:100%;object-fit:cover">
+                  <button onclick="removeFPAProductImage(${i})" style="position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:none;font-size:12px;display:flex;align-items:center;justify-content:center;padding:0;min-height:0;box-shadow:none">✕</button>`;
+                grid.appendChild(cell);
+            });
+            // Add + button if under max
+            if (fpaProductBlobs.length < FPA_MAX_IMGS) {
+                const add = document.createElement('div');
+                add.style.cssText = 'width:100%;aspect-ratio:1;border:2px dashed var(--line-bright);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;background:#fff;font-size:22px;color:var(--muted)';
+                add.innerHTML = '+<span style="font-size:10px;margin-top:2px">Capture</span>';
+                add.onclick = () => el('fpa-product-input').click();
+                grid.appendChild(add);
+            }
+            const countEl = el('fpa-img-count');
+            if (countEl) countEl.textContent = fpaProductBlobs.length + ' / ' + FPA_MAX_IMGS + ' images';
+        }
+
+        function removeFPAProductImage(idx) {
+            URL.revokeObjectURL(fpaProductBlobs[idx].url);
+            fpaProductBlobs.splice(idx, 1);
+            renderFPAProductGrid();
+        }
+
+        /* Override submitFPA to use compressed blobs */
+        const _origSubmitFPA = typeof submitFPA === 'function' ? submitFPA : null;
+        submitFPA = async function() {
+            if (fpaProductBlobs.length < 2) {
+                return alert('Please capture at least 2 product reference images.');
+            }
+            const slot  = el('fpa-slot')?.value  || '';
+            const shift = el('fpa-shift')?.value || getShiftFromTime();
+            const date  = el('fpa-date')?.value  || new Date().toISOString().split('T')[0];
+            const rmk   = el('fpa-remarks')?.value || '';
+            const job   = session.activeJob || {};
+            const all   = job._all || {};
+            const msgEl = el('fpa-msg');
+            if (msgEl) { msgEl.textContent = 'Uploading…'; msgEl.className = 'muted'; }
+
+            const fd = new FormData();
+            fd.append('session',   JSON.stringify(session));
+            fd.append('date',      date);
+            fd.append('shift',     shift);
+            fd.append('slot',      slot);
+            fd.append('remarks',   rmk);
+            fd.append('plan_id',   safe(job.PlanID || all['PlanID'] || ''));
+            fd.append('job_card_no', safe(job.JobCardNo || all['JobCardNo'] || ''));
+            fd.append('order_no',  safe(job.OrderNo || all['OrderNo'] || ''));
+            fd.append('machine',   session.machine || '');
+            fd.append('line',      session.line    || '');
+            fd.append('item_name', safe(all['SFG Name'] || all['Item Name'] || ''));
+            fd.append('mould_name',safe(job.Mould   || all['Mould Name']  || ''));
+
+            if (fpaFormBlob) {
+                fd.append('fpa_form_image', fpaFormBlob, 'fpa-form.jpg');
+            }
+            fpaProductBlobs.forEach((item, i) => {
+                fd.append('fpa_product_images', item.blob, `product-${i+1}.jpg`);
+            });
+
+            try {
+                const res = await fetch('/api/qc/fpa', { method: 'POST', body: fd });
+                const r   = await res.json();
+                if (r.ok) {
+                    if (msgEl) { msgEl.textContent = '✓ FPA Submitted at ' + new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}); msgEl.className = 'ok'; }
+                    // Reset images
+                    fpaProductBlobs.forEach(i => URL.revokeObjectURL(i.url));
+                    fpaProductBlobs.length = 0;
+                    fpaFormBlob = null;
+                    const p = el('fpa-form-preview'); if (p) { p.style.display='none'; p.src=''; }
+                    const ph = el('fpa-form-placeholder'); if (ph) ph.style.display='';
+                    renderFPAProductGrid();
+                } else {
+                    if (msgEl) { msgEl.textContent = 'Error: ' + r.error; msgEl.className = 'err'; }
+                }
+            } catch (e) {
+                if (msgEl) { msgEl.textContent = 'Upload failed. Check connection.'; msgEl.className = 'err'; }
+            }
+        };
+
+        /* Init FPA grid on page load */
+        renderFPAProductGrid();
+
+        /* ================================================================
+           INIT — auto-set verify shift on load
+           ================================================================ */
+        document.addEventListener('DOMContentLoaded', () => {
+            const vs = el('vfy-shift');
+            if (vs) vs.value = getShiftFromTime();
+        });
