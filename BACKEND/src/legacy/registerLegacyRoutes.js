@@ -17294,16 +17294,16 @@ app.post('/api/upload/wipstock-confirm', async (req, res) => {
 app.post('/api/machines', async (req, res) => {
   try {
     ttlCacheClear('machines'); // machine list changes — drop cached reads
-    const { machine, line, building, tonnage, mould_load_time, mould_unload_time, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64, labour_party_id } = req.body;
+    const { machine, line, building, tonnage, mould_load_time, mould_unload_time, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64, labour_party_id, factory_id_override } = req.body;
     const cleanMachine = normalizeMachineName(machine);
     const cleanProcess = normalizeMachineProcess(machine_process, 'Moulding');
     const isPrintingMachine = cleanProcess === 'Printing';
     const isLabourJob = cleanProcess === 'Labour Job';
-    const nextLine = isPrintingMachine ? '' : (line || '');
-    const nextBuilding = isPrintingMachine ? '' : (building || '');
+    const nextLine = (isPrintingMachine || isLabourJob) ? '' : (line || '');
+    const nextBuilding = (isPrintingMachine || isLabourJob) ? '' : (building || '');
     const nextTonnage = isPrintingMachine ? null : toNum(tonnage);
-    const nextMouldLoadTime = isPrintingMachine ? null : toNum(mould_load_time);
-    const nextMouldUnloadTime = isPrintingMachine ? null : toNum(mould_unload_time);
+    const nextMouldLoadTime = (isPrintingMachine || isLabourJob) ? null : toNum(mould_load_time);
+    const nextMouldUnloadTime = (isPrintingMachine || isLabourJob) ? null : toNum(mould_unload_time);
     const nextLabourPartyId = isLabourJob ? (parseInt(labour_party_id, 10) || null) : null;
     const resolvedMachineIcon = machine_icon_base64
       ? saveDataUrlImage(machine_icon_base64, 'machines', 'machine')
@@ -17313,7 +17313,8 @@ app.post('/api/machines', async (req, res) => {
     if (!writeContext.ok) {
       return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
     }
-    const factoryId = writeContext.factoryId;
+    // Labour Job machines can be assigned to a specific factory chosen in the modal
+    const factoryId = (isLabourJob && factory_id_override) ? (parseInt(factory_id_override, 10) || writeContext.factoryId) : writeContext.factoryId;
     if (factoryId !== null) {
       await ensureFactoryIdsExist([factoryId], pool, 'Selected machine factory');
     }
@@ -17354,16 +17355,16 @@ app.put('/api/machines/:id', async (req, res) => { // ID is machine name
   try {
     ttlCacheClear('machines'); // machine list changes — drop cached reads
     const { id } = req.params; // old machine name
-    const { machine, line, building, tonnage, mould_load_time, mould_unload_time, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64, labour_party_id } = req.body;
+    const { machine, line, building, tonnage, mould_load_time, mould_unload_time, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64, labour_party_id, factory_id_override } = req.body;
     const writeContext = await getWritableFactoryContext(req, 'edit machines');
     if (!writeContext.ok) {
       return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
     }
-    const factoryId = writeContext.factoryId;
     const cleanMachine = normalizeMachineName(machine);
     const cleanProcess = normalizeMachineProcess(machine_process, 'Moulding');
     const isPrintingMachine = cleanProcess === 'Printing';
     const isLabourJobMachine = cleanProcess === 'Labour Job';
+    const factoryId = (isLabourJobMachine && factory_id_override) ? (parseInt(factory_id_override, 10) || writeContext.factoryId) : writeContext.factoryId;
     const hasMachineIconField = Object.prototype.hasOwnProperty.call(req.body || {}, 'machine_icon');
     const resolvedMachineIcon = machine_icon_base64
       ? saveDataUrlImage(machine_icon_base64, 'machines', 'machine')
@@ -17388,12 +17389,12 @@ app.put('/api/machines/:id', async (req, res) => { // ID is machine name
       const nextLabourPartyId = isLabourJobMachine ? (parseInt(labour_party_id, 10) || null) : null;
       const nextState = {
         machine: cleanMachine,
-        line: isPrintingMachine ? '' : (line || ''),
-        building: isPrintingMachine ? '' : (building || ''),
+        line: (isPrintingMachine || isLabourJobMachine) ? '' : (line || ''),
+        building: (isPrintingMachine || isLabourJobMachine) ? '' : (building || ''),
         machine_process: cleanProcess,
         tonnage: isPrintingMachine ? null : toNum(tonnage),
-        mould_load_time: isPrintingMachine ? null : toNum(mould_load_time),
-        mould_unload_time: isPrintingMachine ? null : toNum(mould_unload_time),
+        mould_load_time: (isPrintingMachine || isLabourJobMachine) ? null : toNum(mould_load_time),
+        mould_unload_time: (isPrintingMachine || isLabourJobMachine) ? null : toNum(mould_unload_time),
         vendor_name: normalizeOptionalText(vendor_name),
         model_no: normalizeOptionalText(model_no),
         machine_type: normalizeOptionalText(machine_type),
@@ -20600,6 +20601,72 @@ app.get('/api/labour-parties/:id/machines', async (req, res) => {
 });
 
 // ── DPR Labour routes ─────────────────────────────────────────────────────────
+
+// GET /api/dpr/labour/machine-plan — active plans + colour-wise plan qty for a Labour Job machine
+app.get('/api/dpr/labour/machine-plan', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const { machine } = req.query;
+    if (!machine) return res.status(400).json({ ok: false, error: 'machine is required' });
+
+    // Fetch active Labour Job plans for this machine
+    const plans = await pool.query(`
+      SELECT pb.plan_id, pb.order_no, pb.mould_name, pb.plan_qty, pb.colour_details,
+             COALESCE(SUM(dl.good_qty), 0) AS produced_qty
+      FROM plan_board pb
+      LEFT JOIN dpr_labour dl ON dl.plan_id = pb.plan_id AND dl.is_deleted = false
+      WHERE LOWER(TRIM(pb.machine)) = LOWER(TRIM($1))
+        AND pb.plan_type = 'Labour Job'
+        AND pb.status NOT IN ('COMPLETED', 'DROPPED')
+        AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
+      GROUP BY pb.plan_id, pb.order_no, pb.mould_name, pb.plan_qty, pb.colour_details
+      ORDER BY pb.created_at DESC
+    `, [machine, factoryId]);
+
+    // Build colour list from colour_details JSONB + already-produced per colour from dpr_labour
+    const result = [];
+    for (const row of plans.rows) {
+      let colours = [];
+      try {
+        let cd = row.colour_details || [];
+        if (typeof cd === 'string') cd = JSON.parse(cd);
+        colours = Array.isArray(cd) ? cd.map(c => ({
+          colour: String(c.colourName || c.itemColour || c.colour || c.color || c.name || '').trim(),
+          planQty: Number(c.planQty ?? c.batchQty ?? c.qty ?? 0)
+        })).filter(c => c.colour) : [];
+      } catch (_) {}
+
+      // If no colour_details, fall back to the plan total as a single entry
+      if (!colours.length) {
+        colours = [{ colour: 'Default', planQty: Number(row.plan_qty) || 0 }];
+      }
+
+      // For each colour, compute produced qty and bal qty from dpr_labour
+      for (const c of colours) {
+        const prod = await pool.query(`
+          SELECT COALESCE(SUM(good_qty), 0) AS produced
+          FROM dpr_labour
+          WHERE plan_id = $1 AND LOWER(TRIM(colour)) = LOWER(TRIM($2)) AND is_deleted = false
+        `, [row.plan_id, c.colour]);
+        const produced = Number(prod.rows[0]?.produced || 0);
+        result.push({
+          plan_id: row.plan_id,
+          order_no: row.order_no,
+          mould_name: row.mould_name,
+          colour: c.colour,
+          plan_qty: c.planQty,
+          produced_qty: produced,
+          bal_qty: Math.max(0, c.planQty - produced)
+        });
+      }
+    }
+
+    res.json({ ok: true, data: result });
+  } catch (e) {
+    console.error('/api/dpr/labour/machine-plan', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
 
 // GET /api/dpr/labour — fetch shift-wise entries
 app.get('/api/dpr/labour', async (req, res) => {
