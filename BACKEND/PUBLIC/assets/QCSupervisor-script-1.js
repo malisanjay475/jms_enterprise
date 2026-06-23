@@ -1986,6 +1986,17 @@
         });
 
         /* ================================================================
+           IST DATE HELPER
+           toISOString() returns UTC — during IST night shift (00:00–05:30)
+           that is the previous calendar day. Always use this for date strings.
+           ================================================================ */
+        function istDateStr(d) {
+            const dt = d || new Date();
+            // Intl gives local calendar date in IST regardless of UTC offset
+            return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(dt);
+        }
+
+        /* ================================================================
            PRIORITY BADGE + END TIME — job card rendering helpers
            ================================================================ */
         function priorityBadge(machinePriority) {
@@ -1997,19 +2008,27 @@
             return `<span style="display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;background:${b};border:1px solid ${c};color:${c};font-size:11px;font-weight:800;margin-right:4px">${machinePriority}</span>`;
         }
 
+        // FIX: use floor (not round) so a job that ended a few hours ago (e.g. -0.2d)
+        // is correctly bucketed as < 0 (overdue), not 0 (Due Today).
         function endTimeBadge(calcEndDT) {
             if (!calcEndDT) return '<span class="muted" style="font-size:12px">—</span>';
             const end = new Date(calcEndDT);
             const now = new Date();
-            const diffDays = Math.round((end - now) / 86400000);
+            const rawDiff = (end - now) / 86400000;   // fractional days, may be negative
             let label, color;
-            if (diffDays < 0)       { label = `Overdue ${Math.abs(diffDays)}d`; color = '#dc2626'; }
-            else if (diffDays === 0){ label = 'Due Today';  color = '#d97706'; }
-            else if (diffDays === 1){ label = 'Due Tomorrow'; color = '#d97706'; }
-            else if (diffDays <= 3) { label = `${diffDays}d left`; color = '#d97706'; }
-            else {
-                label = end.getDate().toString().padStart(2,'0') + '/' + (end.getMonth()+1).toString().padStart(2,'0');
-                color = '#059669';
+            if (rawDiff < 0) {
+                const d = Math.ceil(Math.abs(rawDiff));
+                label = d <= 1 ? 'Overdue' : `Overdue ${d}d`;
+                color = '#dc2626';
+            } else {
+                const diffDays = Math.floor(rawDiff);
+                if (diffDays === 0)     { label = 'Due Today';    color = '#d97706'; }
+                else if (diffDays === 1){ label = 'Due Tomorrow'; color = '#d97706'; }
+                else if (diffDays <= 3) { label = `${diffDays}d left`; color = '#d97706'; }
+                else {
+                    label = end.getDate().toString().padStart(2,'0') + '/' + (end.getMonth()+1).toString().padStart(2,'0');
+                    color = '#059669';
+                }
             }
             return `<span style="font-size:12px;font-weight:600;color:${color}">⏰ ${label}</span>`;
         }
@@ -2116,8 +2135,9 @@
             sel.innerHTML = '';
             const today = new Date(), yest = new Date();
             yest.setDate(yest.getDate() - 1);
-            const fmt  = d => d.toISOString().split('T')[0];
-            const nice = d => d.getDate().toString().padStart(2,'0') + '/' + (d.getMonth()+1).toString().padStart(2,'0');
+            // FIX: use IST-local date (not UTC) so night-shift entries after midnight are correct
+            const fmt  = d => istDateStr(d);
+            const nice = d => { const s = istDateStr(d).split('-'); return s[2] + '/' + s[1]; };
             sel.add(new Option('Today (' + nice(today) + ')', fmt(today)));
             sel.add(new Option('Yesterday (' + nice(yest) + ')', fmt(yest)));
             sel.value = fmt(today);
@@ -2129,7 +2149,7 @@
         function loadVerifySlots() {
             populateVerifyDate();
             const machine = session.machine || el('dd-machine').value || '';
-            const date    = el('vfy-date')  ? el('vfy-date').value   : new Date().toISOString().split('T')[0];
+            const date    = el('vfy-date')  ? el('vfy-date').value   : istDateStr();
             const shift   = el('vfy-shift') ? el('vfy-shift').value  : getShiftFromTime();
             const wrap    = el('vfy-slots');
             const empty   = el('vfy-empty');
@@ -2194,8 +2214,11 @@
                     : `<span style="padding:2px 8px;border-radius:999px;background:var(--primary-bg);border:1px solid var(--primary);color:var(--primary);font-size:11px;font-weight:700">Pending</span>`;
             }
 
-            const supGood = slot.sup_good_qty  ?? '—';
-            const supRej  = slot.sup_reject_qty ?? '—';
+            // FIX: null sup values must not seed '—' into number inputs (causes NaN on submit)
+            const supGood    = slot.sup_good_qty  ?? null;
+            const supRej     = slot.sup_reject_qty ?? null;
+            const supGoodTxt = supGood  !== null ? String(supGood)  : '—';
+            const supRejTxt  = supRej   !== null ? String(supRej)   : '—';
             const verifiedLine = verified
                 ? `<div class="muted" style="font-size:11px;margin-top:4px">By ${slot.verified_by} at ${slot.verified_at}${isDisc ? ` · Good Δ${(slot.qc_good_qty-slot.sup_good_qty>=0?'+':'')}${slot.qc_good_qty-slot.sup_good_qty} Rej Δ${(slot.qc_reject_qty-slot.sup_reject_qty>=0?'+':'')}${slot.qc_reject_qty-slot.sup_reject_qty}` : ''}</div>`
                 : '';
@@ -2207,21 +2230,21 @@
                   ${badge}
                 </div>
                 <div class="grid-2" style="font-size:13px;margin-bottom:8px">
-                  <div><span class="muted">Sup Good</span><br><b>${supGood}</b></div>
-                  <div><span class="muted">Sup Reject</span><br><b>${supRej}</b></div>
+                  <div><span class="muted">Sup Good</span><br><b>${supGoodTxt}</b></div>
+                  <div><span class="muted">Sup Reject</span><br><b>${supRejTxt}</b></div>
                 </div>
                 ${verifiedLine}
                 <div id="vfy-form-${slot.hour_slot.replace('-','_')}" class="${verified ? 'hidden' : ''}">
                   <div class="grid-2" style="gap:8px;margin-top:8px">
                     <label style="margin:0">QC Good
                       <input type="number" id="vfy-good-${slot.hour_slot.replace('-','_')}"
-                        value="${slot.qc_good_qty ?? supGood}" min="0" inputmode="numeric"
-                        style="margin-top:4px">
+                        value="${slot.qc_good_qty !== null ? slot.qc_good_qty : (supGood !== null ? supGood : '')}" min="0" inputmode="numeric"
+                        style="margin-top:4px" placeholder="0">
                     </label>
                     <label style="margin:0">QC Reject
                       <input type="number" id="vfy-rej-${slot.hour_slot.replace('-','_')}"
-                        value="${slot.qc_reject_qty ?? supRej}" min="0" inputmode="numeric"
-                        style="margin-top:4px">
+                        value="${slot.qc_reject_qty !== null ? slot.qc_reject_qty : (supRej !== null ? supRej : '')}" min="0" inputmode="numeric"
+                        style="margin-top:4px" placeholder="0">
                     </label>
                   </div>
                   <input type="text" id="vfy-rmk-${slot.hour_slot.replace('-','_')}"
@@ -2239,22 +2262,22 @@
         }
 
         function submitVerify(slot, machine, date, shift, btn) {
-            const key   = slot.hour_slot.replace('-','_');
-            const good  = parseInt(el('vfy-good-'+key)?.value, 10);
-            const rej   = parseInt(el('vfy-rej-'+key)?.value,  10);
-            const rmk   = el('vfy-rmk-'+key)?.value || '';
-            if (isNaN(good) || isNaN(rej)) return alert('Enter both Good Qty and Reject Qty.');
+            const key  = slot.hour_slot.replace('-','_');
+            const good = parseInt(el('vfy-good-'+key)?.value, 10);
+            const rej  = parseInt(el('vfy-rej-'+key)?.value,  10);
+            const rmk  = el('vfy-rmk-'+key)?.value || '';
+            if (isNaN(good) || good < 0) return alert('Enter a valid Good Qty (0 or more).');
+            if (isNaN(rej)  || rej  < 0) return alert('Enter a valid Reject Qty (0 or more).');
             btn.disabled = true; btn.textContent = 'Saving…';
+            // NOTE: sup_* values are NOT sent — server resolves them from dpr_hourly.
             fetch('/api/qc/verify/submit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     session,
                     machine, dpr_date: date, shift, hour_slot: slot.hour_slot,
-                    dpr_entry_id: slot.dpr_entry_id,
                     qc_good_qty: good, qc_reject_qty: rej,
-                    sup_good_qty: slot.sup_good_qty, sup_reject_qty: slot.sup_reject_qty,
-                    sup_shots: slot.sup_shots, remarks: rmk
+                    remarks: rmk
                 })
             }).then(r => r.json()).then(r => {
                 if (r.ok) { loadVerifySlots(); checkVerifyPending(); }
@@ -2278,7 +2301,7 @@
         function checkVerifyPending() {
             const machine = session.machine || (el('dd-machine') ? el('dd-machine').value : '');
             if (!machine) return;
-            const date  = new Date().toISOString().split('T')[0];
+            const date  = istDateStr();   // FIX: IST-local date, not UTC
             const shift = getShiftFromTime();
             fetch(`/api/qc/verify/pending?machine=${encodeURIComponent(machine)}&date=${date}&shift=${encodeURIComponent(shift)}`)
                 .then(r => r.json())
@@ -2313,18 +2336,25 @@
         let fpaFormBlob = null;  // Single form image blob
 
         async function compressImage(file) {
+            // FIX: wire onerror on both FileReader and Image so the promise always
+            // settles; return null on failure so callers can guard against it.
             return new Promise(resolve => {
                 const img = new Image();
                 const fr  = new FileReader();
+                const fail = () => resolve(null);
+                fr.onerror = fail;
+                img.onerror = fail;
                 fr.onload = e => { img.src = e.target.result; };
                 img.onload = () => {
-                    const scale = Math.min(1, FPA_MAX_PX / Math.max(img.width, img.height));
-                    const w = Math.round(img.width * scale);
-                    const h = Math.round(img.height * scale);
-                    const c = document.createElement('canvas');
-                    c.width = w; c.height = h;
-                    c.getContext('2d').drawImage(img, 0, 0, w, h);
-                    c.toBlob(blob => resolve(blob), 'image/jpeg', FPA_QUALITY);
+                    try {
+                        const scale = Math.min(1, FPA_MAX_PX / Math.max(img.width, img.height));
+                        const w = Math.round(img.width * scale);
+                        const h = Math.round(img.height * scale);
+                        const c = document.createElement('canvas');
+                        c.width = w; c.height = h;
+                        c.getContext('2d').drawImage(img, 0, 0, w, h);
+                        c.toBlob(blob => resolve(blob || null), 'image/jpeg', FPA_QUALITY);
+                    } catch (_) { fail(); }
                 };
                 fr.readAsDataURL(file);
             });
@@ -2333,6 +2363,7 @@
         async function fpaFormImageChanged(input) {
             if (!input.files || !input.files[0]) return;
             const blob = await compressImage(input.files[0]);
+            if (!blob) { alert('Could not read image. Try a different photo.'); return; }
             fpaFormBlob = blob;
             const url = URL.createObjectURL(blob);
             const preview = el('fpa-form-preview');
@@ -2348,6 +2379,7 @@
                 return;
             }
             const blob = await compressImage(input.files[0]);
+            if (!blob) { alert('Could not read image. Try a different photo.'); return; }
             const url  = URL.createObjectURL(blob);
             fpaProductBlobs.push({ blob, url });
             renderFPAProductGrid();

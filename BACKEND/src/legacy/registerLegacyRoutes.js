@@ -4917,6 +4917,9 @@ async function initializeLegacyRuntime() {
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qc_job_checks_lookup ON qc_job_checks (job_card_no, plan_id, machine, date, shift)`);
 
     // QC VERIFICATION TABLE — QC supervisor verifies hourly DPR entries every 2 hrs
+    // UNIQUE on (machine, dpr_date, shift, hour_slot) — not dpr_entry_id, because
+    // NULL dpr_entry_id values are never equal in SQL so the constraint would not
+    // prevent duplicates when no DPR entry exists yet.
     await q(`
       CREATE TABLE IF NOT EXISTS qc_verifications (
         id               SERIAL PRIMARY KEY,
@@ -4936,7 +4939,7 @@ async function initializeLegacyRuntime() {
         remarks          TEXT,
         status           TEXT DEFAULT 'Verified',
         created_at       TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE(dpr_entry_id, machine, dpr_date, shift, hour_slot)
+        UNIQUE(machine, dpr_date, shift, hour_slot)
       );
     `);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcv_machine_date ON qc_verifications (machine, dpr_date, shift)`);
@@ -19609,23 +19612,61 @@ app.get('/api/qc/verify/pending', async (req, res) => {
 
 // POST /api/qc/verify/submit
 // Upsert a QC verification for a single hour slot.
-// Body: { session, machine, dpr_date, shift, hour_slot, dpr_entry_id,
-//         qc_good_qty, qc_reject_qty, sup_good_qty, sup_reject_qty, sup_shots, remarks }
+// Body: { session, machine, dpr_date, shift, hour_slot,
+//         qc_good_qty, qc_reject_qty, remarks }
+// NOTE: dpr_entry_id is resolved server-side — never trusted from client.
 app.post('/api/qc/verify/submit', async (req, res) => {
   try {
-    const { session, machine, dpr_date, shift, hour_slot, dpr_entry_id,
-            qc_good_qty, qc_reject_qty, sup_good_qty, sup_reject_qty,
-            sup_shots, remarks } = req.body || {};
+    const { session, machine, dpr_date, shift, hour_slot,
+            qc_good_qty, qc_reject_qty, remarks } = req.body || {};
+
+    // Validate required fields
     if (!machine || !dpr_date || !shift || !hour_slot) {
       return res.json({ ok: false, error: 'machine, dpr_date, shift, hour_slot required' });
     }
-    const verified_by = (session && (session.username || session.supervisor)) || 'QC';
-    const factoryId   = getFactoryId(req);
-    const good  = parseInt(qc_good_qty,  10) || 0;
-    const rej   = parseInt(qc_reject_qty, 10) || 0;
-    const sgood = parseInt(sup_good_qty,  10) || 0;
-    const srej  = parseInt(sup_reject_qty, 10) || 0;
-    const status = (good !== sgood || rej !== srej) ? 'Discrepancy' : 'Verified';
+
+    // Validate hour_slot format (e.g. "07-08") to prevent injection via slot key
+    if (!/^\d{2}-\d{2}$/.test(String(hour_slot))) {
+      return res.json({ ok: false, error: 'Invalid hour_slot format' });
+    }
+
+    // Validate shift
+    if (!['Day', 'Night'].includes(String(shift))) {
+      return res.json({ ok: false, error: 'Invalid shift value' });
+    }
+
+    // SECURITY: derive verified_by from server-side session, sanitized + truncated.
+    // Never trust the raw client value.
+    const rawUser   = (session && (session.username || session.supervisor || session.user)) || '';
+    const verified_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
+
+    const factoryId = getFactoryId(req);
+    const good  = parseInt(qc_good_qty,  10);
+    const rej   = parseInt(qc_reject_qty, 10);
+    if (isNaN(good) || isNaN(rej) || good < 0 || rej < 0) {
+      return res.json({ ok: false, error: 'qc_good_qty and qc_reject_qty must be non-negative integers' });
+    }
+
+    // DATA INTEGRITY: resolve dpr_entry_id server-side by looking up the actual
+    // DPR entry — never trust the client-supplied value.
+    const dprRows = await q(
+      `SELECT id, good_qty, reject_qty, shots FROM dpr_hourly
+       WHERE machine   = $1
+         AND dpr_date  = $2::date
+         AND shift     = $3
+         AND hour_slot = $4
+         AND is_deleted = false
+         AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)
+       ORDER BY id DESC LIMIT 1`,
+      [machine, dpr_date, shift, hour_slot, factoryId]
+    );
+
+    const dprRow       = dprRows[0] || null;
+    const dpr_entry_id = dprRow ? dprRow.id : null;
+    const sgood        = dprRow ? (parseInt(dprRow.good_qty,   10) || 0) : 0;
+    const srej         = dprRow ? (parseInt(dprRow.reject_qty, 10) || 0) : 0;
+    const sshots       = dprRow ? (parseInt(dprRow.shots,      10) || 0) : 0;
+    const status       = (good !== sgood || rej !== srej) ? 'Discrepancy' : 'Verified';
 
     await q(`
       INSERT INTO qc_verifications
@@ -19633,8 +19674,9 @@ app.post('/api/qc/verify/submit', async (req, res) => {
          sup_good_qty, sup_reject_qty, sup_shots,
          qc_good_qty, qc_reject_qty, verified_by, verified_at, remarks, status)
       VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),$13,$14)
-      ON CONFLICT (dpr_entry_id, machine, dpr_date, shift, hour_slot)
+      ON CONFLICT (machine, dpr_date, shift, hour_slot)
       DO UPDATE SET
+        dpr_entry_id   = EXCLUDED.dpr_entry_id,
         qc_good_qty    = EXCLUDED.qc_good_qty,
         qc_reject_qty  = EXCLUDED.qc_reject_qty,
         sup_good_qty   = EXCLUDED.sup_good_qty,
@@ -19644,8 +19686,8 @@ app.post('/api/qc/verify/submit', async (req, res) => {
         verified_at    = NOW(),
         remarks        = EXCLUDED.remarks,
         status         = EXCLUDED.status
-    `, [factoryId, dpr_entry_id || null, machine, dpr_date, shift, hour_slot,
-        sgood, srej, parseInt(sup_shots,10)||0, good, rej, verified_by, remarks||null, status]);
+    `, [factoryId, dpr_entry_id, machine, dpr_date, shift, hour_slot,
+        sgood, srej, sshots, good, rej, verified_by, remarks || null, status]);
 
     res.json({ ok: true, status });
   } catch (e) {
@@ -19660,7 +19702,8 @@ app.get('/api/qc/verify/summary', async (req, res) => {
   try {
     const { machine, date } = req.query;
     const factoryId = getFactoryId(req);
-    const d = date || new Date().toISOString().split('T')[0];
+    // FIX: default to IST local date, not UTC, so night-shift queries return correct day
+    const d = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
     const rows = await q(`
       SELECT
         machine,
