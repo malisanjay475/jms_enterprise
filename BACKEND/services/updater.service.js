@@ -35,10 +35,13 @@ function getDependencySignature(rootDir) {
 
 function runProductionNpmInstall(label, cwd) {
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  // On Windows, .cmd files cannot be spawned with shell:false — they return EINVAL.
+  // shell:true routes through cmd.exe which handles .cmd files correctly.
+  const useShell = process.platform === 'win32';
   const result = spawnSync(npm, ['install', '--production', '--no-audit'], {
     cwd,
     stdio: 'inherit',
-    shell: false
+    shell: useShell
   });
 
   if (result.status !== 0) {
