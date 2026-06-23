@@ -10378,8 +10378,21 @@ app.get('/api/planning/orders/pending', async (req, res) => {
           r.or_jr_date DESC NULLS LAST
         LIMIT 1
       ) rpt ON true
-      WHERE COALESCE(NULLIF(TRIM(o.status), ''), 'Pending') != 'Completed'
+      WHERE COALESCE(NULLIF(TRIM(o.status), ''), 'Pending') NOT IN ('Completed', 'Dropped')
         AND ($1::int IS NULL OR s.factory_id = $1 OR s.factory_id IS NULL)
+        -- Exclude orders where ALL moulds already have an active (non-completed/non-dropped) plan.
+        -- An order appears only if at least one mould still needs planning.
+        AND EXISTS (
+          SELECT 1 FROM mould_planning_summary mps2
+          WHERE TRIM(mps2.or_jr_no) = TRIM(s.or_jr_no)
+            AND NOT EXISTS (
+              SELECT 1 FROM plan_board pb2
+              WHERE TRIM(pb2.order_no) = TRIM(mps2.or_jr_no)
+                AND LOWER(TRIM(pb2.mould_name)) = LOWER(TRIM(mps2.mould_name))
+                AND pb2.status NOT IN ('COMPLETED', 'DROPPED')
+                AND ($1::int IS NULL OR pb2.factory_id = $1 OR pb2.factory_id IS NULL)
+            )
+        )
       ORDER BY TRIM(s.or_jr_no), rpt.job_card_date DESC NULLS LAST, s.or_jr_date DESC NULLS LAST
       LIMIT 500
     `, [requestFactoryId]);
