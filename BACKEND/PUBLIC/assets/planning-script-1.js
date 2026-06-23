@@ -1799,7 +1799,10 @@
                 ${estBadge}
                 ${(p.jcNo || p.jc_no || p.job_card_no) ? `<div onclick="if(window.openJcDrilldown)window.openJcDrilldown('${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.planId||p.plan_id||'')}','${esc(p.orderNo||'')}'); event.stopPropagation();" style="font-size:.62rem;font-family:monospace;color:#2563eb;font-weight:700;text-decoration:underline;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px" title="Click: Colour/Shift/Hourly drill-down">JC: ${esc(p.jcNo||p.jc_no||p.job_card_no||'')} ↗</div>` : ''}
                 ${dateBadge}
-                ${timeBadge}
+                <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;">
+                  ${timeBadge}
+                  <div onclick="window.etvToggleJcGiven(event,'${esc(String(p.id||p.planId||p.plan_id||''))}',${p.job_card_given?'true':'false'})" style="cursor:pointer;display:inline-flex;align-items:center;gap:2px;font-size:.58rem;font-weight:700;padding:1px 5px;border-radius:4px;border:1px solid ${p.job_card_given?'#bbf7d0':'#e2e8f0'};background:${p.job_card_given?'#dcfce7':'#f8fafc'};color:${p.job_card_given?'#15803d':'#94a3b8'};white-space:nowrap;transition:all .15s;" title="${p.job_card_given?'JC Given — Click to remove':'Click to mark Job Card as Given'}"><i class="bi bi-file-earmark-check${p.job_card_given?'-fill':''}"></i>&nbsp;${p.job_card_given?'JC✓':'JC?'}</div>
+                </div>
                 <!-- P1-P4 MACHINE PRIORITY BUTTONS -->
                 <div class="etv-mp-btns" onclick="event.stopPropagation()">
                   ${['P1','P2','P3','P4'].map(px => {
@@ -1926,6 +1929,61 @@
     window.etvMachineClick = function (code) {
       const inp = document.getElementById('etv-search');
       if (inp) { inp.value = code; window.etvFilter(); }
+    };
+
+    /* ── Toggle Job Card Given ─────────────────────────────────────── */
+    window._etvJcInFlight = {};
+    window.etvToggleJcGiven = async function (event, planId, currentStatus) {
+      event.stopPropagation();
+      if (window._etvJcInFlight[planId]) return;
+
+      const isGiven = (currentStatus === true || currentStatus === 'true');
+      const msg = isGiven
+        ? 'Remove "JC Given" for this plan?\nThis will mark Job Card as NOT given.'
+        : 'Mark Job Card as Given for this plan?';
+
+      if (!confirm(msg)) return;
+
+      window._etvJcInFlight[planId] = true;
+
+      // Optimistic UI update — flip the badge immediately
+      const jcBtn = event.currentTarget;
+      if (jcBtn) { jcBtn.style.opacity = '0.4'; jcBtn.style.pointerEvents = 'none'; }
+
+      try {
+        const res = await fetch('/api/planning/set-jc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ planId: Number(planId) || planId, status: !isGiven })
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Failed to update');
+
+        // Update in-memory plan so re-render shows correct state
+        const allPlans = window.allMasterPlans || [];
+        const plan = allPlans.find(p => String(p.id || p.planId || p.plan_id || '') === String(planId));
+        if (plan) plan.job_card_given = !isGiven;
+
+        // Re-render table from memory (zero API calls)
+        if (typeof window.etvFilter === 'function') window.etvFilter();
+
+        // Green flash on the saved card
+        setTimeout(() => {
+          const savedCard = document.querySelector(`.etv-plan-cell[data-slot-pid="${CSS.escape(String(planId))}"] .etv-card`);
+          if (savedCard) {
+            savedCard.style.outline = '2px solid ' + (!isGiven ? '#16a34a' : '#f59e0b');
+            setTimeout(() => { if (savedCard) savedCard.style.outline = ''; }, 600);
+          }
+        }, 50);
+
+      } catch (e) {
+        console.error('[ETV JC Given]', e);
+        // Restore button on failure
+        if (jcBtn) { jcBtn.style.opacity = ''; jcBtn.style.pointerEvents = ''; }
+        alert('Error: ' + (e.message || 'Could not update. Try again.'));
+      } finally {
+        delete window._etvJcInFlight[planId];
+      }
     };
 
     /* ── Smart Suggestions: mould-consolidation engine ───────────────────
