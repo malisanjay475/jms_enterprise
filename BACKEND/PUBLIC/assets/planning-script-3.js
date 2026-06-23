@@ -8321,8 +8321,10 @@
             const jcDate = r.job_card_date ? new Date(r.job_card_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
             const stage = r.approval_stage || 'PPC';
             const stageLabel = r.approval_stage_label || (stage === 'MOULDING' ? 'Waiting for Moulding Approval' : 'Waiting for PPC Check');
-            const canApprove = linked && !!r.can_approve;
-            const buttonLabel = !linked ? 'Link First' : (stage === 'MOULDING' ? 'Moulding Approve' : 'PPC Check');
+            // Fix 2: Linking is no longer required for approval — show Approve button always.
+            // JC linking only matters at the "Start Plan" step (not here).
+            const canApprove = !!r.can_approve;
+            const buttonLabel = stage === 'MOULDING' ? 'Moulding Approve' : 'PPC Check';
             const stageTone = stage === 'MOULDING'
               ? 'background:#fff7ed; color:#9a3412; border-color:#fed7aa'
               : 'background:#eff6ff; color:#075985; border-color:#bfdbfe';
@@ -8331,26 +8333,23 @@
             const ageDays = r.created_at ? Math.floor((Date.now() - new Date(r.created_at).getTime()) / 86400000) : 0;
             const ageTone = ageDays >= 3 ? 'color:#b91c1c; font-weight:950' : ageDays >= 1 ? 'color:#b45309; font-weight:850' : 'color:#64748b';
             return `
-              <div class="jc-approval-grid" style="display:grid; grid-template-columns:1.2fr 1.1fr 1fr 1.35fr 1.1fr .9fr; align-items:center; border-top:1px solid #e2e8f0; background:${linked ? '#ffffff' : '#fff7ed'}">
+              <div class="jc-approval-grid" style="display:grid; grid-template-columns:1.2fr 1.1fr 1fr 1.35fr 1.1fr .9fr; align-items:center; border-top:1px solid #e2e8f0; background:#ffffff">
                 <div><b>${esc(r.order_no || '-')}</b><br><span class="muted">${esc(r.product_name || '')}</span>${pendingAge ? `<br><span title="${esc(pendingSince)}" style="font-size:.7rem; ${ageTone}"><i class="bi bi-clock"></i> ${esc(pendingAge)}</span>` : ''}</div>
                 <div><b>${esc(r.client_name || '-')}</b><br><span class="muted">Client</span></div>
                 <div><b>${esc(r.our_code || '-')}</b><br><span class="muted">${esc(r.plan_id || '-')} / Job Plan ${esc(r.batch_no || '-')}</span></div>
                 <div><b>${esc(r.mould_name || r.mould_code || '-')}</b><br><span class="muted">${esc(r.machine || '-')}</span></div>
-                <div><b>${linked ? esc(r.job_card_no) : ''}</b><br>
-                  <span class="muted">${linked ? esc(jcDate) : `<span style="color:#b45309; font-weight:700">Not linked in OR-JR</span>`}</span>
-                  ${!linked ? `<div style="margin-top:4px; font-size:0.72rem; background:#fef3c7; border:1px solid #fde68a; border-radius:6px; padding:4px 7px; color:#92400e; line-height:1.5">
-                    <b>OR No:</b> ${esc(r.order_no)}<br>
-                    <b>Remarks must contain:</b> <code style="background:#fef9c3; padding:1px 4px; border-radius:3px">${esc(r.our_code || r.plan_id || '-')}</code>
-                    ${r.plan_id && r.our_code ? `<span style="color:#78350f"> or </span><code style="background:#fef9c3; padding:1px 4px; border-radius:3px">${esc(r.plan_id)}</code>` : ''}
-                    <br><b>Also need:</b> Job Card No filled in OR-JR
-                    <a href="/api/planning/debug-jc-link?order_no=${encodeURIComponent(r.order_no)}&our_code=${encodeURIComponent(r.our_code||'')}&plan_id=${encodeURIComponent(r.plan_id||'')}" target="_blank" style="display:inline-block; margin-top:4px; color:#1d4ed8; text-decoration:underline; font-size:0.7rem">🔍 Debug Link</a>
-                  </div>` : ''}
-                  <br><span style="display:inline-flex; margin-top:5px; border:1px solid; border-radius:999px; padding:4px 9px; font-size:.72rem; font-weight:950; ${stageTone}">${esc(stageLabel)}</span></div>
+                <div>
+                  ${linked
+                    ? `<b>${esc(r.job_card_no)}</b><br><span class="muted">${esc(jcDate)}</span>`
+                    : `<span style="color:#64748b; font-size:.78rem"><i class="bi bi-info-circle"></i> JC link pending — link at Start Plan</span>`
+                  }
+                  <br><span style="display:inline-flex; margin-top:5px; border:1px solid; border-radius:999px; padding:4px 9px; font-size:.72rem; font-weight:950; ${stageTone}">${esc(stageLabel)}</span>
+                </div>
                 <div>
                   <button type="button" class="btn ${canApprove ? 'primary' : ''}" ${canApprove ? '' : 'disabled'} onclick="window.openJcApproval(${Number(r.id)})" style="border-radius:12px; ${canApprove ? '' : 'opacity:.55; cursor:not-allowed'}">
-                    <i class="bi ${linked ? 'bi-shield-check' : 'bi-link-45deg'}"></i> ${esc(buttonLabel)}
+                    <i class="bi bi-shield-check"></i> ${esc(buttonLabel)}
                   </button>
-                  ${linked && !canApprove ? `<div class="muted" style="font-size:.72rem; margin-top:6px">${esc(r.approval_role_label || '')}</div>` : ''}
+                  ${!canApprove ? `<div class="muted" style="font-size:.72rem; margin-top:6px">${esc(r.approval_role_label || '')}</div>` : ''}
                 </div>
               </div>
             `;
