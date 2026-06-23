@@ -458,11 +458,15 @@
           <button id="addMachineBtn" class="btn-action" onclick="openMachineModal('add')"
             style="padding:5px 12px; background:#16a34a; display:none; margin-left:5px;"><i class="bi bi-plus-lg"></i>
             Add</button>
-          <button id="addLabourPartyBtn" class="btn-action" onclick="openLabourPartyModal('add')"
-            style="padding:5px 12px; background:#b45309; display:none; margin-left:5px;"><i class="bi bi-people-fill"></i>
-            Add Party</button>
         </div>
       </div>
+    </div>
+
+    <!-- Labour Party action bar — shown only on labour-parties type -->
+    <div id="labourPartyActionBar" class="card" style="display:none; padding:8px 12px;">
+      <button id="addLabourPartyBtn" class="btn-action" onclick="openLabourPartyModal('add')"
+        style="padding:6px 14px; background:#b45309;"><i class="bi bi-people-fill"></i>
+        Add Party</button>
     </div>
 
     <div class="card" id="allFactoryUploadLock"
@@ -871,6 +875,16 @@
           <option value="">— Select Party —</option>
         </select>
         <div style="margin-top:6px; font-size:0.75rem; color:#78350f;">Machine will be assigned to this Labour Job party. Tonnage is also required.</div>
+        <div style="margin-top:10px;">
+          <label style="font-weight:700; color:#92400e; display:block; margin-bottom:4px; font-size:0.82rem;"><i class="bi bi-building"></i> Factory</label>
+          <select id="m_lj_factory_id" style="width:100%; padding:8px; border:1px solid #fde68a; border-radius:4px; background:#fff;">
+            <option value="">— Current Session Factory —</option>
+          </select>
+        </div>
+        <div style="margin-top:6px;">
+          <label style="font-weight:700; color:#92400e; display:block; margin-bottom:4px; font-size:0.82rem;"><i class="bi bi-speedometer2"></i> Tonnage</label>
+          <input type="number" id="m_lj_tonnage" placeholder="e.g. 350" style="width:100%; padding:8px; border:1px solid #fde68a; border-radius:4px; background:#fff;">
+        </div>
       </div>
       <div id="machinePrintingFields" style="display:none;">
         <div style="margin-bottom:10px;">

@@ -188,7 +188,8 @@
       if (machineInput) {
         machineInput.placeholder = normalizedProcess === 'Printing' ? 'Enter machine number' : 'Enter machine name';
       }
-      if (standardFields) standardFields.style.display = normalizedProcess === 'Printing' ? 'none' : 'block';
+      // Labour Job hides both standard and printing fields
+      if (standardFields) standardFields.style.display = (normalizedProcess === 'Printing' || normalizedProcess === 'Labour Job') ? 'none' : 'block';
       if (printingFields) printingFields.style.display = normalizedProcess === 'Printing' ? 'block' : 'none';
       if (labourFields) {
         if (normalizedProcess === 'Labour Job') {
@@ -198,8 +199,7 @@
           if (partySelect && partySelect.options.length <= 1) {
             JPSMS.api.get('/labour-parties').then(res => {
               if (res.ok) {
-                const parties = res.data || [];
-                parties.forEach(p => {
+                (res.data || []).forEach(p => {
                   const opt = document.createElement('option');
                   opt.value = p.id;
                   opt.textContent = p.party_name;
@@ -207,6 +207,16 @@
                 });
               }
             }).catch(() => {});
+          }
+          // Populate factory dropdown from allowedFactories global
+          const factorySelect = document.getElementById('m_lj_factory_id');
+          if (factorySelect && factorySelect.options.length <= 1 && window.allowedFactories && window.allowedFactories.length) {
+            window.allowedFactories.forEach(f => {
+              const opt = document.createElement('option');
+              opt.value = f.id;
+              opt.textContent = f.name || f.code || `Factory ${f.id}`;
+              factorySelect.appendChild(opt);
+            });
           }
         } else {
           labourFields.style.display = 'none';

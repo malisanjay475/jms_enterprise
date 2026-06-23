@@ -526,7 +526,7 @@
                       <div id="lj-dpr-grid" style="overflow-x:auto"></div>
                       <!-- Labour DPR Entry Modal -->
                       <div id="ljDprModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9000;align-items:center;justify-content:center">
-                        <div style="background:#fff;padding:24px;border-radius:12px;width:420px;max-width:92%;border-top:4px solid #b45309">
+                        <div style="background:#fff;padding:24px;border-radius:12px;width:460px;max-width:92%;border-top:4px solid #b45309;max-height:90vh;overflow-y:auto">
                           <div style="font-weight:800;color:#92400e;margin-bottom:16px"><i class="bi bi-people-fill"></i> Labour Job DPR Entry</div>
                           <input type="hidden" id="lj-entry-id">
                           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
@@ -541,18 +541,34 @@
                                 <option value="Night">Night</option>
                               </select>
                             </div>
-                            <div>
-                              <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Machine</label>
-                              <select id="lj-e-machine" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box">
-                                <option value="">— Select —</option>
-                              </select>
+                          </div>
+                          <div style="margin-bottom:12px">
+                            <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Machine</label>
+                            <select id="lj-e-machine" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box">
+                              <option value="">— Select Machine —</option>
+                            </select>
+                          </div>
+                          <div style="margin-bottom:12px">
+                            <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Colour</label>
+                            <select id="lj-e-colour" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box">
+                              <option value="">— Select Machine First —</option>
+                            </select>
+                          </div>
+                          <div id="lj-colour-info" style="display:none;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:12px">
+                            <div style="display:flex;gap:24px">
+                              <div>
+                                <div style="font-size:0.7rem;font-weight:700;color:#92400e;margin-bottom:2px">PLAN QTY</div>
+                                <div id="lj-plan-qty-disp" style="font-size:1.25rem;font-weight:800;color:#92400e">0</div>
+                              </div>
+                              <div>
+                                <div style="font-size:0.7rem;font-weight:700;color:#0369a1;margin-bottom:2px">BAL QTY</div>
+                                <div id="lj-bal-qty-disp" style="font-size:1.25rem;font-weight:800;color:#0369a1">0</div>
+                              </div>
                             </div>
+                          </div>
+                          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
                             <div>
-                              <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Colour</label>
-                              <input type="text" id="lj-e-colour" placeholder="e.g. Red" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box">
-                            </div>
-                            <div>
-                              <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Good Qty</label>
+                              <label style="font-size:0.78rem;font-weight:700;display:block;margin-bottom:4px">Produced Qty</label>
                               <input type="number" id="lj-e-good" min="0" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box" value="0">
                             </div>
                             <div>
@@ -569,7 +585,7 @@
                             <input type="text" id="lj-e-remarks" placeholder="Remarks (optional)" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;box-sizing:border-box">
                           </div>
                           <div style="display:flex;gap:10px;justify-content:flex-end">
-                            <button onclick="document.getElementById('ljDprModal').style.display='none'" style="padding:7px 14px;border:1px solid #e2e8f0;background:#fff;border-radius:6px;cursor:pointer">Cancel</button>
+                            <button id="lj-e-cancel" style="padding:7px 14px;border:1px solid #e2e8f0;background:#fff;border-radius:6px;cursor:pointer">Cancel</button>
                             <button id="lj-e-save" style="padding:7px 18px;background:#b45309;color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer">Save</button>
                           </div>
                         </div>
@@ -588,50 +604,88 @@
                     const gridEl = document.getElementById('lj-dpr-grid');
                     const modal = document.getElementById('ljDprModal');
 
+                    // Per-colour plan data fetched when machine is chosen
+                    let _colourPlanData = [];
+
+                    const _updateBalDisplay = () => {
+                        const colourSel = document.getElementById('lj-e-colour');
+                        const infoEl = document.getElementById('lj-colour-info');
+                        const planDisp = document.getElementById('lj-plan-qty-disp');
+                        const balDisp = document.getElementById('lj-bal-qty-disp');
+                        if (!colourSel || !infoEl) return;
+                        const chosen = _colourPlanData.find(c => c.colour === colourSel.value);
+                        if (chosen) {
+                            const entered = parseFloat(document.getElementById('lj-e-good')?.value || 0) || 0;
+                            const newBal = Math.max(0, chosen.bal_qty - entered);
+                            if (planDisp) planDisp.textContent = String(chosen.plan_qty);
+                            if (balDisp) balDisp.textContent = String(newBal);
+                            infoEl.style.display = 'block';
+                        } else {
+                            infoEl.style.display = 'none';
+                        }
+                    };
+
                     const loadGrid = async () => {
                         const pId = partySelect?.value || '';
                         _labourDprPartyId = pId;
                         if (!pId) { gridEl.innerHTML = '<div style="color:#94a3b8;padding:20px">Select a party to view DPR entries.</div>'; return; }
                         gridEl.innerHTML = '<div style="padding:20px;color:#64748b">Loading...</div>';
                         try {
-                            const params = new URLSearchParams({ fromDate, toDate, party_id: pId });
+                            const params = new URLSearchParams({ from: fromDate, to: toDate, party_id: pId });
                             if (shiftMode !== 'Both') params.set('shift', shiftMode);
                             const res = await J.api.get(`/dpr/labour?${params}`);
                             const entries = res.data || [];
                             if (!entries.length) { gridEl.innerHTML = '<div style="padding:20px;color:#94a3b8">No entries found for selected dates/party.</div>'; return; }
-                            gridEl.innerHTML = `
-                              <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
-                                <thead style="background:#fef3c7">
-                                  <tr>
-                                    <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Date</th>
-                                    <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Shift</th>
-                                    <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Machine</th>
-                                    <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Colour</th>
-                                    <th style="padding:8px;text-align:right;border-bottom:2px solid #fde68a">Good</th>
-                                    <th style="padding:8px;text-align:right;border-bottom:2px solid #fde68a">Reject</th>
-                                    <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Reason</th>
-                                    <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Remarks</th>
-                                    <th style="padding:8px;border-bottom:2px solid #fde68a"></th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  ${entries.map(e => `
-                                    <tr style="border-bottom:1px solid #fef3c7">
-                                      <td style="padding:7px 8px">${esc(e.dpr_date ? new Date(e.dpr_date).toLocaleDateString('en-GB') : '-')}</td>
-                                      <td style="padding:7px 8px"><span style="background:${e.shift==='Night'?'#1e293b':'#fef9c3'};color:${e.shift==='Night'?'#fff':'#92400e'};padding:2px 8px;border-radius:12px;font-size:0.7rem;font-weight:700">${esc(e.shift||'-')}</span></td>
-                                      <td style="padding:7px 8px;font-weight:700">${esc(e.machine||'-')}</td>
-                                      <td style="padding:7px 8px">${esc(e.colour||'-')}</td>
-                                      <td style="padding:7px 8px;text-align:right;font-weight:800;color:#15803d">${esc(e.good_qty||0)}</td>
-                                      <td style="padding:7px 8px;text-align:right;font-weight:800;color:${e.reject_qty>0?'#dc2626':'#94a3b8'}">${esc(e.reject_qty||0)}</td>
-                                      <td style="padding:7px 8px;color:#64748b;font-size:0.76rem">${esc(e.reject_reason||'')}</td>
-                                      <td style="padding:7px 8px;color:#64748b;font-size:0.76rem">${esc(e.remarks||'')}</td>
-                                      <td style="padding:7px 8px">
-                                        <button data-entry-id="${esc(String(e.id))}" class="lj-dpr-del-btn" style="background:#fee2e2;color:#dc2626;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.72rem"><i class="bi bi-trash"></i></button>
-                                      </td>
-                                    </tr>
-                                  `).join('')}
-                                </tbody>
-                              </table>`;
+                            const tbody = document.createElement('tbody');
+                            entries.forEach(e => {
+                                const tr = document.createElement('tr');
+                                tr.style.cssText = 'border-bottom:1px solid #fef3c7';
+                                const shiftBg = e.shift === 'Night' ? '#1e293b' : '#fef9c3';
+                                const shiftColor = e.shift === 'Night' ? '#fff' : '#92400e';
+                                const rejectColor = Number(e.reject_qty) > 0 ? '#dc2626' : '#94a3b8';
+                                const cellDefs = [
+                                    { text: e.dpr_date ? new Date(e.dpr_date).toLocaleDateString('en-GB') : '-', style: 'padding:7px 8px' },
+                                    { html: `<span style="background:${shiftBg};color:${shiftColor};padding:2px 8px;border-radius:12px;font-size:0.7rem;font-weight:700">${esc(e.shift||'-')}</span>`, style: 'padding:7px 8px' },
+                                    { text: e.machine || '-', style: 'padding:7px 8px;font-weight:700' },
+                                    { text: e.colour || '-', style: 'padding:7px 8px' },
+                                    { text: String(e.good_qty || 0), style: 'padding:7px 8px;text-align:right;font-weight:800;color:#15803d' },
+                                    { text: String(e.reject_qty || 0), style: `padding:7px 8px;text-align:right;font-weight:800;color:${rejectColor}` },
+                                    { text: e.reject_reason || '', style: 'padding:7px 8px;color:#64748b;font-size:0.76rem' },
+                                    { text: e.remarks || '', style: 'padding:7px 8px;color:#64748b;font-size:0.76rem' }
+                                ];
+                                cellDefs.forEach(c => {
+                                    const td = document.createElement('td');
+                                    td.style.cssText = c.style || '';
+                                    if (c.html) td.innerHTML = c.html; else td.textContent = c.text;
+                                    tr.appendChild(td);
+                                });
+                                const delTd = document.createElement('td');
+                                delTd.style.cssText = 'padding:7px 8px';
+                                const delBtn = document.createElement('button');
+                                delBtn.dataset.entryId = String(e.id);
+                                delBtn.className = 'lj-dpr-del-btn';
+                                delBtn.style.cssText = 'background:#fee2e2;color:#dc2626;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:0.72rem';
+                                delBtn.innerHTML = '<i class="bi bi-trash"></i>';
+                                delTd.appendChild(delBtn);
+                                tr.appendChild(delTd);
+                                tbody.appendChild(tr);
+                            });
+                            const table = document.createElement('table');
+                            table.style.cssText = 'width:100%;border-collapse:collapse;font-size:0.82rem';
+                            table.innerHTML = `<thead style="background:#fef3c7"><tr>
+                                <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Date</th>
+                                <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Shift</th>
+                                <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Machine</th>
+                                <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Colour</th>
+                                <th style="padding:8px;text-align:right;border-bottom:2px solid #fde68a">Produced</th>
+                                <th style="padding:8px;text-align:right;border-bottom:2px solid #fde68a">Reject</th>
+                                <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Reason</th>
+                                <th style="padding:8px;text-align:left;border-bottom:2px solid #fde68a">Remarks</th>
+                                <th style="padding:8px;border-bottom:2px solid #fde68a"></th>
+                              </tr></thead>`;
+                            table.appendChild(tbody);
+                            gridEl.innerHTML = '';
+                            gridEl.appendChild(table);
                         } catch(err) { gridEl.innerHTML = `<div style="color:#dc2626;padding:20px">Error: ${esc(err.message)}</div>`; }
                     };
 
@@ -643,24 +697,72 @@
 
                     document.getElementById('lj-dpr-load')?.addEventListener('click', loadGrid);
 
-                    // Populate machine dropdown when party changes
                     const populateMachines = async (pId) => {
                         const machSel = document.getElementById('lj-e-machine');
                         if (!machSel || !pId) return;
+                        machSel.innerHTML = '<option value="">— Loading... —</option>';
                         try {
                             const res = await J.api.get(`/labour-parties/${pId}/machines`);
-                            const machs = res.data || [];
-                            machSel.innerHTML = '<option value="">— Select Machine —</option>' +
-                                machs.map(m => `<option value="${esc(m.machine)}">${esc(m.machine)}</option>`).join('');
-                        } catch(e) { /* ignore */ }
+                            machSel.innerHTML = '<option value="">— Select Machine —</option>';
+                            (res.data || []).forEach(m => {
+                                const opt = document.createElement('option');
+                                opt.value = m.machine;
+                                opt.textContent = m.machine;
+                                machSel.appendChild(opt);
+                            });
+                        } catch(e) {
+                            machSel.innerHTML = '<option value="">— Failed to load —</option>';
+                        }
+                        // Reset colour dropdown whenever machine list refreshes
+                        const colourSel = document.getElementById('lj-e-colour');
+                        if (colourSel) colourSel.innerHTML = '<option value="">— Select Machine First —</option>';
+                        _colourPlanData = [];
+                        _updateBalDisplay();
                     };
+
+                    const populateColours = async (machine) => {
+                        const colourSel = document.getElementById('lj-e-colour');
+                        if (!colourSel) return;
+                        _colourPlanData = [];
+                        _updateBalDisplay();
+                        if (!machine) {
+                            colourSel.innerHTML = '<option value="">— Select Machine First —</option>';
+                            return;
+                        }
+                        colourSel.innerHTML = '<option value="">— Loading colours... —</option>';
+                        try {
+                            const res = await J.api.get(`/dpr/labour/machine-plan?machine=${encodeURIComponent(machine)}`);
+                            const data = res.data || [];
+                            _colourPlanData = data;
+                            colourSel.innerHTML = '<option value="">— Select Colour —</option>';
+                            data.forEach(c => {
+                                const opt = document.createElement('option');
+                                opt.value = c.colour;
+                                opt.textContent = `${c.colour}  (Plan: ${c.plan_qty}  |  Bal: ${c.bal_qty})`;
+                                colourSel.appendChild(opt);
+                            });
+                            if (!data.length) colourSel.innerHTML = '<option value="">— No active plans for this machine —</option>';
+                        } catch(e) {
+                            colourSel.innerHTML = '<option value="">— Error loading plans —</option>';
+                        }
+                        _updateBalDisplay();
+                    };
+
+                    document.getElementById('lj-e-machine')?.addEventListener('change', (ev) => {
+                        populateColours(ev.target.value);
+                    });
+                    document.getElementById('lj-e-colour')?.addEventListener('change', _updateBalDisplay);
+                    document.getElementById('lj-e-good')?.addEventListener('input', _updateBalDisplay);
+
+                    document.getElementById('lj-e-cancel')?.addEventListener('click', () => {
+                        if (modal) modal.style.display = 'none';
+                    });
 
                     document.getElementById('lj-dpr-add')?.addEventListener('click', async () => {
                         const pId = partySelect?.value || '';
                         document.getElementById('lj-entry-id').value = '';
                         document.getElementById('lj-e-date').value = fromDate;
                         document.getElementById('lj-e-shift').value = shiftMode !== 'Both' ? shiftMode : 'Day';
-                        document.getElementById('lj-e-colour').value = '';
                         document.getElementById('lj-e-good').value = '0';
                         document.getElementById('lj-e-reject').value = '0';
                         document.getElementById('lj-e-reason').value = '';
@@ -672,18 +774,23 @@
                     document.getElementById('lj-e-save')?.addEventListener('click', async () => {
                         const pId = partySelect?.value || '';
                         if (!pId) { alert('Select a party first'); return; }
+                        const machine = document.getElementById('lj-e-machine').value;
+                        if (!machine) { alert('Select a machine'); return; }
+                        const colour = document.getElementById('lj-e-colour').value;
+                        const planEntry = _colourPlanData.find(c => c.colour === colour);
                         const body = {
                             dpr_date: document.getElementById('lj-e-date').value,
                             shift: document.getElementById('lj-e-shift').value,
-                            machine: document.getElementById('lj-e-machine').value,
+                            machine,
                             party_id: parseInt(pId, 10),
-                            colour: document.getElementById('lj-e-colour').value,
+                            colour: colour || null,
+                            plan_id: planEntry ? planEntry.plan_id : null,
+                            order_no: planEntry ? planEntry.order_no : null,
                             good_qty: parseFloat(document.getElementById('lj-e-good').value) || 0,
                             reject_qty: parseFloat(document.getElementById('lj-e-reject').value) || 0,
                             reject_reason: document.getElementById('lj-e-reason').value,
                             remarks: document.getElementById('lj-e-remarks').value
                         };
-                        if (!body.machine) { alert('Select a machine'); return; }
                         try {
                             const entryId = document.getElementById('lj-entry-id').value;
                             let res;
