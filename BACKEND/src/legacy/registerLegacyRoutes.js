@@ -6386,14 +6386,18 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
       ORDER BY h.dpr_date ASC, h.shift ASC, h.hour_slot ASC
     `, params);
 
-    // 1b. Fetch order qty from orders table
+    // 1b. Fetch order qty + client name from orders table
     let orderQty = 0;
+    let clientName = '';
     const effectiveOrderNoForOrders = planRow?.order_no || orderNo || null;
     if (effectiveOrderNoForOrders) {
       const ordRows = await q(
-        `SELECT qty FROM orders WHERE order_no = $1 LIMIT 1`, [effectiveOrderNoForOrders]
+        `SELECT qty, client_name FROM orders WHERE order_no = $1 LIMIT 1`, [effectiveOrderNoForOrders]
       );
-      if (ordRows[0]) orderQty = Number(ordRows[0].qty || 0);
+      if (ordRows[0]) {
+        orderQty = Number(ordRows[0].qty || 0);
+        clientName = ordRows[0].client_name || '';
+      }
     }
 
     // 3. Group entries: colour → shifts → hourly
@@ -6471,6 +6475,7 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
         balQty,
         totalReject,
         mouldName: planRow?.mould_name || '',
+        clientName,
         colours
       }
     });
