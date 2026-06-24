@@ -156,6 +156,7 @@
       if (['moulding', 'molding'].includes(normalized)) return 'Moulding';
       if (['tuffting', 'tufting', 'tuf', 'tuft'].includes(normalized)) return 'Tuffting';
       if (['printing', 'print'].includes(normalized)) return 'Printing';
+      if (['labourjob', 'laborjob', 'labour', 'labor'].includes(normalized)) return 'Labour Job';
       return fallback;
     }
 
