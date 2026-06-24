@@ -524,6 +524,19 @@
       updateScopedEditState();
     }
 
+    function updateAddMachineBtnLabel() {
+      const addMachineBtn = document.getElementById('addMachineBtn');
+      if (!addMachineBtn) return;
+      const filter = getSelectedMachineProcessFilter();
+      if (filter === 'Labour Job') {
+        addMachineBtn.innerHTML = '<i class="bi bi-plus-lg"></i> Add Labour Job Machine';
+      } else if (filter === 'Printing') {
+        addMachineBtn.innerHTML = '<i class="bi bi-plus-lg"></i> Add Printing Machine';
+      } else {
+        addMachineBtn.innerHTML = '<i class="bi bi-plus-lg"></i> Add Machine';
+      }
+    }
+
     function updateScopedEditState() {
       const uploadSection = document.getElementById('uploadSection');
       const allFactoryUploadLock = document.getElementById('allFactoryUploadLock');
@@ -670,6 +683,7 @@
           if (currentType === 'machines') {
             updateTemplateButtons(currentType);
             updateMachineSearchPlaceholder();
+            updateAddMachineBtnLabel();
             loadMasterData();
           }
         });
@@ -742,6 +756,7 @@
       const addBtn = document.getElementById('addMachineBtn');
       if (type === 'machines' && JPSMS.auth.can('masters', 'edit')) {
         addBtn.style.display = 'inline-block';
+        updateAddMachineBtnLabel();
       } else {
         addBtn.style.display = 'none';
       }
