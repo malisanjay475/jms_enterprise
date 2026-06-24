@@ -20601,10 +20601,11 @@ app.get('/api/labour-parties', async (req, res) => {
           ORDER BY m.machine
         ) FILTER (WHERE m.id IS NOT NULL), '[]'::json) AS machines
       FROM labour_parties lp
+      -- No factory_id filter on machines: Labour Job machines may be saved
+      -- to a different factory than the session user (via factory_id_override)
       LEFT JOIN machines m ON m.labour_party_id = lp.id
         AND m.machine_process = 'Labour Job'
         AND m.is_active = true
-        AND ($1::int IS NULL OR m.factory_id = $1 OR m.factory_id IS NULL)
       WHERE lp.is_active = true
         AND ($1::int IS NULL OR lp.factory_id = $1 OR lp.factory_id IS NULL)
       GROUP BY lp.id
@@ -20678,18 +20679,19 @@ app.delete('/api/labour-parties/:id', async (req, res) => {
 });
 
 // GET /api/labour-parties/:id/machines — list machines for a party
+// No factory_id filter: Labour Job machines may be registered to a different
+// factory than the session user's factory (saved via factory_id_override).
+// Scoping by labour_party_id alone is correct and sufficient here.
 app.get('/api/labour-parties/:id/machines', async (req, res) => {
   try {
-    const factoryId = getFactoryId(req);
     const rows = await q(`
       SELECT id, machine, tonnage, line, building, is_active
       FROM machines
       WHERE labour_party_id = $1
         AND machine_process = 'Labour Job'
         AND is_active = true
-        AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
       ORDER BY machine
-    `, [req.params.id, factoryId]);
+    `, [req.params.id]);
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('/api/labour-parties/:id/machines GET', e);
