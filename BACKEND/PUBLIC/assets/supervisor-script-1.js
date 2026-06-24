@@ -3301,8 +3301,12 @@
       const curJC = session.activeJob ? getJobCardNo(session.activeJob) : '';
 
       // JOB mode → new summary view
+      // If filterJC is set (drilled in from All Jobs for a non-active job), prefer
+      // that JC and do NOT pass the active planId (which belongs to a different job).
       if (currentRecentFilter === 'job') {
-        await _loadRecentJobView(wrap, curPID, curJC);
+        const selectedJC  = filterJC || curJC;
+        const selectedPID = filterJC ? null : curPID; // only use active planId when no explicit JC filter
+        await _loadRecentJobView(wrap, selectedPID, selectedJC);
         return;
       }
 
@@ -3320,7 +3324,7 @@
         const res = await r.json();
 
         if (!res || !res.ok) {
-          wrap.innerHTML = `<div class="err">${(res && res.error) || 'Failed to load entries.'}</div>`;
+          wrap.innerHTML = `<div class="err">${safe((res && res.error) || 'Failed to load entries.')}</div>`;
           return;
         }
 
@@ -3403,7 +3407,7 @@
         // Fallback for any unhandled mode
         wrap.innerHTML = '<div class="no-jobs">Unknown filter mode.</div>';
       } catch (e) {
-        wrap.innerHTML = `<div class="err">Fetch error: ${e.message}</div>`;
+        wrap.innerHTML = `<div class="err">Fetch error: ${safe(e.message)}</div>`;
       }
     }
 
@@ -3444,8 +3448,10 @@
 
     function _buildJobInfoHTML(d, job, fallbackJC, curDate, curShift) {
       const isShiftMode = (curDate !== null && curShift !== null);
+      // Prefer data from the API response (correct for the queried job).
+      // Only fall back to session.activeJob values when no explicit selection is set.
       const orderNo    = safe(d.orderNo || (job && job.OrderNo) || '—');
-      const jcNo       = safe(getJobCardNo(job) || fallbackJC || filterJC || '—');
+      const jcNo       = safe(fallbackJC || filterJC || getJobCardNo(job) || '—');
       const mouldName  = safe(d.mouldName || (job && job.MouldNo) || '—');
       const clientName = safe(d.clientName || '—');
 
