@@ -3300,25 +3300,32 @@
       const curPID = (session.activeJob && session.activeJob.PlanID) || '';
       const curJC = session.activeJob ? getJobCardNo(session.activeJob) : '';
 
-      // URL parameters based on mode
-      let url = `/api/dpr/recent?machine=${encodeURIComponent(mach)}&limit=200`; // Fetch more for grouping
-      
+      // JOB mode → new summary view
+      // If filterJC is set (drilled in from All Jobs for a non-active job), prefer
+      // that JC and do NOT pass the active planId (which belongs to a different job).
       if (currentRecentFilter === 'job') {
-        const jcToUse = filterJC || curJC;
-        if (jcToUse) url += `&jc_no=${encodeURIComponent(jcToUse)}`;
-        else if (curPID) url += `&planId=${encodeURIComponent(curPID)}`;
-        else { wrap.innerHTML = '<div class="no-jobs">No active job selected.</div>'; return; }
-      } else if (currentRecentFilter === 'shift' && curDate && curShift) {
-        url += `&date=${encodeURIComponent(curDate)}&shift=${encodeURIComponent(curShift)}`;
+        const selectedJC  = filterJC || curJC;
+        const selectedPID = filterJC ? null : curPID; // only use active planId when no explicit JC filter
+        await _loadRecentJobView(wrap, selectedPID, selectedJC);
+        return;
       }
+
+      // SHIFT mode → new shift summary view
+      if (currentRecentFilter === 'shift') {
+        await _loadRecentShiftView(wrap, curPID, curDate, curShift);
+        return;
+      }
+
+      // ALL mode (unchanged below)
+      let url = `/api/dpr/recent?machine=${encodeURIComponent(mach)}&limit=200`;
 
       try {
         const r = await apiFetch(url);
         const res = await r.json();
 
-        if (!res || !res.ok) { 
-          wrap.innerHTML = `<div class="err">${(res && res.error) || 'Failed to load entries.'}</div>`; 
-          return; 
+        if (!res || !res.ok) {
+          wrap.innerHTML = `<div class="err">${safe((res && res.error) || 'Failed to load entries.')}</div>`;
+          return;
         }
 
         let data = (res.data && (Array.isArray(res.data) ? res.data : res.data.rows)) || [];
@@ -3397,89 +3404,237 @@
           return;
         }
 
-        if (!data.length) { 
-          wrap.innerHTML = `<div class="no-jobs" style="padding:40px; text-align:center; background:#f8fbff; border-radius:18px;">
-            <div style="font-size:14px; margin-bottom:4px;">No recent entries found.</div>
-            <div style="font-size:12px; opacity:0.7;">Filter: ${currentRecentFilter.toUpperCase()} ${filterJC ? '(JC: '+filterJC+')' : ''}</div>
-          </div>`; 
-          return; 
+        // Fallback for any unhandled mode
+        wrap.innerHTML = '<div class="no-jobs">Unknown filter mode.</div>';
+      } catch (e) {
+        wrap.innerHTML = `<div class="err">Fetch error: ${safe(e.message)}</div>`;
+      }
+    }
+
+    /* ==================== JOB TAB — Colour-wise Summary ==================== */
+
+    async function _loadRecentJobView(wrap, planId, jcNo) {
+      if (!planId && !jcNo) {
+        wrap.innerHTML = '<div class="no-jobs" style="padding:32px;text-align:center;">No active job selected.</div>';
+        return;
+      }
+      try {
+        const qs = planId ? `planId=${encodeURIComponent(planId)}` : `orderNo=${encodeURIComponent(jcNo)}`;
+        const res = await (await apiFetch(`/api/dpr/plan-drilldown?${qs}`)).json();
+        if (!res.ok) throw new Error(res.error || 'Failed');
+        wrap.innerHTML = _buildJobInfoHTML(res.data, session.activeJob, jcNo, null, null);
+      } catch (e) {
+        wrap.innerHTML = `<div class="err" style="padding:16px;">Error: ${safe(e.message)}</div>`;
+      }
+    }
+
+    /* ==================== SHIFT TAB — Current Shift + History ==================== */
+
+    async function _loadRecentShiftView(wrap, planId, curDate, curShift) {
+      if (!planId) {
+        wrap.innerHTML = '<div class="no-jobs" style="padding:32px;text-align:center;">No active job selected.</div>';
+        return;
+      }
+      try {
+        const res = await (await apiFetch(`/api/dpr/plan-drilldown?planId=${encodeURIComponent(planId)}`)).json();
+        if (!res.ok) throw new Error(res.error || 'Failed');
+        wrap.innerHTML = _buildJobInfoHTML(res.data, session.activeJob, null, curDate, curShift);
+      } catch (e) {
+        wrap.innerHTML = `<div class="err" style="padding:16px;">Error: ${safe(e.message)}</div>`;
+      }
+    }
+
+    /* ==================== SHARED RENDER — Job Info + Colour Cards ==================== */
+
+    function _buildJobInfoHTML(d, job, fallbackJC, curDate, curShift) {
+      const isShiftMode = (curDate !== null && curShift !== null);
+      // Prefer data from the API response (correct for the queried job).
+      // Only fall back to session.activeJob values when no explicit selection is set.
+      const orderNo    = safe(d.orderNo || (job && job.OrderNo) || '—');
+      const jcNo       = safe(fallbackJC || filterJC || getJobCardNo(job) || '—');
+      const mouldName  = safe(d.mouldName || (job && job.MouldNo) || '—');
+      const clientName = safe(d.clientName || '—');
+
+      // ── Job Info header card ──
+      let html = `
+        <div style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);border-radius:16px;padding:14px 16px;margin-bottom:14px;color:#fff;">
+          <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.5);margin-bottom:10px;font-weight:700;">Job Info</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;">
+            <div>
+              <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:2px;">ORDER NO</div>
+              <div style="font-weight:800;font-size:0.88rem;word-break:break-all;">${orderNo}</div>
+            </div>
+            <div>
+              <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:2px;">JC NO</div>
+              <div style="font-weight:800;font-size:0.88rem;word-break:break-all;">${jcNo}</div>
+            </div>
+            <div>
+              <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:2px;">MOULD</div>
+              <div style="font-weight:600;font-size:0.82rem;word-break:break-all;">${mouldName}</div>
+            </div>
+            <div>
+              <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:2px;">CLIENT</div>
+              <div style="font-weight:600;font-size:0.82rem;word-break:break-all;">${clientName}</div>
+            </div>
+          </div>
+        </div>`;
+
+      const colours = d.colours || [];
+
+      if (isShiftMode) {
+        // ── SHIFT MODE: current shift colour breakdown ──
+        const shiftLabel = curShift === 'Day' ? '☀️ Day Shift' : '🌙 Night Shift';
+        const dateLabel  = curDate ? new Date(curDate + 'T00:00:00').toLocaleDateString([], { day:'2-digit', month:'short', year:'numeric' }) : '—';
+
+        html += `
+          <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#475569;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+            <span>${shiftLabel}</span>
+            <span style="font-size:0.65rem;font-weight:500;color:#94a3b8;">• ${dateLabel}</span>
+          </div>`;
+
+        let curTotalPlan = 0, curTotalProd = 0, overallBal = 0;
+
+        colours.forEach(c => {
+          const shiftEntry = (c.shifts || []).find(s => s.shift === curShift && s.date === curDate);
+          const curProd = shiftEntry ? (shiftEntry.goodQty || 0) : 0;
+          const planQty = c.planQty || 0;
+          const bal     = c.balQty || 0;  // overall balance (plan - total produced)
+          curTotalPlan += planQty;
+          curTotalProd += curProd;
+          overallBal   += bal;
+          const pct = planQty > 0 ? Math.min(100, Math.round(c.producedQty / planQty * 100)) : 0;
+
+          html += _colourCard(c.colour, planQty, curProd, bal, pct, isShiftMode);
+        });
+
+        // Shift total footer
+        html += _totalFooter(curTotalPlan, curTotalProd, overallBal, 'Shift Produced', 'Overall Balance');
+
+        // ── SHIFT MODE: date-wise history ──
+        const dateMap = {}; // date → { Day: qty, Night: qty }
+        colours.forEach(c => {
+          (c.shifts || []).forEach(s => {
+            if (s.date === curDate && s.shift === curShift) return; // skip current
+            if (!dateMap[s.date]) dateMap[s.date] = { Day: 0, Night: 0 };
+            dateMap[s.date][s.shift] = (dateMap[s.date][s.shift] || 0) + (s.goodQty || 0);
+          });
+        });
+
+        const sortedDates = Object.keys(dateMap).sort((a, b) => b.localeCompare(a));
+
+        if (sortedDates.length > 0) {
+          html += `
+            <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#475569;margin-top:16px;margin-bottom:8px;">
+              📅 Previous Shifts
+            </div>`;
+
+          sortedDates.forEach(dt => {
+            const dLabel = new Date(dt + 'T00:00:00').toLocaleDateString([], { day:'2-digit', month:'short' });
+            const dayQty   = dateMap[dt].Day   || 0;
+            const nightQty = dateMap[dt].Night || 0;
+            const total    = dayQty + nightQty;
+
+            html += `
+              <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:10px 14px;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                  <div style="font-weight:700;font-size:0.85rem;color:#1e293b;">${dLabel}</div>
+                  <div style="font-size:0.72rem;font-weight:700;color:#475569;background:#f1f5f9;padding:2px 8px;border-radius:20px;">${total.toLocaleString()} pcs</div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                  <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:8px;text-align:center;">
+                    <div style="font-size:0.62rem;color:#92400e;font-weight:700;margin-bottom:2px;">☀️ DAY</div>
+                    <div style="font-weight:800;font-size:1.05rem;color:#92400e;">${dayQty > 0 ? dayQty.toLocaleString() : '<span style="color:#94a3b8;font-size:0.8rem;">—</span>'}</div>
+                  </div>
+                  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px;text-align:center;">
+                    <div style="font-size:0.62rem;color:#1e40af;font-weight:700;margin-bottom:2px;">🌙 NIGHT</div>
+                    <div style="font-weight:800;font-size:1.05rem;color:#1e40af;">${nightQty > 0 ? nightQty.toLocaleString() : '<span style="color:#94a3b8;font-size:0.8rem;">—</span>'}</div>
+                  </div>
+                </div>
+              </div>`;
+          });
+        } else {
+          html += `<div style="text-align:center;padding:16px;color:#94a3b8;font-size:0.8rem;">No previous shift data</div>`;
         }
 
-        wrap.innerHTML = '';
-        const list = document.createElement('div');
-        list.className = 'jobs';
-        list.style.gap = '14px';
+      } else {
+        // ── JOB MODE: full colour breakdown ──
+        html += `
+          <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#475569;margin-bottom:8px;">
+            🎨 Colour-wise Quantities
+          </div>`;
 
-        data.forEach((r, i) => {
-          const card = document.createElement('div');
-          card.className = 'job premium-card';
-          card.style.padding = '16px';
-          card.style.border = '1px solid #e2e8f0';
-
-          const dt = new Date(r.DateTime);
-          const time = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          const date = dt.toLocaleDateString([], { day: '2-digit', month: 'short' });
-
-          // Parse Reasons
-          const { rejections, downtimes } = parseReasons(r.Remarks);
-
-          // Edit Button Logic (Only for first row)
-          const canEdit = (i === 0);
-          const safeRemarks = (r.Remarks || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-          const rBk = r.RejectBreakup ? JSON.stringify(r.RejectBreakup).replace(/"/g, '&quot;') : '{}';
-          const dBk = r.DowntimeBreakup ? JSON.stringify(r.DowntimeBreakup).replace(/"/g, '&quot;') : '{}';
-          
-          const actionBtns = canEdit 
-            ? `<div style="display:flex; gap:8px;">
-                <button class="small" style="padding: 8px; min-height: 38px; min-width: 38px; border: 1.5px solid #cbd5e1; border-radius: 10px; background: white; color: #334155; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);" 
-                  onclick="openEdit('${r.UniqueID}', ${r.Shots}, ${r.RejectQty}, ${r.DowntimeMin}, '${safeRemarks}', '${r.Colour || ''}', '${rBk}', '${dBk}', '${r.PlanID || ''}', '${r.OrderNo || ''}', '${r.MouldNo || ''}')">
-                  <i class="bi bi-pencil" style="font-size: 18px; line-height: 1;"></i>
-                </button>
-                <button class="small" style="padding: 8px; min-height: 38px; min-width: 38px; border: 1.5px solid #fecaca; border-radius: 10px; background: white; color: #dc2626; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);" 
-                  onclick="deleteEntry('${r.UniqueID}')">
-                  <i class="bi bi-trash" style="font-size: 18px; line-height: 1;"></i>
-                </button>
-               </div>` 
-            : '';
-
-          card.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
-              <div>
-                <div style="font-weight:800; font-size:15px; color:var(--ink); display:flex; align-items:center; gap:6px;">
-                  <span style="background:var(--ink); color:white; padding:2px 8px; border-radius:6px; font-size:12px;">${r.HourSlot}</span>
-                  <span>${time}</span>
-                </div>
-                <div style="font-size:12px; color:var(--muted); margin-top:4px; font-weight:500;">
-                  ${r.Colour || 'Default'} • ${date} • ${r.Shift}
-                </div>
-                <div style="font-size:11px; color:var(--muted); margin-top:2px;">
-                   ${r.Mould ? `<span style="color:var(--ink)">${r.Mould}</span>` : `JC: ${r.JobCardNo}`}
-                </div>
-              </div>
-              <div style="text-align:right; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
-                ${actionBtns}
-                <div style="text-align: right;">
-                  <div style="font-weight:800; font-size:18px; color:var(--ok);">${r.GoodQty} <small style="font-size:10px; font-weight:600; color:var(--muted);">GOOD</small></div>
-                  <div style="font-size:11px; color:var(--muted); margin-top:2px;">Shots: ${r.Shots} | Rej: ${r.RejectQty}</div>
-                </div>
-              </div>
-            </div>
-
-            ${rejections.length || downtimes.length ? `
-              <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; padding-top:12px; border-top: 1px dashed var(--line);">
-                ${rejections.map(rej => `<span class="glowing-pill" style="background:#fee2e2; color:#991b1b; border:1px solid #fecaca;"><i class="bi bi-x-circle"></i> ${getRejName(rej.reason)} (${rej.qty})</span>`).join('')}
-                ${downtimes.map(dtm => `<span class="glowing-pill" style="background:#fff7ed; color:#9a3412; border:1px solid #ffedd5;"><i class="bi bi-clock-history"></i> ${getDtName(dtm.reason)} (${dtm.min}m)</span>`).join('')}
-              </div>
-            ` : ''}
-
-            ${r.OtherRemarks ? `<div class="muted" style="font-size:12px; margin-top:10px; font-style:italic; border-left: 2px solid #e2e8f0; padding-left: 8px;">"${r.OtherRemarks}"</div>` : ''}
-          `;
-          list.appendChild(card);
-        });
-        wrap.appendChild(list);
-      } catch (e) { 
-        wrap.innerHTML = `<div class="err">Fetch error: ${e.message}</div>`; 
+        if (!colours.length) {
+          html += `<div style="text-align:center;padding:32px;color:#94a3b8;font-size:0.82rem;">No colour data available yet</div>`;
+        } else {
+          colours.forEach(c => {
+            const pct = c.planQty > 0 ? Math.min(100, Math.round(c.producedQty / c.planQty * 100)) : 0;
+            html += _colourCard(c.colour, c.planQty, c.producedQty, c.balQty, pct, false);
+          });
+          html += _totalFooter(d.planQty || 0, d.producedQty || 0, d.balQty || 0, 'Produced', 'Balance');
+        }
       }
+
+      return html;
+    }
+
+    /* ── colour card (mobile-first) ── */
+    function _colourCard(colour, planQty, producedQty, balQty, pct, shiftMode) {
+      const isDone  = balQty <= 0;
+      const prodLabel = shiftMode ? 'SHIFT PROD' : 'PRODUCED';
+      const balLabel  = shiftMode ? 'OVR BAL'   : 'BALANCE';
+      return `
+        <div style="background:#fff;border:1px solid ${isDone ? '#bbf7d0' : '#e2e8f0'};border-radius:12px;padding:12px 14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.04);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div style="font-weight:700;font-size:0.92rem;color:#1e293b;">${safe(colour)}</div>
+            <div style="font-size:0.68rem;background:${isDone ? '#dcfce7' : pct >= 50 ? '#fef3c7' : '#f1f5f9'};color:${isDone ? '#15803d' : pct >= 50 ? '#92400e' : '#64748b'};padding:2px 8px;border-radius:20px;font-weight:700;">${pct}%</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;">
+            <div style="background:#f8fafc;border-radius:8px;padding:8px 4px;">
+              <div style="font-size:0.58rem;color:#94a3b8;font-weight:700;letter-spacing:0.05em;margin-bottom:3px;">PLAN</div>
+              <div style="font-weight:800;font-size:1.05rem;color:#334155;line-height:1.1;">${(planQty || 0).toLocaleString()}</div>
+            </div>
+            <div style="background:#f0f9ff;border-radius:8px;padding:8px 4px;">
+              <div style="font-size:0.58rem;color:#0284c7;font-weight:700;letter-spacing:0.05em;margin-bottom:3px;">${prodLabel}</div>
+              <div style="font-weight:800;font-size:1.05rem;color:#0284c7;line-height:1.1;">${(producedQty || 0).toLocaleString()}</div>
+            </div>
+            <div style="background:${isDone ? '#f0fdf4' : '#fff7ed'};border-radius:8px;padding:8px 4px;">
+              <div style="font-size:0.58rem;color:${isDone ? '#15803d' : '#ea580c'};font-weight:700;letter-spacing:0.05em;margin-bottom:3px;">${balLabel}</div>
+              <div style="font-weight:800;font-size:1.05rem;color:${isDone ? '#15803d' : '#ea580c'};line-height:1.1;">${(balQty || 0).toLocaleString()}</div>
+            </div>
+          </div>
+          <div style="margin-top:8px;height:4px;background:#e2e8f0;border-radius:4px;overflow:hidden;">
+            <div style="height:100%;width:${pct}%;background:${isDone ? '#22c55e' : pct >= 75 ? '#f59e0b' : '#3b82f6'};border-radius:4px;"></div>
+          </div>
+        </div>`;
+    }
+
+    /* ── total footer card ── */
+    function _totalFooter(planTotal, producedTotal, balTotal, producedLabel, balLabel) {
+      const pct = planTotal > 0 ? Math.min(100, Math.round(producedTotal / planTotal * 100)) : 0;
+      return `
+        <div style="background:linear-gradient(135deg,#1e40af,#2563eb);border-radius:14px;padding:14px 16px;margin-top:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div style="color:rgba(255,255,255,0.8);font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">Grand Total</div>
+            <div style="font-size:0.68rem;background:rgba(255,255,255,0.15);color:#fff;padding:2px 8px;border-radius:20px;font-weight:700;">${pct}% done</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;">
+            <div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:8px 4px;">
+              <div style="font-size:0.58rem;color:rgba(255,255,255,0.6);font-weight:700;margin-bottom:3px;">PLAN</div>
+              <div style="font-weight:800;font-size:1.1rem;color:#fff;line-height:1.1;">${(planTotal || 0).toLocaleString()}</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:8px 4px;">
+              <div style="font-size:0.58rem;color:rgba(255,255,255,0.6);font-weight:700;margin-bottom:3px;">${producedLabel.toUpperCase()}</div>
+              <div style="font-weight:800;font-size:1.1rem;color:#fff;line-height:1.1;">${(producedTotal || 0).toLocaleString()}</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:8px 4px;">
+              <div style="font-size:0.58rem;color:rgba(255,255,255,0.6);font-weight:700;margin-bottom:3px;">${balLabel.toUpperCase()}</div>
+              <div style="font-weight:800;font-size:1.1rem;color:#fff;line-height:1.1;">${(balTotal || 0).toLocaleString()}</div>
+            </div>
+          </div>
+          <div style="margin-top:10px;height:5px;background:rgba(255,255,255,0.15);border-radius:4px;overflow:hidden;">
+            <div style="height:100%;width:${pct}%;background:rgba(255,255,255,0.7);border-radius:4px;"></div>
+          </div>
+        </div>`;
     }
 
     /* ==================== EDIT LOGIC (Detailed) ==================== */
