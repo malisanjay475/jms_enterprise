@@ -3249,386 +3249,373 @@
       return res;
     }
 
-    /* ==================== VIEW ENTRIES with FILTER & PREMIUM CARDS ==================== */
+    /* ==================== VIEW ENTRIES v2 — Active Jobs / All Jobs (3-level nav) ==================== */
 
-    let currentRecentFilter = 'job';
-    let filterJC = ''; // For drill-down
+    let currentRecentFilter = 'active'; // 'active' | 'all'
+    let _recentLevel = 1;               // 1=list  2=drilldown  3=hourly
+    let _recentJobsList  = null;        // cached Level-1 API result
+    let _recentJobData   = null;        // selected job from Level 1
+    let _recentDrilldown = null;        // cached plan-drilldown result
+    let _recentShiftDate = null;
+    let _recentShiftName = null;
 
-    function toggleRecentFilter(mode, btn, forcedJC = '') {
+    function toggleRecentFilter(mode, btn) {
       currentRecentFilter = mode;
-      filterJC = forcedJC;
-      
-      // Update UI buttons if they exist (not inside another card)
+      _recentLevel     = 1;
+      _recentJobsList  = null; // invalidate cache so fresh data is fetched
+      _recentJobData   = null;
+      _recentDrilldown = null;
+
       const container = document.getElementById('recent-filter-container');
       if (container) {
         container.querySelectorAll('button').forEach(b => b.classList.remove('active'));
         if (btn) btn.classList.add('active');
-        else if (mode === 'job') container.children[0].classList.add('active');
+        else {
+          const idx = mode === 'active' ? 0 : 1;
+          if (container.children[idx]) container.children[idx].classList.add('active');
+        }
       }
-      
       loadRecent();
-    }
-
-    /* Helper to get last shift info */
-    function getLastShift(dateStr, shift) {
-      const d = new Date(dateStr);
-      if (shift === 'Day') {
-        // Last shift was Night of previous day
-        d.setDate(d.getDate() - 1);
-        const prevDate = d.toISOString().split('T')[0];
-        return { date: prevDate, shift: 'Night' };
-      } else {
-        // Last shift was Day of same day
-        return { date: dateStr, shift: 'Day' };
-      }
     }
 
     async function loadRecent() {
       const wrap = el('recent');
       if (!wrap) return;
-      wrap.innerHTML = '<div style="padding:40px; text-align:center; color:var(--muted);"><i class="bi bi-arrow-repeat spin"></i> Loading entries...</div>';
-
       const mach = session.machine;
       if (!mach) {
-        wrap.innerHTML = '<div class="no-jobs">Please select a machine first.</div>';
+        wrap.innerHTML = '<div class="no-jobs" style="padding:32px;text-align:center;">Please select a machine first.</div>';
         return;
       }
+      if (_recentLevel === 1) await _rvL1(wrap, mach);
+      else if (_recentLevel === 2) await _rvL2(wrap, mach);
+      else if (_recentLevel === 3) await _rvL3(wrap, mach);
+    }
 
-      // Context for filter
-      const curDate = el('d-date').value;
+    /* ── LEVEL 1: Job Cards List ── */
+    async function _rvL1(wrap, mach) {
+      wrap.innerHTML = '<div style="padding:36px;text-align:center;color:var(--muted);"><i class="bi bi-arrow-repeat spin"></i> Loading jobs…</div>';
+      const curDate  = el('d-date').value;
       const curShift = el('d-shift').value;
-      const curPID = (session.activeJob && session.activeJob.PlanID) || '';
-      const curJC = session.activeJob ? getJobCardNo(session.activeJob) : '';
-
-      // JOB mode → new summary view
-      if (currentRecentFilter === 'job') {
-        await _loadRecentJobView(wrap, curPID, curJC);
-        return;
-      }
-
-      // SHIFT mode → new shift summary view
-      if (currentRecentFilter === 'shift') {
-        await _loadRecentShiftView(wrap, curPID, curDate, curShift);
-        return;
-      }
-
-      // ALL mode (unchanged below)
-      let url = `/api/dpr/recent?machine=${encodeURIComponent(mach)}&limit=200`;
-
       try {
-        const r = await apiFetch(url);
-        const res = await r.json();
-
-        if (!res || !res.ok) {
-          wrap.innerHTML = `<div class="err">${(res && res.error) || 'Failed to load entries.'}</div>`;
-          return;
+        if (!_recentJobsList) {
+          const res = await (await apiFetch(
+            `/api/planning/machine-jobs?machine=${encodeURIComponent(mach)}&date=${encodeURIComponent(curDate)}&shift=${encodeURIComponent(curShift)}`
+          )).json();
+          if (!res.ok) throw new Error(res.error || 'Failed');
+          _recentJobsList = res.data || [];
         }
 
-        let data = (res.data && (Array.isArray(res.data) ? res.data : res.data.rows)) || [];
+        let jobs = _recentJobsList;
+        if (currentRecentFilter === 'active') jobs = jobs.filter(j => j.has_today_entry);
 
-        // MODE ALL: Filter for Last & Current Shift, then group by Job Card
-        if (currentRecentFilter === 'all') {
-          const lastShiftInfo = getLastShift(curDate, curShift);
-          
-          const uniqueJobs = [];
-          const jcSet = new Set();
-          
-          data.forEach(e => {
-            // Check if matches Current Shift OR Last Shift
-            const isCurrent = (e.Date.startsWith(curDate) && e.Shift === curShift);
-            const isLast = (e.Date.startsWith(lastShiftInfo.date) && e.Shift === lastShiftInfo.shift);
-            
-            if ((isCurrent || isLast) && !jcSet.has(e.JobCardNo)) {
-              jcSet.add(e.JobCardNo);
-              uniqueJobs.push({
-                JobCardNo: e.JobCardNo,
-                OrderNo: e.OrderNo,
-                MouldNo: e.MouldNo,
-                Mould: e.Mould || e.mould || 'N/A',
-                Client: e.Client || e.client || 'N/A',
-                PlanID: e.PlanID,
-                LastEntry: e.DateTime,
-                IsCurrent: isCurrent
-              });
-            }
-          });
-
-          if (!uniqueJobs.length) {
-            wrap.innerHTML = `<div class="no-jobs" style="padding:40px; text-align:center; background:#f8fbff; border-radius:18px;">
-              <div style="font-size:14px; margin-bottom:4px;">No jobs found for last/current shift.</div>
-              <div style="font-size:12px; opacity:0.7;">Current: ${curDate} (${curShift}) • Last: ${lastShiftInfo.date} (${lastShiftInfo.shift})</div>
+        if (!jobs.length) {
+          wrap.innerHTML = `
+            <div style="padding:40px;text-align:center;background:#f8fbff;border-radius:18px;">
+              <div style="font-size:2.2rem;margin-bottom:10px;">${currentRecentFilter === 'active' ? '🏭' : '📋'}</div>
+              <div style="font-size:0.9rem;font-weight:700;color:#475569;margin-bottom:4px;">
+                ${currentRecentFilter === 'active' ? 'No entries in this shift yet' : 'No jobs on this machine'}
+              </div>
+              <div style="font-size:0.72rem;color:#94a3b8;">${safe(curDate)} · ${safe(curShift)} Shift</div>
             </div>`;
-            return;
-          }
-
-          wrap.innerHTML = '';
-          const list = document.createElement('div');
-          list.className = 'jobs';
-          list.style.gap = '16px';
-
-          uniqueJobs.forEach(j => {
-            const card = document.createElement('div');
-            card.className = 'job premium-card';
-            card.style.padding = '18px';
-            card.style.border = '1px solid #e2e8f0';
-            if (j.IsCurrent) card.style.background = '#f0f9ff';
-
-            card.innerHTML = `
-              <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px;">
-                <div>
-                  <div style="font-weight:800; font-size:16px; color:var(--ink);">${j.OrderNo || 'No Order'} ${j.IsCurrent ? '<span style="font-size:10px; background:var(--accent); color:white; padding:2px 6px; border-radius:4px; margin-left:4px; vertical-align:middle;">ACTIVE</span>' : ''}</div>
-                  <div style="font-size:12px; color:var(--muted); margin-top:2px; font-weight:500;">
-                    JC: ${j.JobCardNo} • Mould: ${j.MouldNo}
-                  </div>
-                  <div style="font-size:13px; color:var(--ink); margin-top:4px;">${j.Client}</div>
-                </div>
-                <span class="tag" style="margin:0; background:#f1f5f9; color:var(--ink);">${j.Mould || j.MouldNo || "N/A"}</span>
-              </div>
-              <div style="display:flex; gap:10px; margin-top:10px; padding-top:12px; border-top: 1px dashed var(--line);">
-                <button class="primary small" style="flex:1; border-radius:10px; font-weight:600;" onclick="toggleRecentFilter('job', null, '${j.JobCardNo}')">
-                  <i class="bi bi-list-ul"></i> Hourly
-                </button>
-                <button class="ghost small" style="flex:1; border-radius:10px; border:1px solid var(--line); font-weight:600; background:white;" 
-                  onclick="openJobSummaryModalByJC('${j.JobCardNo}')">
-                  <i class="bi bi-bar-chart-fill"></i> Summary
-                </button>
-              </div>
-            `;
-            list.appendChild(card);
-          });
-          wrap.appendChild(list);
           return;
         }
 
-        // Fallback for any unhandled mode
-        wrap.innerHTML = '<div class="no-jobs">Unknown filter mode.</div>';
-      } catch (e) {
-        wrap.innerHTML = `<div class="err">Fetch error: ${e.message}</div>`;
-      }
-    }
+        wrap.innerHTML = '';
+        jobs.forEach(job => {
+          const card = document.createElement('div');
+          card.style.cssText = 'background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:14px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);cursor:pointer;';
+          const si  = _rvStatusInfo(job.status);
+          const cols = _rvParseColours(job.colour_details, job.colour_produced, job.plan_qty);
 
-    /* ==================== JOB TAB — Colour-wise Summary ==================== */
+          card.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+              <div style="flex:1;min-width:0;padding-right:8px;">
+                <div style="font-weight:800;font-size:0.95rem;color:#0f172a;word-break:break-all;">${safe(job.order_no||'—')}</div>
+                <div style="font-size:0.7rem;color:#64748b;margin-top:2px;">JC: ${safe(job.job_card_no||'—')}</div>
+                <div style="font-size:0.7rem;color:#475569;margin-top:1px;word-break:break-all;">${safe(job.mould_name||'—')} · ${safe(job.client_name||'—')}</div>
+              </div>
+              <div style="flex-shrink:0;text-align:right;">
+                <span style="font-size:0.62rem;font-weight:700;padding:3px 8px;border-radius:20px;background:${si.bg};color:${si.color};white-space:nowrap;">${si.icon} ${si.label}</span>
+                ${job.has_today_entry?'<div style="font-size:0.6rem;color:#0284c7;margin-top:4px;">● Entry today</div>':''}
+              </div>
+            </div>
+            <div style="border-top:1px solid #f1f5f9;padding-top:8px;">
+              <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:2px 8px;font-size:0.6rem;color:#94a3b8;font-weight:700;text-transform:uppercase;padding:2px 0 5px;">
+                <div>Colour</div><div style="text-align:right;">Plan</div><div style="text-align:right;">Prod</div><div style="text-align:right;">Bal</div>
+              </div>
+              ${cols.slice(0,5).map(c=>`
+                <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:2px 8px;font-size:0.72rem;padding:3px 0;border-bottom:1px solid #f8fafc;">
+                  <div style="font-weight:600;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${safe(c.colour)}</div>
+                  <div style="text-align:right;color:#64748b;">${c.planQty.toLocaleString()}</div>
+                  <div style="text-align:right;color:#0284c7;font-weight:700;">${c.produced.toLocaleString()}</div>
+                  <div style="text-align:right;font-weight:700;color:${c.bal<=0?'#15803d':'#ea580c'};">${c.bal.toLocaleString()}</div>
+                </div>`).join('')}
+              ${cols.length>5?`<div style="font-size:0.62rem;color:#94a3b8;padding-top:3px;">+${cols.length-5} more colours</div>`:''}
+              <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:2px 8px;font-size:0.73rem;padding:5px 0 2px;border-top:1.5px solid #e2e8f0;font-weight:800;margin-top:2px;">
+                <div style="color:#1e293b;">TOTAL</div>
+                <div style="text-align:right;color:#334155;">${(job.plan_qty||0).toLocaleString()}</div>
+                <div style="text-align:right;color:#0284c7;">${(job.produced_qty||0).toLocaleString()}</div>
+                <div style="text-align:right;color:${(job.balance_qty||0)<=0?'#15803d':'#ea580c'};">${(job.balance_qty||0).toLocaleString()}</div>
+              </div>
+            </div>
+            <div style="margin-top:10px;padding-top:8px;border-top:1px dashed #f1f5f9;text-align:right;">
+              <span style="font-size:0.72rem;color:#2563eb;font-weight:700;">📊 View Details →</span>
+            </div>`;
 
-    async function _loadRecentJobView(wrap, planId, jcNo) {
-      if (!planId && !jcNo) {
-        wrap.innerHTML = '<div class="no-jobs" style="padding:32px;text-align:center;">No active job selected.</div>';
-        return;
-      }
-      try {
-        const qs = planId ? `planId=${encodeURIComponent(planId)}` : `orderNo=${encodeURIComponent(jcNo)}`;
-        const res = await (await apiFetch(`/api/dpr/plan-drilldown?${qs}`)).json();
-        if (!res.ok) throw new Error(res.error || 'Failed');
-        wrap.innerHTML = _buildJobInfoHTML(res.data, session.activeJob, jcNo, null, null);
+          card.addEventListener('click', () => {
+            _recentJobData   = job;
+            _recentDrilldown = null;
+            _recentLevel     = 2;
+            _rvL2(el('recent'), mach);
+          });
+          wrap.appendChild(card);
+        });
       } catch (e) {
         wrap.innerHTML = `<div class="err" style="padding:16px;">Error: ${safe(e.message)}</div>`;
       }
     }
 
-    /* ==================== SHIFT TAB — Current Shift + History ==================== */
+    /* ── LEVEL 2: Colour × Shift drilldown table ── */
+    async function _rvL2(wrap, mach) {
+      wrap.innerHTML = '<div style="padding:36px;text-align:center;color:var(--muted);"><i class="bi bi-arrow-repeat spin"></i> Loading details…</div>';
+      const curDate  = el('d-date').value;
+      const curShift = el('d-shift').value;
+      const job = _recentJobData;
+      if (!job) { _recentLevel=1; _rvL1(wrap,mach); return; }
 
-    async function _loadRecentShiftView(wrap, planId, curDate, curShift) {
-      if (!planId) {
-        wrap.innerHTML = '<div class="no-jobs" style="padding:32px;text-align:center;">No active job selected.</div>';
-        return;
-      }
       try {
-        const res = await (await apiFetch(`/api/dpr/plan-drilldown?planId=${encodeURIComponent(planId)}`)).json();
-        if (!res.ok) throw new Error(res.error || 'Failed');
-        wrap.innerHTML = _buildJobInfoHTML(res.data, session.activeJob, null, curDate, curShift);
-      } catch (e) {
-        wrap.innerHTML = `<div class="err" style="padding:16px;">Error: ${safe(e.message)}</div>`;
-      }
-    }
+        if (!_recentDrilldown || _recentDrilldown._pid !== job.plan_id) {
+          const res = await (await apiFetch(`/api/dpr/plan-drilldown?planId=${encodeURIComponent(job.plan_id)}`)).json();
+          if (!res.ok) throw new Error(res.error || 'Failed');
+          _recentDrilldown = { ...res.data, _pid: job.plan_id };
+        }
+        const dd = _recentDrilldown;
+        const si = _rvStatusInfo(job.status);
 
-    /* ==================== SHARED RENDER — Job Info + Colour Cards ==================== */
+        let html = `
+          <button onclick="window._rvBack()" style="background:none;border:none;color:#2563eb;font-size:0.8rem;font-weight:700;padding:6px 0 12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+            <i class="bi bi-arrow-left"></i> Back to Jobs
+          </button>
 
-    function _buildJobInfoHTML(d, job, fallbackJC, curDate, curShift) {
-      const isShiftMode = (curDate !== null && curShift !== null);
-      const orderNo    = safe(d.orderNo || (job && job.OrderNo) || '—');
-      const jcNo       = safe(getJobCardNo(job) || fallbackJC || filterJC || '—');
-      const mouldName  = safe(d.mouldName || (job && job.MouldNo) || '—');
-      const clientName = safe(d.clientName || '—');
-
-      // ── Job Info header card ──
-      let html = `
-        <div style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);border-radius:16px;padding:14px 16px;margin-bottom:14px;color:#fff;">
-          <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.5);margin-bottom:10px;font-weight:700;">Job Info</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;">
-            <div>
-              <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:2px;">ORDER NO</div>
-              <div style="font-weight:800;font-size:0.88rem;word-break:break-all;">${orderNo}</div>
+          <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);border-radius:14px;padding:14px 16px;margin-bottom:14px;color:#fff;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+              <div style="font-weight:800;font-size:0.92rem;word-break:break-all;padding-right:8px;">${safe(job.order_no||'—')}</div>
+              <span style="font-size:0.62rem;font-weight:700;padding:2px 8px;border-radius:20px;background:${si.bg};color:${si.color};flex-shrink:0;">${si.icon} ${si.label}</span>
             </div>
-            <div>
-              <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:2px;">JC NO</div>
-              <div style="font-weight:800;font-size:0.88rem;word-break:break-all;">${jcNo}</div>
-            </div>
-            <div>
-              <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:2px;">MOULD</div>
-              <div style="font-weight:600;font-size:0.82rem;word-break:break-all;">${mouldName}</div>
-            </div>
-            <div>
-              <div style="font-size:0.62rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:2px;">CLIENT</div>
-              <div style="font-weight:600;font-size:0.82rem;word-break:break-all;">${clientName}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;">
+              <div><div style="font-size:0.58rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:1px;">JC NO</div><div style="font-size:0.78rem;font-weight:700;word-break:break-all;">${safe(job.job_card_no||'—')}</div></div>
+              <div><div style="font-size:0.58rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:1px;">MOULD</div><div style="font-size:0.78rem;font-weight:600;word-break:break-all;">${safe(job.mould_name||'—')}</div></div>
+              <div><div style="font-size:0.58rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:1px;">CLIENT</div><div style="font-size:0.78rem;font-weight:600;word-break:break-all;">${safe(dd.clientName||job.client_name||'—')}</div></div>
+              <div><div style="font-size:0.58rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:1px;">TOTAL PLAN</div><div style="font-size:0.78rem;font-weight:700;">${(job.plan_qty||0).toLocaleString()} pcs</div></div>
             </div>
           </div>
-        </div>`;
 
-      const colours = d.colours || [];
+          <div style="font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#475569;margin-bottom:8px;">📊 Colour × Shift Breakdown</div>
+          <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;border:1px solid #e2e8f0;background:#fff;">
+            <table style="width:100%;min-width:340px;border-collapse:collapse;font-size:0.72rem;">
+              <thead>
+                <tr style="background:#f8fafc;">
+                  <th style="padding:9px 10px;text-align:left;color:#64748b;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;min-width:100px;">COLOUR / PLAN</th>
+                  <th style="padding:9px 8px;text-align:right;color:#0284c7;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">PRODUCED</th>
+                  <th style="padding:9px 8px;text-align:right;color:#64748b;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">BALANCE</th>
+                  <th style="padding:9px 8px;text-align:center;color:#64748b;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">DATE</th>
+                  <th style="padding:9px 8px;text-align:center;color:#64748b;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">SHIFT</th>
+                </tr>
+              </thead>
+              <tbody>`;
 
-      if (isShiftMode) {
-        // ── SHIFT MODE: current shift colour breakdown ──
-        const shiftLabel = curShift === 'Day' ? '☀️ Day Shift' : '🌙 Night Shift';
-        const dateLabel  = curDate ? new Date(curDate + 'T00:00:00').toLocaleDateString([], { day:'2-digit', month:'short', year:'numeric' }) : '—';
+        const colours = dd.colours || [];
+        colours.forEach((c) => {
+          const shifts = (c.shifts || []).slice().sort((a,b)=>{
+            if (a.date!==b.date) return a.date<b.date?-1:1;
+            return a.shift==='Day'?-1:1;
+          });
+          let runBal = c.planQty || 0;
 
-        html += `
-          <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#475569;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
-            <span>${shiftLabel}</span>
-            <span style="font-size:0.65rem;font-weight:500;color:#94a3b8;">• ${dateLabel}</span>
+          if (!shifts.length) {
+            html += `<tr style="border-bottom:1px solid #f1f5f9;">
+              <td style="padding:10px;vertical-align:top;">
+                <div style="font-weight:700;color:#1e293b;font-size:0.78rem;">${safe(c.colour)}</div>
+                <div style="font-size:0.6rem;color:#94a3b8;margin-top:1px;">Plan: ${(c.planQty||0).toLocaleString()}</div>
+              </td>
+              <td colspan="4" style="padding:10px 8px;text-align:center;color:#94a3b8;font-style:italic;font-size:0.68rem;">No entries yet</td>
+            </tr>`;
+          } else {
+            shifts.forEach((s, si) => {
+              const isCur = s.date===curDate && s.shift===curShift;
+              runBal -= (s.goodQty||0);
+              const balNeg = runBal < 0;
+              const rowBg  = isCur ? '#f0fdf4' : (si%2===0?'#fff':'#fafafa');
+              const dl     = s.date ? s.date.split('-').reverse().join('-') : '—';
+              html += `
+                <tr onclick="window._rvOpenShift('${safe(job.plan_id)}','${safe(s.date)}','${safe(s.shift)}')"
+                    style="background:${rowBg};${isCur?'border-left:3px solid #22c55e;outline:1.5px solid #bbf7d0;':''}cursor:pointer;border-bottom:1px solid #f1f5f9;"
+                    onmouseenter="this.style.background='${isCur?'#dcfce7':'#f0f9ff'}'"
+                    onmouseleave="this.style.background='${rowBg}'">
+                  <td style="padding:${si===0?'10px':'6px'} 10px ${si===0&&shifts.length>1?'2px':'8px'};vertical-align:top;">
+                    ${si===0?`<div style="font-weight:700;color:#1e293b;font-size:0.78rem;">${safe(c.colour)}</div>
+                              <div style="font-size:0.6rem;color:#94a3b8;margin-top:1px;">Plan: ${(c.planQty||0).toLocaleString()}</div>`:''}
+                  </td>
+                  <td style="padding:8px;text-align:right;font-weight:700;color:#0284c7;">${(s.goodQty||0).toLocaleString()}</td>
+                  <td style="padding:8px;text-align:right;font-weight:700;color:${balNeg?'#dc2626':runBal===0?'#15803d':'#334155'};">${runBal.toLocaleString()}</td>
+                  <td style="padding:8px;text-align:center;color:#475569;white-space:nowrap;font-size:0.68rem;">${safe(dl)}</td>
+                  <td style="padding:8px;text-align:center;white-space:nowrap;">
+                    ${isCur
+                      ?`<span style="font-size:0.6rem;font-weight:700;background:#dcfce7;color:#15803d;padding:2px 7px;border-radius:20px;">${safe(s.shift)} ✓</span>`
+                      :`<span style="font-size:0.68rem;color:#64748b;">${safe(s.shift)}</span>`}
+                  </td>
+                </tr>`;
+            });
+          }
+        });
+
+        if (!colours.length) {
+          html += `<tr><td colspan="5" style="padding:24px;text-align:center;color:#94a3b8;font-style:italic;font-size:0.78rem;">No colour data found</td></tr>`;
+        }
+
+        html += `</tbody></table></div>
+          <div style="margin-top:8px;font-size:0.62rem;color:#94a3b8;text-align:center;">Tap any row to view hourly entries</div>`;
+
+        wrap.innerHTML = html;
+
+        window._rvOpenShift = function(planId, date, shift) {
+          _recentShiftDate = date;
+          _recentShiftName = shift;
+          _recentLevel = 3;
+          _rvL3(el('recent'), mach);
+        };
+      } catch (e) {
+        wrap.innerHTML = `<div class="err" style="padding:16px;">Error: ${safe(e.message)}</div>`;
+      }
+    }
+
+    /* ── LEVEL 3: Hourly entries for a shift ── */
+    async function _rvL3(wrap, mach) {
+      wrap.innerHTML = '<div style="padding:36px;text-align:center;color:var(--muted);"><i class="bi bi-arrow-repeat spin"></i> Loading entries…</div>';
+      const date  = _recentShiftDate;
+      const shift = _recentShiftName;
+      const job   = _recentJobData;
+      const curDate  = el('d-date').value;
+      const curShift = el('d-shift').value;
+      const isCur = (date===curDate && shift===curShift);
+      if (!job || !date || !shift) { _recentLevel=2; _rvL2(wrap,mach); return; }
+
+      try {
+        const res = await (await apiFetch(
+          `/api/dpr/recent?machine=${encodeURIComponent(mach)}&planId=${encodeURIComponent(job.plan_id)}&date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}&limit=50`
+        )).json();
+        if (!res||!res.ok) throw new Error((res&&res.error)||'Failed');
+
+        const rows = (res.data&&(Array.isArray(res.data)?res.data:res.data.rows))||[];
+        const dl   = date?date.split('-').reverse().join('-'):'—';
+        const icon = shift==='Day'?'☀️':'🌙';
+        const shiftTotal = rows.reduce((s,r)=>s+Number(r.GoodQty||0),0);
+
+        let html = `
+          <button onclick="window._rvBack()" style="background:none;border:none;color:#2563eb;font-size:0.8rem;font-weight:700;padding:6px 0 12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+            <i class="bi bi-arrow-left"></i> Back to Details
+          </button>
+          <div style="background:${isCur?'linear-gradient(135deg,#14532d,#16a34a)':'linear-gradient(135deg,#1e293b,#334155)'};border-radius:12px;padding:12px 14px;margin-bottom:12px;color:#fff;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <div style="font-size:0.62rem;color:rgba(255,255,255,0.6);margin-bottom:2px;">${safe(job.order_no)}</div>
+              <div style="font-weight:800;font-size:1rem;">${icon} ${safe(shift)} Shift</div>
+              <div style="font-size:0.72rem;color:rgba(255,255,255,0.7);margin-top:2px;">${dl}</div>
+            </div>
+            ${isCur?'<span style="font-size:0.68rem;font-weight:700;background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:20px;">● Current</span>':''}
           </div>`;
 
-        let curTotalPlan = 0, curTotalProd = 0, overallBal = 0;
+        if (rows.length) {
+          html += `<div style="background:#f0f9ff;border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:0.72rem;color:#0284c7;font-weight:700;">${icon} Shift Total</span>
+            <span style="font-size:1.1rem;font-weight:800;color:#0284c7;">${shiftTotal.toLocaleString()} <span style="font-size:0.65rem;font-weight:600;color:#94a3b8;">GOOD</span></span>
+          </div>`;
 
-        colours.forEach(c => {
-          const shiftEntry = (c.shifts || []).find(s => s.shift === curShift && s.date === curDate);
-          const curProd = shiftEntry ? (shiftEntry.goodQty || 0) : 0;
-          const planQty = c.planQty || 0;
-          const bal     = c.balQty || 0;  // overall balance (plan - total produced)
-          curTotalPlan += planQty;
-          curTotalProd += curProd;
-          overallBal   += bal;
-          const pct = planQty > 0 ? Math.min(100, Math.round(c.producedQty / planQty * 100)) : 0;
-
-          html += _colourCard(c.colour, planQty, curProd, bal, pct, isShiftMode);
-        });
-
-        // Shift total footer
-        html += _totalFooter(curTotalPlan, curTotalProd, overallBal, 'Shift Produced', 'Overall Balance');
-
-        // ── SHIFT MODE: date-wise history ──
-        const dateMap = {}; // date → { Day: qty, Night: qty }
-        colours.forEach(c => {
-          (c.shifts || []).forEach(s => {
-            if (s.date === curDate && s.shift === curShift) return; // skip current
-            if (!dateMap[s.date]) dateMap[s.date] = { Day: 0, Night: 0 };
-            dateMap[s.date][s.shift] = (dateMap[s.date][s.shift] || 0) + (s.goodQty || 0);
-          });
-        });
-
-        const sortedDates = Object.keys(dateMap).sort((a, b) => b.localeCompare(a));
-
-        if (sortedDates.length > 0) {
-          html += `
-            <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#475569;margin-top:16px;margin-bottom:8px;">
-              📅 Previous Shifts
-            </div>`;
-
-          sortedDates.forEach(dt => {
-            const dLabel = new Date(dt + 'T00:00:00').toLocaleDateString([], { day:'2-digit', month:'short' });
-            const dayQty   = dateMap[dt].Day   || 0;
-            const nightQty = dateMap[dt].Night || 0;
-            const total    = dayQty + nightQty;
+          rows.forEach((r, i) => {
+            const dt  = new Date(r.DateTime);
+            const tm  = dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+            const { rejections, downtimes } = parseReasons(r.Remarks);
+            const canEdit = isCur && (i===0);
+            const sRem = (r.Remarks||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+            const rBk = r.RejectBreakup?JSON.stringify(r.RejectBreakup).replace(/"/g,'&quot;'):'{}';
+            const dBk = r.DowntimeBreakup?JSON.stringify(r.DowntimeBreakup).replace(/"/g,'&quot;'):'{}';
 
             html += `
-              <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:10px 14px;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                  <div style="font-weight:700;font-size:0.85rem;color:#1e293b;">${dLabel}</div>
-                  <div style="font-size:0.72rem;font-weight:700;color:#475569;background:#f1f5f9;padding:2px 8px;border-radius:20px;">${total.toLocaleString()} pcs</div>
-                </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-                  <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:8px;text-align:center;">
-                    <div style="font-size:0.62rem;color:#92400e;font-weight:700;margin-bottom:2px;">☀️ DAY</div>
-                    <div style="font-weight:800;font-size:1.05rem;color:#92400e;">${dayQty > 0 ? dayQty.toLocaleString() : '<span style="color:#94a3b8;font-size:0.8rem;">—</span>'}</div>
+              <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.04);">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+                  <div>
+                    <div style="font-weight:800;font-size:0.85rem;color:#1e293b;display:flex;align-items:center;gap:6px;">
+                      <span style="background:#0f172a;color:#fff;padding:1px 7px;border-radius:5px;font-size:0.7rem;">${safe(r.HourSlot)}</span>
+                      <span>${tm}</span>
+                      ${r.Colour?`<span style="font-size:0.63rem;color:#64748b;">${safe(r.Colour)}</span>`:''}
+                    </div>
                   </div>
-                  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px;text-align:center;">
-                    <div style="font-size:0.62rem;color:#1e40af;font-weight:700;margin-bottom:2px;">🌙 NIGHT</div>
-                    <div style="font-weight:800;font-size:1.05rem;color:#1e40af;">${nightQty > 0 ? nightQty.toLocaleString() : '<span style="color:#94a3b8;font-size:0.8rem;">—</span>'}</div>
+                  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+                    ${canEdit?`<div style="display:flex;gap:6px;">
+                      <button style="padding:6px;border:1.5px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;cursor:pointer;" onclick="openEdit('${r.UniqueID}',${r.Shots},${r.RejectQty},${r.DowntimeMin},'${sRem}','${r.Colour||''}','${rBk}','${dBk}','${r.PlanID||''}','${r.OrderNo||''}','${r.MouldNo||''}')"><i class="bi bi-pencil" style="font-size:14px;"></i></button>
+                      <button style="padding:6px;border:1.5px solid #fecaca;border-radius:8px;background:#fff;color:#dc2626;cursor:pointer;" onclick="deleteEntry('${r.UniqueID}')"><i class="bi bi-trash" style="font-size:14px;"></i></button>
+                    </div>`:''}
+                    <div style="text-align:right;">
+                      <div style="font-weight:800;font-size:1.1rem;color:#16a34a;">${r.GoodQty} <span style="font-size:0.62rem;font-weight:600;color:#94a3b8;">GOOD</span></div>
+                      <div style="font-size:0.63rem;color:#94a3b8;">Shots:${r.Shots} Rej:${r.RejectQty}</div>
+                    </div>
                   </div>
                 </div>
+                ${rejections.length||downtimes.length?`
+                  <div style="display:flex;flex-wrap:wrap;gap:5px;padding-top:7px;border-top:1px dashed #e2e8f0;margin-top:4px;">
+                    ${rejections.map(x=>`<span style="font-size:0.63rem;background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:1px 6px;border-radius:20px;"><i class="bi bi-x-circle"></i> ${getRejName(x.reason)} (${x.qty})</span>`).join('')}
+                    ${downtimes.map(x=>`<span style="font-size:0.63rem;background:#fff7ed;color:#9a3412;border:1px solid #ffedd5;padding:1px 6px;border-radius:20px;"><i class="bi bi-clock-history"></i> ${getDtName(x.reason)} (${x.min}m)</span>`).join('')}
+                  </div>`:''}
+                ${r.OtherRemarks?`<div style="font-size:0.68rem;color:#64748b;margin-top:6px;font-style:italic;border-left:2px solid #e2e8f0;padding-left:8px;">"${safe(r.OtherRemarks)}"</div>`:''}
               </div>`;
           });
         } else {
-          html += `<div style="text-align:center;padding:16px;color:#94a3b8;font-size:0.8rem;">No previous shift data</div>`;
+          html += '<div style="padding:32px;text-align:center;color:#94a3b8;font-size:0.82rem;">No entries found for this shift.</div>';
         }
 
-      } else {
-        // ── JOB MODE: full colour breakdown ──
-        html += `
-          <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#475569;margin-bottom:8px;">
-            🎨 Colour-wise Quantities
-          </div>`;
-
-        if (!colours.length) {
-          html += `<div style="text-align:center;padding:32px;color:#94a3b8;font-size:0.82rem;">No colour data available yet</div>`;
-        } else {
-          colours.forEach(c => {
-            const pct = c.planQty > 0 ? Math.min(100, Math.round(c.producedQty / c.planQty * 100)) : 0;
-            html += _colourCard(c.colour, c.planQty, c.producedQty, c.balQty, pct, false);
-          });
-          html += _totalFooter(d.planQty || 0, d.producedQty || 0, d.balQty || 0, 'Produced', 'Balance');
-        }
+        wrap.innerHTML = html;
+      } catch (e) {
+        wrap.innerHTML = `<div class="err" style="padding:16px;">Error: ${safe(e.message)}</div>`;
       }
-
-      return html;
     }
 
-    /* ── colour card (mobile-first) ── */
-    function _colourCard(colour, planQty, producedQty, balQty, pct, shiftMode) {
-      const isDone  = balQty <= 0;
-      const prodLabel = shiftMode ? 'SHIFT PROD' : 'PRODUCED';
-      const balLabel  = shiftMode ? 'OVR BAL'   : 'BALANCE';
-      return `
-        <div style="background:#fff;border:1px solid ${isDone ? '#bbf7d0' : '#e2e8f0'};border-radius:12px;padding:12px 14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.04);">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-            <div style="font-weight:700;font-size:0.92rem;color:#1e293b;">${safe(colour)}</div>
-            <div style="font-size:0.68rem;background:${isDone ? '#dcfce7' : pct >= 50 ? '#fef3c7' : '#f1f5f9'};color:${isDone ? '#15803d' : pct >= 50 ? '#92400e' : '#64748b'};padding:2px 8px;border-radius:20px;font-weight:700;">${pct}%</div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;">
-            <div style="background:#f8fafc;border-radius:8px;padding:8px 4px;">
-              <div style="font-size:0.58rem;color:#94a3b8;font-weight:700;letter-spacing:0.05em;margin-bottom:3px;">PLAN</div>
-              <div style="font-weight:800;font-size:1.05rem;color:#334155;line-height:1.1;">${(planQty || 0).toLocaleString()}</div>
-            </div>
-            <div style="background:#f0f9ff;border-radius:8px;padding:8px 4px;">
-              <div style="font-size:0.58rem;color:#0284c7;font-weight:700;letter-spacing:0.05em;margin-bottom:3px;">${prodLabel}</div>
-              <div style="font-weight:800;font-size:1.05rem;color:#0284c7;line-height:1.1;">${(producedQty || 0).toLocaleString()}</div>
-            </div>
-            <div style="background:${isDone ? '#f0fdf4' : '#fff7ed'};border-radius:8px;padding:8px 4px;">
-              <div style="font-size:0.58rem;color:${isDone ? '#15803d' : '#ea580c'};font-weight:700;letter-spacing:0.05em;margin-bottom:3px;">${balLabel}</div>
-              <div style="font-weight:800;font-size:1.05rem;color:${isDone ? '#15803d' : '#ea580c'};line-height:1.1;">${(balQty || 0).toLocaleString()}</div>
-            </div>
-          </div>
-          <div style="margin-top:8px;height:4px;background:#e2e8f0;border-radius:4px;overflow:hidden;">
-            <div style="height:100%;width:${pct}%;background:${isDone ? '#22c55e' : pct >= 75 ? '#f59e0b' : '#3b82f6'};border-radius:4px;"></div>
-          </div>
-        </div>`;
+    /* ── Back navigation ── */
+    window._rvBack = function() {
+      const mach = session.machine;
+      if (_recentLevel === 3) { _recentLevel = 2; _rvL2(el('recent'), mach); }
+      else if (_recentLevel === 2) { _recentLevel = 1; _rvL1(el('recent'), mach); }
+    };
+
+    /* ── Status badge ── */
+    function _rvStatusInfo(status) {
+      const s = (status||'').toUpperCase();
+      if (s==='RUNNING')   return { label:'Running',   icon:'🟢', bg:'#dcfce7', color:'#15803d' };
+      if (s==='COMPLETED') return { label:'Completed', icon:'⚫', bg:'#f1f5f9', color:'#475569' };
+      return                      { label:'Planned',   icon:'🔵', bg:'#dbeafe', color:'#1d4ed8' };
     }
 
-    /* ── total footer card ── */
-    function _totalFooter(planTotal, producedTotal, balTotal, producedLabel, balLabel) {
-      const pct = planTotal > 0 ? Math.min(100, Math.round(producedTotal / planTotal * 100)) : 0;
-      return `
-        <div style="background:linear-gradient(135deg,#1e40af,#2563eb);border-radius:14px;padding:14px 16px;margin-top:6px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-            <div style="color:rgba(255,255,255,0.8);font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">Grand Total</div>
-            <div style="font-size:0.68rem;background:rgba(255,255,255,0.15);color:#fff;padding:2px 8px;border-radius:20px;font-weight:700;">${pct}% done</div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;">
-            <div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:8px 4px;">
-              <div style="font-size:0.58rem;color:rgba(255,255,255,0.6);font-weight:700;margin-bottom:3px;">PLAN</div>
-              <div style="font-weight:800;font-size:1.1rem;color:#fff;line-height:1.1;">${(planTotal || 0).toLocaleString()}</div>
-            </div>
-            <div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:8px 4px;">
-              <div style="font-size:0.58rem;color:rgba(255,255,255,0.6);font-weight:700;margin-bottom:3px;">${producedLabel.toUpperCase()}</div>
-              <div style="font-weight:800;font-size:1.1rem;color:#fff;line-height:1.1;">${(producedTotal || 0).toLocaleString()}</div>
-            </div>
-            <div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:8px 4px;">
-              <div style="font-size:0.58rem;color:rgba(255,255,255,0.6);font-weight:700;margin-bottom:3px;">${balLabel.toUpperCase()}</div>
-              <div style="font-weight:800;font-size:1.1rem;color:#fff;line-height:1.1;">${(balTotal || 0).toLocaleString()}</div>
-            </div>
-          </div>
-          <div style="margin-top:10px;height:5px;background:rgba(255,255,255,0.15);border-radius:4px;overflow:hidden;">
-            <div style="height:100%;width:${pct}%;background:rgba(255,255,255,0.7);border-radius:4px;"></div>
-          </div>
-        </div>`;
+    /* ── Colour data parser ── */
+    function _rvParseColours(colourDetails, colourProduced, totalPlanQty) {
+      const planMap = {};
+      try {
+        const cd = typeof colourDetails==='string'?JSON.parse(colourDetails):(colourDetails||[]);
+        if (Array.isArray(cd)) cd.forEach(c=>{
+          const n=((c.colourName||c.itemColour||c.colour||c.color||c.name||'')).trim()||'Default';
+          planMap[n]=(planMap[n]||0)+Number(c.planQty??c.useQty??c.batchQty??c.qty??0);
+        });
+      } catch(_){}
+      const prodMap = {};
+      try {
+        const cp = typeof colourProduced==='string'?JSON.parse(colourProduced||'[]'):(colourProduced||[]);
+        if (Array.isArray(cp)) cp.forEach(c=>{ prodMap[c.colour||'Default']=(prodMap[c.colour||'Default']||0)+Number(c.produced||0); });
+      } catch(_){}
+      if (!Object.keys(planMap).length) planMap['Default']=totalPlanQty||0;
+      const all=new Set([...Object.keys(planMap),...Object.keys(prodMap)]);
+      return Array.from(all).map(colour=>({
+        colour,
+        planQty:planMap[colour]||0,
+        produced:prodMap[colour]||0,
+        bal:Math.max(0,(planMap[colour]||0)-(prodMap[colour]||0))
+      })).sort((a,b)=>a.colour.localeCompare(b.colour));
     }
 
     /* ==================== EDIT LOGIC (Detailed) ==================== */
