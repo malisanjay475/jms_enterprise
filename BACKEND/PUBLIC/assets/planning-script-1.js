@@ -872,6 +872,21 @@
           });
         } catch (e) { console.warn('[ExcelTimeline] tonnage enrich failed', e); }
 
+        /* ── Fix 3: Ensure window.allMachines is populated so the "Change Machine"
+              picker in the Order Modal works even when Machine Timeline hasn't
+              been loaded yet (ETV-first navigation). ── */
+        if (!window.allMachines || window.allMachines.length === 0) {
+          window.allMachines = etvMachines.map(m => ({
+            code:            m.code,
+            name:            m.code,
+            machine:         m.code,
+            line:            m._finalLine  || m.line     || '',
+            building:        m._finalBuilding || m.building || '',
+            tonnage:         m._tonnage    || m.tonnage  || '',
+            machine_process: m.machine_process || 'Moulding'
+          }));
+        }
+
         /* ── Cycle-time prediction: realistic output learned from history ── */
         window._etvCyclePred = { pair: {}, mould: {} };
         try {
@@ -1042,7 +1057,7 @@
       /* Process pills */
       const procDiv = document.getElementById('etv-proc');
       if (procDiv) {
-        ['Moulding','Printing','Tuffting'].forEach(opt => {
+        ['Moulding','Printing','Tuffting','Labour Job'].forEach(opt => {
           const active = opt === proc;
           const btn = document.createElement('button');
           btn.className = 'etv-btn' + (active ? ' primary' : '');
@@ -1545,10 +1560,17 @@
          (keep RUNNING/started plans so the active job stays in view) */
       const visiblePlans = (code) => {
         const all = etvGroups[code] || [];
-        if (!cutoffTime) return all;
-        return all.filter(p => {
+        const filtered = cutoffTime ? all.filter(p => {
           const start = p._rippledStartRaw ? p._rippledStartRaw.getTime() : 0;
           return start < cutoffTime;
+        }) : all;
+        // Push plans with BAL ≤ 0 (fully/over-produced) to the end.
+        // Running plans are exempt — they stay in position even if bal is 0.
+        return filtered.slice().sort((a, b) => {
+          const aLast = (Number(a.balQty) || 0) <= 0 && (a.status || '').toLowerCase() !== 'running';
+          const bLast = (Number(b.balQty) || 0) <= 0 && (b.status || '').toLowerCase() !== 'running';
+          if (aLast !== bLast) return aLast ? 1 : -1;
+          return 0; // preserve original seq order within each group
         });
       };
 
@@ -1628,11 +1650,16 @@
         const isOverloaded = loadDays > 30;
 
         /* machine cell — show clean stripped name; machMap keys are already stripped */
+        const zeroBalCount = (etvGroups[m.code] || []).filter(p =>
+          (Number(p.balQty) || 0) <= 0 && (p.status || '').toLowerCase() !== 'running'
+        ).length;
         const machCell = `
           <td class="etv-mach-cell" onclick="window.etvMachineClick('${esc(m.code)}')" title="${esc(m.code)} — click to filter">
             <div class="etv-mach-inner">
-              <div class="etv-mach-code" title="${esc(m.code)}">${esc(stripMachPfx(m.code))}</div>
-              <div class="etv-mach-meta">${esc(m._finalBuilding||'?')} · Line ${esc(m._finalLine||'?')}</div>
+              <div class="etv-mach-code" title="${esc(m.code)}">${esc(stripMachPfx(m.code))}${zeroBalCount > 0 ? `<span style="margin-left:5px;background:#fef3c7;color:#b45309;font-size:.58rem;font-weight:800;border-radius:999px;padding:1px 6px;vertical-align:middle" title="${zeroBalCount} plan(s) with zero/negative balance — sorted to end">(${zeroBalCount})</span>` : ''}</div>
+              <div class="etv-mach-meta">${(m.machine_process||'').toLowerCase() === 'labour job' && m.partyName
+                ? `<i class="bi bi-people-fill" style="color:#b45309"></i> ${esc(m.partyName)}`
+                : `${esc(m._finalBuilding||'?')} · Line ${esc(m._finalLine||'?')}`}</div>
               ${plans.length > 0 ? `<div class="etv-mach-plans">${plans.length} plan${plans.length>1?'s':''} queued</div>` : `<div class="etv-mach-plans" style="color:#2d3f55">No plans</div>`}
               ${loadLabel ? `<div class="etv-mach-load${isOverloaded ? ' etv-mach-load-over' : ''}" title="Total queued run-time${isOverloaded ? ' — over 30 days of load' : ''}"><i class="bi bi-clock" style="font-size:.5rem"></i> Load: ${esc(loadLabel)}</div>` : ''}
               ${isOverloaded ? `<div class="etv-load-badge" title="This machine has more than 30 days of planned load"><i class="bi bi-exclamation-triangle-fill"></i> 30+ days load</div>` : ''}

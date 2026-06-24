@@ -210,7 +210,7 @@ function normalizeMachineName(value) {
   return String(value || '').trim();
 }
 
-const MACHINE_PROCESS_OPTIONS = ['Moulding', 'Tuffting', 'Printing'];
+const MACHINE_PROCESS_OPTIONS = ['Moulding', 'Tuffting', 'Printing', 'Labour Job'];
 
 function normalizeMachineProcess(value, fallback = 'Moulding') {
   const raw = String(value || '').trim();
@@ -219,6 +219,7 @@ function normalizeMachineProcess(value, fallback = 'Moulding') {
   if (['moulding', 'molding'].includes(normalized)) return 'Moulding';
   if (['tuffting', 'tufting', 'tuf', 'tuft'].includes(normalized)) return 'Tuffting';
   if (['printing', 'print'].includes(normalized)) return 'Printing';
+  if (['labourjob', 'laborjob'].includes(normalized)) return 'Labour Job';
   return fallback;
 }
 
@@ -4916,6 +4917,35 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qc_job_checks_lookup ON qc_job_checks (job_card_no, plan_id, machine, date, shift)`);
 
+    // QC VERIFICATION TABLE — QC supervisor verifies hourly DPR entries every 2 hrs
+    // UNIQUE on (machine, dpr_date, shift, hour_slot) — not dpr_entry_id, because
+    // NULL dpr_entry_id values are never equal in SQL so the constraint would not
+    // prevent duplicates when no DPR entry exists yet.
+    await q(`
+      CREATE TABLE IF NOT EXISTS qc_verifications (
+        id               SERIAL PRIMARY KEY,
+        factory_id       INTEGER,
+        dpr_entry_id     INTEGER,
+        machine          TEXT NOT NULL,
+        dpr_date         DATE NOT NULL,
+        shift            TEXT NOT NULL,
+        hour_slot        TEXT NOT NULL,
+        sup_good_qty     INTEGER,
+        sup_reject_qty   INTEGER,
+        sup_shots        INTEGER,
+        qc_good_qty      INTEGER NOT NULL,
+        qc_reject_qty    INTEGER NOT NULL,
+        verified_by      TEXT NOT NULL,
+        verified_at      TIMESTAMPTZ DEFAULT NOW(),
+        remarks          TEXT,
+        status           TEXT DEFAULT 'Verified',
+        created_at       TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(machine, dpr_date, shift, hour_slot)
+      );
+    `);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcv_machine_date ON qc_verifications (machine, dpr_date, shift)`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcv_entry       ON qc_verifications (dpr_entry_id)`);
+
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_date DATE;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_type TEXT;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS status TEXT;`);
@@ -4950,10 +4980,59 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_machine_priority ON plan_board(machine, machine_priority) WHERE machine_priority IS NOT NULL`);
 
-    // Legacy unique on or_jr_no alone — skipped when duplicates exist (composite index is applied later).
-    await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_report_unique_no ON or_jr_report(or_jr_no);`).catch(err =>
-      console.warn('[DB] idx_or_jr_report_unique_no skipped (duplicate or_jr_no rows in data):', err.message)
-    );
+    // ── LABOUR JOB MODULE ──────────────────────────────────────────────────────
+    // Labour Job party master (contractors who run assigned machines)
+    await q(`
+      CREATE TABLE IF NOT EXISTS labour_parties (
+        id          SERIAL PRIMARY KEY,
+        party_name  TEXT NOT NULL,
+        party_type  TEXT DEFAULT 'Labour Job',
+        is_active   BOOLEAN DEFAULT true,
+        factory_id  INTEGER,
+        created_by  TEXT,
+        created_at  TIMESTAMPTZ DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS idx_labour_parties_factory_name
+      ON labour_parties (LOWER(party_name), COALESCE(factory_id, 0))`);
+
+    // Shift-wise DPR for Labour Job (no hour_slot — one row per shift per colour)
+    await q(`
+      CREATE TABLE IF NOT EXISTS dpr_labour (
+        id             SERIAL PRIMARY KEY,
+        dpr_date       DATE NOT NULL,
+        shift          TEXT NOT NULL,
+        machine        TEXT NOT NULL,
+        party_id       INTEGER,
+        plan_id        TEXT,
+        order_no       TEXT,
+        colour         TEXT,
+        good_qty       NUMERIC DEFAULT 0,
+        reject_qty     NUMERIC DEFAULT 0,
+        reject_reason  TEXT,
+        remarks        TEXT,
+        created_by     TEXT,
+        factory_id     INTEGER,
+        is_deleted     BOOLEAN DEFAULT false,
+        created_at     TIMESTAMPTZ DEFAULT NOW(),
+        updated_at     TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_labour_date_machine
+      ON dpr_labour (dpr_date, machine) WHERE is_deleted = false`);
+
+    // Extend existing tables for Labour Job
+    await q(`ALTER TABLE machines   ADD COLUMN IF NOT EXISTS labour_party_id INTEGER`);
+    await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS plan_type TEXT DEFAULT 'Moulding'`);
+    // ── END LABOUR JOB MODULE ─────────────────────────────────────────────────
+
+    // NOTE: the legacy single-column unique idx_or_jr_report_unique_no on or_jr_no is
+    // intentionally NOT created here. It is harmful — one OR/JR can have many job cards,
+    // so a unique on or_jr_no alone makes the second job-card row fail and get skipped.
+    // The migration below drops any pre-existing copy and replaces it with the composite
+    // idx_or_jr_jc_unique ON (or_jr_no, COALESCE(job_card_no, '')). Recreating it here
+    // only to drop it moments later churned the schema and logged a spurious warning.
     await migrateOrderCompletionWorkflowSchema();
 
     console.log('Database initialized');
@@ -8262,7 +8341,9 @@ app.get('/api/planning/board', async (req, res) => {
                     -- Mould Change Report extras: standard weight (WT) + pieces/hour (P/H) from mould master
                     COALESCE(mMaster.std_wt_kg, m.std_wt_kg) AS "stdWt",
                     COALESCE(mMaster.pcs_per_hour, m.pcs_per_hour) AS "pcsHour",
-                    pb.machine_priority AS "machinePriority"
+                    pb.machine_priority AS "machinePriority",
+                    COALESCE(pb.plan_type, 'Moulding') AS "planType",
+                    lp.party_name AS "partyName"
       FROM plan_board pb
       LEFT JOIN orders o ON o.order_no = pb.order_no
       LEFT JOIN machines planMachine
@@ -8275,8 +8356,10 @@ app.get('/api/planning/board', async (req, res) => {
                AND LOWER(TRIM(planMachine.machine)) = LOWER(TRIM(SPLIT_PART(pb.machine, '>', 2))))
            )
        AND (planMachine.factory_id = pb.factory_id OR planMachine.factory_id IS NULL OR pb.factory_id IS NULL)
+      -- Labour Job party name via machine's assigned party
+      LEFT JOIN labour_parties lp ON lp.id = planMachine.labour_party_id
       -- Optimized Mould Join: Match by Mould Name
-      LEFT JOIN moulds m ON m.mould_name = pb.mould_name 
+      LEFT JOIN moulds m ON m.mould_name = pb.mould_name
       -- Join Planning Summary for fallback Mould No
       LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
       -- Fetch Master CT using Mould No from Summary
@@ -9766,6 +9849,7 @@ app.post('/api/planning/create', async (req, res) => {
         }
       }
 
+      const planType = ['Moulding', 'Printing', 'Tuffting', 'Labour Job'].includes(p.planType) ? p.planType : 'Moulding';
       const ins = await client.query(
         `
         INSERT INTO plan_board
@@ -9773,13 +9857,13 @@ app.post('/api/planning/create', async (req, res) => {
           order_no, item_code, item_name, mould_name, mould_code,
           plan_qty, bal_qty, our_code, batch_no, batch_qty, mould_item_qty,
           consumption_ratio_qty, colour_details, created_by, created_at, start_date, end_date, status, updated_at,
-          factory_id, job_no, job_qty)
+          factory_id, job_no, job_qty, plan_type)
         VALUES
         ($1, $2, $3, $4, $5, $6,
           $7, $8, $9, $10, $11,
           $12, $13, $14, $15, $16, $17,
           $18, $19::jsonb, $20, NOW(), $21, $22, 'PLANNED', NOW(),
-          $23, $24, $25)
+          $23, $24, $25, $26)
         RETURNING id
         `,
         [
@@ -9809,7 +9893,8 @@ app.post('/api/planning/create', async (req, res) => {
           p.endDate || null,
           requestFactoryId,
           toNum(p.jobNo ?? p.batchNo) || batchMeta.batchNo,
-          toNum(p.jobQty ?? p.batchQty ?? p.planQty)
+          toNum(p.jobQty ?? p.batchQty ?? p.planQty),
+          planType
         ]
       );
 
@@ -10352,8 +10437,21 @@ app.get('/api/planning/orders/pending', async (req, res) => {
           r.or_jr_date DESC NULLS LAST
         LIMIT 1
       ) rpt ON true
-      WHERE COALESCE(NULLIF(TRIM(o.status), ''), 'Pending') != 'Completed'
+      WHERE COALESCE(NULLIF(TRIM(o.status), ''), 'Pending') NOT IN ('Completed', 'Dropped')
         AND ($1::int IS NULL OR s.factory_id = $1 OR s.factory_id IS NULL)
+        -- Exclude orders where ALL moulds already have an active (non-completed/non-dropped) plan.
+        -- An order appears only if at least one mould still needs planning.
+        AND EXISTS (
+          SELECT 1 FROM mould_planning_summary mps2
+          WHERE TRIM(mps2.or_jr_no) = TRIM(s.or_jr_no)
+            AND NOT EXISTS (
+              SELECT 1 FROM plan_board pb2
+              WHERE TRIM(pb2.order_no) = TRIM(mps2.or_jr_no)
+                AND LOWER(TRIM(pb2.mould_name)) = LOWER(TRIM(mps2.mould_name))
+                AND pb2.status NOT IN ('COMPLETED', 'DROPPED')
+                AND ($1::int IS NULL OR pb2.factory_id = $1 OR pb2.factory_id IS NULL)
+            )
+        )
       ORDER BY TRIM(s.or_jr_no), rpt.job_card_date DESC NULLS LAST, s.or_jr_date DESC NULLS LAST
       LIMIT 500
     `, [requestFactoryId]);
@@ -12019,7 +12117,8 @@ app.get('/api/planning/job-card-approvals', async (req, res) => {
         pb.moulding_remarks,
         COALESCE(o.client_name, oj.client_name) AS client_name,
         COALESCE(oj.product_name, pb.item_name) AS product_name,
-        oj.or_qty
+        oj.or_qty,
+        COALESCE(pb.plan_type, 'Moulding') AS plan_type
       FROM plan_board pb
       LEFT JOIN orders o ON TRIM(COALESCE(o.order_no, '')) = TRIM(COALESCE(pb.order_no, ''))
       LEFT JOIN LATERAL (
@@ -13460,10 +13559,13 @@ app.get('/api/masters/machines', async (req, res) => {
         m.mould_unload_time,
         m.is_active,
         m.factory_id,
+        m.labour_party_id,
+        lp.party_name,
         f.name AS factory_name,
         f.code AS factory_code
       FROM machines m
       LEFT JOIN factories f ON f.id = m.factory_id
+      LEFT JOIN labour_parties lp ON lp.id = m.labour_party_id
       WHERE ${conditions.join(' AND ')}
       ORDER BY LOWER(COALESCE(f.name, '')), LOWER(m.machine)
       `,
@@ -17197,15 +17299,17 @@ app.post('/api/upload/wipstock-confirm', async (req, res) => {
 app.post('/api/machines', async (req, res) => {
   try {
     ttlCacheClear('machines'); // machine list changes — drop cached reads
-    const { machine, line, building, tonnage, mould_load_time, mould_unload_time, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64 } = req.body;
+    const { machine, line, building, tonnage, mould_load_time, mould_unload_time, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64, labour_party_id, factory_id_override } = req.body;
     const cleanMachine = normalizeMachineName(machine);
     const cleanProcess = normalizeMachineProcess(machine_process, 'Moulding');
     const isPrintingMachine = cleanProcess === 'Printing';
-    const nextLine = isPrintingMachine ? '' : (line || '');
-    const nextBuilding = isPrintingMachine ? '' : (building || '');
+    const isLabourJob = cleanProcess === 'Labour Job';
+    const nextLine = (isPrintingMachine || isLabourJob) ? '' : (line || '');
+    const nextBuilding = (isPrintingMachine || isLabourJob) ? '' : (building || '');
     const nextTonnage = isPrintingMachine ? null : toNum(tonnage);
-    const nextMouldLoadTime = isPrintingMachine ? null : toNum(mould_load_time);
-    const nextMouldUnloadTime = isPrintingMachine ? null : toNum(mould_unload_time);
+    const nextMouldLoadTime = (isPrintingMachine || isLabourJob) ? null : toNum(mould_load_time);
+    const nextMouldUnloadTime = (isPrintingMachine || isLabourJob) ? null : toNum(mould_unload_time);
+    const nextLabourPartyId = isLabourJob ? (parseInt(labour_party_id, 10) || null) : null;
     const resolvedMachineIcon = machine_icon_base64
       ? saveDataUrlImage(machine_icon_base64, 'machines', 'machine')
       : normalizeOptionalText(machine_icon);
@@ -17214,7 +17318,8 @@ app.post('/api/machines', async (req, res) => {
     if (!writeContext.ok) {
       return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
     }
-    const factoryId = writeContext.factoryId;
+    // Labour Job machines can be assigned to a specific factory chosen in the modal
+    const factoryId = (isLabourJob && factory_id_override) ? (parseInt(factory_id_override, 10) || writeContext.factoryId) : writeContext.factoryId;
     if (factoryId !== null) {
       await ensureFactoryIdsExist([factoryId], pool, 'Selected machine factory');
     }
@@ -17223,9 +17328,9 @@ app.post('/api/machines', async (req, res) => {
     try {
       await client.query('BEGIN');
       await client.query(
-        `INSERT INTO machines(machine, line, building, machine_process, tonnage, mould_load_time, mould_unload_time, vendor_name, model_no, machine_type, machine_icon, is_active, factory_id)
-         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, $12)`,
-        [cleanMachine, nextLine, nextBuilding, cleanProcess, nextTonnage, nextMouldLoadTime, nextMouldUnloadTime, normalizeOptionalText(vendor_name), normalizeOptionalText(model_no), normalizeOptionalText(machine_type), resolvedMachineIcon, factoryId]
+        `INSERT INTO machines(machine, line, building, machine_process, tonnage, mould_load_time, mould_unload_time, vendor_name, model_no, machine_type, machine_icon, labour_party_id, is_active, factory_id)
+         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, $13)`,
+        [cleanMachine, nextLine, nextBuilding, cleanProcess, nextTonnage, nextMouldLoadTime, nextMouldUnloadTime, normalizeOptionalText(vendor_name), normalizeOptionalText(model_no), normalizeOptionalText(machine_type), resolvedMachineIcon, nextLabourPartyId, factoryId]
       );
       await logMachineAudit(client, {
         machineId: cleanMachine,
@@ -17255,15 +17360,16 @@ app.put('/api/machines/:id', async (req, res) => { // ID is machine name
   try {
     ttlCacheClear('machines'); // machine list changes — drop cached reads
     const { id } = req.params; // old machine name
-    const { machine, line, building, tonnage, mould_load_time, mould_unload_time, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64 } = req.body;
+    const { machine, line, building, tonnage, mould_load_time, mould_unload_time, machine_process, vendor_name, model_no, machine_type, machine_icon, machine_icon_base64, labour_party_id, factory_id_override } = req.body;
     const writeContext = await getWritableFactoryContext(req, 'edit machines');
     if (!writeContext.ok) {
       return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
     }
-    const factoryId = writeContext.factoryId;
     const cleanMachine = normalizeMachineName(machine);
     const cleanProcess = normalizeMachineProcess(machine_process, 'Moulding');
     const isPrintingMachine = cleanProcess === 'Printing';
+    const isLabourJobMachine = cleanProcess === 'Labour Job';
+    const factoryId = (isLabourJobMachine && factory_id_override) ? (parseInt(factory_id_override, 10) || writeContext.factoryId) : writeContext.factoryId;
     const hasMachineIconField = Object.prototype.hasOwnProperty.call(req.body || {}, 'machine_icon');
     const resolvedMachineIcon = machine_icon_base64
       ? saveDataUrlImage(machine_icon_base64, 'machines', 'machine')
@@ -17285,32 +17391,34 @@ app.put('/api/machines/:id', async (req, res) => { // ID is machine name
       if (!existing.rowCount) throw new Error('Machine not found');
 
       const previous = existing.rows[0];
+      const nextLabourPartyId = isLabourJobMachine ? (parseInt(labour_party_id, 10) || null) : null;
       const nextState = {
         machine: cleanMachine,
-        line: isPrintingMachine ? '' : (line || ''),
-        building: isPrintingMachine ? '' : (building || ''),
+        line: (isPrintingMachine || isLabourJobMachine) ? '' : (line || ''),
+        building: (isPrintingMachine || isLabourJobMachine) ? '' : (building || ''),
         machine_process: cleanProcess,
         tonnage: isPrintingMachine ? null : toNum(tonnage),
-        mould_load_time: isPrintingMachine ? null : toNum(mould_load_time),
-        mould_unload_time: isPrintingMachine ? null : toNum(mould_unload_time),
+        mould_load_time: (isPrintingMachine || isLabourJobMachine) ? null : toNum(mould_load_time),
+        mould_unload_time: (isPrintingMachine || isLabourJobMachine) ? null : toNum(mould_unload_time),
         vendor_name: normalizeOptionalText(vendor_name),
         model_no: normalizeOptionalText(model_no),
         machine_type: normalizeOptionalText(machine_type),
         machine_icon: resolvedMachineIcon !== undefined ? resolvedMachineIcon : previous.machine_icon,
+        labour_party_id: nextLabourPartyId,
         is_active: previous.is_active
       };
 
       if (resolvedMachineIcon !== undefined) {
         await client.query(
-          `UPDATE machines SET machine = $1, line = $2, building = $3, machine_process = $4, tonnage = $5, mould_load_time = $6, mould_unload_time = $7, vendor_name = $8, model_no = $9, machine_type = $10, machine_icon = $11, updated_at = NOW()
-            WHERE LOWER(machine) = LOWER($12) AND (factory_id = $13 OR ($13 IS NULL AND factory_id IS NULL))`,
-          [cleanMachine, nextState.line, nextState.building, nextState.machine_process, nextState.tonnage, nextState.mould_load_time, nextState.mould_unload_time, nextState.vendor_name, nextState.model_no, nextState.machine_type, resolvedMachineIcon, id, factoryId]
+          `UPDATE machines SET machine = $1, line = $2, building = $3, machine_process = $4, tonnage = $5, mould_load_time = $6, mould_unload_time = $7, vendor_name = $8, model_no = $9, machine_type = $10, machine_icon = $11, labour_party_id = $12, updated_at = NOW()
+            WHERE LOWER(machine) = LOWER($13) AND (factory_id = $14 OR ($14 IS NULL AND factory_id IS NULL))`,
+          [cleanMachine, nextState.line, nextState.building, nextState.machine_process, nextState.tonnage, nextState.mould_load_time, nextState.mould_unload_time, nextState.vendor_name, nextState.model_no, nextState.machine_type, resolvedMachineIcon, nextLabourPartyId, id, factoryId]
         );
       } else {
         await client.query(
-          `UPDATE machines SET machine = $1, line = $2, building = $3, machine_process = $4, tonnage = $5, mould_load_time = $6, mould_unload_time = $7, vendor_name = $8, model_no = $9, machine_type = $10, updated_at = NOW()
-            WHERE LOWER(machine) = LOWER($11) AND (factory_id = $12 OR ($12 IS NULL AND factory_id IS NULL))`,
-          [cleanMachine, nextState.line, nextState.building, nextState.machine_process, nextState.tonnage, nextState.mould_load_time, nextState.mould_unload_time, nextState.vendor_name, nextState.model_no, nextState.machine_type, id, factoryId]
+          `UPDATE machines SET machine = $1, line = $2, building = $3, machine_process = $4, tonnage = $5, mould_load_time = $6, mould_unload_time = $7, vendor_name = $8, model_no = $9, machine_type = $10, labour_party_id = $11, updated_at = NOW()
+            WHERE LOWER(machine) = LOWER($12) AND (factory_id = $13 OR ($13 IS NULL AND factory_id IS NULL))`,
+          [cleanMachine, nextState.line, nextState.building, nextState.machine_process, nextState.tonnage, nextState.mould_load_time, nextState.mould_unload_time, nextState.vendor_name, nextState.model_no, nextState.machine_type, nextLabourPartyId, id, factoryId]
         );
       }
 
@@ -19583,6 +19691,168 @@ VALUES($1, $2, $3, $4, $5, $6, $7, $8)`,
   }
 });
 
+// ── QC VERIFICATION ROUTES ──────────────────────────────────────────────────
+// QC Supervisor verifies Supervisor's hourly DPR entries every 2 hours.
+
+// GET /api/qc/verify/pending
+// Returns all dpr_hourly slots for machine+date+shift, joined with any
+// existing QC verification so the app can show Pending / Verified / Discrepancy.
+app.get('/api/qc/verify/pending', async (req, res) => {
+  try {
+    const { machine, date, shift } = req.query;
+    if (!machine || !date || !shift) return res.json({ ok: false, error: 'machine, date, shift required' });
+    const factoryId = getFactoryId(req);
+    const rows = await q(`
+      SELECT
+        d.id                                          AS dpr_entry_id,
+        d.hour_slot,
+        d.good_qty                                    AS sup_good_qty,
+        d.reject_qty                                  AS sup_reject_qty,
+        d.shots                                       AS sup_shots,
+        d.supervisor,
+        d.entry_type,
+        (v.id IS NOT NULL)                            AS qc_verified,
+        v.id                                          AS verify_id,
+        v.qc_good_qty,
+        v.qc_reject_qty,
+        v.verified_by,
+        to_char(v.verified_at AT TIME ZONE 'Asia/Kolkata', 'HH24:MI')  AS verified_at,
+        v.status                                      AS verify_status,
+        v.remarks                                     AS qc_remarks
+      FROM dpr_hourly d
+      LEFT JOIN qc_verifications v
+        ON  v.dpr_entry_id = d.id
+        AND v.machine      = d.machine
+        AND v.dpr_date     = d.dpr_date
+        AND v.shift        = d.shift
+        AND v.hour_slot    = d.hour_slot
+      WHERE d.machine    = $1
+        AND d.dpr_date   = $2::date
+        AND d.shift      = $3
+        AND d.is_deleted = false
+        AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
+      ORDER BY d.hour_slot ASC
+    `, [machine, date, shift, factoryId]);
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('/api/qc/verify/pending', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/verify/submit
+// Upsert a QC verification for a single hour slot.
+// Body: { session, machine, dpr_date, shift, hour_slot,
+//         qc_good_qty, qc_reject_qty, remarks }
+// NOTE: dpr_entry_id is resolved server-side — never trusted from client.
+app.post('/api/qc/verify/submit', async (req, res) => {
+  try {
+    const { session, machine, dpr_date, shift, hour_slot,
+            qc_good_qty, qc_reject_qty, remarks } = req.body || {};
+
+    // Validate required fields
+    if (!machine || !dpr_date || !shift || !hour_slot) {
+      return res.json({ ok: false, error: 'machine, dpr_date, shift, hour_slot required' });
+    }
+
+    // Validate hour_slot format (e.g. "07-08") to prevent injection via slot key
+    if (!/^\d{2}-\d{2}$/.test(String(hour_slot))) {
+      return res.json({ ok: false, error: 'Invalid hour_slot format' });
+    }
+
+    // Validate shift
+    if (!['Day', 'Night'].includes(String(shift))) {
+      return res.json({ ok: false, error: 'Invalid shift value' });
+    }
+
+    // SECURITY: derive verified_by from server-side session, sanitized + truncated.
+    // Never trust the raw client value.
+    const rawUser   = (session && (session.username || session.supervisor || session.user)) || '';
+    const verified_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
+
+    const factoryId = getFactoryId(req);
+    const good  = parseInt(qc_good_qty,  10);
+    const rej   = parseInt(qc_reject_qty, 10);
+    if (isNaN(good) || isNaN(rej) || good < 0 || rej < 0) {
+      return res.json({ ok: false, error: 'qc_good_qty and qc_reject_qty must be non-negative integers' });
+    }
+
+    // DATA INTEGRITY: resolve dpr_entry_id server-side by looking up the actual
+    // DPR entry — never trust the client-supplied value.
+    const dprRows = await q(
+      `SELECT id, good_qty, reject_qty, shots FROM dpr_hourly
+       WHERE machine   = $1
+         AND dpr_date  = $2::date
+         AND shift     = $3
+         AND hour_slot = $4
+         AND is_deleted = false
+         AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)
+       ORDER BY id DESC LIMIT 1`,
+      [machine, dpr_date, shift, hour_slot, factoryId]
+    );
+
+    const dprRow       = dprRows[0] || null;
+    const dpr_entry_id = dprRow ? dprRow.id : null;
+    const sgood        = dprRow ? (parseInt(dprRow.good_qty,   10) || 0) : 0;
+    const srej         = dprRow ? (parseInt(dprRow.reject_qty, 10) || 0) : 0;
+    const sshots       = dprRow ? (parseInt(dprRow.shots,      10) || 0) : 0;
+    const status       = (good !== sgood || rej !== srej) ? 'Discrepancy' : 'Verified';
+
+    await q(`
+      INSERT INTO qc_verifications
+        (factory_id, dpr_entry_id, machine, dpr_date, shift, hour_slot,
+         sup_good_qty, sup_reject_qty, sup_shots,
+         qc_good_qty, qc_reject_qty, verified_by, verified_at, remarks, status)
+      VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),$13,$14)
+      ON CONFLICT (machine, dpr_date, shift, hour_slot)
+      DO UPDATE SET
+        dpr_entry_id   = EXCLUDED.dpr_entry_id,
+        qc_good_qty    = EXCLUDED.qc_good_qty,
+        qc_reject_qty  = EXCLUDED.qc_reject_qty,
+        sup_good_qty   = EXCLUDED.sup_good_qty,
+        sup_reject_qty = EXCLUDED.sup_reject_qty,
+        sup_shots      = EXCLUDED.sup_shots,
+        verified_by    = EXCLUDED.verified_by,
+        verified_at    = NOW(),
+        remarks        = EXCLUDED.remarks,
+        status         = EXCLUDED.status
+    `, [factoryId, dpr_entry_id, machine, dpr_date, shift, hour_slot,
+        sgood, srej, sshots, good, rej, verified_by, remarks || null, status]);
+
+    res.json({ ok: true, status });
+  } catch (e) {
+    console.error('/api/qc/verify/submit', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/verify/summary
+// Today's verification stats per machine — for the Recent tab dashboard.
+app.get('/api/qc/verify/summary', async (req, res) => {
+  try {
+    const { machine, date } = req.query;
+    const factoryId = getFactoryId(req);
+    // FIX: default to IST local date, not UTC, so night-shift queries return correct day
+    const d = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    const rows = await q(`
+      SELECT
+        machine,
+        COUNT(*)                                  AS total_verified,
+        COUNT(*) FILTER (WHERE status='Discrepancy') AS discrepancies,
+        MAX(verified_at)                          AS last_verified_at
+      FROM qc_verifications
+      WHERE dpr_date = $1::date
+        AND ($2 IS NULL OR machine = $2)
+        AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+      GROUP BY machine
+      ORDER BY machine
+    `, [d, machine || null, factoryId]);
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // 5. QC Dashboard Stats
 app.get('/api/qc/dashboard', async (req, res) => {
   try {
@@ -20223,6 +20493,314 @@ entry_person = EXCLUDED.entry_person,
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LABOUR JOB MODULE APIs
+// ══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/labour-parties — list active parties (factory-scoped)
+app.get('/api/labour-parties', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const rows = await q(`
+      SELECT lp.id, lp.party_name, lp.party_type, lp.is_active, lp.created_at,
+        COALESCE(JSON_AGG(
+          JSON_BUILD_OBJECT('id', m.id, 'machine', m.machine, 'tonnage', m.tonnage)
+          ORDER BY m.machine
+        ) FILTER (WHERE m.id IS NOT NULL), '[]'::json) AS machines
+      FROM labour_parties lp
+      LEFT JOIN machines m ON m.labour_party_id = lp.id
+        AND m.machine_process = 'Labour Job'
+        AND m.is_active = true
+        AND ($1::int IS NULL OR m.factory_id = $1 OR m.factory_id IS NULL)
+      WHERE lp.is_active = true
+        AND ($1::int IS NULL OR lp.factory_id = $1 OR lp.factory_id IS NULL)
+      GROUP BY lp.id
+      ORDER BY lp.party_name
+    `, [factoryId]);
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('/api/labour-parties GET', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/labour-parties — create party
+app.post('/api/labour-parties', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const { party_name } = req.body;
+    if (!party_name || !String(party_name).trim()) {
+      return res.status(400).json({ ok: false, error: 'party_name is required' });
+    }
+    const created_by = (req.session && req.session.user && req.session.user.username) || 'system';
+    const row = await q(`
+      INSERT INTO labour_parties (party_name, party_type, is_active, factory_id, created_by)
+      VALUES ($1, 'Labour Job', true, $2, $3)
+      ON CONFLICT (LOWER(party_name), COALESCE(factory_id, 0)) DO UPDATE
+        SET party_name = EXCLUDED.party_name, updated_at = NOW()
+      RETURNING id, party_name, party_type
+    `, [String(party_name).trim(), factoryId, created_by]);
+    res.json({ ok: true, data: row[0] });
+  } catch (e) {
+    console.error('/api/labour-parties POST', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// PUT /api/labour-parties/:id — update party
+app.put('/api/labour-parties/:id', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const { id } = req.params;
+    const { party_name, is_active } = req.body;
+    const sets = [];
+    const params = [];
+    if (party_name !== undefined) { params.push(String(party_name).trim()); sets.push(`party_name = $${params.length}`); }
+    if (is_active !== undefined)  { params.push(!!is_active); sets.push(`is_active = $${params.length}`); }
+    if (!sets.length) return res.json({ ok: true });
+    params.push(id);
+    sets.push(`updated_at = NOW()`);
+    await q(`UPDATE labour_parties SET ${sets.join(', ')} WHERE id = $${params.length}
+      AND ($${params.length + 1}::int IS NULL OR factory_id = $${params.length + 1} OR factory_id IS NULL)`,
+      [...params, factoryId]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('/api/labour-parties PUT', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// DELETE /api/labour-parties/:id — soft-delete
+app.delete('/api/labour-parties/:id', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    await q(`UPDATE labour_parties SET is_active = false, updated_at = NOW()
+      WHERE id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`,
+      [req.params.id, factoryId]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('/api/labour-parties DELETE', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/labour-parties/:id/machines — list machines for a party
+app.get('/api/labour-parties/:id/machines', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const rows = await q(`
+      SELECT id, machine, tonnage, line, building, is_active
+      FROM machines
+      WHERE labour_party_id = $1
+        AND machine_process = 'Labour Job'
+        AND is_active = true
+        AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+      ORDER BY machine
+    `, [req.params.id, factoryId]);
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('/api/labour-parties/:id/machines GET', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// ── DPR Labour routes ─────────────────────────────────────────────────────────
+
+// GET /api/dpr/labour/machine-plan — active plans + colour-wise plan qty for a Labour Job machine
+app.get('/api/dpr/labour/machine-plan', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const { machine } = req.query;
+    if (!machine) return res.status(400).json({ ok: false, error: 'machine is required' });
+
+    // Fetch active Labour Job plans for this machine
+    const plans = await pool.query(`
+      SELECT pb.plan_id, pb.order_no, pb.mould_name, pb.plan_qty, pb.colour_details,
+             COALESCE(SUM(dl.good_qty), 0) AS produced_qty
+      FROM plan_board pb
+      LEFT JOIN dpr_labour dl ON dl.plan_id = pb.plan_id AND dl.is_deleted = false
+      WHERE LOWER(TRIM(pb.machine)) = LOWER(TRIM($1))
+        AND pb.plan_type = 'Labour Job'
+        AND pb.status NOT IN ('COMPLETED', 'DROPPED')
+        AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
+      GROUP BY pb.plan_id, pb.order_no, pb.mould_name, pb.plan_qty, pb.colour_details
+      ORDER BY pb.created_at DESC
+    `, [machine, factoryId]);
+
+    // Build colour list from colour_details JSONB + already-produced per colour from dpr_labour
+    const result = [];
+    for (const row of plans.rows) {
+      let colours = [];
+      try {
+        let cd = row.colour_details || [];
+        if (typeof cd === 'string') cd = JSON.parse(cd);
+        colours = Array.isArray(cd) ? cd.map(c => ({
+          colour: String(c.colourName || c.itemColour || c.colour || c.color || c.name || '').trim(),
+          planQty: Number(c.planQty ?? c.batchQty ?? c.qty ?? 0)
+        })).filter(c => c.colour) : [];
+      } catch (_) {}
+
+      // If no colour_details, fall back to the plan total as a single entry
+      if (!colours.length) {
+        colours = [{ colour: 'Default', planQty: Number(row.plan_qty) || 0 }];
+      }
+
+      // For each colour, compute produced qty and bal qty from dpr_labour
+      for (const c of colours) {
+        const prod = await pool.query(`
+          SELECT COALESCE(SUM(good_qty), 0) AS produced
+          FROM dpr_labour
+          WHERE plan_id = $1 AND LOWER(TRIM(colour)) = LOWER(TRIM($2)) AND is_deleted = false
+        `, [row.plan_id, c.colour]);
+        const produced = Number(prod.rows[0]?.produced || 0);
+        result.push({
+          plan_id: row.plan_id,
+          order_no: row.order_no,
+          mould_name: row.mould_name,
+          colour: c.colour,
+          plan_qty: c.planQty,
+          produced_qty: produced,
+          bal_qty: Math.max(0, c.planQty - produced)
+        });
+      }
+    }
+
+    res.json({ ok: true, data: result });
+  } catch (e) {
+    console.error('/api/dpr/labour/machine-plan', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/dpr/labour — fetch shift-wise entries
+app.get('/api/dpr/labour', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const { date, from, to, shift, machine, party_id } = req.query;
+    const params = [];
+    let where = `WHERE dl.is_deleted = false`;
+    if (factoryId) { params.push(factoryId); where += ` AND (dl.factory_id = $${params.length} OR dl.factory_id IS NULL)`; }
+    if (date)      { params.push(date);      where += ` AND dl.dpr_date = $${params.length}::date`; }
+    if (from)      { params.push(from);      where += ` AND dl.dpr_date >= $${params.length}::date`; }
+    if (to)        { params.push(to);        where += ` AND dl.dpr_date <= $${params.length}::date`; }
+    if (shift)     { params.push(shift);     where += ` AND dl.shift = $${params.length}`; }
+    if (machine)   { params.push(machine);   where += ` AND LOWER(dl.machine) = LOWER($${params.length})`; }
+    if (party_id)  { params.push(party_id);  where += ` AND dl.party_id = $${params.length}`; }
+    const rows = await q(`
+      SELECT dl.*, lp.party_name
+      FROM dpr_labour dl
+      LEFT JOIN labour_parties lp ON lp.id = dl.party_id
+      ${where}
+      ORDER BY dl.dpr_date DESC, dl.shift, dl.machine, dl.colour
+    `, params);
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('/api/dpr/labour GET', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/dpr/labour — create/upsert shift entry
+app.post('/api/dpr/labour', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const created_by = (req.session && req.session.user && req.session.user.username) || 'system';
+    const { dpr_date, shift, machine, party_id, plan_id, order_no, colour, good_qty, reject_qty, reject_reason, remarks } = req.body;
+    if (!dpr_date || !shift || !machine) {
+      return res.status(400).json({ ok: false, error: 'dpr_date, shift, machine are required' });
+    }
+    const row = await q(`
+      INSERT INTO dpr_labour (dpr_date, shift, machine, party_id, plan_id, order_no, colour,
+        good_qty, reject_qty, reject_reason, remarks, created_by, factory_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING id
+    `, [dpr_date, shift, machine, party_id || null, plan_id || null, order_no || null,
+        colour || null, Number(good_qty) || 0, Number(reject_qty) || 0,
+        reject_reason || null, remarks || null, created_by, factoryId]);
+    res.json({ ok: true, id: row[0].id });
+  } catch (e) {
+    console.error('/api/dpr/labour POST', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// PUT /api/dpr/labour/:id — update entry
+app.put('/api/dpr/labour/:id', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const { good_qty, reject_qty, reject_reason, remarks, colour } = req.body;
+    await q(`UPDATE dpr_labour SET
+      good_qty = $1, reject_qty = $2, reject_reason = $3, remarks = $4, colour = $5, updated_at = NOW()
+      WHERE id = $6 AND is_deleted = false
+        AND ($7::int IS NULL OR factory_id = $7 OR factory_id IS NULL)`,
+      [Number(good_qty)||0, Number(reject_qty)||0, reject_reason||null, remarks||null, colour||null, req.params.id, factoryId]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('/api/dpr/labour PUT', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// DELETE /api/dpr/labour/:id — soft-delete
+app.delete('/api/dpr/labour/:id', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    await q(`UPDATE dpr_labour SET is_deleted = true, updated_at = NOW()
+      WHERE id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`,
+      [req.params.id, factoryId]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('/api/dpr/labour DELETE', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/dpr/labour/summary — date-range party-wise summary for compliance view
+app.get('/api/dpr/labour/summary', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const { fromDate, toDate, party_id } = req.query;
+    const params = [];
+    let where = `WHERE dl.is_deleted = false`;
+    if (factoryId) { params.push(factoryId); where += ` AND (dl.factory_id = $${params.length} OR dl.factory_id IS NULL)`; }
+    if (fromDate)  { params.push(fromDate);  where += ` AND dl.dpr_date >= $${params.length}::date`; }
+    if (toDate)    { params.push(toDate);    where += ` AND dl.dpr_date <= $${params.length}::date`; }
+    if (party_id)  { params.push(party_id);  where += ` AND dl.party_id = $${params.length}`; }
+    const rows = await q(`
+      SELECT
+        dl.dpr_date,
+        dl.shift,
+        dl.machine,
+        dl.party_id,
+        lp.party_name,
+        dl.colour,
+        SUM(dl.good_qty)   AS good_qty,
+        SUM(dl.reject_qty) AS reject_qty,
+        STRING_AGG(DISTINCT NULLIF(dl.reject_reason, ''), ', ') AS reject_reasons,
+        STRING_AGG(DISTINCT NULLIF(dl.remarks, ''), ' | ') AS remarks,
+        COUNT(*) AS entry_count
+      FROM dpr_labour dl
+      LEFT JOIN labour_parties lp ON lp.id = dl.party_id
+      ${where}
+      GROUP BY dl.dpr_date, dl.shift, dl.machine, dl.party_id, lp.party_name, dl.colour
+      ORDER BY dl.dpr_date DESC, lp.party_name, dl.machine, dl.shift, dl.colour
+    `, params);
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('/api/dpr/labour/summary GET', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// ── Extend /api/planning/board to return partyName for Labour Job machines ──
+// (handled in the existing query via LEFT JOIN labour_parties — see below ALTER)
+// Also extend /api/planning/job-card-approvals to return plan_type
+// (handled by the plan_board.plan_type column added above)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// END LABOUR JOB MODULE APIs
+// ══════════════════════════════════════════════════════════════════════════════
 
 // --- HR MODULE APIS ---
 

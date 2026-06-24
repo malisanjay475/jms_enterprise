@@ -138,7 +138,8 @@ const CONFLICT_KEYS = {
     user_factories: 'user_id, factory_id',
     or_jr_report: 'or_jr_no',
     dpr_reasons: 'id',
-    mould_planning_report: 'id',
+    // Natural key matches mould_report_date_uniq_idx — serial id diverges LOCAL↔MAIN
+    mould_planning_report: 'or_jr_no, mould_no, mould_item_code, plan_date',
     mould_planning_summary: 'id',
     jc_details: 'id',
     jc_summaries: 'id',
@@ -250,11 +251,16 @@ const SYNC_ID_REQUIRED_TABLES = ['notifications'];
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 const SYNC_SCHEMA_READY_VERSION = '2026-06-21-failed-row-outbox-v1';
 
-// Tables that carry a UNIQUE constraint on sync_id created by the app schema (outside
-// the sync service).  When a pull-upsert fails because another LOCAL row already owns
-// the same sync_id (assigned locally before MAIN synced), we reassign that row's
-// sync_id to a fresh random UUID so the main upsert can then succeed.
-const TABLES_WITH_EXTERNAL_SYNC_ID_CONSTRAINT = new Set(['shift_teams']);
+// "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
+// token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
+// assigned independently before syncing.  When a natural-key upsert collides on one
+// of these (23505), the row-loop handler reassigns the stale local value to a fresh
+// UUID and retries.  Listed broadest-first; a single row (e.g. shift_teams) can carry
+// more than one and collide on each in turn.
+// NOTE: deconfliction is no longer table-whitelisted — the handler fires on the shape
+// of the failure (a unique violation on a token column not in the conflict target),
+// so new tables with the same pattern need no code change here.
+const DECONFLICT_TOKEN_COLUMNS = ['sync_id', 'global_id'];
 const tableColumnCache = new Map();
 const tableExistsCache = new Map();
 
@@ -1436,50 +1442,84 @@ async function upsertData(table, data) {
                             }
                         }
 
-                        // --- sync_id external-constraint deconfliction ---
-                        // Applies to tables (e.g. shift_teams) that have a UNIQUE index on
-                        // sync_id created by the app schema outside the sync service.
-                        // Symptom: INSERT fails with 23505 on the sync_id constraint because
-                        // a different LOCAL row was previously assigned the same sync_id that
-                        // MAIN considers authoritative for a different natural key.
-                        // Fix: reassign the conflicting row's sync_id to a new random UUID
-                        // (inside a fresh savepoint), then retry the original upsert.
-                        if (
-                            innerErr.code === '23505'
-                            && row && row.sync_id
-                            && TABLES_WITH_EXTERNAL_SYNC_ID_CONSTRAINT.has(table)
-                            && String(innerErr.constraint || innerErr.detail || '').toLowerCase().includes('sync_id')
-                        ) {
+                        // --- external unique-token deconfliction ---
+                        // Applies to ANY table that carries one or more UNIQUE indexes on
+                        // "sync token" columns (sync_id, global_id) created by the app schema
+                        // outside the sync service, while the sync upsert keys on a natural
+                        // key instead.
+                        // Symptom: the natural-key upsert fails with 23505 on a token column's
+                        // unique index because a DIFFERENT local row already owns the token
+                        // value MAIN considers authoritative for this natural key.
+                        // A single row can collide on MORE THAN ONE token — e.g. shift_teams
+                        // has unique sync_id AND global_id — so we reassign each colliding
+                        // token in turn (nested savepoints so a second collision doesn't undo
+                        // the first reassignment) and retry until the upsert succeeds.
+                        // Generalized (was whitelisted to shift_teams / sync_id only): the
+                        // guard is now the shape of the failure — a unique violation on a token
+                        // column not in the conflict target — so new tables need no whitelist.
+                        const deconflictTokenCols = DECONFLICT_TOKEN_COLUMNS.filter(
+                            (c) => row && row[c] != null && !conflictColumns.includes(c)
+                        );
+                        if (innerErr.code === '23505' && deconflictTokenCols.length) {
                             let deconflictActive = false;
                             try {
-                                await client.query('SAVEPOINT sync_deconflict_syncid');
+                                await client.query('SAVEPOINT sync_deconflict_token');
                                 deconflictActive = true;
-                                // Reassign the stale sync_id on the conflicting LOCAL row
-                                await client.query(
-                                    `UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id = $1`,
-                                    [row.sync_id]
-                                );
-                                // Retry the original upsert — it can now INSERT or UPDATE cleanly
-                                const result2 = await client.query(sql, vals);
-                                await client.query('RELEASE SAVEPOINT sync_deconflict_syncid');
-                                deconflictActive = false;
-                                if (result2.rows.length && result2.rows[0].inserted === true) {
-                                    stats.created += 1;
-                                } else if (result2.rows.length) {
-                                    stats.updated += 1;
+                                let lastErr = innerErr;
+                                let handled = false;
+                                const triedCols = new Set();
+                                // At most one reassignment per token column is ever required.
+                                for (let attempt = 0; attempt < deconflictTokenCols.length; attempt++) {
+                                    const constraintStr = String(lastErr.constraint || lastErr.detail || '').toLowerCase();
+                                    // Prefer the column named by the failing constraint; otherwise
+                                    // fall back to the next untried candidate.
+                                    const col = deconflictTokenCols.find((c) => !triedCols.has(c) && constraintStr.includes(c))
+                                        || deconflictTokenCols.find((c) => !triedCols.has(c));
+                                    if (!col) break;
+                                    triedCols.add(col);
+                                    // Free the token value the incoming row wants by reassigning
+                                    // whichever existing local row currently holds it.
+                                    await client.query(
+                                        `UPDATE ${table} SET ${col} = gen_random_uuid() WHERE ${col} = $1`,
+                                        [row[col]]
+                                    );
+                                    // Retry under an inner savepoint so a further 23505 (a second
+                                    // colliding token) doesn't abort the reassignments already made.
+                                    await client.query('SAVEPOINT sync_deconflict_retry');
+                                    try {
+                                        const result2 = await client.query(sql, vals);
+                                        await client.query('RELEASE SAVEPOINT sync_deconflict_retry');
+                                        if (result2.rows.length && result2.rows[0].inserted === true) {
+                                            stats.created += 1;
+                                        } else if (result2.rows.length) {
+                                            stats.updated += 1;
+                                        }
+                                        handled = true;
+                                        break;
+                                    } catch (retryErr) {
+                                        await client.query('ROLLBACK TO SAVEPOINT sync_deconflict_retry');
+                                        await client.query('RELEASE SAVEPOINT sync_deconflict_retry');
+                                        lastErr = retryErr;
+                                        if (retryErr.code !== '23505') throw retryErr; // not a dup — give up
+                                    }
                                 }
-                                continue; // row handled — move on to the next one
+                                if (handled) {
+                                    await client.query('RELEASE SAVEPOINT sync_deconflict_token');
+                                    deconflictActive = false;
+                                    continue; // row handled — move on to the next one
+                                }
+                                throw lastErr; // exhausted token reassignments
                             } catch (deconflictErr) {
                                 if (deconflictActive) {
                                     try {
-                                        await client.query('ROLLBACK TO SAVEPOINT sync_deconflict_syncid');
-                                        await client.query('RELEASE SAVEPOINT sync_deconflict_syncid');
+                                        await client.query('ROLLBACK TO SAVEPOINT sync_deconflict_token');
+                                        await client.query('RELEASE SAVEPOINT sync_deconflict_token');
                                     } catch (cleanupErr) {
                                         console.error('[Sync] Deconflict savepoint cleanup failed:', cleanupErr.message);
                                         throw cleanupErr;
                                     }
                                 }
-                                console.error(`[Sync] sync_id deconflict fallback failed for ${table}:`, deconflictErr.message);
+                                console.error(`[Sync] token deconflict fallback failed for ${table}:`, deconflictErr.message);
                                 // Fall through to the generic error log below
                             }
                         }

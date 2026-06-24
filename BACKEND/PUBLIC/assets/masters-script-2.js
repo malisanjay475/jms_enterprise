@@ -44,7 +44,7 @@
     let currentWriteScope = { id: null, name: '', isAll: false };
     let currentMachineIconBase64 = null;
     const templateSupportedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
-    const reportOnlyTypes = [];
+    const reportOnlyTypes = ['labour-parties'];
     const clientPreviewSchemas = {
       boplanningdetail: {
         label: 'BO Planning Detail',
@@ -416,6 +416,7 @@
 
     async function initializeFactoryScope() {
       allowedFactories = Array.isArray(JPSMS.factories.getAllowed()) ? JPSMS.factories.getAllowed() : [];
+      window.allowedFactories = allowedFactories; // expose for Labour Job machine modal
 
       if (!allowedFactories.length) {
         try {
@@ -532,13 +533,19 @@
       const canWriteScope = canWriteCurrentFactoryScope();
       const canEditMasters = JPSMS.auth.can('masters', 'edit');
 
+      // Labour parties has its own action bar outside uploadSection
+      const labourPartyActionBar = document.getElementById('labourPartyActionBar');
+      if (labourPartyActionBar) {
+        labourPartyActionBar.style.display = currentType === 'labour-parties' ? 'block' : 'none';
+      }
+
       if (uploadSection && reportOnlyTypes.includes(currentType)) {
         uploadSection.style.display = 'none';
         if (allFactoryUploadLock) allFactoryUploadLock.style.display = 'none';
+        return;
       }
 
       if (uploadSection && currentType !== 'users') {
-        if (reportOnlyTypes.includes(currentType)) return;
         if (!canEditMasters) {
           uploadSection.style.display = 'none';
           if (allFactoryUploadLock) allFactoryUploadLock.style.display = 'none';
@@ -631,7 +638,7 @@
       JPSMS.auth.requireAuth();
 
       const params = new URLSearchParams(window.location.search);
-      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users'];
+      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users', 'labour-parties'];
       const requestedType = params.get('type') || 'orders';
         const optionalDateTypes = ['orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
       const manualDateTypes = ['orjr'];
@@ -719,7 +726,8 @@
         'jcdetails': { title: 'JC Detail', hint: 'Upload .xlsx', hasDates: true, icon: 'bi-journal-richtext' },
         'boplanningdetail': { title: 'BO Planning Detail', hint: 'Upload .xlsx', hasDates: true, icon: 'bi-clipboard-data' },
         'wipstock': { title: 'WIP Stock', hint: 'Upload dated WIP stock sheet', hasDates: true, icon: 'bi-box-seam-fill' },
-        'users': { title: 'User Master', hint: 'Admin Only', hasDates: false }
+        'users': { title: 'User Master', hint: 'Admin Only', hasDates: false },
+        'labour-parties': { title: 'Labour Job Parties', hint: 'N/A', hasDates: false }
       };
 
       const cfg = configs[type] || { title: 'Master Data', hint: 'Upload file', hasDates: false };
@@ -888,6 +896,12 @@
     }
 
     async function loadMasterData() {
+      // Labour Parties has its own dedicated UI — bypass the generic DataTable rendering
+      if (currentType === 'labour-parties') {
+        masterDataLoading = false;
+        await loadLabourParties();
+        return;
+      }
       if (masterDataLoading) return;
       masterDataLoading = true;
       const from = document.getElementById('filterFrom').value;
@@ -988,7 +1002,15 @@
               ...orderedPrintingCols.filter(c => Object.prototype.hasOwnProperty.call(rows[0], c))
             ];
           } else {
+            const isLabourJobView = getSelectedMachineProcessFilter() === 'Labour Job';
             cols = cols.filter(c => !['vendor_name', 'model_no', 'machine_type'].includes(c));
+            // Hide raw labour_party_id in all views; hide party_name in non-Labour-Job views
+            cols = cols.filter(c => c !== 'labour_party_id');
+            if (!isLabourJobView) {
+              cols = cols.filter(c => c !== 'party_name');
+            }
+            // Also hide raw factory_id / factory_code (factory_name is enough)
+            cols = cols.filter(c => !['factory_id', 'factory_code'].includes(c));
             const machineIdx = cols.indexOf('machine');
             if (machineIdx !== -1) {
               cols.splice(machineIdx + 1, 0, 'machine_process', 'machine_icon');
@@ -1795,6 +1817,7 @@
           'machine_name': 'Machine',
           'tonnage': 'Tonnage',
           'factory_id': 'Factory ID',
+          'party_name': 'Labour Party',
           'or_jr_no': 'OR/JR No',
           'or_jr_date': 'OR/JR Date',
           'jr_date': 'JR Date',
@@ -2116,6 +2139,33 @@
       currentMachineIconBase64 = null;
       setMachineIconPreview(data.machine_icon || '');
       updateMachineModalProcessView(machineProcess);
+      if (machineProcess === 'Labour Job') {
+        // Restore Labour Job tonnage
+        const ljTonnage = document.getElementById('m_lj_tonnage');
+        if (ljTonnage) ljTonnage.value = data.tonnage || '';
+        // Restore factory selection
+        const ljFactory = document.getElementById('m_lj_factory_id');
+        if (ljFactory && data.factory_id) {
+          const trySetFactory = (attempts) => {
+            if (ljFactory.options.length > 1) ljFactory.value = String(data.factory_id);
+            else if (attempts > 0) setTimeout(() => trySetFactory(attempts - 1), 150);
+          };
+          setTimeout(() => trySetFactory(10), 100);
+        }
+        // Restore party selection
+        if (data.labour_party_id) {
+          const trySetParty = (attempts) => {
+            const partySelect = document.getElementById('m_labour_party_id');
+            if (!partySelect) return;
+            if (partySelect.options.length > 1) {
+              partySelect.value = String(data.labour_party_id);
+            } else if (attempts > 0) {
+              setTimeout(() => trySetParty(attempts - 1), 150);
+            }
+          };
+          setTimeout(() => trySetParty(10), 100);
+        }
+      }
       modal.setAttribute('data-mode', mode);
       modal.style.display = 'flex';
     }
@@ -2129,20 +2179,26 @@
       const mode = document.getElementById('machineModal').getAttribute('data-mode');
       const id = document.getElementById('machineId').value;
       const process = document.getElementById('m_machine_process').value;
-      const isPrinting = normalizeMachineProcessValue(process, 'Moulding') === 'Printing';
+      const normalizedProc = normalizeMachineProcessValue(process, 'Moulding');
+      const isPrinting = normalizedProc === 'Printing';
+      const isLabourJob = normalizedProc === 'Labour Job';
+      const ljFactoryId = isLabourJob ? (document.getElementById('m_lj_factory_id')?.value || null) : null;
+      const ljTonnage = isLabourJob ? (document.getElementById('m_lj_tonnage')?.value || '') : '';
       const body = {
         machine: document.getElementById('m_machine').value,
-        building: isPrinting ? '' : document.getElementById('m_building').value,
-        line: isPrinting ? '' : document.getElementById('m_line').value,
+        building: (isPrinting || isLabourJob) ? '' : document.getElementById('m_building').value,
+        line: (isPrinting || isLabourJob) ? '' : document.getElementById('m_line').value,
         machine_process: process,
-        tonnage: isPrinting ? '' : document.getElementById('m_tonnage').value,
-        mould_load_time: isPrinting ? '' : document.getElementById('m_mould_load_time').value,
-        mould_unload_time: isPrinting ? '' : document.getElementById('m_mould_unload_time').value,
+        tonnage: isPrinting ? '' : (isLabourJob ? ljTonnage : document.getElementById('m_tonnage').value),
+        mould_load_time: (isPrinting || isLabourJob) ? '' : document.getElementById('m_mould_load_time').value,
+        mould_unload_time: (isPrinting || isLabourJob) ? '' : document.getElementById('m_mould_unload_time').value,
         vendor_name: isPrinting ? document.getElementById('m_vendor_name').value : '',
         model_no: isPrinting ? document.getElementById('m_model_no').value : '',
         machine_type: isPrinting ? document.getElementById('m_machine_type').value : '',
         machine_icon: document.getElementById('m_machine_icon').value,
-        machine_icon_base64: currentMachineIconBase64
+        machine_icon_base64: currentMachineIconBase64,
+        labour_party_id: isLabourJob ? (document.getElementById('m_labour_party_id')?.value || null) : null,
+        ...(isLabourJob && ljFactoryId ? { factory_id_override: ljFactoryId } : {})
       };
 
       try {
@@ -2317,4 +2373,148 @@
       if (openModal) return;
       if (typeof loadMasterData === 'function') loadMasterData();
     });
+    /* =====================================================================
+       LABOUR PARTIES MASTER — dedicated list + modal functions
+       ===================================================================== */
+
+    let labourPartyMode = 'add';
+    let labourPartyEditId = null;
+
+    async function loadLabourParties() {
+      const tbody = document.querySelector('#masterTable tbody');
+      const thead = document.querySelector('#masterTable thead');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center p-3">Loading...</td></tr>';
+      if (thead) thead.innerHTML = '';
+
+      // Show action bar + Add button
+      const actionBar = document.getElementById('labourPartyActionBar');
+      if (actionBar) actionBar.style.display = 'block';
+      const addBtn = document.getElementById('addLabourPartyBtn');
+      if (addBtn) addBtn.style.display = JPSMS.auth.can('masters', 'edit') ? 'inline-block' : 'none';
+
+      try {
+        const res = await JPSMS.api.get('/labour-parties');
+        const parties = res.data || [];
+
+        if (thead) {
+          thead.innerHTML = `<tr>
+            <th style="width:50px">Actions</th>
+            <th>#</th>
+            <th>Party Name</th>
+            <th>Party Type</th>
+            <th>Status</th>
+            <th>Assigned Machines</th>
+          </tr>`;
+        }
+
+        if (!parties.length) {
+          if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-center p-3" style="color:#64748b">No labour parties found. Click <b>Add Party</b> to create one.</td></tr>';
+          return;
+        }
+
+        const canEdit = JPSMS.auth.can('masters', 'edit');
+        // Cache parties for delegated click handlers (avoids inline onclick with user data)
+        window._labourPartiesCache = {};
+        parties.forEach(p => { window._labourPartiesCache[p.id] = p; });
+
+        if (tbody) {
+          tbody.innerHTML = parties.map((p, i) => `
+            <tr>
+              <td>
+                ${canEdit ? `
+                  <button class="lp-edit-btn" data-party-id="${p.id}"
+                    style="background:#2563eb;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:0.75rem;margin-right:3px">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <button class="lp-del-btn" data-party-id="${p.id}"
+                    style="background:#dc2626;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:0.75rem">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                ` : ''}
+              </td>
+              <td>${i + 1}</td>
+              <td style="font-weight:600">${escHtml(p.party_name || '')}</td>
+              <td><span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700">${escHtml(p.party_type || 'Labour Job')}</span></td>
+              <td>${p.is_active
+                ? '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700">Active</span>'
+                : '<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:12px;font-size:0.72rem;font-weight:700">Inactive</span>'}</td>
+              <td style="color:#475569;font-size:0.78rem">${
+                (p.machines && p.machines.length)
+                  ? p.machines.map(m => `<span style="background:#eff6ff;color:#1d4ed8;padding:1px 6px;border-radius:8px;font-size:0.7rem;margin-right:3px">${escHtml(m)}</span>`).join('')
+                  : '<span style="color:#94a3b8">None assigned</span>'
+              }</td>
+            </tr>
+          `).join('');
+
+          // Delegated event listeners — no user data in onclick (CodeQL safe)
+          tbody.addEventListener('click', (ev) => {
+            const editBtn = ev.target.closest('.lp-edit-btn');
+            const delBtn = ev.target.closest('.lp-del-btn');
+            if (editBtn) {
+              const party = window._labourPartiesCache[editBtn.dataset.partyId];
+              if (party) openLabourPartyModal('edit', party);
+            } else if (delBtn) {
+              const party = window._labourPartiesCache[delBtn.dataset.partyId];
+              if (party) deleteLabourParty(party.id, party.party_name);
+            }
+          });
+        }
+      } catch (e) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="text-center p-3" style="color:#dc2626">Error: ${escHtml(e.message)}</td></tr>`;
+      }
+    }
+
+    function openLabourPartyModal(mode, data = {}) {
+      labourPartyMode = mode;
+      labourPartyEditId = data.id || null;
+      const modal = document.getElementById('labourPartyModal');
+      if (!modal) return;
+      document.getElementById('labourPartyModalTitle').textContent = mode === 'add' ? 'Add Labour Party' : 'Edit Labour Party';
+      document.getElementById('lp_party_name').value = data.party_name || '';
+      const isActiveEl = document.getElementById('lp_is_active');
+      if (isActiveEl) isActiveEl.checked = data.is_active !== false; // default true for new
+      modal.style.display = 'flex';
+    }
+
+    function closeLabourPartyModal() {
+      const modal = document.getElementById('labourPartyModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function saveLabourParty() {
+      const partyName = (document.getElementById('lp_party_name')?.value || '').trim();
+      if (!partyName) { alert('Party Name is required'); return; }
+      const isActive = document.getElementById('lp_is_active')?.checked !== false;
+
+      const body = { party_name: partyName, is_active: isActive };
+
+      try {
+        if (labourPartyMode === 'add') {
+          const res = await JPSMS.api.post('/labour-parties', body);
+          if (!res.ok) throw new Error(res.error || 'Failed to create party');
+          JPSMS.toast('Labour party created', 'success');
+        } else {
+          const res = await JPSMS.api.request(`/labour-parties/${labourPartyEditId}`, { method: 'PUT', body: JSON.stringify(body) });
+          if (!res.ok) throw new Error(res.error || 'Failed to update party');
+          JPSMS.toast('Labour party updated', 'success');
+        }
+        closeLabourPartyModal();
+        await loadLabourParties();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function deleteLabourParty(id, name) {
+      if (!confirm(`Delete labour party "${name}"? Machines assigned to this party will be unlinked.`)) return;
+      try {
+        const res = await JPSMS.api.request(`/labour-parties/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(res.error || 'Failed to delete party');
+        JPSMS.toast('Labour party deleted', 'success');
+        await loadLabourParties();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
     /* --------------------------------------------------------------------- */
