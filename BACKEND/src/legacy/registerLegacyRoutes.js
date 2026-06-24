@@ -6641,7 +6641,7 @@ app.get('/api/planning/machine-jobs', async (req, res) => {
         ) t
       ) colour_prod ON true
       WHERE TRIM(UPPER(pb.machine)) = $1
-        AND pb.status NOT IN ('REJECTED')
+        AND pb.status NOT IN ('REJECTED', 'COMPLETED')
         ${factoryClause}
       ORDER BY
         CASE pb.status WHEN 'RUNNING' THEN 0 ELSE 1 END,

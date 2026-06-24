@@ -3330,9 +3330,16 @@
           card.innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
               <div style="flex:1;min-width:0;padding-right:8px;">
-                <div style="font-weight:800;font-size:0.95rem;color:#0f172a;word-break:break-all;">${safe(job.order_no||'—')}</div>
-                <div style="font-size:0.7rem;color:#64748b;margin-top:2px;">JC: ${safe(job.job_card_no||'—')}</div>
-                <div style="font-size:0.7rem;color:#475569;margin-top:1px;word-break:break-all;">${safe(job.mould_name||'—')} · ${safe(job.client_name||'—')}</div>
+                <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin-bottom:2px;">
+                  <span style="font-size:0.6rem;color:#94a3b8;font-weight:600;text-transform:uppercase;padding-top:2px;white-space:nowrap;">OR No.</span>
+                  <span style="font-weight:800;font-size:0.9rem;color:#1e3a5f;word-break:break-all;">${safe(job.order_no||'—')}</span>
+                  <span style="font-size:0.6rem;color:#94a3b8;font-weight:600;text-transform:uppercase;padding-top:2px;white-space:nowrap;">JC No.</span>
+                  <span style="font-weight:800;font-size:0.9rem;color:#1d4ed8;word-break:break-all;">${safe(job.job_card_no||'—')}</span>
+                  <span style="font-size:0.6rem;color:#94a3b8;font-weight:600;text-transform:uppercase;padding-top:2px;white-space:nowrap;">Mould</span>
+                  <span style="font-weight:700;font-size:0.8rem;color:#334155;word-break:break-all;">${safe(job.mould_name||'—')}</span>
+                  <span style="font-size:0.6rem;color:#94a3b8;font-weight:600;text-transform:uppercase;padding-top:2px;white-space:nowrap;">Client</span>
+                  <span style="font-weight:700;font-size:0.8rem;color:#15803d;word-break:break-all;">${safe(job.client_name||'—')}</span>
+                </div>
               </div>
               <div style="flex-shrink:0;text-align:right;">
                 <span style="font-size:0.62rem;font-weight:700;padding:3px 8px;border-radius:20px;background:${si.bg};color:${si.color};white-space:nowrap;">${si.icon} ${si.label}</span>
@@ -3416,8 +3423,8 @@
               <thead>
                 <tr style="background:#f8fafc;">
                   <th style="padding:9px 10px;text-align:left;color:#64748b;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;min-width:100px;">COLOUR / PLAN</th>
-                  <th style="padding:9px 8px;text-align:right;color:#0284c7;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">PRODUCED</th>
-                  <th style="padding:9px 8px;text-align:right;color:#64748b;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">BALANCE</th>
+                  <th style="padding:9px 8px;text-align:right;color:#0284c7;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">PROD.</th>
+                  <th style="padding:9px 8px;text-align:right;color:#64748b;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">BAL.</th>
                   <th style="padding:9px 8px;text-align:center;color:#64748b;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">DATE</th>
                   <th style="padding:9px 8px;text-align:center;color:#64748b;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">SHIFT</th>
                 </tr>
@@ -3436,7 +3443,7 @@
             html += `<tr style="border-bottom:1px solid #f1f5f9;">
               <td style="padding:10px;vertical-align:top;">
                 <div style="font-weight:700;color:#1e293b;font-size:0.78rem;">${safe(c.colour)}</div>
-                <div style="font-size:0.6rem;color:#94a3b8;margin-top:1px;">Plan: ${(c.planQty||0).toLocaleString()}</div>
+                <div style="font-size:0.82rem;font-weight:800;color:#475569;margin-top:2px;">${(c.planQty||0).toLocaleString()} <span style="font-size:0.58rem;font-weight:600;color:#94a3b8;">PLAN</span></div>
               </td>
               <td colspan="4" style="padding:10px 8px;text-align:center;color:#94a3b8;font-style:italic;font-size:0.68rem;">No entries yet</td>
             </tr>`;
@@ -3454,7 +3461,7 @@
                     onmouseleave="this.style.background='${rowBg}'">
                   <td style="padding:${si===0?'10px':'6px'} 10px ${si===0&&shifts.length>1?'2px':'8px'};vertical-align:top;">
                     ${si===0?`<div style="font-weight:700;color:#1e293b;font-size:0.78rem;">${safe(c.colour)}</div>
-                              <div style="font-size:0.6rem;color:#94a3b8;margin-top:1px;">Plan: ${(c.planQty||0).toLocaleString()}</div>`:''}
+                              <div style="font-size:0.82rem;font-weight:800;color:#475569;margin-top:2px;">${(c.planQty||0).toLocaleString()} <span style="font-size:0.58rem;font-weight:600;color:#94a3b8;">PLAN</span></div>`:''}
                   </td>
                   <td style="padding:8px;text-align:right;font-weight:700;color:#0284c7;">${(s.goodQty||0).toLocaleString()}</td>
                   <td style="padding:8px;text-align:right;font-weight:700;color:${balNeg?'#dc2626':runBal===0?'#15803d':'#334155'};">${runBal.toLocaleString()}</td>
