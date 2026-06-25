@@ -6593,7 +6593,7 @@ app.get('/api/planning/machine-jobs', async (req, res) => {
         pb.plan_id,
         pb.id                                                    AS plan_db_id,
         pb.order_no,
-        COALESCE(NULLIF(TRIM(pb.job_card_no), ''), '')           AS job_card_no,
+        COALESCE(jc_lookup.job_card_no, NULLIF(TRIM(pb.job_card_no), ''), '') AS job_card_no,
         COALESCE(NULLIF(TRIM(pb.mould_name),   ''), pb.mould_code, '') AS mould_name,
         pb.mould_code,
         pb.machine,
@@ -6618,6 +6618,14 @@ app.get('/api/planning/machine-jobs', async (req, res) => {
       FROM plan_board pb
       LEFT JOIN orders o
         ON TRIM(o.order_no) = TRIM(pb.order_no)
+      LEFT JOIN LATERAL (
+        SELECT NULLIF(TRIM(job_card_no), '') AS job_card_no
+        FROM or_jr_report
+        WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM(pb.order_no)
+          AND NULLIF(TRIM(job_card_no), '') IS NOT NULL
+        ORDER BY id DESC
+        LIMIT 1
+      ) jc_lookup ON true
       LEFT JOIN LATERAL (
         SELECT SUM(good_qty) AS produced
         FROM dpr_hourly dh
@@ -9171,6 +9179,7 @@ async function buildDprOrderAnalysis(req) {
   extractDprColourPlanRows(info.colour_details).forEach(row => {
     const colour = getDprColourName(row);
     const plan = getDprColourPlanQty(row);
+    if (plan <= 0) return; // skip colours with no planned qty (ghost rows)
     if (!colourStats[colour]) colourStats[colour] = { plan_qty: 0, good_qty: 0, rej_qty: 0 };
     colourStats[colour].plan_qty += plan;
     seededPlanQty += plan;

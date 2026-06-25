@@ -402,9 +402,9 @@
 
                 // Reuse Filter UI — use local-time date (NOT toISOString which is UTC)
                 const today = localToday();
-                const hour = new Date().getHours(); // browser local time (IST on factory devices)
-                // Auto-detect shift: If 8PM-8AM -> Night, else Day (matches factory 8-20 shift)
-                const defaultShift = (hour >= 20 || hour < 8) ? 'Night' : 'Day';
+                const nowMins = new Date().getHours() * 60 + new Date().getMinutes(); // browser local time (IST on factory devices)
+                // Auto-detect shift: factory handover at 08:10 AM / 08:10 PM
+                const defaultShift = (nowMins >= 1210 || nowMins < 490) ? 'Night' : 'Day';
                 const DPR_PROCESS_OPTIONS = ['Moulding', 'Printing', 'Tuffting', 'Labour Job'];
                 let dprProcess = localStorage.getItem('jpsms_dpr_process') || 'Moulding';
 
