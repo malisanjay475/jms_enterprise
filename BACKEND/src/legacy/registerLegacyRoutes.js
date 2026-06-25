@@ -9179,6 +9179,7 @@ async function buildDprOrderAnalysis(req) {
   extractDprColourPlanRows(info.colour_details).forEach(row => {
     const colour = getDprColourName(row);
     const plan = getDprColourPlanQty(row);
+    if (plan <= 0) return; // skip colours with no planned qty (ghost rows)
     if (!colourStats[colour]) colourStats[colour] = { plan_qty: 0, good_qty: 0, rej_qty: 0 };
     colourStats[colour].plan_qty += plan;
     seededPlanQty += plan;
