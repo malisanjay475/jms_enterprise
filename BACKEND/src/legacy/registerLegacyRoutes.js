@@ -6565,6 +6565,106 @@ app.get('/api/dpr/plan-drilldown', async (req, res) => {
 });
 
 /* ============================================================
+   MACHINE JOBS — All plans on a machine with colour breakdown
+   GET /api/planning/machine-jobs?machine=X&date=YYYY-MM-DD&shift=Day
+============================================================ */
+app.get('/api/planning/machine-jobs', async (req, res) => {
+  try {
+    const { machine, date, shift } = req.query;
+    if (!machine) return res.status(400).json({ ok: false, error: 'machine required' });
+
+    const factoryId = getFactoryId(req);
+    const curDate  = date  || new Date().toISOString().split('T')[0];
+    const curShift = shift || 'Day';
+
+    const params = [
+      machine.trim().toUpperCase(), // $1
+      curDate,                       // $2
+      curShift                       // $3
+    ];
+    let factoryClause = '';
+    if (factoryId) {
+      params.push(factoryId);
+      factoryClause = `AND pb.factory_id = $${params.length}`;
+    }
+
+    const rows = await q(`
+      SELECT
+        pb.plan_id,
+        pb.id                                                    AS plan_db_id,
+        pb.order_no,
+        COALESCE(jc_lookup.job_card_no, NULLIF(TRIM(pb.job_card_no), ''), '') AS job_card_no,
+        COALESCE(NULLIF(TRIM(pb.mould_name),   ''), pb.mould_code, '') AS mould_name,
+        pb.mould_code,
+        pb.machine,
+        pb.status,
+        COALESCE(pb.plan_qty, 0)::int                            AS plan_qty,
+        pb.seq,
+        pb.colour_details,
+        COALESCE(o.client_name, '')                              AS client_name,
+        COALESCE(dpr_totals.produced, 0)::int                   AS produced_qty,
+        GREATEST(0, COALESCE(pb.plan_qty, 0) - COALESCE(dpr_totals.produced, 0))::int AS balance_qty,
+        COALESCE(colour_prod.data, '[]'::json)                  AS colour_produced,
+        COALESCE(
+          EXISTS(
+            SELECT 1 FROM dpr_hourly dh
+            WHERE (dh.plan_id = pb.plan_id
+                OR CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT))
+              AND dh.dpr_date = $2::date
+              AND dh.shift    = $3
+              AND dh.is_deleted = false
+          ), false
+        ) AS has_today_entry
+      FROM plan_board pb
+      LEFT JOIN orders o
+        ON TRIM(o.order_no) = TRIM(pb.order_no)
+      LEFT JOIN LATERAL (
+        SELECT NULLIF(TRIM(job_card_no), '') AS job_card_no
+        FROM or_jr_report
+        WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM(pb.order_no)
+          AND NULLIF(TRIM(job_card_no), '') IS NOT NULL
+        ORDER BY id DESC
+        LIMIT 1
+      ) jc_lookup ON true
+      LEFT JOIN LATERAL (
+        SELECT SUM(good_qty) AS produced
+        FROM dpr_hourly dh
+        WHERE (dh.plan_id = pb.plan_id
+            OR CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT))
+          AND dh.is_deleted = false
+      ) dpr_totals ON true
+      LEFT JOIN LATERAL (
+        SELECT json_agg(
+                 json_build_object('colour', colour, 'produced', produced)
+               ) AS data
+        FROM (
+          SELECT
+            COALESCE(NULLIF(TRIM(colour), ''), 'Default') AS colour,
+            SUM(good_qty)::int AS produced
+          FROM dpr_hourly
+          WHERE (plan_id = pb.plan_id
+              OR CAST(plan_id AS TEXT) = CAST(pb.id AS TEXT))
+            AND is_deleted = false
+          GROUP BY 1
+        ) t
+      ) colour_prod ON true
+      WHERE TRIM(UPPER(pb.machine)) = $1
+        AND pb.status NOT IN ('REJECTED', 'COMPLETED')
+        ${factoryClause}
+      ORDER BY
+        CASE pb.status WHEN 'RUNNING' THEN 0 ELSE 1 END,
+        pb.seq ASC NULLS LAST,
+        pb.created_at DESC NULLS LAST
+    `, params);
+
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('[machine-jobs]', e.message);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/* ============================================================
    JOB SUMMARY (Admin Visualization)
 ============================================================ */
 app.get('/api/dpr/job-summary', async (req, res) => {
@@ -20509,10 +20609,11 @@ app.get('/api/labour-parties', async (req, res) => {
           ORDER BY m.machine
         ) FILTER (WHERE m.id IS NOT NULL), '[]'::json) AS machines
       FROM labour_parties lp
+      -- No factory_id filter on machines: Labour Job machines may be saved
+      -- to a different factory than the session user (via factory_id_override)
       LEFT JOIN machines m ON m.labour_party_id = lp.id
         AND m.machine_process = 'Labour Job'
         AND m.is_active = true
-        AND ($1::int IS NULL OR m.factory_id = $1 OR m.factory_id IS NULL)
       WHERE lp.is_active = true
         AND ($1::int IS NULL OR lp.factory_id = $1 OR lp.factory_id IS NULL)
       GROUP BY lp.id
@@ -20586,18 +20687,19 @@ app.delete('/api/labour-parties/:id', async (req, res) => {
 });
 
 // GET /api/labour-parties/:id/machines — list machines for a party
+// No factory_id filter: Labour Job machines may be registered to a different
+// factory than the session user's factory (saved via factory_id_override).
+// Scoping by labour_party_id alone is correct and sufficient here.
 app.get('/api/labour-parties/:id/machines', async (req, res) => {
   try {
-    const factoryId = getFactoryId(req);
     const rows = await q(`
       SELECT id, machine, tonnage, line, building, is_active
       FROM machines
       WHERE labour_party_id = $1
         AND machine_process = 'Labour Job'
         AND is_active = true
-        AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
       ORDER BY machine
-    `, [req.params.id, factoryId]);
+    `, [req.params.id]);
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('/api/labour-parties/:id/machines GET', e);
