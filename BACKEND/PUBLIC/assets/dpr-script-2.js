@@ -372,9 +372,9 @@
 
                     colors.forEach(c => {
                         const d = stats[c];
-                        const rowPlan = Number(d.plan || 0);
-                        const rowGood = Number(d.good || 0);
-                        const rowRej = Number(d.rej || 0);
+                        const rowPlan = Number(d.plan_qty || 0);
+                        const rowGood = Number(d.good_qty || 0);
+                        const rowRej = Number(d.rej_qty || 0);
                         const rowBal = Math.max(0, rowPlan - rowGood);
                         sumBal += rowBal;
                         sumPlan += rowPlan;
