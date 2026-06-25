@@ -4199,8 +4199,11 @@
                       <button class="btn primary" type="button" onclick="window.selectCpMouldVariant(${index})">Select Mould</button>
                     </div>
                     <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
-                      <span class="tag" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe">Primary: ${esc(row.primary_machine || '-')}</span>
-                      <span class="tag" style="background:#fff7ed; color:#c2410c; border-color:#fed7aa">Secondary: ${esc(row.secondary_machine || '-')}</span>
+                      ${window.cpLabourPlanType === 'Labour Job' && cpSelectedMachine
+                        ? `<span class="tag" style="background:#fef3c7; color:#92400e; border-color:#fde68a"><i class="bi bi-people-fill"></i> Labour Job: ${esc(cpSelectedMachine.machine)}</span>`
+                        : `<span class="tag" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe">Primary: ${esc(row.primary_machine || '-')}</span>
+                           <span class="tag" style="background:#fff7ed; color:#c2410c; border-color:#fed7aa">Secondary: ${esc(row.secondary_machine || '-')}</span>`
+                      }
                       <span class="tag">Target ${esc(formatCpQty(group.targetPlanQty || 0))}</span>
                       <span class="tag">Planned ${esc(formatCpQty(group.adjustedPlannedQty || 0))}</span>
                       <span class="tag">Balance ${esc(formatCpBalanceOrPlanned(group.adjustedRemainingQty || 0))}</span>
@@ -5207,14 +5210,30 @@
               });
             }
             renderCpColourMachineCards(modal, colourRows);
-            // Labour Job: auto-select the pre-confirmed machine card so user doesn't
-            // have to click it manually (machine was already chosen in the Labour Job modal).
+            // Labour Job: machine was already confirmed in the Labour Job party modal.
+            // Replace the "Select Machine" section entirely with a "confirmed" banner
+            // so the user is NOT asked to select a machine again.
             if (window.cpLabourPlanType === 'Labour Job' && cpSelectedMachine && cpSelectedMachine.machine) {
               const machineCardsEl = modal.querySelector('#cpColourMachineCards');
-              if (machineCardsEl) {
-                const preCard = machineCardsEl.querySelector('button[data-machine-name]');
-                if (preCard) preCard.click();
+              const machineSectionEl = machineCardsEl ? machineCardsEl.parentElement : null;
+              if (machineSectionEl) {
+                machineSectionEl.style.background = '#fefce8';
+                machineSectionEl.style.border = '1px solid #fde68a';
+                machineSectionEl.style.borderRadius = '14px';
+                machineSectionEl.style.padding = '12px 16px';
+                machineSectionEl.innerHTML = `
+                  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                    <span style="font-size:1.2rem">✅</span>
+                    <span style="font-weight:900;color:#92400e;font-size:0.92rem">Labour Job Machine Confirmed</span>
+                    <span style="background:#b45309;color:#fff;border-radius:999px;padding:3px 16px;font-weight:900;font-size:0.87rem">${esc(cpSelectedMachine.machine)}</span>
+                    <span style="color:#78350f;font-size:0.78rem">Machine already selected from Labour Job party — no further selection needed.</span>
+                  </div>
+                `;
               }
+              // Pre-assign machine to all colour rows so Save Plan is immediately enabled
+              (Array.isArray(window.cpColourPlanRows) ? window.cpColourPlanRows : []).forEach((r) => {
+                r.selectedMachine = cpSelectedMachine.machine;
+              });
             }
             recalcCpColourPlanModal();
 
