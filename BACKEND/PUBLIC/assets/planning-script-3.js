@@ -3147,6 +3147,7 @@
           window.cpOrderMoulds = [];
           cpSelectedMould = null;
           cpSelectedMachine = null;
+          window.cpLabourPlanType = null;
 
           const list = document.getElementById('cpOrderList');
           if (list) Array.from(list.children).forEach(c => applyCpOrderCardState(c, 'base'));
@@ -4471,6 +4472,9 @@
         function closeCpColourPlanModal() {
           const modal = document.getElementById('cpColourPlanModal');
           if (modal) modal.remove();
+          // Reset Labour Job flag so the next "Select Mould" click (regular factory mould)
+          // doesn't mistakenly inherit the Labour Job machine that was previously selected.
+          window.cpLabourPlanType = null;
         }
         window.closeCpColourPlanModal = closeCpColourPlanModal;
 
@@ -4919,6 +4923,25 @@
 
         async function fetchCpMachinesForMould(mould) {
           const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          // Labour Job: machine already confirmed via Labour Job party modal — return it directly
+          // without calling the factory-machines API (which would return factory machines instead).
+          if (window.cpLabourPlanType === 'Labour Job' && cpSelectedMachine && cpSelectedMachine.machine) {
+            return {
+              machines: [{
+                machine: cpSelectedMachine.machine,
+                tonnage: cpSelectedMachine.tonnage || '-',
+                building: 'Labour Job',
+                line: 'Machines',
+                isFree: true,
+                currentStatus: 'AVAILABLE',
+                currentOrder: null,
+                preferenceRole: 'PRIMARY',
+                machine_process: 'Labour Job'
+              }],
+              mismatch: false,
+              requestedNames: ''
+            };
+          }
           if (getPlanningProcessFilter() === 'Moulding') {
             const params = new URLSearchParams();
             params.set('process', getPlanningProcessFilter());
@@ -5184,6 +5207,15 @@
               });
             }
             renderCpColourMachineCards(modal, colourRows);
+            // Labour Job: auto-select the pre-confirmed machine card so user doesn't
+            // have to click it manually (machine was already chosen in the Labour Job modal).
+            if (window.cpLabourPlanType === 'Labour Job' && cpSelectedMachine && cpSelectedMachine.machine) {
+              const machineCardsEl = modal.querySelector('#cpColourMachineCards');
+              if (machineCardsEl) {
+                const preCard = machineCardsEl.querySelector('button[data-machine-name]');
+                if (preCard) preCard.click();
+              }
+            }
             recalcCpColourPlanModal();
 
             // P7: Pre-populate plan qty from batch qty when modal opens
@@ -5617,6 +5649,7 @@
                 consumptionRatioQty,
                 mouldItemQty: 0,
                 colourDetails: [],
+                planType: window.cpLabourPlanType || undefined,
                 startDate: new Date().toISOString()
               });
             }
@@ -5840,7 +5873,7 @@
                 balQty: cpSelectedMould.plan_qty,
                 batchQty: getCpActiveBatchQty(),
                 startDate: new Date().toISOString(),
-                planType: window.cpLabourPlanType || 'Moulding'
+                planType: window.cpLabourPlanType || (cpSelectedMachine?.machine_process === 'Labour Job' ? 'Labour Job' : 'Moulding')
               };
 
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : null;
