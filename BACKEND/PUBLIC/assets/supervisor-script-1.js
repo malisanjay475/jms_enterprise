@@ -135,8 +135,9 @@
       const currentHour = now.getHours();
 
       // Determine Current Shift info
-      // Day: 08:00 to 20:00. Night: 20:00 to 08:00
-      let isDay = (currentHour >= 8 && currentHour < 20);
+      // Day: 08:10 to 20:10. Night: 20:10 to 08:10 (factory 8:10 handover rule)
+      const nowMins = currentHour * 60 + now.getMinutes();
+      let isDay = (nowMins >= 490 && nowMins < 1210);
 
       // We want Current Shift AND Previous Shift
       // If Day (Today): Show Night (Yesterday) + Day (Today)
@@ -707,26 +708,26 @@
       const m = realNow.getMinutes();
       const totalMins = h * 60 + m;
 
-      // LOGIC: Shift Change at 08:00 AM & 08:00 PM (matches backend login endpoint)
-      // Day Shift: 08:00 AM (480m) to 08:00 PM (1200m)
-      // Night Shift: 08:00 PM (1200m) to 08:00 AM (480m next day)
-      // [FIX] Was 490/1210 (8:10 AM/PM) — misaligned with backend which uses h>=8/h>=20.
-      //       Entries made 08:00–08:09 AM were filed under YESTERDAY instead of today.
+      // LOGIC: Shift Change at 08:10 AM & 08:10 PM (factory handover rule)
+      // Day Shift:   08:10 AM (490m) to 08:10 PM (1210m)
+      // Night Shift: 08:10 PM (1210m) to 08:10 AM (490m next day)
+      // Entries at 08:00–08:09 belong to the outgoing Night shift (Yesterday).
+      // Entries at 20:00–20:09 belong to the outgoing Day shift (Today).
 
       let useDate = new Date(realNow);
       let setShift = 'Day';
 
-      if (totalMins >= 480 && totalMins < 1200) {
+      if (totalMins >= 490 && totalMins < 1210) {
         // Day Shift (Today)
         setShift = 'Day';
       } else {
         // Night Shift
         setShift = 'Night';
-        if (totalMins < 480) {
-          // Early morning (< 08:00) -> Belongs to YESTERDAY'S Night Shift
+        if (totalMins < 490) {
+          // Early morning (< 08:10) -> Belongs to YESTERDAY'S Night Shift
           useDate.setDate(useDate.getDate() - 1);
         }
-        // If >= 20:00 -> Belongs to TODAY'S Night Shift
+        // If >= 20:10 -> Belongs to TODAY'S Night Shift
       }
 
       // Reset hours for clean date comparison
@@ -2742,9 +2743,9 @@
       {
         const _now = new Date();
         const _mins = _now.getHours() * 60 + _now.getMinutes();
-        const curShift = (_mins >= 480 && _mins < 1200) ? 'Day' : 'Night';
+        const curShift = (_mins >= 490 && _mins < 1210) ? 'Day' : 'Night';
         const _dateObj = new Date(_now); _dateObj.setHours(0, 0, 0, 0);
-        if (curShift === 'Night' && _mins < 480) _dateObj.setDate(_dateObj.getDate() - 1);
+        if (curShift === 'Night' && _mins < 490) _dateObj.setDate(_dateObj.getDate() - 1);
         const curDate = isoDate(_dateObj);
 
         if (selDate !== curDate || selShift !== curShift) {
