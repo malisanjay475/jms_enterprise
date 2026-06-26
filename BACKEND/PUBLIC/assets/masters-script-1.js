@@ -4,7 +4,8 @@
     let mouldMode = 'edit';
     const mouldFields = [
       'mould_number', 'mould_name', 'std_wt_kg', 'runner_weight',
-      'primary_machine', 'secondary_machine', 'moulding_sqn', 'consumption_ratio_qty', 'tonnage', 'no_of_cav', 'cycle_time', 'pcs_per_hour',
+      'primary_machine', 'secondary_machine', 'labour_job_machine',
+      'moulding_sqn', 'consumption_ratio_qty', 'tonnage', 'no_of_cav', 'cycle_time', 'pcs_per_hour',
       'target_pcs_day', 'material', 'manpower', 'operator_activities', 'sfg_std_packing', 'sfg_bag_type', 'sfg_bag_size',
       'std_volume_cap'
     ];
@@ -15,6 +16,7 @@
       runner_weight: 'RUNNER WEIGHT',
       primary_machine: 'PRIMARY MACHINE',
       secondary_machine: 'SECONDARY MACHINE',
+      labour_job_machine: 'LABOUR JOB MACHINE',
       moulding_sqn: 'MOULDING SQN.',
       consumption_ratio_qty: 'CONSUMPTION RATIO(QTY)',
       tonnage: 'TONNAGE',
@@ -247,6 +249,20 @@
         document.getElementById('mould_mould_number').readOnly = false;
       }
       loadMachineList();
+      loadLabourJobMachineList();
+    }
+
+    async function loadLabourJobMachineList() {
+      const list = document.getElementById('labourJobMachineList');
+      if (!list || list.children.length > 0) return;
+      try {
+        const res = await JPSMS.api.get('/masters/machines?process=Labour Job');
+        if (res.ok) {
+          list.innerHTML = (res.data || []).map(m => `<option value="${m.machine}">`).join('');
+        }
+      } catch (e) {
+        console.error('loadLabourJobMachineList', e);
+      }
     }
 
     async function loadMachineList() {
