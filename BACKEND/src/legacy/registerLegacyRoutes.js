@@ -1257,7 +1257,8 @@ const MOULD_MASTER_FIELDS = [
   'sfg_std_packing',
   'sfg_bag_type',
   'sfg_bag_size',
-  'std_volume_cap'
+  'std_volume_cap',
+  'labour_job_machine'
 ];
 
 const MOULD_MASTER_NUMERIC_FIELDS = new Set([
@@ -1377,6 +1378,7 @@ async function migrateMouldMasterSchema() {
     ['sfg_bag_type', 'TEXT'],
     ['sfg_bag_size', 'TEXT'],
     ['std_volume_cap', 'TEXT'],
+    ['labour_job_machine', 'TEXT'],
     ['updated_at', 'TIMESTAMPTZ DEFAULT NOW()'],
     ['factory_id', 'INTEGER'],
     ['last_updated_at', 'TIMESTAMP'],
