@@ -464,7 +464,22 @@
         const esc = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;');
         const fmtDate = (v) => v ? new Date(v).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
 
+        // Store plans for Detail tab use
+        window._pcrPlans = plans;
+
+        // Tab bar
         let html = `
+          <div id="pcr-tabs" style="display:flex; gap:8px; margin-bottom:12px; border-bottom:2px solid #e2e8f0; padding-bottom:0">
+            <button id="pcr-tab-summary" onclick="window.showPcrTab('summary')"
+              style="padding:7px 18px; border:none; border-bottom:3px solid #0369a1; background:none; color:#0369a1; font-weight:800; font-size:0.82rem; cursor:pointer; margin-bottom:-2px">
+              📋 Summary
+            </button>
+            <button id="pcr-tab-detail" onclick="window.showPcrTab('detail')"
+              style="padding:7px 18px; border:none; border-bottom:3px solid transparent; background:none; color:#94a3b8; font-weight:700; font-size:0.82rem; cursor:pointer; margin-bottom:-2px">
+              🎨 Colour Detail
+            </button>
+          </div>
+          <div id="pcr-summary-view">
           <div class="pcr-grid pcr-head">
             <div>Machine</div><div>OR No</div><div>Job Card</div><div>Mould / Product</div><div>Mould No</div><div>Client</div>
             <div class="num">Plan</div><div class="num">Produced</div><div class="num">Bal</div>
@@ -516,9 +531,134 @@
             <div class="pcr-status-wrap">${restoreBtn}</div>
           </div>`;
         });
+        html += `</div>`; // close pcr-summary-view
+        html += `<div id="pcr-detail-view" style="display:none">
+          <div style="padding:32px; text-align:center; color:#94a3b8">
+            <i class="bi bi-palette" style="font-size:1.5rem; display:block; margin-bottom:8px"></i>
+            Click "Colour Detail" tab to load colour-wise breakdown.
+          </div>
+        </div>`;
         list.innerHTML = html;
       } catch (e) {
         list.innerHTML = `<div style="color:red; padding:20px">Error: ${pEsc(e.message)}</div>`;
+      }
+    };
+
+    // Switch PCR tabs
+    window.showPcrTab = async function(tab) {
+      const summaryView = document.getElementById('pcr-summary-view');
+      const detailView = document.getElementById('pcr-detail-view');
+      const tabSummary = document.getElementById('pcr-tab-summary');
+      const tabDetail = document.getElementById('pcr-tab-detail');
+      if (!summaryView || !detailView) return;
+
+      if (tab === 'summary') {
+        summaryView.style.display = 'block';
+        detailView.style.display = 'none';
+        if (tabSummary) { tabSummary.style.borderBottomColor = '#0369a1'; tabSummary.style.color = '#0369a1'; }
+        if (tabDetail) { tabDetail.style.borderBottomColor = 'transparent'; tabDetail.style.color = '#94a3b8'; }
+      } else {
+        summaryView.style.display = 'none';
+        detailView.style.display = 'block';
+        if (tabSummary) { tabSummary.style.borderBottomColor = 'transparent'; tabSummary.style.color = '#94a3b8'; }
+        if (tabDetail) { tabDetail.style.borderBottomColor = '#7c3aed'; tabDetail.style.color = '#7c3aed'; }
+
+        // Load detail if not yet loaded
+        if (detailView.dataset.loaded === 'true') return;
+        detailView.dataset.loaded = 'true';
+        detailView.innerHTML = '<div style="padding:24px; text-align:center; color:#94a3b8">⏳ Loading colour breakdown...</div>';
+
+        try {
+          const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          const plans = window._pcrPlans || [];
+          if (!plans.length) {
+            detailView.innerHTML = '<div style="padding:24px; color:#94a3b8">No plans to show.</div>';
+            return;
+          }
+
+          // Fetch colour data for all completed plans
+          const planIds = plans.map(p => p.id || p.planId || p.plan_id).filter(Boolean);
+          const allColourRows = [];
+          // Fetch in one call per plan (or use the all endpoint)
+          await Promise.all(planIds.map(async pid => {
+            try {
+              const r = await api.get(`/planning/colour-wise-completion?planId=${encodeURIComponent(pid)}`);
+              if (r && r.ok && r.data) allColourRows.push(...r.data);
+            } catch (_) {}
+          }));
+
+          if (!allColourRows.length) {
+            detailView.innerHTML = '<div style="padding:24px; color:#94a3b8">No colour breakdown data found.</div>';
+            return;
+          }
+
+          // Group by planId
+          const grouped = {};
+          allColourRows.forEach(r => {
+            const key = String(r.planId);
+            if (!grouped[key]) grouped[key] = { planId: r.planId, machine: r.machine, orderNo: r.orderNo, mouldName: r.mouldName, rows: [] };
+            grouped[key].rows.push(r);
+          });
+
+          // Render
+          let detailHtml = `<div style="margin-top:4px">`;
+          Object.values(grouped).forEach(g => {
+            const totalPlan = g.rows.reduce((s, r) => s + r.planQty, 0);
+            const totalProd = g.rows.reduce((s, r) => s + r.producedQty, 0);
+            const totalBal = g.rows.reduce((s, r) => s + r.balQty, 0);
+            detailHtml += `
+              <div style="margin-bottom:16px; border:1px solid #e2e8f0; border-radius:8px; overflow:hidden">
+                <div style="background:#f1f5f9; padding:8px 14px; font-weight:700; font-size:0.82rem; color:#334155; display:flex; gap:16px; flex-wrap:wrap">
+                  <span>🏭 ${g.machine}</span>
+                  <span style="color:#0369a1">OR: ${g.orderNo}</span>
+                  <span>${g.mouldName}</span>
+                  <span style="margin-left:auto; color:#64748b">Plan #${g.planId}</span>
+                </div>
+                <table style="width:100%; border-collapse:collapse; font-size:0.8rem">
+                  <thead><tr style="background:#f8fafc">
+                    <th style="padding:5px 12px; text-align:left; color:#64748b; font-weight:700">Colour</th>
+                    <th style="padding:5px 12px; text-align:right; color:#64748b; font-weight:700">Plan Qty</th>
+                    <th style="padding:5px 12px; text-align:right; color:#16a34a; font-weight:700">Produced</th>
+                    <th style="padding:5px 12px; text-align:right; color:#dc2626; font-weight:700">Balance</th>
+                    <th style="padding:5px 12px; color:#64748b; font-weight:700">Progress</th>
+                  </tr></thead>
+                  <tbody>
+                    ${g.rows.map(r => {
+                      const pct = r.pct || 0;
+                      const barColor = pct >= 100 ? '#16a34a' : pct >= 50 ? '#d97706' : '#dc2626';
+                      return `<tr style="border-top:1px solid #f1f5f9">
+                        <td style="padding:5px 12px; font-weight:600">${r.colour}</td>
+                        <td style="padding:5px 12px; text-align:right">${r.planQty.toLocaleString()}</td>
+                        <td style="padding:5px 12px; text-align:right; color:#16a34a; font-weight:700">${r.producedQty.toLocaleString()}</td>
+                        <td style="padding:5px 12px; text-align:right; color:${r.balQty > 0 ? '#dc2626' : '#16a34a'}">${r.balQty.toLocaleString()}</td>
+                        <td style="padding:5px 12px">
+                          <div style="display:flex; align-items:center; gap:6px">
+                            <div style="width:80px; height:6px; background:#e2e8f0; border-radius:3px; overflow:hidden">
+                              <div style="width:${Math.min(100,pct)}%; height:100%; background:${barColor}; border-radius:3px"></div>
+                            </div>
+                            <span style="font-size:0.75rem; font-weight:700; color:${barColor}">${pct}%</span>
+                          </div>
+                        </td>
+                      </tr>`;
+                    }).join('')}
+                  </tbody>
+                  <tfoot>
+                    <tr style="border-top:2px solid #e2e8f0; background:#f8fafc; font-weight:700">
+                      <td style="padding:5px 12px">Total</td>
+                      <td style="padding:5px 12px; text-align:right">${totalPlan.toLocaleString()}</td>
+                      <td style="padding:5px 12px; text-align:right; color:#16a34a">${totalProd.toLocaleString()}</td>
+                      <td style="padding:5px 12px; text-align:right; color:${totalBal > 0 ? '#dc2626' : '#16a34a'}">${totalBal.toLocaleString()}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>`;
+          });
+          detailHtml += '</div>';
+          detailView.innerHTML = detailHtml;
+        } catch (e) {
+          detailView.innerHTML = `<div style="color:#dc2626; padding:20px">Error: ${e.message}</div>`;
+        }
       }
     };
 

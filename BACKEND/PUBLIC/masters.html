@@ -462,6 +462,13 @@
       </div>
     </div>
 
+    <!-- Labour Party action bar — shown only on labour-parties type -->
+    <div id="labourPartyActionBar" class="card" style="display:none; padding:8px 12px;">
+      <button id="addLabourPartyBtn" class="btn-action" onclick="openLabourPartyModal('add')"
+        style="padding:6px 14px; background:#b45309;"><i class="bi bi-people-fill"></i>
+        Add Party</button>
+    </div>
+
     <div class="card" id="allFactoryUploadLock"
       style="display:none; padding:10px 12px; border-left:4px solid #2563eb; background:#eff6ff; color:#1e3a8a">
       <div id="factoryWriteLockTitle" style="font-weight:700; font-size:0.8rem; margin-bottom:4px;">
@@ -502,9 +509,10 @@
               <option value="Moulding">Moulding</option>
               <option value="Tuffting">Tuffting</option>
               <option value="Printing">Printing</option>
+              <option value="Labour Job">Labour Job</option>
             </select>
             <div class="scope-note">
-              Filter Machine Master by Moulding, Tuffting, or Printing.
+              Filter Machine Master by Moulding, Tuffting, Printing, or Labour Job.
             </div>
           </div>
         </div>
@@ -624,6 +632,16 @@
             <input type="text" id="mould_sec_picker" list="machineList" class="form-input" style="width:140px"
               placeholder="+ Add Machine">
           </div>
+        </div>
+
+        <!-- Labour Job Machine Assignment -->
+        <div style="grid-column:1/-1; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 14px; display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+          <span style="background:#b45309; color:#fff; border-radius:999px; padding:2px 10px; font-size:0.75rem; font-weight:900; white-space:nowrap"><i class="bi bi-people-fill"></i> Labour Job Machine</span>
+          <div style="flex:1; min-width:200px">
+            <input type="text" id="mould_labour_job_machine" list="labourJobMachineList" class="form-input" style="width:100%"
+              placeholder="Search Labour Job Machine... (optional)">
+          </div>
+          <span style="font-size:0.78rem; color:#92400e">Pre-assign a Labour Job party machine to this mould for Labour Job planning</span>
         </div>
 
         <div><label class="control-label">Moulding Sqn.</label><input type="text" id="mould_moulding_sqn"
@@ -784,6 +802,7 @@
   </div>
 
   <datalist id="machineList"></datalist>
+  <datalist id="labourJobMachineList"></datalist>
 
   <script src="/assets/masters-script-1.js?v=release63"></script>
 
@@ -857,7 +876,26 @@
           <option value="Moulding">Moulding</option>
           <option value="Tuffting">Tuffting</option>
           <option value="Printing">Printing</option>
+          <option value="Labour Job">Labour Job</option>
         </select>
+      </div>
+      <!-- Labour Job fields — shown only when process = Labour Job -->
+      <div id="machineLabourFields" style="display:none; margin-bottom:10px; padding:12px; background:#fefce8; border:1px solid #fde68a; border-radius:8px;">
+        <label style="font-weight:700; color:#92400e; display:block; margin-bottom:6px;"><i class="bi bi-people-fill"></i> Labour Job Party</label>
+        <select id="m_labour_party_id" style="width:100%; padding:8px; border:1px solid #fde68a; border-radius:4px; background:#fff;">
+          <option value="">— Select Party —</option>
+        </select>
+        <div style="margin-top:6px; font-size:0.75rem; color:#78350f;">Machine will be assigned to this Labour Job party. Tonnage is also required.</div>
+        <div style="margin-top:10px;">
+          <label style="font-weight:700; color:#92400e; display:block; margin-bottom:4px; font-size:0.82rem;"><i class="bi bi-building"></i> Factory</label>
+          <select id="m_lj_factory_id" style="width:100%; padding:8px; border:1px solid #fde68a; border-radius:4px; background:#fff;">
+            <option value="">— Current Session Factory —</option>
+          </select>
+        </div>
+        <div style="margin-top:6px;">
+          <label style="font-weight:700; color:#92400e; display:block; margin-bottom:4px; font-size:0.82rem;"><i class="bi bi-speedometer2"></i> Tonnage</label>
+          <input type="number" id="m_lj_tonnage" placeholder="e.g. 350" style="width:100%; padding:8px; border:1px solid #fde68a; border-radius:4px; background:#fff;">
+        </div>
       </div>
       <div id="machinePrintingFields" style="display:none;">
         <div style="margin-bottom:10px;">
@@ -924,6 +962,38 @@
           style="padding:8px 16px; border:none; background:#ccc; border-radius:4px; cursor:pointer; margin-right:8px;">Cancel</button>
         <button onclick="saveMachine()"
           style="padding:8px 16px; border:none; background:#2563eb; color:white; border-radius:4px; cursor:pointer;">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Labour Party CRUD Modal -->
+  <div id="labourPartyModal" class="modal"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); justify-content:center; align-items:center; z-index:1000;">
+    <div style="background:white; padding:24px; border-radius:10px; width:420px; max-width:92%; border-top:4px solid #b45309;">
+      <h3 id="labourPartyModalTitle" style="margin-top:0; color:#92400e"><i class="bi bi-people-fill"></i> Add Labour Party</h3>
+
+      <div style="margin-bottom:12px;">
+        <label style="display:block; margin-bottom:4px; font-weight:600; font-size:0.82rem">Party Name <span style="color:#dc2626">*</span></label>
+        <input type="text" id="lp_party_name" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; box-sizing:border-box;" placeholder="e.g. ABC Labour Pvt Ltd">
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="display:block; margin-bottom:4px; font-weight:600; font-size:0.82rem">Party Type</label>
+        <input type="text" value="Labour Job" readonly style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; background:#f8fafc; color:#64748b; box-sizing:border-box;">
+      </div>
+
+      <div style="margin-bottom:16px; display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" id="lp_is_active" checked style="width:16px; height:16px; accent-color:#b45309;">
+        <label for="lp_is_active" style="font-weight:600; font-size:0.82rem; cursor:pointer">Active</label>
+      </div>
+
+      <div style="text-align:right;">
+        <button onclick="closeLabourPartyModal()"
+          style="padding:8px 16px; border:none; background:#e2e8f0; border-radius:4px; cursor:pointer; margin-right:8px; font-size:0.82rem">Cancel</button>
+        <button onclick="saveLabourParty()"
+          style="padding:8px 20px; border:none; background:#b45309; color:white; border-radius:4px; cursor:pointer; font-weight:700; font-size:0.82rem">
+          <i class="bi bi-check-lg"></i> Save
+        </button>
       </div>
     </div>
   </div>

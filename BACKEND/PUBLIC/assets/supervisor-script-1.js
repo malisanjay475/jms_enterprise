@@ -30,14 +30,14 @@
 
     /* ==================== Constants ==================== */
     // Updated Slot Definition (Day starts 08:00)
-    const SLOT_ORDER_DAY = ['08-09', '09-10', '10-11', '11-12', '12-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07', '07-08'];
+    const SLOT_ORDER_DAY = ['07-08', '08-09', '09-10', '10-11', '11-12', '12-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07'];
     const SLOT_ORDER_NIGHT = ['20-21', '21-22', '22-23', '23-00', '00-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07', '07-08'];
     // Wait, Labels are same for Day/Night usually in User's system (08-09 for AM and PM?)
     // User request: "Shift Is like Now Day Shift like 08-09... And Night Shift like 08-09..."
     // So labels are identical. Unique ID is Date    // --- Hourly Slot Management ---
     let SLOT_LABELS = [
-      '08-09', '09-10', '10-11', '11-12', '12-01', '01-02',
-      '02-03', '03-04', '04-05', '05-06', '06-07', '07-08'
+      '07-08', '08-09', '09-10', '10-11', '11-12', '12-01',
+      '01-02', '02-03', '03-04', '04-05', '05-06', '06-07'
     ];
     // Map<Key, { hasMain: boolean, count: number }>
     let SLOT_STATUS = new Map();
@@ -135,8 +135,9 @@
       const currentHour = now.getHours();
 
       // Determine Current Shift info
-      // Day: 08:00 to 20:00. Night: 20:00 to 08:00
-      let isDay = (currentHour >= 8 && currentHour < 20);
+      // Day: 07:10 to 19:10. Night: 19:10 to 07:10 (factory 7:10 handover rule)
+      const nowMins = currentHour * 60 + now.getMinutes();
+      let isDay = (nowMins >= 430 && nowMins < 1150);
 
       // We want Current Shift AND Previous Shift
       // If Day (Today): Show Night (Yesterday) + Day (Today)
@@ -168,7 +169,7 @@
         // Current: Night. 
         // Production Date determination:
         let prodDate = new Date(now);
-        if (currentHour < 8) prodDate.setDate(prodDate.getDate() - 1);
+        if (currentHour < 7) prodDate.setDate(prodDate.getDate() - 1);
         const prodDateStr = toLocalYMD(prodDate);
 
         shifts.push({ date: prodDateStr, shift: 'Day', labelDate: prodDate });
@@ -208,7 +209,7 @@
           // Unless it's an expanded view (Admin or Quick Action)
           // Last shift is always shifts[0]
           // Bypass this limit for backfill entries (user explicitly chose yesterday)
-          if (!s.isBackfill && !showAllLastShiftSlots && shiftIdx === 0 && slot !== '07-08') return;
+          if (!s.isBackfill && !showAllLastShiftSlots && shiftIdx === 0 && slot !== '06-07') return;
           // 1. Calculate Real End Time for this slot
           // Slot format "08-09", "12-01", etc.
           // Map to 24h based on Shift
@@ -217,33 +218,26 @@
           let realEndTime = new Date(s.labelDate);
 
           if (s.shift === 'Day') {
-            // Day: 08:00 - 20:00
-            // 08-09 -> 09:00
-            // ...
-            // 07-08 -> 20:00 (8 PM)
-
-            if (slot === '07-08') {
-              endH = 20;
-            } else if (endH >= 8 && endH <= 12) { // 08-09, 09-10, 10-11, 11-12
-              // These are AM/Noon hours
-            } else if (endH >= 1 && endH <= 7) { // 12-01, 01-02, ..., 06-07
-              // These are PM hours
+            // Day: 07:00 - 19:00
+            // Slots 0-4 (07-08 to 11-12): AM/Noon — endH 8..12 is correct as-is
+            // Slots 5-11 (12-01 to 06-07): PM — endH 1..7, add 12
+            const slotIdx = SLOT_LABELS.indexOf(slot);
+            if (slotIdx >= 5) {
+              // PM hour (12-01 through 06-07)
               endH += 12;
             }
+            // slotIdx 0-4 (07-08 through 11-12): endH already correct (8..12)
             realEndTime.setHours(endH, 0, 0, 0);
 
           } else { // Night Shift
-            // Night: 20:00 - 08:00 (next day)
+            // Night: 19:00 - 07:00 (next day)
+            // 07-08 -> 20:00 (8 PM same day — first slot)
             // 08-09 -> 21:00 (9 PM)
             // ...
-            // 07-08 -> 08:00 (Next Day Morning)
-
-            // Special handling for 07-08 because "8" is ambiguous (Could be 20:00 or 08:00)
-            // In our SLOT_LABELS order, 07-08 is the LAST slot.
-            // 08-09 is the FIRST slot.
+            // 06-07 -> 07:00 (Next Day Morning — last slot)
 
             if (slot === '07-08') {
-              endH = 32; // 24 + 8 (08:00 Next Day)
+              endH = 20; // 8 PM same day (first slot of Night shift)
             } else if (endH >= 8 && endH <= 11) { // 08-09, 09-10, 10-11
               endH += 12; // 20-21, 21-22, 22-23
             } else if (endH === 12) { // 11-12
@@ -293,13 +287,17 @@
           }
 
           if (hideFilled) {
-            // Main Dropdown: Hide if Main Entry Exists
+            // Main Dropdown: Hide if Main entry exists OR slot is a Quick Action entry
             if (hasMain) return;
+            if (currentStatus && currentStatus.isQuick) return; // Quick Action already recorded
+            // Hide slots auto-propagated from a preceding Quick Action (no entry, but prev is Quick)
+            if (suffix && suffix.includes('Continued from')) return;
           } else {
             // Colour Change Dropdown: Show All Past. Warn if entries exist.
             const parts = [];
             if (hasMain) parts.push('Main Done');
             if (hasCC) parts.push('CC Done');
+            if (currentStatus && currentStatus.isQuick) parts.push(currentStatus.type || 'Quick Action');
 
             if (parts.length > 0) suffix = ` (${parts.join(', ')})`;
           }
@@ -707,26 +705,26 @@
       const m = realNow.getMinutes();
       const totalMins = h * 60 + m;
 
-      // LOGIC: Shift Change at 08:00 AM & 08:00 PM (matches backend login endpoint)
-      // Day Shift: 08:00 AM (480m) to 08:00 PM (1200m)
-      // Night Shift: 08:00 PM (1200m) to 08:00 AM (480m next day)
-      // [FIX] Was 490/1210 (8:10 AM/PM) — misaligned with backend which uses h>=8/h>=20.
-      //       Entries made 08:00–08:09 AM were filed under YESTERDAY instead of today.
+      // LOGIC: Shift Change at 08:10 AM & 08:10 PM (factory handover rule)
+      // Day Shift:   08:10 AM (490m) to 08:10 PM (1210m)
+      // Night Shift: 08:10 PM (1210m) to 08:10 AM (490m next day)
+      // Entries at 08:00–08:09 belong to the outgoing Night shift (Yesterday).
+      // Entries at 20:00–20:09 belong to the outgoing Day shift (Today).
 
       let useDate = new Date(realNow);
       let setShift = 'Day';
 
-      if (totalMins >= 480 && totalMins < 1200) {
+      if (totalMins >= 490 && totalMins < 1210) {
         // Day Shift (Today)
         setShift = 'Day';
       } else {
         // Night Shift
         setShift = 'Night';
-        if (totalMins < 480) {
-          // Early morning (< 08:00) -> Belongs to YESTERDAY'S Night Shift
+        if (totalMins < 490) {
+          // Early morning (< 08:10) -> Belongs to YESTERDAY'S Night Shift
           useDate.setDate(useDate.getDate() - 1);
         }
-        // If >= 20:00 -> Belongs to TODAY'S Night Shift
+        // If >= 20:10 -> Belongs to TODAY'S Night Shift
       }
 
       // Reset hours for clean date comparison
@@ -1535,10 +1533,7 @@
 
           el('color-plan-note').textContent = 'Source: Plan colours + Live production';
           buildColourOptions(job);
-          const planKey = 'last_color_' + (job.PlanID || '');
-          const last = localStorage.getItem(planKey);
-          const s = el('d-color');
-          if (last && hasOption(s, last)) { s.value = last; s.dispatchEvent(new Event('change')); }
+          // Colour must be selected fresh — do NOT auto-fill from localStorage
           return;
         }
 
@@ -1604,14 +1599,7 @@
 
           el('color-plan-note').textContent = 'Source: Saved plan colour breakdown';
           buildColourOptions(job);
-
-          const planKey = 'last_color_' + (job.PlanID || '');
-          const last = localStorage.getItem(planKey);
-          const s = el('d-color');
-          if (last && hasOption(s, last)) {
-            s.value = last;
-            s.dispatchEvent(new Event('change'));
-          }
+          // Colour must be selected fresh — do NOT auto-fill from localStorage
           return;
         }
 
@@ -2143,19 +2131,9 @@
         buildColourOptions(job);
         renderColorPlanTable(job);
 
-        try {
-          const colorSel = el('d-color');
-          let applied = false;
-
-          const planKey = 'last_color_' + (job.PlanID || '');
-          const lastPlanColor = localStorage.getItem(planKey) || '';
-
-          // Priority 1: Plan Specific Color
-          if (lastPlanColor && hasOption(colorSel, lastPlanColor)) {
-            colorSel.value = lastPlanColor;
-            applied = true;
-          }
-        } catch (_) { }
+        // Colour is always blank on job load — user must select it each time
+        const colorSel = el('d-color');
+        if (colorSel) { colorSel.value = ''; }
 
         onColorChange();
 
@@ -2532,11 +2510,7 @@
       if (!sel) return;
       const val = sel.value;
 
-      if (session.activeJob && session.activeJob.PlanID) {
-        try {
-          localStorage.setItem('last_color_' + session.activeJob.PlanID, val);
-        } catch (_) { }
-      }
+      // Colour is NOT persisted — user must always select it fresh each entry
 
       // Global Save REMOVED
       /*
@@ -2578,24 +2552,16 @@
       }
 
       if (!slotVal) errs.push('Select an Hour Slot.');
+      const colourVal = (el('d-color')?.value || '').trim();
+      if (!colourVal) errs.push('Select a Colour before submitting.');
       if (rej > shots) errs.push('Rejection Qty exceeds Shots.');
-      if (dt > 60) errs.push('Downtime exceeds 60 minutes.');
       if (dt > 60) errs.push('Downtime exceeds 60 minutes.');
 
       if (appSettings.geofence_enabled === 'true') {
         if (lastGeo && !insideGeofence(lastGeo.lat, lastGeo.lng, lastGeo.acc)) errs.push('Outside geofence (move inside factory or improve accuracy).');
       }
 
-      /* DAY SHIFT 07-08 VALIDATION WARNING */
-      // '07-08' in Day Shift means 19:00-20:00 (7 PM - 8 PM).
-      // If user selects this at 7 AM or 8 AM, they are likely mistaken.
-      if (el('d-shift').value === 'Day' && slotVal === '07-08') {
-        const h = new Date().getHours();
-        // If current time is Morning (e.g., < 12:00), warn them.
-        if (h < 12) {
-          errs.push("Warning: '07-08' in Day Shift is 7 PM - 8 PM. For Morning 7-8 AM, please switch to Night Shift.");
-        }
-      }
+      /* Slot 07-08 in Day Shift is now the FIRST slot (7 AM - 8 AM) — no warning needed */
 
       el('form-errors').innerHTML = errs.map(e => `<span class="err">• ${e}</span>`).join('');
 
@@ -2647,12 +2613,14 @@
           usedSlots = (r && r.ok && Array.isArray(r.used)) ? r.used : [];
           // Merge into SLOT_STATUS so fillHourSlotSelect can hide filled slots
           // (SLOT_STATUS only has last-50 entries; this fills gaps for any selected date)
+          const QUICK_TYPES_SET = new Set(['Maintenance','ManPowerShortage','MouldChangeover','MouldTrial','MouldMaintenance','NoPlan','PowerCut','MouldChange']);
           usedSlots.forEach(us => {
             const k = `${dt}_${String(sh).toUpperCase()}_${us.slot}`;
             let st = SLOT_STATUS.get(k) || { hasMain: false, hasCC: false, count: 0, isQuick: false, type: us.type };
             st.count = st.count || 1;
             if (us.type === 'MAIN' || us.type === 'Main') st.hasMain = true;
             if (us.type === 'ColourChange') st.hasCC = true;
+            if (QUICK_TYPES_SET.has(us.type)) { st.isQuick = true; st.type = us.type; }
             SLOT_STATUS.set(k, st);
           });
           refreshSlots();
@@ -2742,9 +2710,9 @@
       {
         const _now = new Date();
         const _mins = _now.getHours() * 60 + _now.getMinutes();
-        const curShift = (_mins >= 480 && _mins < 1200) ? 'Day' : 'Night';
+        const curShift = (_mins >= 490 && _mins < 1210) ? 'Day' : 'Night';
         const _dateObj = new Date(_now); _dateObj.setHours(0, 0, 0, 0);
-        if (curShift === 'Night' && _mins < 480) _dateObj.setDate(_dateObj.getDate() - 1);
+        if (curShift === 'Night' && _mins < 490) _dateObj.setDate(_dateObj.getDate() - 1);
         const curDate = isoDate(_dateObj);
 
         if (selDate !== curDate || selShift !== curShift) {
@@ -3216,6 +3184,8 @@
             closeMc();
             loadRecent();
             loadUsedSlots();
+            // Refresh slot selector so Quick Action slot + its continuations are hidden
+            updateFilledSlots();
           } else {
             el('mc-msg').innerHTML = '<span class="err">' + ((r && r.error) || 'Failed') + '</span>';
           }
@@ -3249,237 +3219,380 @@
       return res;
     }
 
-    /* ==================== VIEW ENTRIES with FILTER & PREMIUM CARDS ==================== */
+    /* ==================== VIEW ENTRIES v2 — Active Jobs / All Jobs (3-level nav) ==================== */
 
-    let currentRecentFilter = 'job';
-    let filterJC = ''; // For drill-down
+    let currentRecentFilter = 'active'; // 'active' | 'all'
+    let _recentLevel = 1;               // 1=list  2=drilldown  3=hourly
+    let _recentJobsList  = null;        // cached Level-1 API result
+    let _recentJobData   = null;        // selected job from Level 1
+    let _recentDrilldown = null;        // cached plan-drilldown result
+    let _recentShiftDate = null;
+    let _recentShiftName = null;
 
-    function toggleRecentFilter(mode, btn, forcedJC = '') {
+    function toggleRecentFilter(mode, btn) {
       currentRecentFilter = mode;
-      filterJC = forcedJC;
-      
-      // Update UI buttons if they exist (not inside another card)
+      _recentLevel     = 1;
+      _recentJobsList  = null; // invalidate cache so fresh data is fetched
+      _recentJobData   = null;
+      _recentDrilldown = null;
+
       const container = document.getElementById('recent-filter-container');
       if (container) {
         container.querySelectorAll('button').forEach(b => b.classList.remove('active'));
         if (btn) btn.classList.add('active');
-        else if (mode === 'job') container.children[0].classList.add('active');
+        else {
+          const idx = mode === 'active' ? 0 : 1;
+          if (container.children[idx]) container.children[idx].classList.add('active');
+        }
       }
-      
       loadRecent();
-    }
-
-    /* Helper to get last shift info */
-    function getLastShift(dateStr, shift) {
-      const d = new Date(dateStr);
-      if (shift === 'Day') {
-        // Last shift was Night of previous day
-        d.setDate(d.getDate() - 1);
-        const prevDate = d.toISOString().split('T')[0];
-        return { date: prevDate, shift: 'Night' };
-      } else {
-        // Last shift was Day of same day
-        return { date: dateStr, shift: 'Day' };
-      }
     }
 
     async function loadRecent() {
       const wrap = el('recent');
       if (!wrap) return;
-      wrap.innerHTML = '<div style="padding:40px; text-align:center; color:var(--muted);"><i class="bi bi-arrow-repeat spin"></i> Loading entries...</div>';
-
       const mach = session.machine;
       if (!mach) {
-        wrap.innerHTML = '<div class="no-jobs">Please select a machine first.</div>';
+        wrap.innerHTML = '<div class="no-jobs" style="padding:32px;text-align:center;">Please select a machine first.</div>';
         return;
       }
+      if (_recentLevel === 1) await _rvL1(wrap, mach);
+      else if (_recentLevel === 2) await _rvL2(wrap, mach);
+      else if (_recentLevel === 3) await _rvL3(wrap, mach);
+    }
 
-      // Context for filter
-      const curDate = el('d-date').value;
+    /* ── LEVEL 1: Job Cards List ── */
+    async function _rvL1(wrap, mach) {
+      wrap.innerHTML = '<div style="padding:36px;text-align:center;color:var(--muted);"><i class="bi bi-arrow-repeat spin"></i> Loading jobs…</div>';
+      const curDate  = el('d-date').value;
       const curShift = el('d-shift').value;
-      const curPID = (session.activeJob && session.activeJob.PlanID) || '';
-      const curJC = session.activeJob ? getJobCardNo(session.activeJob) : '';
-
-      // URL parameters based on mode
-      let url = `/api/dpr/recent?machine=${encodeURIComponent(mach)}&limit=200`; // Fetch more for grouping
-      
-      if (currentRecentFilter === 'job') {
-        const jcToUse = filterJC || curJC;
-        if (jcToUse) url += `&jc_no=${encodeURIComponent(jcToUse)}`;
-        else if (curPID) url += `&planId=${encodeURIComponent(curPID)}`;
-        else { wrap.innerHTML = '<div class="no-jobs">No active job selected.</div>'; return; }
-      } else if (currentRecentFilter === 'shift' && curDate && curShift) {
-        url += `&date=${encodeURIComponent(curDate)}&shift=${encodeURIComponent(curShift)}`;
-      }
-
       try {
-        const r = await apiFetch(url);
-        const res = await r.json();
-
-        if (!res || !res.ok) { 
-          wrap.innerHTML = `<div class="err">${(res && res.error) || 'Failed to load entries.'}</div>`; 
-          return; 
+        if (!_recentJobsList) {
+          const res = await (await apiFetch(
+            `/api/planning/machine-jobs?machine=${encodeURIComponent(mach)}&date=${encodeURIComponent(curDate)}&shift=${encodeURIComponent(curShift)}`
+          )).json();
+          if (!res.ok) throw new Error(res.error || 'Failed');
+          _recentJobsList = res.data || [];
         }
 
-        let data = (res.data && (Array.isArray(res.data) ? res.data : res.data.rows)) || [];
+        let jobs = _recentJobsList;
+        if (currentRecentFilter === 'active') jobs = jobs.filter(j => j.has_today_entry);
 
-        // MODE ALL: Filter for Last & Current Shift, then group by Job Card
-        if (currentRecentFilter === 'all') {
-          const lastShiftInfo = getLastShift(curDate, curShift);
-          
-          const uniqueJobs = [];
-          const jcSet = new Set();
-          
-          data.forEach(e => {
-            // Check if matches Current Shift OR Last Shift
-            const isCurrent = (e.Date.startsWith(curDate) && e.Shift === curShift);
-            const isLast = (e.Date.startsWith(lastShiftInfo.date) && e.Shift === lastShiftInfo.shift);
-            
-            if ((isCurrent || isLast) && !jcSet.has(e.JobCardNo)) {
-              jcSet.add(e.JobCardNo);
-              uniqueJobs.push({
-                JobCardNo: e.JobCardNo,
-                OrderNo: e.OrderNo,
-                MouldNo: e.MouldNo,
-                Mould: e.Mould || e.mould || 'N/A',
-                Client: e.Client || e.client || 'N/A',
-                PlanID: e.PlanID,
-                LastEntry: e.DateTime,
-                IsCurrent: isCurrent
-              });
-            }
-          });
-
-          if (!uniqueJobs.length) {
-            wrap.innerHTML = `<div class="no-jobs" style="padding:40px; text-align:center; background:#f8fbff; border-radius:18px;">
-              <div style="font-size:14px; margin-bottom:4px;">No jobs found for last/current shift.</div>
-              <div style="font-size:12px; opacity:0.7;">Current: ${curDate} (${curShift}) • Last: ${lastShiftInfo.date} (${lastShiftInfo.shift})</div>
+        if (!jobs.length) {
+          wrap.innerHTML = `
+            <div style="padding:40px;text-align:center;background:#f8fbff;border-radius:18px;">
+              <div style="font-size:2.2rem;margin-bottom:10px;">${currentRecentFilter === 'active' ? '🏭' : '📋'}</div>
+              <div style="font-size:0.9rem;font-weight:700;color:#475569;margin-bottom:4px;">
+                ${currentRecentFilter === 'active' ? 'No entries in this shift yet' : 'No jobs on this machine'}
+              </div>
+              <div style="font-size:0.72rem;color:#94a3b8;">${safe(curDate)} · ${safe(curShift)} Shift</div>
             </div>`;
-            return;
-          }
-
-          wrap.innerHTML = '';
-          const list = document.createElement('div');
-          list.className = 'jobs';
-          list.style.gap = '16px';
-
-          uniqueJobs.forEach(j => {
-            const card = document.createElement('div');
-            card.className = 'job premium-card';
-            card.style.padding = '18px';
-            card.style.border = '1px solid #e2e8f0';
-            if (j.IsCurrent) card.style.background = '#f0f9ff';
-
-            card.innerHTML = `
-              <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px;">
-                <div>
-                  <div style="font-weight:800; font-size:16px; color:var(--ink);">${j.OrderNo || 'No Order'} ${j.IsCurrent ? '<span style="font-size:10px; background:var(--accent); color:white; padding:2px 6px; border-radius:4px; margin-left:4px; vertical-align:middle;">ACTIVE</span>' : ''}</div>
-                  <div style="font-size:12px; color:var(--muted); margin-top:2px; font-weight:500;">
-                    JC: ${j.JobCardNo} • Mould: ${j.MouldNo}
-                  </div>
-                  <div style="font-size:13px; color:var(--ink); margin-top:4px;">${j.Client}</div>
-                </div>
-                <span class="tag" style="margin:0; background:#f1f5f9; color:var(--ink);">${j.Mould || j.MouldNo || "N/A"}</span>
-              </div>
-              <div style="display:flex; gap:10px; margin-top:10px; padding-top:12px; border-top: 1px dashed var(--line);">
-                <button class="primary small" style="flex:1; border-radius:10px; font-weight:600;" onclick="toggleRecentFilter('job', null, '${j.JobCardNo}')">
-                  <i class="bi bi-list-ul"></i> Hourly
-                </button>
-                <button class="ghost small" style="flex:1; border-radius:10px; border:1px solid var(--line); font-weight:600; background:white;" 
-                  onclick="openJobSummaryModalByJC('${j.JobCardNo}')">
-                  <i class="bi bi-bar-chart-fill"></i> Summary
-                </button>
-              </div>
-            `;
-            list.appendChild(card);
-          });
-          wrap.appendChild(list);
           return;
         }
 
-        if (!data.length) { 
-          wrap.innerHTML = `<div class="no-jobs" style="padding:40px; text-align:center; background:#f8fbff; border-radius:18px;">
-            <div style="font-size:14px; margin-bottom:4px;">No recent entries found.</div>
-            <div style="font-size:12px; opacity:0.7;">Filter: ${currentRecentFilter.toUpperCase()} ${filterJC ? '(JC: '+filterJC+')' : ''}</div>
-          </div>`; 
-          return; 
-        }
-
         wrap.innerHTML = '';
-        const list = document.createElement('div');
-        list.className = 'jobs';
-        list.style.gap = '14px';
-
-        data.forEach((r, i) => {
+        jobs.forEach(job => {
           const card = document.createElement('div');
-          card.className = 'job premium-card';
-          card.style.padding = '16px';
-          card.style.border = '1px solid #e2e8f0';
-
-          const dt = new Date(r.DateTime);
-          const time = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          const date = dt.toLocaleDateString([], { day: '2-digit', month: 'short' });
-
-          // Parse Reasons
-          const { rejections, downtimes } = parseReasons(r.Remarks);
-
-          // Edit Button Logic (Only for first row)
-          const canEdit = (i === 0);
-          const safeRemarks = (r.Remarks || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-          const rBk = r.RejectBreakup ? JSON.stringify(r.RejectBreakup).replace(/"/g, '&quot;') : '{}';
-          const dBk = r.DowntimeBreakup ? JSON.stringify(r.DowntimeBreakup).replace(/"/g, '&quot;') : '{}';
-          
-          const actionBtns = canEdit 
-            ? `<div style="display:flex; gap:8px;">
-                <button class="small" style="padding: 8px; min-height: 38px; min-width: 38px; border: 1.5px solid #cbd5e1; border-radius: 10px; background: white; color: #334155; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);" 
-                  onclick="openEdit('${r.UniqueID}', ${r.Shots}, ${r.RejectQty}, ${r.DowntimeMin}, '${safeRemarks}', '${r.Colour || ''}', '${rBk}', '${dBk}', '${r.PlanID || ''}', '${r.OrderNo || ''}', '${r.MouldNo || ''}')">
-                  <i class="bi bi-pencil" style="font-size: 18px; line-height: 1;"></i>
-                </button>
-                <button class="small" style="padding: 8px; min-height: 38px; min-width: 38px; border: 1.5px solid #fecaca; border-radius: 10px; background: white; color: #dc2626; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);" 
-                  onclick="deleteEntry('${r.UniqueID}')">
-                  <i class="bi bi-trash" style="font-size: 18px; line-height: 1;"></i>
-                </button>
-               </div>` 
-            : '';
+          card.style.cssText = 'background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:14px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);cursor:pointer;';
+          const si  = _rvStatusInfo(job.status);
+          const cols = _rvParseColours(job.colour_details, job.colour_produced, job.plan_qty);
 
           card.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
-              <div>
-                <div style="font-weight:800; font-size:15px; color:var(--ink); display:flex; align-items:center; gap:6px;">
-                  <span style="background:var(--ink); color:white; padding:2px 8px; border-radius:6px; font-size:12px;">${r.HourSlot}</span>
-                  <span>${time}</span>
-                </div>
-                <div style="font-size:12px; color:var(--muted); margin-top:4px; font-weight:500;">
-                  ${r.Colour || 'Default'} • ${date} • ${r.Shift}
-                </div>
-                <div style="font-size:11px; color:var(--muted); margin-top:2px;">
-                   ${r.Mould ? `<span style="color:var(--ink)">${r.Mould}</span>` : `JC: ${r.JobCardNo}`}
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+              <div style="flex:1;min-width:0;padding-right:8px;">
+                <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin-bottom:2px;">
+                  <span style="font-size:0.6rem;color:#94a3b8;font-weight:600;text-transform:uppercase;padding-top:2px;white-space:nowrap;">OR No.</span>
+                  <span style="font-weight:800;font-size:0.9rem;color:#1e3a5f;word-break:break-all;">${safe(job.order_no||'—')}</span>
+                  <span style="font-size:0.6rem;color:#94a3b8;font-weight:600;text-transform:uppercase;padding-top:2px;white-space:nowrap;">JC No.</span>
+                  <span style="font-weight:800;font-size:0.9rem;color:#1d4ed8;word-break:break-all;">${safe(job.job_card_no||'—')}</span>
+                  <span style="font-size:0.6rem;color:#94a3b8;font-weight:600;text-transform:uppercase;padding-top:2px;white-space:nowrap;">Mould</span>
+                  <span style="font-weight:700;font-size:0.8rem;color:#334155;word-break:break-all;">${safe(job.mould_name||'—')}</span>
+                  <span style="font-size:0.6rem;color:#94a3b8;font-weight:600;text-transform:uppercase;padding-top:2px;white-space:nowrap;">Client</span>
+                  <span style="font-weight:700;font-size:0.8rem;color:#15803d;word-break:break-all;">${safe(job.client_name||'—')}</span>
                 </div>
               </div>
-              <div style="text-align:right; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
-                ${actionBtns}
-                <div style="text-align: right;">
-                  <div style="font-weight:800; font-size:18px; color:var(--ok);">${r.GoodQty} <small style="font-size:10px; font-weight:600; color:var(--muted);">GOOD</small></div>
-                  <div style="font-size:11px; color:var(--muted); margin-top:2px;">Shots: ${r.Shots} | Rej: ${r.RejectQty}</div>
-                </div>
+              <div style="flex-shrink:0;text-align:right;">
+                <span style="font-size:0.62rem;font-weight:700;padding:3px 8px;border-radius:20px;background:${si.bg};color:${si.color};white-space:nowrap;">${si.icon} ${si.label}</span>
+                ${job.has_today_entry?'<div style="font-size:0.6rem;color:#0284c7;margin-top:4px;">● Entry today</div>':''}
               </div>
             </div>
-
-            ${rejections.length || downtimes.length ? `
-              <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; padding-top:12px; border-top: 1px dashed var(--line);">
-                ${rejections.map(rej => `<span class="glowing-pill" style="background:#fee2e2; color:#991b1b; border:1px solid #fecaca;"><i class="bi bi-x-circle"></i> ${getRejName(rej.reason)} (${rej.qty})</span>`).join('')}
-                ${downtimes.map(dtm => `<span class="glowing-pill" style="background:#fff7ed; color:#9a3412; border:1px solid #ffedd5;"><i class="bi bi-clock-history"></i> ${getDtName(dtm.reason)} (${dtm.min}m)</span>`).join('')}
+            <div style="border-top:1px solid #f1f5f9;padding-top:8px;">
+              <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:2px 8px;font-size:0.6rem;color:#94a3b8;font-weight:700;text-transform:uppercase;padding:2px 0 5px;">
+                <div>Colour</div><div style="text-align:right;">Plan</div><div style="text-align:right;">Prod</div><div style="text-align:right;">Bal</div>
               </div>
-            ` : ''}
+              ${cols.slice(0,5).map(c=>`
+                <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:2px 8px;font-size:0.72rem;padding:3px 0;border-bottom:1px solid #f8fafc;">
+                  <div style="font-weight:600;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${safe(c.colour)}</div>
+                  <div style="text-align:right;color:#64748b;">${c.planQty.toLocaleString()}</div>
+                  <div style="text-align:right;color:#0284c7;font-weight:700;">${c.produced.toLocaleString()}</div>
+                  <div style="text-align:right;font-weight:700;color:${c.bal<=0?'#15803d':'#ea580c'};">${c.bal.toLocaleString()}</div>
+                </div>`).join('')}
+              ${cols.length>5?`<div style="font-size:0.62rem;color:#94a3b8;padding-top:3px;">+${cols.length-5} more colours</div>`:''}
+              <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:2px 8px;font-size:0.73rem;padding:5px 0 2px;border-top:1.5px solid #e2e8f0;font-weight:800;margin-top:2px;">
+                <div style="color:#1e293b;">TOTAL</div>
+                <div style="text-align:right;color:#334155;">${(job.plan_qty||0).toLocaleString()}</div>
+                <div style="text-align:right;color:#0284c7;">${(job.produced_qty||0).toLocaleString()}</div>
+                <div style="text-align:right;color:${(job.balance_qty||0)<=0?'#15803d':'#ea580c'};">${(job.balance_qty||0).toLocaleString()}</div>
+              </div>
+            </div>
+            <div style="margin-top:10px;padding-top:8px;border-top:1px dashed #f1f5f9;text-align:right;">
+              <span style="font-size:0.72rem;color:#2563eb;font-weight:700;">📊 View Details →</span>
+            </div>`;
 
-            ${r.OtherRemarks ? `<div class="muted" style="font-size:12px; margin-top:10px; font-style:italic; border-left: 2px solid #e2e8f0; padding-left: 8px;">"${r.OtherRemarks}"</div>` : ''}
-          `;
-          list.appendChild(card);
+          card.addEventListener('click', () => {
+            _recentJobData   = job;
+            _recentDrilldown = null;
+            _recentLevel     = 2;
+            _rvL2(el('recent'), mach);
+          });
+          wrap.appendChild(card);
         });
-        wrap.appendChild(list);
-      } catch (e) { 
-        wrap.innerHTML = `<div class="err">Fetch error: ${e.message}</div>`; 
+      } catch (e) {
+        wrap.innerHTML = `<div class="err" style="padding:16px;">Error: ${safe(e.message)}</div>`;
       }
+    }
+
+    /* ── LEVEL 2: Colour × Shift drilldown table ── */
+    async function _rvL2(wrap, mach) {
+      wrap.innerHTML = '<div style="padding:36px;text-align:center;color:var(--muted);"><i class="bi bi-arrow-repeat spin"></i> Loading details…</div>';
+      const curDate  = el('d-date').value;
+      const curShift = el('d-shift').value;
+      const job = _recentJobData;
+      if (!job) { _recentLevel=1; _rvL1(wrap,mach); return; }
+
+      try {
+        if (!_recentDrilldown || _recentDrilldown._pid !== job.plan_id) {
+          const res = await (await apiFetch(`/api/dpr/plan-drilldown?planId=${encodeURIComponent(job.plan_id)}`)).json();
+          if (!res.ok) throw new Error(res.error || 'Failed');
+          _recentDrilldown = { ...res.data, _pid: job.plan_id };
+        }
+        const dd = _recentDrilldown;
+        const si = _rvStatusInfo(job.status);
+
+        let html = `
+          <button onclick="window._rvBack()" style="background:none;border:none;color:#2563eb;font-size:0.8rem;font-weight:700;padding:6px 0 12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+            <i class="bi bi-arrow-left"></i> Back to Jobs
+          </button>
+
+          <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);border-radius:14px;padding:14px 16px;margin-bottom:14px;color:#fff;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+              <div style="font-weight:800;font-size:0.92rem;word-break:break-all;padding-right:8px;">${safe(job.order_no||'—')}</div>
+              <span style="font-size:0.62rem;font-weight:700;padding:2px 8px;border-radius:20px;background:${si.bg};color:${si.color};flex-shrink:0;">${si.icon} ${si.label}</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;">
+              <div><div style="font-size:0.58rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:1px;">JC NO</div><div style="font-size:0.78rem;font-weight:700;word-break:break-all;">${safe(job.job_card_no||'—')}</div></div>
+              <div><div style="font-size:0.58rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:1px;">MOULD</div><div style="font-size:0.78rem;font-weight:600;word-break:break-all;">${safe(job.mould_name||'—')}</div></div>
+              <div><div style="font-size:0.58rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:1px;">CLIENT</div><div style="font-size:0.78rem;font-weight:600;word-break:break-all;">${safe(dd.clientName||job.client_name||'—')}</div></div>
+              <div><div style="font-size:0.58rem;color:rgba(255,255,255,0.45);font-weight:600;margin-bottom:1px;">TOTAL PLAN</div><div style="font-size:0.78rem;font-weight:700;">${(job.plan_qty||0).toLocaleString()} pcs</div></div>
+            </div>
+          </div>
+
+          <div style="font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#475569;margin-bottom:8px;">📊 Colour × Shift Breakdown</div>
+          <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;border:1px solid #e2e8f0;background:#fff;">
+            <table style="width:100%;min-width:340px;border-collapse:collapse;font-size:0.72rem;">
+              <thead>
+                <tr style="background:#f8fafc;">
+                  <th style="padding:9px 10px;text-align:left;color:#64748b;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;min-width:100px;">COLOUR / PLAN</th>
+                  <th style="padding:9px 8px;text-align:right;color:#0284c7;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">PROD.</th>
+                  <th style="padding:9px 8px;text-align:right;color:#64748b;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">BAL.</th>
+                  <th style="padding:9px 8px;text-align:center;color:#64748b;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">DATE</th>
+                  <th style="padding:9px 8px;text-align:center;color:#64748b;font-weight:700;font-size:0.6rem;border-bottom:2px solid #e2e8f0;white-space:nowrap;">SHIFT</th>
+                </tr>
+              </thead>
+              <tbody>`;
+
+        const colours = dd.colours || [];
+        colours.forEach((c) => {
+          const shifts = (c.shifts || []).slice().sort((a,b)=>{
+            if (a.date!==b.date) return a.date<b.date?-1:1;
+            return a.shift==='Day'?-1:1;
+          });
+          let runBal = c.planQty || 0;
+
+          if (!shifts.length) {
+            html += `<tr style="border-bottom:1px solid #f1f5f9;">
+              <td style="padding:10px;vertical-align:top;">
+                <div style="font-weight:700;color:#1e293b;font-size:0.78rem;">${safe(c.colour)}</div>
+                <div style="font-size:0.82rem;font-weight:800;color:#475569;margin-top:2px;">${(c.planQty||0).toLocaleString()} <span style="font-size:0.58rem;font-weight:600;color:#94a3b8;">PLAN</span></div>
+              </td>
+              <td colspan="4" style="padding:10px 8px;text-align:center;color:#94a3b8;font-style:italic;font-size:0.68rem;">No entries yet</td>
+            </tr>`;
+          } else {
+            shifts.forEach((s, si) => {
+              const isCur = s.date===curDate && s.shift===curShift;
+              runBal -= (s.goodQty||0);
+              const balNeg = runBal < 0;
+              const rowBg  = isCur ? '#f0fdf4' : (si%2===0?'#fff':'#fafafa');
+              const dl     = s.date ? s.date.split('-').reverse().join('-') : '—';
+              html += `
+                <tr onclick="window._rvOpenShift('${safe(job.plan_id)}','${safe(s.date)}','${safe(s.shift)}')"
+                    style="background:${rowBg};${isCur?'border-left:3px solid #22c55e;outline:1.5px solid #bbf7d0;':''}cursor:pointer;border-bottom:1px solid #f1f5f9;"
+                    onmouseenter="this.style.background='${isCur?'#dcfce7':'#f0f9ff'}'"
+                    onmouseleave="this.style.background='${rowBg}'">
+                  <td style="padding:${si===0?'10px':'6px'} 10px ${si===0&&shifts.length>1?'2px':'8px'};vertical-align:top;">
+                    ${si===0?`<div style="font-weight:700;color:#1e293b;font-size:0.78rem;">${safe(c.colour)}</div>
+                              <div style="font-size:0.82rem;font-weight:800;color:#475569;margin-top:2px;">${(c.planQty||0).toLocaleString()} <span style="font-size:0.58rem;font-weight:600;color:#94a3b8;">PLAN</span></div>`:''}
+                  </td>
+                  <td style="padding:8px;text-align:right;font-weight:700;color:#0284c7;">${(s.goodQty||0).toLocaleString()}</td>
+                  <td style="padding:8px;text-align:right;font-weight:700;color:${balNeg?'#dc2626':runBal===0?'#15803d':'#334155'};">${runBal.toLocaleString()}</td>
+                  <td style="padding:8px;text-align:center;color:#475569;white-space:nowrap;font-size:0.68rem;">${safe(dl)}</td>
+                  <td style="padding:8px;text-align:center;white-space:nowrap;">
+                    ${isCur
+                      ?`<span style="font-size:0.6rem;font-weight:700;background:#dcfce7;color:#15803d;padding:2px 7px;border-radius:20px;">${safe(s.shift)} ✓</span>`
+                      :`<span style="font-size:0.68rem;color:#64748b;">${safe(s.shift)}</span>`}
+                  </td>
+                </tr>`;
+            });
+          }
+        });
+
+        if (!colours.length) {
+          html += `<tr><td colspan="5" style="padding:24px;text-align:center;color:#94a3b8;font-style:italic;font-size:0.78rem;">No colour data found</td></tr>`;
+        }
+
+        html += `</tbody></table></div>
+          <div style="margin-top:8px;font-size:0.62rem;color:#94a3b8;text-align:center;">Tap any row to view hourly entries</div>`;
+
+        wrap.innerHTML = html;
+
+        window._rvOpenShift = function(planId, date, shift) {
+          _recentShiftDate = date;
+          _recentShiftName = shift;
+          _recentLevel = 3;
+          _rvL3(el('recent'), mach);
+        };
+      } catch (e) {
+        wrap.innerHTML = `<div class="err" style="padding:16px;">Error: ${safe(e.message)}</div>`;
+      }
+    }
+
+    /* ── LEVEL 3: Hourly entries for a shift ── */
+    async function _rvL3(wrap, mach) {
+      wrap.innerHTML = '<div style="padding:36px;text-align:center;color:var(--muted);"><i class="bi bi-arrow-repeat spin"></i> Loading entries…</div>';
+      const date  = _recentShiftDate;
+      const shift = _recentShiftName;
+      const job   = _recentJobData;
+      const curDate  = el('d-date').value;
+      const curShift = el('d-shift').value;
+      const isCur = (date===curDate && shift===curShift);
+      if (!job || !date || !shift) { _recentLevel=2; _rvL2(wrap,mach); return; }
+
+      try {
+        const res = await (await apiFetch(
+          `/api/dpr/recent?machine=${encodeURIComponent(mach)}&planId=${encodeURIComponent(job.plan_id)}&date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}&limit=50`
+        )).json();
+        if (!res||!res.ok) throw new Error((res&&res.error)||'Failed');
+
+        const rows = (res.data&&(Array.isArray(res.data)?res.data:res.data.rows))||[];
+        const dl   = date?date.split('-').reverse().join('-'):'—';
+        const icon = shift==='Day'?'☀️':'🌙';
+        const shiftTotal = rows.reduce((s,r)=>s+Number(r.GoodQty||0),0);
+
+        let html = `
+          <button onclick="window._rvBack()" style="background:none;border:none;color:#2563eb;font-size:0.8rem;font-weight:700;padding:6px 0 12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+            <i class="bi bi-arrow-left"></i> Back to Details
+          </button>
+          <div style="background:${isCur?'linear-gradient(135deg,#14532d,#16a34a)':'linear-gradient(135deg,#1e293b,#334155)'};border-radius:12px;padding:12px 14px;margin-bottom:12px;color:#fff;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <div style="font-size:0.62rem;color:rgba(255,255,255,0.6);margin-bottom:2px;">${safe(job.order_no)}</div>
+              <div style="font-weight:800;font-size:1rem;">${icon} ${safe(shift)} Shift</div>
+              <div style="font-size:0.72rem;color:rgba(255,255,255,0.7);margin-top:2px;">${dl}</div>
+            </div>
+            ${isCur?'<span style="font-size:0.68rem;font-weight:700;background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:20px;">● Current</span>':''}
+          </div>`;
+
+        if (rows.length) {
+          html += `<div style="background:#f0f9ff;border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:0.72rem;color:#0284c7;font-weight:700;">${icon} Shift Total</span>
+            <span style="font-size:1.1rem;font-weight:800;color:#0284c7;">${shiftTotal.toLocaleString()} <span style="font-size:0.65rem;font-weight:600;color:#94a3b8;">GOOD</span></span>
+          </div>`;
+
+          rows.forEach((r, i) => {
+            const dt  = new Date(r.DateTime);
+            const tm  = dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+            const { rejections, downtimes } = parseReasons(r.Remarks);
+            const canEdit = isCur && (i===0);
+            const sRem = (r.Remarks||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+            const rBk = r.RejectBreakup?JSON.stringify(r.RejectBreakup).replace(/"/g,'&quot;'):'{}';
+            const dBk = r.DowntimeBreakup?JSON.stringify(r.DowntimeBreakup).replace(/"/g,'&quot;'):'{}';
+
+            html += `
+              <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.04);">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+                  <div>
+                    <div style="font-weight:800;font-size:0.85rem;color:#1e293b;display:flex;align-items:center;gap:6px;">
+                      <span style="background:#0f172a;color:#fff;padding:1px 7px;border-radius:5px;font-size:0.7rem;">${safe(r.HourSlot)}</span>
+                      <span>${tm}</span>
+                      ${r.Colour?`<span style="font-size:0.63rem;color:#64748b;">${safe(r.Colour)}</span>`:''}
+                    </div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+                    ${canEdit?`<div style="display:flex;gap:6px;">
+                      <button style="padding:6px;border:1.5px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;cursor:pointer;" onclick="openEdit('${r.UniqueID}',${r.Shots},${r.RejectQty},${r.DowntimeMin},'${sRem}','${r.Colour||''}','${rBk}','${dBk}','${r.PlanID||''}','${r.OrderNo||''}','${r.MouldNo||''}')"><i class="bi bi-pencil" style="font-size:14px;"></i></button>
+                      <button style="padding:6px;border:1.5px solid #fecaca;border-radius:8px;background:#fff;color:#dc2626;cursor:pointer;" onclick="deleteEntry('${r.UniqueID}')"><i class="bi bi-trash" style="font-size:14px;"></i></button>
+                    </div>`:''}
+                    <div style="text-align:right;">
+                      <div style="font-weight:800;font-size:1.1rem;color:#16a34a;">${r.GoodQty} <span style="font-size:0.62rem;font-weight:600;color:#94a3b8;">GOOD</span></div>
+                      <div style="font-size:0.63rem;color:#94a3b8;">Shots:${r.Shots} Rej:${r.RejectQty}</div>
+                    </div>
+                  </div>
+                </div>
+                ${rejections.length||downtimes.length?`
+                  <div style="display:flex;flex-wrap:wrap;gap:5px;padding-top:7px;border-top:1px dashed #e2e8f0;margin-top:4px;">
+                    ${rejections.map(x=>`<span style="font-size:0.63rem;background:#fee2e2;color:#991b1b;border:1px solid #fecaca;padding:1px 6px;border-radius:20px;"><i class="bi bi-x-circle"></i> ${getRejName(x.reason)} (${x.qty})</span>`).join('')}
+                    ${downtimes.map(x=>`<span style="font-size:0.63rem;background:#fff7ed;color:#9a3412;border:1px solid #ffedd5;padding:1px 6px;border-radius:20px;"><i class="bi bi-clock-history"></i> ${getDtName(x.reason)} (${x.min}m)</span>`).join('')}
+                  </div>`:''}
+                ${r.OtherRemarks?`<div style="font-size:0.68rem;color:#64748b;margin-top:6px;font-style:italic;border-left:2px solid #e2e8f0;padding-left:8px;">"${safe(r.OtherRemarks)}"</div>`:''}
+              </div>`;
+          });
+        } else {
+          html += '<div style="padding:32px;text-align:center;color:#94a3b8;font-size:0.82rem;">No entries found for this shift.</div>';
+        }
+
+        wrap.innerHTML = html;
+      } catch (e) {
+        wrap.innerHTML = `<div class="err" style="padding:16px;">Error: ${safe(e.message)}</div>`;
+      }
+    }
+
+    /* ── Back navigation ── */
+    window._rvBack = function() {
+      const mach = session.machine;
+      if (_recentLevel === 3) { _recentLevel = 2; _rvL2(el('recent'), mach); }
+      else if (_recentLevel === 2) { _recentLevel = 1; _rvL1(el('recent'), mach); }
+    };
+
+    /* ── Status badge ── */
+    function _rvStatusInfo(status) {
+      const s = (status||'').toUpperCase();
+      if (s==='RUNNING')   return { label:'Running',   icon:'🟢', bg:'#dcfce7', color:'#15803d' };
+      if (s==='COMPLETED') return { label:'Completed', icon:'⚫', bg:'#f1f5f9', color:'#475569' };
+      return                      { label:'Planned',   icon:'🔵', bg:'#dbeafe', color:'#1d4ed8' };
+    }
+
+    /* ── Colour data parser ── */
+    function _rvParseColours(colourDetails, colourProduced, totalPlanQty) {
+      const planMap = {};
+      try {
+        const cd = typeof colourDetails==='string'?JSON.parse(colourDetails):(colourDetails||[]);
+        if (Array.isArray(cd)) cd.forEach(c=>{
+          const n=((c.colourName||c.itemColour||c.colour||c.color||c.name||'')).trim()||'Default';
+          planMap[n]=(planMap[n]||0)+Number(c.planQty??c.useQty??c.batchQty??c.qty??0);
+        });
+      } catch(_){}
+      const prodMap = {};
+      try {
+        const cp = typeof colourProduced==='string'?JSON.parse(colourProduced||'[]'):(colourProduced||[]);
+        if (Array.isArray(cp)) cp.forEach(c=>{ prodMap[c.colour||'Default']=(prodMap[c.colour||'Default']||0)+Number(c.produced||0); });
+      } catch(_){}
+      if (!Object.keys(planMap).length) planMap['Default']=totalPlanQty||0;
+      const all=new Set([...Object.keys(planMap),...Object.keys(prodMap)]);
+      return Array.from(all).map(colour=>({
+        colour,
+        planQty:planMap[colour]||0,
+        produced:prodMap[colour]||0,
+        bal:Math.max(0,(planMap[colour]||0)-(prodMap[colour]||0))
+      })).sort((a,b)=>a.colour.localeCompare(b.colour));
     }
 
     /* ==================== EDIT LOGIC (Detailed) ==================== */

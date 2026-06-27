@@ -1099,7 +1099,9 @@
             </label>
             <label>Colour
               <!-- Keep same ID, add color change hook -->
-              <select id="d-color" onchange="onColorChange()"></select>
+              <select id="d-color" onchange="onColorChange()">
+                <option value="">-- Select Colour --</option>
+              </select>
               <!-- NEW: Balance display under colour -->
               <div id="color-bal-display" class="muted"
                 style="font-size:12px;text-align:right;margin-top:2px;color:var(--accent)">
@@ -1179,8 +1181,7 @@
         <div class="inline" style="justify-content:space-between;margin-bottom:12px">
           <h2 style="margin:0; font-size: 1.1rem;">View Entries</h2>
           <div class="segmented-control" id="recent-filter-container">
-            <button class="active" onclick="toggleRecentFilter('job', this)">Job</button>
-            <button onclick="toggleRecentFilter('shift', this)">Shift</button>
+            <button class="active" onclick="toggleRecentFilter('active', this)">Active Jobs</button>
             <button onclick="toggleRecentFilter('all', this)">All Jobs</button>
           </div>
         </div>
@@ -1377,8 +1378,8 @@
     </div>
   </div>
 
-  <script src="/assets/supervisor-script-1.js?v=release63"></script>
-  <script src="/assets/register-sw.js?v=release63"></script>
+  <script src="/assets/supervisor-script-1.js?v=release66"></script>
+  <script src="/assets/register-sw.js?v=release65"></script>
 
 </body>
 

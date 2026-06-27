@@ -2333,7 +2333,7 @@
                   const isRun = (p.status || '').toUpperCase() === 'RUNNING';
                   const ct = Number(p.cycleTime || 120); const cav = Number(p.cavity || 1); const pcsHr = (ct > 0) ? (3600 / ct) * cav : 30;
                   const qty = Number(p.planQty || 0); const bal = Math.max(0, qty - Number(p.producedQty || 0));
-                  p.balQty = bal; const durMs = ((isRun ? bal : qty) * 3600 * 1000) / pcsHr;
+                  p.balQty = bal; const durMs = (bal * 3600 * 1000) / pcsHr; // always use BalQty
                   let start, end;
                   if (isRun) { start = p.firstDprEntry ? new Date(p.firstDprEntry).getTime() : (p.startDate ? new Date(p.startDate).getTime() : Date.now()); end = Date.now() + durMs; }
                   else { start = (i === 0) ? Date.now() : cursor; end = start + durMs; }
@@ -3147,6 +3147,7 @@
           window.cpOrderMoulds = [];
           cpSelectedMould = null;
           cpSelectedMachine = null;
+          window.cpLabourPlanType = null;
 
           const list = document.getElementById('cpOrderList');
           if (list) Array.from(list.children).forEach(c => applyCpOrderCardState(c, 'base'));
@@ -4198,8 +4199,11 @@
                       <button class="btn primary" type="button" onclick="window.selectCpMouldVariant(${index})">Select Mould</button>
                     </div>
                     <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
-                      <span class="tag" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe">Primary: ${esc(row.primary_machine || '-')}</span>
-                      <span class="tag" style="background:#fff7ed; color:#c2410c; border-color:#fed7aa">Secondary: ${esc(row.secondary_machine || '-')}</span>
+                      ${window.cpLabourPlanType === 'Labour Job' && cpSelectedMachine
+                        ? `<span class="tag" style="background:#fef3c7; color:#92400e; border-color:#fde68a"><i class="bi bi-people-fill"></i> Labour Job: ${esc(cpSelectedMachine.machine)}</span>`
+                        : `<span class="tag" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe">Primary: ${esc(row.primary_machine || '-')}</span>
+                           <span class="tag" style="background:#fff7ed; color:#c2410c; border-color:#fed7aa">Secondary: ${esc(row.secondary_machine || '-')}</span>`
+                      }
                       <span class="tag">Target ${esc(formatCpQty(group.targetPlanQty || 0))}</span>
                       <span class="tag">Planned ${esc(formatCpQty(group.adjustedPlannedQty || 0))}</span>
                       <span class="tag">Balance ${esc(formatCpBalanceOrPlanned(group.adjustedRemainingQty || 0))}</span>
@@ -4471,6 +4475,9 @@
         function closeCpColourPlanModal() {
           const modal = document.getElementById('cpColourPlanModal');
           if (modal) modal.remove();
+          // Reset Labour Job flag so the next "Select Mould" click (regular factory mould)
+          // doesn't mistakenly inherit the Labour Job machine that was previously selected.
+          window.cpLabourPlanType = null;
         }
         window.closeCpColourPlanModal = closeCpColourPlanModal;
 
@@ -4919,6 +4926,25 @@
 
         async function fetchCpMachinesForMould(mould) {
           const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          // Labour Job: machine already confirmed via Labour Job party modal — return it directly
+          // without calling the factory-machines API (which would return factory machines instead).
+          if (window.cpLabourPlanType === 'Labour Job' && cpSelectedMachine && cpSelectedMachine.machine) {
+            return {
+              machines: [{
+                machine: cpSelectedMachine.machine,
+                tonnage: cpSelectedMachine.tonnage || '-',
+                building: 'Labour Job',
+                line: 'Machines',
+                isFree: true,
+                currentStatus: 'AVAILABLE',
+                currentOrder: null,
+                preferenceRole: 'PRIMARY',
+                machine_process: 'Labour Job'
+              }],
+              mismatch: false,
+              requestedNames: ''
+            };
+          }
           if (getPlanningProcessFilter() === 'Moulding') {
             const params = new URLSearchParams();
             params.set('process', getPlanningProcessFilter());
@@ -5184,6 +5210,31 @@
               });
             }
             renderCpColourMachineCards(modal, colourRows);
+            // Labour Job: machine was already confirmed in the Labour Job party modal.
+            // Replace the "Select Machine" section entirely with a "confirmed" banner
+            // so the user is NOT asked to select a machine again.
+            if (window.cpLabourPlanType === 'Labour Job' && cpSelectedMachine && cpSelectedMachine.machine) {
+              const machineCardsEl = modal.querySelector('#cpColourMachineCards');
+              const machineSectionEl = machineCardsEl ? machineCardsEl.parentElement : null;
+              if (machineSectionEl) {
+                machineSectionEl.style.background = '#fefce8';
+                machineSectionEl.style.border = '1px solid #fde68a';
+                machineSectionEl.style.borderRadius = '14px';
+                machineSectionEl.style.padding = '12px 16px';
+                machineSectionEl.innerHTML = `
+                  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                    <span style="font-size:1.2rem">✅</span>
+                    <span style="font-weight:900;color:#92400e;font-size:0.92rem">Labour Job Machine Confirmed</span>
+                    <span style="background:#b45309;color:#fff;border-radius:999px;padding:3px 16px;font-weight:900;font-size:0.87rem">${esc(cpSelectedMachine.machine)}</span>
+                    <span style="color:#78350f;font-size:0.78rem">Machine already selected from Labour Job party — no further selection needed.</span>
+                  </div>
+                `;
+              }
+              // Pre-assign machine to all colour rows so Save Plan is immediately enabled
+              (Array.isArray(window.cpColourPlanRows) ? window.cpColourPlanRows : []).forEach((r) => {
+                r.selectedMachine = cpSelectedMachine.machine;
+              });
+            }
             recalcCpColourPlanModal();
 
             // P7: Pre-populate plan qty from batch qty when modal opens
@@ -5334,6 +5385,11 @@
                     ? `<button class="btn mini secondary" type="button" data-cp-action="undrop" style="color:#059669; border-color:#a7f3d0; background:#f0fdf4">Undrop</button>`
                     : `<button class="btn mini secondary" type="button" data-cp-action="drop" ${group.hasPlanned ? 'disabled' : ''} style="color:#dc2626">Drop</button>`
                   }
+                  <button class="btn mini secondary" type="button" data-cp-action="labour-job"
+                    style="background:#fef3c7; color:#92400e; border-color:#fde68a; font-size:0.75rem"
+                    ${blockReason ? 'disabled' : ''}>
+                    <i class="bi bi-people-fill"></i> Labour Job
+                  </button>
                   <button class="btn primary" type="button" data-cp-action="select" ${blockReason ? 'disabled' : ''}>${group.rows.length > 1 ? 'Open Selection' : 'Select Mould'}</button>
                 </div>
               </div>
@@ -5370,6 +5426,15 @@
               }
               selectCpMould(group.rows[0]);
             };
+
+            const labourJobBtn = row.querySelector('[data-cp-action="labour-job"]');
+            if (labourJobBtn) {
+              labourJobBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (blockReason) return toast(blockReason, 'error');
+                openLabourJobMouldModal(group);
+              };
+            }
 
             con.appendChild(row);
           });
@@ -5603,6 +5668,7 @@
                 consumptionRatioQty,
                 mouldItemQty: 0,
                 colourDetails: [],
+                planType: window.cpLabourPlanType || undefined,
                 startDate: new Date().toISOString()
               });
             }
@@ -5758,6 +5824,8 @@
                 if (a.orderNo !== b.orderNo) return String(a.orderNo || '').localeCompare(String(b.orderNo || ''));
                 return aSqn - bSqn;
               });
+              // Each item in queue may carry its own planType (e.g. 'Labour Job')
+              // Items without planType default to 'Moulding' on the server side.
               // If User has a valid selection pending that IS NOT in queue, ask?
               // For simplicity, just send Queue + Current (if valid)?
               // The user workflow: Select -> Add -> Select -> Add -> Create.
@@ -5823,7 +5891,8 @@
                 planQty: cpSelectedMould.plan_qty,
                 balQty: cpSelectedMould.plan_qty,
                 batchQty: getCpActiveBatchQty(),
-                startDate: new Date().toISOString()
+                startDate: new Date().toISOString(),
+                planType: window.cpLabourPlanType || (cpSelectedMachine?.machine_process === 'Labour Job' ? 'Labour Job' : 'Moulding')
               };
 
             const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : null;
@@ -5832,6 +5901,7 @@
 
             if (res && res.ok) {
               toast(hasColourPayloads ? `Created ${colourPayloads.length} colour-wise plan row(s)!` : 'Plan created successfully!', 'success');
+              window.cpLabourPlanType = null; // Reset Labour Job flag
               closeModal('newCreatePlanModal');
               loadMasterPlan();
             } else {
@@ -5847,6 +5917,107 @@
             }
           }
         }
+
+        // ---- Labour Job Mould Modal ----
+        let _cpLabourJobGroup = null;
+
+        async function openLabourJobMouldModal(group) {
+          const activeBatchQty = getCpActiveBatchQty();
+          if (activeBatchQty <= 0) return toast('Enter Job Qty first before selecting Labour Job.', 'error');
+          _cpLabourJobGroup = group;
+
+          // Build modal if not already in DOM
+          let modal = document.getElementById('cpLabourJobModal');
+          if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'cpLabourJobModal';
+            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+            modal.innerHTML = `
+              <div style="background:#fff;padding:24px;border-radius:12px;width:400px;max-width:92%;border-top:4px solid #b45309">
+                <div style="font-weight:800;color:#92400e;font-size:1rem;margin-bottom:16px"><i class="bi bi-people-fill"></i> Labour Job — <span id="cpLjMouldName"></span></div>
+                <div style="margin-bottom:14px">
+                  <label style="font-weight:700;font-size:0.82rem;display:block;margin-bottom:5px">Select Party</label>
+                  <select id="cpLjPartySelect" style="width:100%;padding:8px;border:1px solid #fde68a;border-radius:6px;background:#fffbeb;font-size:0.82rem">
+                    <option value="">Loading parties...</option>
+                  </select>
+                </div>
+                <div style="margin-bottom:16px">
+                  <label style="font-weight:700;font-size:0.82rem;display:block;margin-bottom:5px">Select Machine</label>
+                  <div id="cpLjMachineList" style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto;padding:4px 0">
+                    <div style="color:#94a3b8;font-size:0.8rem">Select a party first</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:10px;justify-content:flex-end">
+                  <button id="cpLjCancelBtn" style="padding:8px 16px;border:1px solid #e2e8f0;background:#fff;border-radius:6px;cursor:pointer;font-size:0.82rem">Cancel</button>
+                  <button id="cpLjConfirmBtn" style="padding:8px 20px;background:#b45309;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:0.82rem">Confirm</button>
+                </div>
+              </div>
+            `;
+            document.body.appendChild(modal);
+
+            document.getElementById('cpLjCancelBtn').onclick = () => { modal.style.display = 'none'; };
+            document.getElementById('cpLjPartySelect').onchange = async (e) => {
+              const partyId = e.target.value;
+              const machList = document.getElementById('cpLjMachineList');
+              if (!partyId) { machList.innerHTML = '<div style="color:#94a3b8;font-size:0.8rem">Select a party first</div>'; return; }
+              machList.innerHTML = '<div style="color:#94a3b8;font-size:0.8rem">Loading...</div>';
+              try {
+                const api = window.JPSMS?.api;
+                const res = await api.get(`/labour-parties/${partyId}/machines`);
+                const machines = res.data || [];
+                if (!machines.length) { machList.innerHTML = '<div style="color:#dc2626;font-size:0.8rem">No machines assigned to this party</div>'; return; }
+                machList.innerHTML = machines.map((m, i) => `
+                  <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;font-size:0.82rem;background:#fff">
+                    <input type="radio" name="cpLjMachine" value="${esc(m.machine)}" data-tonnage="${esc(m.tonnage||'')}" ${i===0?'checked':''}>
+                    <span style="font-weight:700">${esc(m.machine)}</span>
+                    ${m.tonnage ? `<span style="color:#64748b;font-size:0.72rem">${esc(m.tonnage)}T</span>` : ''}
+                  </label>
+                `).join('');
+              } catch(err) { machList.innerHTML = `<div style="color:#dc2626;font-size:0.8rem">Error: ${esc(err.message)}</div>`; }
+            };
+            document.getElementById('cpLjConfirmBtn').onclick = () => {
+              const checkedMach = document.querySelector('input[name="cpLjMachine"]:checked');
+              if (!checkedMach) return toast('Select a machine for Labour Job', 'error');
+              const machineName = checkedMach.value;
+              const grp = _cpLabourJobGroup;
+              if (!grp) { modal.style.display = 'none'; return; }
+              // Auto-select mould (first row if single, otherwise open chooser)
+              window.cpLabourPlanType = 'Labour Job';
+              // Override cpSelectedMachine to the Labour Job machine
+              cpSelectedMachine = { machine: machineName, machine_process: 'Labour Job' };
+              modal.style.display = 'none';
+              if (grp.rows.length > 1) {
+                openCpMouldChooser(grp);
+              } else {
+                selectCpMould(grp.rows[0]);
+              }
+            };
+          }
+
+          // Show modal
+          modal.style.display = 'flex';
+          document.getElementById('cpLjMouldName').textContent = group.displayName || 'Mould';
+
+          // Load parties
+          const partySelect = document.getElementById('cpLjPartySelect');
+          partySelect.innerHTML = '<option value="">Loading...</option>';
+          document.getElementById('cpLjMachineList').innerHTML = '<div style="color:#94a3b8;font-size:0.8rem">Select a party first</div>';
+          try {
+            const api = window.JPSMS?.api;
+            const res = await api.get('/labour-parties');
+            const parties = (res.data || []).filter(p => p.is_active);
+            if (!parties.length) {
+              partySelect.innerHTML = '<option value="">No active parties found</option>';
+            } else {
+              partySelect.innerHTML = '<option value="">— Select Party —</option>' +
+                parties.map(p => `<option value="${p.id}">${esc(p.party_name)}</option>`).join('');
+            }
+          } catch(err) {
+            partySelect.innerHTML = `<option value="">Error loading parties</option>`;
+          }
+        }
+        window.openLabourJobMouldModal = openLabourJobMouldModal;
+        // ---- End Labour Job Mould Modal ----
 
         async function selectCpMould(mould) {
           const activeBatchQty = getCpActiveBatchQty();
@@ -6674,8 +6845,8 @@
                 const bal = Math.max(0, qty - produced);
                 p.balQty = bal; // Override static value for display consistency
 
-                // Work Qty
-                const workQty = (isRunning || bal < qty) ? bal : qty;
+                // Work Qty — always use BalQty so End Date reflects remaining work
+                const workQty = bal;
 
                 let durationMs = 0;
                 if (workQty > 0) {
@@ -6743,6 +6914,19 @@
           }
         }
         window.loadMasterPlan = loadMasterPlan;
+
+        // ── 30-second live refresh of whichever timeline view is visible ──
+        setInterval(() => {
+          const masterView = document.getElementById('masterView');
+          const timelineView = document.getElementById('timelineView');
+          const excelTimelineView = document.getElementById('excelTimelineView');
+          const masterVisible = masterView && masterView.style.display !== 'none';
+          const timelineVisible = timelineView && timelineView.style.display !== 'none';
+          const excelVisible = excelTimelineView && excelTimelineView.style.display !== 'none';
+          if (masterVisible) { loadMasterPlan(); }
+          else if (excelVisible && typeof window.loadExcelTimeline === 'function') { window.loadExcelTimeline(); }
+          else if (timelineVisible && typeof window.superLoadTimeline === 'function') { window.superLoadTimeline(); }
+        }, 30000);
 
         function renderMasterTable(list) {
           const NOW = new Date();
@@ -7021,11 +7205,96 @@
                <div class="master-badge-lane"><span class="${perfClass} master-stat-pill" title="Efficiency: ${perfPct}%">${perfPct}%</span></div>
                 
                <div class="master-badge-lane"><span class="${sClass} master-stat-pill">${esc(p.status || 'Pending')}</span></div>
-               <div class="master-actions">${actionHtml}</div>
+               <div class="master-actions">${actionHtml}
+                 <button class="btn icon mini master-action-btn" title="Colour-wise completion"
+                   onclick="event.stopPropagation(); window.toggleColourDetail('${p.id}', this)"
+                   style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; border-radius:6px; padding:3px 7px; cursor:pointer; font-size:0.7rem; white-space:nowrap">
+                   <i class="bi bi-palette"></i> Colours
+                 </button>
+               </div>
             `;
             tbody.appendChild(row);
+
+            // Colour detail sub-row (hidden by default)
+            const colourDetailRow = document.createElement('div');
+            colourDetailRow.id = `colour-detail-${p.id}`;
+            colourDetailRow.style.cssText = 'display:none; grid-column:1/-1; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:0 0 8px 8px; padding:12px 16px; margin-top:-4px';
+            colourDetailRow.innerHTML = '<span style="color:#94a3b8; font-size:0.8rem">Loading...</span>';
+            tbody.appendChild(colourDetailRow);
           });
         }
+
+        // Toggle colour-wise detail expand under a Master Plan row
+        window.toggleColourDetail = async function(planId, btn) {
+          const row = document.getElementById('colour-detail-' + planId);
+          if (!row) return;
+          const isOpen = row.style.display !== 'none';
+          if (isOpen) {
+            row.style.display = 'none';
+            if (btn) btn.style.background = '#f0fdf4';
+            return;
+          }
+          row.style.display = 'block';
+          if (btn) btn.style.background = '#bbf7d0';
+          row.innerHTML = '<span style="color:#94a3b8; font-size:0.8rem">⏳ Loading colour data...</span>';
+          try {
+            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+            const res = await api.get(`/planning/colour-wise-completion?planId=${encodeURIComponent(planId)}`);
+            if (!res.ok || !res.data || !res.data.length) {
+              row.innerHTML = '<span style="color:#94a3b8; font-size:0.8rem">No colour breakdown available for this plan.</span>';
+              return;
+            }
+            const rows = res.data;
+            const totalPlan = rows.reduce((s, r) => s + (r.planQty || 0), 0);
+            const totalProd = rows.reduce((s, r) => s + (r.producedQty || 0), 0);
+            const totalBal = rows.reduce((s, r) => s + (r.balQty || 0), 0);
+            const colourRows = rows.map(r => {
+              const pct = r.pct || 0;
+              const barColor = pct >= 100 ? '#16a34a' : pct >= 50 ? '#d97706' : '#dc2626';
+              return `<tr>
+                <td style="padding:4px 10px; font-weight:600; font-size:0.82rem">${r.colour || '-'}</td>
+                <td style="padding:4px 10px; text-align:right">${(r.planQty||0).toLocaleString()}</td>
+                <td style="padding:4px 10px; text-align:right; color:#16a34a; font-weight:700">${(r.producedQty||0).toLocaleString()}</td>
+                <td style="padding:4px 10px; text-align:right; color:${r.balQty > 0 ? '#dc2626' : '#16a34a'}">${(r.balQty||0).toLocaleString()}</td>
+                <td style="padding:4px 10px">
+                  <div style="display:flex; align-items:center; gap:6px">
+                    <div style="flex:1; height:6px; background:#e2e8f0; border-radius:3px; overflow:hidden">
+                      <div style="width:${Math.min(100,pct)}%; height:100%; background:${barColor}; border-radius:3px"></div>
+                    </div>
+                    <span style="font-size:0.75rem; font-weight:700; color:${barColor}; min-width:32px">${pct}%</span>
+                  </div>
+                </td>
+              </tr>`;
+            }).join('');
+            row.innerHTML = `
+              <div style="font-size:0.78rem; font-weight:700; color:#166534; margin-bottom:8px">
+                🎨 Colour-Wise Completion — Plan #${planId}
+              </div>
+              <table style="width:100%; border-collapse:collapse; font-size:0.8rem">
+                <thead>
+                  <tr style="background:#dcfce7">
+                    <th style="padding:4px 10px; text-align:left; font-weight:700; color:#166534">Colour</th>
+                    <th style="padding:4px 10px; text-align:right; color:#166534">Plan Qty</th>
+                    <th style="padding:4px 10px; text-align:right; color:#166534">Produced</th>
+                    <th style="padding:4px 10px; text-align:right; color:#166534">Balance</th>
+                    <th style="padding:4px 10px; color:#166534">Progress</th>
+                  </tr>
+                </thead>
+                <tbody>${colourRows}</tbody>
+                <tfoot>
+                  <tr style="border-top:2px solid #bbf7d0; font-weight:700">
+                    <td style="padding:4px 10px">Total</td>
+                    <td style="padding:4px 10px; text-align:right">${totalPlan.toLocaleString()}</td>
+                    <td style="padding:4px 10px; text-align:right; color:#16a34a">${totalProd.toLocaleString()}</td>
+                    <td style="padding:4px 10px; text-align:right; color:${totalBal > 0 ? '#dc2626' : '#16a34a'}">${totalBal.toLocaleString()}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>`;
+          } catch (e) {
+            row.innerHTML = `<span style="color:#dc2626; font-size:0.8rem">Error loading colour data: ${e.message}</span>`;
+          }
+        };
 
         function filterMasterPlan() {
           const b = '';
@@ -8337,7 +8606,11 @@
                 <div><b>${esc(r.order_no || '-')}</b><br><span class="muted">${esc(r.product_name || '')}</span>${pendingAge ? `<br><span title="${esc(pendingSince)}" style="font-size:.7rem; ${ageTone}"><i class="bi bi-clock"></i> ${esc(pendingAge)}</span>` : ''}</div>
                 <div><b>${esc(r.client_name || '-')}</b><br><span class="muted">Client</span></div>
                 <div><b>${esc(r.our_code || '-')}</b><br><span class="muted">${esc(r.plan_id || '-')} / Job Plan ${esc(r.batch_no || '-')}</span></div>
-                <div><b>${esc(r.mould_name || r.mould_code || '-')}</b><br><span class="muted">${esc(r.machine || '-')}</span></div>
+                <div>
+                  <b>${esc(r.mould_name || r.mould_code || '-')}</b><br>
+                  <span class="muted">${esc(r.machine || '-')}</span>
+                  ${r.plan_type === 'Labour Job' ? `<br><span style="background:#fef9c3;color:#b45309;border:1px solid #fde68a;border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:800;display:inline-block;margin-top:3px"><i class="bi bi-people-fill"></i> LABOUR JOB</span>` : ''}
+                </div>
                 <div>
                   ${linked
                     ? `<b>${esc(r.job_card_no)}</b><br><span class="muted">${esc(jcDate)}</span>`

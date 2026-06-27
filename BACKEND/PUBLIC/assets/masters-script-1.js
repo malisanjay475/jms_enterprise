@@ -4,7 +4,8 @@
     let mouldMode = 'edit';
     const mouldFields = [
       'mould_number', 'mould_name', 'std_wt_kg', 'runner_weight',
-      'primary_machine', 'secondary_machine', 'moulding_sqn', 'consumption_ratio_qty', 'tonnage', 'no_of_cav', 'cycle_time', 'pcs_per_hour',
+      'primary_machine', 'secondary_machine', 'labour_job_machine',
+      'moulding_sqn', 'consumption_ratio_qty', 'tonnage', 'no_of_cav', 'cycle_time', 'pcs_per_hour',
       'target_pcs_day', 'material', 'manpower', 'operator_activities', 'sfg_std_packing', 'sfg_bag_type', 'sfg_bag_size',
       'std_volume_cap'
     ];
@@ -15,6 +16,7 @@
       runner_weight: 'RUNNER WEIGHT',
       primary_machine: 'PRIMARY MACHINE',
       secondary_machine: 'SECONDARY MACHINE',
+      labour_job_machine: 'LABOUR JOB MACHINE',
       moulding_sqn: 'MOULDING SQN.',
       consumption_ratio_qty: 'CONSUMPTION RATIO(QTY)',
       tonnage: 'TONNAGE',
@@ -156,6 +158,7 @@
       if (['moulding', 'molding'].includes(normalized)) return 'Moulding';
       if (['tuffting', 'tufting', 'tuf', 'tuft'].includes(normalized)) return 'Tuffting';
       if (['printing', 'print'].includes(normalized)) return 'Printing';
+      if (['labourjob', 'laborjob', 'labour', 'labor'].includes(normalized)) return 'Labour Job';
       return fallback;
     }
 
@@ -180,6 +183,7 @@
       const normalizedProcess = normalizeMachineProcessValue(processValue, 'Moulding');
       const standardFields = document.getElementById('machineStandardFields');
       const printingFields = document.getElementById('machinePrintingFields');
+      const labourFields = document.getElementById('machineLabourFields');
       const machineLabel = document.getElementById('m_machine_label');
       const machineInput = document.getElementById('m_machine');
 
@@ -187,8 +191,40 @@
       if (machineInput) {
         machineInput.placeholder = normalizedProcess === 'Printing' ? 'Enter machine number' : 'Enter machine name';
       }
-      if (standardFields) standardFields.style.display = normalizedProcess === 'Printing' ? 'none' : 'block';
+      // Labour Job hides both standard and printing fields
+      if (standardFields) standardFields.style.display = (normalizedProcess === 'Printing' || normalizedProcess === 'Labour Job') ? 'none' : 'block';
       if (printingFields) printingFields.style.display = normalizedProcess === 'Printing' ? 'block' : 'none';
+      if (labourFields) {
+        if (normalizedProcess === 'Labour Job') {
+          labourFields.style.display = 'block';
+          // Populate party dropdown if empty
+          const partySelect = document.getElementById('m_labour_party_id');
+          if (partySelect && partySelect.options.length <= 1) {
+            JPSMS.api.get('/labour-parties').then(res => {
+              if (res.ok) {
+                (res.data || []).forEach(p => {
+                  const opt = document.createElement('option');
+                  opt.value = p.id;
+                  opt.textContent = p.party_name;
+                  partySelect.appendChild(opt);
+                });
+              }
+            }).catch(() => {});
+          }
+          // Populate factory dropdown from allowedFactories global
+          const factorySelect = document.getElementById('m_lj_factory_id');
+          if (factorySelect && factorySelect.options.length <= 1 && window.allowedFactories && window.allowedFactories.length) {
+            window.allowedFactories.forEach(f => {
+              const opt = document.createElement('option');
+              opt.value = f.id;
+              opt.textContent = f.name || f.code || `Factory ${f.id}`;
+              factorySelect.appendChild(opt);
+            });
+          }
+        } else {
+          labourFields.style.display = 'none';
+        }
+      }
     }
 
     function openMouldModal(mode, data) {
@@ -213,6 +249,20 @@
         document.getElementById('mould_mould_number').readOnly = false;
       }
       loadMachineList();
+      loadLabourJobMachineList();
+    }
+
+    async function loadLabourJobMachineList() {
+      const list = document.getElementById('labourJobMachineList');
+      if (!list || list.children.length > 0) return;
+      try {
+        const res = await JPSMS.api.get('/masters/machines?process=Labour Job');
+        if (res.ok) {
+          list.innerHTML = (res.data || []).map(m => `<option value="${m.machine}">`).join('');
+        }
+      } catch (e) {
+        console.error('loadLabourJobMachineList', e);
+      }
     }
 
     async function loadMachineList() {
