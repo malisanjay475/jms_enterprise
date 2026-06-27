@@ -209,7 +209,7 @@
           // Unless it's an expanded view (Admin or Quick Action)
           // Last shift is always shifts[0]
           // Bypass this limit for backfill entries (user explicitly chose yesterday)
-          if (!s.isBackfill && !showAllLastShiftSlots && shiftIdx === 0 && slot !== '06-07') return;
+          if (!s.isBackfill && !showAllLastShiftSlots && shiftIdx === 0) return;
           // 1. Calculate Real End Time for this slot
           // Slot format "08-09", "12-01", etc.
           // Map to 24h based on Shift
