@@ -9955,6 +9955,39 @@ app.post('/api/planning/create', async (req, res) => {
         }
       }
 
+      // ── DUPLICATE GUARD ──────────────────────────────────────────────
+      // Block creation if an active (non-completed, non-deleted) plan
+      // already exists for the same order_no + mould_code/mould_name.
+      if (p.orderNo && (p.mouldCode || p.mouldName)) {
+        const dupCheck = await client.query(
+          `SELECT plan_id, status, machine
+             FROM plan_board
+            WHERE TRIM(COALESCE(order_no,'')) ILIKE TRIM($1)
+              AND (
+                    TRIM(COALESCE(mould_code,'')) ILIKE TRIM($2)
+                 OR TRIM(COALESCE(mould_name,'')) ILIKE TRIM($3)
+              )
+              AND COALESCE(is_deleted, false) = false
+              AND status NOT IN ('COMPLETED','CANCELLED')
+              AND ($4::int IS NULL OR factory_id = $4)
+            LIMIT 3`,
+          [
+            p.orderNo,
+            p.mouldCode || '',
+            p.mouldName || '',
+            requestFactoryId ?? null
+          ]
+        );
+        if (dupCheck.rows.length > 0) {
+          const existing = dupCheck.rows.map(r => `${r.plan_id} (${r.status} on ${r.machine})`).join(', ');
+          throw new Error(
+            `Duplicate plan blocked: An active plan already exists for order "${p.orderNo}" with mould "${p.mouldName || p.mouldCode}". ` +
+            `Existing: ${existing}. Complete or cancel it before creating a new one.`
+          );
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────
+
       const planType = ['Moulding', 'Printing', 'Tuffting', 'Labour Job'].includes(p.planType) ? p.planType : 'Moulding';
       const ins = await client.query(
         `
