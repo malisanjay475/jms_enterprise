@@ -6137,19 +6137,20 @@
           // ---------------------------------------------------------
 
           cpSelectedMould = mould;
-          cpSelectedMachine = null;
+          // Preserve Labour Job machine — it was already selected in the Labour Job party modal
+          if (window.cpLabourPlanType !== 'Labour Job') cpSelectedMachine = null;
           renderCpSelectedMouldSummary(mould);
 
           // Enable Add Button
           const addBtn = document.getElementById('cpAddBtn');
           if (addBtn) {
-            addBtn.disabled = true; // Wait for machine
+            addBtn.disabled = window.cpLabourPlanType !== 'Labour Job'; // Labour Job already has machine
             addBtn.onclick = addToQueue;
           }
 
           // RESET BUTTON STATE (Fix for Bug)
           if (saveBtn) {
-            saveBtn.disabled = true;
+            saveBtn.disabled = window.cpLabourPlanType !== 'Labour Job';
             saveBtn.innerHTML = '<i class="bi bi-check2-circle"></i> Create Plan';
             saveBtn.className = 'btn primary';
             saveBtn.style.background = ''; // Revert style
