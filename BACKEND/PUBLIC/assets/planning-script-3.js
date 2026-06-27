@@ -6915,19 +6915,6 @@
         }
         window.loadMasterPlan = loadMasterPlan;
 
-        // ── 30-second live refresh of whichever timeline view is visible ──
-        setInterval(() => {
-          const masterView = document.getElementById('masterView');
-          const timelineView = document.getElementById('timelineView');
-          const excelTimelineView = document.getElementById('excelTimelineView');
-          const masterVisible = masterView && masterView.style.display !== 'none';
-          const timelineVisible = timelineView && timelineView.style.display !== 'none';
-          const excelVisible = excelTimelineView && excelTimelineView.style.display !== 'none';
-          if (masterVisible) { loadMasterPlan(); }
-          else if (excelVisible && typeof window.loadExcelTimeline === 'function') { window.loadExcelTimeline(); }
-          else if (timelineVisible && typeof window.superLoadTimeline === 'function') { window.superLoadTimeline(); }
-        }, 30000);
-
         function renderMasterTable(list) {
           const NOW = new Date();
           const tbody = document.getElementById('masterTableBody');
