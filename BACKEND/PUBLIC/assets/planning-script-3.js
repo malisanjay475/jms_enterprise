@@ -2333,7 +2333,7 @@
                   const isRun = (p.status || '').toUpperCase() === 'RUNNING';
                   const ct = Number(p.cycleTime || 120); const cav = Number(p.cavity || 1); const pcsHr = (ct > 0) ? (3600 / ct) * cav : 30;
                   const qty = Number(p.planQty || 0); const bal = Math.max(0, qty - Number(p.producedQty || 0));
-                  p.balQty = bal; const durMs = ((isRun ? bal : qty) * 3600 * 1000) / pcsHr;
+                  p.balQty = bal; const durMs = (bal * 3600 * 1000) / pcsHr; // always use BalQty
                   let start, end;
                   if (isRun) { start = p.firstDprEntry ? new Date(p.firstDprEntry).getTime() : (p.startDate ? new Date(p.startDate).getTime() : Date.now()); end = Date.now() + durMs; }
                   else { start = (i === 0) ? Date.now() : cursor; end = start + durMs; }
@@ -6845,8 +6845,8 @@
                 const bal = Math.max(0, qty - produced);
                 p.balQty = bal; // Override static value for display consistency
 
-                // Work Qty
-                const workQty = (isRunning || bal < qty) ? bal : qty;
+                // Work Qty — always use BalQty so End Date reflects remaining work
+                const workQty = bal;
 
                 let durationMs = 0;
                 if (workQty > 0) {
@@ -6914,6 +6914,19 @@
           }
         }
         window.loadMasterPlan = loadMasterPlan;
+
+        // ── 30-second live refresh of whichever timeline view is visible ──
+        setInterval(() => {
+          const masterView = document.getElementById('masterView');
+          const timelineView = document.getElementById('timelineView');
+          const excelTimelineView = document.getElementById('excelTimelineView');
+          const masterVisible = masterView && masterView.style.display !== 'none';
+          const timelineVisible = timelineView && timelineView.style.display !== 'none';
+          const excelVisible = excelTimelineView && excelTimelineView.style.display !== 'none';
+          if (masterVisible) { loadMasterPlan(); }
+          else if (excelVisible && typeof window.loadExcelTimeline === 'function') { window.loadExcelTimeline(); }
+          else if (timelineVisible && typeof window.superLoadTimeline === 'function') { window.superLoadTimeline(); }
+        }, 30000);
 
         function renderMasterTable(list) {
           const NOW = new Date();
@@ -7192,11 +7205,96 @@
                <div class="master-badge-lane"><span class="${perfClass} master-stat-pill" title="Efficiency: ${perfPct}%">${perfPct}%</span></div>
                 
                <div class="master-badge-lane"><span class="${sClass} master-stat-pill">${esc(p.status || 'Pending')}</span></div>
-               <div class="master-actions">${actionHtml}</div>
+               <div class="master-actions">${actionHtml}
+                 <button class="btn icon mini master-action-btn" title="Colour-wise completion"
+                   onclick="event.stopPropagation(); window.toggleColourDetail('${p.id}', this)"
+                   style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; border-radius:6px; padding:3px 7px; cursor:pointer; font-size:0.7rem; white-space:nowrap">
+                   <i class="bi bi-palette"></i> Colours
+                 </button>
+               </div>
             `;
             tbody.appendChild(row);
+
+            // Colour detail sub-row (hidden by default)
+            const colourDetailRow = document.createElement('div');
+            colourDetailRow.id = `colour-detail-${p.id}`;
+            colourDetailRow.style.cssText = 'display:none; grid-column:1/-1; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:0 0 8px 8px; padding:12px 16px; margin-top:-4px';
+            colourDetailRow.innerHTML = '<span style="color:#94a3b8; font-size:0.8rem">Loading...</span>';
+            tbody.appendChild(colourDetailRow);
           });
         }
+
+        // Toggle colour-wise detail expand under a Master Plan row
+        window.toggleColourDetail = async function(planId, btn) {
+          const row = document.getElementById('colour-detail-' + planId);
+          if (!row) return;
+          const isOpen = row.style.display !== 'none';
+          if (isOpen) {
+            row.style.display = 'none';
+            if (btn) btn.style.background = '#f0fdf4';
+            return;
+          }
+          row.style.display = 'block';
+          if (btn) btn.style.background = '#bbf7d0';
+          row.innerHTML = '<span style="color:#94a3b8; font-size:0.8rem">⏳ Loading colour data...</span>';
+          try {
+            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+            const res = await api.get(`/planning/colour-wise-completion?planId=${encodeURIComponent(planId)}`);
+            if (!res.ok || !res.data || !res.data.length) {
+              row.innerHTML = '<span style="color:#94a3b8; font-size:0.8rem">No colour breakdown available for this plan.</span>';
+              return;
+            }
+            const rows = res.data;
+            const totalPlan = rows.reduce((s, r) => s + (r.planQty || 0), 0);
+            const totalProd = rows.reduce((s, r) => s + (r.producedQty || 0), 0);
+            const totalBal = rows.reduce((s, r) => s + (r.balQty || 0), 0);
+            const colourRows = rows.map(r => {
+              const pct = r.pct || 0;
+              const barColor = pct >= 100 ? '#16a34a' : pct >= 50 ? '#d97706' : '#dc2626';
+              return `<tr>
+                <td style="padding:4px 10px; font-weight:600; font-size:0.82rem">${r.colour || '-'}</td>
+                <td style="padding:4px 10px; text-align:right">${(r.planQty||0).toLocaleString()}</td>
+                <td style="padding:4px 10px; text-align:right; color:#16a34a; font-weight:700">${(r.producedQty||0).toLocaleString()}</td>
+                <td style="padding:4px 10px; text-align:right; color:${r.balQty > 0 ? '#dc2626' : '#16a34a'}">${(r.balQty||0).toLocaleString()}</td>
+                <td style="padding:4px 10px">
+                  <div style="display:flex; align-items:center; gap:6px">
+                    <div style="flex:1; height:6px; background:#e2e8f0; border-radius:3px; overflow:hidden">
+                      <div style="width:${Math.min(100,pct)}%; height:100%; background:${barColor}; border-radius:3px"></div>
+                    </div>
+                    <span style="font-size:0.75rem; font-weight:700; color:${barColor}; min-width:32px">${pct}%</span>
+                  </div>
+                </td>
+              </tr>`;
+            }).join('');
+            row.innerHTML = `
+              <div style="font-size:0.78rem; font-weight:700; color:#166534; margin-bottom:8px">
+                🎨 Colour-Wise Completion — Plan #${planId}
+              </div>
+              <table style="width:100%; border-collapse:collapse; font-size:0.8rem">
+                <thead>
+                  <tr style="background:#dcfce7">
+                    <th style="padding:4px 10px; text-align:left; font-weight:700; color:#166534">Colour</th>
+                    <th style="padding:4px 10px; text-align:right; color:#166534">Plan Qty</th>
+                    <th style="padding:4px 10px; text-align:right; color:#166534">Produced</th>
+                    <th style="padding:4px 10px; text-align:right; color:#166534">Balance</th>
+                    <th style="padding:4px 10px; color:#166534">Progress</th>
+                  </tr>
+                </thead>
+                <tbody>${colourRows}</tbody>
+                <tfoot>
+                  <tr style="border-top:2px solid #bbf7d0; font-weight:700">
+                    <td style="padding:4px 10px">Total</td>
+                    <td style="padding:4px 10px; text-align:right">${totalPlan.toLocaleString()}</td>
+                    <td style="padding:4px 10px; text-align:right; color:#16a34a">${totalProd.toLocaleString()}</td>
+                    <td style="padding:4px 10px; text-align:right; color:${totalBal > 0 ? '#dc2626' : '#16a34a'}">${totalBal.toLocaleString()}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>`;
+          } catch (e) {
+            row.innerHTML = `<span style="color:#dc2626; font-size:0.8rem">Error loading colour data: ${e.message}</span>`;
+          }
+        };
 
         function filterMasterPlan() {
           const b = '';
