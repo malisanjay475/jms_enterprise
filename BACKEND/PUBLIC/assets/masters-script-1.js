@@ -256,9 +256,15 @@
       const list = document.getElementById('labourJobMachineList');
       if (!list || list.children.length > 0) return;
       try {
-        const res = await JPSMS.api.get('/masters/machines?process=Labour Job');
+        const res = await JPSMS.api.get('/labour-parties');
         if (res.ok) {
-          list.innerHTML = (res.data || []).map(m => `<option value="${m.machine}">`).join('');
+          const parties = res.data || [];
+          const seen = new Set();
+          const opts = [];
+          parties.forEach(p => (p.machines || []).forEach(m => {
+            if (m.machine && !seen.has(m.machine)) { seen.add(m.machine); opts.push(m.machine); }
+          }));
+          list.innerHTML = opts.map(m => `<option value="${m}">`).join('');
         }
       } catch (e) {
         console.error('loadLabourJobMachineList', e);
