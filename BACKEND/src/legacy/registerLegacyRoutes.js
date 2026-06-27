@@ -4979,6 +4979,9 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_machine_priority ON plan_board(machine, machine_priority) WHERE machine_priority IS NOT NULL`);
 
+    // Soft-delete support for plan_board (used by colour-wise-completion and other plan queries)
+    await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false`);
+
     // NOTE: the legacy single-column unique idx_or_jr_report_unique_no on or_jr_no is
     // intentionally NOT created here. It is harmful — one OR/JR can have many job cards,
     // so a unique on or_jr_no alone makes the second job-card row fail and get skipped.
