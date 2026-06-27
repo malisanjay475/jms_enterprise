@@ -1416,6 +1416,7 @@
       panel.style.display = isOpen ? 'none' : 'flex';
       if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(180deg)';
     }
+    window.toggleColorPickerPanel = toggleColorPickerPanel;
 
     function closeColorPickerPanel() {
       const panel = el('color-picker-panel');
