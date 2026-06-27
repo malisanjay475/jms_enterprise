@@ -17976,6 +17976,29 @@ TRIM(data ->> 'or_jr_no') = $1 AND
   }
 });
 
+// 3b. DELETE OR/JR Wise Detail rows by OR/JR No
+app.post('/api/masters/orjrwisedetail/delete-by-orjr', async (req, res) => {
+  try {
+    const writeContext = await getWritableFactoryContext(req, 'delete OR/JR Wise Detail');
+    if (!writeContext.ok) return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
+    const factoryId = writeContext.factoryId;
+
+    const { or_jr_no } = req.body;
+    if (!or_jr_no || !or_jr_no.trim()) return res.status(400).json({ ok: false, error: 'or_jr_no is required' });
+
+    const result = await q(
+      `DELETE FROM mould_planning_report
+       WHERE TRIM(COALESCE(or_jr_no, '')) ILIKE TRIM($1)
+         AND ($2::int IS NULL OR factory_id = $2)`,
+      [or_jr_no.trim(), factoryId]
+    );
+    const deleted = result.rowCount ?? (Array.isArray(result) ? result.length : 0);
+    res.json({ ok: true, deleted, message: `Deleted ${deleted} row(s) for OR/JR No: ${or_jr_no}` });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // 4. CLEAR DATA (Superadmin Only)
 app.post('/api/admin/clear-data', async (req, res) => {
   try {
