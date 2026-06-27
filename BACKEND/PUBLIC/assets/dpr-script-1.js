@@ -1079,8 +1079,8 @@
                         }
 
                         // Standard Slots (12 cols)
-                        // Standard Slots (12 cols) - Shift starts 08:00
-                        const slots = ['08-09', '09-10', '10-11', '11-12', '12-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07', '07-08'];
+                        // Standard Slots (12 cols) - Shift starts 07:00
+                        const slots = ['07-08', '08-09', '09-10', '10-11', '11-12', '12-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07'];
 
                         // Map shift teams by line key for easy lookup
                         const teamMap = {};
@@ -1116,7 +1116,7 @@
                             let h = 0;
                             // Standard End-Hour Mapping (Day basis)
                             switch (rawSlot) {
-                                case '07-08': h = 20; break;
+                                case '07-08': h = 8; break;
                                 case '08-09': h = 9; break;
                                 case '09-10': h = 10; break;
                                 case '10-11': h = 11; break;
@@ -1136,11 +1136,11 @@
                             if (rowShift === 'Day') {
                                 baseDate.setHours(h, 0, 0, 0);
                             } else {
-                                // Night Logic (Starts 8pm/20:00)
+                                // Night Logic (Starts 7pm/19:00)
                                 let realH = 0;
                                 let addDay = 0;
 
-                                if (rawSlot === '07-08') { realH = 8; addDay = 1; }
+                                if (rawSlot === '07-08') { realH = 20; }  // 7 PM - 8 PM same day (first slot of Night)
                                 else if (rawSlot === '08-09') { realH = 21; }
                                 else if (rawSlot === '09-10') { realH = 22; }
                                 else if (rawSlot === '10-11') { realH = 23; }
@@ -2135,12 +2135,13 @@
                         // Runs outside the rendering loop so it is never skipped or double-counted.
                         {
                             const _now = Date.now();
-                            const _slots = ['08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07','07-08'];
+                            const _slots = ['07-08','08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07'];
                             const _shiftsForCount = (shiftMode === 'Both') ? ['Day','Night'] : [shiftMode];
                             // Slot end-hour tables (local browser time)
-                            const _dayEnd  = {'08-09':9,'09-10':10,'10-11':11,'11-12':12,'12-01':13,'01-02':14,'02-03':15,'03-04':16,'04-05':17,'05-06':18,'06-07':19,'07-08':20};
-                            const _nightEnd = {'08-09':21,'09-10':22,'10-11':23,'11-12':0,'12-01':1,'01-02':2,'02-03':3,'03-04':4,'04-05':5,'05-06':6,'06-07':7,'07-08':8};
-                            const _nightNextDay = new Set(['11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07','07-08']);
+                            // Day shift 07:00-19:00, Night shift 19:00-07:00
+                            const _dayEnd  = {'07-08':8,'08-09':9,'09-10':10,'10-11':11,'11-12':12,'12-01':13,'01-02':14,'02-03':15,'03-04':16,'04-05':17,'05-06':18,'06-07':19};
+                            const _nightEnd = {'07-08':20,'08-09':21,'09-10':22,'10-11':23,'11-12':0,'12-01':1,'01-02':2,'02-03':3,'03-04':4,'04-05':5,'05-06':6,'06-07':7};
+                            const _nightNextDay = new Set(['11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07']);
                             // All allowed machines (factory-filtered)
                             const _allMachines = (machines || []).map(m => m.machine).filter(m => allowedMachines.has(m));
 

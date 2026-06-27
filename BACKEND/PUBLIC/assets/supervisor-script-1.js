@@ -30,14 +30,14 @@
 
     /* ==================== Constants ==================== */
     // Updated Slot Definition (Day starts 08:00)
-    const SLOT_ORDER_DAY = ['08-09', '09-10', '10-11', '11-12', '12-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07', '07-08'];
+    const SLOT_ORDER_DAY = ['07-08', '08-09', '09-10', '10-11', '11-12', '12-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07'];
     const SLOT_ORDER_NIGHT = ['20-21', '21-22', '22-23', '23-00', '00-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07', '07-08'];
     // Wait, Labels are same for Day/Night usually in User's system (08-09 for AM and PM?)
     // User request: "Shift Is like Now Day Shift like 08-09... And Night Shift like 08-09..."
     // So labels are identical. Unique ID is Date    // --- Hourly Slot Management ---
     let SLOT_LABELS = [
-      '08-09', '09-10', '10-11', '11-12', '12-01', '01-02',
-      '02-03', '03-04', '04-05', '05-06', '06-07', '07-08'
+      '07-08', '08-09', '09-10', '10-11', '11-12', '12-01',
+      '01-02', '02-03', '03-04', '04-05', '05-06', '06-07'
     ];
     // Map<Key, { hasMain: boolean, count: number }>
     let SLOT_STATUS = new Map();
@@ -135,9 +135,9 @@
       const currentHour = now.getHours();
 
       // Determine Current Shift info
-      // Day: 08:10 to 20:10. Night: 20:10 to 08:10 (factory 8:10 handover rule)
+      // Day: 07:10 to 19:10. Night: 19:10 to 07:10 (factory 7:10 handover rule)
       const nowMins = currentHour * 60 + now.getMinutes();
-      let isDay = (nowMins >= 490 && nowMins < 1210);
+      let isDay = (nowMins >= 430 && nowMins < 1150);
 
       // We want Current Shift AND Previous Shift
       // If Day (Today): Show Night (Yesterday) + Day (Today)
@@ -169,7 +169,7 @@
         // Current: Night. 
         // Production Date determination:
         let prodDate = new Date(now);
-        if (currentHour < 8) prodDate.setDate(prodDate.getDate() - 1);
+        if (currentHour < 7) prodDate.setDate(prodDate.getDate() - 1);
         const prodDateStr = toLocalYMD(prodDate);
 
         shifts.push({ date: prodDateStr, shift: 'Day', labelDate: prodDate });
@@ -209,7 +209,7 @@
           // Unless it's an expanded view (Admin or Quick Action)
           // Last shift is always shifts[0]
           // Bypass this limit for backfill entries (user explicitly chose yesterday)
-          if (!s.isBackfill && !showAllLastShiftSlots && shiftIdx === 0 && slot !== '07-08') return;
+          if (!s.isBackfill && !showAllLastShiftSlots && shiftIdx === 0 && slot !== '06-07') return;
           // 1. Calculate Real End Time for this slot
           // Slot format "08-09", "12-01", etc.
           // Map to 24h based on Shift
@@ -218,33 +218,26 @@
           let realEndTime = new Date(s.labelDate);
 
           if (s.shift === 'Day') {
-            // Day: 08:00 - 20:00
-            // 08-09 -> 09:00
-            // ...
-            // 07-08 -> 20:00 (8 PM)
-
-            if (slot === '07-08') {
-              endH = 20;
-            } else if (endH >= 8 && endH <= 12) { // 08-09, 09-10, 10-11, 11-12
-              // These are AM/Noon hours
-            } else if (endH >= 1 && endH <= 7) { // 12-01, 01-02, ..., 06-07
-              // These are PM hours
+            // Day: 07:00 - 19:00
+            // Slots 0-4 (07-08 to 11-12): AM/Noon — endH 8..12 is correct as-is
+            // Slots 5-11 (12-01 to 06-07): PM — endH 1..7, add 12
+            const slotIdx = SLOT_LABELS.indexOf(slot);
+            if (slotIdx >= 5) {
+              // PM hour (12-01 through 06-07)
               endH += 12;
             }
+            // slotIdx 0-4 (07-08 through 11-12): endH already correct (8..12)
             realEndTime.setHours(endH, 0, 0, 0);
 
           } else { // Night Shift
-            // Night: 20:00 - 08:00 (next day)
+            // Night: 19:00 - 07:00 (next day)
+            // 07-08 -> 20:00 (8 PM same day — first slot)
             // 08-09 -> 21:00 (9 PM)
             // ...
-            // 07-08 -> 08:00 (Next Day Morning)
-
-            // Special handling for 07-08 because "8" is ambiguous (Could be 20:00 or 08:00)
-            // In our SLOT_LABELS order, 07-08 is the LAST slot.
-            // 08-09 is the FIRST slot.
+            // 06-07 -> 07:00 (Next Day Morning — last slot)
 
             if (slot === '07-08') {
-              endH = 32; // 24 + 8 (08:00 Next Day)
+              endH = 20; // 8 PM same day (first slot of Night shift)
             } else if (endH >= 8 && endH <= 11) { // 08-09, 09-10, 10-11
               endH += 12; // 20-21, 21-22, 22-23
             } else if (endH === 12) { // 11-12
@@ -294,13 +287,17 @@
           }
 
           if (hideFilled) {
-            // Main Dropdown: Hide if Main Entry Exists
+            // Main Dropdown: Hide if Main entry exists OR slot is a Quick Action entry
             if (hasMain) return;
+            if (currentStatus && currentStatus.isQuick) return; // Quick Action already recorded
+            // Hide slots auto-propagated from a preceding Quick Action (no entry, but prev is Quick)
+            if (suffix && suffix.includes('Continued from')) return;
           } else {
             // Colour Change Dropdown: Show All Past. Warn if entries exist.
             const parts = [];
             if (hasMain) parts.push('Main Done');
             if (hasCC) parts.push('CC Done');
+            if (currentStatus && currentStatus.isQuick) parts.push(currentStatus.type || 'Quick Action');
 
             if (parts.length > 0) suffix = ` (${parts.join(', ')})`;
           }
@@ -1536,10 +1533,7 @@
 
           el('color-plan-note').textContent = 'Source: Plan colours + Live production';
           buildColourOptions(job);
-          const planKey = 'last_color_' + (job.PlanID || '');
-          const last = localStorage.getItem(planKey);
-          const s = el('d-color');
-          if (last && hasOption(s, last)) { s.value = last; s.dispatchEvent(new Event('change')); }
+          // Colour must be selected fresh — do NOT auto-fill from localStorage
           return;
         }
 
@@ -1605,14 +1599,7 @@
 
           el('color-plan-note').textContent = 'Source: Saved plan colour breakdown';
           buildColourOptions(job);
-
-          const planKey = 'last_color_' + (job.PlanID || '');
-          const last = localStorage.getItem(planKey);
-          const s = el('d-color');
-          if (last && hasOption(s, last)) {
-            s.value = last;
-            s.dispatchEvent(new Event('change'));
-          }
+          // Colour must be selected fresh — do NOT auto-fill from localStorage
           return;
         }
 
@@ -2144,19 +2131,9 @@
         buildColourOptions(job);
         renderColorPlanTable(job);
 
-        try {
-          const colorSel = el('d-color');
-          let applied = false;
-
-          const planKey = 'last_color_' + (job.PlanID || '');
-          const lastPlanColor = localStorage.getItem(planKey) || '';
-
-          // Priority 1: Plan Specific Color
-          if (lastPlanColor && hasOption(colorSel, lastPlanColor)) {
-            colorSel.value = lastPlanColor;
-            applied = true;
-          }
-        } catch (_) { }
+        // Colour is always blank on job load — user must select it each time
+        const colorSel = el('d-color');
+        if (colorSel) { colorSel.value = ''; }
 
         onColorChange();
 
@@ -2533,11 +2510,7 @@
       if (!sel) return;
       const val = sel.value;
 
-      if (session.activeJob && session.activeJob.PlanID) {
-        try {
-          localStorage.setItem('last_color_' + session.activeJob.PlanID, val);
-        } catch (_) { }
-      }
+      // Colour is NOT persisted — user must always select it fresh each entry
 
       // Global Save REMOVED
       /*
@@ -2579,24 +2552,16 @@
       }
 
       if (!slotVal) errs.push('Select an Hour Slot.');
+      const colourVal = (el('d-color')?.value || '').trim();
+      if (!colourVal) errs.push('Select a Colour before submitting.');
       if (rej > shots) errs.push('Rejection Qty exceeds Shots.');
-      if (dt > 60) errs.push('Downtime exceeds 60 minutes.');
       if (dt > 60) errs.push('Downtime exceeds 60 minutes.');
 
       if (appSettings.geofence_enabled === 'true') {
         if (lastGeo && !insideGeofence(lastGeo.lat, lastGeo.lng, lastGeo.acc)) errs.push('Outside geofence (move inside factory or improve accuracy).');
       }
 
-      /* DAY SHIFT 07-08 VALIDATION WARNING */
-      // '07-08' in Day Shift means 19:00-20:00 (7 PM - 8 PM).
-      // If user selects this at 7 AM or 8 AM, they are likely mistaken.
-      if (el('d-shift').value === 'Day' && slotVal === '07-08') {
-        const h = new Date().getHours();
-        // If current time is Morning (e.g., < 12:00), warn them.
-        if (h < 12) {
-          errs.push("Warning: '07-08' in Day Shift is 7 PM - 8 PM. For Morning 7-8 AM, please switch to Night Shift.");
-        }
-      }
+      /* Slot 07-08 in Day Shift is now the FIRST slot (7 AM - 8 AM) — no warning needed */
 
       el('form-errors').innerHTML = errs.map(e => `<span class="err">• ${e}</span>`).join('');
 
@@ -2648,12 +2613,14 @@
           usedSlots = (r && r.ok && Array.isArray(r.used)) ? r.used : [];
           // Merge into SLOT_STATUS so fillHourSlotSelect can hide filled slots
           // (SLOT_STATUS only has last-50 entries; this fills gaps for any selected date)
+          const QUICK_TYPES_SET = new Set(['Maintenance','ManPowerShortage','MouldChangeover','MouldTrial','MouldMaintenance','NoPlan','PowerCut','MouldChange']);
           usedSlots.forEach(us => {
             const k = `${dt}_${String(sh).toUpperCase()}_${us.slot}`;
             let st = SLOT_STATUS.get(k) || { hasMain: false, hasCC: false, count: 0, isQuick: false, type: us.type };
             st.count = st.count || 1;
             if (us.type === 'MAIN' || us.type === 'Main') st.hasMain = true;
             if (us.type === 'ColourChange') st.hasCC = true;
+            if (QUICK_TYPES_SET.has(us.type)) { st.isQuick = true; st.type = us.type; }
             SLOT_STATUS.set(k, st);
           });
           refreshSlots();
@@ -3217,6 +3184,8 @@
             closeMc();
             loadRecent();
             loadUsedSlots();
+            // Refresh slot selector so Quick Action slot + its continuations are hidden
+            updateFilledSlots();
           } else {
             el('mc-msg').innerHTML = '<span class="err">' + ((r && r.error) || 'Failed') + '</span>';
           }
