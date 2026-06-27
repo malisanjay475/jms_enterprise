@@ -1042,7 +1042,7 @@
         } else if (currentType === 'orjrwise') {
           cols = ['factory_name', ...orjrWiseSummaryColumns].filter(c => cols.includes(c));
         } else if (currentType === 'orjrwisedetail') {
-          cols = ['factory_name', ...orjrWiseDetailColumns].filter(c => cols.includes(c));
+          cols = ['actions', 'factory_name', ...orjrWiseDetailColumns].filter(c => c === 'actions' || cols.includes(c));
         } else if (currentType === 'jcdetails') {
           cols = ['factory_name', ...jcDetailColumns].filter(c => cols.includes(c));
         } else if (currentType === 'boplanningdetail') {
@@ -1195,6 +1195,12 @@
                             <button onclick="openMachineModal('edit', JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon"><i class="bi bi-pencil-square text-blue-600"></i></button>
                             <button onclick="viewMachineHistory('${machineId}')" class="btn-action-icon" title="History"><i class="bi bi-clock-history text-gray-600"></i></button>
                         </div>`;
+              } else if (currentType === 'orjrwisedetail') {
+                if (!canWriteCurrentFactoryScope()) {
+                  return `<span style="color:#94a3b8; font-size:0.74rem; white-space:nowrap;">${getWriteLockShortHint()}</span>`;
+                }
+                const safeNo = encodeURIComponent(row.or_jr_no || '');
+                return `<button onclick="deleteOrJrDetail('${safeNo}')" class="btn-action-icon" style="color:#dc2626" title="Delete all rows for this OR/JR No"><i class="bi bi-trash"></i></button>`;
               } else if (currentType === 'orjr') {
                 const safeNo = row.or_jr_no;
                 if (!canWriteCurrentFactoryScope()) {
@@ -2274,6 +2280,23 @@
       window.history.pushState({}, '', url);
       // Reload page to reset UI clearly or just reload data
       window.location.reload();
+    }
+
+    async function deleteOrJrDetail(encodedOrJrNo) {
+      if (!ensureSingleFactoryScope('delete OR/JR Wise Detail records')) return;
+      const orJrNo = decodeURIComponent(encodedOrJrNo);
+      if (!confirm(`Delete ALL OR/JR Wise Detail rows for:\n\n"${orJrNo}"\n\nThis cannot be undone.`)) return;
+      try {
+        const res = await JPSMS.api.post('/masters/orjrwisedetail/delete-by-orjr', { or_jr_no: orJrNo });
+        if (res.ok) {
+          alert(`Deleted ${res.deleted || 0} row(s) for OR/JR No: ${orJrNo}`);
+          loadMasterData();
+        } else {
+          alert('Error: ' + (res.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
     }
 
     async function closeOrJr(id, jcNo) {
