@@ -11576,6 +11576,96 @@ app.get('/api/planning/completed', async (req, res) => {
 
 
 // ----------------------------------------------------------------------------
+// 7a. COLOUR-WISE COMPLETION (for Machine Timeline expand + Completed Plan detail)
+// ----------------------------------------------------------------------------
+app.get('/api/planning/colour-wise-completion', async (req, res) => {
+  try {
+    const { planId } = req.query;
+    const factoryId = getFactoryId(req);
+
+    // Build WHERE clause
+    const params = [];
+    let where = `pb.is_deleted IS NOT TRUE`;
+
+    if (planId && planId !== 'all') {
+      params.push(String(planId));
+      where += ` AND pb.plan_id = $${params.length}`;
+    }
+    if (factoryId) {
+      params.push(factoryId);
+      where += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
+    }
+
+    // Fetch plans with colour_details JSONB
+    const plans = await q(
+      `SELECT pb.plan_id, pb.machine, pb.order_no, pb.mould_name, pb.status, pb.colour_details
+       FROM plan_board pb
+       WHERE ${where}
+       ORDER BY pb.created_at DESC NULLS LAST
+       LIMIT 500`,
+      params
+    );
+
+    if (!plans.length) return res.json({ ok: true, data: [] });
+
+    // Fetch produced qty per plan per colour
+    const planIds = plans.map(p => String(p.plan_id));
+    const dprRows = await q(
+      `SELECT plan_id, UPPER(TRIM(colour)) AS colour_upper, SUM(good_qty) AS produced_qty
+       FROM dpr_hourly
+       WHERE plan_id = ANY($1) AND (is_deleted IS NOT TRUE)
+       GROUP BY plan_id, UPPER(TRIM(colour))`,
+      [planIds]
+    );
+
+    // Build lookup: planId -> { COLOUR_UPPER -> produced_qty }
+    const dprMap = {};
+    dprRows.forEach(r => {
+      const pid = String(r.plan_id);
+      if (!dprMap[pid]) dprMap[pid] = {};
+      dprMap[pid][String(r.colour_upper || '')] = Number(r.produced_qty || 0);
+    });
+
+    // Merge colour_details with produced quantities
+    const result = [];
+    plans.forEach(p => {
+      let cd = p.colour_details || [];
+      if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = []; } }
+      if (!Array.isArray(cd) || !cd.length) return;
+
+      const planProd = dprMap[String(p.plan_id)] || {};
+
+      cd.forEach(c => {
+        const colourName = String(c.colourName || c.itemColour || c.colour || c.name || '').trim();
+        if (!colourName) return;
+        const planQty = Math.round(Number(c.planQty || c.batchQty || c.qty || 0));
+        const producedQty = Math.round(planProd[colourName.toUpperCase()] || 0);
+        const balQty = Math.max(0, planQty - producedQty);
+        const pct = planQty > 0 ? Math.round((producedQty / planQty) * 100) : 0;
+
+        result.push({
+          planId: p.plan_id,
+          machine: p.machine,
+          orderNo: p.order_no,
+          mouldName: p.mould_name,
+          status: p.status,
+          colour: colourName,
+          planQty,
+          producedQty,
+          balQty,
+          pct
+        });
+      });
+    });
+
+    res.json({ ok: true, data: result });
+  } catch (e) {
+    console.error('/api/planning/colour-wise-completion', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// ----------------------------------------------------------------------------
 // 7. RESTORE PLAN (Undo Completion)
 // ----------------------------------------------------------------------------
 app.post('/api/planning/restore', async (req, res) => {

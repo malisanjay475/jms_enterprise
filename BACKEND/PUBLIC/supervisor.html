@@ -1099,7 +1099,9 @@
             </label>
             <label>Colour
               <!-- Keep same ID, add color change hook -->
-              <select id="d-color" onchange="onColorChange()"></select>
+              <select id="d-color" onchange="onColorChange()">
+                <option value="">-- Select Colour --</option>
+              </select>
               <!-- NEW: Balance display under colour -->
               <div id="color-bal-display" class="muted"
                 style="font-size:12px;text-align:right;margin-top:2px;color:var(--accent)">
