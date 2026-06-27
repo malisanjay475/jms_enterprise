@@ -1382,6 +1382,46 @@
 
       update(sel);
       update(selCc);
+
+      // Populate the visual colour chips panel
+      const panel = el('color-picker-panel');
+      if (panel) {
+        panel.innerHTML = '';
+        panel.style.display = 'none'; // always collapsed after rebuild
+        if (!uniq.length) {
+          panel.innerHTML = '<span style="color:var(--muted);font-size:13px;padding:4px 8px">No colours available for this job</span>';
+        } else {
+          uniq.forEach(v => {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.textContent = v;
+            chip.dataset.colourChip = v;
+            chip.style.cssText = 'padding:8px 18px;border-radius:999px;border:1.5px solid var(--line-bright);background:var(--surface-2);font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background 0.15s,border-color 0.15s,color 0.15s;';
+            chip.onclick = () => {
+              const s = el('d-color');
+              if (s) { s.value = v; s.dispatchEvent(new Event('change')); }
+              closeColorPickerPanel();
+            };
+            panel.appendChild(chip);
+          });
+        }
+      }
+    }
+
+    function toggleColorPickerPanel() {
+      const panel = el('color-picker-panel');
+      const arrow = el('color-picker-arrow');
+      if (!panel) return;
+      const isOpen = panel.style.display === 'flex';
+      panel.style.display = isOpen ? 'none' : 'flex';
+      if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(180deg)';
+    }
+
+    function closeColorPickerPanel() {
+      const panel = el('color-picker-panel');
+      const arrow = el('color-picker-arrow');
+      if (panel) panel.style.display = 'none';
+      if (arrow) arrow.style.transform = '';
     }
 
     function getSavedPlanColorRows(job) {
@@ -2134,6 +2174,7 @@
         // Colour is always blank on job load — user must select it each time
         const colorSel = el('d-color');
         if (colorSel) { colorSel.value = ''; }
+        closeColorPickerPanel();
 
         onColorChange();
 
@@ -2512,19 +2553,37 @@
 
       // Colour is NOT persisted — user must always select it fresh each entry
 
-      // Global Save REMOVED
-      /*
-      try {
-        localStorage.setItem('jpsms_last_color', val);
-      } catch (_) { }
-      */
-
       const dat = jobColorsData[val];
       el('color-bal-display').textContent = dat
         ? `Bal: ${dat.bal} / Plan: ${dat.plan}`
         : '';
 
-      // NEW: Visual Selection
+      // Update the visual picker button
+      const lbl = el('color-picker-label');
+      const btn = el('color-picker-btn');
+      if (lbl) {
+        if (val) {
+          lbl.textContent = val;
+          lbl.style.fontWeight = '800';
+          lbl.style.color = 'var(--ink)';
+          if (btn) btn.style.borderColor = 'var(--primary)';
+        } else {
+          lbl.textContent = 'Tap to select colour';
+          lbl.style.fontWeight = '';
+          lbl.style.color = '';
+          if (btn) btn.style.borderColor = '';
+        }
+      }
+
+      // Highlight the selected chip inside the panel
+      document.querySelectorAll('[data-colour-chip]').forEach(chip => {
+        const isSelected = chip.dataset.colourChip === val;
+        chip.style.background = isSelected ? 'var(--primary)' : '';
+        chip.style.color = isSelected ? '#fff' : '';
+        chip.style.borderColor = isSelected ? 'var(--primary)' : '';
+      });
+
+      // Visual Selection — colour table rows
       const rows = document.querySelectorAll('.color-row');
       rows.forEach(r => {
         if (r.dataset.colorName === val) {

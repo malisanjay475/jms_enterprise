@@ -1098,13 +1098,22 @@
               </div>
             </label>
             <label>Colour
-              <!-- Keep same ID, add color change hook -->
-              <select id="d-color" onchange="onColorChange()">
+              <!-- Hidden select — keeps value for JS/CC modal compatibility -->
+              <select id="d-color" onchange="onColorChange()" style="display:none">
                 <option value="">-- Select Colour --</option>
               </select>
-              <!-- NEW: Balance display under colour -->
+              <!-- Visible colour picker trigger -->
+              <div id="color-picker-btn" onclick="toggleColorPickerPanel()"
+                style="cursor:pointer;background:var(--surface);border:1.5px solid var(--line-bright);border-radius:10px;padding:10px 14px;font-size:15px;color:var(--muted);min-height:44px;display:flex;align-items:center;gap:8px;user-select:none;box-shadow:var(--shadow-sm);transition:border-color 0.15s;">
+                <span style="font-size:16px">🎨</span>
+                <span id="color-picker-label" style="flex:1">Tap to select colour</span>
+                <span id="color-picker-arrow" style="font-size:11px;transition:transform 0.2s">▼</span>
+              </div>
+              <!-- Colour chips panel (hidden until tapped) -->
+              <div id="color-picker-panel" style="display:none;flex-wrap:wrap;gap:8px;padding:10px 8px;background:var(--surface);border:1.5px solid var(--line-bright);border-radius:12px;margin-top:6px;"></div>
+              <!-- Balance display -->
               <div id="color-bal-display" class="muted"
-                style="font-size:12px;text-align:right;margin-top:2px;color:var(--accent)">
+                style="font-size:12px;text-align:right;margin-top:4px;color:var(--accent)">
               </div>
             </label>
           </div>
