@@ -2433,12 +2433,13 @@
           const grid = document.getElementById('machineGrid');
           grid.innerHTML = `<div class="line-row"><div class="line-title">Loading machines…</div></div>`;
           try {
-            // Parallel Fetch: Machines + Master Plan (for status accuracy)
+            // Parallel Fetch: Machines + Master Plan + Live DPR Status
             // Plan board uses 2-min cache — repeat view switches are instant.
             const boardKey = `board|${getPlanningProcessQuerySuffix()}`;
-            const [mList, pRes] = await Promise.all([
+            const [mList, pRes, liveRes] = await Promise.all([
               api.get(`/masters/machines?process=${encodeURIComponent(getPlanningProcessFilter())}`),
-              window._planCache.get(boardKey, () => api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`))
+              window._planCache.get(boardKey, () => api.get(`/planning/board?${getPlanningProcessQuerySuffix()}`)),
+              api.get('/machines/live-status').catch(() => null)
             ]);
 
             // Populate Global Master Plans
@@ -2464,10 +2465,24 @@
             const runningMachines = new Set((window.allMasterPlans || [])
               .filter(plan => String(plan.status || '').toUpperCase() === 'RUNNING')
               .map(plan => String(plan.machine || '').trim().toLowerCase()));
+
+            // Build live DPR status map (machine code → {live_status, problem_label, entry_type})
+            const liveMap = {};
+            if (liveRes && liveRes.data) {
+              liveRes.data.forEach(r => { liveMap[String(r.machine || '').trim().toUpperCase()] = r; });
+            }
+
             const scopedMachines = (mList && mList.data ? mList.data : mList || []);
             lastMachines = scopedMachines.map(machine => {
               const machineCode = String(machine.machine || machine.code || machine.name || '').trim();
               const machineProcess = machine.machine_process || getPlanningProcessFilter();
+              const live = liveMap[machineCode.toUpperCase()] || null;
+              // Live DPR status overrides plan-board status when available
+              let liveStatus = null;
+              if (live) {
+                liveStatus = live.live_status; // 'running' | 'stopped' | 'idle'
+              }
+              const planRunning = runningMachines.has(machineCode.toLowerCase());
               return {
                 id: machine.id || machineCode,
                 code: machineCode,
@@ -2477,7 +2492,10 @@
                 tonnage: machine.tonnage,
                 machine_process: machineProcess,
                 machine_icon: machine.machine_icon || null,
-                status: runningMachines.has(machineCode.toLowerCase()) ? 'Running' : 'Stopped',
+                status: planRunning ? 'Running' : 'Stopped',
+                live_status: liveStatus,
+                live_problem: (live && live.problem_label) || null,
+                live_entry_type: (live && live.entry_type) || null,
                 is_active: machine.is_active !== false,
                 is_maintenance: false,
                 queue_preview: []
@@ -2609,9 +2627,13 @@
             activePlan = myPlans[seqIndex];
           }
 
-          // 2. Determine physical machine state first so labels stay accurate.
+          // 2. Determine physical machine state — live DPR status takes priority.
           const physicalStatus = (() => {
             if (m.is_maintenance) return 'maintenance';
+            // Live DPR status: 'running' = pcs entry, 'stopped' = quick entry (problem)
+            if (m.live_status === 'running') return 'running';
+            if (m.live_status === 'stopped') return 'stopped';
+            // Fall back to plan-board status
             const raw = String(m.status || '').toLowerCase();
             if (raw === 'maintenance') return 'maintenance';
             if (raw === 'running') return 'running';
@@ -2627,10 +2649,9 @@
 
           // 3. Visual Class
           let sClass = 's-unplanned';
-          // No-plan machines stay in the neutral no-plan color, even if physically stopped.
           if (m.is_maintenance || physicalStatus === 'maintenance') sClass = 's-maint';
           else if (physicalStatus === 'running') sClass = 's-running';
-          else if (activePlan && physicalStatus === 'stopped') sClass = 's-stopped';
+          else if (physicalStatus === 'stopped') sClass = 's-stopped';
 
           // 4. Display clean name: strip "BUILDING -L{n}>" prefix if present so cards always
           //    show just the machine code (e.g. "AKAR-150-4" not "B -L1>AKAR-150-4").
@@ -2668,11 +2689,20 @@
             }
           }
 
-          let frontStatusText = prettyStatus(m);
-          if (!activePlan) {
-            frontStatusText = physicalStatus === 'maintenance' ? 'Maintenance' : 'No Plan';
+          // Live DPR-aware status text for the card front face
+          let frontStatusText;
+          if (m.live_status === 'stopped' && m.live_problem) {
+            frontStatusText = m.live_problem; // e.g. "Mould Changeover", "Maintenance"
+          } else if (m.live_status === 'running') {
+            frontStatusText = 'Running';
+          } else if (physicalStatus === 'maintenance') {
+            frontStatusText = 'Maintenance';
+          } else if (!activePlan) {
+            frontStatusText = 'No Plan';
           } else if (statusRaw === 'planned') {
             frontStatusText = 'Planned';
+          } else {
+            frontStatusText = prettyStatus(m);
           }
 
           const detailOrder = activePlan ? activePlan.orderNo : (m.running_order || 'No active order');
@@ -2750,30 +2780,25 @@
         </div>
         `;
 
-          // Wire up "View Full Details" via addEventListener (safe, no HTML-escaping fragility)
-          if (activePlan) {
-            const openBtn = btn.querySelector('.pjd-open-btn');
-            if (openBtn) {
-              openBtn.addEventListener('click', function(ev) {
-                ev.stopPropagation();
-                if (typeof window.openPlanJobDetail === 'function') {
-                  window.openPlanJobDetail(
-                    openBtn.dataset.order,
-                    openBtn.dataset.machine,
-                    openBtn.dataset.planid,
-                    openBtn.dataset.item,
-                    openBtn.dataset.client
-                  );
-                }
-              });
-            }
-          }
-
           btn.addEventListener('mouseenter', (ev) => showHover(ev, m, false));
           btn.addEventListener('mousemove', (ev) => moveHover(ev));
           btn.addEventListener('mouseleave', () => { if (!dialogPinned) hideHover(); });
           btn.addEventListener('click', (ev) => {
             ev.stopPropagation();
+            // If click came from View Details button, open modal — don't flip
+            const openBtn = ev.target.closest('.pjd-open-btn');
+            if (openBtn) {
+              if (typeof window.openPlanJobDetail === 'function') {
+                window.openPlanJobDetail(
+                  openBtn.dataset.order,
+                  openBtn.dataset.machine,
+                  openBtn.dataset.planid,
+                  openBtn.dataset.item,
+                  openBtn.dataset.client
+                );
+              }
+              return;
+            }
             toggleMachineCardFlip(btn);
           });
           btn.addEventListener('keydown', (ev) => {
