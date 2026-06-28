@@ -1648,6 +1648,17 @@
           }
         });
 
+        /* Global bridge so the inline onclick on View Details button can call openPlanJobDetail
+           without relying on event bubbling through 3D-transformed elements */
+        window._pjdOpen = function(btn) {
+          if (typeof window.openPlanJobDetail === 'function') {
+            window.openPlanJobDetail(
+              btn.dataset.order, btn.dataset.machine,
+              btn.dataset.planid, btn.dataset.item, btn.dataset.client
+            );
+          }
+        };
+
         /* -------- Plan Job Detail Modal -------- */
         window.openPlanJobDetail = async function(orderNo, machineName, planId, itemName, clientName) {
           if (!orderNo || orderNo === '-' || orderNo === 'No active order') return;
@@ -2771,7 +2782,8 @@
               data-item="${esc(activePlan.itemName||activePlan.mouldName||'')}"
               data-client="${esc(activePlan.clientName||'')}"
               style="width:100%;padding:5px 0;background:linear-gradient(135deg,#0ea5e9,#0369a1);color:#fff;border:none;border-radius:7px;font-size:0.7rem;font-weight:800;cursor:pointer;letter-spacing:0.03em;flex-shrink:0"
-              onmouseover="this.style.opacity='0.82'" onmouseout="this.style.opacity='1'">
+              onmouseover="this.style.opacity='0.82'" onmouseout="this.style.opacity='1'"
+              onclick="event.stopPropagation(); window._pjdOpen(this);">
               &#128269; View Full Details
             </button>
             <div class="flip-note" style="font-size:0.58rem;margin-top:1px">Tap card to flip back</div>`
@@ -2785,20 +2797,6 @@
           btn.addEventListener('mouseleave', () => { if (!dialogPinned) hideHover(); });
           btn.addEventListener('click', (ev) => {
             ev.stopPropagation();
-            // If click came from View Details button, open modal — don't flip
-            const openBtn = ev.target.closest('.pjd-open-btn');
-            if (openBtn) {
-              if (typeof window.openPlanJobDetail === 'function') {
-                window.openPlanJobDetail(
-                  openBtn.dataset.order,
-                  openBtn.dataset.machine,
-                  openBtn.dataset.planid,
-                  openBtn.dataset.item,
-                  openBtn.dataset.client
-                );
-              }
-              return;
-            }
             toggleMachineCardFlip(btn);
           });
           btn.addEventListener('keydown', (ev) => {
