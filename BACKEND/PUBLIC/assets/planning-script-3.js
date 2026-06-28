@@ -2797,6 +2797,20 @@
           btn.addEventListener('mouseleave', () => { if (!dialogPinned) hideHover(); });
           btn.addEventListener('click', (ev) => {
             ev.stopPropagation();
+            // If click came from View Details button, open modal — don't flip
+            const openBtn = ev.target.closest('.pjd-open-btn');
+            if (openBtn) {
+              if (typeof window.openPlanJobDetail === 'function') {
+                window.openPlanJobDetail(
+                  openBtn.dataset.order,
+                  openBtn.dataset.machine,
+                  openBtn.dataset.planid,
+                  openBtn.dataset.item,
+                  openBtn.dataset.client
+                );
+              }
+              return;
+            }
             toggleMachineCardFlip(btn);
           });
           btn.addEventListener('keydown', (ev) => {
