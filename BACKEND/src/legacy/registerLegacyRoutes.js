@@ -5737,6 +5737,66 @@ app.get('/api/machines/status', async (req, res) => {
   }
 });
 
+/* ============================================================
+   MACHINES LIVE STATUS (from today's DPR entries)
+   Returns per-machine: live running/stopped state + problem label
+============================================================ */
+app.get('/api/machines/live-status', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const now = new Date();
+    const hr = now.getHours();
+    const isNight = hr >= 20 || hr < 8;
+    const currentShift = isNight ? 'Night' : 'Day';
+    const pad = (n) => String(n).padStart(2, '0');
+    let dprDate;
+    if (isNight && hr < 8) {
+      const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1);
+      dprDate = `${yesterday.getFullYear()}-${pad(yesterday.getMonth()+1)}-${pad(yesterday.getDate())}`;
+    } else {
+      dprDate = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+    }
+
+    const QUICK_TYPES = ['Maintenance','ManPowerShortage','MouldChangeover','MouldTrial','MouldMaintenance','NoPlan'];
+    const QUICK_LABELS = {
+      Maintenance: 'Maintenance',
+      ManPowerShortage: 'Man Power Shortage',
+      MouldChangeover: 'Mould Changeover',
+      MouldTrial: 'Mould Trial',
+      MouldMaintenance: 'Mould Maintenance',
+      NoPlan: 'No Plan',
+    };
+
+    const rows = await q(
+      `SELECT DISTINCT ON (machine) machine, entry_type, good_qty, reject_qty, downtime_min, remarks, hour_slot
+       FROM dpr_hourly
+       WHERE dpr_date = $1 AND shift = $2 AND is_deleted = false
+         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+       ORDER BY machine, id DESC`,
+      [dprDate, currentShift, factoryId || null]
+    );
+
+    const data = rows.map(r => {
+      const isQuick = QUICK_TYPES.includes(r.entry_type);
+      const hasProduction = r.entry_type === 'MAIN' && Number(r.good_qty || 0) > 0;
+      return {
+        machine: r.machine,
+        entry_type: r.entry_type,
+        live_status: isQuick ? 'stopped' : (hasProduction ? 'running' : 'idle'),
+        problem_label: isQuick ? (QUICK_LABELS[r.entry_type] || r.entry_type) : null,
+        remarks: r.remarks || null,
+        good_qty: Number(r.good_qty || 0),
+        hour_slot: r.hour_slot,
+      };
+    });
+
+    res.json({ ok: true, data, date: dprDate, shift: currentShift });
+  } catch (e) {
+    console.error('machines/live-status', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 
 
 
