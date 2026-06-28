@@ -2482,3 +2482,830 @@
             const vs = el('vfy-shift');
             if (vs) vs.value = getShiftFromTime();
         });
+
+        /* ================================================================
+           FPA — one-time per job: check status before opening form
+           ================================================================ */
+        // Override selectJobAndOpenFPA to check FPA done status first
+        const _origSelectJobAndOpenFPA = typeof selectJobAndOpenFPA === 'function' ? selectJobAndOpenFPA : null;
+        selectJobAndOpenFPA = async function(idx) {
+            // Select the job (set session.activeJob)
+            if (_origSelectJobAndOpenFPA) {
+                // Call original to set activeJob
+                _origSelectJobAndOpenFPA(idx);
+            }
+            const job = session.activeJob || {};
+            const all = job._all || {};
+            const jcNo = safe(job.JobCardNo || all['JobCardNo'] || '');
+            const machine = session.machine || '';
+            const date = istDateStr();
+            const shift = getShiftFromTime();
+
+            if (!jcNo) {
+                showPage('sec-qc-fpa', null);
+                return;
+            }
+            // Check if FPA already done
+            try {
+                const r = await fetch(`/api/qc/fpa/status?job_card_no=${encodeURIComponent(jcNo)}&date=${date}&shift=${encodeURIComponent(shift)}&machine=${encodeURIComponent(machine)}`);
+                const data = await r.json();
+                if (data.ok && data.done) {
+                    // Show "already done" state
+                    showPage('sec-qc-fpa', null);
+                    const msgEl = el('fpa-msg');
+                    if (msgEl) {
+                        msgEl.className = 'ok';
+                        msgEl.innerHTML = `✅ FPA already done by <b>${data.done_by}</b> at ${data.done_at}`;
+                    }
+                    // Show the submitted form image if available
+                    if (data.form_url) {
+                        const preview = el('fpa-form-preview');
+                        const placeholder = el('fpa-form-placeholder');
+                        if (preview) { preview.src = data.form_url; preview.style.display = 'block'; }
+                        if (placeholder) placeholder.style.display = 'none';
+                    }
+                    // Disable submit button
+                    const submitBtn = document.querySelector('#sec-qc-fpa button.primary');
+                    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'FPA Already Submitted'; }
+                    return;
+                }
+            } catch (_) { /* ignore — fall through to open form */ }
+            // Reset submit button in case it was disabled
+            const submitBtn = document.querySelector('#sec-qc-fpa button.primary');
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit FPA'; }
+            showPage('sec-qc-fpa', null);
+        };
+
+        /* ================================================================
+           ONLINE QC REPORT — structured 2-hour slot checks
+           ================================================================ */
+        const QC_SLOTS = [
+            { label: '06-07', start: 6  },
+            { label: '08-09', start: 8  },
+            { label: '10-11', start: 10 },
+            { label: '12-01', start: 12 },
+            { label: '02-03', start: 14 },  // 14:00 = 2pm
+            { label: '04-05', start: 16 },  // 16:00 = 4pm
+        ];
+        // Function/Fitment is every 4h — only for these slots
+        const FF_SLOTS = ['08-09', '12-01', '04-05'];
+
+        const VISUAL_PROBLEMS = ['Short Moulding','Sink Mark','Flash','Warpage','Colour Variation','Scratch','Contamination','Weld Line','Air Mark','Other'];
+        const COLOUR_PROBLEMS = ['Colour Variation','Contamination','Fading','Mixing Error','Colour Change Residue','Other'];
+        const FF_PROBLEMS     = ['Dimension Out of Tolerance','Assembly Issue','Functional Failure','Loose Fit','Tight Fit','Other'];
+
+        function populateQCRDate() {
+            const sel = el('qcr-date');
+            if (!sel || sel.options.length > 1) return;
+            sel.innerHTML = '';
+            const today = new Date(), yest = new Date();
+            yest.setDate(yest.getDate() - 1);
+            const fmt  = d => istDateStr(d);
+            const nice = d => { const s = istDateStr(d).split('-'); return s[2]+'/'+s[1]; };
+            sel.add(new Option('Today (' + nice(today) + ')', fmt(today)));
+            sel.add(new Option('Yesterday (' + nice(yest) + ')', fmt(yest)));
+            sel.value = fmt(today);
+        }
+
+        function initOnlineQCReport() {
+            populateQCRDate();
+            const shift = el('qcr-shift') ? el('qcr-shift').value : getShiftFromTime();
+            const date  = el('qcr-date')  ? el('qcr-date').value  : istDateStr();
+            const machine = session.machine || el('dd-machine').value || '';
+            if (!machine) {
+                el('qcr-slots').innerHTML = '<div class="no-jobs">Select a machine first.</div>';
+                return;
+            }
+            el('qcr-slots').innerHTML = '<div class="muted" style="text-align:center;padding:16px">Loading…</div>';
+            el('qcr-empty').classList.add('hidden');
+
+            fetch(`/api/qc/online-report?machine=${encodeURIComponent(machine)}&date=${date}&shift=${encodeURIComponent(shift)}`)
+                .then(r => r.json())
+                .then(r => {
+                    const savedSlots = {};
+                    (r.data || []).forEach(s => { savedSlots[s.slot] = s; });
+
+                    // Job context
+                    const ctx = el('qcr-job-context');
+                    if (ctx && r.job) {
+                        ctx.innerHTML = `<b>${r.job.item_name || '—'}</b> · ${r.job.mould_name || '—'} · JC: ${r.job.job_card_no || '—'}`;
+                    } else if (ctx) { ctx.textContent = ''; }
+
+                    const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+                    const currentHourIST = nowIST.getHours();
+
+                    const container = el('qcr-slots');
+                    container.innerHTML = '';
+                    QC_SLOTS.forEach(slot => {
+                        const saved = savedSlots[slot.label] || null;
+                        const card = buildQCRSlotCard(slot, saved, currentHourIST, machine, date, shift, r.job);
+                        container.appendChild(card);
+                    });
+                })
+                .catch(() => { el('qcr-slots').innerHTML = '<span class="err">Failed to load. Check connection.</span>'; });
+        }
+
+        function buildQCRSlotCard(slot, saved, currentHourIST, machine, date, shift, job) {
+            const isFF = FF_SLOTS.includes(slot.label);
+            const isDone = !!(saved && (saved.visual_status || saved.colour_status || saved.ff_status));
+            const isCurrent = currentHourIST >= slot.start && currentHourIST < (slot.start + 2);
+            const isPast = currentHourIST >= (slot.start + 2);
+
+            let borderColor = 'var(--line)';
+            let slotBadge  = '';
+            if (isDone) {
+                borderColor = '#059669';
+                slotBadge = `<span style="padding:2px 8px;border-radius:999px;background:#ecfdf5;border:1px solid #059669;color:#059669;font-size:11px;font-weight:700">✓ Done</span>`;
+            } else if (isCurrent) {
+                borderColor = 'var(--primary)';
+                slotBadge = `<span style="padding:2px 8px;border-radius:999px;background:var(--primary-bg);border:1px solid var(--primary);color:var(--primary);font-size:11px;font-weight:700;animation:pulse 2s infinite">● Now</span>`;
+            } else if (isPast) {
+                borderColor = '#dc2626';
+                slotBadge = `<span style="padding:2px 8px;border-radius:999px;background:#fef2f2;border:1px solid #dc2626;color:#dc2626;font-size:11px;font-weight:700">Missed</span>`;
+            } else {
+                slotBadge = `<span style="padding:2px 8px;border-radius:999px;background:var(--surface-elevated);border:1px solid var(--line);color:var(--muted);font-size:11px;font-weight:600">Upcoming</span>`;
+            }
+
+            const slotId = slot.label.replace('-','_');
+            const div = document.createElement('div');
+            div.className = 'slot-card';
+            div.style.borderColor = borderColor;
+
+            // Quick summary for done slots
+            let quickSummary = '';
+            if (isDone) {
+                const vis = saved.visual_status === 'OK' ? '✅ Visual' : saved.visual_status === 'NOT_OK' ? '❌ Visual' : '';
+                const col = saved.colour_status === 'OK' ? '✅ Colour' : saved.colour_status === 'NOT_OK' ? '❌ Colour' : '';
+                const ff  = saved.ff_status === 'OK' ? '✅ F/F' : saved.ff_status === 'NOT_OK' ? '❌ F/F' : '';
+                quickSummary = `<div style="font-size:12px;color:var(--muted);margin-top:2px">${[vis,col,ff].filter(Boolean).join(' · ')}</div>`;
+            }
+
+            div.innerHTML = `
+              <div class="slot-header" onclick="toggleSlotBody('${slotId}')">
+                <div>
+                  <span style="font-weight:800;font-size:16px">${slot.label}</span>
+                  ${isFF ? '<span style="margin-left:6px;font-size:11px;color:var(--primary);font-weight:700">+F/F</span>' : ''}
+                  ${quickSummary}
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  ${slotBadge}
+                  <span style="color:var(--muted);font-size:16px" id="slot-chevron-${slotId}">${isDone||isCurrent?'▲':'▼'}</span>
+                </div>
+              </div>
+              <div class="slot-body${isDone&&!isCurrent?' hidden':''}" id="slot-body-${slotId}">
+                <!-- VISUAL CHECK -->
+                <div style="font-weight:700;font-size:13px;margin-bottom:6px">👁️ Visual Check</div>
+                <div class="status-btn-row">
+                  <button class="status-btn${saved&&saved.visual_status==='OK'?' ok-sel':''}" id="vis-ok-${slotId}" onclick="setStatus('vis','OK','${slotId}')">✅ OK</button>
+                  <button class="status-btn${saved&&saved.visual_status==='NOT_OK'?' notok-sel':''}" id="vis-notok-${slotId}" onclick="setStatus('vis','NOT_OK','${slotId}')">❌ Not OK</button>
+                </div>
+                <div id="vis-details-${slotId}" class="${saved&&saved.visual_status==='NOT_OK'?'':'hidden'}">
+                  <label style="margin-top:6px">Problem
+                    <select id="vis-prob-${slotId}">${VISUAL_PROBLEMS.map(p=>`<option${saved&&saved.visual_problem===p?' selected':''}>${p}</option>`).join('')}</select>
+                  </label>
+                  <label style="margin-top:6px">Remarks
+                    <input type="text" id="vis-rmk-${slotId}" value="${saved&&saved.visual_remarks||''}" placeholder="Optional remarks">
+                  </label>
+                </div>
+
+                <!-- COLOUR CHECK -->
+                <div class="hr"></div>
+                <div style="font-weight:700;font-size:13px;margin-bottom:6px">🎨 Colour Check</div>
+                <div class="status-btn-row">
+                  <button class="status-btn${saved&&saved.colour_status==='OK'?' ok-sel':''}" id="col-ok-${slotId}" onclick="setStatus('col','OK','${slotId}')">✅ OK</button>
+                  <button class="status-btn${saved&&saved.colour_status==='NOT_OK'?' notok-sel':''}" id="col-notok-${slotId}" onclick="setStatus('col','NOT_OK','${slotId}')">❌ Not OK</button>
+                </div>
+                <div id="col-details-${slotId}" class="${saved&&saved.colour_status==='NOT_OK'?'':'hidden'}">
+                  <label style="margin-top:6px">Problem
+                    <select id="col-prob-${slotId}">${COLOUR_PROBLEMS.map(p=>`<option${saved&&saved.colour_problem===p?' selected':''}>${p}</option>`).join('')}</select>
+                  </label>
+                  <label style="margin-top:6px">Remarks
+                    <input type="text" id="col-rmk-${slotId}" value="${saved&&saved.colour_remarks||''}" placeholder="Optional remarks">
+                  </label>
+                </div>
+
+                ${isFF ? `
+                <!-- FUNCTION/FITMENT -->
+                <div class="hr"></div>
+                <div style="font-weight:700;font-size:13px;margin-bottom:6px">🔧 Function / Fitment</div>
+                <div class="status-btn-row">
+                  <button class="status-btn${saved&&saved.ff_status==='OK'?' ok-sel':''}" id="ff-ok-${slotId}" onclick="setStatus('ff','OK','${slotId}')">✅ OK</button>
+                  <button class="status-btn${saved&&saved.ff_status==='NOT_OK'?' notok-sel':''}" id="ff-notok-${slotId}" onclick="setStatus('ff','NOT_OK','${slotId}')">❌ Not OK</button>
+                </div>
+                <div id="ff-details-${slotId}" class="${saved&&saved.ff_status==='NOT_OK'?'':'hidden'}">
+                  <label style="margin-top:6px">Problem
+                    <select id="ff-prob-${slotId}">${FF_PROBLEMS.map(p=>`<option${saved&&saved.ff_problem===p?' selected':''}>${p}</option>`).join('')}</select>
+                  </label>
+                  <label style="margin-top:6px">Photo / Video (optional)
+                    <input type="file" id="ff-photo-${slotId}" accept="image/*,video/*" capture="environment" style="font-size:14px;margin-top:4px">
+                  </label>
+                  ${saved&&saved.ff_photo_url?`<a href="${saved.ff_photo_url}" target="_blank" style="font-size:12px;display:block;margin-top:4px">📎 View attached</a>`:''}
+                </div>` : ''}
+
+                <button class="primary" style="width:100%;margin-top:14px" onclick="saveSlotEntry('${slot.label}','${slotId}',this,${JSON.stringify({ machine, date, shift, job_card_no: job ? job.job_card_no : '', order_no: job ? job.order_no : '', item_name: job ? job.item_name : '', mould_name: job ? job.mould_name : '' }).replace(/"/g,'&quot;')})">
+                  Save ${slot.label} Entry
+                </button>
+              </div>`;
+            div._slotMeta = { slot: slot.label, machine, date, shift };
+            return div;
+        }
+
+        function toggleSlotBody(slotId) {
+            const body = document.getElementById('slot-body-' + slotId);
+            const chev = document.getElementById('slot-chevron-' + slotId);
+            if (!body) return;
+            body.classList.toggle('hidden');
+            if (chev) chev.textContent = body.classList.contains('hidden') ? '▼' : '▲';
+        }
+
+        // Track status selections per slot
+        const _slotStatus = {};   // { [slotId]: { vis: 'OK'|'NOT_OK'|null, col, ff } }
+        function setStatus(type, val, slotId) {
+            if (!_slotStatus[slotId]) _slotStatus[slotId] = {};
+            _slotStatus[slotId][type] = val;
+
+            const okBtn    = document.getElementById(`${type}-ok-${slotId}`);
+            const notokBtn = document.getElementById(`${type}-notok-${slotId}`);
+            const details  = document.getElementById(`${type}-details-${slotId}`);
+
+            if (okBtn)    { okBtn.className    = 'status-btn' + (val === 'OK'     ? ' ok-sel'    : ''); }
+            if (notokBtn) { notokBtn.className = 'status-btn' + (val === 'NOT_OK' ? ' notok-sel' : ''); }
+            if (details)  { details.classList.toggle('hidden', val !== 'NOT_OK'); }
+        }
+
+        async function saveSlotEntry(slotLabel, slotId, btn, ctx) {
+            const vis = (_slotStatus[slotId] || {}).vis || document.getElementById(`vis-ok-${slotId}`)?.classList.contains('ok-sel') && 'OK' || document.getElementById(`vis-notok-${slotId}`)?.classList.contains('notok-sel') && 'NOT_OK' || null;
+            const col = (_slotStatus[slotId] || {}).col || document.getElementById(`col-ok-${slotId}`)?.classList.contains('ok-sel') && 'OK' || document.getElementById(`col-notok-${slotId}`)?.classList.contains('notok-sel') && 'NOT_OK' || null;
+            const ff  = (_slotStatus[slotId] || {}).ff  || document.getElementById(`ff-ok-${slotId}`)?.classList.contains('ok-sel') && 'OK'  || document.getElementById(`ff-notok-${slotId}`)?.classList.contains('notok-sel') && 'NOT_OK'  || null;
+
+            const isFF = FF_SLOTS.includes(slotLabel);
+            const ffPhotoInput = isFF ? document.getElementById(`ff-photo-${slotId}`) : null;
+
+            btn.disabled = true; btn.textContent = 'Saving…';
+
+            const fd = new FormData();
+            fd.append('session', JSON.stringify(session));
+            fd.append('machine', ctx.machine || session.machine || '');
+            fd.append('dpr_date', ctx.date || istDateStr());
+            fd.append('shift', ctx.shift || getShiftFromTime());
+            fd.append('slot', slotLabel);
+            fd.append('job_card_no', ctx.job_card_no || '');
+            fd.append('order_no', ctx.order_no || '');
+            fd.append('item_name', ctx.item_name || '');
+            fd.append('mould_name', ctx.mould_name || '');
+            if (vis) { fd.append('visual_status', vis); fd.append('visual_problem', document.getElementById(`vis-prob-${slotId}`)?.value || ''); fd.append('visual_remarks', document.getElementById(`vis-rmk-${slotId}`)?.value || ''); }
+            if (col) { fd.append('colour_status', col); fd.append('colour_problem', document.getElementById(`col-prob-${slotId}`)?.value || ''); fd.append('colour_remarks', document.getElementById(`col-rmk-${slotId}`)?.value || ''); }
+            if (ff && isFF) {
+                fd.append('ff_status', ff);
+                fd.append('ff_problem', document.getElementById(`ff-prob-${slotId}`)?.value || '');
+                if (ffPhotoInput && ffPhotoInput.files[0]) fd.append('ff_photo', ffPhotoInput.files[0]);
+            }
+
+            try {
+                const res = await fetch('/api/qc/online-report/slot', { method: 'POST', body: fd });
+                const r = await res.json();
+                if (r.ok) {
+                    btn.textContent = '✓ Saved';
+                    btn.style.background = '#059669';
+                    btn.style.borderColor = '#059669';
+                    setTimeout(() => initOnlineQCReport(), 1000);
+                } else {
+                    alert('Error: ' + r.error);
+                    btn.disabled = false; btn.textContent = `Save ${slotLabel} Entry`;
+                }
+            } catch (e) {
+                alert('Save failed. Check connection.');
+                btn.disabled = false; btn.textContent = `Save ${slotLabel} Entry`;
+            }
+        }
+
+        /* ================================================================
+           QC JOB SETUP — STD vs Actual per job
+           ================================================================ */
+        let _setupJobCtx = {};  // current job context for setup modal
+
+        function openJobSetupModal(idx) {
+            const jobsDiv = el('jobs');
+            const cards = jobsDiv ? jobsDiv.querySelectorAll('.job') : [];
+            let job = session.activeJob || {};
+            // Try to get the specific job at idx
+            for (const card of cards) {
+                if (card.dataset.queueIndex == String(idx)) { job = card._qcJob || job; break; }
+            }
+            const all = job._all || {};
+            const jcNo    = safe(job.JobCardNo || all['JobCardNo'] || '');
+            const itemName = safe(all['SFG Name'] || all['Item Name'] || job.product_name || '');
+            const mouldName= safe(job.Mould || all['Mould Name'] || '');
+            const machine  = session.machine || '';
+            const date     = istDateStr();
+            const shift    = getShiftFromTime();
+
+            _setupJobCtx = { job_card_no: jcNo, item_name: itemName, mould_name: mouldName, machine, date, shift };
+
+            const infoEl = el('setup-job-info');
+            if (infoEl) infoEl.textContent = `${itemName || jcNo} · ${machine} · ${shift} shift · ${date}`;
+
+            // Reset fields
+            ['setup-act-weight','setup-act-ct','setup-act-cav'].forEach(id => { const e = el(id); if (e) e.value = ''; });
+            ['setup-std-weight','setup-std-ct','setup-std-cav'].forEach(id => { const e = el(id); if (e) e.textContent = '—'; });
+            ['setup-var-weight','setup-var-ct','setup-var-cav'].forEach(id => { const e = el(id); if (e) e.textContent = ''; });
+            const msgEl = el('setup-msg'); if (msgEl) msgEl.textContent = '';
+
+            document.getElementById('modal-qc-setup').classList.remove('hidden');
+
+            // Load existing setup + STD from mould master
+            fetch(`/api/qc/job-setup?job_card_no=${encodeURIComponent(jcNo)}&date=${date}&shift=${encodeURIComponent(shift)}&machine=${encodeURIComponent(machine)}&mould_name=${encodeURIComponent(mouldName)}`)
+                .then(r => r.json())
+                .then(r => {
+                    if (r.ok) {
+                        const std = r.std || {};
+                        const setup = r.setup || {};
+                        const setStd = (elId, val) => { const e = el(elId); if (e && val != null) e.textContent = val; };
+                        const setAct = (elId, val) => { const e = el(elId); if (e && val != null) e.value = val; };
+                        setStd('setup-std-weight', std.std_weight);
+                        setStd('setup-std-ct', std.std_cycle_time);
+                        setStd('setup-std-cav', std.std_cavity);
+                        _setupJobCtx.std = std;
+                        if (setup.act_weight   != null) { setAct('setup-act-weight', setup.act_weight);   calcVariance('weight'); }
+                        if (setup.act_cycle_time != null) { setAct('setup-act-ct', setup.act_cycle_time); calcVariance('ct'); }
+                        if (setup.act_cavity   != null) { setAct('setup-act-cav', setup.act_cavity);     calcVariance('cav'); }
+                    }
+                })
+                .catch(() => {});
+        }
+
+        function calcVariance(type) {
+            const std = _setupJobCtx.std || {};
+            const map = {
+                weight: { stdKey: 'std_weight',    actId: 'setup-act-weight', varId: 'setup-var-weight' },
+                ct:     { stdKey: 'std_cycle_time', actId: 'setup-act-ct',    varId: 'setup-var-ct'     },
+                cav:    { stdKey: 'std_cavity',     actId: 'setup-act-cav',   varId: 'setup-var-cav'    }
+            };
+            const m = map[type]; if (!m) return;
+            const stdVal = parseFloat(std[m.stdKey]);
+            const actVal = parseFloat(el(m.actId)?.value);
+            const varEl  = el(m.varId);
+            if (!varEl) return;
+            if (isNaN(stdVal) || isNaN(actVal)) { varEl.textContent = ''; return; }
+            const pct = Math.round(Math.abs((actVal - stdVal) / stdVal) * 100);
+            varEl.className = pct > 10 ? 'variance-bad' : 'variance-ok';
+            varEl.textContent = (actVal > stdVal ? '▲' : actVal < stdVal ? '▼' : '=') + ' ' + pct + '% vs STD';
+        }
+
+        async function saveJobSetup() {
+            const ctx = _setupJobCtx;
+            if (!ctx.job_card_no) return alert('No job selected.');
+            const btn = document.querySelector('#modal-qc-setup button.primary');
+            if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+            try {
+                const std = ctx.std || {};
+                const r = await fetch('/api/qc/job-setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session,
+                        job_card_no: ctx.job_card_no,
+                        machine: ctx.machine,
+                        dpr_date: ctx.date,
+                        shift: ctx.shift,
+                        std_weight: std.std_weight, act_weight: el('setup-act-weight')?.value,
+                        std_cycle_time: std.std_cycle_time, act_cycle_time: el('setup-act-ct')?.value,
+                        std_cavity: std.std_cavity, act_cavity: el('setup-act-cav')?.value
+                    })
+                });
+                const data = await r.json();
+                if (data.ok) {
+                    const msgEl = el('setup-msg'); if (msgEl) { msgEl.className = 'ok'; msgEl.textContent = '✓ Setup saved'; }
+                    setTimeout(() => document.getElementById('modal-qc-setup').classList.add('hidden'), 1200);
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (_) { alert('Save failed. Check connection.'); }
+            finally { if (btn) { btn.disabled = false; btn.textContent = 'Save Setup'; } }
+        }
+
+        /* ================================================================
+           SHIFT TEAM — QC team per machine+shift
+           ================================================================ */
+        async function loadShiftTeam() {
+            const machine = session.machine || el('dd-machine')?.value || '';
+            const date    = istDateStr();
+            const shift   = getShiftFromTime();
+            const listEl  = el('shift-team-list');
+            const emptyEl = el('shift-team-empty');
+            if (!machine || !listEl) return;
+
+            try {
+                const r = await fetch(`/api/qc/shift-team?machine=${encodeURIComponent(machine)}&date=${date}&shift=${encodeURIComponent(shift)}`);
+                const data = await r.json();
+                const members = data.data || [];
+                listEl.innerHTML = '';
+                if (!members.length) { if (emptyEl) emptyEl.style.display = ''; return; }
+                if (emptyEl) emptyEl.style.display = 'none';
+                members.forEach(m => {
+                    const row = document.createElement('div');
+                    row.className = 'team-row';
+                    const initials = m.employee_name.split(' ').map(w => w[0] || '').join('').slice(0, 2).toUpperCase();
+                    row.innerHTML = `
+                      <div class="team-avatar">${initials}</div>
+                      <div style="flex:1">
+                        <div style="font-weight:600;font-size:14px">${m.employee_name}</div>
+                        <div style="font-size:12px;color:var(--muted)">${m.role}</div>
+                      </div>
+                      <button class="small ghost" style="padding:4px 8px;min-height:0;color:var(--err);border-color:var(--err)" onclick="removeTeamMember(${m.id})">✕</button>`;
+                    listEl.appendChild(row);
+                });
+            } catch (_) {}
+        }
+
+        function openAddTeamMemberModal() {
+            const nameEl = el('team-name'); if (nameEl) nameEl.value = '';
+            document.getElementById('modal-add-team').classList.remove('hidden');
+        }
+
+        async function addShiftTeamMember() {
+            const name = el('team-name')?.value?.trim() || '';
+            const role = el('team-role')?.value || 'QC Inspector';
+            if (!name) return alert('Enter employee name.');
+            const machine = session.machine || '';
+            const date    = istDateStr();
+            const shift   = getShiftFromTime();
+            try {
+                const r = await fetch('/api/qc/shift-team', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session, machine, dpr_date: date, shift, role, employee_name: name })
+                });
+                const data = await r.json();
+                if (data.ok) {
+                    document.getElementById('modal-add-team').classList.add('hidden');
+                    loadShiftTeam();
+                } else { alert('Error: ' + data.error); }
+            } catch (_) { alert('Failed. Check connection.'); }
+        }
+
+        async function removeTeamMember(id) {
+            if (!confirm('Remove this team member?')) return;
+            try {
+                await fetch(`/api/qc/shift-team/${id}`, { method: 'DELETE' });
+                loadShiftTeam();
+            } catch (_) {}
+        }
+
+        /* ================================================================
+           VERIFY SLOTS — add HOLD & Deviation buttons (override buildVerifySlotCard)
+           ================================================================ */
+        // Keep reference to original, override to add HOLD/Deviation buttons
+        const _origBuildVerifySlotCard = buildVerifySlotCard;
+        buildVerifySlotCard = function(slot, machine, date, shift, currentHour) {
+            const div = _origBuildVerifySlotCard(slot, machine, date, shift, currentHour);
+            const verified = slot.qc_verified;
+            if (!verified) {
+                // Find the verify button and add HOLD + Deviation alongside
+                const formDiv = div.querySelector(`[id^="vfy-form"]`);
+                if (formDiv) {
+                    const actionRow = document.createElement('div');
+                    actionRow.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px';
+                    actionRow.innerHTML = `
+                      <button class="small" style="background:#fef2f2;border-color:#dc2626;color:#dc2626;font-weight:700"
+                        onclick="openHoldModal(${JSON.stringify(slot).replace(/"/g,'&quot;')}, '${machine}', '${date}', '${shift}')">
+                        🔴 HOLD
+                      </button>
+                      <button class="small" style="background:#fffbeb;border-color:#d97706;color:#d97706;font-weight:700"
+                        onclick="openDeviationModal(${JSON.stringify(slot).replace(/"/g,'&quot;')}, '${machine}', '${date}', '${shift}')">
+                        ⚠️ Deviation
+                      </button>`;
+                    formDiv.appendChild(actionRow);
+                }
+            }
+            return div;
+        };
+
+        /* ── HOLD modal logic ── */
+        let _holdCtx = {};
+        function openHoldModal(slot, machine, date, shift) {
+            _holdCtx = { slot, machine, date, shift };
+            const infoEl = el('hold-slot-info');
+            if (infoEl) infoEl.textContent = `Slot ${slot.hour_slot} · ${machine} · ${shift} · ${date}`;
+            const msgEl = el('hold-msg'); if (msgEl) msgEl.textContent = '';
+            el('hold-qty').value = '';
+            el('hold-reason').value = '';
+            el('hold-remarks').value = '';
+            document.getElementById('modal-hold').classList.remove('hidden');
+        }
+
+        async function submitHold() {
+            const reason = el('hold-reason')?.value || '';
+            const qty    = el('hold-qty')?.value;
+            const rmk    = el('hold-remarks')?.value || '';
+            if (!reason) return alert('Select a hold reason.');
+            const btn = document.querySelector('#modal-hold button.primary');
+            if (btn) { btn.disabled = true; btn.textContent = 'Placing hold…'; }
+            try {
+                const ctx = _holdCtx;
+                const r = await fetch('/api/qc/hold', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session,
+                        machine: ctx.machine, dpr_date: ctx.date, shift: ctx.shift,
+                        slot: ctx.slot ? ctx.slot.hour_slot : '',
+                        job_card_no: (ctx.slot && ctx.slot.job_card_no) || '',
+                        qty_on_hold: qty ? parseInt(qty) : null,
+                        reason, remarks: rmk
+                    })
+                });
+                const data = await r.json();
+                if (data.ok) {
+                    document.getElementById('modal-hold').classList.add('hidden');
+                    // Update banner
+                    const banner = el('holds-banner'); const bannerMsg = el('holds-banner-msg');
+                    if (banner) { banner.classList.remove('hidden'); }
+                    if (bannerMsg) { bannerMsg.textContent = `${reason} — slot ${ctx.slot ? ctx.slot.hour_slot : ''}. All scanning blocked.`; }
+                    loadVerifySlots();
+                } else { alert('Error: ' + data.error); }
+            } catch (_) { alert('Failed. Check connection.'); }
+            finally { if (btn) { btn.disabled = false; btn.textContent = 'Place HOLD'; } }
+        }
+
+        /* ── Deviation modal logic ── */
+        let _devCtx = {};
+        function openDeviationModal(slot, machine, date, shift) {
+            _devCtx = { slot, machine, date, shift };
+            const infoEl = el('dev-slot-info');
+            if (infoEl) infoEl.textContent = `Slot ${slot.hour_slot} · ${machine} · ${shift} · ${date}`;
+            const msgEl = el('dev-msg'); if (msgEl) msgEl.textContent = '';
+            // Pre-fill good/rej from supervisor values
+            const g = el('dev-good'); if (g) g.value = slot.sup_good_qty !== null ? slot.sup_good_qty : '';
+            const rj = el('dev-rej'); if (rj) rj.value = slot.sup_reject_qty !== null ? slot.sup_reject_qty : '';
+            el('dev-desc').value = '';
+            el('dev-remarks').value = '';
+            document.getElementById('modal-deviation').classList.remove('hidden');
+        }
+
+        async function submitDeviation() {
+            const good = parseInt(el('dev-good')?.value, 10);
+            const rej  = parseInt(el('dev-rej')?.value,  10);
+            const desc = el('dev-desc')?.value?.trim() || '';
+            const rmk  = el('dev-remarks')?.value || '';
+            if (!desc) return alert('Describe the deviation (required).');
+            if (isNaN(good) || good < 0) return alert('Enter valid Good Qty.');
+            if (isNaN(rej)  || rej  < 0) return alert('Enter valid Reject Qty.');
+
+            const btn = document.querySelector('#modal-deviation button.primary');
+            if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+            try {
+                const ctx = _devCtx;
+                // Submit verify with Deviation status + remarks = deviation desc
+                const r = await fetch('/api/qc/verify/submit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session, machine: ctx.machine, dpr_date: ctx.date, shift: ctx.shift,
+                        hour_slot: ctx.slot.hour_slot,
+                        qc_good_qty: good, qc_reject_qty: rej,
+                        remarks: `DEVIATION: ${desc}${rmk ? ' | ' + rmk : ''}`,
+                        status_override: 'Deviation'
+                    })
+                });
+                const data = await r.json();
+                if (data.ok) {
+                    document.getElementById('modal-deviation').classList.add('hidden');
+                    loadVerifySlots();
+                    checkVerifyPending();
+                } else { alert('Error: ' + data.error); }
+            } catch (_) { alert('Failed. Check connection.'); }
+            finally { if (btn) { btn.disabled = false; btn.textContent = 'Submit Deviation'; } }
+        }
+
+        /* ================================================================
+           MATERIAL ISSUES
+           ================================================================ */
+        let _issueFilter = 'all';
+
+        async function loadMaterialIssues() {
+            const machine = session.machine || '';
+            const listEl  = el('issues-list');
+            const emptyEl = el('issues-empty');
+            if (!listEl) return;
+            listEl.innerHTML = '<div class="muted" style="text-align:center;padding:16px">Loading…</div>';
+            try {
+                const status = _issueFilter !== 'all' ? _issueFilter : null;
+                const url    = `/api/qc/material-issues?${machine?'machine='+encodeURIComponent(machine)+'&':''}${status?'status='+encodeURIComponent(status):''}`;
+                const r      = await fetch(url);
+                const data   = await r.json();
+                const issues = data.data || [];
+                listEl.innerHTML = '';
+                if (!issues.length) { emptyEl.classList.remove('hidden'); return; }
+                emptyEl.classList.add('hidden');
+
+                issues.forEach(issue => {
+                    const card = document.createElement('div');
+                    const statusClass = (issue.status || 'OPEN').toLowerCase().replace('_','-');
+                    card.className = `issue-card ${statusClass}`;
+                    const sev = { Critical:'#dc2626', High:'#d97706', Medium:'#2563eb', Low:'#64748b' }[issue.severity] || '#64748b';
+                    const statusLabels = { OPEN:'🔴 Open', ACKNOWLEDGED:'🟡 Acknowledged', RESOLVED:'🟢 Resolved' };
+                    card.innerHTML = `
+                      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+                        <div>
+                          <span style="font-size:11px;font-weight:700;color:${sev};padding:2px 8px;background:${sev}11;border:1px solid ${sev}44;border-radius:999px">${issue.severity}</span>
+                          <span style="margin-left:6px;font-size:11px;color:var(--muted)">${statusLabels[issue.status] || issue.status}</span>
+                        </div>
+                        <span style="font-size:11px;color:var(--muted)">${issue.machine || ''}</span>
+                      </div>
+                      <div style="font-weight:600;margin-top:6px;font-size:14px">${issue.issue_description}</div>
+                      <div style="font-size:12px;color:var(--muted);margin-top:4px">
+                        Assigned → <b>${issue.assigned_to_role}</b>${issue.assigned_to_name ? ' ('+issue.assigned_to_name+')' : ''} · By ${issue.created_by}
+                      </div>
+                      ${issue.media_url ? `<a href="${issue.media_url}" target="_blank" style="font-size:12px;display:block;margin-top:4px">📎 View Media</a>` : ''}
+                      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+                        ${issue.status === 'OPEN' ? `<button class="small" style="font-size:12px;color:#059669;border-color:#059669" onclick="acknowledgeIssue(${issue.id})">✓ Acknowledge</button>` : ''}
+                        ${issue.status !== 'RESOLVED' ? `<button class="small ghost" style="font-size:12px" onclick="resolveIssue(${issue.id})">Resolve</button>` : ''}
+                      </div>`;
+                    listEl.appendChild(card);
+                });
+
+                // Update issues badge count
+                const openCount = issues.filter(i => i.status === 'OPEN').length;
+                const badge = el('issues-badge');
+                if (badge) {
+                    if (openCount > 0) { badge.textContent = openCount; badge.classList.remove('hidden'); badge.style.display = 'inline-flex'; }
+                    else { badge.classList.add('hidden'); }
+                }
+            } catch (_) { listEl.innerHTML = '<span class="err">Failed to load issues.</span>'; }
+        }
+
+        function filterIssues(status) {
+            _issueFilter = status;
+            ['all','open','ack','res'].forEach(id => {
+                const btn = el(`issue-filter-${id}`);
+                if (btn) btn.className = status === (id === 'all' ? 'all' : id === 'open' ? 'OPEN' : id === 'ack' ? 'ACKNOWLEDGED' : 'RESOLVED') ? 'small' : 'small ghost';
+            });
+            loadMaterialIssues();
+        }
+
+        function openNewIssueModal() {
+            const msgEl = el('ni-msg'); if (msgEl) msgEl.textContent = '';
+            el('ni-desc').value = '';
+            el('ni-assign-name').value = '';
+            document.getElementById('modal-new-issue').classList.remove('hidden');
+        }
+
+        async function submitMaterialIssue() {
+            const desc = el('ni-desc')?.value?.trim() || '';
+            const sev  = el('ni-severity')?.value || 'Medium';
+            const role = el('ni-assign-role')?.value || 'Supervisor';
+            const name = el('ni-assign-name')?.value || '';
+            const mediaInput = el('ni-media');
+            if (!desc) return alert('Issue description is required.');
+
+            const btn = document.querySelector('#modal-new-issue button.primary');
+            if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+            const msgEl = el('ni-msg'); if (msgEl) { msgEl.textContent = 'Uploading…'; msgEl.className = 'muted'; }
+
+            const job = session.activeJob || {};
+            const all = job._all || {};
+
+            const fd = new FormData();
+            fd.append('session', JSON.stringify(session));
+            fd.append('machine', session.machine || '');
+            fd.append('job_card_no', safe(job.JobCardNo || all['JobCardNo'] || ''));
+            fd.append('issue_description', desc);
+            fd.append('severity', sev);
+            fd.append('assigned_to_role', role);
+            fd.append('assigned_to_name', name);
+            if (mediaInput && mediaInput.files[0]) fd.append('media_file', mediaInput.files[0]);
+
+            try {
+                const res = await fetch('/api/qc/material-issues', { method: 'POST', body: fd });
+                const r   = await res.json();
+                if (r.ok) {
+                    if (msgEl) { msgEl.className = 'ok'; msgEl.textContent = '✓ Issue reported. Notifications sent.'; }
+                    setTimeout(() => { document.getElementById('modal-new-issue').classList.add('hidden'); loadMaterialIssues(); }, 1500);
+                } else {
+                    if (msgEl) { msgEl.className = 'err'; msgEl.textContent = r.error; }
+                }
+            } catch (_) {
+                if (msgEl) { msgEl.className = 'err'; msgEl.textContent = 'Failed. Check connection.'; }
+            }
+            finally { if (btn) { btn.disabled = false; btn.textContent = 'Submit Issue'; } }
+        }
+
+        async function acknowledgeIssue(id) {
+            try {
+                await fetch(`/api/qc/material-issues/${id}/acknowledge`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session })
+                });
+                loadMaterialIssues();
+            } catch (_) { alert('Failed. Check connection.'); }
+        }
+
+        async function resolveIssue(id) {
+            const notes = prompt('Resolution notes (optional):') || '';
+            try {
+                await fetch(`/api/qc/material-issues/${id}/resolve`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session, resolution_notes: notes })
+                });
+                loadMaterialIssues();
+            } catch (_) { alert('Failed. Check connection.'); }
+        }
+
+        /* ================================================================
+           NOTIFICATIONS
+           ================================================================ */
+        let _notifOpen = false;
+
+        function toggleNotifications() {
+            _notifOpen = !_notifOpen;
+            const panel = el('notif-panel');
+            if (!panel) return;
+            panel.classList.toggle('hidden', !_notifOpen);
+            if (_notifOpen) loadNotifications();
+        }
+
+        async function loadNotifications() {
+            const listEl = el('notif-list');
+            const dot    = el('notif-dot');
+            if (!listEl) return;
+            try {
+                const role = session.role || session.username || '';
+                const r = await fetch(`/api/qc/notifications?role=${encodeURIComponent(role)}`);
+                const data = await r.json();
+                const notifs = data.data || [];
+                if (dot) { dot.classList.toggle('hidden', data.unread === 0); }
+                if (!notifs.length) { listEl.innerHTML = '<div class="muted" style="padding:10px 14px;font-size:13px">No notifications</div>'; return; }
+                listEl.innerHTML = '';
+                notifs.forEach(n => {
+                    const row = document.createElement('div');
+                    row.style.cssText = `padding:8px 14px;font-size:13px;border-bottom:1px solid var(--line);${n.is_read?'opacity:.6':'font-weight:600'}`;
+                    row.textContent = n.message;
+                    const timeEl = document.createElement('div');
+                    timeEl.style.cssText = 'font-size:11px;color:var(--muted);font-weight:400;margin-top:2px';
+                    timeEl.textContent = n.created_at ? new Date(n.created_at).toLocaleString('en-IN',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'}) : '';
+                    row.appendChild(timeEl);
+                    listEl.appendChild(row);
+                });
+            } catch (_) { listEl.innerHTML = '<div class="muted" style="padding:10px 14px;font-size:13px">Failed to load</div>'; }
+        }
+
+        async function markAllNotifRead() {
+            const role = session.role || session.username || '';
+            try {
+                await fetch('/api/qc/notifications/read', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ role })
+                });
+                const dot = el('notif-dot'); if (dot) dot.classList.add('hidden');
+                loadNotifications();
+            } catch (_) {}
+        }
+
+        /* ================================================================
+           MACHINE CHANGE — reload shift team + check notifications
+           ================================================================ */
+        const _origOnMachineChange = typeof onMachineChange === 'function' ? onMachineChange : null;
+        onMachineChange = function() {
+            if (_origOnMachineChange) _origOnMachineChange();
+            setTimeout(() => {
+                loadShiftTeam();
+                checkNotifDot();
+            }, 300);
+        };
+
+        function checkNotifDot() {
+            const role = session.role || session.username || '';
+            fetch(`/api/qc/notifications?role=${encodeURIComponent(role)}&limit=5`)
+                .then(r => r.json())
+                .then(data => {
+                    const dot = el('notif-dot');
+                    if (dot) dot.classList.toggle('hidden', !data.unread);
+                })
+                .catch(() => {});
+        }
+
+        /* ================================================================
+           buildJobCard override — add ⚙️ Setup button per job
+           ================================================================ */
+        const _origBuildJobCard = buildJobCard;
+        buildJobCard = function(item, idx, activeIndex) {
+            const div = _origBuildJobCard(item, idx, activeIndex);
+            // Find the action row and add a Setup button
+            const actionRow = div.querySelector('.qc-action-row');
+            if (actionRow) {
+                const setupBtn = document.createElement('button');
+                setupBtn.className = 'small ghost';
+                setupBtn.title = 'QC Job Setup';
+                setupBtn.textContent = '⚙️';
+                setupBtn.onclick = (e) => { e.stopPropagation(); openJobSetupModal(idx); };
+                actionRow.appendChild(setupBtn);
+            }
+            return div;
+        };
+
+        // Poll notifications every 2 minutes after login
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => { if (session && session.username) { checkNotifDot(); loadShiftTeam(); } }, 2000);
+            setInterval(() => { if (session && session.username) checkNotifDot(); }, 120000);
+        });

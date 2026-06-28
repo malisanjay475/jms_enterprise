@@ -13,7 +13,7 @@
  */
 'use strict';
 
-const CACHE_VERSION = 'jms-v2-2026-06-21';
+const CACHE_VERSION = 'jms-v2-2026-06-28';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGE_CACHE = `${CACHE_VERSION}-pages`;
 
@@ -23,8 +23,8 @@ const QC_SHELL = [
   '/QCSupervisor.html',
   '/qc-manifest.json',
   '/assets/app.css',
-  '/assets/QCSupervisor-script-1.js?v=release63',
-  '/assets/register-sw.js?v=release63',
+  '/assets/QCSupervisor-script-1.js?v=release64',
+  '/assets/register-sw.js?v=release64',
   '/assets/jms-logo.png',
   '/assets/icon-192.png',
   '/assets/icon-512.png',

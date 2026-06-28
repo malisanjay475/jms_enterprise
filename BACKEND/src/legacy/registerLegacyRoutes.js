@@ -27,6 +27,25 @@ const bcrypt = require('bcryptjs');
 const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
 const STATIC_PUBLIC_DIR_NAME = fs.existsSync(path.join(BACKEND_ROOT, 'PUBLIC', 'index.html')) ? 'PUBLIC' : 'public';
 const STATIC_PUBLIC_DIR = path.join(BACKEND_ROOT, STATIC_PUBLIC_DIR_NAME);
+
+// QC image uploads — disk storage so images are served as static files from PUBLIC/uploads/qc-images/
+const _qcImgDir = path.join(STATIC_PUBLIC_DIR, 'uploads', 'qc-images');
+fs.mkdirSync(_qcImgDir, { recursive: true });
+const uploadQC = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, _qcImgDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname) || '.jpg';
+      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    }
+  }),
+  limits: { fileSize: 10 * 1024 * 1024, files: 12 },
+  fileFilter(_req, file, cb) {
+    if (/^image\//i.test(file.mimetype) || /\.(jpg|jpeg|png|gif|webp|mp4|mov)$/i.test(file.originalname)) return cb(null, true);
+    cb(new Error('Only images/videos allowed for QC uploads'), false);
+  }
+});
+
 const {
   getFinancialYearInfo,
   getFinancialYearPrefix,
@@ -4947,6 +4966,141 @@ async function initializeLegacyRuntime() {
     `);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcv_machine_date ON qc_verifications (machine, dpr_date, shift)`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcv_entry       ON qc_verifications (dpr_entry_id)`);
+
+    // QC JOB SETUP — STD (from mould master) vs Actual entered by QC per job/shift
+    await q(`
+      CREATE TABLE IF NOT EXISTS qc_job_setup (
+        id             SERIAL PRIMARY KEY,
+        factory_id     INTEGER,
+        job_card_no    TEXT NOT NULL,
+        machine        TEXT NOT NULL,
+        dpr_date       DATE NOT NULL,
+        shift          TEXT NOT NULL,
+        std_weight     NUMERIC,
+        act_weight     NUMERIC,
+        std_cycle_time NUMERIC,
+        act_cycle_time NUMERIC,
+        std_cavity     INTEGER,
+        act_cavity     INTEGER,
+        setup_by       TEXT NOT NULL,
+        setup_at       TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(job_card_no, machine, dpr_date, shift)
+      );
+    `);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcjobs_lookup ON qc_job_setup (machine, dpr_date, shift)`);
+
+    // QC ONLINE REPORT SLOTS — structured 2-hour slot quality checks
+    await q(`
+      CREATE TABLE IF NOT EXISTS qc_online_report_slots (
+        id             SERIAL PRIMARY KEY,
+        factory_id     INTEGER,
+        machine        TEXT NOT NULL,
+        job_card_no    TEXT,
+        order_no       TEXT,
+        item_name      TEXT,
+        mould_name     TEXT,
+        dpr_date       DATE NOT NULL,
+        shift          TEXT NOT NULL,
+        slot           TEXT NOT NULL,
+        visual_status  TEXT,
+        visual_problem TEXT,
+        visual_remarks TEXT,
+        colour_status  TEXT,
+        colour_problem TEXT,
+        colour_remarks TEXT,
+        ff_status      TEXT,
+        ff_problem     TEXT,
+        ff_photo_url   TEXT,
+        entered_by     TEXT NOT NULL,
+        entered_at     TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(machine, dpr_date, shift, slot)
+      );
+    `);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcslots_lookup ON qc_online_report_slots (machine, dpr_date, shift)`);
+
+    // QC HOLDS — job hold records (block scanner shifting)
+    await q(`
+      CREATE TABLE IF NOT EXISTS qc_holds (
+        id              SERIAL PRIMARY KEY,
+        factory_id      INTEGER,
+        job_card_no     TEXT,
+        machine         TEXT NOT NULL,
+        dpr_date        DATE NOT NULL,
+        shift           TEXT NOT NULL,
+        slot            TEXT NOT NULL,
+        qty_on_hold     INTEGER,
+        reason          TEXT NOT NULL,
+        remarks         TEXT,
+        hold_by         TEXT NOT NULL,
+        hold_at         TIMESTAMPTZ DEFAULT NOW(),
+        released_by     TEXT,
+        released_at     TIMESTAMPTZ,
+        release_remarks TEXT,
+        status          TEXT DEFAULT 'ACTIVE'
+      );
+    `);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcholds_machine ON qc_holds (machine, dpr_date, status)`);
+
+    // QC SHIFT TEAM — QC team members assigned per machine/shift
+    await q(`
+      CREATE TABLE IF NOT EXISTS qc_shift_team (
+        id            SERIAL PRIMARY KEY,
+        factory_id    INTEGER,
+        machine       TEXT NOT NULL,
+        dpr_date      DATE NOT NULL,
+        shift         TEXT NOT NULL,
+        role          TEXT NOT NULL,
+        employee_name TEXT NOT NULL,
+        assigned_by   TEXT,
+        assigned_at   TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    // QC MATERIAL ISSUES — internal issue reporting with media, assignments, audit trail
+    await q(`
+      CREATE TABLE IF NOT EXISTS qc_material_issues (
+        id                SERIAL PRIMARY KEY,
+        factory_id        INTEGER,
+        machine           TEXT NOT NULL,
+        job_card_no       TEXT,
+        issue_description TEXT NOT NULL,
+        severity          TEXT DEFAULT 'Medium',
+        media_url         TEXT,
+        assigned_to_role  TEXT NOT NULL,
+        assigned_to_name  TEXT,
+        created_by        TEXT NOT NULL,
+        created_at        TIMESTAMPTZ DEFAULT NOW(),
+        acknowledged_by   TEXT,
+        acknowledged_at   TIMESTAMPTZ,
+        resolved_by       TEXT,
+        resolved_at       TIMESTAMPTZ,
+        resolution_notes  TEXT,
+        status            TEXT DEFAULT 'OPEN',
+        action_history    JSONB DEFAULT '[]'::jsonb
+      );
+    `);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcissues_machine ON qc_material_issues (machine, status)`);
+
+    // QC NOTIFICATIONS — in-app notifications for roles
+    await q(`
+      CREATE TABLE IF NOT EXISTS qc_notifications (
+        id             SERIAL PRIMARY KEY,
+        factory_id     INTEGER,
+        recipient_role TEXT NOT NULL,
+        recipient_name TEXT,
+        message        TEXT NOT NULL,
+        ref_type       TEXT,
+        ref_id         INTEGER,
+        is_read        BOOLEAN DEFAULT FALSE,
+        created_at     TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcnotif_role ON qc_notifications (recipient_role, is_read)`);
+
+    // QC FPA COLUMNS — add fpa_done_at, fpa_done_by to qc_job_checks
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_done_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_done_by TEXT`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_form_url TEXT`);
 
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_date DATE;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_type TEXT;`);
@@ -19849,27 +20003,85 @@ VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
   }
 });
 
-app.post('/api/qc/fpa', async (req, res) => {
+// GET /api/qc/fpa/status — check if FPA already done for this job+date+shift (one-time per job)
+app.get('/api/qc/fpa/status', async (req, res) => {
   try {
-    const {
-      date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name,
-      fpa_form_image, product_images, remarks, supervisor
-    } = req.body || {};
-    const images = Array.isArray(product_images) ? product_images.filter(Boolean) : [];
-    if (!fpa_form_image) return res.status(400).json({ ok: false, error: 'FPA form image required' });
-    if (images.length < 2) return res.status(400).json({ ok: false, error: 'Minimum 2 product reference images required' });
+    const { job_card_no, date, shift, machine } = req.query;
+    if (!job_card_no || !date) return res.json({ ok: true, done: false });
     const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT id, fpa_done_at, fpa_done_by, fpa_form_url, product_images
+       FROM qc_job_checks
+       WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
+         AND date = $2::date
+         AND fpa_status = 'Done'
+         AND ($3 IS NULL OR machine = $3)
+         AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+       ORDER BY updated_at DESC LIMIT 1`,
+      [job_card_no, date, machine || null, factoryId]
+    );
+    if (rows.length) {
+      const r = rows[0];
+      const fpaAt = r.fpa_done_at
+        ? new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }).format(new Date(r.fpa_done_at))
+        : null;
+      return res.json({ ok: true, done: true, done_by: r.fpa_done_by, done_at: fpaAt, form_url: r.fpa_form_url, product_images: r.product_images });
+    }
+    res.json({ ok: true, done: false });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/fpa — upload FPA form image + product reference images (multipart)
+app.post('/api/qc/fpa', (req, res, next) => {
+  uploadQC.fields([
+    { name: 'fpa_form_image',     maxCount: 1 },
+    { name: 'fpa_product_images', maxCount: 10 }
+  ])(req, res, err => {
+    if (err) return res.status(400).json({ ok: false, error: err.message || 'Upload error' });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name, remarks } = body;
+
+    // Derive username from session field or body
+    const rawUser = (body.session ? (() => { try { const s = typeof body.session === 'string' ? JSON.parse(body.session) : body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || body.supervisor || '';
+    const supervisor = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
+
+    const formFiles    = (req.files && req.files['fpa_form_image'])     || [];
+    const productFiles = (req.files && req.files['fpa_product_images']) || [];
+
+    if (!formFiles.length) return res.status(400).json({ ok: false, error: 'FPA form image required' });
+    if (productFiles.length < 2) return res.status(400).json({ ok: false, error: 'Minimum 2 product reference images required' });
+
+    // Build public URL paths (files are in PUBLIC/uploads/qc-images/)
+    const toUrl = f => `/uploads/qc-images/${path.basename(f.filename || f.path)}`;
+    const formUrl    = toUrl(formFiles[0]);
+    const productUrls = productFiles.map(f => toUrl(f));
+    const now = new Date();
+
+    const factoryId = getFactoryId(req);
+    const entryDate = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
+
     await q(`
       INSERT INTO qc_job_checks(
         date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name,
-        fpa_status, fpa_form_image, product_images, remarks, supervisor, factory_id, updated_at
-      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12::jsonb,$13,$14,$15,NOW())
+        fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
+        fpa_done_at, fpa_done_by, factory_id, updated_at
+      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,NOW())
+      ON CONFLICT DO NOTHING
     `, [
-      date || todayLocalDateStr(), shift || '', hour_slot || '', plan_id || '', job_card_no || '', order_no || '',
-      line || '', machine || '', item_name || '', mould_name || '', fpa_form_image, JSON.stringify(images), remarks || '', supervisor || '', factoryId
+      entryDate, shift || '', hour_slot || '',
+      plan_id || '', job_card_no || '', order_no || '',
+      line || '', machine || '', item_name || '', mould_name || '',
+      formUrl, formUrl, JSON.stringify(productUrls),
+      remarks || '', supervisor, now, supervisor, factoryId
     ]);
     syncService.triggerSync();
-    res.json({ ok: true });
+    res.json({ ok: true, form_url: formUrl, product_images: productUrls });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -20132,6 +20344,424 @@ SELECT * FROM qc_online_reports
       LIMIT $2
   `, [machine || '', limit || 10]);
     res.json({ ok: true, data: rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// ── QC v2 ROUTES ─────────────────────────────────────────────────────────────
+
+// GET /api/qc/online-report — all 6 slots for machine+date+shift
+app.get('/api/qc/online-report', async (req, res) => {
+  try {
+    const { machine, date, shift } = req.query;
+    if (!machine || !date || !shift) return res.json({ ok: false, error: 'machine, date, shift required' });
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT * FROM qc_online_report_slots
+       WHERE machine = $1 AND dpr_date = $2::date AND shift = $3
+         AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+       ORDER BY slot ASC`,
+      [machine, date, shift, factoryId]
+    );
+    // Also fetch the active job context for item/mould names
+    const jobRows = await q(
+      `SELECT d.job_card_no, d.order_no, d.item_name, d.mould_name
+       FROM dpr_hourly d
+       WHERE d.machine = $1 AND d.dpr_date = $2::date AND d.shift = $3 AND d.is_deleted = false
+         AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
+       ORDER BY d.id DESC LIMIT 1`,
+      [machine, date, shift, factoryId]
+    );
+    res.json({ ok: true, data: rows || [], job: jobRows[0] || null });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/online-report/slot — upsert one slot's QC check data (with optional photo)
+app.post('/api/qc/online-report/slot', (req, res, next) => {
+  uploadQC.single('ff_photo')(req, res, err => {
+    if (err) return res.status(400).json({ ok: false, error: err.message || 'Upload error' });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { machine, dpr_date, shift, slot, job_card_no, order_no, item_name, mould_name,
+            visual_status, visual_problem, visual_remarks,
+            colour_status, colour_problem, colour_remarks,
+            ff_status, ff_problem } = body;
+
+    if (!machine || !dpr_date || !shift || !slot) return res.json({ ok: false, error: 'machine, dpr_date, shift, slot required' });
+
+    const rawUser = (body.session ? (() => { try { const s = typeof body.session === 'string' ? JSON.parse(body.session) : body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || body.entered_by || '';
+    const entered_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
+
+    const factoryId = getFactoryId(req);
+    const ffPhotoUrl = req.file ? `/uploads/qc-images/${path.basename(req.file.filename || req.file.path)}` : (body.ff_photo_url || null);
+
+    await q(`
+      INSERT INTO qc_online_report_slots
+        (factory_id, machine, job_card_no, order_no, item_name, mould_name, dpr_date, shift, slot,
+         visual_status, visual_problem, visual_remarks,
+         colour_status, colour_problem, colour_remarks,
+         ff_status, ff_problem, ff_photo_url, entered_by, entered_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW())
+      ON CONFLICT (machine, dpr_date, shift, slot)
+      DO UPDATE SET
+        job_card_no = EXCLUDED.job_card_no, order_no = EXCLUDED.order_no,
+        item_name = EXCLUDED.item_name, mould_name = EXCLUDED.mould_name,
+        visual_status = EXCLUDED.visual_status, visual_problem = EXCLUDED.visual_problem, visual_remarks = EXCLUDED.visual_remarks,
+        colour_status = EXCLUDED.colour_status, colour_problem = EXCLUDED.colour_problem, colour_remarks = EXCLUDED.colour_remarks,
+        ff_status = EXCLUDED.ff_status, ff_problem = EXCLUDED.ff_problem, ff_photo_url = COALESCE(EXCLUDED.ff_photo_url, qc_online_report_slots.ff_photo_url),
+        entered_by = EXCLUDED.entered_by, entered_at = NOW()
+    `, [
+      factoryId, machine, job_card_no || '', order_no || '', item_name || '', mould_name || '',
+      dpr_date, shift, slot,
+      visual_status || null, visual_problem || null, visual_remarks || null,
+      colour_status || null, colour_problem || null, colour_remarks || null,
+      ff_status || null, ff_problem || null, ffPhotoUrl, entered_by
+    ]);
+    syncService.triggerSync();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/job-setup — get existing setup + STD values from mould master
+app.get('/api/qc/job-setup', async (req, res) => {
+  try {
+    const { job_card_no, date, shift, machine, mould_name } = req.query;
+    const factoryId = getFactoryId(req);
+
+    // Get existing QC setup
+    const setup = await q(
+      `SELECT * FROM qc_job_setup
+       WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
+         AND machine = $2 AND dpr_date = $3::date AND shift = $4
+         AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)
+       ORDER BY setup_at DESC LIMIT 1`,
+      [job_card_no || '', machine || '', date, shift || 'Day', factoryId]
+    );
+
+    // Get STD values from mould master
+    let std = { std_weight: null, std_cycle_time: null, std_cavity: null };
+    if (mould_name) {
+      const mouldRows = await q(
+        `SELECT
+           COALESCE(article_weight, std_weight) AS std_weight,
+           COALESCE(cycle_time, std_cycle_time) AS std_cycle_time,
+           COALESCE(no_of_cavity, std_cavity, cavity) AS std_cavity
+         FROM moulds
+         WHERE LOWER(TRIM(mould_name)) = LOWER(TRIM($1))
+           AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+         LIMIT 1`,
+        [mould_name, factoryId]
+      );
+      if (mouldRows.length) std = { std_weight: mouldRows[0].std_weight, std_cycle_time: mouldRows[0].std_cycle_time, std_cavity: mouldRows[0].std_cavity };
+    }
+
+    res.json({ ok: true, setup: setup[0] || null, std });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/job-setup — save QC job setup (STD vs Actual)
+app.post('/api/qc/job-setup', async (req, res) => {
+  try {
+    const { job_card_no, machine, dpr_date, shift, act_weight, act_cycle_time, act_cavity,
+            std_weight, std_cycle_time, std_cavity } = req.body || {};
+    if (!job_card_no || !machine || !dpr_date || !shift) return res.json({ ok: false, error: 'job_card_no, machine, dpr_date, shift required' });
+    const rawUser = (req.body.session ? (() => { try { const s = typeof req.body.session === 'string' ? JSON.parse(req.body.session) : req.body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || '';
+    const setup_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
+    const factoryId = getFactoryId(req);
+    const toN = v => (v !== '' && v !== null && v !== undefined && !isNaN(Number(v))) ? Number(v) : null;
+
+    await q(`
+      INSERT INTO qc_job_setup (factory_id, job_card_no, machine, dpr_date, shift,
+        std_weight, act_weight, std_cycle_time, act_cycle_time, std_cavity, act_cavity, setup_by)
+      VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12)
+      ON CONFLICT (job_card_no, machine, dpr_date, shift)
+      DO UPDATE SET
+        std_weight = EXCLUDED.std_weight, act_weight = EXCLUDED.act_weight,
+        std_cycle_time = EXCLUDED.std_cycle_time, act_cycle_time = EXCLUDED.act_cycle_time,
+        std_cavity = EXCLUDED.std_cavity, act_cavity = EXCLUDED.act_cavity,
+        setup_by = EXCLUDED.setup_by, setup_at = NOW()
+    `, [factoryId, job_card_no, machine, dpr_date, shift,
+        toN(std_weight), toN(act_weight), toN(std_cycle_time), toN(act_cycle_time),
+        toN(std_cavity) ? Math.round(toN(std_cavity)) : null,
+        toN(act_cavity) ? Math.round(toN(act_cavity)) : null, setup_by]);
+
+    syncService.triggerSync();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/shift-team — get QC shift team for machine+date+shift
+app.get('/api/qc/shift-team', async (req, res) => {
+  try {
+    const { machine, date, shift } = req.query;
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT * FROM qc_shift_team WHERE machine = $1 AND dpr_date = $2::date AND shift = $3
+         AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+       ORDER BY assigned_at ASC`,
+      [machine || '', date, shift || 'Day', factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/shift-team — add member to QC shift team
+app.post('/api/qc/shift-team', async (req, res) => {
+  try {
+    const { machine, dpr_date, shift, role, employee_name } = req.body || {};
+    if (!machine || !dpr_date || !shift || !employee_name) return res.json({ ok: false, error: 'machine, dpr_date, shift, employee_name required' });
+    const rawUser = (req.body.session ? (() => { try { const s = typeof req.body.session === 'string' ? JSON.parse(req.body.session) : req.body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || '';
+    const assigned_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
+    const factoryId = getFactoryId(req);
+    const r = await q(
+      `INSERT INTO qc_shift_team (factory_id, machine, dpr_date, shift, role, employee_name, assigned_by)
+       VALUES ($1,$2,$3::date,$4,$5,$6,$7) RETURNING id`,
+      [factoryId, machine, dpr_date, shift, role || 'QC Inspector', String(employee_name).slice(0, 80), assigned_by]
+    );
+    res.json({ ok: true, id: r[0].id });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// DELETE /api/qc/shift-team/:id — remove member from QC shift team
+app.delete('/api/qc/shift-team/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const factoryId = getFactoryId(req);
+    await q(`DELETE FROM qc_shift_team WHERE id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`, [id, factoryId]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/hold — place a QC hold on a job (blocks scanner shifting)
+app.post('/api/qc/hold', async (req, res) => {
+  try {
+    const { job_card_no, machine, dpr_date, shift, slot, qty_on_hold, reason, remarks } = req.body || {};
+    if (!machine || !dpr_date || !reason) return res.json({ ok: false, error: 'machine, dpr_date, reason required' });
+    const rawUser = (req.body.session ? (() => { try { const s = typeof req.body.session === 'string' ? JSON.parse(req.body.session) : req.body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || '';
+    const hold_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
+    const factoryId = getFactoryId(req);
+    const r = await q(
+      `INSERT INTO qc_holds (factory_id, job_card_no, machine, dpr_date, shift, slot, qty_on_hold, reason, remarks, hold_by, status)
+       VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,'ACTIVE') RETURNING id`,
+      [factoryId, job_card_no || '', machine, dpr_date, shift || 'Day', slot || '', parseInt(qty_on_hold) || null, reason, remarks || '', hold_by]
+    );
+    // Notify via qc_notifications
+    await q(
+      `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+       VALUES ($1,'Moulding Manager','QC HOLD placed on machine ' || $2 || ' by ' || $3,'HOLD',$4)`,
+      [factoryId, machine, hold_by, r[0].id]
+    );
+    res.json({ ok: true, id: r[0].id });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/holds — get holds for a machine (active or all)
+app.get('/api/qc/holds', async (req, res) => {
+  try {
+    const { machine, date, status } = req.query;
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT * FROM qc_holds
+       WHERE machine = $1
+         AND ($2::date IS NULL OR dpr_date = $2::date)
+         AND ($3 IS NULL OR status = $3)
+         AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+       ORDER BY hold_at DESC LIMIT 50`,
+      [machine || '', date || null, status || null, factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/holds/:id/release — release a QC hold
+app.post('/api/qc/holds/:id/release', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { remarks } = req.body || {};
+    const rawUser = (req.body.session ? (() => { try { const s = typeof req.body.session === 'string' ? JSON.parse(req.body.session) : req.body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || '';
+    const released_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_holds SET status='RELEASED', released_by=$1, released_at=NOW(), release_remarks=$2
+       WHERE id=$3 AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)`,
+      [released_by, remarks || '', id, factoryId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/hold/active — check if any active hold on a job (used by scanner bridge)
+app.get('/api/qc/hold/active', async (req, res) => {
+  try {
+    const { job_card_no, machine } = req.query;
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT id, reason, hold_by FROM qc_holds
+       WHERE status = 'ACTIVE'
+         AND (($1 IS NOT NULL AND TRIM(COALESCE(job_card_no,'')) = TRIM($1)) OR ($2 IS NOT NULL AND machine = $2))
+         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+       ORDER BY hold_at DESC LIMIT 1`,
+      [job_card_no || null, machine || null, factoryId]
+    );
+    res.json({ ok: true, active: rows.length > 0, hold: rows[0] || null });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/material-issues — create internal material issue
+app.post('/api/qc/material-issues', (req, res, next) => {
+  uploadQC.single('media_file')(req, res, err => {
+    if (err) return res.status(400).json({ ok: false, error: err.message || 'Upload error' });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { machine, job_card_no, issue_description, severity, assigned_to_role, assigned_to_name } = body;
+    if (!machine || !issue_description || !assigned_to_role) return res.json({ ok: false, error: 'machine, issue_description, assigned_to_role required' });
+    const rawUser = (body.session ? (() => { try { const s = typeof body.session === 'string' ? JSON.parse(body.session) : body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || body.created_by || '';
+    const created_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
+    const factoryId = getFactoryId(req);
+    const mediaUrl = req.file ? `/uploads/qc-images/${path.basename(req.file.filename || req.file.path)}` : null;
+    const initAudit = JSON.stringify([{ action: 'CREATED', by: created_by, at: new Date().toISOString(), notes: issue_description }]);
+
+    const r = await q(
+      `INSERT INTO qc_material_issues (factory_id, machine, job_card_no, issue_description, severity, media_url, assigned_to_role, assigned_to_name, created_by, action_history)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) RETURNING id`,
+      [factoryId, machine, job_card_no || '', issue_description, severity || 'Medium', mediaUrl, assigned_to_role, assigned_to_name || '', created_by, initAudit]
+    );
+    // Notify Moulding Manager, Sr. Moulding Manager, PPC
+    const notifyRoles = ['Moulding Manager', 'Sr. Moulding Manager', 'PPC'];
+    for (const role of notifyRoles) {
+      await q(
+        `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+         VALUES ($1,$2,$3,'ISSUE',$4)`,
+        [factoryId, role, `New Issue on ${machine} by ${created_by}: ${issue_description.slice(0, 80)}`, r[0].id]
+      );
+    }
+    res.json({ ok: true, id: r[0].id });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/material-issues — list issues (filterable by machine, status)
+app.get('/api/qc/material-issues', async (req, res) => {
+  try {
+    const { machine, status, limit } = req.query;
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT * FROM qc_material_issues
+       WHERE ($1 IS NULL OR machine = $1)
+         AND ($2 IS NULL OR status = $2)
+         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+       ORDER BY created_at DESC
+       LIMIT $4`,
+      [machine || null, status || null, factoryId, Math.min(100, parseInt(limit) || 50)]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/material-issues/:id/acknowledge — Moulding Manager acknowledges
+app.post('/api/qc/material-issues/:id/acknowledge', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const rawUser = (req.body.session ? (() => { try { const s = typeof req.body.session === 'string' ? JSON.parse(req.body.session) : req.body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || '';
+    const by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'Manager';
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+       SET acknowledged_by=$1, acknowledged_at=NOW(), status='ACKNOWLEDGED',
+           action_history = action_history || $2::jsonb
+       WHERE id=$3 AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)`,
+      [by, JSON.stringify([{ action: 'ACKNOWLEDGED', by, at: new Date().toISOString() }]), id, factoryId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/material-issues/:id/resolve — resolve an issue
+app.post('/api/qc/material-issues/:id/resolve', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { resolution_notes } = req.body || {};
+    const rawUser = (req.body.session ? (() => { try { const s = typeof req.body.session === 'string' ? JSON.parse(req.body.session) : req.body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || '';
+    const by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+       SET resolved_by=$1, resolved_at=NOW(), status='RESOLVED', resolution_notes=$2,
+           action_history = action_history || $3::jsonb
+       WHERE id=$4 AND ($5::int IS NULL OR factory_id=$5 OR factory_id IS NULL)`,
+      [by, resolution_notes || '', JSON.stringify([{ action: 'RESOLVED', by, at: new Date().toISOString(), notes: resolution_notes || '' }]), id, factoryId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/notifications — get unread notifications for a role
+app.get('/api/qc/notifications', async (req, res) => {
+  try {
+    const { role, name, limit } = req.query;
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT * FROM qc_notifications
+       WHERE ($1 IS NULL OR recipient_role = $1 OR (recipient_name IS NOT NULL AND recipient_name = $2))
+         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+       ORDER BY created_at DESC
+       LIMIT $4`,
+      [role || null, name || null, factoryId, Math.min(50, parseInt(limit) || 20)]
+    );
+    const unreadCount = rows.filter(r => !r.is_read).length;
+    res.json({ ok: true, data: rows || [], unread: unreadCount });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/notifications/read — mark notifications as read
+app.post('/api/qc/notifications/read', async (req, res) => {
+  try {
+    const { ids, role } = req.body || {};
+    const factoryId = getFactoryId(req);
+    if (ids && Array.isArray(ids) && ids.length) {
+      await q(`UPDATE qc_notifications SET is_read=TRUE WHERE id = ANY($1::int[]) AND ($2::int IS NULL OR factory_id=$2 OR factory_id IS NULL)`, [ids, factoryId]);
+    } else if (role) {
+      await q(`UPDATE qc_notifications SET is_read=TRUE WHERE recipient_role=$1 AND ($2::int IS NULL OR factory_id=$2 OR factory_id IS NULL)`, [role, factoryId]);
+    }
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }

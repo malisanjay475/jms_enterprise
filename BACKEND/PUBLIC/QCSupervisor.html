@@ -290,22 +290,28 @@
 
         /* ── Tabs ── */
         .tabs {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
+            display: flex;
+            overflow-x: auto;
             gap: 6px;
             margin-top: 10px;
+            padding-bottom: 2px;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
         }
+        .tabs::-webkit-scrollbar { display: none }
 
         .tabs button {
+            flex-shrink: 0;
             border-radius: 12px;
             background: transparent;
             border: 0;
-            padding: 10px 8px;
+            padding: 10px 12px;
             box-shadow: none;
             color: var(--muted);
             font-weight: 600;
             font-size: 14px;
             min-height: 40px;
+            white-space: nowrap;
         }
 
         .tabs button.active {
@@ -315,6 +321,121 @@
             font-weight: 700;
             box-shadow: 0 2px 8px rgba(37,99,235,0.25);
         }
+
+        /* ── QC Slot Accordion ── */
+        .slot-card {
+            border: 1.5px solid var(--line);
+            border-radius: 14px;
+            overflow: hidden;
+            background: var(--surface);
+        }
+        .slot-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 14px;
+            cursor: pointer;
+            user-select: none;
+            gap: 8px;
+        }
+        .slot-body {
+            padding: 12px 14px 14px;
+            border-top: 1px solid var(--line);
+        }
+        .slot-body.hidden { display: none !important }
+        .status-btn-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin: 8px 0 4px;
+        }
+        .status-btn {
+            border: 1.5px solid var(--line-bright);
+            border-radius: 12px;
+            padding: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            background: var(--surface);
+            cursor: pointer;
+            text-align: center;
+            transition: all .15s;
+        }
+        .status-btn.ok-sel { background:#ecfdf5; border-color:#059669; color:#059669 }
+        .status-btn.notok-sel { background:#fef2f2; border-color:#dc2626; color:#dc2626 }
+
+        /* ── Notification Bell ── */
+        .notif-btn {
+            position: relative;
+            background: transparent;
+            border: 0;
+            padding: 6px;
+            box-shadow: none;
+            min-height: 0;
+        }
+        .notif-dot {
+            position: absolute;
+            top: 2px; right: 2px;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--err);
+        }
+
+        /* ── Issue Cards ── */
+        .issue-card {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px;
+            background: var(--surface);
+        }
+        .issue-card.open { border-left: 3px solid var(--err) }
+        .issue-card.acknowledged { border-left: 3px solid var(--warn) }
+        .issue-card.resolved { border-left: 3px solid var(--ok) }
+
+        /* ── Shift Team ── */
+        .team-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--line);
+        }
+        .team-row:last-child { border-bottom: none }
+        .team-avatar {
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            background: var(--primary-bg);
+            border: 1.5px solid rgba(37,99,235,.2);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 13px; font-weight: 700; color: var(--primary);
+            flex-shrink: 0;
+        }
+
+        /* ── Setup Modal layout ── */
+        .setup-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            align-items: end;
+        }
+        .setup-std {
+            background: var(--surface-elevated);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 10px;
+        }
+        .setup-act {
+            background: #fff;
+            border: 1.5px solid rgba(37,99,235,.2);
+            border-radius: 10px;
+            padding: 10px;
+        }
+        .setup-std small, .setup-act small {
+            display: block; font-size: 11px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .05em;
+            color: var(--muted); margin-bottom: 4px;
+        }
+        .variance-ok  { color: var(--ok);  font-size: 12px; font-weight: 700 }
+        .variance-bad { color: var(--err); font-size: 12px; font-weight: 700 }
 
         /* ── Jobs ── */
         .jobs { display: flex; flex-direction: column; gap: 10px }
@@ -685,18 +806,36 @@
                             Menu</button>
                         <select id="dd-machine" onchange="onMachineChange()" style="min-width:140px"></select>
                     </div>
-                    <button class="small" onclick="loadMachines()">Refresh</button>
+                    <div class="inline" style="gap:6px">
+                        <button class="small" onclick="loadMachines()">Refresh</button>
+                        <button class="notif-btn" onclick="toggleNotifications()" aria-label="Notifications" title="Notifications">
+                            <i class="bi bi-bell" style="font-size:18px;color:var(--ink)"></i>
+                            <span id="notif-dot" class="notif-dot hidden"></span>
+                        </button>
+                    </div>
+                </div>
+                <!-- Notifications dropdown -->
+                <div id="notif-panel" class="hidden" style="background:var(--surface);border:1px solid var(--line);border-radius:14px;margin-top:6px;max-height:240px;overflow-y:auto;box-shadow:var(--shadow)">
+                    <div style="padding:10px 14px;font-weight:700;font-size:14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between">
+                        Notifications
+                        <button class="small ghost" style="padding:2px 8px;font-size:12px" onclick="markAllNotifRead()">Mark read</button>
+                    </div>
+                    <div id="notif-list" style="padding:6px 0"></div>
                 </div>
 
-                <div class="tabs" role="tablist" aria-label="Navigation tabs" style="grid-template-columns:1fr 1fr 1fr 1fr">
+                <div class="tabs" role="tablist" aria-label="Navigation tabs" id="main-tabs">
                     <button class="active" id="tab-queue" role="tab" aria-selected="true"
                         onclick="showPage('sec-queue', this)">Queue</button>
                     <button id="tab-verify" role="tab" aria-selected="false"
                         onclick="showPage('sec-verify', this); loadVerifySlots()">
                         Verify<span id="verify-badge" class="hidden" style="display:inline-flex;align-items:center;justify-content:center;background:#dc2626;color:#fff;border-radius:999px;font-size:10px;font-weight:700;min-width:16px;height:16px;padding:0 4px;margin-left:4px;vertical-align:middle"></span>
                     </button>
-                    <button id="tab-dpr" role="tab" aria-selected="false"
-                        onclick="showPage('sec-dpr', this)">Forms</button>
+                    <button id="tab-qcreport" role="tab" aria-selected="false"
+                        onclick="showPage('sec-qc-report', this); initOnlineQCReport()">QC Report</button>
+                    <button id="tab-issues" role="tab" aria-selected="false"
+                        onclick="showPage('sec-issues', this); loadMaterialIssues()">
+                        Issues<span id="issues-badge" class="hidden" style="display:inline-flex;align-items:center;justify-content:center;background:#dc2626;color:#fff;border-radius:999px;font-size:10px;font-weight:700;min-width:16px;height:16px;padding:0 4px;margin-left:4px;vertical-align:middle"></span>
+                    </button>
                     <button id="tab-recent" role="tab" aria-selected="false"
                         onclick="showPage('sec-recent', this)">Recent</button>
                 </div>
@@ -712,8 +851,20 @@
                     </div>
                     <button class="small" style="border-color:var(--err);color:var(--err);white-space:nowrap" onclick="showPage('sec-verify',document.getElementById('tab-verify'));loadVerifySlots()">Verify Now →</button>
                 </div>
+
+                <!-- Shift Team -->
+                <div style="margin-bottom:12px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                        <div style="font-weight:700;font-size:14px">👥 QC Shift Team</div>
+                        <button class="small ghost" onclick="openAddTeamMemberModal()">+ Add</button>
+                    </div>
+                    <div id="shift-team-list" style="display:flex;flex-direction:column;gap:0"></div>
+                    <div id="shift-team-empty" class="muted" style="font-size:12px">No team members assigned for this shift.</div>
+                </div>
+                <div class="hr"></div>
+
                 <h2 style="margin-bottom:6px">Job Queue</h2>
-                <div class="muted" style="font-size:13px;margin-bottom:10px">Tap <b>QC Check</b> or <b>FPA</b> on any job of the selected moulding machine.</div>
+                <div class="muted" style="font-size:13px;margin-bottom:10px">Tap <b>QC Check</b>, <b>FPA</b>, or <b>⚙️</b> on any job.</div>
                 <div id="jobs" class="jobs"></div>
                 <div id="no-jobs" class="no-jobs hidden">No queued jobs for this machine.</div>
             </section>
@@ -721,7 +872,7 @@
             <!-- VERIFY TAB -->
             <section id="sec-verify" class="page card hidden">
                 <h2 style="margin-bottom:4px">Verify Hourly Entries</h2>
-                <div class="muted" style="font-size:13px;margin-bottom:10px">Confirm or correct Supervisor's Good &amp; Reject Qty every 2 hours.</div>
+                <div class="muted" style="font-size:13px;margin-bottom:10px">Confirm or correct Supervisor's Good &amp; Reject Qty. Use HOLD to block scanner shifting.</div>
 
                 <!-- Controls -->
                 <div class="grid-2" style="margin-bottom:10px">
@@ -735,10 +886,51 @@
                         <select id="vfy-date" onchange="loadVerifySlots()"></select>
                     </label>
                 </div>
+                <!-- Active Holds Banner -->
+                <div id="holds-banner" class="hidden" style="background:#fef2f2;border:1.5px solid #dc2626;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:13px">
+                    <b style="color:#dc2626">🔴 QC HOLD Active</b> — <span id="holds-banner-msg"></span>
+                    <button class="small ghost" style="margin-left:8px;color:#dc2626;border-color:#dc2626;font-size:12px" onclick="loadVerifySlots()">Refresh</button>
+                </div>
                 <div id="vfy-slots" style="display:flex;flex-direction:column;gap:10px"></div>
                 <div id="vfy-empty" class="no-jobs hidden">No DPR entries found for this shift.</div>
             </section>
 
+
+            <!-- ══ QC ONLINE REPORT (slot accordion) ══ -->
+            <section id="sec-qc-report" class="page card hidden">
+                <h2 style="margin-bottom:4px">Online QC Report</h2>
+                <div class="muted" style="font-size:13px;margin-bottom:10px">2-hour slot checks: Visual, Colour, Function/Fitment.</div>
+                <div class="grid-2" style="margin-bottom:10px">
+                    <label>Shift
+                        <select id="qcr-shift" onchange="initOnlineQCReport()">
+                            <option>Day</option><option>Night</option>
+                        </select>
+                    </label>
+                    <label>Date
+                        <select id="qcr-date" onchange="initOnlineQCReport()"></select>
+                    </label>
+                </div>
+                <div id="qcr-job-context" style="font-size:13px;color:var(--muted);margin-bottom:10px"></div>
+                <div id="qcr-slots" style="display:flex;flex-direction:column;gap:10px"></div>
+                <div id="qcr-empty" class="no-jobs hidden">No active job for this machine/shift. Select machine and start a job first.</div>
+            </section>
+
+            <!-- ══ ISSUES TAB ══ -->
+            <section id="sec-issues" class="page card hidden">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                    <h2 style="margin:0">Material Issues</h2>
+                    <button class="small primary" onclick="openNewIssueModal()">+ New Issue</button>
+                </div>
+                <div class="muted" style="font-size:13px;margin-bottom:10px">Report quality issues, assign to Supervisor/Incharge/Manager.</div>
+                <div style="display:flex;gap:8px;margin-bottom:10px;overflow-x:auto;scrollbar-width:none">
+                    <button class="small" id="issue-filter-all" onclick="filterIssues('all')" style="flex-shrink:0">All</button>
+                    <button class="small ghost" id="issue-filter-open" onclick="filterIssues('OPEN')" style="flex-shrink:0">Open</button>
+                    <button class="small ghost" id="issue-filter-ack" onclick="filterIssues('ACKNOWLEDGED')" style="flex-shrink:0">Acknowledged</button>
+                    <button class="small ghost" id="issue-filter-res" onclick="filterIssues('RESOLVED')" style="flex-shrink:0">Resolved</button>
+                </div>
+                <div id="issues-list" style="display:flex;flex-direction:column;gap:10px"></div>
+                <div id="issues-empty" class="no-jobs hidden">No issues found.</div>
+            </section>
 
             <!-- QC CONTEXT (Selected Job) -->
             <section id="sec-dpr" class="page card hidden">
@@ -1111,8 +1303,194 @@
         </div>
     </div>
 
-  <script src="/assets/QCSupervisor-script-1.js?v=release63"></script>
-  <script src="/assets/register-sw.js?v=release63"></script>
+    <!-- ══ MODAL: QC Job Setup ══ -->
+    <div id="modal-qc-setup" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="panel card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                <h3 style="margin:0">⚙️ QC Job Setup</h3>
+                <button class="small ghost" onclick="document.getElementById('modal-qc-setup').classList.add('hidden')">✕</button>
+            </div>
+            <div id="setup-job-info" class="muted" style="font-size:13px;margin-bottom:12px"></div>
+
+            <!-- Weight -->
+            <div style="font-weight:700;font-size:13px;margin-bottom:6px">Weight (g)</div>
+            <div class="setup-row" style="margin-bottom:10px">
+                <div class="setup-std">
+                    <small>STD (Master)</small>
+                    <span id="setup-std-weight" style="font-size:16px;font-weight:700">—</span>
+                </div>
+                <div class="setup-act">
+                    <small>Actual (QC)</small>
+                    <input type="number" step="0.001" id="setup-act-weight" placeholder="0.000" inputmode="decimal" oninput="calcVariance('weight')">
+                    <div id="setup-var-weight" style="margin-top:2px;font-size:12px"></div>
+                </div>
+            </div>
+
+            <!-- Cycle Time -->
+            <div style="font-weight:700;font-size:13px;margin-bottom:6px">Cycle Time (s)</div>
+            <div class="setup-row" style="margin-bottom:10px">
+                <div class="setup-std">
+                    <small>STD (Master)</small>
+                    <span id="setup-std-ct" style="font-size:16px;font-weight:700">—</span>
+                </div>
+                <div class="setup-act">
+                    <small>Actual (QC)</small>
+                    <input type="number" step="1" id="setup-act-ct" placeholder="0" inputmode="numeric" oninput="calcVariance('ct')">
+                    <div id="setup-var-ct" style="margin-top:2px;font-size:12px"></div>
+                </div>
+            </div>
+
+            <!-- Cavity -->
+            <div style="font-weight:700;font-size:13px;margin-bottom:6px">Cavity</div>
+            <div class="setup-row" style="margin-bottom:14px">
+                <div class="setup-std">
+                    <small>STD (Master)</small>
+                    <span id="setup-std-cav" style="font-size:16px;font-weight:700">—</span>
+                </div>
+                <div class="setup-act">
+                    <small>Actual (QC)</small>
+                    <input type="number" step="1" id="setup-act-cav" placeholder="0" inputmode="numeric" oninput="calcVariance('cav')">
+                    <div id="setup-var-cav" style="margin-top:2px;font-size:12px"></div>
+                </div>
+            </div>
+
+            <button class="primary" style="width:100%" onclick="saveJobSetup()">Save Setup</button>
+            <div id="setup-msg" class="muted" style="font-size:13px;margin-top:6px;text-align:center"></div>
+        </div>
+    </div>
+
+    <!-- ══ MODAL: QC HOLD ══ -->
+    <div id="modal-hold" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="panel card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                <h3 style="margin:0;color:var(--err)">🔴 Place QC Hold</h3>
+                <button class="small ghost" onclick="document.getElementById('modal-hold').classList.add('hidden')">✕</button>
+            </div>
+            <div id="hold-slot-info" class="muted" style="font-size:13px;margin-bottom:10px"></div>
+            <div class="row">
+                <label>Qty On Hold
+                    <input type="number" id="hold-qty" placeholder="0" inputmode="numeric" min="0">
+                </label>
+                <label>Hold Reason (required)
+                    <select id="hold-reason">
+                        <option value="">Select reason...</option>
+                        <option>Dimensional Out of Tolerance</option>
+                        <option>Visual Defect - Critical</option>
+                        <option>Colour Issue</option>
+                        <option>Material Contamination</option>
+                        <option>Fitment / Assembly Failure</option>
+                        <option>Customer Complaint Investigation</option>
+                        <option>Other</option>
+                    </select>
+                </label>
+                <label>Remarks
+                    <textarea id="hold-remarks" rows="2" placeholder="Describe the hold reason in detail..."></textarea>
+                </label>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+                <button class="primary" style="flex:1;background:#dc2626;border-color:#dc2626" onclick="submitHold()">Place HOLD</button>
+                <button class="ghost" onclick="document.getElementById('modal-hold').classList.add('hidden')">Cancel</button>
+            </div>
+            <div id="hold-msg" class="muted" style="font-size:13px;margin-top:6px"></div>
+        </div>
+    </div>
+
+    <!-- ══ MODAL: Deviation ══ -->
+    <div id="modal-deviation" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="panel card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                <h3 style="margin:0;color:var(--warn)">⚠️ Verify with Deviation</h3>
+                <button class="small ghost" onclick="document.getElementById('modal-deviation').classList.add('hidden')">✕</button>
+            </div>
+            <div id="dev-slot-info" class="muted" style="font-size:13px;margin-bottom:10px"></div>
+            <div class="row">
+                <div class="grid-2">
+                    <label>QC Good Qty <input type="number" id="dev-good" min="0" inputmode="numeric" placeholder="0"></label>
+                    <label>QC Reject Qty <input type="number" id="dev-rej" min="0" inputmode="numeric" placeholder="0"></label>
+                </div>
+                <label>Deviation Description (required)
+                    <textarea id="dev-desc" rows="2" placeholder="Describe the deviation..."></textarea>
+                </label>
+                <label>Remarks
+                    <input type="text" id="dev-remarks" placeholder="Optional additional remarks">
+                </label>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+                <button class="primary" style="flex:1;background:#d97706;border-color:#d97706" onclick="submitDeviation()">Submit Deviation</button>
+                <button class="ghost" onclick="document.getElementById('modal-deviation').classList.add('hidden')">Cancel</button>
+            </div>
+            <div id="dev-msg" class="muted" style="font-size:13px;margin-top:6px"></div>
+        </div>
+    </div>
+
+    <!-- ══ MODAL: Add Team Member ══ -->
+    <div id="modal-add-team" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="panel card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                <h3 style="margin:0">Add Team Member</h3>
+                <button class="small ghost" onclick="document.getElementById('modal-add-team').classList.add('hidden')">✕</button>
+            </div>
+            <div class="row">
+                <label>Name <input id="team-name" placeholder="Employee name" autocomplete="off"></label>
+                <label>Role
+                    <select id="team-role">
+                        <option>QC Inspector</option>
+                        <option>QC Supervisor</option>
+                        <option>QC Incharge</option>
+                    </select>
+                </label>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+                <button class="primary" style="flex:1" onclick="addShiftTeamMember()">Add Member</button>
+                <button class="ghost" onclick="document.getElementById('modal-add-team').classList.add('hidden')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══ MODAL: New Material Issue ══ -->
+    <div id="modal-new-issue" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="panel card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                <h3 style="margin:0">Report Issue</h3>
+                <button class="small ghost" onclick="document.getElementById('modal-new-issue').classList.add('hidden')">✕</button>
+            </div>
+            <div class="row">
+                <label>Issue Description (required)
+                    <textarea id="ni-desc" rows="3" placeholder="Describe the issue clearly..."></textarea>
+                </label>
+                <label>Severity
+                    <select id="ni-severity">
+                        <option value="Low">Low — Minor cosmetic issue</option>
+                        <option value="Medium" selected>Medium — Process concern</option>
+                        <option value="High">High — Significant defect</option>
+                        <option value="Critical">Critical — Stop production</option>
+                    </select>
+                </label>
+                <label>Assign To
+                    <select id="ni-assign-role">
+                        <option value="Supervisor">Supervisor (Line)</option>
+                        <option value="Incharge">Incharge</option>
+                        <option value="Moulding Manager">Moulding Manager</option>
+                    </select>
+                </label>
+                <label>Assigned To Name (optional)
+                    <input id="ni-assign-name" placeholder="Name of person">
+                </label>
+                <div>
+                    <div style="font-weight:600;font-size:13px;margin-bottom:6px">Photo / Video (optional)</div>
+                    <input type="file" id="ni-media" accept="image/*,video/*" capture="environment" style="font-size:14px">
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+                <button class="primary" style="flex:1" onclick="submitMaterialIssue()">Submit Issue</button>
+                <button class="ghost" onclick="document.getElementById('modal-new-issue').classList.add('hidden')">Cancel</button>
+            </div>
+            <div id="ni-msg" class="muted" style="font-size:13px;margin-top:6px"></div>
+        </div>
+    </div>
+
+  <script src="/assets/QCSupervisor-script-1.js?v=release64"></script>
+  <script src="/assets/register-sw.js?v=release64"></script>
 
 </body>
 
