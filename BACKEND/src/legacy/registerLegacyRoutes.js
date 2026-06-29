@@ -1706,6 +1706,10 @@ async function migrateOrjrWiseDetailSchema() {
 
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_planning_report_factory_id ON mould_planning_report(factory_id)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_mpr_order ON mould_planning_report(or_jr_no)`);
+  // Functional index on TRIM(or_jr_no) — used by colour-plan query WHERE TRIM(r.or_jr_no) = TRIM($1).
+  // Covers rows where data has leading/trailing spaces (imports/syncs), unlike the plain index above.
+  // Also composite with factory_id so Postgres can satisfy both filter columns from one index.
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_mpr_order_trim ON mould_planning_report(TRIM(or_jr_no), factory_id)`);
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS mould_report_date_uniq_idx ON mould_planning_report(or_jr_no, mould_no, mould_item_code, plan_date)`);
 
   /* ── Fix: reset serial sequence to max(id) to prevent pkey conflicts
@@ -3149,7 +3153,7 @@ async function getOrderPlanningCompletion(db, orderNo, factoryId) {
            NULLIF(TRIM(r.job_card_no), '') AS job_card_no,
            r.remarks_all
     FROM or_jr_report r
-    WHERE r.or_jr_no = TRIM($1)
+    WHERE TRIM(r.or_jr_no) = TRIM($1)
       AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
       AND COALESCE(TRIM(r.jr_close), '') <> 'Yes'
       AND (r.is_closed IS FALSE OR r.is_closed IS NULL)
@@ -9991,7 +9995,7 @@ async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, opti
       WHERE TRIM(COALESCE(l.item_code, '')) = TRIM(COALESCE(NULLIF(r.mould_item_code, ''), r.item_code, ''))
         AND ($2::int IS NULL OR l.factory_id = $2 OR l.factory_id IS NULL)
     ) w ON true
-    WHERE r.or_jr_no = TRIM($1)
+    WHERE TRIM(r.or_jr_no) = TRIM($1)
       AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
     ORDER BY TRIM(COALESCE(r.item_code, '')), TRIM(COALESCE(r.product_name, ''))
   `, [orderNo, factoryId]);
@@ -10408,7 +10412,7 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
         r.mld_status,
         r.remarks_all
       FROM or_jr_report r
-      WHERE r.or_jr_no = TRIM($1)
+      WHERE TRIM(r.or_jr_no) = TRIM($1)
         AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
         AND COALESCE(TRIM(r.jr_close), '') <> 'Yes'
         AND (r.is_closed IS FALSE OR r.is_closed IS NULL)
@@ -13223,7 +13227,7 @@ app.get('/api/planning/job-card-print', async (req, res) => {
           r.cycle_time,
           r.cavity
         FROM mould_planning_report r
-        WHERE r.or_jr_no = TRIM($1)
+        WHERE TRIM(r.or_jr_no) = TRIM($1)
           AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
           AND (
             ($3::text <> '' AND TRIM(COALESCE(r.mould_no, '')) = TRIM($3::text))
