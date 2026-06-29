@@ -195,9 +195,14 @@
               currentShift.date === manualDate &&
               currentShift.shift === manualShift;
             if (!isCurrentShift) {
-              // User picked a past/different shift → backfill mode: show all 12 slots
+              // Only enter backfill mode if the selected shift has already STARTED.
+              // Day shift starts 07:00, Night shift starts 19:00.
+              // If the shift hasn't started yet → it's a future shift → keep future gate active (no isBackfill).
               const manualDateObj = new Date(manualDate + 'T00:00:00');
-              shifts = [{ date: manualDate, shift: manualShift, labelDate: manualDateObj, isBackfill: true }];
+              const shiftStartH = (manualShift === 'Night') ? 19 : 7;
+              const shiftStartMs = new Date(manualDate + 'T00:00:00').setHours(shiftStartH, 0, 0, 0);
+              const isBackfill = (now.getTime() >= shiftStartMs);
+              shifts = [{ date: manualDate, shift: manualShift, labelDate: manualDateObj, isBackfill }];
             }
           }
         }
