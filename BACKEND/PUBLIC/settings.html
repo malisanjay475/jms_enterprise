@@ -1837,7 +1837,115 @@
 
                 await loadFactories();
                 await loadLocalServers();
+                await initLocalUpdateCard();
             });
+
+            // ---------------------------------------------------------------------------
+            // LOCAL SERVER — Update card (only shown when SERVER_TYPE=LOCAL)
+            // ---------------------------------------------------------------------------
+            async function initLocalUpdateCard() {
+                try {
+                    const res = await fetch('/api/update/status');
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (!data.ok || data.serverType !== 'LOCAL') return;
+
+                    renderLocalUpdateCard(data);
+                } catch (_) { /* not a local server or endpoint not available */ }
+            }
+
+            function renderLocalUpdateCard(data) {
+                const adminCard = document.getElementById('adminToolsCard');
+                if (!adminCard) return;
+
+                const card = document.createElement('section');
+                card.className = 'card settings-card';
+                card.id = 'localUpdateCard';
+                card.innerHTML = `
+                    <div class="section-head">
+                        <div>
+                            <div class="section-eyebrow" style="background:rgba(37,99,235,0.12);color:#1d4ed8;"><i class="bi bi-cloud-arrow-down"></i><span>Local Server Update</span></div>
+                            <div class="section-title">Software Version</div>
+                            <div class="section-copy">This is a LOCAL factory server. It auto-updates from the VPS every 30 minutes.</div>
+                        </div>
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:16px;" id="localUpdateMeta">
+                        <div style="background:#f1f5f9;border-radius:8px;padding:12px 18px;min-width:160px;">
+                            <div style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Current Release</div>
+                            <div style="font-size:15px;font-weight:700;color:#1e293b;margin-top:4px;" id="luCurrentRelease">${escapeHtml(data.currentRelease || '—')}</div>
+                        </div>
+                        <div style="background:#f1f5f9;border-radius:8px;padding:12px 18px;min-width:160px;">
+                            <div style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Target Release</div>
+                            <div style="font-size:15px;font-weight:700;color:#1e293b;margin-top:4px;" id="luTargetRelease">${escapeHtml(data.targetRelease || '—')}</div>
+                        </div>
+                        <div style="background:#f1f5f9;border-radius:8px;padding:12px 18px;min-width:180px;">
+                            <div style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Last Check</div>
+                            <div style="font-size:13px;font-weight:600;color:#1e293b;margin-top:4px;" id="luLastCheck">${formatDateTime(data.lastCheckAt)}</div>
+                        </div>
+                        <div style="background:#f1f5f9;border-radius:8px;padding:12px 18px;min-width:180px;">
+                            <div style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Last Update Applied</div>
+                            <div style="font-size:13px;font-weight:600;color:#1e293b;margin-top:4px;" id="luLastSuccess">${formatDateTime(data.lastSuccessAt)}</div>
+                        </div>
+                    </div>
+                    <div id="luFailureRow" style="display:${data.lastFailureReason ? 'block' : 'none'};background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#dc2626;">
+                        <i class="bi bi-exclamation-triangle"></i> Last failure: <span id="luFailureReason">${escapeHtml(data.lastFailureReason || '')}</span>
+                    </div>
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                        <button class="btn-primary" type="button" id="luForceCheckBtn" onclick="forceUpdateCheck()">
+                            <i class="bi bi-cloud-arrow-down"></i> Check for Update Now
+                        </button>
+                        <button class="btn-outline" type="button" onclick="refreshUpdateStatus()">
+                            <i class="bi bi-arrow-repeat"></i> Refresh Status
+                        </button>
+                        <span id="luStatusMsg" style="font-size:13px;color:#64748b;"></span>
+                    </div>
+                `;
+                adminCard.before(card);
+            }
+
+            async function forceUpdateCheck() {
+                const btn = document.getElementById('luForceCheckBtn');
+                const msg = document.getElementById('luStatusMsg');
+                if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Checking…'; }
+                if (msg) msg.textContent = '';
+                try {
+                    const res = await fetch('/api/update/force-check', { method: 'POST' });
+                    const data = await res.json();
+                    if (data.ok) {
+                        if (msg) msg.textContent = `✓ Check triggered (current: ${data.currentRelease}). If an update is found, this server will restart automatically in a few seconds.`;
+                        window.JPSMS.toast('Update check triggered! Server will restart if an update is available.', 'success');
+                    } else {
+                        if (msg) msg.textContent = `Error: ${data.error}`;
+                        window.JPSMS.toast('Update check failed: ' + data.error, 'error');
+                    }
+                } catch (e) {
+                    if (msg) msg.textContent = 'Network error — server may be restarting.';
+                    window.JPSMS.toast('Server may be restarting with new update!', 'info');
+                } finally {
+                    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-cloud-arrow-down"></i> Check for Update Now'; }
+                }
+            }
+
+            async function refreshUpdateStatus() {
+                try {
+                    const res = await fetch('/api/update/status');
+                    const data = await res.json();
+                    if (!data.ok) return;
+                    const el = (id) => document.getElementById(id);
+                    if (el('luCurrentRelease')) el('luCurrentRelease').textContent = data.currentRelease || '—';
+                    if (el('luTargetRelease')) el('luTargetRelease').textContent = data.targetRelease || '—';
+                    if (el('luLastCheck')) el('luLastCheck').textContent = formatDateTime(data.lastCheckAt);
+                    if (el('luLastSuccess')) el('luLastSuccess').textContent = formatDateTime(data.lastSuccessAt);
+                    if (el('luFailureRow')) el('luFailureRow').style.display = data.lastFailureReason ? 'block' : 'none';
+                    if (el('luFailureReason')) el('luFailureReason').textContent = data.lastFailureReason || '';
+                    window.JPSMS.toast('Status refreshed', 'success');
+                } catch (_) {
+                    window.JPSMS.toast('Could not refresh — server may be restarting.', 'info');
+                }
+            }
+
+            window.forceUpdateCheck = forceUpdateCheck;
+            window.refreshUpdateStatus = refreshUpdateStatus;
 
             window.downloadBackup = downloadBackup;
             window.openRestoreModal = openRestoreModal;
