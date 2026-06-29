@@ -5132,6 +5132,21 @@ async function initializeLegacyRuntime() {
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_plan_id ON dpr_hourly(plan_id);`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_status ON plan_board(status);`);
 
+    // DPR Hourly performance indexes — covers all hot query paths
+    // 1. supervisor/recent: WHERE machine + dpr_date (last 2 days) + is_deleted
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_machine_date ON dpr_hourly(machine, dpr_date DESC) WHERE is_deleted = false;`);
+    // 2. summary-matrix: WHERE dpr_date BETWEEN + shift + is_deleted
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_date_shift ON dpr_hourly(dpr_date, shift) WHERE is_deleted = false;`);
+    // 3. factory isolation filter
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_factory_date ON dpr_hourly(factory_id, dpr_date) WHERE is_deleted = false;`);
+    // 4. auto-fill-ongoing: WHERE dpr_date + shift + entry_type + is_deleted
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_date_shift_type ON dpr_hourly(dpr_date, shift, entry_type) WHERE is_deleted = false;`);
+    // 5. used-slots: WHERE plan_id + dpr_date + shift + is_deleted
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_planid_date_shift ON dpr_hourly(plan_id, dpr_date, shift) WHERE is_deleted = false;`);
+    // 6. plan_board join in summary-matrix (CAST join is un-indexable; text index helps partial matches)
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_plan_id_text ON plan_board(plan_id);`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_id_text ON plan_board((id::text));`);
+
     // Per-machine P1–P4 priority labels
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_machine_priority ON plan_board(machine, machine_priority) WHERE machine_priority IS NOT NULL`);
