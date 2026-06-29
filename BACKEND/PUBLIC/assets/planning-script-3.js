@@ -1599,8 +1599,12 @@
         if (hcPlanBtn) {
           hcPlanBtn.addEventListener('click', () => {
             if (!selectedMachine) return;
-            if (isSupervisor && (selectedMachine.is_maintenance || ['off', 'stopped'].includes((selectedMachine.status || '').toLowerCase()))) {
-              return toast('Supervisor: cannot plan on maintenance/off machine');
+            // Block planning if machine is under a live DPR problem (Mould Changeover, Maintenance, etc.)
+            if (selectedMachine.live_status === 'stopped' && selectedMachine.live_problem) {
+              return toast(`Cannot plan: machine is currently under "${selectedMachine.live_problem}"`);
+            }
+            if (selectedMachine.is_maintenance || ['off', 'stopped'].includes((selectedMachine.status || '').toLowerCase())) {
+              return toast('Cannot plan on a maintenance/off machine');
             }
             openPlanSheet();
           });
