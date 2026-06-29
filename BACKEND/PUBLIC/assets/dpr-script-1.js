@@ -1637,7 +1637,14 @@
                                             // 2. Detect REAL PRODUCTION to reset override (MACHINE WIDE)
                                             // Strong Reset: Reset if there's any good qty, shots, or Main entry with < 45m downtime on ANY order for this machine
                                             let hasMachineProduction = list.some(e => Number(e.good_qty || 0) > 0 || Number(e.shots || 0) > 0 || (e.entry_type === 'Main' && Number(e.downtime_min || 0) < 45) || e.entry_type === 'ColourChange');
-                                            if (hasMachineProduction && !overrideTriggeredThisSlot) {
+                                            // Also reset if a DIFFERENT job has any entry (manual or production) on this machine in this slot.
+                                            // This stops Mould Changeover from Job 1 carrying forward into slots where Job 2 has taken over the machine.
+                                            const mOrder = (m.order_no || '').trim().toLowerCase();
+                                            const hasDifferentJobEntry = mOrder && list.some(e => {
+                                                const eOrder = (e.order_no || '').trim().toLowerCase();
+                                                return eOrder && eOrder !== mOrder;
+                                            });
+                                            if ((hasMachineProduction || hasDifferentJobEntry) && !overrideTriggeredThisSlot) {
                                                 activeOverrideStatus = ''; // Reset for the whole machine!
                                             }
 
@@ -1883,7 +1890,13 @@
 
                                                 // Reset tracker on real machine-wide production
                                                 let hasMachineProd = list.some(e => Number(e.good_qty || 0) > 0 || Number(e.shots || 0) > 0 || (e.entry_type === 'Main' && Number(e.downtime_min || 0) < 45) || e.entry_type === 'ColourChange');
-                                                if (hasMachineProd && !hasOverrideThisSlot) sumActiveOverride = '';
+                                                // Also reset if a different job has any entry on this machine in this slot
+                                                const sumMOrder = (m.order_no || '').trim().toLowerCase();
+                                                const hasDiffJobEntry = sumMOrder && list.some(e => {
+                                                    const eOrder = (e.order_no || '').trim().toLowerCase();
+                                                    return eOrder && eOrder !== sumMOrder;
+                                                });
+                                                if ((hasMachineProd || hasDiffJobEntry) && !hasOverrideThisSlot) sumActiveOverride = '';
 
                                                 // sEnd, now, isFuture are already declared at top of loop
                                                 const sStart = sEnd - 3600000;
