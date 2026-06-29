@@ -262,6 +262,7 @@
           let suffix = '';
 
           // [NEW] Continuity Label Logic
+          let suffixFromPrevShift = false; // track if "Continued from" crossed a shift boundary
           if (!currentStatus) {
             // Find the most recent entry before this slot (in the same or previous shift)
             let foundPrev = false;
@@ -275,14 +276,22 @@
                 const prevStatus = SLOT_STATUS.get(prevKey);
                 if (prevStatus) {
                   if (prevStatus.isQuick) {
-                    suffix = ` (Continued from ${prevStatus.type})`;
+                    if (checkShiftIdx < shiftIdx) {
+                      // Quick Action is from a PREVIOUS shift — do NOT carry it into this shift at all
+                      suffixFromPrevShift = true;
+                      // suffix stays '' — no label, no hiding
+                    } else {
+                      suffix = ` (Continued from ${prevStatus.type})`;
+                    }
                   }
                   foundPrev = true;
                 }
                 checkSlotIdx--;
               }
-              checkShiftIdx--;
-              checkSlotIdx = SLOT_LABELS.length - 1;
+              if (!foundPrev) {
+                checkShiftIdx--;
+                checkSlotIdx = SLOT_LABELS.length - 1;
+              }
             }
           }
 
@@ -290,8 +299,9 @@
             // Main Dropdown: Hide if Main entry exists OR slot is a Quick Action entry
             if (hasMain) return;
             if (currentStatus && currentStatus.isQuick) return; // Quick Action already recorded
-            // Hide slots auto-propagated from a preceding Quick Action (no entry, but prev is Quick)
-            if (suffix && suffix.includes('Continued from')) return;
+            // Only hide "Continued from" slots when the Quick Action is within the SAME shift.
+            // Cross-shift carry-over must NOT block operators from entering the new shift's data.
+            if (suffix && suffix.includes('Continued from') && !suffixFromPrevShift) return;
           } else {
             // Colour Change Dropdown: Show All Past. Warn if entries exist.
             const parts = [];
@@ -333,17 +343,18 @@
           // Let's rely on the 'endH' we computed for constraints, but re-compute nice labels.
 
           if (s.shift === 'Day') {
-            // Day Shift (08:00 - 20:00)
-            // Slot 08-09 -> 08:00 - 09:00
-            // Slot 07-08 -> 19:00 - 20:00
+            // Day Shift (07:00 - 19:00)
+            // Slot 07-08 -> 07:00 AM - 08:00 AM  (FIRST slot)
+            // Slot 08-09 -> 08:00 AM - 09:00 AM
+            // Slot 11-12 -> 11:00 AM - 12:00 PM
+            // Slot 12-01 -> 12:00 PM - 01:00 PM
+            // Slot 06-07 -> 06:00 PM - 07:00 PM  (LAST slot)
 
-            // Extract start hour from slot code for mapping?
-            // 08-09 -> 8
             const firstPart = parseInt(slot.split('-')[0], 10);
             let hStart = firstPart;
             if (hStart === 12) hStart = 12;
-            else if (hStart < 8) hStart += 12; // 1->13
-            // 8,9,10,11 keep.
+            else if (hStart < 7) hStart += 12; // 1->13, 2->14, ..., 6->18 (PM slots)
+            // 7, 8, 9, 10, 11, 12 stay as-is (AM/Noon)
 
             let hEnd = hStart + 1;
             timeRange = `${fmt(hStart)} - ${fmt(hEnd)}`;
@@ -390,43 +401,6 @@
         const [d, sh, sl] = v.split('|');
         const dEl = el('d-date');
         const sEl = el('d-shift');
-
-        // AM/PM Safety Check (07-08 Mismatch)
-        const nowHour = new Date().getHours();
-
-        // CASE 1: User selects DAY Shift 07-08 (19:00-20:00) in the MORNING (e.g., 07:00-09:00)
-        if (sh === 'Day' && sl === '07-08' && nowHour >= 0 && nowHour < 12) {
-          if (confirm('⚠️ WARNING: You selected "07-08" for DAY Shift (7 PM - 8 PM).\n\nHowever, it is currently Morning.\n\nDid you mean "07-08" for NIGHT Shift (7 AM - 8 AM)?\n\nClick OK to switch to NIGHT Shift (Correct).\nClick Cancel to keep DAY Shift (if entering yesterday evening data).')) {
-            // Smart Switch to Night
-            if (sEl) {
-              sEl.value = 'Night';
-              // If shift changes, we must reload the slot dropdown to show Night Slots
-              // But wait, the value "v" is Day|07-08. We need to find the matching Night option?
-              // The logic below just updates sEl.value = sh.
-              // We should UPDATE sh to 'Night' and trigger refresh.
-
-              // Force Shift Change Logic
-              // We need to re-trigger fillHourSlotSelect with Night shift?
-              // Just changing sEl.value isn't enough if options are mixed or specific.
-              // But here options are Pre-Built in "sel".
-              // The options in "sel" are mixed for "Last 24 Hours" usually?
-              // No, fillHourSlotSelect builds options based on "shifts" array.
-
-              // If we switch shift, we should re-select the correct option?
-              // Option value: `date|Night|07-08`.
-              // Let's try to find it.
-              const targetVal = `${d}|Night|07-08`;
-              const targetOpt = Array.from(sel.options).find(o => o.value === targetVal);
-              if (targetOpt) {
-                sel.value = targetVal;
-                // Recursive call or manual update?
-                if (sEl) sEl.value = 'Night';
-                if (dEl) dEl.value = d;
-                return; // Abort this pass, let the new value stick
-              }
-            }
-          }
-        }
 
         // Update selectors if they exist and match
         // Update selectors if they exist and match
