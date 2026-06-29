@@ -355,16 +355,14 @@
             const firstPart = parseInt(slot.split('-')[0], 10);
             let hStart = firstPart;
 
-            // Map 08 -> 20
-            if (hStart === 12) hStart = 0; // Midnight
-            else if (hStart >= 8 && hStart <= 11) hStart += 12; // 8->20
-            else if (hStart <= 7) hStart += 0; // 1->1 (Next day 1 AM) -- Wait, 01 is 1 AM.
-
-            // But 12-01. Start 12. End 01.
-            // If Start is 12, Night Shift -> 00:00.
-
-            // 07-08. Start 07. End 08.
-            // 07 is 07:00.
+            // Night slot label mapping (slot label → real 24h start hour)
+            // 07-08 → 19:00 (first slot, 7 PM)
+            // 08-09 → 20:00, 09-10 → 21:00, 10-11 → 22:00, 11-12 → 23:00
+            // 12-01 → 00:00 (midnight), 01-02 → 01:00 … 06-07 → 06:00
+            if (hStart === 7) hStart = 19;          // 07-08 → 7 PM
+            else if (hStart >= 8 && hStart <= 11) hStart += 12; // 8-11 → 20-23
+            else if (hStart === 12) hStart = 0;     // 12-01 → midnight
+            // 1–6 stay as-is (01-02 → 1 AM … 06-07 → 6 AM)
 
             let hEnd = hStart + 1;
             timeRange = `${fmt(hStart)} - ${fmt(hEnd)}`;
