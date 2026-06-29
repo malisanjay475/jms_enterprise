@@ -907,7 +907,7 @@
                         resDayMat = filterMatrixResponse(resDayMat);
                         resNightMat = filterMatrixResponse(resNightMat);
 
-                        const machines = resDayMat.data.machines || resNightMat.data.machines || [];
+                        const machines = (resDayMat.data.machines && resDayMat.data.machines.length) ? resDayMat.data.machines : (resNightMat.data.machines || []);
                         const dayDatesMap = resDayMat.data.dates || {};
                         const nightDatesMap = resNightMat.data.dates || {};
                         const dayTeamsByDate = resDayTeam.data || {};
