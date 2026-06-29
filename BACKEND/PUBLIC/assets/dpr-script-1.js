@@ -1508,7 +1508,8 @@
                                         } else {
                                             const _stdVal = m.stdCavPcsHr || m.std || '-';
                                             const _actVal = m.actCavPcsHr || m.std || '-';
-                                            const _actDiff = (m.stdCavPcsHr && m.actCavPcsHr && m.actCavPcsHr < m.stdCavPcsHr);
+                                            // Compare resolved display values so color always matches what's shown
+                                            const _actDiff = (Number(_actVal) > 0 && Number(_stdVal) > 0 && Number(_actVal) < Number(_stdVal));
                                             const _actColor = _actDiff ? '#dc2626' : '#16a34a';
                                             const _cavInfo = (m.details.std_cavity && m.details.act_cavity)
                                                 ? `<div style="font-size:0.58rem;color:#94a3b8;line-height:1">${m.details.std_cavity}c / ${m.details.act_cavity}c</div>`
