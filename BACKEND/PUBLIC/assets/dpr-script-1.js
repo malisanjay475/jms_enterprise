@@ -1757,8 +1757,10 @@
 
                                                 if (sEnd < now) {
                                                     if (isActiveForThisSlot) {
-                                                        // This mould was running (or was the last one running). If no machine production, show Missing.
-                                                        if (!hasMachineProduction && activeOverrideStatus === '') {
+                                                        // Show red cross for past slots with no production and no Quick Action in THIS slot.
+                                                        // A carry-forward activeOverrideStatus (from an earlier slot) must not suppress the cross —
+                                                        // only an actual Quick Action entry triggered IN this slot does.
+                                                        if (!hasMachineProduction && !overrideTriggeredThisSlot) {
                                                             if (mouldStartTs === 0 || sEnd > (mouldStartTs + 600000)) {
                                                                 showCross = true;
                                                                 machineMissingSlots++; // count for Pending filter
