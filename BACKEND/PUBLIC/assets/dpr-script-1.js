@@ -1512,7 +1512,7 @@
                                             const _actDiff = (Number(_actVal) > 0 && Number(_stdVal) > 0 && Number(_actVal) < Number(_stdVal));
                                             const _actColor = _actDiff ? '#dc2626' : '#16a34a';
                                             const _cavInfo = (m.details.std_cavity && m.details.act_cavity)
-                                                ? `<div style="font-size:0.58rem;color:#94a3b8;line-height:1">${m.details.std_cavity}c / ${m.details.act_cavity}c</div>`
+                                                ? `<div style="font-size:0.65rem;font-weight:700;color:#475569;line-height:1.2">${m.details.std_cavity}c / ${m.details.act_cavity}c</div>`
                                                 : '';
                                             stdDisplay = `<div style="text-align:center;line-height:1.25">
                                                 <div style="font-size:0.95rem;font-weight:800;color:#0f172a">${_stdVal}</div>
