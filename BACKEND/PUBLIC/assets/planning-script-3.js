@@ -5075,11 +5075,14 @@
               item_code: row.item_code || row.mould_no || null,
               consumptionRatioQty: parseCpNumber(row.consumptionRatioQty ?? row.consumption_ratio_qty)
             })).filter((row) => row.code);
-            const colourPayload = await fetchCpColourPlanData(mould);
-            const machineEntries = await Promise.all(familyMoulds.map(async (variant) => {
-              const variantResult = await fetchCpMachinesForMould(variant);
-              return [variant.code, variantResult];
-            }));
+            // Fetch colour plan data AND machine availability in parallel (not sequential)
+            const [colourPayload, machineEntries] = await Promise.all([
+              fetchCpColourPlanData(mould),
+              Promise.all(familyMoulds.map(async (variant) => {
+                const variantResult = await fetchCpMachinesForMould(variant);
+                return [variant.code, variantResult];
+              }))
+            ]);
             window.cpVariantMachineMap = Object.fromEntries(
               machineEntries.map(([code, r]) => [code, Array.isArray(r.machines) ? r.machines : []])
             );
@@ -6899,8 +6902,10 @@
                 let endMs;
 
                 // 3. Logic Branch
+                const isStopped = (status === 'STOPPED');
+
                 if (isRunning) {
-                  // DYNAMIC START: Actual First Entry > Start Date > NOW
+                  // RUNNING: actual start date; end = NOW + remaining work
                   if (p.firstDprEntry) {
                     startMs = new Date(p.firstDprEntry).getTime();
                   } else if (p.startDate) {
@@ -6908,24 +6913,32 @@
                   } else {
                     startMs = Date.now();
                   }
-
-                  // DYNAMIC END: NOW + Duration (Remaining Work)
-                  // We ignore 'startMs' for the end-date calculation because the 'durationMs' 
-                  // represents the *remaining* time from *this moment*.
+                  // End = remaining duration from NOW (not from startMs)
                   endMs = Date.now() + durationMs;
+                  // Cursor advances to this plan's expected end
+                  cursorTime = endMs;
+
+                } else if (isStopped) {
+                  // STOPPED: always show ORIGINAL DB start date (never use cursor as start)
+                  // But expected end (startDate + remaining) feeds cursor for the next plan
+                  if (p.startDate) {
+                    startMs = new Date(p.startDate).getTime();
+                  } else {
+                    startMs = Date.now();
+                  }
+                  endMs = startMs + durationMs;
+                  // Advance cursor: next PLANNED plan starts after this STOPPED plan's expected end
+                  cursorTime = endMs;
 
                 } else {
-                  // QUEUED or STOPPED
+                  // PLANNED / QUEUED: start = previous plan's Expected End Date (cursor)
                   if (idx === 0) {
-                    // First in chain (e.g. Machine was free, or top plan is Stopped/Planned)
                     startMs = Date.now();
                   } else {
-                    // Daisy chain
                     startMs = cursorTime;
                   }
-
-                  // Expected End = Start + Duration
                   endMs = startMs + durationMs;
+                  cursorTime = endMs;
                 }
 
                 // Safety: Normalize dates
@@ -6935,9 +6948,6 @@
                 // 4. Store High-Res Dates for Rendering
                 p._rippledStartRaw = new Date(startMs);
                 p._rippledEndRaw = new Date(endMs);
-
-                // Advance Cursor
-                cursorTime = endMs;
               });
             });
 
