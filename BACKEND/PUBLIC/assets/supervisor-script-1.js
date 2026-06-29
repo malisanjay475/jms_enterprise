@@ -290,8 +290,8 @@
             // Main Dropdown: Hide if Main entry exists OR slot is a Quick Action entry
             if (hasMain) return;
             if (currentStatus && currentStatus.isQuick) return; // Quick Action already recorded
-            // Hide slots auto-propagated from a preceding Quick Action (no entry, but prev is Quick)
-            if (suffix && suffix.includes('Continued from')) return;
+            // NOTE: "Continued from" slots are still shown — user must be able to make a manual entry
+            // even when a preceding slot had a Quick Action (Maintenance, NoPlan, etc.)
           } else {
             // Colour Change Dropdown: Show All Past. Warn if entries exist.
             const parts = [];
