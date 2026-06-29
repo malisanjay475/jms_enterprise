@@ -1174,7 +1174,7 @@
                                         <thead>
                                             <tr>
                                                 <th style="padding:12px; text-align:left; min-width:220px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:600; color:#475569; border-right:1px solid #e2e8f0">Machine / Mould</th>
-                                                <th style="padding:10px 4px; border-bottom:1px solid #e2e8f0; background:#f8fafc; min-width:45px; font-weight:600; color:#475569; border-right:1px solid #e2e8f0;text-align:center">STD</th>
+                                                <th style="padding:10px 4px; border-bottom:1px solid #e2e8f0; background:#f8fafc; min-width:70px; font-weight:600; color:#475569; border-right:1px solid #e2e8f0;text-align:center"><div style="line-height:1.3"><div>STD</div><div style="font-size:0.6rem;color:#cbd5e1">───</div><div style="color:#16a34a">ACT</div></div></th>
                                                 ${slots.map(s => `<th style="padding:10px; border-bottom:1px solid #e2e8f0; background:#f8fafc; min-width:65px; font-weight:600; color:#475569; font-size:0.75rem; text-align:center; border-right:1px solid #e2e8f0">${s}</th>`).join('')}
                                                 <th style="padding:10px; border-bottom:1px solid #e2e8f0; background:#f0f9ff; min-width:140px; font-weight:700; color:#0369a1; border-left:2px solid #e2e8f0">Summary</th>
                                             </tr>
@@ -1377,6 +1377,18 @@
                                             }
                                         }
 
+                                        // STD pcs/hr from Mould Master (std cavity)
+                                        // ACT pcs/hr from supervisor's one-time setup (cavity_act in std_actual)
+                                        let stdCavPcsHr = 0; // STD — based on mould master std cavity
+                                        let actCavPcsHr = 0; // ACT — based on supervisor's actual cavity
+                                        const _ct = parseFloat(d.std_cycle_time || 0);
+                                        const _stdCav = parseFloat(d.std_cavity || 0);
+                                        const _actCav = parseFloat(d.act_cavity || 0);
+                                        if (_ct > 0) {
+                                            if (_stdCav > 0) stdCavPcsHr = Math.round((3600 / _ct) * _stdCav);
+                                            if (_actCav > 0) actCavPcsHr = Math.round((3600 / _ct) * _actCav);
+                                        }
+
                                         if (!d.article_act) {
                                             d.article_act = d.act_weight || d.std_weight || 0;
                                         }
@@ -1390,6 +1402,7 @@
 
                                         distinctMoulds.push({
                                             name: name || code, code, std: finalStd,
+                                            stdCavPcsHr, actCavPcsHr,
                                             start_time: startTime, order_no: order, end_time: endTime,
                                             first_activity_ts: activityTs,
                                             first_slot: 99, // Default to far future
@@ -1487,7 +1500,24 @@
                                              </div>
                                         `;
 
-                                        let stdDisplay = !m.is_dummy ? `<div style="font-size:1.1rem; font-weight:800; color:#0f172a; text-align:center">${m.std || '-'}</div>` : '<div style="font-size:0.9rem; color:#94a3b8">-</div>';
+                                        let stdDisplay = '';
+                                        if (m.is_dummy) {
+                                            stdDisplay = '<div style="font-size:0.9rem; color:#94a3b8; text-align:center">-</div>';
+                                        } else {
+                                            const _stdVal = m.stdCavPcsHr || m.std || '-';
+                                            const _actVal = m.actCavPcsHr || m.std || '-';
+                                            const _actDiff = (m.stdCavPcsHr && m.actCavPcsHr && m.actCavPcsHr < m.stdCavPcsHr);
+                                            const _actColor = _actDiff ? '#dc2626' : '#16a34a';
+                                            const _cavInfo = (m.details.std_cavity && m.details.act_cavity)
+                                                ? `<div style="font-size:0.58rem;color:#94a3b8;line-height:1">${m.details.std_cavity}c / ${m.details.act_cavity}c</div>`
+                                                : '';
+                                            stdDisplay = `<div style="text-align:center;line-height:1.25">
+                                                <div style="font-size:0.95rem;font-weight:800;color:#0f172a">${_stdVal}</div>
+                                                <div style="font-size:0.6rem;color:#cbd5e1;letter-spacing:1px">───</div>
+                                                <div style="font-size:0.85rem;font-weight:700;color:${_actColor}">${_actVal}</div>
+                                                ${_cavInfo}
+                                            </div>`;
+                                        }
 
                                         const jcColor = (machineJC >= 2) ? '#ef4444' : '#6366f1';
                                         const cellBg = isHighJC ? ((machineJC >= 2) ? '#fef2f2' : '#f5f7ff') : 'white';
@@ -1495,7 +1525,7 @@
 
                                         machineRowHtml += `<tr style="${isFirstMouldInMachine ? 'border-top:2px solid #cbd5e1' : ''}">
                                                                 <td style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:${cellBg}; ${borderLeft} position:sticky; left:0; z-index:5; vertical-align:top; min-width:220px">${machineHtml}${mouldDisplay}<!--ROWCLEAR--></td>
-                                                                <td style="padding:6px 4px; text-align:center; border-right:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; background:#fff; position:sticky; left:220px; z-index:5; vertical-align:middle; min-width:45px">${stdDisplay}</td>`;
+                                                                <td style="padding:6px 4px; text-align:center; border-right:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; background:#fff; position:sticky; left:220px; z-index:5; vertical-align:middle; min-width:70px">${stdDisplay}</td>`;
                                         // C. Slots Iteration
                                         let activeOverrideStatus = '';
                                         let skipRemainingSlots = false;
