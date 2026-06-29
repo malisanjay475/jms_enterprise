@@ -3148,7 +3148,7 @@ async function getOrderPlanningCompletion(db, orderNo, factoryId) {
            NULLIF(TRIM(r.job_card_no), '') AS job_card_no,
            r.remarks_all
     FROM or_jr_report r
-    WHERE TRIM(COALESCE(r.or_jr_no, '')) = TRIM($1)
+    WHERE r.or_jr_no = TRIM($1)
       AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
       AND COALESCE(TRIM(r.jr_close), '') <> 'Yes'
       AND (r.is_closed IS FALSE OR r.is_closed IS NULL)
@@ -9993,7 +9993,7 @@ async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, opti
     FROM mould_planning_report r
     LEFT JOIN latest_wip w
       ON TRIM(COALESCE(w.item_code, '')) = TRIM(COALESCE(NULLIF(r.mould_item_code, ''), r.item_code, ''))
-    WHERE TRIM(COALESCE(r.or_jr_no, '')) = TRIM($1)
+    WHERE r.or_jr_no = TRIM($1)
       AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
     ORDER BY TRIM(COALESCE(r.item_code, '')), TRIM(COALESCE(r.product_name, ''))
   `, [orderNo, factoryId]);
@@ -10410,7 +10410,7 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
         r.mld_status,
         r.remarks_all
       FROM or_jr_report r
-      WHERE TRIM(COALESCE(r.or_jr_no, '')) = TRIM($1)
+      WHERE r.or_jr_no = TRIM($1)
         AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
         AND COALESCE(TRIM(r.jr_close), '') <> 'Yes'
         AND (r.is_closed IS FALSE OR r.is_closed IS NULL)
@@ -13223,7 +13223,7 @@ app.get('/api/planning/job-card-print', async (req, res) => {
           r.cycle_time,
           r.cavity
         FROM mould_planning_report r
-        WHERE TRIM(COALESCE(r.or_jr_no, '')) = TRIM($1)
+        WHERE r.or_jr_no = TRIM($1)
           AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
           AND (
             ($3::text <> '' AND TRIM(COALESCE(r.mould_no, '')) = TRIM($3::text))

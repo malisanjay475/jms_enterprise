@@ -2,6 +2,12 @@
             return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
         }
 
+        // Strip "LINE>" prefix from machine codes — e.g. "C -L1>C-L1-OM-660-1" → "C-L1-OM-660-1"
+        function stripMachPfx(s) {
+            const t = String(s || '').trim();
+            return t.includes('>') ? t.split('>').pop().trim() : t;
+        }
+
         // --- CODE MAPPINGS ---
         const REJECTION_CODES = {
             'A': 'Short Shot',
@@ -89,7 +95,7 @@
             const content = document.getElementById('modal-details-content');
             let html = `
                 <div style="margin-bottom:20px; text-align:center">
-                    <div style="font-size:0.9rem; color:#64748b; font-weight:600">${line} - ${machine} (${shift})</div>
+                    <div style="font-size:0.9rem; color:#64748b; font-weight:600">${line} - ${stripMachPfx(machine)} (${shift})</div>
                     <div style="font-size:1.4rem; margin-top:5px; font-weight:800; color:#0f172a">Summary Breakdown</div>
                     
                     <div style="display:flex; justify-content:center; gap:20px; margin-top:15px; flex-wrap:wrap">
@@ -411,12 +417,8 @@
                 card.innerHTML = `
                   <div id="sticky-dpr-filter" style="position:sticky; top:0; z-index:50; display:flex; flex-wrap:wrap; gap:10px; margin-bottom:15px; align-items:flex-end; padding:15px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
                     <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">From Date</label>
-                      <input type="date" id="s-from-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px" value="${today}">
-                    </div>
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">To Date</label>
-                      <input type="date" id="s-to-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px" value="${today}">
+                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Date</label>
+                      <input type="date" id="s-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px" value="${today}">
                     </div>
                     <div>
                       <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Process</label>
@@ -821,8 +823,8 @@
                 // ---- End Labour DPR Summary ----
 
                 const loadSummary = async () => {
-                    const fromDate = document.getElementById('s-from-date').value;
-                    const toDate = document.getElementById('s-to-date').value;
+                    const fromDate = document.getElementById('s-date').value;
+                    const toDate = fromDate; // single date selector
                     const shiftMode = document.getElementById('s-shift').value; // 'Day', 'Night', 'Both'
                     const container = document.getElementById('summary-container');
                     const selectedFactory = document.getElementById('s-factory')?.value || '';
@@ -908,7 +910,7 @@
                         resDayMat = filterMatrixResponse(resDayMat);
                         resNightMat = filterMatrixResponse(resNightMat);
 
-                        const machines = resDayMat.data.machines || resNightMat.data.machines || [];
+                        const machines = (resDayMat.data.machines && resDayMat.data.machines.length) ? resDayMat.data.machines : (resNightMat.data.machines || []);
                         const dayDatesMap = resDayMat.data.dates || {};
                         const nightDatesMap = resNightMat.data.dates || {};
                         const dayTeamsByDate = resDayTeam.data || {};
@@ -949,7 +951,7 @@
                         masterHtml += `
                             <div id="sticky-plant-total" style="position:sticky; top:105px; z-index:40; background:white; border:1px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
                                 <div style="font-size:1.1rem; font-weight:700; color:#0f172a">
-                                    Plant Total (${new Date(fromDate).toLocaleDateString('en-GB')} - ${new Date(toDate).toLocaleDateString('en-GB')})
+                                    Plant Total (${new Date(fromDate).toLocaleDateString('en-GB')})
                                     <span style="font-size:0.8rem; font-weight:400; color:#64748b; margin-left:8px">(Combined Summary)</span>
                                 </div>
                                 <div style="display:flex; gap:24px">
@@ -1173,7 +1175,7 @@
                                         <thead>
                                             <tr>
                                                 <th style="padding:12px; text-align:left; min-width:220px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-weight:600; color:#475569; border-right:1px solid #e2e8f0">Machine / Mould</th>
-                                                <th style="padding:10px 4px; border-bottom:1px solid #e2e8f0; background:#f8fafc; min-width:45px; font-weight:600; color:#475569; border-right:1px solid #e2e8f0;text-align:center">STD</th>
+                                                <th style="padding:10px 4px; border-bottom:1px solid #e2e8f0; background:#f8fafc; min-width:70px; font-weight:600; color:#475569; border-right:1px solid #e2e8f0;text-align:center"><div style="line-height:1.3"><div>STD</div><div style="font-size:0.6rem;color:#cbd5e1">───</div><div style="color:#16a34a">ACT</div></div></th>
                                                 ${slots.map(s => `<th style="padding:10px; border-bottom:1px solid #e2e8f0; background:#f8fafc; min-width:65px; font-weight:600; color:#475569; font-size:0.75rem; text-align:center; border-right:1px solid #e2e8f0">${s}</th>`).join('')}
                                                 <th style="padding:10px; border-bottom:1px solid #e2e8f0; background:#f0f9ff; min-width:140px; font-weight:700; color:#0369a1; border-left:2px solid #e2e8f0">Summary</th>
                                             </tr>
@@ -1377,6 +1379,18 @@
                                             }
                                         }
 
+                                        // STD pcs/hr from Mould Master (std cavity)
+                                        // ACT pcs/hr from supervisor's one-time setup (cavity_act in std_actual)
+                                        let stdCavPcsHr = 0; // STD — based on mould master std cavity
+                                        let actCavPcsHr = 0; // ACT — based on supervisor's actual cavity
+                                        const _ct = parseFloat(d.std_cycle_time || 0);
+                                        const _stdCav = parseFloat(d.std_cavity || 0);
+                                        const _actCav = parseFloat(d.act_cavity || 0);
+                                        if (_ct > 0) {
+                                            if (_stdCav > 0) stdCavPcsHr = Math.round((3600 / _ct) * _stdCav);
+                                            if (_actCav > 0) actCavPcsHr = Math.round((3600 / _ct) * _actCav);
+                                        }
+
                                         if (!d.article_act) {
                                             d.article_act = d.act_weight || d.std_weight || 0;
                                         }
@@ -1390,6 +1404,7 @@
 
                                         distinctMoulds.push({
                                             name: name || code, code, std: finalStd,
+                                            stdCavPcsHr, actCavPcsHr,
                                             start_time: startTime, order_no: order, end_time: endTime,
                                             first_activity_ts: activityTs,
                                             first_slot: 99, // Default to far future
@@ -1448,7 +1463,7 @@
 
                                         let machineHtml = '';
                                         if (isFirstMouldInMachine) {
-                                            let label = machine;
+                                            let label = stripMachPfx(machine);
                                             if (shiftMode === 'Both') {
                                                 const badgeColor = (rowShift === 'Day') ? '#f59e0b' : '#6366f1';
                                                 label += ` <span style="color:${badgeColor}; font-size:0.7rem; background:${badgeColor}15; padding:1px 4px; border-radius:4px; margin-left:4px">${rowShift}</span>`;
@@ -1487,7 +1502,24 @@
                                              </div>
                                         `;
 
-                                        let stdDisplay = !m.is_dummy ? `<div style="font-size:1.1rem; font-weight:800; color:#0f172a; text-align:center">${m.std || '-'}</div>` : '<div style="font-size:0.9rem; color:#94a3b8">-</div>';
+                                        let stdDisplay = '';
+                                        if (m.is_dummy) {
+                                            stdDisplay = '<div style="font-size:0.9rem; color:#94a3b8; text-align:center">-</div>';
+                                        } else {
+                                            const _stdVal = m.stdCavPcsHr || m.std || '-';
+                                            const _actVal = m.actCavPcsHr || m.std || '-';
+                                            const _actDiff = (m.stdCavPcsHr && m.actCavPcsHr && m.actCavPcsHr < m.stdCavPcsHr);
+                                            const _actColor = _actDiff ? '#dc2626' : '#16a34a';
+                                            const _cavInfo = (m.details.std_cavity && m.details.act_cavity)
+                                                ? `<div style="font-size:0.58rem;color:#94a3b8;line-height:1">${m.details.std_cavity}c / ${m.details.act_cavity}c</div>`
+                                                : '';
+                                            stdDisplay = `<div style="text-align:center;line-height:1.25">
+                                                <div style="font-size:0.95rem;font-weight:800;color:#0f172a">${_stdVal}</div>
+                                                <div style="font-size:0.6rem;color:#cbd5e1;letter-spacing:1px">───</div>
+                                                <div style="font-size:0.85rem;font-weight:700;color:${_actColor}">${_actVal}</div>
+                                                ${_cavInfo}
+                                            </div>`;
+                                        }
 
                                         const jcColor = (machineJC >= 2) ? '#ef4444' : '#6366f1';
                                         const cellBg = isHighJC ? ((machineJC >= 2) ? '#fef2f2' : '#f5f7ff') : 'white';
@@ -1495,7 +1527,7 @@
 
                                         machineRowHtml += `<tr style="${isFirstMouldInMachine ? 'border-top:2px solid #cbd5e1' : ''}">
                                                                 <td style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:${cellBg}; ${borderLeft} position:sticky; left:0; z-index:5; vertical-align:top; min-width:220px">${machineHtml}${mouldDisplay}<!--ROWCLEAR--></td>
-                                                                <td style="padding:6px 4px; text-align:center; border-right:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; background:#fff; position:sticky; left:220px; z-index:5; vertical-align:middle; min-width:45px">${stdDisplay}</td>`;
+                                                                <td style="padding:6px 4px; text-align:center; border-right:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; background:#fff; position:sticky; left:220px; z-index:5; vertical-align:middle; min-width:70px">${stdDisplay}</td>`;
                                         // C. Slots Iteration
                                         let activeOverrideStatus = '';
                                         let skipRemainingSlots = false;
@@ -2003,7 +2035,7 @@
                                         const effColor     = rowEffNet >= 80 ? '#166534' : rowEffNet >= 60 ? '#b45309' : '#dc2626';
                                         const oeeColor     = rowEff    >= 80 ? '#166534' : rowEff    >= 60 ? '#b45309' : '#dc2626';
 
-                                        const summaryClickScript = `showSummaryDetails('${machine}', '${rowShift}', '${lineName}', ${sumGood}, ${sumRej}, ${sumDt}, ${sumAutoDt}, ${Math.round(sumStd)}, '${encodeURIComponent(JSON.stringify(rowAggRej))}', '${encodeURIComponent(JSON.stringify(rowAggDt))}')`;
+                                        const summaryClickScript = `showSummaryDetails('${stripMachPfx(machine)}', '${rowShift}', '${lineName}', ${sumGood}, ${sumRej}, ${sumDt}, ${sumAutoDt}, ${Math.round(sumStd)}, '${encodeURIComponent(JSON.stringify(rowAggRej))}', '${encodeURIComponent(JSON.stringify(rowAggDt))}')`;
 
                                         let summaryH = !m.is_dummy ? `<div style="text-align:left;cursor:pointer;font-size:0.72rem;line-height:1.32;padding:1px 0" onclick="${summaryClickScript}"><div style="font-weight:700;color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-weight:800;color:#166534;font-size:0.8rem">${totalPcs}<span style="font-weight:500;color:#64748b;font-size:0.68rem"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="color:#db2777;font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="color:#be185d;font-weight:600">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${(wtStdGrams > 0 || wtActGrams > 0) ? `<div style="color:#64748b;font-weight:600">Wt: ${wtStdGrams > 0 ? wtStdGrams + 'g' : '-'} → ${wtActGrams > 0 ? wtActGrams + 'g' : '-'}</div>` : ''}<div style="font-weight:700;color:#7c3aed">Tot Kg: ${totKg.toFixed(1)}</div>${rowEffNet > 0 ? `<div style="font-weight:700;color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-weight:700;color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
 
@@ -2017,7 +2049,8 @@
                                         machineGood += sumGood;
                                         machineEst += estPcs;
 
-                                        machineRowHtml += `<td style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${summaryH}</td></tr>`;
+                                        const _summaryBlink = (rowEff > 0 && rowEff < 85 && !m.is_dummy) ? ' blink-alert' : '';
+                                        machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${summaryH}</td></tr>`;
 
                                         // Superadmin-only row-level "clear quick entries" button (replaces this row's placeholder)
                                         const _uniqQuickIds = Array.from(new Set(rowQuickIds));
@@ -2032,10 +2065,7 @@
                                 // Push to Buffer
                                 let mEff = (machineEst > 0) ? (machineGood / machineEst) * 100 : 0;
 
-                                // ALERT LOGIC: If Efficiency < 85%, add blink class to the FIRST cell wrapper
-                                if (mEff < 85 && mEff > 0) {
-                                    machineRowHtml = machineRowHtml.replace('<td style="padding:6px 8px; text-align:left;', '<td class="blink-alert" style="padding:6px 8px; text-align:left;');
-                                }
+                                // Blink is now applied per-mould on the summary cell (see _summaryBlink above)
 
                                 if (flatMode) {
                                     globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots });
