@@ -1894,6 +1894,7 @@ async function migrateWipStockMasterSchema() {
 
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_snapshots_factory_date ON wip_stock_snapshots(factory_id, stock_date DESC)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_snapshot ON wip_stock_snapshot_lines(snapshot_id, line_type, sr_no)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_snapshot_item ON wip_stock_snapshot_lines(snapshot_id, item_code)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_factory_date ON wip_stock_snapshot_lines(factory_id, stock_date DESC)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_comparison_key ON wip_stock_snapshot_lines(factory_id, stock_date DESC, comparison_key)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_movements_factory_date ON wip_stock_movements(factory_id, movement_at DESC)`);
@@ -9967,16 +9968,6 @@ async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, opti
       WHERE ($2::int IS NULL OR factory_id = $2)
       ORDER BY stock_date DESC NULLS LAST, id DESC
       LIMIT 1
-    ),
-    latest_wip AS (
-      SELECT
-        TRIM(COALESCE(l.item_code, '')) AS item_code,
-        SUM(COALESCE(l.current_stock_available_qty, l.total_qty, 0))::numeric AS wip_qty,
-        MAX(ls.stock_date)::text AS stock_date
-      FROM latest_snapshot ls
-      JOIN wip_stock_snapshot_lines l ON l.snapshot_id = ls.id
-      WHERE ($2::int IS NULL OR l.factory_id = $2 OR l.factory_id IS NULL)
-      GROUP BY TRIM(COALESCE(l.item_code, ''))
     )
     SELECT
       TRIM(COALESCE(r.item_code, '')) AS item_code,
@@ -9991,8 +9982,15 @@ async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, opti
       COALESCE(w.wip_qty, 0)::numeric AS wip_qty,
       w.stock_date AS wip_stock_date
     FROM mould_planning_report r
-    LEFT JOIN latest_wip w
-      ON TRIM(COALESCE(w.item_code, '')) = TRIM(COALESCE(NULLIF(r.mould_item_code, ''), r.item_code, ''))
+    LEFT JOIN LATERAL (
+      SELECT
+        SUM(COALESCE(l.current_stock_available_qty, l.total_qty, 0))::numeric AS wip_qty,
+        MAX(ls.stock_date)::text AS stock_date
+      FROM latest_snapshot ls
+      JOIN wip_stock_snapshot_lines l ON l.snapshot_id = ls.id
+      WHERE TRIM(COALESCE(l.item_code, '')) = TRIM(COALESCE(NULLIF(r.mould_item_code, ''), r.item_code, ''))
+        AND ($2::int IS NULL OR l.factory_id = $2 OR l.factory_id IS NULL)
+    ) w ON true
     WHERE r.or_jr_no = TRIM($1)
       AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
     ORDER BY TRIM(COALESCE(r.item_code, '')), TRIM(COALESCE(r.product_name, ''))

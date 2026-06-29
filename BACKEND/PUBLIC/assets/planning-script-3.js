@@ -4855,7 +4855,7 @@
 
             card.innerHTML = `
               <div style="display:flex; justify-content:space-between; align-items:center; gap:4px; margin-bottom:4px">
-                <span style="font-weight:900; color:#0f172a; font-size:0.72rem; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${esc(mac.machine || '-')}</span>
+                <span style="font-weight:900; color:#0f172a; font-size:0.72rem; line-height:1.2; word-break:break-all">${esc(mac.machine || '-')}</span>
                 <span style="background:${roleBg}; color:${roleColor}; border:1px solid ${roleBorder}; border-radius:999px; padding:1px 5px; font-size:0.56rem; font-weight:900; white-space:nowrap; flex-shrink:0">${roleLabel}</span>
               </div>
               ${metaLine ? `<div style="color:#64748b; font-size:0.63rem; margin-bottom:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${metaLine}</div>` : ''}
