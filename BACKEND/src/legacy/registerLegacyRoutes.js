@@ -13893,12 +13893,6 @@ app.get('/api/machines/supervisor', async (req, res) => {
          FROM machines 
         WHERE COALESCE(is_active, TRUE) = TRUE
           AND COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') = 'Moulding'
-          AND (
-            NULLIF(TRIM(line), '') IS NOT NULL
-            OR NULLIF(TRIM(building), '') IS NOT NULL
-            OR tonnage IS NOT NULL
-            OR machine LIKE '%>%'
-          )
           AND ${whereClause}`,
       params
     );

@@ -448,6 +448,7 @@
                       <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">View Filter</label>
                       <select id="s-eff-filter" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:160px">
                         <option value="">All</option>
+                        <option value="Pending">⚠️ Pending Entries</option>
                         <option value="LowEff">Low EFF</option>
                         <option value="ManPowerShortage">MP Shortage</option>
                         <option value="MouldMaintenance">Mould Maintenance</option>
@@ -1275,6 +1276,7 @@
                                 let machineRowHtml = ''; // Shadow inner HTML for buffering
                                 let machineGood = 0, machineEst = 0;
                                 const machineEntryTypes = new Set(); // track special entry_types for View Filter
+                                let machineMissingSlots = 0; // count of past unfilled slots (for Pending filter)
                                 // Determine Shifts for this Machine Row(s)
                                 const shiftsToRender = (shiftMode === 'Both') ? ['Day', 'Night'] : [shiftMode];
 
@@ -1636,7 +1638,14 @@
                                             // 2. Detect REAL PRODUCTION to reset override (MACHINE WIDE)
                                             // Strong Reset: Reset if there's any good qty, shots, or Main entry with < 45m downtime on ANY order for this machine
                                             let hasMachineProduction = list.some(e => Number(e.good_qty || 0) > 0 || Number(e.shots || 0) > 0 || (e.entry_type === 'Main' && Number(e.downtime_min || 0) < 45) || e.entry_type === 'ColourChange');
-                                            if (hasMachineProduction && !overrideTriggeredThisSlot) {
+                                            // Also reset if a DIFFERENT job has any entry (manual or production) on this machine in this slot.
+                                            // This stops Mould Changeover from Job 1 carrying forward into slots where Job 2 has taken over the machine.
+                                            const mOrder = (m.order_no || '').trim().toLowerCase();
+                                            const hasDifferentJobEntry = mOrder && list.some(e => {
+                                                const eOrder = (e.order_no || '').trim().toLowerCase();
+                                                return eOrder && eOrder !== mOrder;
+                                            });
+                                            if ((hasMachineProduction || hasDifferentJobEntry) && !overrideTriggeredThisSlot) {
                                                 activeOverrideStatus = ''; // Reset for the whole machine!
                                             }
 
@@ -1753,7 +1762,10 @@
                                                         // A carry-forward activeOverrideStatus (from an earlier slot) must not suppress the cross —
                                                         // only an actual Quick Action entry triggered IN this slot does.
                                                         if (!hasMachineProduction && !overrideTriggeredThisSlot) {
-                                                            if (mouldStartTs === 0 || sEnd > (mouldStartTs + 600000)) showCross = true;
+                                                            if (mouldStartTs === 0 || sEnd > (mouldStartTs + 600000)) {
+                                                                showCross = true;
+                                                                machineMissingSlots++; // count for Pending filter
+                                                            }
                                                         }
                                                     } else {
                                                         // Not the active mould for this slot -> Blocked
@@ -1881,7 +1893,13 @@
 
                                                 // Reset tracker on real machine-wide production
                                                 let hasMachineProd = list.some(e => Number(e.good_qty || 0) > 0 || Number(e.shots || 0) > 0 || (e.entry_type === 'Main' && Number(e.downtime_min || 0) < 45) || e.entry_type === 'ColourChange');
-                                                if (hasMachineProd && !hasOverrideThisSlot) sumActiveOverride = '';
+                                                // Also reset if a different job has any entry on this machine in this slot
+                                                const sumMOrder = (m.order_no || '').trim().toLowerCase();
+                                                const hasDiffJobEntry = sumMOrder && list.some(e => {
+                                                    const eOrder = (e.order_no || '').trim().toLowerCase();
+                                                    return eOrder && eOrder !== sumMOrder;
+                                                });
+                                                if ((hasMachineProd || hasDiffJobEntry) && !hasOverrideThisSlot) sumActiveOverride = '';
 
                                                 // sEnd, now, isFuture are already declared at top of loop
                                                 const sStart = sEnd - 3600000;
@@ -2066,7 +2084,7 @@
                                 // Blink is now applied per-mould on the summary cell (see _summaryBlink above)
 
                                 if (flatMode) {
-                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0 });
+                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots });
                                 } else {
                                     machineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine });
                                 }
@@ -2123,7 +2141,9 @@
                         if (flatMode) {
                             // Apply View Filter — keep only machines matching the selected filter
                             let filteredMachineBuffer = globalMachineBuffer;
-                            if (filterMode === 'LowEff') {
+                            if (filterMode === 'Pending') {
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.missingSlots > 0);
+                            } else if (filterMode === 'LowEff') {
                                 filteredMachineBuffer = globalMachineBuffer.filter(m => m.eff > 0 && m.eff < 75);
                             } else if (filterMode === 'ManPowerShortage') {
                                 filteredMachineBuffer = globalMachineBuffer.filter(m => m.entryTypes.has('ManPowerShortage'));
@@ -2138,8 +2158,12 @@
                             } else if (filterMode === 'MouldTrial') {
                                 filteredMachineBuffer = globalMachineBuffer.filter(m => m.entryTypes.has('MouldTrial'));
                             }
-                            // Sort filtered result by efficiency ascending (lowest first)
-                            filteredMachineBuffer.sort((a, b) => a.eff - b.eff);
+                            // Sort: Pending → most missing slots first; all others → lowest EFF first
+                            if (filterMode === 'Pending') {
+                                filteredMachineBuffer.sort((a, b) => b.missingSlots - a.missingSlots);
+                            } else {
+                                filteredMachineBuffer.sort((a, b) => a.eff - b.eff);
+                            }
                             masterHtml += `
                                 <div style="margin-bottom:24px; background:white; border:1px solid #cbd5e1; border-radius:0 0 12px 12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-top:-1px">
                                     <div style="overflow-x:auto">
@@ -2151,7 +2175,13 @@
                                                 <col style="width:140px; min-width:140px">
                                             </colgroup>
                                             <tbody>
-                                                ${filteredMachineBuffer.map(m => m.html).join('')}
+                                                ${filteredMachineBuffer.map(m => {
+                                                    if (filterMode === 'Pending' && m.missingSlots > 0) {
+                                                        const badge = `<span style="display:inline-block;margin-left:6px;background:#ef4444;color:#fff;font-size:0.65rem;font-weight:800;padding:1px 6px;border-radius:10px;vertical-align:middle;white-space:nowrap">${m.missingSlots} missing</span>`;
+                                                        return m.html.replace('<!--ROWCLEAR-->', badge);
+                                                    }
+                                                    return m.html;
+                                                }).join('')}
                                             </tbody>
                                         </table>
                                     </div>
