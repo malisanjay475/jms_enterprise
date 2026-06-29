@@ -2360,6 +2360,24 @@
             });
         }
 
+        // ── Image Lightbox ──────────────────────────────────────────────
+        function openImageLightbox(src) {
+            const lb = document.getElementById('modal-img-lightbox');
+            const img = document.getElementById('lightbox-img');
+            if (!lb || !img) return;
+            img.src = src;
+            lb.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+        window.openImageLightbox = openImageLightbox;
+
+        function closeImageLightbox() {
+            const lb = document.getElementById('modal-img-lightbox');
+            if (lb) lb.classList.add('hidden');
+            document.body.style.overflow = '';
+        }
+        window.closeImageLightbox = closeImageLightbox;
+
         async function fpaFormImageChanged(input) {
             if (!input.files || !input.files[0]) return;
             const blob = await compressImage(input.files[0]);
@@ -2368,8 +2386,24 @@
             const url = URL.createObjectURL(blob);
             const preview = el('fpa-form-preview');
             const placeholder = el('fpa-form-placeholder');
+            const thumb = el('fpa-form-thumb');
             if (preview) { preview.src = url; preview.style.display = 'block'; }
             if (placeholder) placeholder.style.display = 'none';
+            // After image is captured, tap = view fullscreen (not re-capture)
+            if (thumb) {
+                thumb.onclick = () => openImageLightbox(url);
+                thumb.title = 'Tap to view full image';
+                // Small re-capture button in corner
+                if (!thumb.querySelector('.fpa-recapture-btn')) {
+                    const recapBtn = document.createElement('button');
+                    recapBtn.className = 'fpa-recapture-btn';
+                    recapBtn.innerHTML = '📷';
+                    recapBtn.title = 'Recapture';
+                    recapBtn.style.cssText = 'position:absolute;bottom:6px;right:6px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;border:none;font-size:14px;display:flex;align-items:center;justify-content:center;padding:0;min-height:0;box-shadow:none;z-index:2';
+                    recapBtn.onclick = (e) => { e.stopPropagation(); el('fpa-form-image').click(); };
+                    thumb.appendChild(recapBtn);
+                }
+            }
         }
 
         async function fpaProductImageCaptured(input) {
@@ -2392,10 +2426,19 @@
             grid.innerHTML = '';
             fpaProductBlobs.forEach((item, i) => {
                 const cell = document.createElement('div');
-                cell.style.cssText = 'position:relative;width:100%;aspect-ratio:1;border-radius:10px;overflow:hidden;border:1px solid var(--line)';
-                cell.innerHTML = `
-                  <img src="${item.url}" style="width:100%;height:100%;object-fit:cover">
-                  <button onclick="removeFPAProductImage(${i})" style="position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:none;font-size:12px;display:flex;align-items:center;justify-content:center;padding:0;min-height:0;box-shadow:none">✕</button>`;
+                cell.style.cssText = 'position:relative;width:100%;aspect-ratio:1;border-radius:10px;overflow:hidden;border:1px solid var(--line);cursor:pointer';
+                const img = document.createElement('img');
+                img.src = item.url;
+                img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
+                img.title = 'Tap to view full image';
+                img.onclick = (e) => { e.stopPropagation(); openImageLightbox(item.url); };
+                const removeBtn = document.createElement('button');
+                removeBtn.innerHTML = '✕';
+                removeBtn.title = 'Remove';
+                removeBtn.style.cssText = 'position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:none;font-size:12px;display:flex;align-items:center;justify-content:center;padding:0;min-height:0;box-shadow:none';
+                removeBtn.onclick = (e) => { e.stopPropagation(); removeFPAProductImage(i); };
+                cell.appendChild(img);
+                cell.appendChild(removeBtn);
                 grid.appendChild(cell);
             });
             // Add + button if under max
@@ -2521,8 +2564,14 @@
                     if (data.form_url) {
                         const preview = el('fpa-form-preview');
                         const placeholder = el('fpa-form-placeholder');
+                        const thumb = el('fpa-form-thumb');
                         if (preview) { preview.src = data.form_url; preview.style.display = 'block'; }
                         if (placeholder) placeholder.style.display = 'none';
+                        // Tap = view fullscreen (FPA already done — no recapture)
+                        if (thumb) {
+                            thumb.onclick = () => openImageLightbox(data.form_url);
+                            thumb.title = 'Tap to view full image';
+                        }
                     }
                     // Disable submit button
                     const submitBtn = document.querySelector('#sec-qc-fpa button.primary');

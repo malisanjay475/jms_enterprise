@@ -856,7 +856,6 @@
                 <div style="margin-bottom:12px">
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
                         <div style="font-weight:700;font-size:14px">👥 QC Shift Team</div>
-                        <button class="small ghost" onclick="openAddTeamMemberModal()">+ Add</button>
                     </div>
                     <div id="shift-team-list" style="display:flex;flex-direction:column;gap:0"></div>
                     <div id="shift-team-empty" class="muted" style="font-size:12px">No team members assigned for this shift.</div>
@@ -1423,30 +1422,6 @@
         </div>
     </div>
 
-    <!-- ══ MODAL: Add Team Member ══ -->
-    <div id="modal-add-team" class="modal hidden" role="dialog" aria-modal="true">
-        <div class="panel card">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-                <h3 style="margin:0">Add Team Member</h3>
-                <button class="small ghost" onclick="document.getElementById('modal-add-team').classList.add('hidden')">✕</button>
-            </div>
-            <div class="row">
-                <label>Name <input id="team-name" placeholder="Employee name" autocomplete="off"></label>
-                <label>Role
-                    <select id="team-role">
-                        <option>QC Inspector</option>
-                        <option>QC Supervisor</option>
-                        <option>QC Incharge</option>
-                    </select>
-                </label>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:10px">
-                <button class="primary" style="flex:1" onclick="addShiftTeamMember()">Add Member</button>
-                <button class="ghost" onclick="document.getElementById('modal-add-team').classList.add('hidden')">Cancel</button>
-            </div>
-        </div>
-    </div>
-
     <!-- ══ MODAL: New Material Issue ══ -->
     <div id="modal-new-issue" class="modal hidden" role="dialog" aria-modal="true">
         <div class="panel card">
@@ -1489,8 +1464,19 @@
         </div>
     </div>
 
-  <script src="/assets/QCSupervisor-script-1.js?v=release64"></script>
-  <script src="/assets/register-sw.js?v=release64"></script>
+    <!-- ══ IMAGE LIGHTBOX ══ -->
+    <div id="modal-img-lightbox" class="hidden" role="dialog" aria-modal="true" aria-label="Image viewer"
+        style="position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.92);display:flex;align-items:center;justify-content:center;flex-direction:column;touch-action:pinch-zoom"
+        onclick="closeImageLightbox()">
+        <button onclick="closeImageLightbox();event.stopPropagation()"
+            style="position:absolute;top:calc(12px + env(safe-area-inset-top));right:16px;background:rgba(255,255,255,0.15);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;display:flex;align-items:center;justify-content:center;padding:0;min-height:0;box-shadow:none;z-index:1">✕</button>
+        <img id="lightbox-img" src="" alt="Full image"
+            style="max-width:calc(100vw - 24px);max-height:calc(100dvh - 80px);object-fit:contain;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.6)"
+            onclick="event.stopPropagation()">
+    </div>
+
+  <script src="/assets/QCSupervisor-script-1.js?v=release65"></script>
+  <script src="/assets/register-sw.js?v=release65"></script>
 
 </body>
 
