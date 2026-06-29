@@ -411,12 +411,8 @@
                 card.innerHTML = `
                   <div id="sticky-dpr-filter" style="position:sticky; top:0; z-index:50; display:flex; flex-wrap:wrap; gap:10px; margin-bottom:15px; align-items:flex-end; padding:15px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
                     <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">From Date</label>
-                      <input type="date" id="s-from-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px" value="${today}">
-                    </div>
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">To Date</label>
-                      <input type="date" id="s-to-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px" value="${today}">
+                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Date</label>
+                      <input type="date" id="s-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px" value="${today}">
                     </div>
                     <div>
                       <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Process</label>
@@ -820,8 +816,8 @@
                 // ---- End Labour DPR Summary ----
 
                 const loadSummary = async () => {
-                    const fromDate = document.getElementById('s-from-date').value;
-                    const toDate = document.getElementById('s-to-date').value;
+                    const fromDate = document.getElementById('s-date').value;
+                    const toDate = fromDate; // single date selector
                     const shiftMode = document.getElementById('s-shift').value; // 'Day', 'Night', 'Both'
                     const container = document.getElementById('summary-container');
                     const selectedFactory = document.getElementById('s-factory')?.value || '';
@@ -948,7 +944,7 @@
                         masterHtml += `
                             <div id="sticky-plant-total" style="position:sticky; top:105px; z-index:40; background:white; border:1px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
                                 <div style="font-size:1.1rem; font-weight:700; color:#0f172a">
-                                    Plant Total (${new Date(fromDate).toLocaleDateString('en-GB')} - ${new Date(toDate).toLocaleDateString('en-GB')})
+                                    Plant Total (${new Date(fromDate).toLocaleDateString('en-GB')})
                                     <span style="font-size:0.8rem; font-weight:400; color:#64748b; margin-left:8px">(Combined Summary)</span>
                                 </div>
                                 <div style="display:flex; gap:24px">
