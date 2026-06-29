@@ -907,7 +907,7 @@
                         resDayMat = filterMatrixResponse(resDayMat);
                         resNightMat = filterMatrixResponse(resNightMat);
 
-                        const machines = resDayMat.data.machines || resNightMat.data.machines || [];
+                        const machines = (resDayMat.data.machines && resDayMat.data.machines.length) ? resDayMat.data.machines : (resNightMat.data.machines || []);
                         const dayDatesMap = resDayMat.data.dates || {};
                         const nightDatesMap = resNightMat.data.dates || {};
                         const dayTeamsByDate = resDayTeam.data || {};
@@ -2012,7 +2012,8 @@
                                         machineGood += sumGood;
                                         machineEst += estPcs;
 
-                                        machineRowHtml += `<td style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${summaryH}</td></tr>`;
+                                        const _summaryBlink = (rowEff > 0 && rowEff < 85 && !m.is_dummy) ? ' blink-alert' : '';
+                                        machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${summaryH}</td></tr>`;
 
                                         // Superadmin-only row-level "clear quick entries" button (replaces this row's placeholder)
                                         const _uniqQuickIds = Array.from(new Set(rowQuickIds));
@@ -2027,10 +2028,7 @@
                                 // Push to Buffer
                                 let mEff = (machineEst > 0) ? (machineGood / machineEst) * 100 : 0;
 
-                                // ALERT LOGIC: If Efficiency < 85%, add blink class to the FIRST cell wrapper
-                                if (mEff < 85 && mEff > 0) {
-                                    machineRowHtml = machineRowHtml.replace('<td style="padding:6px 8px; text-align:left;', '<td class="blink-alert" style="padding:6px 8px; text-align:left;');
-                                }
+                                // Blink is now applied per-mould on the summary cell (see _summaryBlink above)
 
                                 if (flatMode) {
                                     globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0 });
