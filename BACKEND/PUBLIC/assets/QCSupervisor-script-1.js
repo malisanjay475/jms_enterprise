@@ -3358,3 +3358,428 @@
             setTimeout(() => { if (session && session.username) { checkNotifDot(); loadShiftTeam(); } }, 2000);
             setInterval(() => { if (session && session.username) checkNotifDot(); }, 120000);
         });
+
+        /* ================================================================
+           QC SUPERVISOR v3 — Machine Sort | Compact Cards | Mandatory Flow
+                             | FPA Gallery | Verify from Queue | Full Recent
+           ================================================================ */
+
+        // ── P1: Machine natural sort ──────────────────────────────────────────
+        (function patchMachineSort() {
+            const _orig = loadMachines;
+            loadMachines = async function() {
+                await _orig.apply(this, arguments);
+                const dd = el('dd-machine');
+                if (!dd || dd.options.length < 2) return;
+                const cur = dd.value;
+                const opts = Array.from(dd.options)
+                    .filter(o => o.value)
+                    .sort((a, b) => a.text.localeCompare(b.text, undefined, { numeric: true, sensitivity: 'base' }));
+                dd.innerHTML = '';
+                opts.forEach(o => dd.appendChild(o));
+                if (cur && Array.from(dd.options).some(o => o.value === cur)) dd.value = cur;
+            };
+        })();
+
+        // ── P2: Job status cache ──────────────────────────────────────────────
+        const _v3StatusCache = new Map();
+        let _v3QueueJobs = [];   // mirror of current queue items
+
+        function _v3CacheKey(jcNo, machine, date, shift) {
+            return `${jcNo}|${machine}|${date}|${shift}`;
+        }
+
+        async function _v3FetchStatus(jcNo, machine, date, shift, mouldName) {
+            const key = _v3CacheKey(jcNo, machine, date, shift);
+            const cached = _v3StatusCache.get(key);
+            if (cached && (Date.now() - cached.ts < 45000)) return cached.data;
+
+            const [fpaR, setupR] = await Promise.allSettled([
+                fetch(`/api/qc/fpa/status?job_card_no=${encodeURIComponent(jcNo)}&date=${date}&shift=${encodeURIComponent(shift)}&machine=${encodeURIComponent(machine)}`).then(r => r.json()).catch(() => ({ ok: true, done: false })),
+                fetch(`/api/qc/job-setup?job_card_no=${encodeURIComponent(jcNo)}&date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}&machine=${encodeURIComponent(machine)}&mould_name=${encodeURIComponent(mouldName || '')}`).then(r => r.json()).catch(() => ({ ok: true, setup: null }))
+            ]);
+
+            const fpa   = fpaR.status   === 'fulfilled' ? fpaR.value   : { ok: true, done: false };
+            const setup = setupR.status === 'fulfilled' ? setupR.value : { ok: true, setup: null };
+            const data  = { fpaDone: fpa.done === true, setupDone: !!(setup.setup), fpaData: fpa, setupData: setup };
+            _v3StatusCache.set(key, { data, ts: Date.now() });
+            return data;
+        }
+
+        async function _v3LoadQueueStatuses() {
+            if (!_v3QueueJobs.length) return;
+            const machine = session.machine || el('dd-machine')?.value || '';
+            const date    = istDateStr();
+            const shift   = getShiftFromTime();
+            await Promise.allSettled(_v3QueueJobs.map(async item => {
+                const job  = item.job;
+                const all  = job._all || {};
+                const jcNo = safe(job.JobCardNo || all['JobCardNo'] || '');
+                if (!jcNo) return;
+                const mould = safe(job.Mould || all['Mould'] || all['Mould Name'] || all['SFG Name'] || '');
+                const status = await _v3FetchStatus(jcNo, machine, date, shift, mould);
+                _v3ApplyCardStatus(jcNo, status);
+            }));
+        }
+
+        function _v3ApplyCardStatus(jcNo, status) {
+            document.querySelectorAll('#jobs .job').forEach(card => {
+                if (card.dataset.jcNo !== jcNo) return;
+                const { fpaDone, setupDone } = status;
+
+                // Badge
+                const badge = card.querySelector('.v3-flow-badge');
+                if (badge) {
+                    if (!fpaDone) {
+                        badge.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#b45309;background:#fff7ed;border:1px solid #fed7aa;border-radius:999px;padding:2px 8px">⚠ FPA Required</span>`;
+                    } else if (!setupDone) {
+                        badge.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:999px;padding:2px 8px">⚙ Setup Required</span>`;
+                    } else {
+                        badge.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#059669;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:999px;padding:2px 8px">✓ Ready</span>`;
+                    }
+                }
+
+                // Buttons
+                const btnQC    = card.querySelector('.v3-btn-qc');
+                const btnFPA   = card.querySelector('.v3-btn-fpa');
+                const btnVfy   = card.querySelector('.v3-btn-vfy');
+                const btnSetup = card.querySelector('.v3-btn-setup');
+
+                if (btnFPA) {
+                    btnFPA.disabled = false;
+                    if (fpaDone) {
+                        Object.assign(btnFPA.style, { background:'#ecfdf5', color:'#059669', borderColor:'#6ee7b7' });
+                        btnFPA.title = 'View FPA Images';
+                        btnFPA.textContent = '📷 FPA ✓';
+                    } else {
+                        Object.assign(btnFPA.style, { background:'#fff7ed', color:'#b45309', borderColor:'#fed7aa' });
+                        btnFPA.title = 'First Piece Approval — Required';
+                        btnFPA.textContent = '📷 FPA !';
+                    }
+                }
+                if (btnSetup) {
+                    btnSetup.disabled = !fpaDone;
+                    if (fpaDone && !setupDone) {
+                        Object.assign(btnSetup.style, { background:'#eff6ff', color:'#1d4ed8', borderColor:'#93c5fd' });
+                        btnSetup.title = 'One Time Setup — Required';
+                        btnSetup.textContent = '⚙ Setup !';
+                    } else if (fpaDone) {
+                        Object.assign(btnSetup.style, { background:'', color:'', borderColor:'' });
+                        btnSetup.title = 'Edit One Time Setup';
+                        btnSetup.textContent = '⚙️';
+                    }
+                }
+                const canGo = fpaDone && setupDone;
+                if (btnQC) {
+                    btnQC.disabled = !canGo;
+                    if (canGo) Object.assign(btnQC.style, { background:'var(--primary)', color:'#fff', borderColor:'transparent' });
+                }
+                if (btnVfy) {
+                    btnVfy.disabled = !canGo;
+                    if (canGo) Object.assign(btnVfy.style, { background:'#ecfdf5', color:'#059669', borderColor:'#6ee7b7' });
+                }
+            });
+        }
+
+        // ── P3: New buildJobCard (compact + status-aware) ─────────────────────
+        buildJobCard = function(item, idx) {
+            const job  = item.job;
+            const all  = job._all || {};
+            const jcNo     = safe(job.JobCardNo || all['JobCardNo'] || '');
+            const orderNo  = safe(job.OrderNo   || all['Order No']  || '');
+            const prodName = safe(all['SFG Name'] || all['Item Name'] || job.product_name || orderNo || '—');
+            const planQty  = safe(job.PlanQty   || all['Plan Qty']  || '');
+            const calcEnd  = job.CalcEndDateTime || all['CalcEndDateTime'] || null;
+            const macPri   = job.machinePriority || all['machinePriority'] || null;
+            const mouldName= safe(job.Mould || all['Mould'] || all['Mould Name'] || '');
+
+            // Track for async status load
+            _v3QueueJobs[idx] = item;
+
+            const card = document.createElement('div');
+            card.className = 'job';
+            card.dataset.queueIndex = String(idx);
+            card.dataset.jcNo = jcNo;
+            card._qcJob = job;
+
+            card.innerHTML = `
+              <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:5px">
+                ${typeof priorityBadge === 'function' ? priorityBadge(macPri) : ''}
+                ${typeof statusBadge   === 'function' ? statusBadge(item.statusRaw) : ''}
+                ${typeof endTimeBadge  === 'function' ? endTimeBadge(calcEnd) : ''}
+              </div>
+              <div style="font-weight:700;font-size:15px;line-height:1.3">${prodName}</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:2px">
+                JR:&nbsp;${orderNo}${jcNo ? ' &middot; JC:&nbsp;' + jcNo : ''}${mouldName ? ' &middot; ' + mouldName : ''}${planQty ? ' &middot; Qty:&nbsp;' + Number(planQty).toLocaleString() : ''}
+              </div>
+              <div class="v3-flow-badge" data-jc="${jcNo}">
+                <span style="font-size:11px;color:var(--muted)">Checking…</span>
+              </div>
+              <div class="v3-btn-row">
+                <button class="v3-btn-qc small primary" onclick="openQCReportForJob(${idx})" title="QC Report" disabled>📋 QC</button>
+                <button class="v3-btn-fpa small" onclick="selectJobAndOpenFPA(${idx})" title="First Piece Approval">📷 FPA</button>
+                <button class="v3-btn-vfy small" onclick="openVerifyForJob(${idx})" title="Verify" disabled>✓ Verify</button>
+                <button class="v3-btn-setup small ghost" onclick="openJobSetupModal(${idx})" title="One Time Setup" disabled>⚙️</button>
+              </div>`;
+
+            return card;
+        };
+
+        // Patch loadQueue to: reset job list + trigger status load after render
+        const _v3OrigLQ = loadQueue;
+        loadQueue = function() {
+            _v3QueueJobs = [];
+            _v3StatusCache.clear();
+            _v3OrigLQ.apply(this, arguments);
+            // Give fetch + DOM render time, then batch-load statuses
+            setTimeout(_v3LoadQueueStatuses, 400);
+        };
+
+        // ── P4: Open QC Report for a specific job from Queue ─────────────────
+        function openQCReportForJob(idx) {
+            // Set active job
+            const card = document.querySelector(`#jobs .job[data-queue-index="${idx}"]`) ||
+                         Array.from(document.querySelectorAll('#jobs .job')).find(c => Number(c.dataset.queueIndex) === idx);
+            if (card && card._qcJob) session.activeJob = card._qcJob;
+            else if (_v3QueueJobs[idx]) session.activeJob = _v3QueueJobs[idx].job;
+
+            const job = session.activeJob || {};
+            const all = job._all || {};
+            const prodName  = safe(all['SFG Name'] || all['Item Name'] || job.product_name || '');
+            const jcNo      = safe(job.JobCardNo  || all['JobCardNo']  || '');
+            const orderNo   = safe(job.OrderNo    || all['Order No']   || '');
+            const mouldName = safe(job.Mould || all['Mould'] || all['Mould Name'] || '');
+
+            // Show banner + back button
+            const banner = document.getElementById('qcr-job-banner');
+            if (banner) {
+                banner.classList.remove('hidden');
+                banner.innerHTML = `
+                  <div style="background:var(--primary-bg);border:1px solid rgba(37,99,235,.2);border-radius:10px;padding:10px 12px">
+                    <div style="font-weight:700;font-size:14px;color:var(--ink)">${prodName || orderNo}</div>
+                    <div style="font-size:12px;color:var(--muted);margin-top:2px">
+                      ${jcNo ? 'JC: ' + jcNo + ' · ' : ''}JR: ${orderNo}${mouldName ? ' · Mould: ' + mouldName : ''}
+                    </div>
+                  </div>`;
+            }
+            const backBtn = document.getElementById('qcr-back-btn');
+            if (backBtn) backBtn.classList.remove('hidden');
+
+            // Switch to QC Report tab and load slots
+            showPage('sec-qc-report', document.getElementById('tab-qcreport'));
+            if (typeof initOnlineQCReport === 'function') initOnlineQCReport();
+        }
+        window.openQCReportForJob = openQCReportForJob;
+
+        // ── P5: Open Verify for a specific job from Queue ──────────────────────
+        function openVerifyForJob(idx) {
+            const card = Array.from(document.querySelectorAll('#jobs .job')).find(c => Number(c.dataset.queueIndex) === idx);
+            if (card && card._qcJob) session.activeJob = card._qcJob;
+            showPage('sec-verify', document.getElementById('tab-verify'));
+            if (typeof loadVerifySlots === 'function') loadVerifySlots();
+        }
+        window.openVerifyForJob = openVerifyForJob;
+
+        // ── P6: FPA view mode — show saved product images gallery ─────────────
+        // Override selectJobAndOpenFPA to show full gallery when FPA done
+        const _v3OrigFPAOpen = selectJobAndOpenFPA;
+        selectJobAndOpenFPA = async function(idx) {
+            // Set active job first (from queue jobs list)
+            const card = Array.from(document.querySelectorAll('#jobs .job')).find(c => Number(c.dataset.queueIndex) === idx);
+            if (card && card._qcJob) session.activeJob = card._qcJob;
+            else if (_v3QueueJobs[idx]) session.activeJob = _v3QueueJobs[idx].job;
+
+            const job = session.activeJob || {};
+            const all = job._all || {};
+            const jcNo = safe(job.JobCardNo || all['JobCardNo'] || '');
+            if (!jcNo) { showPage('sec-qc-fpa', null); return; }
+
+            const machine = session.machine || '';
+            const date    = istDateStr();
+            const shift   = getShiftFromTime();
+
+            try {
+                const r = await fetch(`/api/qc/fpa/status?job_card_no=${encodeURIComponent(jcNo)}&date=${date}&shift=${encodeURIComponent(shift)}&machine=${encodeURIComponent(machine)}`);
+                const data = await r.json();
+
+                if (data.ok && data.done) {
+                    showPage('sec-qc-fpa', null);
+                    // Render full view mode
+                    _v3RenderFPAViewMode(data);
+                    return;
+                }
+            } catch (_) {}
+
+            // FPA not done — show upload form (reset to capture mode)
+            const submitBtn = document.querySelector('#sec-qc-fpa button.primary');
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit FPA'; }
+            // Reset form image thumb onclick to file picker
+            const thumb = el('fpa-form-thumb');
+            if (thumb) {
+                thumb.onclick = () => el('fpa-form-image').click();
+                const recapBtn = thumb.querySelector('.fpa-recapture-btn');
+                if (recapBtn) recapBtn.remove();
+            }
+            const preview = el('fpa-form-preview');
+            if (preview) { preview.src = ''; preview.style.display = 'none'; }
+            const placeholder = el('fpa-form-placeholder');
+            if (placeholder) placeholder.style.display = '';
+            // Reset product grid
+            if (typeof fpaProductBlobs !== 'undefined') fpaProductBlobs.length = 0;
+            if (typeof renderFPAProductGrid === 'function') renderFPAProductGrid();
+            const msgEl = el('fpa-msg');
+            if (msgEl) { msgEl.textContent = ''; msgEl.className = 'muted'; }
+            showPage('sec-qc-fpa', null);
+        };
+
+        function _v3RenderFPAViewMode(data) {
+            // Show FPA form image
+            const preview = el('fpa-form-preview');
+            const placeholder = el('fpa-form-placeholder');
+            const thumb = el('fpa-form-thumb');
+            if (preview && data.form_url) { preview.src = data.form_url; preview.style.display = 'block'; }
+            if (placeholder) placeholder.style.display = 'none';
+            if (thumb && data.form_url) {
+                thumb.onclick = () => openImageLightbox(data.form_url);
+                thumb.title = 'Tap to view full image';
+            }
+
+            // Inject product images gallery below form image card
+            const fpaSection = document.getElementById('sec-qc-fpa');
+            if (!fpaSection) return;
+
+            // Remove any existing view-mode gallery
+            const existing = fpaSection.querySelector('.v3-fpa-gallery');
+            if (existing) existing.remove();
+
+            // Disable submit
+            const submitBtn = fpaSection.querySelector('button.primary');
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'FPA Already Submitted'; }
+
+            // Show done banner
+            const msgEl = el('fpa-msg');
+            if (msgEl) {
+                msgEl.className = 'ok';
+                msgEl.innerHTML = `✅ FPA done by <b>${data.done_by || 'QC'}</b> at ${data.done_at || ''}`;
+            }
+
+            // Product images
+            const productImgs = Array.isArray(data.product_images) ? data.product_images : [];
+            if (!productImgs.length) return;
+
+            const gallery = document.createElement('div');
+            gallery.className = 'v3-fpa-gallery card';
+            gallery.style.cssText = 'background:var(--surface-elevated);border-style:dashed;padding:12px;margin-top:0';
+            gallery.innerHTML = `<div style="font-weight:700;margin-bottom:8px">🖼 Product Reference Images (${productImgs.length})</div>
+              <div class="fpa-img-gallery" id="v3-fpa-product-gallery"></div>`;
+
+            const grid = gallery.querySelector('#v3-fpa-product-gallery');
+            productImgs.forEach((url, i) => {
+                const img = document.createElement('img');
+                img.src = url;
+                img.alt = `Product image ${i + 1}`;
+                img.onclick = () => openImageLightbox(url);
+                grid.appendChild(img);
+            });
+
+            // Insert after fpa-form-thumb card
+            const formCard = fpaSection.querySelector('.card');
+            if (formCard && formCard.nextSibling) {
+                fpaSection.querySelector('.row').insertBefore(gallery, formCard.nextSibling);
+            } else {
+                fpaSection.querySelector('.row').appendChild(gallery);
+            }
+        }
+
+        // ── P7: Queue badge refresh after FPA/Setup submit ────────────────────
+        // Invalidate cache & re-check after FPA submitted
+        const _v3OrigSubmitFPAWrap = submitFPA;
+        submitFPA = async function() {
+            await _v3OrigSubmitFPAWrap.apply(this, arguments);
+            _v3StatusCache.clear();
+            setTimeout(_v3LoadQueueStatuses, 800);
+        };
+
+        // Invalidate after setup saved
+        const _v3OrigSaveSetup = typeof saveJobSetup === 'function' ? saveJobSetup : null;
+        if (_v3OrigSaveSetup) {
+            saveJobSetup = async function() {
+                await _v3OrigSaveSetup.apply(this, arguments);
+                _v3StatusCache.clear();
+                setTimeout(_v3LoadQueueStatuses, 800);
+            };
+        }
+
+        // ── P8: Recent — full details from qc_online_report_slots ─────────────
+        const _v3OrigLoadRecent = loadRecent;
+        loadRecent = function() {
+            const d = el('recent');
+            if (!d) return;
+            d.innerHTML = '<div class="muted" style="text-align:center;padding:16px">Loading…</div>';
+            const mach = el('dd-machine')?.value || '';
+            if (!mach) { d.innerHTML = '<div class="muted" style="padding:12px">Select a machine to view recent entries.</div>'; return; }
+
+            fetch(`/api/qc/recent-slots?machine=${encodeURIComponent(mach)}&limit=20`)
+                .then(r => r.json())
+                .then(res => {
+                    if (!res.ok || !res.data || !res.data.length) {
+                        // Fallback to old endpoint
+                        return _v3OrigLoadRecent.apply(this, arguments);
+                    }
+                    d.innerHTML = '';
+                    const rows = res.data;
+                    rows.forEach(row => {
+                        const isOk = !row.visual_status || row.visual_status === 'OK';
+                        const hasIssue = row.visual_status === 'NOT OK' || row.colour_status === 'NOT OK' || row.ff_status === 'NOT OK';
+
+                        const statusColor = hasIssue ? '#dc2626' : '#059669';
+                        const c = document.createElement('div');
+                        c.className = 'recent-slot-card';
+                        c.style.borderLeft = `3px solid ${statusColor}`;
+
+                        const dateStr = row.dpr_date ? new Date(row.dpr_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short' }) : '—';
+
+                        const chip = (label, val, cls) => val ? `<span class="recent-slot-chip ${cls||''}">${label}: ${val}</span>` : '';
+                        const statusChip = (label, val) => {
+                            if (!val) return '';
+                            const cls = val === 'OK' ? 'recent-ok' : val === 'NOT OK' ? 'recent-notok' : '';
+                            return `<span class="recent-slot-chip ${cls}">${label}: ${val}</span>`;
+                        };
+
+                        c.innerHTML = `
+                          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+                            <div>
+                              <span style="font-weight:700;font-size:14px">${row.slot || '—'}</span>
+                              <span class="muted" style="font-size:12px;margin-left:6px">${dateStr} · ${row.shift || ''}</span>
+                            </div>
+                            <span style="font-size:11px;font-weight:700;color:${statusColor};background:${hasIssue?'#fef2f2':'#ecfdf5'};border:1px solid ${hasIssue?'#fca5a5':'#6ee7b7'};border-radius:999px;padding:2px 8px;white-space:nowrap">${hasIssue ? 'Issue' : 'All OK'}</span>
+                          </div>
+                          <div style="font-weight:600;font-size:13px;margin-top:4px">${row.item_name || '—'}</div>
+                          <div style="font-size:12px;color:var(--muted)">${row.mould_name || ''}${row.order_no ? ' · JR: ' + row.order_no : ''}${row.job_card_no ? ' · JC: ' + row.job_card_no : ''}</div>
+                          <div class="recent-slot-row">
+                            ${statusChip('Visual', row.visual_status)}
+                            ${statusChip('Colour', row.colour_status)}
+                            ${row.ff_status ? statusChip('F/F', row.ff_status) : ''}
+                          </div>
+                          ${row.visual_problem ? `<div class="recent-slot-row">${chip('Problem', row.visual_problem)}</div>` : ''}
+                          ${row.visual_remarks ? `<div style="font-size:12px;color:var(--muted);margin-top:4px;font-style:italic">"${row.visual_remarks}"</div>` : ''}
+                          <div style="font-size:11px;color:var(--muted);margin-top:6px;text-align:right">By ${row.entered_by || '—'} · ${row.entered_at ? new Date(row.entered_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) : ''}</div>`;
+
+                        d.appendChild(c);
+                    });
+                })
+                .catch(() => _v3OrigLoadRecent.apply(this, arguments));
+        };
+
+        // ── QC Report tab: hide banner when opened from tabs directly ─────────
+        const _v3OrigShowPage = typeof showPage === 'function' ? showPage : null;
+        if (_v3OrigShowPage) {
+            showPage = function(pageId, tabBtn) {
+                _v3OrigShowPage.apply(this, arguments);
+                // If navigating to QC Report directly (not from openQCReportForJob), hide banner
+                if (pageId === 'sec-qc-report') {
+                    // Will be shown by openQCReportForJob if needed; direct tab nav hides it
+                }
+                // If leaving QC Report, nothing to clean up
+            };
+        }

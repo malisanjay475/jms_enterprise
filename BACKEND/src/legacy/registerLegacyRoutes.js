@@ -20398,12 +20398,40 @@ app.get('/api/qc/recent', async (req, res) => {
   try {
     const { machine, limit } = req.query;
     const rows = await q(`
-SELECT * FROM qc_online_reports 
+SELECT * FROM qc_online_reports
       WHERE machine = $1
       ORDER BY created_at DESC
       LIMIT $2
   `, [machine || '', limit || 10]);
     res.json({ ok: true, data: rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/recent-slots — recent qc_online_report_slots (v2 full-detail recent tab)
+app.get('/api/qc/recent-slots', async (req, res) => {
+  try {
+    const { machine, limit } = req.query;
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT s.*, f.fpa_done_by, f.fpa_form_url, f.fpa_done_at
+       FROM qc_online_report_slots s
+       LEFT JOIN LATERAL (
+         SELECT fpa_done_by, fpa_form_url, fpa_done_at
+         FROM qc_job_checks
+         WHERE TRIM(COALESCE(job_card_no,'')) = TRIM(COALESCE(s.job_card_no,''))
+           AND machine = s.machine AND date = s.dpr_date
+           AND fpa_status = 'Done'
+         ORDER BY updated_at DESC LIMIT 1
+       ) f ON true
+       WHERE s.machine = $1
+         AND ($2::int IS NULL OR s.factory_id = $2 OR s.factory_id IS NULL)
+       ORDER BY s.entered_at DESC
+       LIMIT $3`,
+      [machine || '', factoryId, Math.min(50, Number(limit || 20))]
+    );
+    res.json({ ok: true, data: rows || [] });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }

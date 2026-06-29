@@ -707,6 +707,67 @@
             50%       { opacity: .5; transform: scale(1.4) }
         }
 
+        /* ── v3 Job Card ── */
+        .v3-flow-badge { min-height: 22px }
+        .v3-btn-row { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px }
+        .v3-btn-row button {
+            font-size: 12px !important;
+            padding: 6px 10px !important;
+            min-height: 34px !important;
+            border-radius: 10px !important;
+        }
+        .v3-btn-row button[disabled] {
+            opacity: 0.35;
+            cursor: not-allowed;
+            background: var(--surface-elevated) !important;
+            color: var(--muted) !important;
+            border-color: var(--line) !important;
+        }
+        /* FPA View Gallery */
+        .fpa-done-banner {
+            background: #ecfdf5;
+            border: 1px solid #6ee7b7;
+            border-radius: 12px;
+            padding: 12px;
+        }
+        .fpa-img-gallery {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .fpa-img-gallery img {
+            width: 100%; aspect-ratio: 1;
+            object-fit: cover;
+            border-radius: 10px;
+            border: 1px solid var(--line);
+            cursor: pointer;
+        }
+        /* Recent v3 */
+        .recent-slot-card {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px;
+            background: var(--surface);
+            margin-bottom: 8px;
+        }
+        .recent-slot-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 6px;
+        }
+        .recent-slot-chip {
+            background: var(--surface-elevated);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 4px 8px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .recent-ok { background: #ecfdf5; color: #059669; border-color: #6ee7b7 }
+        .recent-notok { background: #fef2f2; color: #dc2626; border-color: #fca5a5 }
+
         /* ── Desktop polish ── */
         @media (min-width: 800px) {
             body {
@@ -887,7 +948,11 @@
 
             <!-- ══ QC ONLINE REPORT (slot accordion) ══ -->
             <section id="sec-qc-report" class="page card hidden">
-                <h2 style="margin-bottom:4px">Online QC Report</h2>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                    <button id="qcr-back-btn" class="small ghost hidden" onclick="showPage('sec-queue',document.getElementById('tab-queue'))" style="padding:6px 10px;font-size:13px">← Back</button>
+                    <h2 style="margin:0">Online QC Report</h2>
+                </div>
+                <div id="qcr-job-banner" class="hidden" style="margin-bottom:10px"></div>
                 <div class="muted" style="font-size:13px;margin-bottom:10px">2-hour slot checks: Visual, Colour, Function/Fitment.</div>
                 <div class="grid-2" style="margin-bottom:10px">
                     <label>Shift
@@ -1465,8 +1530,8 @@
             onclick="event.stopPropagation()">
     </div>
 
-  <script src="/assets/QCSupervisor-script-1.js?v=release66"></script>
-  <script src="/assets/register-sw.js?v=release66"></script>
+  <script src="/assets/QCSupervisor-script-1.js?v=release67"></script>
+  <script src="/assets/register-sw.js?v=release67"></script>
 
 </body>
 
