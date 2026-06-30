@@ -9243,6 +9243,14 @@
         const mouldChangeView = document.getElementById('mouldChangeReport');
         if (mouldChangeView) mouldChangeView.style.display = 'block';
         if (typeof window.loadMouldChangeReport === 'function') window.loadMouldChangeReport();
+      } else if (view === 'job_sheet') {
+        if (vm) vm.style.display = 'none';
+        if (kpiDeck) kpiDeck.style.display = 'none';
+        if (mapWrap) mapWrap.style.display = 'none';
+        if (dashboardToolbar) dashboardToolbar.style.display = 'none';
+        const jsEl = document.getElementById('jobSheetView');
+        if (jsEl) jsEl.style.display = 'block';
+        if (typeof window.loadJobSheet === 'function') window.loadJobSheet();
       } else {
         if (printJcEl) printJcEl.style.display = 'none';
         if (approvalEl) approvalEl.style.display = 'none';
