@@ -273,14 +273,13 @@
             <th>Role</th>
             <th>Action</th>
             <th>App</th>
-            <th>Page</th>
             <th>Device</th>
             <th>IP Address</th>
-            <th>Factory</th>
+            <th>Detail (Machine / Slot / Colour / Qty)</th>
           </tr>
         </thead>
         <tbody id="am-log-body">
-          <tr><td colspan="9" class="am-empty"><i class="bi bi-hourglass-split"></i>Loading…</td></tr>
+          <tr><td colspan="8" class="am-empty"><i class="bi bi-hourglass-split"></i>Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -465,9 +464,18 @@ function renderUsers(users) {
             esc(statusLabel) + '</span>' +
         '</div>' +
         (u.ip_address ? '<div class="am-info"><i class="bi bi-hdd-network"></i><span>' + esc(u.ip_address) + '</span></div>' : '') +
+        // Machine info for supervisor users
+        (u.current_machine && u.current_machine.machine ?
+          '<div class="am-info" style="background:#f0fdf4;border-radius:6px;padding:4px 7px;flex-wrap:wrap;gap:4px">' +
+            '<i class="bi bi-cpu-fill" style="color:#16a34a"></i>' +
+            '<strong style="color:#15803d">' + esc(u.current_machine.machine) + '</strong>' +
+            (u.current_machine.order_no ? '<span style="color:#64748b;font-size:0.68rem">· ' + esc(u.current_machine.order_no) + '</span>' : '') +
+            (u.current_machine.colour ? '<span style="background:#fef9c3;border:1px solid #fde047;border-radius:4px;padding:1px 5px;font-size:0.65rem;color:#854d0e">' + esc(u.current_machine.colour) + '</span>' : '') +
+          '</div>' : '') +
         '<div class="am-card-footer">' +
           '<div class="am-chip"><i class="bi bi-activity"></i>&nbsp;<strong>' + (u.actions_today||0) + '</strong>&nbsp;actions</div>' +
           '<div class="am-chip"><i class="bi bi-box-arrow-in-right"></i>&nbsp;<strong>' + (u.logins_today||0) + '</strong>&nbsp;login' + (u.logins_today===1?'':'s') + '</div>' +
+          (u.first_seen_today ? '<div class="am-chip"><i class="bi bi-sunrise"></i>&nbsp;First:&nbsp;<strong>' + esc(fmtTime(u.first_seen_today).split(' ')[1]||'') + '</strong></div>' : '') +
           (u.factory_id ? '<div class="am-chip"><i class="bi bi-building"></i>&nbsp;F' + esc(u.factory_id) + '</div>' : '') +
         '</div>' +
       '</div>';
@@ -480,9 +488,27 @@ function renderUsers(users) {
 function renderLog(rows) {
   var tbody = document.getElementById('am-log-body');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="am-empty"><i class="bi bi-journal-x"></i>No log entries</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="am-empty"><i class="bi bi-journal-x"></i>No log entries</td></tr>';
     return;
   }
+
+  function buildDetail(r) {
+    var ex = r.extra;
+    if (!ex || typeof ex !== 'object') return '<span style="color:#cbd5e1">—</span>';
+    var parts = [];
+    if (ex.machine)      parts.push('<strong style="color:#0f172a">' + esc(ex.machine) + '</strong>');
+    if (ex.slot)         parts.push('<span style="background:#e0f2fe;padding:1px 5px;border-radius:4px;font-size:0.65rem">' + esc(ex.slot) + '</span>');
+    if (ex.colour)       parts.push('<span style="background:#fef9c3;border:1px solid #fde047;padding:1px 5px;border-radius:4px;font-size:0.65rem;color:#854d0e">' + esc(ex.colour) + '</span>');
+    if (ex.shots != null)    parts.push('<span style="color:#64748b">Shots:<b>' + esc(String(ex.shots)) + '</b></span>');
+    if (ex.good_qty != null) parts.push('<span style="color:#16a34a">Good:<b>' + esc(String(ex.good_qty)) + '</b></span>');
+    if (ex.reject_qty != null && ex.reject_qty > 0) parts.push('<span style="color:#dc2626">Rej:<b>' + esc(String(ex.reject_qty)) + '</b></span>');
+    if (ex.downtime_min != null && ex.downtime_min > 0) parts.push('<span style="color:#d97706">DT:<b>' + esc(String(ex.downtime_min)) + 'm</b></span>');
+    if (ex.action_type)  parts.push('<span style="background:#fde8d8;color:#9a3412;padding:1px 5px;border-radius:4px;font-size:0.65rem">' + esc(ex.action_type) + '</span>');
+    if (ex.order_no)     parts.push('<span style="color:#94a3b8;font-size:0.68rem">Ord:' + esc(ex.order_no) + '</span>');
+    if (ex.line)         parts.push('<span style="color:#94a3b8;font-size:0.68rem">L:' + esc(String(ex.line)) + '</span>');
+    return parts.length ? parts.join(' ') : '<span style="color:#cbd5e1">—</span>';
+  }
+
   var html = '';
   rows.forEach(function(r) {
     var cls = ACTION_CLASS[r.action] || 'act-other';
@@ -491,14 +517,13 @@ function renderLog(rows) {
     html +=
       '<tr>' +
         '<td style="white-space:nowrap;color:#64748b;font-size:0.72rem">' + esc(fmtTime(r.created_at)) + '</td>' +
-        '<td><strong>' + esc(r.username) + '</strong></td>' +
+        '<td><strong>' + esc(r.username) + '</strong><br><span style="color:#94a3b8;font-size:0.67rem">' + esc(r.role_code||'') + '</span></td>' +
         '<td style="color:#64748b;font-size:0.72rem">' + esc(r.role_code||'') + '</td>' +
         '<td><span class="act-chip ' + cls + '">' + esc(r.action||'') + '</span></td>' +
         '<td style="font-weight:700;font-size:0.73rem">' + esc(appLabel(r.app_id)) + '</td>' +
-        '<td style="color:#64748b;font-size:0.7rem">' + esc(r.page||'—') + '</td>' +
-        '<td class="' + devCls + '"><i class="bi ' + devIcon + '"></i> ' + esc(r.device_type||'desktop') + '</td>' +
+        '<td class="' + devCls + '"><i class="bi ' + devIcon + '"></i> ' + esc(r.device_type||'desktop') + '<br><span style="font-size:0.65rem;color:#94a3b8">' + esc(r.ip_address||'') + '</span></td>' +
         '<td style="font-size:0.7rem;color:#94a3b8">' + esc(r.ip_address||'—') + '</td>' +
-        '<td style="font-size:0.7rem;color:#64748b">' + (r.factory_id ? 'F' + esc(r.factory_id) : '—') + '</td>' +
+        '<td style="font-size:0.73rem">' + buildDetail(r) + '</td>' +
       '</tr>';
   });
   tbody.innerHTML = html;
