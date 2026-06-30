@@ -2237,16 +2237,11 @@ async function sendApprovalNotificationToStage(stageCode, plan, resolved, factor
       `Client: ${plan.client_name || plan.resolved_client_name || '-'}`,
       `Job Card: ${resolved?.job_card_no || '-'}`
     ].join(' | ');
-    let count = 0;
-    for (const user of users) {
-      await q(
-        `INSERT INTO notifications (target_user, type, title, message, link, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [user.username, 'approval', title, message, link, createdBy || 'System']
-      );
-      count += 1;
-    }
-    return count;
+    // Bulk INSERT — one round-trip instead of N sequential inserts
+    const bulkVals = users.map((u, i) => `($${i*6+1},$${i*6+2},$${i*6+3},$${i*6+4},$${i*6+5},$${i*6+6})`).join(',');
+    const bulkArgs = users.flatMap(u => [u.username, 'approval', title, message, link, createdBy || 'System']);
+    await q(`INSERT INTO notifications (target_user, type, title, message, link, created_by) VALUES ${bulkVals}`, bulkArgs);
+    return users.length;
   } catch (e) {
     console.warn('[Approval Notifications] skipped:', e.message || e);
     return 0;
@@ -5146,6 +5141,10 @@ async function initializeLegacyRuntime() {
     // 6. plan_board join in summary-matrix (CAST join is un-indexable; text index helps partial matches)
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_plan_id_text ON plan_board(plan_id);`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_id_text ON plan_board((id::text));`);
+    // 7. or_jr_report join in summary-matrix CTE (TRIM on or_jr_no needs function index)
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_or_jr_report_or_jr_no ON or_jr_report(TRIM(or_jr_no));`);
+    // 8. mould_planning_summary join in mps_agg CTE
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_planning_summary_or_jr_no ON mould_planning_summary(TRIM(or_jr_no), TRIM(mould_name));`);
 
     // Per-machine P1–P4 priority labels
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
@@ -5853,39 +5852,32 @@ app.get('/api/machines/status', async (req, res) => {
       // where += ` AND is_active = true`; 
     }
 
-    // Fetch from machines table
-    // Include running job info
+    // Fetch from machines table — single JOIN replaces 4 correlated subqueries (120 queries → 1)
     const rows = await q(
-      `SELECT 
-         m.machine as id, 
-         m.machine as code, 
-         m.machine as name, 
-         m.building, 
-         m.line, 
+      `SELECT
+         m.machine as id,
+         m.machine as code,
+         m.machine as name,
+         m.building,
+         m.line,
          m.tonnage,
          COALESCE(NULLIF(TRIM(m.machine_process), ''), 'Moulding') as machine_process,
          m.machine_icon,
-         COALESCE(
-            (SELECT 'Running' FROM plan_board p WHERE p.machine = m.machine AND p.status='RUNNING' LIMIT 1), 
-            'Stopped'
-         ) as status,
-         (SELECT order_no FROM plan_board p WHERE p.machine = m.machine AND p.status='RUNNING' LIMIT 1) as running_order,
-         (SELECT COALESCE(NULLIF(p.item_name, ''), NULLIF(p.mould_name, ''), NULLIF(p.item_code, ''), 'Direct Run')
-            FROM plan_board p
-           WHERE p.machine = m.machine AND p.status='RUNNING'
-           ORDER BY p.id DESC
-           LIMIT 1) as running_product,
-         (SELECT COALESCE(NULLIF(o.client_name, ''), '')
-            FROM plan_board p
-            LEFT JOIN orders o
-              ON o.order_no = p.order_no
-             AND (o.factory_id = m.factory_id OR (m.factory_id IS NULL AND o.factory_id IS NULL))
-           WHERE p.machine = m.machine AND p.status='RUNNING'
-           ORDER BY p.id DESC
-           LIMIT 1) as running_client,
+         CASE WHEN pb.machine IS NOT NULL THEN 'Running' ELSE 'Stopped' END as status,
+         pb.order_no as running_order,
+         COALESCE(NULLIF(pb.item_name, ''), NULLIF(pb.mould_name, ''), NULLIF(pb.item_code, ''), 'Direct Run') as running_product,
+         COALESCE(NULLIF(o.client_name, ''), '') as running_client,
          false as is_maintenance,
-         m.is_active 
+         m.is_active
        FROM machines m
+       LEFT JOIN LATERAL (
+         SELECT p.machine, p.order_no, p.item_name, p.mould_name, p.item_code
+         FROM plan_board p
+         WHERE p.machine = m.machine AND p.status = 'RUNNING'
+         ORDER BY p.id DESC
+         LIMIT 1
+       ) pb ON true
+       LEFT JOIN orders o ON o.order_no = pb.order_no
        WHERE ${where}
        ORDER BY m.building, m.line, m.machine`,
       params
@@ -9141,9 +9133,11 @@ app.post('/api/notifications/send', async (req, res) => {
 
       const allUsers = await q("SELECT username FROM users WHERE status = 'active'");
 
-      for (const u of allUsers) {
-        await q(`INSERT INTO notifications (target_user, type, title, message, link, created_by) VALUES ($1, $2, $3, $4, $5, $6)`,
-          [u.username, type, title, message, link, sender]);
+      if (allUsers.length > 0) {
+        // Bulk INSERT — single round-trip instead of N sequential inserts
+        const bVals = allUsers.map((_, i) => `($${i*6+1},$${i*6+2},$${i*6+3},$${i*6+4},$${i*6+5},$${i*6+6})`).join(',');
+        const bArgs = allUsers.flatMap(u => [u.username, type, title, message, link, sender]);
+        await q(`INSERT INTO notifications (target_user, type, title, message, link, created_by) VALUES ${bVals}`, bArgs);
       }
       return res.json({ ok: true, count: allUsers.length });
 
@@ -16520,7 +16514,22 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     const closedPlants = await q(sqlClosed, cParams);
 
     // 2. Get DPR Entries for this Range
+    // Perf: replaced LATERAL on or_jr_report (ran per dpr_hourly row) with a pre-aggregated CTE.
+    // Also replaced mould_planning_summary inline subquery with CTE — both scan once instead of per-row.
     let sqlEntries = `
+      WITH mps_agg AS (
+        SELECT TRIM(or_jr_no) as or_jr_no, TRIM(mould_name) as mould_name,
+               MAX(NULLIF(TRIM(mould_no), '')) as mould_no
+        FROM mould_planning_summary
+        GROUP BY TRIM(or_jr_no), TRIM(mould_name)
+      ),
+      ojr_agg AS (
+        SELECT DISTINCT ON (TRIM(or_jr_no))
+               TRIM(or_jr_no) as or_jr_no, job_card_no, client_name
+        FROM or_jr_report
+        WHERE job_card_no IS NOT NULL AND TRIM(job_card_no) != ''
+        ORDER BY TRIM(or_jr_no), id DESC
+      )
       SELECT
         d.id, d.dpr_date::text as dpr_date_str, d.machine, d.hour_slot, d.good_qty, d.reject_qty, d.downtime_min,
         d.reject_breakup, d.downtime_breakup, d.colour, d.entry_type,
@@ -16532,19 +16541,10 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         ojr.job_card_no,
         COALESCE(ojr.client_name, o.client_name) as client_name
       FROM dpr_hourly d
-      LEFT JOIN plan_board pb ON CAST(pb.id AS TEXT) = CAST(d.plan_id AS TEXT) OR pb.plan_id = d.plan_id
-      LEFT JOIN (
-        SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no
-        FROM mould_planning_summary
-        GROUP BY or_jr_no, mould_name
-      ) mps ON mps.or_jr_no = d.order_no AND mps.mould_name = pb.mould_name
+      LEFT JOIN plan_board pb ON pb.plan_id = d.plan_id OR CAST(pb.id AS TEXT) = d.plan_id
+      LEFT JOIN mps_agg mps ON mps.or_jr_no = TRIM(d.order_no) AND mps.mould_name = TRIM(pb.mould_name)
       LEFT JOIN users u ON u.username = d.created_by
-      LEFT JOIN LATERAL(
-        SELECT * FROM or_jr_report rpt 
-        WHERE TRIM(rpt.or_jr_no) = TRIM(COALESCE(d.order_no, pb.order_no))
-          AND(rpt.job_card_no IS NOT NULL AND TRIM(rpt.job_card_no) != '')
-        LIMIT 1
-      ) ojr ON true
+      LEFT JOIN ojr_agg ojr ON ojr.or_jr_no = TRIM(COALESCE(d.order_no, pb.order_no))
       LEFT JOIN orders o ON o.order_no = COALESCE(d.order_no, pb.order_no)
       WHERE d.dpr_date BETWEEN $1 AND $2 AND d.shift = $3 AND d.is_deleted = false
     `;
