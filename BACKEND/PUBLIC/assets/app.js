@@ -31,7 +31,7 @@ function escHtml(value) {
  */
 (function initMobileApp() {
     const path = window.location.pathname.toLowerCase();
-    if (window.innerWidth > 768 || path.endsWith('/login.html') || path.includes('/vendor/login.html')) return;
+    if (window.innerWidth > 768 || path.endsWith('/login.html') || path.includes('/vendor/login.html') || path.includes('/supervisor.html') || path.includes('/qcsupervisor.html') || path.includes('/shifting_supervisor.html') || path.includes('/wip_supervisor.html')) return;
     const mobileUser = (() => {
         try {
             return JSON.parse(localStorage.getItem('user') || '{}');
