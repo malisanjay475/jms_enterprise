@@ -835,12 +835,13 @@
   </div>
 
   <!-- GLOBAL LOADING OVERLAY -->
-  <div id="loading-overlay" class="hidden" aria-hidden="true">
+  <div id="loading-overlay" class="hidden" aria-hidden="true" onclick="_forceHideLoading()" title="Tap to dismiss">
     <div class="loading-box">
       <div class="loading-label">Processing…</div>
       <div class="loading-bar">
         <div class="loading-bar-inner"></div>
       </div>
+      <div style="margin-top:10px; font-size:0.7rem; color:#94a3b8; text-align:center">Tap to dismiss if stuck</div>
     </div>
   </div>
 
@@ -1387,7 +1388,7 @@
     </div>
   </div>
 
-  <script src="/assets/supervisor-script-1.js?v=release70"></script>
+  <script src="/assets/supervisor-script-1.js?v=release71"></script>
   <script src="/assets/register-sw.js?v=release65"></script>
   <script>
     // Colour picker panel helpers — defined here so onclick in HTML always finds them

@@ -491,16 +491,32 @@
 
     // GLOBAL LOADING HANDLER
     let loadingCount = 0;
+    let _loadingWatchdog = null;
+
+    function _forceHideLoading() {
+      loadingCount = 0;
+      const o = el('loading-overlay');
+      if (o) o.classList.add('hidden');
+    }
 
     function showLoading() {
       loadingCount++;
       const o = el('loading-overlay');
       if (o) o.classList.remove('hidden');
+      // Watchdog: if still showing after 10s, force-dismiss (handles stuck overlay)
+      clearTimeout(_loadingWatchdog);
+      _loadingWatchdog = setTimeout(() => {
+        if (loadingCount > 0) {
+          console.warn('[Loading] Watchdog triggered — force-hiding stuck overlay');
+          _forceHideLoading();
+        }
+      }, 10000);
     }
 
     function hideLoading() {
       loadingCount = Math.max(0, loadingCount - 1);
       if (loadingCount === 0) {
+        clearTimeout(_loadingWatchdog);
         const o = el('loading-overlay');
         if (o) o.classList.add('hidden');
       }
