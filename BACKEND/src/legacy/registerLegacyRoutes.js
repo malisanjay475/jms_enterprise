@@ -22883,10 +22883,11 @@ app.post('/api/activity/heartbeat', async (req, res) => {
     const ip = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
     const ua = String(req.headers['user-agent'] || '').slice(0, 500);
     const device = device_type || (/mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop');
+    const actionStr = String(req.body?.action || 'heartbeat').slice(0, 30);
     await q(
       `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, created_at)
-       VALUES ($1,$2,$3,'heartbeat',$4,$5,$6,$7,$8,$9,NOW())`,
-      [username, role_code || '', app_id || 'web', page || '', device, ip, ua, String(factory_id || ''), String(session_id || '')]
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())`,
+      [username, role_code || '', app_id || 'web', actionStr, page || '', device, ip, ua, String(factory_id || ''), String(session_id || '')]
     );
     res.json({ ok: true });
   } catch (e) {

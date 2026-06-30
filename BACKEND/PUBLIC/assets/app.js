@@ -1761,18 +1761,38 @@ function escHtml(value) {
   const _path = window.location.pathname.toLowerCase();
   if (_path.includes('login')) return;
 
+  // Define PATH→APP_ID map FIRST so page_open gets the correct app_id
+  window.JPSMS = window.JPSMS || {};
+  window.JPSMS._pathAppMap = {
+    '': 'dashboard', '/': 'dashboard', 'index.html': 'dashboard',
+    'planning.html': 'planning', 'analyze.html': 'analyze',
+    'raw_material_jobwise.html': 'raw_material', 'dpr.html': 'dpr',
+    'dpr_daily_report.html': 'dpr', 'job_summary.html': 'dpr',
+    'purchase_orders.html': 'purchase', 'purchase_vendors.html': 'purchase',
+    'purchase_grn.html': 'purchase', 'masters.html': 'masters',
+    'quality.html': 'quality', 'hr.html': 'hr', 'hr_performance.html': 'hr',
+    'hr_interview_panel.html': 'hr', 'shifting_reports.html': 'shifting_module',
+    'shifting_logs.html': 'shifting_module', 'shifting_summary.html': 'shifting_module',
+    'shifting.html': 'shifting_module', 'wip.html': 'wip_internal',
+    'reports.html': 'reports', 'users.html': 'users',
+    'notifications.html': 'notifications', 'settings.html': 'settings',
+    'packing_settings.html': 'settings', 'joy.html': 'joy_learning',
+    'grinding.html': 'grinding', 'assembly.html': 'packing',
+    'scanning.html': 'packing', 'scanning_list.html': 'packing',
+    'scanning_dashboard.html': 'packing', 'barcode_printer.html': 'packing',
+    'supervisor.html': 'supervisor_app', 'qcsupervisor.html': 'qc_supervisor_app',
+    'shifting_supervisor.html': 'shifting_supervisor_app',
+    'wip_supervisor.html': 'wip_supervisor_app',
+    'activity-monitor.html': 'admin'
+  };
+
+  const _pageName = _path.split('/').pop().split('?')[0] || 'index.html';
+  const _appId = window.JPSMS._pathAppMap[_pageName] || window.JPSMS._pathAppMap[_pageName.toLowerCase()] || 'web';
+
   function _getActivityPayload(action) {
     let user = {};
     try { user = JSON.parse(localStorage.getItem('user') || '{}'); } catch (_e) {}
     if (!user.username) return null; // not logged in — skip
-
-    // Map current page to app_id using PATH_APP_MAP if available
-    const pageName = _path.split('/').pop().split('?')[0] || 'index.html';
-    let appId = 'web';
-    try {
-      const map = window.JPSMS && window.JPSMS._pathAppMap;
-      if (map) { appId = map[pageName] || map[pageName.toLowerCase()] || 'web'; }
-    } catch (_e) {}
 
     // Detect device
     const ua = navigator.userAgent || '';
@@ -1791,9 +1811,9 @@ function escHtml(value) {
     return {
       username: user.username,
       role_code: user.role_code || '',
-      app_id: appId,
+      app_id: _appId,
       action: action,
-      page: pageName,
+      page: _pageName,
       device_type: device,
       factory_id: factoryId,
       session_id: window._jmsSessionId
@@ -1823,29 +1843,4 @@ function escHtml(value) {
 
   // Best-effort page close
   window.addEventListener('beforeunload', function () { _sendHeartbeat('page_close'); });
-
-  // Expose PATH_APP_MAP for app_id resolution
-  window.JPSMS = window.JPSMS || {};
-  window.JPSMS._pathAppMap = {
-    '': 'dashboard', '/': 'dashboard', 'index.html': 'dashboard',
-    'planning.html': 'planning', 'analyze.html': 'analyze',
-    'raw_material_jobwise.html': 'raw_material', 'dpr.html': 'dpr',
-    'dpr_daily_report.html': 'dpr', 'job_summary.html': 'dpr',
-    'purchase_orders.html': 'purchase', 'purchase_vendors.html': 'purchase',
-    'purchase_grn.html': 'purchase', 'masters.html': 'masters',
-    'quality.html': 'quality', 'hr.html': 'hr', 'hr_performance.html': 'hr',
-    'hr_interview_panel.html': 'hr', 'shifting_reports.html': 'shifting_module',
-    'shifting_logs.html': 'shifting_module', 'shifting_summary.html': 'shifting_module',
-    'shifting.html': 'shifting_module', 'wip.html': 'wip_internal',
-    'reports.html': 'reports', 'users.html': 'users',
-    'notifications.html': 'notifications', 'settings.html': 'settings',
-    'packing_settings.html': 'settings', 'joy.html': 'joy_learning',
-    'grinding.html': 'grinding', 'assembly.html': 'packing',
-    'scanning.html': 'packing', 'scanning_list.html': 'packing',
-    'scanning_dashboard.html': 'packing', 'barcode_printer.html': 'packing',
-    'supervisor.html': 'supervisor_app', 'qcsupervisor.html': 'qc_supervisor_app',
-    'shifting_supervisor.html': 'shifting_supervisor_app',
-    'wip_supervisor.html': 'wip_supervisor_app',
-    'activity-monitor.html': 'admin'
-  };
 }());
