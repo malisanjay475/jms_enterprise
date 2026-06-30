@@ -1658,6 +1658,24 @@ async function migrateOrJrReportNumericSchema() {
   }
 }
 
+async function migrateJobSheetPrioritySchema() {
+  await q(`
+    CREATE TABLE IF NOT EXISTS order_high_priority (
+      id            SERIAL PRIMARY KEY,
+      order_no      TEXT NOT NULL,
+      priority_date DATE NOT NULL,
+      set_by        TEXT NOT NULL,
+      set_at        TIMESTAMPTZ DEFAULT NOW(),
+      factory_id    INTEGER,
+      UNIQUE (order_no, priority_date, factory_id)
+    )
+  `);
+  await q(`
+    CREATE INDEX IF NOT EXISTS idx_ohp_date_factory
+      ON order_high_priority (priority_date, factory_id)
+  `).catch(() => {});
+}
+
 async function migrateOrjrWiseDetailSchema() {
   await q(`
     CREATE TABLE IF NOT EXISTS mould_planning_report (
@@ -4342,6 +4360,7 @@ async function initializeLegacyRuntime() {
       migrateOrderCompletionWorkflowSchema(),
       migrateWipStockMasterSchema(),
       migrateRawMaterialSchema(),
+      migrateJobSheetPrioritySchema(),
     ]);
     await Promise.all([
       hrPerformanceRuntime.ensureTables ? hrPerformanceRuntime.ensureTables() : Promise.resolve(),
@@ -11716,6 +11735,107 @@ app.get('/api/planning/suggestions', async (req, res) => {
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
+
+// ─── JOB SHEET ────────────────────────────────────────────────────────────────
+
+app.get('/api/planning/job-sheet', async (req, res) => {
+  try {
+    const factoryId  = getFactoryId(req);
+    const today      = new Date().toISOString().split('T')[0];
+    const from       = (req.query.from  || today).trim();
+    const to         = (req.query.to    || today).trim();
+    const search     = (req.query.search || '').trim();
+
+    const params = [factoryId, from, to];
+    let searchClause = '';
+    if (search) {
+      params.push(`%${search}%`);
+      const p = params.length;
+      searchClause = `AND (r.or_jr_no ILIKE $${p} OR r.product_name ILIKE $${p} OR r.client_name ILIKE $${p} OR r.item_code ILIKE $${p})`;
+    }
+
+    const sql = `
+      SELECT
+        r.or_jr_no,
+        r.or_jr_date,
+        r.or_qty,
+        r.jr_qty,
+        r.job_card_no,
+        r.job_card_date,
+        r.item_code,
+        r.product_name,
+        r.client_name,
+        r.prod_plan_qty,
+        r.std_pack,
+        r.uom,
+        CASE WHEN ohp.order_no IS NOT NULL THEN true ELSE false END AS is_high_priority,
+        ohp.set_by  AS priority_set_by,
+        ohp.set_at  AS priority_set_at
+      FROM or_jr_report r
+      LEFT JOIN order_high_priority ohp
+        ON  ohp.order_no      = r.or_jr_no
+        AND ohp.priority_date = $2::date
+        AND ohp.factory_id    = $1
+      WHERE r.factory_id = $1
+        AND r.or_jr_date BETWEEN $2::date AND $3::date
+        ${searchClause}
+      ORDER BY
+        CASE WHEN ohp.order_no IS NOT NULL THEN 0 ELSE 1 END,
+        r.or_jr_date DESC,
+        r.id DESC
+      LIMIT 500
+    `;
+
+    const result = await q(sql, params);
+    res.json({ rows: result.rows, total: result.rows.length });
+  } catch (err) {
+    console.error('[GET /api/planning/job-sheet]', err);
+    res.status(500).json({ error: 'Failed to load job sheet data' });
+  }
+});
+
+const _JS_PRIORITY_ROLES = ['superadmin', 'ppc_manager', 'admin', 'ppc_ass_manager'];
+
+app.post('/api/planning/job-sheet/priority', async (req, res) => {
+  try {
+    const factoryId    = getFactoryId(req);
+    const { order_no, action, priority_date, username, role_code } = req.body || {};
+
+    // Role gate — check JWT user first, fall back to body role_code
+    const userRole = (req.user && req.user.role_code) || role_code || '';
+    if (!_JS_PRIORITY_ROLES.includes(userRole)) {
+      return res.status(403).json({ error: 'Not authorized to set or remove priority' });
+    }
+    if (!order_no || !priority_date) {
+      return res.status(400).json({ error: 'order_no and priority_date are required' });
+    }
+    if (!['set', 'remove'].includes(action)) {
+      return res.status(400).json({ error: 'action must be "set" or "remove"' });
+    }
+
+    if (action === 'set') {
+      await q(
+        `INSERT INTO order_high_priority (order_no, priority_date, set_by, factory_id)
+         VALUES ($1, $2::date, $3, $4)
+         ON CONFLICT (order_no, priority_date, factory_id) DO NOTHING`,
+        [order_no, priority_date, username || userRole, factoryId]
+      );
+    } else {
+      await q(
+        `DELETE FROM order_high_priority
+         WHERE order_no = $1 AND priority_date = $2::date AND factory_id = $3`,
+        [order_no, priority_date, factoryId]
+      );
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[POST /api/planning/job-sheet/priority]', err);
+    res.status(500).json({ error: 'Failed to update priority' });
+  }
+});
+
+// ─── END JOB SHEET ────────────────────────────────────────────────────────────
 
 app.get('/api/planning/completed', async (req, res) => {
   try {

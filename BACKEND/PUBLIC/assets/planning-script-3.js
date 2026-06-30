@@ -9255,4 +9255,255 @@
         }
       }
 
-    });
+    });
+
+// ════════════════════════════════════════════════════════════════════════════
+//  JOB SHEET — view, priority, details
+// ════════════════════════════════════════════════════════════════════════════
+
+(function () {
+  const _JS_PRIORITY_ROLES = ['superadmin', 'ppc_manager', 'admin', 'ppc_ass_manager'];
+
+  function _jsToday() {
+    const d = new Date();
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  }
+
+  function _jsUser() {
+    try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch (_) { return {}; }
+  }
+
+  function _jsCanSetPriority() {
+    return _JS_PRIORITY_ROLES.includes((_jsUser().role_code || ''));
+  }
+
+  function _fmtDate(d) {
+    if (!d) return '—';
+    const dt = new Date(d);
+    return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+
+  function _fmtNum(n) {
+    return (n != null && n !== '') ? Number(n).toLocaleString('en-IN') : '—';
+  }
+
+  // ── Load / refresh table ──────────────────────────────────────────────────
+  window.loadJobSheet = async function () {
+    const today    = _jsToday();
+    const fromEl   = document.getElementById('jsFrom');
+    const toEl     = document.getElementById('jsTo');
+    const searchEl = document.getElementById('jsSearch');
+    const body     = document.getElementById('jobSheetBody');
+    const countEl  = document.getElementById('jsCount');
+
+    if (!fromEl || !body) return;
+    if (!fromEl.value) fromEl.value = today;
+    if (!toEl.value)   toEl.value   = today;
+
+    const from   = fromEl.value;
+    const to     = toEl.value;
+    const search = (searchEl ? searchEl.value : '').trim();
+
+    body.innerHTML = `<tr><td colspan="14" style="padding:40px;text-align:center;color:#94a3b8">
+      <i class="bi bi-hourglass-split"></i> Loading…</td></tr>`;
+    if (countEl) countEl.textContent = '';
+
+    try {
+      const params = new URLSearchParams({ from, to, search });
+      const res  = await fetch(`/api/planning/job-sheet?${params}`);
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      const rows = data.rows || [];
+
+      if (countEl) countEl.textContent = `${rows.length} record${rows.length !== 1 ? 's' : ''}`;
+
+      if (rows.length === 0) {
+        body.innerHTML = `<tr><td colspan="14" style="padding:48px;text-align:center;color:#94a3b8">
+          <i class="bi bi-inbox" style="font-size:1.6rem"></i><br>No records found for the selected range.</td></tr>`;
+        return;
+      }
+
+      const canSet = _jsCanSetPriority();
+
+      body.innerHTML = rows.map((r, i) => {
+        const hp     = !!r.is_high_priority;
+        const rowBg  = hp ? 'background:#fff7ed' : (i % 2 === 1 ? 'background:#f8fafc' : '');
+        const border = 'border-bottom:1px solid #e2e8f0';
+
+        let priorityCell;
+        if (canSet) {
+          priorityCell = hp
+            ? `<button onclick="window.jsRemovePriority('${(r.or_jr_no||'').replace(/'/g,"\\'")}'); event.stopPropagation()"
+                style="padding:3px 10px;border-radius:20px;background:#f97316;color:#fff;border:none;cursor:pointer;font-size:.73rem;font-weight:700;white-space:nowrap">
+                🔥 HIGH &nbsp;<i class="bi bi-x-circle-fill"></i></button>`
+            : `<button onclick="window.jsSetPriority('${(r.or_jr_no||'').replace(/'/g,"\\'")}'); event.stopPropagation()"
+                style="padding:3px 10px;border-radius:20px;background:#e2e8f0;color:#64748b;border:none;cursor:pointer;font-size:.73rem;white-space:nowrap">
+                Set Priority</button>`;
+        } else {
+          priorityCell = hp
+            ? `<span style="padding:3px 10px;border-radius:20px;background:#f97316;color:#fff;font-size:.73rem;font-weight:700;white-space:nowrap">🔥 HIGH</span>`
+            : `<span style="color:#cbd5e1;font-size:.75rem">—</span>`;
+        }
+
+        const td = (val, extra = '') =>
+          `<td style="padding:9px 12px;${border};${extra}">${val}</td>`;
+
+        return `<tr style="${rowBg}">
+          ${td(priorityCell)}
+          ${td(`<span style="font-weight:600;color:#1e293b">${r.or_jr_no || '—'}</span>`)}
+          ${td(_fmtDate(r.or_jr_date), 'white-space:nowrap')}
+          ${td(_fmtNum(r.or_qty), 'text-align:right')}
+          ${td(_fmtNum(r.jr_qty), 'text-align:right')}
+          ${td(r.job_card_no || '—')}
+          ${td(_fmtDate(r.job_card_date), 'white-space:nowrap')}
+          ${td(r.item_code || '—')}
+          ${td(`<span title="${(r.product_name||'').replace(/"/g,'&quot;')}" style="display:block;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.product_name || '—'}</span>`)}
+          ${td(`<span title="${(r.client_name||'').replace(/"/g,'&quot;')}" style="display:block;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.client_name || '—'}</span>`)}
+          ${td(_fmtNum(r.prod_plan_qty), 'text-align:right')}
+          ${td(_fmtNum(r.std_pack), 'text-align:right')}
+          ${td(r.uom || '—')}
+          <td style="padding:9px 12px;${border};text-align:center">
+            <button onclick="window.jsViewDetails('${(r.or_jr_no||'').replace(/'/g,"\\'")}'); event.stopPropagation()"
+              style="padding:4px 13px;border-radius:6px;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:.76rem;white-space:nowrap">
+              <i class="bi bi-eye"></i> View
+            </button>
+          </td>
+        </tr>`;
+      }).join('');
+
+    } catch (e) {
+      console.error('[JobSheet] load error', e);
+      body.innerHTML = `<tr><td colspan="14" style="padding:40px;text-align:center;color:#ef4444">
+        <i class="bi bi-exclamation-triangle"></i> Failed to load data. Please try again.</td></tr>`;
+    }
+  };
+
+  // ── Set Priority ──────────────────────────────────────────────────────────
+  window.jsSetPriority = async function (orderNo) {
+    const u = _jsUser();
+    try {
+      const res = await fetch('/api/planning/job-sheet/priority', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          order_no:      orderNo,
+          action:        'set',
+          priority_date: _jsToday(),
+          username:      u.username || '',
+          role_code:     u.role_code || ''
+        })
+      });
+      const d = await res.json();
+      if (!res.ok) { alert(d.error || 'Failed to set priority'); return; }
+      window.loadJobSheet();
+    } catch (e) {
+      console.error('[JobSheet] set priority error', e);
+      alert('Failed to set priority. Please try again.');
+    }
+  };
+
+  // ── Remove Priority (confirmation dialog) ─────────────────────────────────
+  window.jsRemovePriority = function (orderNo) {
+    const dialog = document.getElementById('jsPriorityConfirm');
+    const textEl = document.getElementById('jsPriorityConfirmText');
+    let   btn    = document.getElementById('jsPriorityConfirmBtn');
+    if (!dialog) return;
+    textEl.textContent = `Remove High Priority from order "${orderNo}" for today?`;
+    dialog.style.display = 'flex';
+
+    // Replace button to clear any previous onclick listener
+    const newBtn = btn.cloneNode(true);
+    btn.parentNode.replaceChild(newBtn, btn);
+    newBtn.addEventListener('click', async () => {
+      dialog.style.display = 'none';
+      const u = _jsUser();
+      try {
+        const res = await fetch('/api/planning/job-sheet/priority', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            order_no:      orderNo,
+            action:        'remove',
+            priority_date: _jsToday(),
+            username:      u.username || '',
+            role_code:     u.role_code || ''
+          })
+        });
+        const d = await res.json();
+        if (!res.ok) { alert(d.error || 'Failed to remove priority'); return; }
+        window.loadJobSheet();
+      } catch (e) {
+        console.error('[JobSheet] remove priority error', e);
+        alert('Failed to remove priority. Please try again.');
+      }
+    });
+  };
+
+  // ── View Details Modal ────────────────────────────────────────────────────
+  window.jsViewDetails = async function (orderNo) {
+    const modal   = document.getElementById('jsDetailModal');
+    const titleEl = document.getElementById('jsDetailTitle');
+    const bodyEl  = document.getElementById('jsDetailBody');
+    if (!modal) return;
+
+    if (titleEl) titleEl.textContent = orderNo;
+    if (bodyEl)  bodyEl.innerHTML = '<div style="padding:40px;text-align:center;color:#94a3b8"><i class="bi bi-hourglass-split"></i> Loading…</div>';
+    modal.setAttribute('aria-hidden', 'false');
+    modal.style.display = 'flex';
+
+    try {
+      const res  = await fetch(`/api/masters/data?type=orjr&search=${encodeURIComponent(orderNo)}`);
+      const data = await res.json();
+      const list = data.rows || data || [];
+      const row  = list.find(r => r.or_jr_no === orderNo) || list[0];
+
+      if (!row) {
+        bodyEl.innerHTML = '<div style="padding:40px;text-align:center;color:#ef4444">Record not found.</div>';
+        return;
+      }
+
+      const field = (label, val) => `
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <span style="font-size:.7rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em">${label}</span>
+          <span style="font-size:.88rem;color:#1e293b;font-weight:500">${val !== undefined && val !== null && val !== '' ? val : '—'}</span>
+        </div>`;
+
+      bodyEl.innerHTML = `
+        <div style="margin-bottom:6px;font-size:.78rem;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.06em">Core Details</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;padding-bottom:20px">
+          ${field('OR/JR No.',     row.or_jr_no)}
+          ${field('OR/JR Date',    _fmtDate(row.or_jr_date))}
+          ${field('OR Qty',        _fmtNum(row.or_qty))}
+          ${field('JR Qty',        _fmtNum(row.jr_qty))}
+          ${field('Job Card No.',  row.job_card_no)}
+          ${field('Job Card Date', _fmtDate(row.job_card_date))}
+          ${field('Item Code',     row.item_code)}
+          ${field('Product Name',  row.product_name)}
+          ${field('Client Name',   row.client_name)}
+          ${field('Prod Plan Qty', _fmtNum(row.prod_plan_qty))}
+          ${field('Std Pack',      _fmtNum(row.std_pack))}
+          ${field('UOM',           row.uom)}
+        </div>
+        <hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 16px">
+        <div style="margin-bottom:6px;font-size:.78rem;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.06em">Planning & Status</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px">
+          ${field('Plan Qty',           _fmtNum(row.plan_qty))}
+          ${field('Plan Date',          _fmtDate(row.plan_date))}
+          ${field('Planned Comp. Date', _fmtDate(row.planned_comp_date))}
+          ${field('MLD Status',         row.mld_status)}
+          ${field('Shift Status',       row.shift_status)}
+          ${field('Pack Status',        row.pack_status)}
+          ${field('WH Status',          row.wh_status)}
+          ${field('JR Close',           row.jr_close)}
+          ${field('Remarks',            row.remarks_all || row.or_remarks)}
+        </div>`;
+    } catch (e) {
+      console.error('[JobSheet] detail error', e);
+      if (bodyEl) bodyEl.innerHTML = '<div style="padding:40px;text-align:center;color:#ef4444">Failed to load details.</div>';
+    }
+  };
+
+})(); // end Job Sheet IIFE

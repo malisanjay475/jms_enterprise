@@ -3133,8 +3133,9 @@
       const mouldChangeView = document.getElementById('mouldChangeReport');
       const printView = document.getElementById('printJCView');
       const approvalView = document.getElementById('pendingPlanApprovalView');
+      const jobSheetViewEl = document.getElementById('jobSheetView');
 
-      [masterView, timelineView, excelTimelineViewEl, productionView, mouldChangeView, printView, approvalView].forEach(el => {
+      [masterView, timelineView, excelTimelineViewEl, productionView, mouldChangeView, printView, approvalView, jobSheetViewEl].forEach(el => {
         if (el) el.style.display = 'none';
       });
 
@@ -3171,6 +3172,9 @@
       } else if (viewName === 'pending_plan_approval') {
         if (approvalView) approvalView.style.display = 'block';
         if (typeof window.loadJcApprovals === 'function') window.loadJcApprovals('pending');
+      } else if (viewName === 'job_sheet') {
+        if (jobSheetViewEl) jobSheetViewEl.style.display = 'block';
+        if (typeof window.loadJobSheet === 'function') window.loadJobSheet();
       } else {
         if (dashboard) dashboard.style.display = 'grid';
         if (kpiDeck) kpiDeck.style.display = 'grid';
@@ -3187,6 +3191,91 @@
 
 
 
+
+  <!-- ═══════════════════════════ JOB SHEET VIEW ═══════════════════════════ -->
+  <div id="jobSheetView" style="display:none; padding:16px">
+
+    <!-- Header toolbar -->
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap">
+      <h2 style="margin:0; font-size:1.25rem; font-weight:700; color:#1e293b; display:flex; align-items:center; gap:8px">
+        <i class="bi bi-file-earmark-spreadsheet" style="color:#3b82f6"></i> Job Sheet
+      </h2>
+      <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:8px">
+        <label style="font-size:.83rem; color:#64748b; font-weight:500">From</label>
+        <input type="date" id="jsFrom" style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 8px; font-size:.83rem; color:#1e293b">
+        <label style="font-size:.83rem; color:#64748b; font-weight:500">To</label>
+        <input type="date" id="jsTo"   style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 8px; font-size:.83rem; color:#1e293b">
+        <input type="text" id="jsSearch" placeholder="Search order / product / client…"
+          style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 10px; font-size:.83rem; min-width:210px; color:#1e293b"
+          onkeydown="if(event.key==='Enter') window.loadJobSheet()">
+        <button onclick="window.loadJobSheet()"
+          style="padding:6px 16px; border-radius:6px; background:#3b82f6; color:#fff; border:none; cursor:pointer; font-size:.83rem; font-weight:600; display:flex; align-items:center; gap:5px">
+          <i class="bi bi-search"></i> Apply Filters
+        </button>
+      </div>
+      <span id="jsCount" style="margin-left:auto; font-size:.78rem; color:#94a3b8; font-weight:500"></span>
+    </div>
+
+    <!-- Table -->
+    <div style="overflow-x:auto; border:1px solid #e2e8f0; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,.05)">
+      <table id="jobSheetTable" style="width:100%; border-collapse:collapse; font-size:.81rem">
+        <thead>
+          <tr style="background:#f1f5f9; color:#475569; font-weight:700; text-transform:uppercase; font-size:.72rem; letter-spacing:.04em">
+            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Priority</th>
+            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">OR/JR No.</th>
+            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">OR/JR Date</th>
+            <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">OR Qty</th>
+            <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">JR Qty</th>
+            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Job Card No.</th>
+            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">JC Date</th>
+            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Item Code</th>
+            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Product Name</th>
+            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Client Name</th>
+            <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">Prod Plan Qty</th>
+            <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">Std Pack</th>
+            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">UOM</th>
+            <th style="padding:10px 12px; text-align:center; border-bottom:2px solid #e2e8f0; white-space:nowrap">Details</th>
+          </tr>
+        </thead>
+        <tbody id="jobSheetBody">
+          <tr><td colspan="14" style="padding:40px; text-align:center; color:#94a3b8">Select a date range and click Apply Filters.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Job Sheet: View Details Modal -->
+  <div id="jsDetailModal" class="modal" aria-hidden="true" style="padding-top:80px">
+    <div class="modal-card" style="width:820px; max-height:85vh; display:flex; flex-direction:column">
+      <div class="modal-head">
+        <strong><i class="bi bi-file-earmark-text"></i> Job Sheet Details — <span id="jsDetailTitle"></span></strong>
+        <button class="btn icon ghost" onclick="closeModal('jsDetailModal')"><i class="bi bi-x-lg"></i></button>
+      </div>
+      <div class="modal-body" id="jsDetailBody" style="overflow-y:auto; padding:24px"></div>
+    </div>
+  </div>
+
+  <!-- Job Sheet: Remove Priority Confirmation Dialog -->
+  <div id="jsPriorityConfirm" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+    background:rgba(0,0,0,0.45); z-index:10500; align-items:center; justify-content:center">
+    <div style="background:#fff; padding:28px 32px; border-radius:14px; width:400px;
+      box-shadow:0 12px 32px rgba(0,0,0,0.18); text-align:center">
+      <div style="font-size:2.2rem; margin-bottom:8px">⚠️</div>
+      <div style="font-size:1rem; font-weight:700; color:#1e293b; margin-bottom:10px">Remove High Priority?</div>
+      <div id="jsPriorityConfirmText" style="color:#64748b; font-size:.87rem; margin-bottom:24px; line-height:1.6"></div>
+      <div style="display:flex; gap:12px; justify-content:center">
+        <button onclick="document.getElementById('jsPriorityConfirm').style.display='none'"
+          style="padding:8px 22px; border:1px solid #e2e8f0; border-radius:8px; background:#fff; color:#475569; cursor:pointer; font-size:.9rem">
+          Cancel
+        </button>
+        <button id="jsPriorityConfirmBtn"
+          style="padding:8px 22px; border-radius:8px; background:#ef4444; color:#fff; border:none; cursor:pointer; font-size:.9rem; font-weight:600">
+          Yes, Remove
+        </button>
+      </div>
+    </div>
+  </div>
+  <!-- ═══════════════════════ END JOB SHEET VIEW ═══════════════════════════ -->
 
   <!-- Move Confirmation Modal -->
   <div id="moveConfirmModal" class="modal-overlay"
