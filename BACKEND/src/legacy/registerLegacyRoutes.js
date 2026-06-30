@@ -2242,11 +2242,16 @@ async function sendApprovalNotificationToStage(stageCode, plan, resolved, factor
       `Client: ${plan.client_name || plan.resolved_client_name || '-'}`,
       `Job Card: ${resolved?.job_card_no || '-'}`
     ].join(' | ');
-    // Bulk INSERT — one round-trip instead of N sequential inserts
-    const bulkVals = users.map((u, i) => `($${i*6+1},$${i*6+2},$${i*6+3},$${i*6+4},$${i*6+5},$${i*6+6})`).join(',');
-    const bulkArgs = users.flatMap(u => [u.username, 'approval', title, message, link, createdBy || 'System']);
-    await q(`INSERT INTO notifications (target_user, type, title, message, link, created_by) VALUES ${bulkVals}`, bulkArgs);
-    return users.length;
+    let count = 0;
+    for (const user of users) {
+      await q(
+        `INSERT INTO notifications (target_user, type, title, message, link, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [user.username, 'approval', title, message, link, createdBy || 'System']
+      );
+      count += 1;
+    }
+    return count;
   } catch (e) {
     console.warn('[Approval Notifications] skipped:', e.message || e);
     return 0;
@@ -5154,35 +5159,6 @@ async function initializeLegacyRuntime() {
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_plan_id ON dpr_hourly(plan_id);`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_status ON plan_board(status);`);
 
-    // DPR Hourly performance indexes — covers all hot query paths
-    // 1. supervisor/recent: WHERE machine + dpr_date (last 2 days) + is_deleted
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_machine_date ON dpr_hourly(machine, dpr_date DESC) WHERE is_deleted = false;`);
-    // 2. summary-matrix: WHERE dpr_date BETWEEN + shift + is_deleted
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_date_shift ON dpr_hourly(dpr_date, shift) WHERE is_deleted = false;`);
-    // 3. factory isolation filter
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_factory_date ON dpr_hourly(factory_id, dpr_date) WHERE is_deleted = false;`);
-    // 4. auto-fill-ongoing: WHERE dpr_date + shift + entry_type + is_deleted
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_date_shift_type ON dpr_hourly(dpr_date, shift, entry_type) WHERE is_deleted = false;`);
-    // 5. used-slots: WHERE plan_id + dpr_date + shift + is_deleted
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_planid_date_shift ON dpr_hourly(plan_id, dpr_date, shift) WHERE is_deleted = false;`);
-    // 6. plan_board join in summary-matrix (CAST join is un-indexable; text index helps partial matches)
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_plan_id_text ON plan_board(plan_id);`);
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_id_text ON plan_board((id::text));`);
-    // 7. or_jr_report join in summary-matrix CTE (TRIM on or_jr_no needs function index)
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_or_jr_report_or_jr_no ON or_jr_report(TRIM(or_jr_no));`);
-    // 8. mould_planning_summary join in mps_agg CTE
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_planning_summary_or_jr_no ON mould_planning_summary(TRIM(or_jr_no), TRIM(mould_name));`);
-    // 9. plan_board.order_no — heavily used in JOINs and report batch queries
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_order_no ON plan_board(order_no);`);
-    // 10. planning_drops.order_no — used in planning report batch queries
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_planning_drops_order_no ON planning_drops(order_no);`);
-    // 11. orders.order_no — used in many JOINs with plan_board and or_jr_report
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_orders_order_no ON orders(order_no);`);
-    // 12. orders.status + factory_id — used in reports/planning status filters
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_orders_status_factory ON orders(status, factory_id);`);
-    // 13. notifications.target_user — polled frequently for unread counts
-    await qIdx(`CREATE INDEX IF NOT EXISTS idx_notifications_target_user ON notifications(target_user, is_read);`);
-
     // Per-machine P1–P4 priority labels
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_machine_priority ON plan_board(machine, machine_priority) WHERE machine_priority IS NOT NULL`);
@@ -5697,11 +5673,11 @@ app.post('/api/users/save', async (req, res) => {
     // Handle Factories Assignment
     // Body: { factories: [1, 2] }
     if (requestedFactoryIds) {
-      // Clear existing then bulk-insert new in one shot
+      // Clear existing
       await q('DELETE FROM user_factories WHERE user_id=$1', [userId]);
-      if (requestedFactoryIds.length > 0) {
-        const fVals = requestedFactoryIds.map((_, i) => `($1, $${i + 2})`).join(',');
-        await q(`INSERT INTO user_factories (user_id, factory_id) VALUES ${fVals}`, [userId, ...requestedFactoryIds]);
+      // Insert new
+      for (const fid of requestedFactoryIds) {
+        await q('INSERT INTO user_factories (user_id, factory_id) VALUES ($1, $2)', [userId, fid]);
       }
     }
 
@@ -5900,32 +5876,39 @@ app.get('/api/machines/status', async (req, res) => {
       // where += ` AND is_active = true`; 
     }
 
-    // Fetch from machines table — single JOIN replaces 4 correlated subqueries (120 queries → 1)
+    // Fetch from machines table
+    // Include running job info
     const rows = await q(
-      `SELECT
-         m.machine as id,
-         m.machine as code,
-         m.machine as name,
-         m.building,
-         m.line,
+      `SELECT 
+         m.machine as id, 
+         m.machine as code, 
+         m.machine as name, 
+         m.building, 
+         m.line, 
          m.tonnage,
          COALESCE(NULLIF(TRIM(m.machine_process), ''), 'Moulding') as machine_process,
          m.machine_icon,
-         CASE WHEN pb.machine IS NOT NULL THEN 'Running' ELSE 'Stopped' END as status,
-         pb.order_no as running_order,
-         COALESCE(NULLIF(pb.item_name, ''), NULLIF(pb.mould_name, ''), NULLIF(pb.item_code, ''), 'Direct Run') as running_product,
-         COALESCE(NULLIF(o.client_name, ''), '') as running_client,
+         COALESCE(
+            (SELECT 'Running' FROM plan_board p WHERE p.machine = m.machine AND p.status='RUNNING' LIMIT 1), 
+            'Stopped'
+         ) as status,
+         (SELECT order_no FROM plan_board p WHERE p.machine = m.machine AND p.status='RUNNING' LIMIT 1) as running_order,
+         (SELECT COALESCE(NULLIF(p.item_name, ''), NULLIF(p.mould_name, ''), NULLIF(p.item_code, ''), 'Direct Run')
+            FROM plan_board p
+           WHERE p.machine = m.machine AND p.status='RUNNING'
+           ORDER BY p.id DESC
+           LIMIT 1) as running_product,
+         (SELECT COALESCE(NULLIF(o.client_name, ''), '')
+            FROM plan_board p
+            LEFT JOIN orders o
+              ON o.order_no = p.order_no
+             AND (o.factory_id = m.factory_id OR (m.factory_id IS NULL AND o.factory_id IS NULL))
+           WHERE p.machine = m.machine AND p.status='RUNNING'
+           ORDER BY p.id DESC
+           LIMIT 1) as running_client,
          false as is_maintenance,
-         m.is_active
+         m.is_active 
        FROM machines m
-       LEFT JOIN LATERAL (
-         SELECT p.machine, p.order_no, p.item_name, p.mould_name, p.item_code
-         FROM plan_board p
-         WHERE p.machine = m.machine AND p.status = 'RUNNING'
-         ORDER BY p.id DESC
-         LIMIT 1
-       ) pb ON true
-       LEFT JOIN orders o ON o.order_no = pb.order_no
        WHERE ${where}
        ORDER BY m.building, m.line, m.machine`,
       params
@@ -9181,11 +9164,9 @@ app.post('/api/notifications/send', async (req, res) => {
 
       const allUsers = await q("SELECT username FROM users WHERE status = 'active'");
 
-      if (allUsers.length > 0) {
-        // Bulk INSERT — single round-trip instead of N sequential inserts
-        const bVals = allUsers.map((_, i) => `($${i*6+1},$${i*6+2},$${i*6+3},$${i*6+4},$${i*6+5},$${i*6+6})`).join(',');
-        const bArgs = allUsers.flatMap(u => [u.username, type, title, message, link, sender]);
-        await q(`INSERT INTO notifications (target_user, type, title, message, link, created_by) VALUES ${bVals}`, bArgs);
+      for (const u of allUsers) {
+        await q(`INSERT INTO notifications (target_user, type, title, message, link, created_by) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [u.username, type, title, message, link, sender]);
       }
       return res.json({ ok: true, count: allUsers.length });
 
@@ -11765,33 +11746,17 @@ app.get('/api/planning/completed', async (req, res) => {
       params.push(limit);
       const orders = await q(sql, params);
       const report = [];
-      if (orders.length > 0) {
-        // Batch-fetch all related data in 3 queries instead of 3×N queries
-        const orderNos = orders.map(o => o.order_no);
-        const [mouldCounts, allPlans, allDrops] = await Promise.all([
-          q(`SELECT or_jr_no, COUNT(DISTINCT mould_name)::int as total
-             FROM mould_planning_report WHERE or_jr_no = ANY($1) GROUP BY or_jr_no`, [orderNos]),
-          q(`SELECT order_no, mould_name, mould_code, machine, plan_qty, status,
-                    'Planned' as type, updated_at as time, 'System' as user_name
-             FROM plan_board WHERE order_no = ANY($1)`, [orderNos]),
-          q(`SELECT order_no, mould_name, mould_no as mould_code, 'N/A' as machine,
-                    0 as plan_qty, 'Dropped' as status, 'Dropped' as type,
-                    created_at as time, 'System' as user_name, remarks
-             FROM planning_drops WHERE order_no = ANY($1)`, [orderNos])
-        ]);
-        const mouldCountMap = Object.fromEntries(mouldCounts.map(r => [r.or_jr_no, r.total]));
-        const plansByOrder = {};
-        for (const p of allPlans) { (plansByOrder[p.order_no] = plansByOrder[p.order_no] || []).push(p); }
-        const dropsByOrder = {};
-        for (const d of allDrops) { (dropsByOrder[d.order_no] = dropsByOrder[d.order_no] || []).push(d); }
-        for (const o of orders) {
-          const details = [...(plansByOrder[o.order_no] || []), ...(dropsByOrder[o.order_no] || [])]
-            .sort((a, b) => new Date(a.time) - new Date(b.time));
-          report.push({
-            header: { orderNo: o.order_no, client: o.client_name, product: o.item_name, totalMoulds: mouldCountMap[o.order_no] || 0, status: 'Fully Planned', completedAt: o.completed_at },
-            rows: details
-          });
-        }
+      for (const o of orders) {
+        const oNo = o.order_no;
+        const rpt = await q(`SELECT COUNT(DISTINCT mould_name):: int as total FROM mould_planning_report WHERE or_jr_no = $1`, [oNo]);
+        const totalMoulds = (rpt[0] && rpt[0].total) || 0;
+        const plans = await q(`SELECT mould_name, mould_code, machine, plan_qty, status, 'Planned' as type, updated_at as time, 'System' as user_name FROM plan_board WHERE order_no = $1`, [oNo]);
+        const drops = await q(`SELECT mould_name, mould_no as mould_code, 'N/A' as machine, 0 as plan_qty, 'Dropped' as status, 'Dropped' as type, created_at as time, 'System' as user_name, remarks FROM planning_drops WHERE order_no = $1`, [oNo]);
+        const details = [...plans, ...drops].sort((a, b) => new Date(a.time) - new Date(b.time));
+        report.push({
+          header: { orderNo: o.order_no, client: o.client_name, product: o.item_name, totalMoulds: totalMoulds, status: 'Fully Planned', completedAt: o.completed_at },
+          rows: details
+        });
       }
       res.json({ ok: true, data: report });
     } else {
@@ -16577,22 +16542,7 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     const closedPlants = await q(sqlClosed, cParams);
 
     // 2. Get DPR Entries for this Range
-    // Perf: replaced LATERAL on or_jr_report (ran per dpr_hourly row) with a pre-aggregated CTE.
-    // Also replaced mould_planning_summary inline subquery with CTE — both scan once instead of per-row.
     let sqlEntries = `
-      WITH mps_agg AS (
-        SELECT TRIM(or_jr_no) as or_jr_no, TRIM(mould_name) as mould_name,
-               MAX(NULLIF(TRIM(mould_no), '')) as mould_no
-        FROM mould_planning_summary
-        GROUP BY TRIM(or_jr_no), TRIM(mould_name)
-      ),
-      ojr_agg AS (
-        SELECT DISTINCT ON (TRIM(or_jr_no))
-               TRIM(or_jr_no) as or_jr_no, job_card_no, client_name
-        FROM or_jr_report
-        WHERE job_card_no IS NOT NULL AND TRIM(job_card_no) != ''
-        ORDER BY TRIM(or_jr_no), id DESC
-      )
       SELECT
         d.id, d.dpr_date::text as dpr_date_str, d.machine, d.hour_slot, d.good_qty, d.reject_qty, d.downtime_min,
         d.reject_breakup, d.downtime_breakup, d.colour, d.entry_type,
@@ -16604,10 +16554,19 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         ojr.job_card_no,
         COALESCE(ojr.client_name, o.client_name) as client_name
       FROM dpr_hourly d
-      LEFT JOIN plan_board pb ON pb.plan_id = d.plan_id OR CAST(pb.id AS TEXT) = d.plan_id
-      LEFT JOIN mps_agg mps ON mps.or_jr_no = TRIM(d.order_no) AND mps.mould_name = TRIM(pb.mould_name)
+      LEFT JOIN plan_board pb ON CAST(pb.id AS TEXT) = CAST(d.plan_id AS TEXT) OR pb.plan_id = d.plan_id
+      LEFT JOIN (
+        SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no
+        FROM mould_planning_summary
+        GROUP BY or_jr_no, mould_name
+      ) mps ON mps.or_jr_no = d.order_no AND mps.mould_name = pb.mould_name
       LEFT JOIN users u ON u.username = d.created_by
-      LEFT JOIN ojr_agg ojr ON ojr.or_jr_no = TRIM(COALESCE(d.order_no, pb.order_no))
+      LEFT JOIN LATERAL(
+        SELECT * FROM or_jr_report rpt 
+        WHERE TRIM(rpt.or_jr_no) = TRIM(COALESCE(d.order_no, pb.order_no))
+          AND(rpt.job_card_no IS NOT NULL AND TRIM(rpt.job_card_no) != '')
+        LIMIT 1
+      ) ojr ON true
       LEFT JOIN orders o ON o.order_no = COALESCE(d.order_no, pb.order_no)
       WHERE d.dpr_date BETWEEN $1 AND $2 AND d.shift = $3 AND d.is_deleted = false
     `;
@@ -20817,12 +20776,15 @@ app.post('/api/qc/material-issues', (req, res, next) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) RETURNING id`,
       [factoryId, machine, job_card_no || '', issue_description, severity || 'Medium', mediaUrl, assigned_to_role, assigned_to_name || '', created_by, initAudit]
     );
-    // Notify Moulding Manager, Sr. Moulding Manager, PPC — bulk insert (3 rows in 1 query)
+    // Notify Moulding Manager, Sr. Moulding Manager, PPC
     const notifyRoles = ['Moulding Manager', 'Sr. Moulding Manager', 'PPC'];
-    await q(
-      `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id) VALUES ${notifyRoles.map((_, i) => `($1,$${i+2},$${notifyRoles.length+2},'ISSUE',$${notifyRoles.length+3})`).join(',')}`,
-      [factoryId, ...notifyRoles, `New Issue on ${machine} by ${created_by}: ${issue_description.slice(0, 80)}`, r[0].id]
-    );
+    for (const role of notifyRoles) {
+      await q(
+        `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+         VALUES ($1,$2,$3,'ISSUE',$4)`,
+        [factoryId, role, `New Issue on ${machine} by ${created_by}: ${issue_description.slice(0, 80)}`, r[0].id]
+      );
+    }
     res.json({ ok: true, id: r[0].id });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -22922,10 +22884,11 @@ app.post('/api/activity/heartbeat', async (req, res) => {
     const ua = String(req.headers['user-agent'] || '').slice(0, 500);
     const device = device_type || (/mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop');
     const actionStr = String(req.body?.action || 'heartbeat').slice(0, 30);
+    const extraData  = req.body?.extra ? JSON.stringify(req.body.extra) : null;
     await q(
-      `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())`,
-      [username, role_code || '', app_id || 'web', actionStr, page || '', device, ip, ua, String(factory_id || ''), String(session_id || '')]
+      `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, extra, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())`,
+      [username, role_code || '', app_id || 'web', actionStr, page || '', device, ip, ua, String(factory_id || ''), String(session_id || ''), extraData]
     );
     res.json({ ok: true });
   } catch (e) {
@@ -22962,6 +22925,32 @@ app.get('/api/activity/monitor', async (req, res) => {
       WHERE created_at >= CURRENT_DATE AND action = 'login'
       GROUP BY username
     `);
+
+    // First seen today per user
+    const firstSeenRows = await q(`
+      SELECT username, MIN(created_at) AS first_seen_today
+      FROM user_activity_log
+      WHERE created_at >= CURRENT_DATE
+      GROUP BY username
+    `);
+    const firstSeenMap = {};
+    for (const r of firstSeenRows) firstSeenMap[r.username] = r.first_seen_today;
+
+    // Latest machine per supervisor (from dpr_entry / machine_select extra)
+    const machineRows = await q(`
+      SELECT DISTINCT ON (username)
+        username,
+        extra->>'machine' AS machine,
+        extra->>'order_no' AS order_no,
+        extra->>'colour' AS colour
+      FROM user_activity_log
+      WHERE action IN ('dpr_entry','machine_select','job_open')
+        AND extra IS NOT NULL
+        AND extra->>'machine' IS NOT NULL
+      ORDER BY username, created_at DESC
+    `);
+    const machineMap = {};
+    for (const r of machineRows) machineMap[r.username] = { machine: r.machine, order_no: r.order_no, colour: r.colour };
     const loginMap = {};
     for (const r of loginRows) loginMap[r.username] = Number(r.logins_today);
 
@@ -22984,7 +22973,9 @@ app.get('/api/activity/monitor', async (req, res) => {
         last_seen: r.created_at,
         status,
         actions_today: todayMap[r.username] || 0,
-        logins_today: loginMap[r.username] || 0
+        logins_today: loginMap[r.username] || 0,
+        first_seen_today: firstSeenMap[r.username] || null,
+        current_machine: machineMap[r.username] || null
       };
     });
 

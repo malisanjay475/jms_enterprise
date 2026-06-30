@@ -1792,7 +1792,16 @@ function escHtml(value) {
   function _getActivityPayload(action) {
     let user = {};
     try { user = JSON.parse(localStorage.getItem('user') || '{}'); } catch (_e) {}
-    if (!user.username) return null; // not logged in — skip
+    // Fallback: supervisor app stores session in jpsmsSession, not 'user'
+    if (!user.username) {
+      try {
+        const sess = JSON.parse(localStorage.getItem('jpsmsSession') || '{}');
+        if (sess && sess.username) {
+          user = { username: sess.username, role_code: sess.role_code || 'supervisor' };
+        }
+      } catch (_e) {}
+    }
+    if (!user.username) return null; // still not logged in — skip
 
     // Detect device
     const ua = navigator.userAgent || '';
@@ -1806,7 +1815,14 @@ function escHtml(value) {
     }
 
     let factoryId = '';
-    try { factoryId = String(localStorage.getItem('jpsms_selected_factory_id') || ''); } catch (_e) {}
+    try {
+      factoryId = String(localStorage.getItem('jpsms_selected_factory_id') || '');
+      // Also check jpsmsSession for factory id (supervisor app)
+      if (!factoryId) {
+        const sess = JSON.parse(localStorage.getItem('jpsmsSession') || '{}');
+        if (sess.factoryId) factoryId = String(sess.factoryId);
+      }
+    } catch (_e) {}
 
     return {
       username: user.username,
