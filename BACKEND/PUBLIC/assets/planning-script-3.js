@@ -9448,51 +9448,76 @@
     }
   };
 
-  // ── View Details Modal — uses cached row, no second API call ──────────────
+  // ── View Details Modal ────────────────────────────────────────────────────
+  // Built dynamically and appended to document.body so it survives
+  // root.innerHTML replacements done by the planning page shell.
   window.jsViewDetails = function (rowIdx) {
-    const titleEl = document.getElementById('jsDetailTitle');
-    const bodyEl  = document.getElementById('jsDetailBody');
-
     const row = (window._jsRows || [])[rowIdx];
-    if (!row) {
-      if (bodyEl) bodyEl.innerHTML = '<div style="padding:40px;text-align:center;color:#ef4444">Row data not found. Please reload the page.</div>';
-      window.openModal('jsDetailModal');
-      return;
-    }
 
-    if (titleEl) titleEl.textContent = `Order: ${row.or_jr_no || '—'}`;
-    window.openModal('jsDetailModal');
+    // Remove any previous instance
+    const old = document.getElementById('jsDetailModalDynamic');
+    if (old) old.remove();
 
     const field = (label, val) => `
-      <div style="display:flex;flex-direction:column;gap:3px">
-        <span style="font-size:.7rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em">${label}</span>
-        <span style="font-size:.88rem;color:#1e293b;font-weight:500">${val !== undefined && val !== null && val !== '' ? val : '—'}</span>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <span style="font-size:.68rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em">${label}</span>
+        <span style="font-size:.875rem;color:#1e293b;font-weight:500">${(val !== undefined && val !== null && val !== '') ? val : '<span style="color:#cbd5e1">—</span>'}</span>
       </div>`;
 
-    bodyEl.innerHTML = `
-      <div style="margin-bottom:6px;font-size:.78rem;font-weight:700;color:#f97316;text-transform:uppercase;letter-spacing:.06em">🔥 High Priority Order</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;padding-bottom:20px">
-        ${field('Order No.',      row.or_jr_no)}
-        ${field('Created Date',   _fmtDate(row.order_created_at))}
-        ${field('Order Status',   row.order_status)}
-        ${field('OR/JR Date',     _fmtDate(row.or_jr_date))}
-        ${field('OR Qty',         _fmtNum(row.or_qty))}
-        ${field('JR Qty',         _fmtNum(row.jr_qty))}
-        ${field('Item Code',      row.item_code)}
-        ${field('Product Name',   row.product_name)}
-        ${field('Client Name',    row.client_name)}
-        ${field('Order Qty',      _fmtNum(row.order_qty))}
-        ${field('Balance Qty',    _fmtNum(row.order_balance))}
-        ${field('UOM',            row.uom)}
+    const body = row ? `
+      <div style="margin-bottom:8px;display:inline-flex;align-items:center;gap:7px;padding:4px 12px;border-radius:20px;background:#fff7ed;border:1px solid #fed7aa">
+        <span style="font-size:.73rem;font-weight:800;color:#f97316">🔥 HIGH PRIORITY ORDER</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:12px;padding-bottom:20px">
+        ${field('Order No.',     row.or_jr_no)}
+        ${field('Created Date',  _fmtDate(row.order_created_at))}
+        ${field('Order Status',  row.order_status || '—')}
+        ${field('Item Code',     row.item_code)}
+        ${field('Product Name',  row.product_name)}
+        ${field('Client Name',   row.client_name)}
+        ${field('Order Qty',     _fmtNum(row.order_qty))}
+        ${field('Balance Qty',   _fmtNum(row.order_balance))}
+        ${field('UOM',           row.uom)}
       </div>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 16px">
-      <div style="margin-bottom:6px;font-size:.78rem;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.06em">Job Card Details</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px">
-        ${field('Job Card No.',   row.job_card_no)}
-        ${field('Job Card Date',  _fmtDate(row.job_card_date))}
-        ${field('Prod Plan Qty',  _fmtNum(row.prod_plan_qty))}
-        ${field('Std Pack',       _fmtNum(row.std_pack))}
+      <div style="font-size:.74rem;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">OR / JR Details</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding-bottom:20px">
+        ${field('OR/JR Date',    _fmtDate(row.or_jr_date))}
+        ${field('OR Qty',        _fmtNum(row.or_qty))}
+        ${field('JR Qty',        _fmtNum(row.jr_qty))}
+        ${field('Job Card No.',  row.job_card_no)}
+        ${field('Job Card Date', _fmtDate(row.job_card_date))}
+        ${field('Prod Plan Qty', _fmtNum(row.prod_plan_qty))}
+        ${field('Std Pack',      _fmtNum(row.std_pack))}
+      </div>`
+    : '<div style="padding:40px;text-align:center;color:#ef4444">Row data not found. Please reload the Job Sheet.</div>';
+
+    const overlay = document.createElement('div');
+    overlay.id = 'jsDetailModalDynamic';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:24px';
+
+    overlay.innerHTML = `
+      <div style="width:min(820px,96vw);max-height:90vh;display:flex;flex-direction:column;background:#fff;border-radius:16px;box-shadow:0 20px 50px rgba(0,0,0,.3);border:1px solid #e2e8f0;overflow:hidden">
+        <div style="padding:14px 20px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;background:#f8fafc">
+          <strong style="font-size:1rem;color:#0f172a">
+            <i class="bi bi-file-earmark-text" style="color:#3b82f6;margin-right:6px"></i>
+            Job Sheet Details — ${(row && row.or_jr_no) ? row.or_jr_no : ''}
+          </strong>
+          <button id="jsDetailCloseDyn"
+            style="border:none;background:none;cursor:pointer;font-size:1.1rem;color:#64748b;padding:4px 8px;border-radius:6px;line-height:1">✕</button>
+        </div>
+        <div style="padding:20px 24px;overflow-y:auto">${body}</div>
       </div>`;
+
+    document.body.appendChild(overlay);
+
+    // Close on button click
+    document.getElementById('jsDetailCloseDyn').addEventListener('click', () => overlay.remove());
+    // Close on backdrop click
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    // Close on Escape
+    const onKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onKey); } };
+    document.addEventListener('keydown', onKey);
   };
 
 })(); // end Job Sheet IIFE
