@@ -526,16 +526,19 @@
 
     .chip {
       display: flex;
-      gap: 8px;
-      align-items: center;
+      flex-direction: column;
+      gap: 4px;
       padding: 8px;
       border: 1px solid var(--line);
       border-radius: 10px;
       background: var(--surface-elevated);
     }
 
-    .chip input   { width: 110px; text-align: right }
-    .chip select  { flex: 1 }
+    .chip-row     { display: flex; align-items: center; gap: 6px; width: 100% }
+    .chip-qty     { width: 58px; min-width: 58px; text-align: right; flex-shrink: 0 }
+    .chip-select  { flex: 1; min-width: 0; max-width: 100%; overflow: hidden }
+    .chip-other   { width: 100%; box-sizing: border-box; margin-top: 2px }
+    .chip-rm      { flex-shrink: 0 }
 
     /* ── Colour table ── */
     .color-table {
@@ -1392,7 +1395,7 @@
     </div>
   </div>
 
-  <script src="/assets/supervisor-script-1.js?v=release73"></script>
+  <script src="/assets/supervisor-script-1.js?v=release74"></script>
   <script src="/assets/register-sw.js?v=release65"></script>
   <script>
     // Colour picker panel helpers — defined here so onclick in HTML always finds them

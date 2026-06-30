@@ -2591,31 +2591,40 @@
       const wrap = el('rej-items'); wrap.innerHTML = '';
       rejItems.forEach((it, i) => {
         const d = document.createElement('div'); d.className = 'chip';
-        const q = document.createElement('input'); q.type = 'number'; q.min = '0';
-        // Show empty if empty
-        q.value = (it.qty === '' || it.qty === null || it.qty === undefined) ? '' : it.qty;
-        q.inputMode = 'numeric';
-        q.placeholder = "Qty"; // Added placeholder
-        // Store as is, convert in calc
-        q.oninput = () => { it.qty = q.value; recalcAndValidate(); };
-        // Select
-        const s = document.createElement('select'); REJECT_REASONS.forEach(([c, t]) => s.add(new Option(`${c} - ${t}`, c))); s.value = it.code || '';
 
-        // Other input
+        // Row: [Qty] [Select] [✕]
+        const row = document.createElement('div'); row.className = 'chip-row';
+
+        const q = document.createElement('input');
+        q.type = 'number'; q.min = '0'; q.className = 'chip-qty';
+        q.value = (it.qty === '' || it.qty === null || it.qty === undefined) ? '' : it.qty;
+        q.inputMode = 'numeric'; q.placeholder = 'Qty';
+        q.oninput = () => { it.qty = q.value; recalcAndValidate(); };
+
+        const s = document.createElement('select'); s.className = 'chip-select';
+        REJECT_REASONS.forEach(([c, t]) => s.add(new Option(`${c} – ${t}`, c)));
+        s.value = it.code || '';
+
+        const rm = document.createElement('button');
+        rm.className = 'small chip-rm'; rm.textContent = '✕';
+        rm.onclick = () => { rejItems.splice(i, 1); renderRejItems(); };
+
+        // "Other" input — full width below the row
         const oInp = document.createElement('input');
-        oInp.type = 'text'; oInp.placeholder = 'Please specify...'; oInp.style.width = '120px';
+        oInp.type = 'text'; oInp.placeholder = 'Please specify...'; oInp.className = 'chip-other';
         oInp.value = it.otherText || '';
         oInp.oninput = () => { it.otherText = oInp.value; recalcAndValidate(); };
-        oInp.style.display = it.code === 'OTHER' ? 'inline-block' : 'none';
+        oInp.style.display = it.code === 'OTHER' ? 'block' : 'none';
 
         s.onchange = () => {
           const f = REJECT_REASONS.find(r => r[0] === s.value);
-          it.code = s.value;
-          it.text = f ? f[1] : '';
-          oInp.style.display = it.code === 'OTHER' ? 'inline-block' : 'none';
+          it.code = s.value; it.text = f ? f[1] : '';
+          oInp.style.display = it.code === 'OTHER' ? 'block' : 'none';
         };
-        const rm = document.createElement('button'); rm.className = 'small'; rm.textContent = '✕'; rm.onclick = () => { rejItems.splice(i, 1); renderRejItems(); };
-        d.append(q, s, oInp, rm); wrap.appendChild(d);
+
+        row.append(q, s, rm);
+        d.append(row, oInp);
+        wrap.appendChild(d);
       });
       recalcAndValidate();
     }
@@ -2623,28 +2632,38 @@
       const wrap = el('dt-items'); wrap.innerHTML = '';
       dtItems.forEach((it, i) => {
         const d = document.createElement('div'); d.className = 'chip';
-        const q = document.createElement('input'); q.type = 'number'; q.min = '0';
-        // Show empty if empty
+
+        const row = document.createElement('div'); row.className = 'chip-row';
+
+        const q = document.createElement('input');
+        q.type = 'number'; q.min = '0'; q.className = 'chip-qty';
         q.value = (it.min === '' || it.min === null || it.min === undefined) ? '' : it.min;
-        q.inputMode = 'numeric';
-        q.placeholder = "Min"; // Added placeholder
+        q.inputMode = 'numeric'; q.placeholder = 'Min';
         q.oninput = () => { it.min = q.value; recalcAndValidate(); };
-        const s = document.createElement('select'); DOWNTIME_REASONS.forEach(([c, t]) => s.add(new Option(`${c} - ${t}`, c))); s.value = it.code || '';
+
+        const s = document.createElement('select'); s.className = 'chip-select';
+        DOWNTIME_REASONS.forEach(([c, t]) => s.add(new Option(`${c} – ${t}`, c)));
+        s.value = it.code || '';
+
+        const rm = document.createElement('button');
+        rm.className = 'small chip-rm'; rm.textContent = '✕';
+        rm.onclick = () => { dtItems.splice(i, 1); renderDtItems(); };
 
         const oInp = document.createElement('input');
-        oInp.type = 'text'; oInp.placeholder = 'Please specify...'; oInp.style.width = '120px';
+        oInp.type = 'text'; oInp.placeholder = 'Please specify...'; oInp.className = 'chip-other';
         oInp.value = it.otherText || '';
         oInp.oninput = () => { it.otherText = oInp.value; recalcAndValidate(); };
-        oInp.style.display = it.code === 'OTHER' ? 'inline-block' : 'none';
+        oInp.style.display = it.code === 'OTHER' ? 'block' : 'none';
 
         s.onchange = () => {
           const f = DOWNTIME_REASONS.find(r => r[0] === s.value);
-          it.code = s.value;
-          it.text = f ? f[1] : '';
-          oInp.style.display = it.code === 'OTHER' ? 'inline-block' : 'none';
+          it.code = s.value; it.text = f ? f[1] : '';
+          oInp.style.display = it.code === 'OTHER' ? 'block' : 'none';
         };
-        const rm = document.createElement('button'); rm.className = 'small'; rm.textContent = '✕'; rm.onclick = () => { dtItems.splice(i, 1); renderDtItems(); };
-        d.append(q, s, oInp, rm); wrap.appendChild(d);
+
+        row.append(q, s, rm);
+        d.append(row, oInp);
+        wrap.appendChild(d);
       });
       recalcAndValidate();
     }
