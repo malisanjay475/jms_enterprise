@@ -2185,13 +2185,11 @@
         loadUsedSlots();
         show('dpr-form');
         showPage('sec-dpr', el('tab-dpr'));
-        // Scroll to Colour & QTY table so operator immediately sees the colour breakdown
-        const _colorCard = el('color-plan-card');
-        if (_colorCard) {
-          _colorCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } else {
-          document.getElementById('sec-dpr').scrollIntoView({ behavior: 'smooth' });
-        }
+        // Scroll to the DPR entry form so operator immediately sees the slot/colour/shots inputs
+        setTimeout(() => {
+          const _entryForm = el('dpr-form') || el('d-slot') || el('sec-dpr');
+          if (_entryForm) _entryForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 80);
       } catch (e) { alert('Error opening DPR Form: ' + e.message); console.error(e); }
     }
 
@@ -2571,6 +2569,9 @@
           r.classList.remove('selected');
         }
       });
+
+      // Always re-evaluate submit eligibility when colour changes
+      validateForm();
     }
 
     function validateForm() {
