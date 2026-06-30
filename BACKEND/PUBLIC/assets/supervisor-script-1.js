@@ -465,22 +465,111 @@
 
     // GLOBAL LOADING HANDLER
     let loadingCount = 0;
+    let _loadingWatchdog = null;
+
+    function _forceHideLoading() {
+      loadingCount = 0;
+      const o = el('loading-overlay');
+      if (o) o.classList.add('hidden');
+    }
+    window._forceHideLoading = _forceHideLoading;
 
     function showLoading() {
       loadingCount++;
       const o = el('loading-overlay');
       if (o) o.classList.remove('hidden');
+      clearTimeout(_loadingWatchdog);
+      _loadingWatchdog = setTimeout(() => {
+        if (loadingCount > 0) _forceHideLoading();
+      }, 10000);
     }
 
     function hideLoading() {
       loadingCount = Math.max(0, loadingCount - 1);
       if (loadingCount === 0) {
+        clearTimeout(_loadingWatchdog);
         const o = el('loading-overlay');
         if (o) o.classList.add('hidden');
       }
     }
     const show = id => el(id).classList.remove('hidden');
     const hide = id => el(id).classList.add('hidden');
+
+    // ======== RECENT SLOT ENTRIES ========
+    async function openRecentSlots() {
+      const machine = session.machine;
+      const date  = el('d-date') ? el('d-date').value : session.shiftDate;
+      const shift = el('d-shift') ? el('d-shift').value : session.shift;
+      if (!machine) return;
+      el('recent-slots-title').textContent    = '📋 ' + machine;
+      el('recent-slots-subtitle').textContent = shift + ' Shift · ' + date;
+      el('recent-slots-body').innerHTML = '<div class="muted" style="text-align:center;padding:24px">Loading…</div>';
+      show('modal-recent-slots');
+      let entries = [];
+      try {
+        const r = await fetch('/api/dpr/recent?machine=' + encodeURIComponent(machine) + '&date=' + encodeURIComponent(date) + '&shift=' + encodeURIComponent(shift) + '&limit=50');
+        const j = await r.json();
+        if (j && j.data && Array.isArray(j.data.rows)) entries = j.data.rows;
+        else if (j && Array.isArray(j.data)) entries = j.data;
+        else if (j && Array.isArray(j.rows)) entries = j.rows;
+      } catch (e) {
+        el('recent-slots-body').innerHTML = '<div class="muted" style="text-align:center;padding:24px">Failed to load</div>';
+        return;
+      }
+      const SLOTS = ['07-08','08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07'];
+      const bySlot = {};
+      for (const e of entries) {
+        const s = e.HourSlot || e.slot || e.hour_slot;
+        if (s) bySlot[s] = e;
+      }
+      const TYPE_BADGE = {
+        'MAIN':{ icon:'✅', color:'#22c55e' }, 'ColourChange':{ icon:'🎨', color:'#a78bfa' },
+        'Maintenance':{ icon:'🔧', color:'#f59e0b' }, 'MouldChange':{ icon:'🔄', color:'#3b82f6' },
+        'ManPowerShortage':{ icon:'👷', color:'#ef4444' }, 'NoPlan':{ icon:'⛔', color:'#6b7280' },
+      };
+      function decodeBreakup(jsonVal, lookupArr) {
+        if (!jsonVal) return '';
+        let obj = jsonVal;
+        if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch(_) { return ''; } }
+        return Object.entries(obj).filter(([,v]) => Number(v) > 0).map(([code, val]) => {
+          const found = lookupArr.find(r => r[0] === code);
+          return (found ? found[1] : code) + ' (' + val + ')';
+        }).join(', ');
+      }
+      let html = '<div style="display:flex;flex-direction:column;gap:5px">';
+      for (const slot of SLOTS) {
+        const e = bySlot[slot];
+        if (e) {
+          const entryType = e.EntryType || e.entry_type || 'Entry';
+          const b = TYPE_BADGE[entryType] || { icon:'•', color:'#94a3b8' };
+          const qty = e.GoodQty != null ? e.GoodQty : (e.good_qty != null ? e.good_qty : '—');
+          const rejTotal = e.RejectQty != null ? e.RejectQty : (e.reject_qty != null ? e.reject_qty : null);
+          const colVal = e.Colour || e.colour || '';
+          const rejDetail = decodeBreakup(e.RejectBreakup || e.reject_breakup, REJECT_REASONS);
+          const dtDetail  = decodeBreakup(e.DowntimeBreakup || e.downtime_breakup, DOWNTIME_REASONS);
+          const qtyLine = '<span style="font-size:0.78rem;font-weight:700">' + qty + ' ✓' + (rejTotal ? ' <span style="color:#ef4444">' + rejTotal + ' ✗</span>' : '') + '</span>';
+          const colBadge = colVal ? '<span style="font-size:0.7rem;padding:1px 7px;border-radius:12px;background:#f1f5f9;border:1px solid #e2e8f0;font-weight:600;color:#334155;margin-top:2px;display:inline-block">🎨 ' + colVal + '</span>' : '';
+          const rejBadge = rejDetail ? '<span style="font-size:0.67rem;color:#ef4444;margin-top:1px;display:block">✗ ' + rejDetail + '</span>' : '';
+          const dtBadge  = dtDetail  ? '<span style="font-size:0.67rem;color:#f59e0b;margin-top:1px;display:block">⏱ ' + dtDetail + '</span>' : '';
+          html += '<div style="padding:7px 10px;border-radius:8px;background:var(--card);border:1px solid var(--line)">'
+            + '<div style="display:flex;align-items:center;gap:6px">'
+            + '<span style="font-size:0.7rem;font-weight:700;min-width:36px;color:var(--muted)">' + slot + '</span>'
+            + '<span style="font-size:0.82rem">' + b.icon + '</span>'
+            + '<span style="flex:1;font-size:0.75rem;color:' + b.color + ';font-weight:700">' + entryType + '</span>'
+            + qtyLine + '</div>'
+            + ((colBadge||rejBadge||dtBadge) ? '<div style="margin-top:4px;padding-left:42px">' + colBadge + rejBadge + dtBadge + '</div>' : '')
+            + '</div>';
+        } else {
+          html += '<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;background:transparent;border:1px dashed var(--line);opacity:0.45">'
+            + '<span style="font-size:0.7rem;font-weight:700;min-width:36px;color:var(--muted)">' + slot + '</span>'
+            + '<span style="font-size:0.82rem">○</span>'
+            + '<span style="font-size:0.75rem;color:var(--muted)">No entry</span></div>';
+        }
+      }
+      html += '</div>';
+      el('recent-slots-body').innerHTML = html;
+    }
+    window.openRecentSlots = openRecentSlots;
     const safe = v => (v === null || v === undefined) ? '' : String(v);
     const fmtDT = v => { try { if (!v) return ''; const d = new Date(v); return isNaN(d) ? '' : d.toLocaleString(); } catch (_) { return '' } };
     const fmtD = v => { try { if (!v) return ''; const d = new Date(v); return isNaN(d) ? '' : d.toLocaleDateString(); } catch (_) { return '' } };
@@ -1350,15 +1439,24 @@
 
       const update = (s) => {
         if (!s) return;
-        if (!uniq.length) {
-          s.add(new Option('—', ''));
-        } else {
+        // Always add blank placeholder first so browser never auto-selects a colour
+        s.add(new Option('— Select colour —', ''));
+        if (uniq.length) {
           uniq.forEach(v => s.add(new Option(v, v)));
         }
+        s.value = ''; // ensure blank is selected
       };
 
       update(sel);
       update(selCc);
+
+      // If no colours configured — unlock entry body immediately (colour not required)
+      if (!uniq.length) {
+        const _eb = el('dpr-entry-body');
+        const _cp = el('colour-required-prompt');
+        if (_eb) { _eb.style.pointerEvents = ''; _eb.style.opacity = '1'; }
+        if (_cp) _cp.style.display = 'none';
+      }
 
       // Populate the visual colour chips panel
       const panel = el('color-picker-panel');
@@ -1366,7 +1464,7 @@
         panel.innerHTML = '';
         panel.style.display = 'none'; // always collapsed after rebuild
         if (!uniq.length) {
-          panel.innerHTML = '<span style="color:var(--muted);font-size:13px;padding:4px 8px">No colours available for this job</span>';
+          panel.innerHTML = '<span style="color:var(--muted);font-size:13px;padding:4px 8px">No colours — entry unlocked</span>';
         } else {
           uniq.forEach(v => {
             const chip = document.createElement('button');
@@ -2494,31 +2592,28 @@
       const wrap = el('rej-items'); wrap.innerHTML = '';
       rejItems.forEach((it, i) => {
         const d = document.createElement('div'); d.className = 'chip';
-        const q = document.createElement('input'); q.type = 'number'; q.min = '0';
-        // Show empty if empty
+        const row = document.createElement('div'); row.className = 'chip-row';
+        const q = document.createElement('input');
+        q.type = 'number'; q.min = '0'; q.className = 'chip-qty';
         q.value = (it.qty === '' || it.qty === null || it.qty === undefined) ? '' : it.qty;
-        q.inputMode = 'numeric';
-        q.placeholder = "Qty"; // Added placeholder
-        // Store as is, convert in calc
+        q.inputMode = 'numeric'; q.placeholder = 'Qty';
         q.oninput = () => { it.qty = q.value; recalcAndValidate(); };
-        // Select
-        const s = document.createElement('select'); REJECT_REASONS.forEach(([c, t]) => s.add(new Option(`${c} - ${t}`, c))); s.value = it.code || '';
-
-        // Other input
+        const s = document.createElement('select'); s.className = 'chip-select';
+        REJECT_REASONS.forEach(([c, t]) => s.add(new Option(`${c} – ${t}`, c))); s.value = it.code || '';
+        const rm = document.createElement('button');
+        rm.className = 'small chip-rm'; rm.textContent = '✕';
+        rm.onclick = () => { rejItems.splice(i, 1); renderRejItems(); };
         const oInp = document.createElement('input');
-        oInp.type = 'text'; oInp.placeholder = 'Please specify...'; oInp.style.width = '120px';
+        oInp.type = 'text'; oInp.placeholder = 'Please specify...'; oInp.className = 'chip-other';
         oInp.value = it.otherText || '';
         oInp.oninput = () => { it.otherText = oInp.value; recalcAndValidate(); };
-        oInp.style.display = it.code === 'OTHER' ? 'inline-block' : 'none';
-
+        oInp.style.display = it.code === 'OTHER' ? 'block' : 'none';
         s.onchange = () => {
           const f = REJECT_REASONS.find(r => r[0] === s.value);
-          it.code = s.value;
-          it.text = f ? f[1] : '';
-          oInp.style.display = it.code === 'OTHER' ? 'inline-block' : 'none';
+          it.code = s.value; it.text = f ? f[1] : '';
+          oInp.style.display = it.code === 'OTHER' ? 'block' : 'none';
         };
-        const rm = document.createElement('button'); rm.className = 'small'; rm.textContent = '✕'; rm.onclick = () => { rejItems.splice(i, 1); renderRejItems(); };
-        d.append(q, s, oInp, rm); wrap.appendChild(d);
+        row.append(q, s, rm); d.append(row, oInp); wrap.appendChild(d);
       });
       recalcAndValidate();
     }
@@ -2526,28 +2621,28 @@
       const wrap = el('dt-items'); wrap.innerHTML = '';
       dtItems.forEach((it, i) => {
         const d = document.createElement('div'); d.className = 'chip';
-        const q = document.createElement('input'); q.type = 'number'; q.min = '0';
-        // Show empty if empty
+        const row = document.createElement('div'); row.className = 'chip-row';
+        const q = document.createElement('input');
+        q.type = 'number'; q.min = '0'; q.className = 'chip-qty';
         q.value = (it.min === '' || it.min === null || it.min === undefined) ? '' : it.min;
-        q.inputMode = 'numeric';
-        q.placeholder = "Min"; // Added placeholder
+        q.inputMode = 'numeric'; q.placeholder = 'Min';
         q.oninput = () => { it.min = q.value; recalcAndValidate(); };
-        const s = document.createElement('select'); DOWNTIME_REASONS.forEach(([c, t]) => s.add(new Option(`${c} - ${t}`, c))); s.value = it.code || '';
-
+        const s = document.createElement('select'); s.className = 'chip-select';
+        DOWNTIME_REASONS.forEach(([c, t]) => s.add(new Option(`${c} – ${t}`, c))); s.value = it.code || '';
+        const rm = document.createElement('button');
+        rm.className = 'small chip-rm'; rm.textContent = '✕';
+        rm.onclick = () => { dtItems.splice(i, 1); renderDtItems(); };
         const oInp = document.createElement('input');
-        oInp.type = 'text'; oInp.placeholder = 'Please specify...'; oInp.style.width = '120px';
+        oInp.type = 'text'; oInp.placeholder = 'Please specify...'; oInp.className = 'chip-other';
         oInp.value = it.otherText || '';
         oInp.oninput = () => { it.otherText = oInp.value; recalcAndValidate(); };
-        oInp.style.display = it.code === 'OTHER' ? 'inline-block' : 'none';
-
+        oInp.style.display = it.code === 'OTHER' ? 'block' : 'none';
         s.onchange = () => {
           const f = DOWNTIME_REASONS.find(r => r[0] === s.value);
-          it.code = s.value;
-          it.text = f ? f[1] : '';
-          oInp.style.display = it.code === 'OTHER' ? 'inline-block' : 'none';
+          it.code = s.value; it.text = f ? f[1] : '';
+          oInp.style.display = it.code === 'OTHER' ? 'block' : 'none';
         };
-        const rm = document.createElement('button'); rm.className = 'small'; rm.textContent = '✕'; rm.onclick = () => { dtItems.splice(i, 1); renderDtItems(); };
-        d.append(q, s, oInp, rm); wrap.appendChild(d);
+        row.append(q, s, rm); d.append(row, oInp); wrap.appendChild(d);
       });
       recalcAndValidate();
     }
@@ -2620,7 +2715,10 @@
       // Lock / unlock the entry body based on whether a colour is chosen
       const entryBody = el('dpr-entry-body');
       const prompt = el('colour-required-prompt');
-      if (val) {
+      // If no colours configured (select has only the blank placeholder), always unlock
+      const colourOptCount = el('d-color')?.options?.length || 0;
+      const hasColours = colourOptCount > 1;
+      if (!hasColours || val) {
         if (entryBody) { entryBody.style.pointerEvents = ''; entryBody.style.opacity = '1'; }
         if (prompt) prompt.style.display = 'none';
       } else {
@@ -2649,7 +2747,8 @@
 
       if (!slotVal) errs.push('Select an Hour Slot.');
       const colourVal = (el('d-color')?.value || '').trim();
-      if (!colourVal) errs.push('Select a Colour before submitting.');
+      const colourOptCount2 = el('d-color')?.options?.length || 0;
+      if (colourOptCount2 > 1 && !colourVal) errs.push('Select a Colour before submitting.');
       if (rej > shots) errs.push('Rejection Qty exceeds Shots.');
       if (dt > 60) errs.push('Downtime exceeds 60 minutes.');
 
