@@ -532,16 +532,19 @@
 
     .chip {
       display: flex;
-      gap: 8px;
-      align-items: center;
+      flex-direction: column;
+      gap: 4px;
       padding: 8px;
       border: 1px solid var(--line);
       border-radius: 10px;
       background: var(--surface-elevated);
     }
 
-    .chip input   { width: 110px; text-align: right }
-    .chip select  { flex: 1 }
+    .chip-row    { display: flex; align-items: center; gap: 6px; width: 100% }
+    .chip-qty    { width: 58px; min-width: 58px; text-align: right; flex-shrink: 0 }
+    .chip-select { flex: 1; min-width: 0; max-width: 100%; overflow: hidden }
+    .chip-other  { width: 100%; box-sizing: border-box; margin-top: 2px }
+    .chip-rm     { flex-shrink: 0 }
 
     /* ── Colour table ── */
     .color-table {
@@ -841,12 +844,13 @@
   </div>
 
   <!-- GLOBAL LOADING OVERLAY -->
-  <div id="loading-overlay" class="hidden" aria-hidden="true">
+  <div id="loading-overlay" class="hidden" aria-hidden="true" onclick="_forceHideLoading()" title="Tap to dismiss">
     <div class="loading-box">
       <div class="loading-label">Processing…</div>
       <div class="loading-bar">
         <div class="loading-bar-inner"></div>
       </div>
+      <div style="margin-top:10px;font-size:0.7rem;color:#94a3b8;text-align:center">Tap to dismiss if stuck</div>
     </div>
   </div>
 
@@ -1099,6 +1103,10 @@
             <label>Hour Slot
               <!-- NEW: loader text for slot -->
               <span id="slot-loader" class="muted" style="font-size:11px"></span>
+              <button type="button" id="btn-recent-slots" onclick="openRecentSlots()"
+                style="font-size:10px;padding:1px 6px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--accent);cursor:pointer;margin-left:5px;vertical-align:middle;line-height:1.5;font-weight:600">
+                📋
+              </button>
               <div class="inline">
                 <select id="d-slot" style="flex:1"></select>
               </div>
@@ -1397,6 +1405,22 @@
       <div style="display:flex; justify-content:flex-end; gap:12px; border-top:1px solid #e2e8f0; padding-top:16px">
         <button id="btn-close-st" class="btn secondary" onclick="closeShiftTeamModal()">Cancel</button>
         <button class="btn primary" onclick="saveShiftTeam()">Save Team</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECENT SLOTS MODAL -->
+  <div id="modal-recent-slots" class="modal hidden" onclick="if(event.target===this)hide('modal-recent-slots')" aria-hidden="true">
+    <div class="panel" style="max-width:360px;width:95vw">
+      <div class="glass-header" style="padding:14px 16px">
+        <div style="font-weight:700;font-size:1rem" id="recent-slots-title">Slot Entries</div>
+        <div style="font-size:0.75rem;color:var(--muted)" id="recent-slots-subtitle"></div>
+      </div>
+      <div id="recent-slots-body" style="padding:12px 16px;min-height:80px;max-height:70vh;overflow-y:auto">
+        <div class="muted" style="text-align:center;padding:24px">Loading…</div>
+      </div>
+      <div style="padding:10px 16px;border-top:1px solid var(--line)">
+        <button class="btn ghost" onclick="hide('modal-recent-slots')" style="width:100%">Close</button>
       </div>
     </div>
   </div>
