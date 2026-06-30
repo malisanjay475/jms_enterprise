@@ -115,7 +115,8 @@
         'productionCompletionReport',
         'mouldChangeReport',
         'mapWrap',
-        'dashboardToolbar'
+        'dashboardToolbar',
+        'jobSheetView'
       ];
 
       views.forEach(id => {
@@ -171,6 +172,22 @@
         document.getElementById('printJCView').style.display = 'block';
         if (typeof window.loadPrintJobCards === 'function') window.loadPrintJobCards();
         window.view = 'print_jc';
+      }
+      else if (viewName === 'pending_plan_approval') {
+        const approvalEl = document.getElementById('pendingPlanApprovalView');
+        if (approvalEl) approvalEl.style.display = 'block';
+        if (typeof window.loadJcApprovals === 'function') window.loadJcApprovals('pending');
+        window.view = 'pending_plan_approval';
+      }
+      else if (viewName === 'job_sheet') {
+        const jsEl = document.getElementById('jobSheetView');
+        if (jsEl) jsEl.style.display = 'block';
+        if (typeof window.loadJobSheet === 'function') {
+          window.loadJobSheet();
+        } else {
+          setTimeout(() => { if (typeof window.loadJobSheet === 'function') window.loadJobSheet(); }, 300);
+        }
+        window.view = 'job_sheet';
       }
       else {
         // DASHBOARD (Default)
