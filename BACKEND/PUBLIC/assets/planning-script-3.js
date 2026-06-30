@@ -866,45 +866,43 @@
       <div id="jobSheetView" style="display:none; padding:16px">
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap">
           <h2 style="margin:0; font-size:1.25rem; font-weight:700; color:#1e293b; display:flex; align-items:center; gap:8px">
-            <i class="bi bi-file-earmark-spreadsheet" style="color:#3b82f6"></i> Job Sheet
+            <i class="bi bi-fire" style="color:#f97316"></i> High Priority Job Sheet
+            <span style="padding:3px 10px; border-radius:20px; background:#fff7ed; color:#f97316; font-size:.72rem; font-weight:700; border:1px solid #fed7aa">🔥 HIGH PRIORITY ONLY</span>
           </h2>
           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:8px">
-            <label style="font-size:.83rem; color:#64748b; font-weight:500">From</label>
-            <input type="date" id="jsFrom" style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 8px; font-size:.83rem; color:#1e293b">
-            <label style="font-size:.83rem; color:#64748b; font-weight:500">To</label>
-            <input type="date" id="jsTo" style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 8px; font-size:.83rem; color:#1e293b">
             <input type="text" id="jsSearch" placeholder="Search order / product / client…"
-              style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 10px; font-size:.83rem; min-width:210px; color:#1e293b"
+              style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 10px; font-size:.83rem; min-width:240px; color:#1e293b"
               onkeydown="if(event.key==='Enter') window.loadJobSheet()">
             <button onclick="window.loadJobSheet()"
               style="padding:6px 16px; border-radius:6px; background:#3b82f6; color:#fff; border:none; cursor:pointer; font-size:.83rem; font-weight:600; display:flex; align-items:center; gap:5px">
-              <i class="bi bi-search"></i> Apply Filters
+              <i class="bi bi-search"></i> Search
             </button>
           </div>
+          <span style="font-size:.77rem; color:#94a3b8; margin-left:4px">Priority is set in Order Master</span>
           <span id="jsCount" style="margin-left:auto; font-size:.78rem; color:#94a3b8; font-weight:500"></span>
         </div>
         <div style="overflow-x:auto; border:1px solid #e2e8f0; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,.05)">
           <table id="jobSheetTable" style="width:100%; border-collapse:collapse; font-size:.81rem">
             <thead>
-              <tr style="background:#f1f5f9; color:#475569; font-weight:700; text-transform:uppercase; font-size:.72rem; letter-spacing:.04em">
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Priority</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">OR/JR No.</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">OR/JR Date</th>
-                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">OR Qty</th>
-                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">JR Qty</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Job Card No.</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">JC Date</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Item Code</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Product Name</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Client Name</th>
-                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">Prod Plan Qty</th>
-                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">Std Pack</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">UOM</th>
-                <th style="padding:10px 12px; text-align:center; border-bottom:2px solid #e2e8f0; white-space:nowrap">Details</th>
+              <tr style="background:#fff7ed; color:#92400e; font-weight:700; text-transform:uppercase; font-size:.72rem; letter-spacing:.04em">
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Priority</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">OR/JR No.</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">OR/JR Date</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">OR Qty</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">JR Qty</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Job Card No.</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">JC Date</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Item Code</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Product Name</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Client Name</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">Order Qty</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">Balance Qty</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Order Status</th>
+                <th style="padding:10px 12px; text-align:center; border-bottom:2px solid #fed7aa; white-space:nowrap">Details</th>
               </tr>
             </thead>
             <tbody id="jobSheetBody">
-              <tr><td colspan="14" style="padding:40px; text-align:center; color:#94a3b8">Select a date range and click Apply Filters.</td></tr>
+              <tr><td colspan="14" style="padding:40px; text-align:center; color:#94a3b8"><i class="bi bi-hourglass-split"></i> Loading high-priority orders…</td></tr>
             </tbody>
           </table>
         </div>
@@ -9338,27 +9336,10 @@
     });
 
 // ════════════════════════════════════════════════════════════════════════════
-//  JOB SHEET — view, priority, details
+//  JOB SHEET — High-Priority orders (priority read from Order Master)
 // ════════════════════════════════════════════════════════════════════════════
 
 (function () {
-  const _JS_PRIORITY_ROLES = ['superadmin', 'ppc_manager', 'admin', 'ppc_ass_manager'];
-
-  function _jsToday() {
-    const d = new Date();
-    const yy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yy}-${mm}-${dd}`;
-  }
-
-  function _jsUser() {
-    try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch (_) { return {}; }
-  }
-
-  function _jsCanSetPriority() {
-    return _JS_PRIORITY_ROLES.includes((_jsUser().role_code || ''));
-  }
 
   function _jsFactoryHeaders() {
     const h = { 'Content-Type': 'application/json' };
@@ -9379,69 +9360,57 @@
     return (n != null && n !== '') ? Number(n).toLocaleString('en-IN') : '—';
   }
 
+  function _statusBadge(s) {
+    if (!s) return '—';
+    const map = {
+      'Pending':   { bg: '#fef9c3', color: '#854d0e' },
+      'Running':   { bg: '#dcfce7', color: '#166534' },
+      'Completed': { bg: '#e0f2fe', color: '#0369a1' },
+      'Cancelled': { bg: '#fee2e2', color: '#991b1b' },
+    };
+    const st = map[s] || { bg: '#f1f5f9', color: '#475569' };
+    return `<span style="padding:2px 9px;border-radius:20px;background:${st.bg};color:${st.color};font-size:.7rem;font-weight:700;white-space:nowrap">${s}</span>`;
+  }
+
   // ── Load / refresh table ──────────────────────────────────────────────────
   window.loadJobSheet = async function () {
-    const today    = _jsToday();
-    const fromEl   = document.getElementById('jsFrom');
-    const toEl     = document.getElementById('jsTo');
     const searchEl = document.getElementById('jsSearch');
     const body     = document.getElementById('jobSheetBody');
     const countEl  = document.getElementById('jsCount');
 
-    if (!fromEl || !body) return;
-    if (!fromEl.value) fromEl.value = today;
-    if (!toEl.value)   toEl.value   = today;
+    if (!body) return;
 
-    const from   = fromEl.value;
-    const to     = toEl.value;
     const search = (searchEl ? searchEl.value : '').trim();
 
     body.innerHTML = `<tr><td colspan="14" style="padding:40px;text-align:center;color:#94a3b8">
-      <i class="bi bi-hourglass-split"></i> Loading…</td></tr>`;
+      <i class="bi bi-hourglass-split"></i> Loading high-priority orders…</td></tr>`;
     if (countEl) countEl.textContent = '';
 
     try {
-      const params = new URLSearchParams({ from, to, search });
+      const params = new URLSearchParams({ search });
       const res  = await fetch(`/api/planning/job-sheet?${params}`, { headers: _jsFactoryHeaders() });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       const rows = data.rows || [];
 
-      if (countEl) countEl.textContent = `${rows.length} record${rows.length !== 1 ? 's' : ''}`;
+      if (countEl) countEl.textContent = `${rows.length} high-priority order${rows.length !== 1 ? 's' : ''}`;
 
       if (rows.length === 0) {
         body.innerHTML = `<tr><td colspan="14" style="padding:48px;text-align:center;color:#94a3b8">
-          <i class="bi bi-inbox" style="font-size:1.6rem"></i><br>No records found for the selected range.</td></tr>`;
+          <i class="bi bi-inbox" style="font-size:1.6rem"></i><br><br>
+          No high-priority orders found.<br>
+          <span style="font-size:.78rem;color:#cbd5e1">Set priority to <strong>High</strong> in Order Master to see orders here.</span></td></tr>`;
         return;
       }
 
-      const canSet = _jsCanSetPriority();
+      const border = 'border-bottom:1px solid #fde8cc';
+      const td = (val, extra = '') =>
+        `<td style="padding:9px 12px;${border};${extra}">${val}</td>`;
 
       body.innerHTML = rows.map((r, i) => {
-        const hp     = !!r.is_high_priority;
-        const rowBg  = hp ? 'background:#fff7ed' : (i % 2 === 1 ? 'background:#f8fafc' : '');
-        const border = 'border-bottom:1px solid #e2e8f0';
-
-        let priorityCell;
-        if (canSet) {
-          priorityCell = hp
-            ? `<button onclick="window.jsRemovePriority('${(r.or_jr_no||'').replace(/'/g,"\\'")}'); event.stopPropagation()"
-                style="padding:3px 10px;border-radius:20px;background:#f97316;color:#fff;border:none;cursor:pointer;font-size:.73rem;font-weight:700;white-space:nowrap">
-                🔥 HIGH &nbsp;<i class="bi bi-x-circle-fill"></i></button>`
-            : `<button onclick="window.jsSetPriority('${(r.or_jr_no||'').replace(/'/g,"\\'")}'); event.stopPropagation()"
-                style="padding:3px 10px;border-radius:20px;background:#e2e8f0;color:#64748b;border:none;cursor:pointer;font-size:.73rem;white-space:nowrap">
-                Set Priority</button>`;
-        } else {
-          priorityCell = hp
-            ? `<span style="padding:3px 10px;border-radius:20px;background:#f97316;color:#fff;font-size:.73rem;font-weight:700;white-space:nowrap">🔥 HIGH</span>`
-            : `<span style="color:#cbd5e1;font-size:.75rem">—</span>`;
-        }
-
-        const td = (val, extra = '') =>
-          `<td style="padding:9px 12px;${border};${extra}">${val}</td>`;
-
+        const rowBg = i % 2 === 1 ? 'background:#fffbf5' : 'background:#fff';
         return `<tr style="${rowBg}">
-          ${td(priorityCell)}
+          ${td(`<span style="padding:3px 10px;border-radius:20px;background:#f97316;color:#fff;font-size:.73rem;font-weight:700;white-space:nowrap">🔥 HIGH</span>`)}
           ${td(`<span style="font-weight:600;color:#1e293b">${r.or_jr_no || '—'}</span>`)}
           ${td(_fmtDate(r.or_jr_date), 'white-space:nowrap')}
           ${td(_fmtNum(r.or_qty), 'text-align:right')}
@@ -9451,9 +9420,9 @@
           ${td(r.item_code || '—')}
           ${td(`<span title="${(r.product_name||'').replace(/"/g,'&quot;')}" style="display:block;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.product_name || '—'}</span>`)}
           ${td(`<span title="${(r.client_name||'').replace(/"/g,'&quot;')}" style="display:block;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.client_name || '—'}</span>`)}
-          ${td(_fmtNum(r.prod_plan_qty), 'text-align:right')}
-          ${td(_fmtNum(r.std_pack), 'text-align:right')}
-          ${td(r.uom || '—')}
+          ${td(_fmtNum(r.order_qty), 'text-align:right')}
+          ${td(_fmtNum(r.order_balance), 'text-align:right')}
+          ${td(_statusBadge(r.order_status))}
           <td style="padding:9px 12px;${border};text-align:center">
             <button onclick="window.jsViewDetails('${(r.or_jr_no||'').replace(/'/g,"\\'")}'); event.stopPropagation()"
               style="padding:4px 13px;border-radius:6px;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:.76rem;white-space:nowrap">
@@ -9468,67 +9437,6 @@
       body.innerHTML = `<tr><td colspan="14" style="padding:40px;text-align:center;color:#ef4444">
         <i class="bi bi-exclamation-triangle"></i> Failed to load data. Please try again.</td></tr>`;
     }
-  };
-
-  // ── Set Priority ──────────────────────────────────────────────────────────
-  window.jsSetPriority = async function (orderNo) {
-    const u = _jsUser();
-    try {
-      const res = await fetch('/api/planning/job-sheet/priority', {
-        method:  'POST',
-        headers: _jsFactoryHeaders(),
-        body:    JSON.stringify({
-          order_no:      orderNo,
-          action:        'set',
-          priority_date: _jsToday(),
-          username:      u.username || '',
-          role_code:     u.role_code || ''
-        })
-      });
-      const d = await res.json();
-      if (!res.ok) { alert(d.error || 'Failed to set priority'); return; }
-      window.loadJobSheet();
-    } catch (e) {
-      console.error('[JobSheet] set priority error', e);
-      alert('Failed to set priority. Please try again.');
-    }
-  };
-
-  // ── Remove Priority (confirmation dialog) ─────────────────────────────────
-  window.jsRemovePriority = function (orderNo) {
-    const dialog = document.getElementById('jsPriorityConfirm');
-    const textEl = document.getElementById('jsPriorityConfirmText');
-    let   btn    = document.getElementById('jsPriorityConfirmBtn');
-    if (!dialog) return;
-    textEl.textContent = `Remove High Priority from order "${orderNo}" for today?`;
-    dialog.style.display = 'flex';
-
-    // Replace button to clear any previous onclick listener
-    const newBtn = btn.cloneNode(true);
-    btn.parentNode.replaceChild(newBtn, btn);
-    newBtn.addEventListener('click', async () => {
-      dialog.style.display = 'none';
-      const u = _jsUser();
-      try {
-        const res = await fetch('/api/planning/job-sheet/priority', {
-          method:  'POST',
-          headers: _jsFactoryHeaders(),
-          body:    JSON.stringify({
-            order_no:      orderNo,
-            action:        'remove',
-            priority_date: _jsToday(),
-            username:      u.username || '',
-            role_code:     u.role_code || ''
-          })
-        });
-        const d = await res.json();
-        if (!res.ok) { alert(d.error || 'Failed to remove priority'); return; }
-        window.loadJobSheet();
-      } catch (e) {
-        console.error('[JobSheet] remove priority error', e);
-        alert('Failed to remove priority. Please try again.');
-      }
-    });
   };
 
   // ── View Details Modal ────────────────────────────────────────────────────
