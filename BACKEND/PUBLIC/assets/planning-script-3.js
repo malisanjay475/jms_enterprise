@@ -115,7 +115,8 @@
         'productionCompletionReport',
         'mouldChangeReport',
         'mapWrap',
-        'dashboardToolbar'
+        'dashboardToolbar',
+        'jobSheetView'
       ];
 
       views.forEach(id => {
@@ -171,6 +172,22 @@
         document.getElementById('printJCView').style.display = 'block';
         if (typeof window.loadPrintJobCards === 'function') window.loadPrintJobCards();
         window.view = 'print_jc';
+      }
+      else if (viewName === 'pending_plan_approval') {
+        const approvalEl = document.getElementById('pendingPlanApprovalView');
+        if (approvalEl) approvalEl.style.display = 'block';
+        if (typeof window.loadJcApprovals === 'function') window.loadJcApprovals('pending');
+        window.view = 'pending_plan_approval';
+      }
+      else if (viewName === 'job_sheet') {
+        const jsEl = document.getElementById('jobSheetView');
+        if (jsEl) jsEl.style.display = 'block';
+        if (typeof window.loadJobSheet === 'function') {
+          window.loadJobSheet();
+        } else {
+          setTimeout(() => { if (typeof window.loadJobSheet === 'function') window.loadJobSheet(); }, 300);
+        }
+        window.view = 'job_sheet';
       }
       else {
         // DASHBOARD (Default)
@@ -844,6 +861,54 @@
           <div id="jcApprovalList" style="min-height:220px"></div>
         </div>
       </div>
+
+      <!-- ═══════════════════════════ JOB SHEET VIEW ═══════════════════════════ -->
+      <div id="jobSheetView" style="display:none; padding:16px">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap">
+          <h2 style="margin:0; font-size:1.25rem; font-weight:700; color:#1e293b; display:flex; align-items:center; gap:8px">
+            <i class="bi bi-fire" style="color:#f97316"></i> High Priority Job Sheet
+            <span style="padding:3px 10px; border-radius:20px; background:#fff7ed; color:#f97316; font-size:.72rem; font-weight:700; border:1px solid #fed7aa">🔥 HIGH PRIORITY ONLY</span>
+          </h2>
+          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:8px">
+            <input type="text" id="jsSearch" placeholder="Search order / product / client…"
+              style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 10px; font-size:.83rem; min-width:240px; color:#1e293b"
+              onkeydown="if(event.key==='Enter') window.loadJobSheet()">
+            <button onclick="window.loadJobSheet()"
+              style="padding:6px 16px; border-radius:6px; background:#3b82f6; color:#fff; border:none; cursor:pointer; font-size:.83rem; font-weight:600; display:flex; align-items:center; gap:5px">
+              <i class="bi bi-search"></i> Search
+            </button>
+          </div>
+          <span style="font-size:.77rem; color:#94a3b8; margin-left:4px">Priority is set in Order Master</span>
+          <span id="jsCount" style="margin-left:auto; font-size:.78rem; color:#94a3b8; font-weight:500"></span>
+        </div>
+        <div style="overflow-x:auto; border:1px solid #e2e8f0; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,.05)">
+          <table id="jobSheetTable" style="width:100%; border-collapse:collapse; font-size:.81rem">
+            <thead>
+              <tr style="background:#fff7ed; color:#92400e; font-weight:700; text-transform:uppercase; font-size:.72rem; letter-spacing:.04em">
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Priority</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Created Date</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">OR/JR No.</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">OR/JR Date</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">OR Qty</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">JR Qty</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Job Card No.</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">JC Date</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Item Code</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Product Name</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Client Name</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">Order Qty</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">Balance Qty</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Order Status</th>
+                <th style="padding:10px 12px; text-align:center; border-bottom:2px solid #fed7aa; white-space:nowrap">Details</th>
+              </tr>
+            </thead>
+            <tbody id="jobSheetBody">
+              <tr><td colspan="15" style="padding:40px; text-align:center; color:#94a3b8"><i class="bi bi-hourglass-split"></i> Loading high-priority orders…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <!-- ═══════════════════════ END JOB SHEET VIEW ═══════════════════════════ -->
 
       <div id="jcApprovalModal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(15,23,42,.58); backdrop-filter:blur(5px); align-items:center; justify-content:center; padding:20px">
         <div style="width:min(1080px,96vw); max-height:92vh; overflow:hidden; background:#fff; border-radius:24px; box-shadow:0 30px 90px rgba(15,23,42,.35); display:flex; flex-direction:column">
@@ -6631,8 +6696,9 @@
           const mouldChangeView = document.getElementById('mouldChangeReport');
           const printView = document.getElementById('printJCView');
           const approvalView = document.getElementById('pendingPlanApprovalView');
+          const jobSheetViewEl = document.getElementById('jobSheetView');
 
-          [masterView, timelineView, excelTimelineView, pcr, cv, mouldChangeView, printView, approvalView].forEach((el) => {
+          [masterView, timelineView, excelTimelineView, pcr, cv, mouldChangeView, printView, approvalView, jobSheetViewEl].forEach((el) => {
             if (el) el.style.display = 'none';
           });
           if (dashboard) dashboard.style.display = 'none';
@@ -6679,6 +6745,9 @@
           } else if (viewName === 'pending_plan_approval') {
             if (approvalView) approvalView.style.display = 'block';
             if (typeof window.loadJcApprovals === 'function') window.loadJcApprovals('pending');
+          } else if (viewName === 'job_sheet') {
+            if (jobSheetViewEl) jobSheetViewEl.style.display = 'block';
+            if (typeof window.loadJobSheet === 'function') window.loadJobSheet();
           } else {
             if (dashboard) dashboard.style.display = 'grid';
             if (kpiDeck) kpiDeck.style.display = 'grid';
@@ -6705,6 +6774,8 @@
           window.switchView('print_jc');
         } else if (view === 'pending_plan_approval') {
           window.switchView('pending_plan_approval');
+        } else if (view === 'job_sheet') {
+          window.switchView('job_sheet');
         }
 
 
@@ -9220,6 +9291,14 @@
         const mouldChangeView = document.getElementById('mouldChangeReport');
         if (mouldChangeView) mouldChangeView.style.display = 'block';
         if (typeof window.loadMouldChangeReport === 'function') window.loadMouldChangeReport();
+      } else if (view === 'job_sheet') {
+        if (vm) vm.style.display = 'none';
+        if (kpiDeck) kpiDeck.style.display = 'none';
+        if (mapWrap) mapWrap.style.display = 'none';
+        if (dashboardToolbar) dashboardToolbar.style.display = 'none';
+        const jsEl = document.getElementById('jobSheetView');
+        if (jsEl) jsEl.style.display = 'block';
+        if (typeof window.loadJobSheet === 'function') window.loadJobSheet();
       } else {
         if (printJcEl) printJcEl.style.display = 'none';
         if (approvalEl) approvalEl.style.display = 'none';
@@ -9255,4 +9334,154 @@
         }
       }
 
-    });
+    });
+
+// ════════════════════════════════════════════════════════════════════════════
+//  JOB SHEET — High-Priority orders (priority read from Order Master)
+// ════════════════════════════════════════════════════════════════════════════
+
+(function () {
+
+  function _jsFactoryHeaders() {
+    const h = { 'Content-Type': 'application/json' };
+    const fid = localStorage.getItem('jpsms_factory_id');
+    if (fid) h['X-Factory-ID'] = fid;
+    const wfid = localStorage.getItem('jpsms_write_factory_id');
+    if (wfid) h['X-Write-Factory-ID'] = wfid;
+    return h;
+  }
+
+  function _fmtDate(d) {
+    if (!d) return '—';
+    const dt = new Date(d);
+    return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+
+  function _fmtNum(n) {
+    return (n != null && n !== '') ? Number(n).toLocaleString('en-IN') : '—';
+  }
+
+  function _statusBadge(s) {
+    if (!s) return '—';
+    const map = {
+      'Pending':   { bg: '#fef9c3', color: '#854d0e' },
+      'Running':   { bg: '#dcfce7', color: '#166534' },
+      'Completed': { bg: '#e0f2fe', color: '#0369a1' },
+      'Cancelled': { bg: '#fee2e2', color: '#991b1b' },
+    };
+    const st = map[s] || { bg: '#f1f5f9', color: '#475569' };
+    return `<span style="padding:2px 9px;border-radius:20px;background:${st.bg};color:${st.color};font-size:.7rem;font-weight:700;white-space:nowrap">${s}</span>`;
+  }
+
+  // Cache of loaded rows — used by jsViewDetails to avoid a second fetch
+  window._jsRows = [];
+
+  // ── Load / refresh table ──────────────────────────────────────────────────
+  window.loadJobSheet = async function () {
+    const searchEl = document.getElementById('jsSearch');
+    const body     = document.getElementById('jobSheetBody');
+    const countEl  = document.getElementById('jsCount');
+
+    if (!body) return;
+
+    const search = (searchEl ? searchEl.value : '').trim();
+
+    body.innerHTML = `<tr><td colspan="15" style="padding:40px;text-align:center;color:#94a3b8">
+      <i class="bi bi-hourglass-split"></i> Loading high-priority orders…</td></tr>`;
+    if (countEl) countEl.textContent = '';
+
+    try {
+      const params = new URLSearchParams({ search });
+      const res  = await fetch(`/api/planning/job-sheet?${params}`, { headers: _jsFactoryHeaders() });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      const rows = data.rows || [];
+
+      // Cache rows so View Details can use them without another API call
+      window._jsRows = rows;
+
+      if (countEl) countEl.textContent = `${rows.length} high-priority order${rows.length !== 1 ? 's' : ''}`;
+
+      if (rows.length === 0) {
+        body.innerHTML = `<tr><td colspan="15" style="padding:48px;text-align:center;color:#94a3b8">
+          <i class="bi bi-inbox" style="font-size:1.6rem"></i><br><br>
+          No high-priority orders found.<br>
+          <span style="font-size:.78rem;color:#cbd5e1">Set priority to <strong>High</strong> in Order Master to see orders here.</span></td></tr>`;
+        return;
+      }
+
+      const border = 'border-bottom:1px solid #fde8cc';
+      const td = (val, extra = '') =>
+        `<td style="padding:9px 12px;${border};${extra}">${val}</td>`;
+
+      body.innerHTML = rows.map((r, i) => {
+        const rowBg = i % 2 === 1 ? 'background:#fffbf5' : 'background:#fff';
+        const idx   = i; // used by View button to look up from _jsRows
+        return `<tr style="${rowBg}">
+          ${td(`<span style="padding:3px 10px;border-radius:20px;background:#f97316;color:#fff;font-size:.73rem;font-weight:700;white-space:nowrap">🔥 HIGH</span>`)}
+          ${td(_fmtDate(r.order_created_at), 'white-space:nowrap;font-weight:600;color:#1e293b')}
+          ${td(`<span style="font-weight:600;color:#0f172a">${r.or_jr_no || '—'}</span>`)}
+          ${td(_fmtDate(r.or_jr_date), 'white-space:nowrap')}
+          ${td(_fmtNum(r.or_qty), 'text-align:right')}
+          ${td(_fmtNum(r.jr_qty), 'text-align:right')}
+          ${td(r.job_card_no || '—')}
+          ${td(_fmtDate(r.job_card_date), 'white-space:nowrap')}
+          ${td(r.item_code || '—')}
+          ${td(`<span title="${(r.product_name||'').replace(/"/g,'&quot;')}" style="display:block;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.product_name || '—'}</span>`)}
+          ${td(`<span title="${(r.client_name||'').replace(/"/g,'&quot;')}" style="display:block;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.client_name || '—'}</span>`)}
+          ${td(_fmtNum(r.order_qty), 'text-align:right')}
+          ${td(_fmtNum(r.order_balance), 'text-align:right')}
+          ${td(_statusBadge(r.order_status))}
+          <td style="padding:9px 12px;${border};text-align:center">
+            <button onclick="window.jsViewDetails(${idx}); event.stopPropagation()"
+              style="padding:4px 13px;border-radius:6px;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:.76rem;white-space:nowrap">
+              <i class="bi bi-eye"></i> View
+            </button>
+          </td>
+        </tr>`;
+      }).join('');
+
+    } catch (e) {
+      console.error('[JobSheet] load error', e);
+      body.innerHTML = `<tr><td colspan="15" style="padding:40px;text-align:center;color:#ef4444">
+        <i class="bi bi-exclamation-triangle"></i> Failed to load data. Please try again.</td></tr>`;
+    }
+  };
+
+  // ── View Details — opens the same Order Modal used by Machine Timeline ────
+  window.jsViewDetails = function (rowIdx) {
+    const row = (window._jsRows || [])[rowIdx];
+    if (!row || !row.or_jr_no) return;
+
+    const orderNo = row.or_jr_no;
+
+    // openOrderModal is defined in timeline_patch.js and appends the modal
+    // directly to document.body, so it survives root.innerHTML replacements.
+    if (typeof window.openOrderModal === 'function') {
+      window.openOrderModal(orderNo);
+      return;
+    }
+
+    // Fallback: timeline_patch.js not loaded yet — show a simple overlay
+    const old = document.getElementById('_jsFallbackOverlay');
+    if (old) old.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = '_jsFallbackOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:24px';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:16px;padding:32px 40px;max-width:420px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+        <div style="font-size:2rem;margin-bottom:8px">📋</div>
+        <div style="font-weight:700;font-size:1rem;color:#1e293b;margin-bottom:6px">Order: ${orderNo}</div>
+        <div style="color:#64748b;font-size:.87rem;margin-bottom:20px">
+          ${row.product_name || ''}${row.client_name ? ' — ' + row.client_name : ''}
+        </div>
+        <div style="color:#94a3b8;font-size:.8rem;margin-bottom:20px">Timeline not loaded. Please open Machine Timeline first.</div>
+        <button onclick="document.getElementById('_jsFallbackOverlay').remove()"
+          style="padding:8px 24px;border-radius:8px;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-weight:600">Close</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  };
+
+})(); // end Job Sheet IIFE

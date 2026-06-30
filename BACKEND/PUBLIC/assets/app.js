@@ -1113,7 +1113,8 @@ function escHtml(value) {
                 { id: 'plan_jc_approval', label: 'Pending Plan Approval', icon: 'bi-shield-check', href: 'planning.html#view=pending_plan_approval' },
                 { id: 'plan_print_jc', label: 'Print JobCard', icon: 'bi-printer', href: 'planning.html#view=print_jc' },
                 { id: 'plan_completed', label: 'Complete Production Plan', icon: 'bi-check-circle-fill', href: 'planning.html?view=prod_complete' },
-                { id: 'mould_drop', label: 'Mould Change Report', icon: 'bi-exclamation-triangle', href: 'planning.html?view=mould_change' }
+                { id: 'mould_drop', label: 'Mould Change Report', icon: 'bi-exclamation-triangle', href: 'planning.html?view=mould_change' },
+                { id: 'plan_job_sheet', label: 'Job Sheet', icon: 'bi-file-earmark-spreadsheet', href: 'planning.html?view=job_sheet' }
             ]
         },
         {

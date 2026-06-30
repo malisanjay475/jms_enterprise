@@ -11717,6 +11717,75 @@ app.get('/api/planning/suggestions', async (req, res) => {
   }
 });
 
+// ─── JOB SHEET ────────────────────────────────────────────────────────────────
+
+// ─── JOB SHEET — High-Priority Orders (reads orders.priority set in Order Master) ──
+// Starts from `orders` table so orders with no JR report still appear.
+// Uses LATERAL to get the most recent or_jr_report row for each order.
+app.get('/api/planning/job-sheet', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const search    = (req.query.search || '').trim();
+
+    // $1 = factoryId
+    const params = [factoryId];
+    let searchClause = '';
+    if (search) {
+      params.push(`%${search}%`);
+      const p = params.length;
+      searchClause = `AND (
+        o.order_no    ILIKE $${p}
+        OR COALESCE(r.product_name, o.item_name) ILIKE $${p}
+        OR COALESCE(r.client_name,  o.client_name) ILIKE $${p}
+        OR COALESCE(r.item_code,    o.item_code)   ILIKE $${p}
+      )`;
+    }
+
+    const sql = `
+      SELECT
+        o.order_no                                       AS or_jr_no,
+        r.or_jr_date,
+        r.or_qty,
+        r.jr_qty,
+        r.job_card_no,
+        r.job_card_date,
+        COALESCE(r.item_code,    o.item_code)   AS item_code,
+        COALESCE(r.product_name, o.item_name)   AS product_name,
+        COALESCE(r.client_name,  o.client_name) AS client_name,
+        r.prod_plan_qty,
+        r.std_pack,
+        r.uom,
+        o.priority,
+        o.qty        AS order_qty,
+        o.balance    AS order_balance,
+        o.status     AS order_status,
+        o.created_at AS order_created_at
+      FROM orders o
+      LEFT JOIN LATERAL (
+        SELECT *
+        FROM or_jr_report rr
+        WHERE TRIM(rr.or_jr_no) = TRIM(o.order_no)
+          AND ($1::integer IS NULL OR rr.factory_id = $1::integer)
+        ORDER BY rr.or_jr_date DESC NULLS LAST, rr.id DESC
+        LIMIT 1
+      ) r ON true
+      WHERE ($1::integer IS NULL OR o.factory_id = $1::integer)
+        AND LOWER(o.priority) = 'high'
+        ${searchClause}
+      ORDER BY o.created_at DESC
+      LIMIT 500
+    `;
+
+    const rows = await q(sql, params);
+    res.json({ rows, total: rows.length });
+  } catch (err) {
+    console.error('[GET /api/planning/job-sheet]', err);
+    res.status(500).json({ error: 'Failed to load job sheet data' });
+  }
+});
+
+// ─── END JOB SHEET ────────────────────────────────────────────────────────────
+
 app.get('/api/planning/completed', async (req, res) => {
   try {
     const factoryId = getFactoryId(req);
