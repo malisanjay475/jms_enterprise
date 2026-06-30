@@ -503,9 +503,12 @@
 
       let entries = [];
       try {
-        const r = await fetch('/api/dpr/recent?machine=' + encodeURIComponent(machine) + '&date=' + date + '&shift=' + encodeURIComponent(shift) + '&limit=50');
+        const r = await fetch('/api/dpr/recent?machine=' + encodeURIComponent(machine) + '&date=' + encodeURIComponent(date) + '&shift=' + encodeURIComponent(shift) + '&limit=50');
         const j = await r.json();
-        entries = Array.isArray(j.data) ? j.data : (Array.isArray(j.rows) ? j.rows : []);
+        // API returns { ok, data: { rows: [...] } }
+        if (j && j.data && Array.isArray(j.data.rows)) entries = j.data.rows;
+        else if (j && Array.isArray(j.data)) entries = j.data;
+        else if (j && Array.isArray(j.rows)) entries = j.rows;
       } catch (e) {
         el('recent-slots-body').innerHTML = '<div class="muted" style="text-align:center;padding:24px">Failed to load</div>';
         return;
@@ -2295,13 +2298,11 @@
         loadUsedSlots();
         show('dpr-form');
         showPage('sec-dpr', el('tab-dpr'));
-        // Scroll to Colour & QTY table so operator immediately sees the colour breakdown
-        const _colorCard = el('color-plan-card');
-        if (_colorCard) {
-          _colorCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } else {
-          document.getElementById('sec-dpr').scrollIntoView({ behavior: 'smooth' });
-        }
+        // Scroll to DPR entry form so operator immediately sees it
+        setTimeout(() => {
+          const _form = el('dpr-form') || el('sec-dpr');
+          if (_form) _form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 80);
       } catch (e) { alert('Error opening DPR Form: ' + e.message); console.error(e); }
     }
 
