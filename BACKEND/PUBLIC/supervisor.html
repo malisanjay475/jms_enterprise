@@ -1104,16 +1104,15 @@
 
           <div class="row" style="margin-top:6px">
             <label>Hour Slot
-              <!-- NEW: loader text for slot -->
               <span id="slot-loader" class="muted" style="font-size:11px"></span>
+            </label>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+              <select id="d-slot" style="flex:1;min-width:0"></select>
               <button type="button" id="btn-recent-slots" onclick="openRecentSlots()"
-                style="font-size:10px;padding:1px 6px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--accent);cursor:pointer;margin-left:5px;vertical-align:middle;line-height:1.5;font-weight:600">
+                style="flex-shrink:0;height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--accent);background:var(--card);color:var(--accent);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">
                 📋
               </button>
-              <div class="inline">
-                <select id="d-slot" style="flex:1"></select>
-              </div>
-            </label>
+            </div>
             <label>Colour
               <!-- Hidden select — keeps value for JS/CC modal compatibility -->
               <select id="d-color" onchange="onColorChange()" style="display:none">
