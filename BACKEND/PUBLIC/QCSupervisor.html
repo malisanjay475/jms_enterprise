@@ -707,6 +707,67 @@
             50%       { opacity: .5; transform: scale(1.4) }
         }
 
+        /* ── v3 Job Card ── */
+        .v3-flow-badge { min-height: 22px }
+        .v3-btn-row { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px }
+        .v3-btn-row button {
+            font-size: 12px !important;
+            padding: 6px 10px !important;
+            min-height: 34px !important;
+            border-radius: 10px !important;
+        }
+        .v3-btn-row button[disabled] {
+            opacity: 0.35;
+            cursor: not-allowed;
+            background: var(--surface-elevated) !important;
+            color: var(--muted) !important;
+            border-color: var(--line) !important;
+        }
+        /* FPA View Gallery */
+        .fpa-done-banner {
+            background: #ecfdf5;
+            border: 1px solid #6ee7b7;
+            border-radius: 12px;
+            padding: 12px;
+        }
+        .fpa-img-gallery {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .fpa-img-gallery img {
+            width: 100%; aspect-ratio: 1;
+            object-fit: cover;
+            border-radius: 10px;
+            border: 1px solid var(--line);
+            cursor: pointer;
+        }
+        /* Recent v3 */
+        .recent-slot-card {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px;
+            background: var(--surface);
+            margin-bottom: 8px;
+        }
+        .recent-slot-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 6px;
+        }
+        .recent-slot-chip {
+            background: var(--surface-elevated);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 4px 8px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .recent-ok { background: #ecfdf5; color: #059669; border-color: #6ee7b7 }
+        .recent-notok { background: #fef2f2; color: #dc2626; border-color: #fca5a5 }
+
         /* ── Desktop polish ── */
         @media (min-width: 800px) {
             body {
@@ -852,18 +913,7 @@
                     <button class="small" style="border-color:var(--err);color:var(--err);white-space:nowrap" onclick="showPage('sec-verify',document.getElementById('tab-verify'));loadVerifySlots()">Verify Now →</button>
                 </div>
 
-                <!-- Shift Team -->
-                <div style="margin-bottom:12px">
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-                        <div style="font-weight:700;font-size:14px">👥 QC Shift Team</div>
-                        <button class="small ghost" onclick="openAddTeamMemberModal()">+ Add</button>
-                    </div>
-                    <div id="shift-team-list" style="display:flex;flex-direction:column;gap:0"></div>
-                    <div id="shift-team-empty" class="muted" style="font-size:12px">No team members assigned for this shift.</div>
-                </div>
-                <div class="hr"></div>
-
-                <h2 style="margin-bottom:6px">Job Queue</h2>
+<h2 style="margin-bottom:6px">Job Queue</h2>
                 <div class="muted" style="font-size:13px;margin-bottom:10px">Tap <b>QC Check</b>, <b>FPA</b>, or <b>⚙️</b> on any job.</div>
                 <div id="jobs" class="jobs"></div>
                 <div id="no-jobs" class="no-jobs hidden">No queued jobs for this machine.</div>
@@ -898,7 +948,11 @@
 
             <!-- ══ QC ONLINE REPORT (slot accordion) ══ -->
             <section id="sec-qc-report" class="page card hidden">
-                <h2 style="margin-bottom:4px">Online QC Report</h2>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                    <button id="qcr-back-btn" class="small ghost hidden" onclick="showPage('sec-queue',document.getElementById('tab-queue'))" style="padding:6px 10px;font-size:13px">← Back</button>
+                    <h2 style="margin:0">Online QC Report</h2>
+                </div>
+                <div id="qcr-job-banner" class="hidden" style="margin-bottom:10px"></div>
                 <div class="muted" style="font-size:13px;margin-bottom:10px">2-hour slot checks: Visual, Colour, Function/Fitment.</div>
                 <div class="grid-2" style="margin-bottom:10px">
                     <label>Shift
@@ -1423,30 +1477,6 @@
         </div>
     </div>
 
-    <!-- ══ MODAL: Add Team Member ══ -->
-    <div id="modal-add-team" class="modal hidden" role="dialog" aria-modal="true">
-        <div class="panel card">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-                <h3 style="margin:0">Add Team Member</h3>
-                <button class="small ghost" onclick="document.getElementById('modal-add-team').classList.add('hidden')">✕</button>
-            </div>
-            <div class="row">
-                <label>Name <input id="team-name" placeholder="Employee name" autocomplete="off"></label>
-                <label>Role
-                    <select id="team-role">
-                        <option>QC Inspector</option>
-                        <option>QC Supervisor</option>
-                        <option>QC Incharge</option>
-                    </select>
-                </label>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:10px">
-                <button class="primary" style="flex:1" onclick="addShiftTeamMember()">Add Member</button>
-                <button class="ghost" onclick="document.getElementById('modal-add-team').classList.add('hidden')">Cancel</button>
-            </div>
-        </div>
-    </div>
-
     <!-- ══ MODAL: New Material Issue ══ -->
     <div id="modal-new-issue" class="modal hidden" role="dialog" aria-modal="true">
         <div class="panel card">
@@ -1489,8 +1519,19 @@
         </div>
     </div>
 
-  <script src="/assets/QCSupervisor-script-1.js?v=release64"></script>
-  <script src="/assets/register-sw.js?v=release64"></script>
+    <!-- ══ IMAGE LIGHTBOX ══ -->
+    <div id="modal-img-lightbox" class="hidden" role="dialog" aria-modal="true" aria-label="Image viewer"
+        style="position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.92);display:flex;align-items:center;justify-content:center;flex-direction:column;touch-action:pinch-zoom"
+        onclick="closeImageLightbox()">
+        <button onclick="closeImageLightbox();event.stopPropagation()"
+            style="position:absolute;top:calc(12px + env(safe-area-inset-top));right:16px;background:rgba(255,255,255,0.15);border:none;color:#fff;width:40px;height:40px;border-radius:50%;font-size:20px;display:flex;align-items:center;justify-content:center;padding:0;min-height:0;box-shadow:none;z-index:1">✕</button>
+        <img id="lightbox-img" src="" alt="Full image"
+            style="max-width:calc(100vw - 24px);max-height:calc(100dvh - 80px);object-fit:contain;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.6)"
+            onclick="event.stopPropagation()">
+    </div>
+
+  <script src="/assets/QCSupervisor-script-1.js?v=release67"></script>
+  <script src="/assets/register-sw.js?v=release67"></script>
 
 </body>
 

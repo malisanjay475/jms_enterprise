@@ -1706,6 +1706,10 @@ async function migrateOrjrWiseDetailSchema() {
 
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_planning_report_factory_id ON mould_planning_report(factory_id)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_mpr_order ON mould_planning_report(or_jr_no)`);
+  // Functional index on TRIM(or_jr_no) — used by colour-plan query WHERE TRIM(r.or_jr_no) = TRIM($1).
+  // Covers rows where data has leading/trailing spaces (imports/syncs), unlike the plain index above.
+  // Also composite with factory_id so Postgres can satisfy both filter columns from one index.
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_mpr_order_trim ON mould_planning_report(TRIM(or_jr_no), factory_id)`);
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS mould_report_date_uniq_idx ON mould_planning_report(or_jr_no, mould_no, mould_item_code, plan_date)`);
 
   /* ── Fix: reset serial sequence to max(id) to prevent pkey conflicts
@@ -1894,6 +1898,7 @@ async function migrateWipStockMasterSchema() {
 
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_snapshots_factory_date ON wip_stock_snapshots(factory_id, stock_date DESC)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_snapshot ON wip_stock_snapshot_lines(snapshot_id, line_type, sr_no)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_snapshot_item ON wip_stock_snapshot_lines(snapshot_id, item_code)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_factory_date ON wip_stock_snapshot_lines(factory_id, stock_date DESC)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_comparison_key ON wip_stock_snapshot_lines(factory_id, stock_date DESC, comparison_key)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_movements_factory_date ON wip_stock_movements(factory_id, movement_at DESC)`);
@@ -3148,7 +3153,7 @@ async function getOrderPlanningCompletion(db, orderNo, factoryId) {
            NULLIF(TRIM(r.job_card_no), '') AS job_card_no,
            r.remarks_all
     FROM or_jr_report r
-    WHERE r.or_jr_no = TRIM($1)
+    WHERE TRIM(r.or_jr_no) = TRIM($1)
       AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
       AND COALESCE(TRIM(r.jr_close), '') <> 'Yes'
       AND (r.is_closed IS FALSE OR r.is_closed IS NULL)
@@ -9967,16 +9972,6 @@ async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, opti
       WHERE ($2::int IS NULL OR factory_id = $2)
       ORDER BY stock_date DESC NULLS LAST, id DESC
       LIMIT 1
-    ),
-    latest_wip AS (
-      SELECT
-        TRIM(COALESCE(l.item_code, '')) AS item_code,
-        SUM(COALESCE(l.current_stock_available_qty, l.total_qty, 0))::numeric AS wip_qty,
-        MAX(ls.stock_date)::text AS stock_date
-      FROM latest_snapshot ls
-      JOIN wip_stock_snapshot_lines l ON l.snapshot_id = ls.id
-      WHERE ($2::int IS NULL OR l.factory_id = $2 OR l.factory_id IS NULL)
-      GROUP BY TRIM(COALESCE(l.item_code, ''))
     )
     SELECT
       TRIM(COALESCE(r.item_code, '')) AS item_code,
@@ -9991,9 +9986,16 @@ async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, opti
       COALESCE(w.wip_qty, 0)::numeric AS wip_qty,
       w.stock_date AS wip_stock_date
     FROM mould_planning_report r
-    LEFT JOIN latest_wip w
-      ON TRIM(COALESCE(w.item_code, '')) = TRIM(COALESCE(NULLIF(r.mould_item_code, ''), r.item_code, ''))
-    WHERE r.or_jr_no = TRIM($1)
+    LEFT JOIN LATERAL (
+      SELECT
+        SUM(COALESCE(l.current_stock_available_qty, l.total_qty, 0))::numeric AS wip_qty,
+        MAX(ls.stock_date)::text AS stock_date
+      FROM latest_snapshot ls
+      JOIN wip_stock_snapshot_lines l ON l.snapshot_id = ls.id
+      WHERE TRIM(COALESCE(l.item_code, '')) = TRIM(COALESCE(NULLIF(r.mould_item_code, ''), r.item_code, ''))
+        AND ($2::int IS NULL OR l.factory_id = $2 OR l.factory_id IS NULL)
+    ) w ON true
+    WHERE TRIM(r.or_jr_no) = TRIM($1)
       AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
     ORDER BY TRIM(COALESCE(r.item_code, '')), TRIM(COALESCE(r.product_name, ''))
   `, [orderNo, factoryId]);
@@ -10410,7 +10412,7 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
         r.mld_status,
         r.remarks_all
       FROM or_jr_report r
-      WHERE r.or_jr_no = TRIM($1)
+      WHERE TRIM(r.or_jr_no) = TRIM($1)
         AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
         AND COALESCE(TRIM(r.jr_close), '') <> 'Yes'
         AND (r.is_closed IS FALSE OR r.is_closed IS NULL)
@@ -13225,7 +13227,7 @@ app.get('/api/planning/job-card-print', async (req, res) => {
           r.cycle_time,
           r.cavity
         FROM mould_planning_report r
-        WHERE r.or_jr_no = TRIM($1)
+        WHERE TRIM(r.or_jr_no) = TRIM($1)
           AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
           AND (
             ($3::text <> '' AND TRIM(COALESCE(r.mould_no, '')) = TRIM($3::text))
@@ -20396,12 +20398,40 @@ app.get('/api/qc/recent', async (req, res) => {
   try {
     const { machine, limit } = req.query;
     const rows = await q(`
-SELECT * FROM qc_online_reports 
+SELECT * FROM qc_online_reports
       WHERE machine = $1
       ORDER BY created_at DESC
       LIMIT $2
   `, [machine || '', limit || 10]);
     res.json({ ok: true, data: rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/recent-slots — recent qc_online_report_slots (v2 full-detail recent tab)
+app.get('/api/qc/recent-slots', async (req, res) => {
+  try {
+    const { machine, limit } = req.query;
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT s.*, f.fpa_done_by, f.fpa_form_url, f.fpa_done_at
+       FROM qc_online_report_slots s
+       LEFT JOIN LATERAL (
+         SELECT fpa_done_by, fpa_form_url, fpa_done_at
+         FROM qc_job_checks
+         WHERE TRIM(COALESCE(job_card_no,'')) = TRIM(COALESCE(s.job_card_no,''))
+           AND machine = s.machine AND date = s.dpr_date
+           AND fpa_status = 'Done'
+         ORDER BY updated_at DESC LIMIT 1
+       ) f ON true
+       WHERE s.machine = $1
+         AND ($2::int IS NULL OR s.factory_id = $2 OR s.factory_id IS NULL)
+       ORDER BY s.entered_at DESC
+       LIMIT $3`,
+      [machine || '', factoryId, Math.min(50, Number(limit || 20))]
+    );
+    res.json({ ok: true, data: rows || [] });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
