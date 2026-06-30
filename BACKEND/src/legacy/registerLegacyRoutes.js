@@ -3990,6 +3990,28 @@ async function bootstrapFreshCoreTables() {
   await q(`ALTER TABLE user_factories ALTER COLUMN role_code SET DEFAULT 'member'`);
   await q(`UPDATE user_factories SET role_code = 'member' WHERE role_code IS NULL`);
 
+  // ── Activity Monitor: track all user sessions across every JMS app ──
+  await q(`
+    CREATE TABLE IF NOT EXISTS user_activity_log (
+      id         BIGSERIAL PRIMARY KEY,
+      username   TEXT NOT NULL,
+      role_code  TEXT,
+      app_id     TEXT,
+      action     TEXT NOT NULL,
+      page       TEXT,
+      device_type TEXT,
+      ip_address TEXT,
+      user_agent TEXT,
+      factory_id TEXT,
+      session_id TEXT,
+      extra      JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await q(`CREATE INDEX IF NOT EXISTS ual_username_idx    ON user_activity_log(username)`);
+  await q(`CREATE INDEX IF NOT EXISTS ual_created_at_idx ON user_activity_log(created_at DESC)`);
+  await q(`CREATE INDEX IF NOT EXISTS ual_action_idx     ON user_activity_log(action)`);
+
   await q(`
     CREATE TABLE IF NOT EXISTS machines (
       id SERIAL PRIMARY KEY,
@@ -5452,6 +5474,17 @@ app.post('/api/login', async (req, res) => {
 
     u.shift = shift;
     u.shiftDate = dateStr;
+
+    // Log login event (non-blocking — never delay login response)
+    const _loginIp = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+    const _loginUa = String(req.headers['user-agent'] || '');
+    const _loginDevice = /mobile|android|iphone|ipad/i.test(_loginUa) ? 'mobile' : 'desktop';
+    const _loginAppId = requestedApp || 'web';
+    q(
+      `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, created_at)
+       VALUES ($1,$2,$3,'login',$4,$5,$6,$7,$8,$9,NOW())`,
+      [u.username, u.role_code || '', _loginAppId, null, _loginDevice, _loginIp, _loginUa.slice(0, 500), String(req.body?.factory_id || ''), String(req.body?.session_id || '')]
+    ).catch(() => {});
 
     // Return user info + factories list
     res.json({ ok: true, data: u, factories, can_select_all_factories: factoryAccess.canSelectAllFactories });
@@ -22835,6 +22868,112 @@ count(*) as total,
     });
   } catch (e) {
     res.json({ error: String(e), stack: e.stack });
+  }
+});
+
+/* ============================================================
+   ACTIVITY MONITOR — heartbeat + admin query
+============================================================ */
+
+// POST /api/activity/heartbeat  — called by every page every 60 s
+app.post('/api/activity/heartbeat', async (req, res) => {
+  try {
+    const { username, role_code, app_id, page, device_type, factory_id, session_id } = req.body || {};
+    if (!username) return res.json({ ok: false, error: 'username required' });
+    const ip = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+    const ua = String(req.headers['user-agent'] || '').slice(0, 500);
+    const device = device_type || (/mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop');
+    await q(
+      `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, created_at)
+       VALUES ($1,$2,$3,'heartbeat',$4,$5,$6,$7,$8,$9,NOW())`,
+      [username, role_code || '', app_id || 'web', page || '', device, ip, ua, String(factory_id || ''), String(session_id || '')]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/activity/monitor  — admin view: who is online + recent history
+app.get('/api/activity/monitor', async (req, res) => {
+  try {
+    // Latest status per user (last event within 10 min = online, 10-30 min = idle, >30 = offline)
+    const onlineRows = await q(`
+      SELECT DISTINCT ON (username)
+        username, role_code, app_id, page, device_type, ip_address, factory_id, action, created_at
+      FROM user_activity_log
+      ORDER BY username, created_at DESC
+    `);
+
+    // Actions today per user
+    const todayRows = await q(`
+      SELECT username, COUNT(*) AS actions_today
+      FROM user_activity_log
+      WHERE created_at >= CURRENT_DATE
+        AND action NOT IN ('heartbeat')
+      GROUP BY username
+    `);
+    const todayMap = {};
+    for (const r of todayRows) todayMap[r.username] = Number(r.actions_today);
+
+    // Logins today per user
+    const loginRows = await q(`
+      SELECT username, COUNT(*) AS logins_today
+      FROM user_activity_log
+      WHERE created_at >= CURRENT_DATE AND action = 'login'
+      GROUP BY username
+    `);
+    const loginMap = {};
+    for (const r of loginRows) loginMap[r.username] = Number(r.logins_today);
+
+    const now = Date.now();
+    const users = onlineRows.map(r => {
+      const diffMs = now - new Date(r.created_at).getTime();
+      const diffMin = diffMs / 60000;
+      let status = 'offline';
+      if (diffMin <= 2.5) status = 'online';
+      else if (diffMin <= 30) status = 'idle';
+      return {
+        username: r.username,
+        role_code: r.role_code,
+        app_id: r.app_id,
+        page: r.page,
+        device_type: r.device_type,
+        ip_address: r.ip_address,
+        factory_id: r.factory_id,
+        last_action: r.action,
+        last_seen: r.created_at,
+        status,
+        actions_today: todayMap[r.username] || 0,
+        logins_today: loginMap[r.username] || 0
+      };
+    });
+
+    // Recent full log (last 500 events, non-heartbeat, last 24h)
+    const recentLimit = Math.min(500, parseInt(req.query.limit || '200', 10));
+    const filterUser = req.query.username ? String(req.query.username) : null;
+    const filterApp  = req.query.app_id ? String(req.query.app_id) : null;
+    const filterDate = req.query.date ? String(req.query.date) : null;
+
+    let logWhere = `WHERE created_at >= NOW() - INTERVAL '7 days'`;
+    const logParams = [];
+    if (filterUser) { logWhere += ` AND username = $${logParams.length + 1}`; logParams.push(filterUser); }
+    if (filterApp)  { logWhere += ` AND app_id  = $${logParams.length + 1}`; logParams.push(filterApp); }
+    if (filterDate) { logWhere += ` AND created_at::date = $${logParams.length + 1}::date`; logParams.push(filterDate); }
+
+    const recentLog = await q(
+      `SELECT id, username, role_code, app_id, action, page, device_type, ip_address, factory_id, session_id, created_at
+       FROM user_activity_log
+       ${logWhere}
+       ORDER BY created_at DESC
+       LIMIT ${recentLimit}`,
+      logParams
+    );
+
+    res.json({ ok: true, users, recent_log: recentLog });
+  } catch (e) {
+    console.error('activity monitor error', e);
+    res.status(500).json({ ok: false, error: String(e) });
   }
 });
 
