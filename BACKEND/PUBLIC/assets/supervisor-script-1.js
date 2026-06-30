@@ -2154,6 +2154,12 @@
         if (colorSel) { colorSel.value = ''; }
         closeColorPickerPanel();
 
+        // Lock entry body immediately — colour must be chosen before any entry
+        const _eb = el('dpr-entry-body');
+        const _cp = el('colour-required-prompt');
+        if (_eb) { _eb.style.pointerEvents = 'none'; _eb.style.opacity = '0.35'; }
+        if (_cp) _cp.style.display = 'block';
+
         onColorChange();
 
         rejItems = []; dtItems = []; renderRejItems(); renderDtItems();
@@ -2569,6 +2575,17 @@
           r.classList.remove('selected');
         }
       });
+
+      // Lock / unlock the entry body based on whether a colour is chosen
+      const entryBody = el('dpr-entry-body');
+      const prompt = el('colour-required-prompt');
+      if (val) {
+        if (entryBody) { entryBody.style.pointerEvents = ''; entryBody.style.opacity = '1'; }
+        if (prompt) prompt.style.display = 'none';
+      } else {
+        if (entryBody) { entryBody.style.pointerEvents = 'none'; entryBody.style.opacity = '0.35'; }
+        if (prompt) prompt.style.display = 'block';
+      }
 
       // Always re-evaluate submit eligibility when colour changes
       validateForm();
