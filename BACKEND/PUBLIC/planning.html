@@ -3192,58 +3192,6 @@
 
 
 
-  <!-- ═══════════════════════════ JOB SHEET VIEW ═══════════════════════════ -->
-  <div id="jobSheetView" style="display:none; padding:16px">
-
-    <!-- Header toolbar -->
-    <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap">
-      <h2 style="margin:0; font-size:1.25rem; font-weight:700; color:#1e293b; display:flex; align-items:center; gap:8px">
-        <i class="bi bi-file-earmark-spreadsheet" style="color:#3b82f6"></i> Job Sheet
-      </h2>
-      <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:8px">
-        <label style="font-size:.83rem; color:#64748b; font-weight:500">From</label>
-        <input type="date" id="jsFrom" style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 8px; font-size:.83rem; color:#1e293b">
-        <label style="font-size:.83rem; color:#64748b; font-weight:500">To</label>
-        <input type="date" id="jsTo"   style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 8px; font-size:.83rem; color:#1e293b">
-        <input type="text" id="jsSearch" placeholder="Search order / product / client…"
-          style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 10px; font-size:.83rem; min-width:210px; color:#1e293b"
-          onkeydown="if(event.key==='Enter') window.loadJobSheet()">
-        <button onclick="window.loadJobSheet()"
-          style="padding:6px 16px; border-radius:6px; background:#3b82f6; color:#fff; border:none; cursor:pointer; font-size:.83rem; font-weight:600; display:flex; align-items:center; gap:5px">
-          <i class="bi bi-search"></i> Apply Filters
-        </button>
-      </div>
-      <span id="jsCount" style="margin-left:auto; font-size:.78rem; color:#94a3b8; font-weight:500"></span>
-    </div>
-
-    <!-- Table -->
-    <div style="overflow-x:auto; border:1px solid #e2e8f0; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,.05)">
-      <table id="jobSheetTable" style="width:100%; border-collapse:collapse; font-size:.81rem">
-        <thead>
-          <tr style="background:#f1f5f9; color:#475569; font-weight:700; text-transform:uppercase; font-size:.72rem; letter-spacing:.04em">
-            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Priority</th>
-            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">OR/JR No.</th>
-            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">OR/JR Date</th>
-            <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">OR Qty</th>
-            <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">JR Qty</th>
-            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Job Card No.</th>
-            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">JC Date</th>
-            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Item Code</th>
-            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Product Name</th>
-            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Client Name</th>
-            <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">Prod Plan Qty</th>
-            <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">Std Pack</th>
-            <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">UOM</th>
-            <th style="padding:10px 12px; text-align:center; border-bottom:2px solid #e2e8f0; white-space:nowrap">Details</th>
-          </tr>
-        </thead>
-        <tbody id="jobSheetBody">
-          <tr><td colspan="14" style="padding:40px; text-align:center; color:#94a3b8">Select a date range and click Apply Filters.</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
   <!-- Job Sheet: View Details Modal -->
   <div id="jsDetailModal" class="modal" aria-hidden="true" style="padding-top:80px">
     <div class="modal-card" style="width:820px; max-height:85vh; display:flex; flex-direction:column">
