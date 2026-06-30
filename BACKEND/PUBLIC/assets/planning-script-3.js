@@ -886,6 +886,7 @@
             <thead>
               <tr style="background:#fff7ed; color:#92400e; font-weight:700; text-transform:uppercase; font-size:.72rem; letter-spacing:.04em">
                 <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Priority</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Created Date</th>
                 <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">OR/JR No.</th>
                 <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">OR/JR Date</th>
                 <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">OR Qty</th>
@@ -902,7 +903,7 @@
               </tr>
             </thead>
             <tbody id="jobSheetBody">
-              <tr><td colspan="14" style="padding:40px; text-align:center; color:#94a3b8"><i class="bi bi-hourglass-split"></i> Loading high-priority orders…</td></tr>
+              <tr><td colspan="15" style="padding:40px; text-align:center; color:#94a3b8"><i class="bi bi-hourglass-split"></i> Loading high-priority orders…</td></tr>
             </tbody>
           </table>
         </div>
@@ -9372,6 +9373,9 @@
     return `<span style="padding:2px 9px;border-radius:20px;background:${st.bg};color:${st.color};font-size:.7rem;font-weight:700;white-space:nowrap">${s}</span>`;
   }
 
+  // Cache of loaded rows — used by jsViewDetails to avoid a second fetch
+  window._jsRows = [];
+
   // ── Load / refresh table ──────────────────────────────────────────────────
   window.loadJobSheet = async function () {
     const searchEl = document.getElementById('jsSearch');
@@ -9382,7 +9386,7 @@
 
     const search = (searchEl ? searchEl.value : '').trim();
 
-    body.innerHTML = `<tr><td colspan="14" style="padding:40px;text-align:center;color:#94a3b8">
+    body.innerHTML = `<tr><td colspan="15" style="padding:40px;text-align:center;color:#94a3b8">
       <i class="bi bi-hourglass-split"></i> Loading high-priority orders…</td></tr>`;
     if (countEl) countEl.textContent = '';
 
@@ -9393,10 +9397,13 @@
       const data = await res.json();
       const rows = data.rows || [];
 
+      // Cache rows so View Details can use them without another API call
+      window._jsRows = rows;
+
       if (countEl) countEl.textContent = `${rows.length} high-priority order${rows.length !== 1 ? 's' : ''}`;
 
       if (rows.length === 0) {
-        body.innerHTML = `<tr><td colspan="14" style="padding:48px;text-align:center;color:#94a3b8">
+        body.innerHTML = `<tr><td colspan="15" style="padding:48px;text-align:center;color:#94a3b8">
           <i class="bi bi-inbox" style="font-size:1.6rem"></i><br><br>
           No high-priority orders found.<br>
           <span style="font-size:.78rem;color:#cbd5e1">Set priority to <strong>High</strong> in Order Master to see orders here.</span></td></tr>`;
@@ -9409,9 +9416,11 @@
 
       body.innerHTML = rows.map((r, i) => {
         const rowBg = i % 2 === 1 ? 'background:#fffbf5' : 'background:#fff';
+        const idx   = i; // used by View button to look up from _jsRows
         return `<tr style="${rowBg}">
           ${td(`<span style="padding:3px 10px;border-radius:20px;background:#f97316;color:#fff;font-size:.73rem;font-weight:700;white-space:nowrap">🔥 HIGH</span>`)}
-          ${td(`<span style="font-weight:600;color:#1e293b">${r.or_jr_no || '—'}</span>`)}
+          ${td(_fmtDate(r.order_created_at), 'white-space:nowrap;font-weight:600;color:#1e293b')}
+          ${td(`<span style="font-weight:600;color:#0f172a">${r.or_jr_no || '—'}</span>`)}
           ${td(_fmtDate(r.or_jr_date), 'white-space:nowrap')}
           ${td(_fmtNum(r.or_qty), 'text-align:right')}
           ${td(_fmtNum(r.jr_qty), 'text-align:right')}
@@ -9424,7 +9433,7 @@
           ${td(_fmtNum(r.order_balance), 'text-align:right')}
           ${td(_statusBadge(r.order_status))}
           <td style="padding:9px 12px;${border};text-align:center">
-            <button onclick="window.jsViewDetails('${(r.or_jr_no||'').replace(/'/g,"\\'")}'); event.stopPropagation()"
+            <button onclick="window.jsViewDetails(${idx}); event.stopPropagation()"
               style="padding:4px 13px;border-radius:6px;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-size:.76rem;white-space:nowrap">
               <i class="bi bi-eye"></i> View
             </button>
@@ -9434,73 +9443,60 @@
 
     } catch (e) {
       console.error('[JobSheet] load error', e);
-      body.innerHTML = `<tr><td colspan="14" style="padding:40px;text-align:center;color:#ef4444">
+      body.innerHTML = `<tr><td colspan="15" style="padding:40px;text-align:center;color:#ef4444">
         <i class="bi bi-exclamation-triangle"></i> Failed to load data. Please try again.</td></tr>`;
     }
   };
 
-  // ── View Details Modal ────────────────────────────────────────────────────
-  window.jsViewDetails = async function (orderNo) {
+  // ── View Details Modal — uses cached row, no second API call ──────────────
+  window.jsViewDetails = function (rowIdx) {
     const modal   = document.getElementById('jsDetailModal');
     const titleEl = document.getElementById('jsDetailTitle');
     const bodyEl  = document.getElementById('jsDetailBody');
     if (!modal) return;
 
-    if (titleEl) titleEl.textContent = orderNo;
-    if (bodyEl)  bodyEl.innerHTML = '<div style="padding:40px;text-align:center;color:#94a3b8"><i class="bi bi-hourglass-split"></i> Loading…</div>';
+    const row = (window._jsRows || [])[rowIdx];
+    if (!row) {
+      if (bodyEl) bodyEl.innerHTML = '<div style="padding:40px;text-align:center;color:#ef4444">Row data not found. Please reload the page.</div>';
+      modal.setAttribute('aria-hidden', 'false');
+      modal.style.display = 'flex';
+      return;
+    }
+
+    if (titleEl) titleEl.textContent = `Order: ${row.or_jr_no || '—'}`;
     modal.setAttribute('aria-hidden', 'false');
     modal.style.display = 'flex';
 
-    try {
-      const res  = await fetch(`/api/masters/data?type=orjr&search=${encodeURIComponent(orderNo)}`);
-      const data = await res.json();
-      const list = data.rows || data || [];
-      const row  = list.find(r => r.or_jr_no === orderNo) || list[0];
+    const field = (label, val) => `
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <span style="font-size:.7rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em">${label}</span>
+        <span style="font-size:.88rem;color:#1e293b;font-weight:500">${val !== undefined && val !== null && val !== '' ? val : '—'}</span>
+      </div>`;
 
-      if (!row) {
-        bodyEl.innerHTML = '<div style="padding:40px;text-align:center;color:#ef4444">Record not found.</div>';
-        return;
-      }
-
-      const field = (label, val) => `
-        <div style="display:flex;flex-direction:column;gap:3px">
-          <span style="font-size:.7rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em">${label}</span>
-          <span style="font-size:.88rem;color:#1e293b;font-weight:500">${val !== undefined && val !== null && val !== '' ? val : '—'}</span>
-        </div>`;
-
-      bodyEl.innerHTML = `
-        <div style="margin-bottom:6px;font-size:.78rem;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.06em">Core Details</div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;padding-bottom:20px">
-          ${field('OR/JR No.',     row.or_jr_no)}
-          ${field('OR/JR Date',    _fmtDate(row.or_jr_date))}
-          ${field('OR Qty',        _fmtNum(row.or_qty))}
-          ${field('JR Qty',        _fmtNum(row.jr_qty))}
-          ${field('Job Card No.',  row.job_card_no)}
-          ${field('Job Card Date', _fmtDate(row.job_card_date))}
-          ${field('Item Code',     row.item_code)}
-          ${field('Product Name',  row.product_name)}
-          ${field('Client Name',   row.client_name)}
-          ${field('Prod Plan Qty', _fmtNum(row.prod_plan_qty))}
-          ${field('Std Pack',      _fmtNum(row.std_pack))}
-          ${field('UOM',           row.uom)}
-        </div>
-        <hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 16px">
-        <div style="margin-bottom:6px;font-size:.78rem;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.06em">Planning & Status</div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px">
-          ${field('Plan Qty',           _fmtNum(row.plan_qty))}
-          ${field('Plan Date',          _fmtDate(row.plan_date))}
-          ${field('Planned Comp. Date', _fmtDate(row.planned_comp_date))}
-          ${field('MLD Status',         row.mld_status)}
-          ${field('Shift Status',       row.shift_status)}
-          ${field('Pack Status',        row.pack_status)}
-          ${field('WH Status',          row.wh_status)}
-          ${field('JR Close',           row.jr_close)}
-          ${field('Remarks',            row.remarks_all || row.or_remarks)}
-        </div>`;
-    } catch (e) {
-      console.error('[JobSheet] detail error', e);
-      if (bodyEl) bodyEl.innerHTML = '<div style="padding:40px;text-align:center;color:#ef4444">Failed to load details.</div>';
-    }
+    bodyEl.innerHTML = `
+      <div style="margin-bottom:6px;font-size:.78rem;font-weight:700;color:#f97316;text-transform:uppercase;letter-spacing:.06em">🔥 High Priority Order</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;padding-bottom:20px">
+        ${field('Order No.',      row.or_jr_no)}
+        ${field('Created Date',   _fmtDate(row.order_created_at))}
+        ${field('Order Status',   row.order_status)}
+        ${field('OR/JR Date',     _fmtDate(row.or_jr_date))}
+        ${field('OR Qty',         _fmtNum(row.or_qty))}
+        ${field('JR Qty',         _fmtNum(row.jr_qty))}
+        ${field('Item Code',      row.item_code)}
+        ${field('Product Name',   row.product_name)}
+        ${field('Client Name',    row.client_name)}
+        ${field('Order Qty',      _fmtNum(row.order_qty))}
+        ${field('Balance Qty',    _fmtNum(row.order_balance))}
+        ${field('UOM',            row.uom)}
+      </div>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 16px">
+      <div style="margin-bottom:6px;font-size:.78rem;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.06em">Job Card Details</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px">
+        ${field('Job Card No.',   row.job_card_no)}
+        ${field('Job Card Date',  _fmtDate(row.job_card_date))}
+        ${field('Prod Plan Qty',  _fmtNum(row.prod_plan_qty))}
+        ${field('Std Pack',       _fmtNum(row.std_pack))}
+      </div>`;
   };
 
 })(); // end Job Sheet IIFE

@@ -11756,9 +11756,10 @@ app.get('/api/planning/job-sheet', async (req, res) => {
         r.std_pack,
         r.uom,
         o.priority,
-        o.qty     AS order_qty,
-        o.balance AS order_balance,
-        o.status  AS order_status
+        o.qty        AS order_qty,
+        o.balance    AS order_balance,
+        o.status     AS order_status,
+        o.created_at AS order_created_at
       FROM orders o
       LEFT JOIN LATERAL (
         SELECT *
