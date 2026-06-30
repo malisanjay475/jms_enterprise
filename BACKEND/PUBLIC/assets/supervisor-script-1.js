@@ -267,6 +267,7 @@
           let suffix = '';
 
           // [NEW] Continuity Label Logic
+          let suffixFromPrevShift = false; // track if "Continued from" crossed a shift boundary
           if (!currentStatus) {
             // Find the most recent entry before this slot (in the same or previous shift)
             let foundPrev = false;
@@ -280,14 +281,22 @@
                 const prevStatus = SLOT_STATUS.get(prevKey);
                 if (prevStatus) {
                   if (prevStatus.isQuick) {
-                    suffix = ` (Continued from ${prevStatus.type})`;
+                    if (checkShiftIdx < shiftIdx) {
+                      // Quick Action is from a PREVIOUS shift — do NOT carry it into this shift at all
+                      suffixFromPrevShift = true;
+                      // suffix stays '' — no label, no hiding
+                    } else {
+                      suffix = ` (Continued from ${prevStatus.type})`;
+                    }
                   }
                   foundPrev = true;
                 }
                 checkSlotIdx--;
               }
-              checkShiftIdx--;
-              checkSlotIdx = SLOT_LABELS.length - 1;
+              if (!foundPrev) {
+                checkShiftIdx--;
+                checkSlotIdx = SLOT_LABELS.length - 1;
+              }
             }
           }
 
@@ -295,8 +304,9 @@
             // Main Dropdown: Hide if Main entry exists OR slot is a Quick Action entry
             if (hasMain) return;
             if (currentStatus && currentStatus.isQuick) return; // Quick Action already recorded
-            // NOTE: "Continued from" slots are still shown — user must be able to make a manual entry
-            // even when a preceding slot had a Quick Action (Maintenance, NoPlan, etc.)
+            // Only hide "Continued from" slots when the Quick Action is within the SAME shift.
+            // Cross-shift carry-over must NOT block operators from entering the new shift's data.
+            if (suffix && suffix.includes('Continued from') && !suffixFromPrevShift) return;
           } else {
             // Colour Change Dropdown: Show All Past. Warn if entries exist.
             const parts = [];
@@ -338,17 +348,18 @@
           // Let's rely on the 'endH' we computed for constraints, but re-compute nice labels.
 
           if (s.shift === 'Day') {
-            // Day Shift (08:00 - 20:00)
-            // Slot 08-09 -> 08:00 - 09:00
-            // Slot 07-08 -> 19:00 - 20:00
+            // Day Shift (07:00 - 19:00)
+            // Slot 07-08 -> 07:00 AM - 08:00 AM  (FIRST slot)
+            // Slot 08-09 -> 08:00 AM - 09:00 AM
+            // Slot 11-12 -> 11:00 AM - 12:00 PM
+            // Slot 12-01 -> 12:00 PM - 01:00 PM
+            // Slot 06-07 -> 06:00 PM - 07:00 PM  (LAST slot)
 
-            // Extract start hour from slot code for mapping?
-            // 08-09 -> 8
             const firstPart = parseInt(slot.split('-')[0], 10);
             let hStart = firstPart;
             if (hStart === 12) hStart = 12;
-            else if (hStart < 8) hStart += 12; // 1->13
-            // 8,9,10,11 keep.
+            else if (hStart < 7) hStart += 12; // 1->13, 2->14, ..., 6->18 (PM slots)
+            // 7, 8, 9, 10, 11, 12 stay as-is (AM/Noon)
 
             let hEnd = hStart + 1;
             timeRange = `${fmt(hStart)} - ${fmt(hEnd)}`;
@@ -393,43 +404,6 @@
         const [d, sh, sl] = v.split('|');
         const dEl = el('d-date');
         const sEl = el('d-shift');
-
-        // AM/PM Safety Check (07-08 Mismatch)
-        const nowHour = new Date().getHours();
-
-        // CASE 1: User selects DAY Shift 07-08 (19:00-20:00) in the MORNING (e.g., 07:00-09:00)
-        if (sh === 'Day' && sl === '07-08' && nowHour >= 0 && nowHour < 12) {
-          if (confirm('⚠️ WARNING: You selected "07-08" for DAY Shift (7 PM - 8 PM).\n\nHowever, it is currently Morning.\n\nDid you mean "07-08" for NIGHT Shift (7 AM - 8 AM)?\n\nClick OK to switch to NIGHT Shift (Correct).\nClick Cancel to keep DAY Shift (if entering yesterday evening data).')) {
-            // Smart Switch to Night
-            if (sEl) {
-              sEl.value = 'Night';
-              // If shift changes, we must reload the slot dropdown to show Night Slots
-              // But wait, the value "v" is Day|07-08. We need to find the matching Night option?
-              // The logic below just updates sEl.value = sh.
-              // We should UPDATE sh to 'Night' and trigger refresh.
-
-              // Force Shift Change Logic
-              // We need to re-trigger fillHourSlotSelect with Night shift?
-              // Just changing sEl.value isn't enough if options are mixed or specific.
-              // But here options are Pre-Built in "sel".
-              // The options in "sel" are mixed for "Last 24 Hours" usually?
-              // No, fillHourSlotSelect builds options based on "shifts" array.
-
-              // If we switch shift, we should re-select the correct option?
-              // Option value: `date|Night|07-08`.
-              // Let's try to find it.
-              const targetVal = `${d}|Night|07-08`;
-              const targetOpt = Array.from(sel.options).find(o => o.value === targetVal);
-              if (targetOpt) {
-                sel.value = targetVal;
-                // Recursive call or manual update?
-                if (sEl) sEl.value = 'Night';
-                if (dEl) dEl.value = d;
-                return; // Abort this pass, let the new value stick
-              }
-            }
-          }
-        }
 
         // Update selectors if they exist and match
         // Update selectors if they exist and match
@@ -489,135 +463,18 @@
       return domCache[id];
     }
 
-    // ======== RECENT SLOT ENTRIES ========
-    async function openRecentSlots() {
-      const machine = session.machine;
-      const date    = el('d-date') ? el('d-date').value : session.shiftDate;
-      const shift   = el('d-shift') ? el('d-shift').value : session.shift;
-      if (!machine) return;
-
-      el('recent-slots-title').textContent    = '📋 ' + machine;
-      el('recent-slots-subtitle').textContent = shift + ' Shift · ' + date;
-      el('recent-slots-body').innerHTML = '<div class="muted" style="text-align:center;padding:24px">Loading…</div>';
-      show('modal-recent-slots');
-
-      let entries = [];
-      try {
-        const r = await fetch('/api/dpr/recent?machine=' + encodeURIComponent(machine) + '&date=' + encodeURIComponent(date) + '&shift=' + encodeURIComponent(shift) + '&limit=50');
-        const j = await r.json();
-        // API returns { ok, data: { rows: [...] } }
-        if (j && j.data && Array.isArray(j.data.rows)) entries = j.data.rows;
-        else if (j && Array.isArray(j.data)) entries = j.data;
-        else if (j && Array.isArray(j.rows)) entries = j.rows;
-      } catch (e) {
-        el('recent-slots-body').innerHTML = '<div class="muted" style="text-align:center;padding:24px">Failed to load</div>';
-        return;
-      }
-
-      const SLOTS = ['07-08','08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07'];
-      // API returns capitalized field names: HourSlot, GoodQty, RejectQty, Colour, EntryType
-      const bySlot = {};
-      for (const e of entries) {
-        const s = e.HourSlot || e.slot || e.hour_slot;
-        if (s) bySlot[s] = e;
-      }
-
-      const TYPE_BADGE = {
-        'MAIN':             { icon: '✅', color: '#22c55e' },
-        'ColourChange':     { icon: '🎨', color: '#a78bfa' },
-        'Maintenance':      { icon: '🔧', color: '#f59e0b' },
-        'MouldChange':      { icon: '🔄', color: '#3b82f6' },
-        'ManPowerShortage': { icon: '👷', color: '#ef4444' },
-        'NoPlan':           { icon: '⛔', color: '#6b7280' },
-      };
-
-      // Helper: decode JSONB breakup {CODE: qty} to readable text
-      function decodeBreakup(jsonVal, lookupArr) {
-        if (!jsonVal) return '';
-        let obj = jsonVal;
-        if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch(_) { return ''; } }
-        return Object.entries(obj).filter(([,v]) => Number(v) > 0).map(([code, val]) => {
-          const found = lookupArr.find(r => r[0] === code);
-          const name = found ? found[1] : code;
-          return name + ' (' + val + ')';
-        }).join(', ');
-      }
-
-      let html = '<div style="display:flex;flex-direction:column;gap:5px">';
-      for (const slot of SLOTS) {
-        const e = bySlot[slot];
-        if (e) {
-          const entryType = e.EntryType || e.entry_type || 'Entry';
-          const b        = TYPE_BADGE[entryType] || { icon: '•', color: '#94a3b8' };
-          const qty      = e.GoodQty != null ? e.GoodQty : (e.good_qty != null ? e.good_qty : '—');
-          const rejTotal = e.RejectQty != null ? e.RejectQty : (e.reject_qty != null ? e.reject_qty : null);
-          const colVal   = e.Colour || e.colour || '';
-          const rejDetail = decodeBreakup(e.RejectBreakup || e.reject_breakup, REJECT_REASONS);
-          const dtDetail  = decodeBreakup(e.DowntimeBreakup || e.downtime_breakup, DOWNTIME_REASONS);
-
-          const qtyLine = '<span style="font-size:0.78rem;font-weight:700">' + qty + ' ✓'
-            + (rejTotal ? ' <span style="color:#ef4444">' + rejTotal + ' ✗</span>' : '') + '</span>';
-          const colBadge = colVal
-            ? '<span style="font-size:0.7rem;padding:1px 7px;border-radius:12px;background:#f1f5f9;border:1px solid #e2e8f0;font-weight:600;color:#334155;margin-top:2px;display:inline-block">🎨 ' + colVal + '</span>'
-            : '';
-          const rejBadge = rejDetail
-            ? '<span style="font-size:0.67rem;color:#ef4444;margin-top:1px;display:block">✗ ' + rejDetail + '</span>'
-            : '';
-          const dtBadge = dtDetail
-            ? '<span style="font-size:0.67rem;color:#f59e0b;margin-top:1px;display:block">⏱ ' + dtDetail + '</span>'
-            : '';
-
-          html += '<div style="padding:7px 10px;border-radius:8px;background:var(--card);border:1px solid var(--line)">'
-            + '<div style="display:flex;align-items:center;gap:6px">'
-            + '<span style="font-size:0.7rem;font-weight:700;min-width:36px;color:var(--muted)">' + slot + '</span>'
-            + '<span style="font-size:0.82rem">' + b.icon + '</span>'
-            + '<span style="flex:1;font-size:0.75rem;color:' + b.color + ';font-weight:700">' + entryType + '</span>'
-            + qtyLine
-            + '</div>'
-            + (colBadge || rejBadge || dtBadge
-              ? '<div style="margin-top:4px;padding-left:42px">' + colBadge + rejBadge + dtBadge + '</div>'
-              : '')
-            + '</div>';
-        } else {
-          html += '<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;background:transparent;border:1px dashed var(--line);opacity:0.45">'
-            + '<span style="font-size:0.7rem;font-weight:700;min-width:36px;color:var(--muted)">' + slot + '</span>'
-            + '<span style="font-size:0.82rem">○</span>'
-            + '<span style="font-size:0.75rem;color:var(--muted)">No entry</span>'
-            + '</div>';
-        }
-      }
-      html += '</div>';
-      el('recent-slots-body').innerHTML = html;
-    }
-
     // GLOBAL LOADING HANDLER
     let loadingCount = 0;
-    let _loadingWatchdog = null;
-
-    function _forceHideLoading() {
-      loadingCount = 0;
-      const o = el('loading-overlay');
-      if (o) o.classList.add('hidden');
-    }
 
     function showLoading() {
       loadingCount++;
       const o = el('loading-overlay');
       if (o) o.classList.remove('hidden');
-      // Watchdog: if still showing after 10s, force-dismiss (handles stuck overlay)
-      clearTimeout(_loadingWatchdog);
-      _loadingWatchdog = setTimeout(() => {
-        if (loadingCount > 0) {
-          console.warn('[Loading] Watchdog triggered — force-hiding stuck overlay');
-          _forceHideLoading();
-        }
-      }, 10000);
     }
 
     function hideLoading() {
       loadingCount = Math.max(0, loadingCount - 1);
       if (loadingCount === 0) {
-        clearTimeout(_loadingWatchdog);
         const o = el('loading-overlay');
         if (o) o.classList.add('hidden');
       }
@@ -1493,12 +1350,11 @@
 
       const update = (s) => {
         if (!s) return;
-        // Always add blank placeholder first so browser never auto-selects a colour
-        s.add(new Option('— Select colour —', ''));
-        if (uniq.length) {
+        if (!uniq.length) {
+          s.add(new Option('—', ''));
+        } else {
           uniq.forEach(v => s.add(new Option(v, v)));
         }
-        s.value = ''; // ensure blank is selected
       };
 
       update(sel);
@@ -2298,6 +2154,12 @@
         if (colorSel) { colorSel.value = ''; }
         closeColorPickerPanel();
 
+        // Lock entry body immediately — colour must be chosen before any entry
+        const _eb = el('dpr-entry-body');
+        const _cp = el('colour-required-prompt');
+        if (_eb) { _eb.style.pointerEvents = 'none'; _eb.style.opacity = '0.35'; }
+        if (_cp) _cp.style.display = 'block';
+
         onColorChange();
 
         rejItems = []; dtItems = []; renderRejItems(); renderDtItems();
@@ -2329,11 +2191,11 @@
         loadUsedSlots();
         show('dpr-form');
         showPage('sec-dpr', el('tab-dpr'));
-        // Scroll to DPR entry form — double rAF ensures DOM is painted before scroll
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          const _form = el('dpr-form') || el('sec-dpr');
-          if (_form) _form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }));
+        // Scroll to the DPR entry form so operator immediately sees the slot/colour/shots inputs
+        setTimeout(() => {
+          const _entryForm = el('dpr-form') || el('d-slot') || el('sec-dpr');
+          if (_entryForm) _entryForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 80);
       } catch (e) { alert('Error opening DPR Form: ' + e.message); console.error(e); }
     }
 
@@ -2591,40 +2453,31 @@
       const wrap = el('rej-items'); wrap.innerHTML = '';
       rejItems.forEach((it, i) => {
         const d = document.createElement('div'); d.className = 'chip';
-
-        // Row: [Qty] [Select] [✕]
-        const row = document.createElement('div'); row.className = 'chip-row';
-
-        const q = document.createElement('input');
-        q.type = 'number'; q.min = '0'; q.className = 'chip-qty';
+        const q = document.createElement('input'); q.type = 'number'; q.min = '0';
+        // Show empty if empty
         q.value = (it.qty === '' || it.qty === null || it.qty === undefined) ? '' : it.qty;
-        q.inputMode = 'numeric'; q.placeholder = 'Qty';
+        q.inputMode = 'numeric';
+        q.placeholder = "Qty"; // Added placeholder
+        // Store as is, convert in calc
         q.oninput = () => { it.qty = q.value; recalcAndValidate(); };
+        // Select
+        const s = document.createElement('select'); REJECT_REASONS.forEach(([c, t]) => s.add(new Option(`${c} - ${t}`, c))); s.value = it.code || '';
 
-        const s = document.createElement('select'); s.className = 'chip-select';
-        REJECT_REASONS.forEach(([c, t]) => s.add(new Option(`${c} – ${t}`, c)));
-        s.value = it.code || '';
-
-        const rm = document.createElement('button');
-        rm.className = 'small chip-rm'; rm.textContent = '✕';
-        rm.onclick = () => { rejItems.splice(i, 1); renderRejItems(); };
-
-        // "Other" input — full width below the row
+        // Other input
         const oInp = document.createElement('input');
-        oInp.type = 'text'; oInp.placeholder = 'Please specify...'; oInp.className = 'chip-other';
+        oInp.type = 'text'; oInp.placeholder = 'Please specify...'; oInp.style.width = '120px';
         oInp.value = it.otherText || '';
         oInp.oninput = () => { it.otherText = oInp.value; recalcAndValidate(); };
-        oInp.style.display = it.code === 'OTHER' ? 'block' : 'none';
+        oInp.style.display = it.code === 'OTHER' ? 'inline-block' : 'none';
 
         s.onchange = () => {
           const f = REJECT_REASONS.find(r => r[0] === s.value);
-          it.code = s.value; it.text = f ? f[1] : '';
-          oInp.style.display = it.code === 'OTHER' ? 'block' : 'none';
+          it.code = s.value;
+          it.text = f ? f[1] : '';
+          oInp.style.display = it.code === 'OTHER' ? 'inline-block' : 'none';
         };
-
-        row.append(q, s, rm);
-        d.append(row, oInp);
-        wrap.appendChild(d);
+        const rm = document.createElement('button'); rm.className = 'small'; rm.textContent = '✕'; rm.onclick = () => { rejItems.splice(i, 1); renderRejItems(); };
+        d.append(q, s, oInp, rm); wrap.appendChild(d);
       });
       recalcAndValidate();
     }
@@ -2632,38 +2485,28 @@
       const wrap = el('dt-items'); wrap.innerHTML = '';
       dtItems.forEach((it, i) => {
         const d = document.createElement('div'); d.className = 'chip';
-
-        const row = document.createElement('div'); row.className = 'chip-row';
-
-        const q = document.createElement('input');
-        q.type = 'number'; q.min = '0'; q.className = 'chip-qty';
+        const q = document.createElement('input'); q.type = 'number'; q.min = '0';
+        // Show empty if empty
         q.value = (it.min === '' || it.min === null || it.min === undefined) ? '' : it.min;
-        q.inputMode = 'numeric'; q.placeholder = 'Min';
+        q.inputMode = 'numeric';
+        q.placeholder = "Min"; // Added placeholder
         q.oninput = () => { it.min = q.value; recalcAndValidate(); };
-
-        const s = document.createElement('select'); s.className = 'chip-select';
-        DOWNTIME_REASONS.forEach(([c, t]) => s.add(new Option(`${c} – ${t}`, c)));
-        s.value = it.code || '';
-
-        const rm = document.createElement('button');
-        rm.className = 'small chip-rm'; rm.textContent = '✕';
-        rm.onclick = () => { dtItems.splice(i, 1); renderDtItems(); };
+        const s = document.createElement('select'); DOWNTIME_REASONS.forEach(([c, t]) => s.add(new Option(`${c} - ${t}`, c))); s.value = it.code || '';
 
         const oInp = document.createElement('input');
-        oInp.type = 'text'; oInp.placeholder = 'Please specify...'; oInp.className = 'chip-other';
+        oInp.type = 'text'; oInp.placeholder = 'Please specify...'; oInp.style.width = '120px';
         oInp.value = it.otherText || '';
         oInp.oninput = () => { it.otherText = oInp.value; recalcAndValidate(); };
-        oInp.style.display = it.code === 'OTHER' ? 'block' : 'none';
+        oInp.style.display = it.code === 'OTHER' ? 'inline-block' : 'none';
 
         s.onchange = () => {
           const f = DOWNTIME_REASONS.find(r => r[0] === s.value);
-          it.code = s.value; it.text = f ? f[1] : '';
-          oInp.style.display = it.code === 'OTHER' ? 'block' : 'none';
+          it.code = s.value;
+          it.text = f ? f[1] : '';
+          oInp.style.display = it.code === 'OTHER' ? 'inline-block' : 'none';
         };
-
-        row.append(q, s, rm);
-        d.append(row, oInp);
-        wrap.appendChild(d);
+        const rm = document.createElement('button'); rm.className = 'small'; rm.textContent = '✕'; rm.onclick = () => { dtItems.splice(i, 1); renderDtItems(); };
+        d.append(q, s, oInp, rm); wrap.appendChild(d);
       });
       recalcAndValidate();
     }
@@ -2732,6 +2575,20 @@
           r.classList.remove('selected');
         }
       });
+
+      // Lock / unlock the entry body based on whether a colour is chosen
+      const entryBody = el('dpr-entry-body');
+      const prompt = el('colour-required-prompt');
+      if (val) {
+        if (entryBody) { entryBody.style.pointerEvents = ''; entryBody.style.opacity = '1'; }
+        if (prompt) prompt.style.display = 'none';
+      } else {
+        if (entryBody) { entryBody.style.pointerEvents = 'none'; entryBody.style.opacity = '0.35'; }
+        if (prompt) prompt.style.display = 'block';
+      }
+
+      // Always re-evaluate submit eligibility when colour changes
+      validateForm();
     }
 
     function validateForm() {

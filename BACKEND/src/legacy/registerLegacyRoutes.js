@@ -1706,6 +1706,10 @@ async function migrateOrjrWiseDetailSchema() {
 
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_planning_report_factory_id ON mould_planning_report(factory_id)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_mpr_order ON mould_planning_report(or_jr_no)`);
+  // Functional index on TRIM(or_jr_no) — used by colour-plan query WHERE TRIM(r.or_jr_no) = TRIM($1).
+  // Covers rows where data has leading/trailing spaces (imports/syncs), unlike the plain index above.
+  // Also composite with factory_id so Postgres can satisfy both filter columns from one index.
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_mpr_order_trim ON mould_planning_report(TRIM(or_jr_no), factory_id)`);
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS mould_report_date_uniq_idx ON mould_planning_report(or_jr_no, mould_no, mould_item_code, plan_date)`);
 
   /* ── Fix: reset serial sequence to max(id) to prevent pkey conflicts
@@ -1894,6 +1898,7 @@ async function migrateWipStockMasterSchema() {
 
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_snapshots_factory_date ON wip_stock_snapshots(factory_id, stock_date DESC)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_snapshot ON wip_stock_snapshot_lines(snapshot_id, line_type, sr_no)`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_snapshot_item ON wip_stock_snapshot_lines(snapshot_id, item_code)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_factory_date ON wip_stock_snapshot_lines(factory_id, stock_date DESC)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_lines_comparison_key ON wip_stock_snapshot_lines(factory_id, stock_date DESC, comparison_key)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_wip_stock_movements_factory_date ON wip_stock_movements(factory_id, movement_at DESC)`);
@@ -3143,7 +3148,7 @@ async function getOrderPlanningCompletion(db, orderNo, factoryId) {
            NULLIF(TRIM(r.job_card_no), '') AS job_card_no,
            r.remarks_all
     FROM or_jr_report r
-    WHERE r.or_jr_no = TRIM($1)
+    WHERE TRIM(r.or_jr_no) = TRIM($1)
       AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
       AND COALESCE(TRIM(r.jr_close), '') <> 'Yes'
       AND (r.is_closed IS FALSE OR r.is_closed IS NULL)
@@ -3979,6 +3984,28 @@ async function bootstrapFreshCoreTables() {
   await q(`ALTER TABLE user_factories ADD COLUMN IF NOT EXISTS role_code VARCHAR(50) DEFAULT 'member'`);
   await q(`ALTER TABLE user_factories ALTER COLUMN role_code SET DEFAULT 'member'`);
   await q(`UPDATE user_factories SET role_code = 'member' WHERE role_code IS NULL`);
+
+  // ── Activity Monitor: track all user sessions across every JMS app ──
+  await q(`
+    CREATE TABLE IF NOT EXISTS user_activity_log (
+      id         BIGSERIAL PRIMARY KEY,
+      username   TEXT NOT NULL,
+      role_code  TEXT,
+      app_id     TEXT,
+      action     TEXT NOT NULL,
+      page       TEXT,
+      device_type TEXT,
+      ip_address TEXT,
+      user_agent TEXT,
+      factory_id TEXT,
+      session_id TEXT,
+      extra      JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await q(`CREATE INDEX IF NOT EXISTS ual_username_idx    ON user_activity_log(username)`);
+  await q(`CREATE INDEX IF NOT EXISTS ual_created_at_idx ON user_activity_log(created_at DESC)`);
+  await q(`CREATE INDEX IF NOT EXISTS ual_action_idx     ON user_activity_log(action)`);
 
   await q(`
     CREATE TABLE IF NOT EXISTS machines (
@@ -5471,6 +5498,17 @@ app.post('/api/login', async (req, res) => {
 
     u.shift = shift;
     u.shiftDate = dateStr;
+
+    // Log login event (non-blocking — never delay login response)
+    const _loginIp = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+    const _loginUa = String(req.headers['user-agent'] || '');
+    const _loginDevice = /mobile|android|iphone|ipad/i.test(_loginUa) ? 'mobile' : 'desktop';
+    const _loginAppId = requestedApp || 'web';
+    q(
+      `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, created_at)
+       VALUES ($1,$2,$3,'login',$4,$5,$6,$7,$8,$9,NOW())`,
+      [u.username, u.role_code || '', _loginAppId, null, _loginDevice, _loginIp, _loginUa.slice(0, 500), String(req.body?.factory_id || ''), String(req.body?.session_id || '')]
+    ).catch(() => {});
 
     // Return user info + factories list
     res.json({ ok: true, data: u, factories, can_select_all_factories: factoryAccess.canSelectAllFactories });
@@ -9986,16 +10024,6 @@ async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, opti
       WHERE ($2::int IS NULL OR factory_id = $2)
       ORDER BY stock_date DESC NULLS LAST, id DESC
       LIMIT 1
-    ),
-    latest_wip AS (
-      SELECT
-        TRIM(COALESCE(l.item_code, '')) AS item_code,
-        SUM(COALESCE(l.current_stock_available_qty, l.total_qty, 0))::numeric AS wip_qty,
-        MAX(ls.stock_date)::text AS stock_date
-      FROM latest_snapshot ls
-      JOIN wip_stock_snapshot_lines l ON l.snapshot_id = ls.id
-      WHERE ($2::int IS NULL OR l.factory_id = $2 OR l.factory_id IS NULL)
-      GROUP BY TRIM(COALESCE(l.item_code, ''))
     )
     SELECT
       TRIM(COALESCE(r.item_code, '')) AS item_code,
@@ -10010,9 +10038,16 @@ async function getPlanningOrderColourBreakdown(queryFn, orderNo, factoryId, opti
       COALESCE(w.wip_qty, 0)::numeric AS wip_qty,
       w.stock_date AS wip_stock_date
     FROM mould_planning_report r
-    LEFT JOIN latest_wip w
-      ON TRIM(COALESCE(w.item_code, '')) = TRIM(COALESCE(NULLIF(r.mould_item_code, ''), r.item_code, ''))
-    WHERE r.or_jr_no = TRIM($1)
+    LEFT JOIN LATERAL (
+      SELECT
+        SUM(COALESCE(l.current_stock_available_qty, l.total_qty, 0))::numeric AS wip_qty,
+        MAX(ls.stock_date)::text AS stock_date
+      FROM latest_snapshot ls
+      JOIN wip_stock_snapshot_lines l ON l.snapshot_id = ls.id
+      WHERE TRIM(COALESCE(l.item_code, '')) = TRIM(COALESCE(NULLIF(r.mould_item_code, ''), r.item_code, ''))
+        AND ($2::int IS NULL OR l.factory_id = $2 OR l.factory_id IS NULL)
+    ) w ON true
+    WHERE TRIM(r.or_jr_no) = TRIM($1)
       AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
     ORDER BY TRIM(COALESCE(r.item_code, '')), TRIM(COALESCE(r.product_name, ''))
   `, [orderNo, factoryId]);
@@ -10429,7 +10464,7 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
         r.mld_status,
         r.remarks_all
       FROM or_jr_report r
-      WHERE r.or_jr_no = TRIM($1)
+      WHERE TRIM(r.or_jr_no) = TRIM($1)
         AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
         AND COALESCE(TRIM(r.jr_close), '') <> 'Yes'
         AND (r.is_closed IS FALSE OR r.is_closed IS NULL)
@@ -10973,7 +11008,15 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
     const machineIds = machines.map(m => m.machine);
     if (machineIds.length === 0) return res.json({ ok: true, data: [] });
 
+    // Pre-aggregate dpr_hourly ONCE via CTE (index-friendly — no TRIM on plan_id).
+    // Old LATERAL JOIN approach caused a full dpr_hourly scan per plan row (73K+ rows),
+    // making this query take 7+ seconds. CTE reduces it to ~58ms.
     let statusSql = `
+      WITH dpr_agg AS (
+        SELECT plan_id, SUM(good_qty) AS qty, MIN(created_at) AS first_entry
+        FROM dpr_hourly
+        GROUP BY plan_id
+      )
       SELECT
         pb.machine,
         pb.status,
@@ -10995,13 +11038,7 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
         ON TRIM(COALESCE(mps.or_jr_no, '')) = TRIM(COALESCE(pb.order_no, ''))
        AND TRIM(COALESCE(mps.mould_name, '')) = TRIM(COALESCE(pb.mould_name, ''))
        AND ($2::int IS NULL OR mps.factory_id = $2 OR mps.factory_id IS NULL)
-      LEFT JOIN LATERAL (
-        SELECT
-          SUM(dh.good_qty) AS qty,
-          MIN(dh.created_at) AS first_entry
-        FROM dpr_hourly dh
-        WHERE TRIM(COALESCE(dh.plan_id, '')) = TRIM(COALESCE(pb.plan_id, ''))
-      ) dpr ON true
+      LEFT JOIN dpr_agg dpr ON dpr.plan_id = pb.plan_id
       WHERE pb.machine = ANY($1::text[])
         AND UPPER(COALESCE(pb.status, '')) IN ('RUNNING', 'PLANNED')
     `;
@@ -13258,7 +13295,7 @@ app.get('/api/planning/job-card-print', async (req, res) => {
           r.cycle_time,
           r.cavity
         FROM mould_planning_report r
-        WHERE r.or_jr_no = TRIM($1)
+        WHERE TRIM(r.or_jr_no) = TRIM($1)
           AND ($2::int IS NULL OR r.factory_id = $2 OR r.factory_id IS NULL)
           AND (
             ($3::text <> '' AND TRIM(COALESCE(r.mould_no, '')) = TRIM($3::text))
@@ -16420,26 +16457,26 @@ app.post('/api/dpr/auto-fill-ongoing', async (req, res) => {
     // Determine current shift and elapsed slots
     const now = new Date();
     const hr = now.getHours();
-    const DAY_SLOTS   = ['08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07','07-08'];
-    const NIGHT_SLOTS = ['08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07','07-08'];
-    // Night shift = 20:00–08:00, Day shift = 08:00–20:00
-    const isNight = hr >= 20 || hr < 8;
+    const DAY_SLOTS   = ['07-08','08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07'];
+    const NIGHT_SLOTS = ['07-08','08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07'];
+    // Night shift = 19:00–07:00, Day shift = 07:00–19:00
+    const isNight = hr >= 19 || hr < 7;
     const currentShift = isNight ? 'Night' : 'Day';
     const SHIFT_SLOTS = isNight ? NIGHT_SLOTS : DAY_SLOTS;
 
     // Current slot index based on wall-clock hour
-    // Day slots: 08→0, 09→1 ... 19→11; Night: 20→0, 21→1, 22→2, 23→3, 00→4 ...07→11
+    // Day slots: 07→0, 08→1 ... 18→11; Night: 19→0, 20→1, 21→2, 22→3, 23→4, 00→5 …06→11
     let currentSlotIdx;
     if (!isNight) {
-      currentSlotIdx = Math.min(11, hr - 8); // 08→0 … 19→11
+      currentSlotIdx = Math.min(11, hr - 7); // 07→0 … 18→11
     } else {
-      currentSlotIdx = hr >= 20 ? hr - 20 : hr + 4; // 20→0,21→1,22→2,23→3,00→4…07→11
+      currentSlotIdx = hr >= 19 ? hr - 19 : hr + 5; // 19→0,20→1,21→2,22→3,23→4,00→5…06→11
     }
 
     // Production date: night-before-midnight belongs to yesterday
     const todayLocal = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     let dprDate;
-    if (isNight && hr < 8) {
+    if (isNight && hr < 7) {
       const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1);
       dprDate = todayLocal(yesterday);
     } else {
@@ -16730,22 +16767,24 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       else if (dt === todayStr) status = 'TODAY';
 
       let requiredSlots = [];
-      const allSlots = ['08-09', '09-10', '10-11', '11-12', '12-01', '01-02', '02-03', '03-04', '04-05', '05-06', '06-07', '07-08'];
+      const allSlots = ['07-08','08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07'];
       if (status === 'PAST') {
         requiredSlots = [...allSlots];
       } else if (status === 'TODAY') {
         if (shift === 'Day') {
-          const slotEndHours = { '08-09': 9, '09-10': 10, '10-11': 11, '11-12': 12, '12-01': 13, '01-02': 14, '02-03': 15, '03-04': 16, '04-05': 17, '05-06': 18, '06-07': 19, '07-08': 20 };
+          // Day shift 07:00–19:00; slot end hours in 24h
+          const slotEndHours = { '07-08': 8, '08-09': 9, '09-10': 10, '10-11': 11, '11-12': 12, '12-01': 13, '01-02': 14, '02-03': 15, '03-04': 16, '04-05': 17, '05-06': 18, '06-07': 19 };
           requiredSlots = allSlots.filter(s => currentHour >= slotEndHours[s]);
         } else if (shift === 'Night') {
+          // Night shift 19:00–07:00; end hours: 07-08→20, 08-09→21, …, 11-12→24, 12-01→25, …, 06-07→31
           requiredSlots = allSlots.filter(s => {
             let endH = 0;
             switch (s) {
-              case '08-09': endH = 21; break; case '09-10': endH = 22; break; case '10-11': endH = 23; break; case '11-12': endH = 24; break;
-              case '12-01': endH = 25; break; case '01-02': endH = 26; break; case '02-03': endH = 27; break; case '03-04': endH = 28; break;
-              case '04-05': endH = 29; break; case '05-06': endH = 30; break; case '06-07': endH = 31; break; case '07-08': endH = 32; break;
+              case '07-08': endH = 20; break; case '08-09': endH = 21; break; case '09-10': endH = 22; break; case '10-11': endH = 23; break;
+              case '11-12': endH = 24; break; case '12-01': endH = 25; break; case '01-02': endH = 26; break; case '02-03': endH = 27; break;
+              case '03-04': endH = 28; break; case '04-05': endH = 29; break; case '05-06': endH = 30; break; case '06-07': endH = 31; break;
             }
-            if (currentHour >= 18) { if (endH > 12 && endH <= currentHour) return true; return false; }
+            if (currentHour >= 19) { if (endH > 19 && endH <= currentHour + 24 - 24) return endH <= currentHour; return false; }
             else { const adjH = currentHour + 24; if (endH <= adjH) return true; return false; }
           });
         }
@@ -20433,12 +20472,40 @@ app.get('/api/qc/recent', async (req, res) => {
   try {
     const { machine, limit } = req.query;
     const rows = await q(`
-SELECT * FROM qc_online_reports 
+SELECT * FROM qc_online_reports
       WHERE machine = $1
       ORDER BY created_at DESC
       LIMIT $2
   `, [machine || '', limit || 10]);
     res.json({ ok: true, data: rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/recent-slots — recent qc_online_report_slots (v2 full-detail recent tab)
+app.get('/api/qc/recent-slots', async (req, res) => {
+  try {
+    const { machine, limit } = req.query;
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT s.*, f.fpa_done_by, f.fpa_form_url, f.fpa_done_at
+       FROM qc_online_report_slots s
+       LEFT JOIN LATERAL (
+         SELECT fpa_done_by, fpa_form_url, fpa_done_at
+         FROM qc_job_checks
+         WHERE TRIM(COALESCE(job_card_no,'')) = TRIM(COALESCE(s.job_card_no,''))
+           AND machine = s.machine AND date = s.dpr_date
+           AND fpa_status = 'Done'
+         ORDER BY updated_at DESC LIMIT 1
+       ) f ON true
+       WHERE s.machine = $1
+         AND ($2::int IS NULL OR s.factory_id = $2 OR s.factory_id IS NULL)
+       ORDER BY s.entered_at DESC
+       LIMIT $3`,
+      [machine || '', factoryId, Math.min(50, Number(limit || 20))]
+    );
+    res.json({ ok: true, data: rows || [] });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -22839,6 +22906,113 @@ count(*) as total,
     });
   } catch (e) {
     res.json({ error: String(e), stack: e.stack });
+  }
+});
+
+/* ============================================================
+   ACTIVITY MONITOR — heartbeat + admin query
+============================================================ */
+
+// POST /api/activity/heartbeat  — called by every page every 60 s
+app.post('/api/activity/heartbeat', async (req, res) => {
+  try {
+    const { username, role_code, app_id, page, device_type, factory_id, session_id } = req.body || {};
+    if (!username) return res.json({ ok: false, error: 'username required' });
+    const ip = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+    const ua = String(req.headers['user-agent'] || '').slice(0, 500);
+    const device = device_type || (/mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop');
+    const actionStr = String(req.body?.action || 'heartbeat').slice(0, 30);
+    await q(
+      `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())`,
+      [username, role_code || '', app_id || 'web', actionStr, page || '', device, ip, ua, String(factory_id || ''), String(session_id || '')]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/activity/monitor  — admin view: who is online + recent history
+app.get('/api/activity/monitor', async (req, res) => {
+  try {
+    // Latest status per user (last event within 10 min = online, 10-30 min = idle, >30 = offline)
+    const onlineRows = await q(`
+      SELECT DISTINCT ON (username)
+        username, role_code, app_id, page, device_type, ip_address, factory_id, action, created_at
+      FROM user_activity_log
+      ORDER BY username, created_at DESC
+    `);
+
+    // Actions today per user
+    const todayRows = await q(`
+      SELECT username, COUNT(*) AS actions_today
+      FROM user_activity_log
+      WHERE created_at >= CURRENT_DATE
+        AND action NOT IN ('heartbeat')
+      GROUP BY username
+    `);
+    const todayMap = {};
+    for (const r of todayRows) todayMap[r.username] = Number(r.actions_today);
+
+    // Logins today per user
+    const loginRows = await q(`
+      SELECT username, COUNT(*) AS logins_today
+      FROM user_activity_log
+      WHERE created_at >= CURRENT_DATE AND action = 'login'
+      GROUP BY username
+    `);
+    const loginMap = {};
+    for (const r of loginRows) loginMap[r.username] = Number(r.logins_today);
+
+    const now = Date.now();
+    const users = onlineRows.map(r => {
+      const diffMs = now - new Date(r.created_at).getTime();
+      const diffMin = diffMs / 60000;
+      let status = 'offline';
+      if (diffMin <= 2.5) status = 'online';
+      else if (diffMin <= 30) status = 'idle';
+      return {
+        username: r.username,
+        role_code: r.role_code,
+        app_id: r.app_id,
+        page: r.page,
+        device_type: r.device_type,
+        ip_address: r.ip_address,
+        factory_id: r.factory_id,
+        last_action: r.action,
+        last_seen: r.created_at,
+        status,
+        actions_today: todayMap[r.username] || 0,
+        logins_today: loginMap[r.username] || 0
+      };
+    });
+
+    // Recent full log (last 500 events, non-heartbeat, last 24h)
+    const recentLimit = Math.min(500, parseInt(req.query.limit || '200', 10));
+    const filterUser = req.query.username ? String(req.query.username) : null;
+    const filterApp  = req.query.app_id ? String(req.query.app_id) : null;
+    const filterDate = req.query.date ? String(req.query.date) : null;
+
+    let logWhere = `WHERE created_at >= NOW() - INTERVAL '7 days'`;
+    const logParams = [];
+    if (filterUser) { logWhere += ` AND username = $${logParams.length + 1}`; logParams.push(filterUser); }
+    if (filterApp)  { logWhere += ` AND app_id  = $${logParams.length + 1}`; logParams.push(filterApp); }
+    if (filterDate) { logWhere += ` AND created_at::date = $${logParams.length + 1}::date`; logParams.push(filterDate); }
+
+    const recentLog = await q(
+      `SELECT id, username, role_code, app_id, action, page, device_type, ip_address, factory_id, session_id, created_at
+       FROM user_activity_log
+       ${logWhere}
+       ORDER BY created_at DESC
+       LIMIT ${recentLimit}`,
+      logParams
+    );
+
+    res.json({ ok: true, users, recent_log: recentLog });
+  } catch (e) {
+    console.error('activity monitor error', e);
+    res.status(500).json({ ok: false, error: String(e) });
   }
 });
 

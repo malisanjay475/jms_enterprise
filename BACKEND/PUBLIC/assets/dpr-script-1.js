@@ -1508,10 +1508,11 @@
                                         } else {
                                             const _stdVal = m.stdCavPcsHr || m.std || '-';
                                             const _actVal = m.actCavPcsHr || m.std || '-';
-                                            const _actDiff = (m.stdCavPcsHr && m.actCavPcsHr && m.actCavPcsHr < m.stdCavPcsHr);
+                                            // Compare resolved display values so color always matches what's shown
+                                            const _actDiff = (Number(_actVal) > 0 && Number(_stdVal) > 0 && Number(_actVal) < Number(_stdVal));
                                             const _actColor = _actDiff ? '#dc2626' : '#16a34a';
                                             const _cavInfo = (m.details.std_cavity && m.details.act_cavity)
-                                                ? `<div style="font-size:0.58rem;color:#94a3b8;line-height:1">${m.details.std_cavity}c / ${m.details.act_cavity}c</div>`
+                                                ? `<div style="font-size:0.65rem;font-weight:700;color:#475569;line-height:1.2">${m.details.std_cavity}c / ${m.details.act_cavity}c</div>`
                                                 : '';
                                             stdDisplay = `<div style="text-align:center;line-height:1.25">
                                                 <div style="font-size:0.95rem;font-weight:800;color:#0f172a">${_stdVal}</div>
@@ -1637,7 +1638,14 @@
                                             // 2. Detect REAL PRODUCTION to reset override (MACHINE WIDE)
                                             // Strong Reset: Reset if there's any good qty, shots, or Main entry with < 45m downtime on ANY order for this machine
                                             let hasMachineProduction = list.some(e => Number(e.good_qty || 0) > 0 || Number(e.shots || 0) > 0 || (e.entry_type === 'Main' && Number(e.downtime_min || 0) < 45) || e.entry_type === 'ColourChange');
-                                            if (hasMachineProduction && !overrideTriggeredThisSlot) {
+                                            // Also reset if a DIFFERENT job has any entry (manual or production) on this machine in this slot.
+                                            // This stops Mould Changeover from Job 1 carrying forward into slots where Job 2 has taken over the machine.
+                                            const mOrder = (m.order_no || '').trim().toLowerCase();
+                                            const hasDifferentJobEntry = mOrder && list.some(e => {
+                                                const eOrder = (e.order_no || '').trim().toLowerCase();
+                                                return eOrder && eOrder !== mOrder;
+                                            });
+                                            if ((hasMachineProduction || hasDifferentJobEntry) && !overrideTriggeredThisSlot) {
                                                 activeOverrideStatus = ''; // Reset for the whole machine!
                                             }
 
@@ -1750,8 +1758,10 @@
 
                                                 if (sEnd < now) {
                                                     if (isActiveForThisSlot) {
-                                                        // This mould was running (or was the last one running). If no machine production, show Missing.
-                                                        if (!hasMachineProduction && activeOverrideStatus === '') {
+                                                        // Show red cross for past slots with no production and no Quick Action in THIS slot.
+                                                        // A carry-forward activeOverrideStatus (from an earlier slot) must not suppress the cross —
+                                                        // only an actual Quick Action entry triggered IN this slot does.
+                                                        if (!hasMachineProduction && !overrideTriggeredThisSlot) {
                                                             if (mouldStartTs === 0 || sEnd > (mouldStartTs + 600000)) {
                                                                 showCross = true;
                                                                 machineMissingSlots++; // count for Pending filter
@@ -1883,7 +1893,13 @@
 
                                                 // Reset tracker on real machine-wide production
                                                 let hasMachineProd = list.some(e => Number(e.good_qty || 0) > 0 || Number(e.shots || 0) > 0 || (e.entry_type === 'Main' && Number(e.downtime_min || 0) < 45) || e.entry_type === 'ColourChange');
-                                                if (hasMachineProd && !hasOverrideThisSlot) sumActiveOverride = '';
+                                                // Also reset if a different job has any entry on this machine in this slot
+                                                const sumMOrder = (m.order_no || '').trim().toLowerCase();
+                                                const hasDiffJobEntry = sumMOrder && list.some(e => {
+                                                    const eOrder = (e.order_no || '').trim().toLowerCase();
+                                                    return eOrder && eOrder !== sumMOrder;
+                                                });
+                                                if ((hasMachineProd || hasDiffJobEntry) && !hasOverrideThisSlot) sumActiveOverride = '';
 
                                                 // sEnd, now, isFuture are already declared at top of loop
                                                 const sStart = sEnd - 3600000;

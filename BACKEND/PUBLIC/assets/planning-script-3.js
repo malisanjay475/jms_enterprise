@@ -1599,8 +1599,12 @@
         if (hcPlanBtn) {
           hcPlanBtn.addEventListener('click', () => {
             if (!selectedMachine) return;
-            if (isSupervisor && (selectedMachine.is_maintenance || ['off', 'stopped'].includes((selectedMachine.status || '').toLowerCase()))) {
-              return toast('Supervisor: cannot plan on maintenance/off machine');
+            // Block planning if machine is under a live DPR problem (Mould Changeover, Maintenance, etc.)
+            if (selectedMachine.live_status === 'stopped' && selectedMachine.live_problem) {
+              return toast(`Cannot plan: machine is currently under "${selectedMachine.live_problem}"`);
+            }
+            if (selectedMachine.is_maintenance || ['off', 'stopped'].includes((selectedMachine.status || '').toLowerCase())) {
+              return toast('Cannot plan on a maintenance/off machine');
             }
             openPlanSheet();
           });
@@ -4824,31 +4828,43 @@
             card.style.cssText = [
               'text-align:left',
               `border:2px solid ${roleBorder}`,
-              'border-radius:14px',
+              'border-radius:10px',
               'background:#fff',
-              'padding:12px 14px',
+              'padding:7px 9px',
               'cursor:pointer',
-              'min-width:190px',
-              'max-width:240px',
+              'min-width:128px',
+              'max-width:180px',
               'transition:border-color 0.12s, background 0.12s, box-shadow 0.12s',
               'display:flex',
               'flex-direction:column',
               'gap:0'
             ].join(';');
 
+            // Compact meta line: building · line · tonnage
+            const metaParts = [];
+            if (mac.building) metaParts.push(esc(mac.building));
+            if (mac.line) metaParts.push(`L${esc(String(mac.line))}`);
+            if (mac.tonnage) metaParts.push(`${esc(String(mac.tonnage))}T`);
+            const metaLine = metaParts.join(' · ');
+
+            // Truncate running order list to keep card narrow
+            const runningOrders = (mac.currentOrder || '').split(',').map(s => s.trim()).filter(Boolean);
+            const runningDisplay = runningOrders.length > 1
+              ? `${runningOrders[0]} +${runningOrders.length - 1}`
+              : runningOrders[0] || '';
+
             card.innerHTML = `
-              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px; margin-bottom:8px">
-                <span style="font-weight:900; color:#0f172a; font-size:1rem; line-height:1.2">${esc(mac.machine || '-')}</span>
-                <span style="background:${roleBg}; color:${roleColor}; border:1px solid ${roleBorder}; border-radius:999px; padding:2px 8px; font-size:0.68rem; font-weight:900; white-space:nowrap; flex-shrink:0">${roleLabel}</span>
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:4px; margin-bottom:4px">
+                <span style="font-weight:900; color:#0f172a; font-size:0.72rem; line-height:1.2; word-break:break-all">${esc(mac.machine || '-')}</span>
+                <span style="background:${roleBg}; color:${roleColor}; border:1px solid ${roleBorder}; border-radius:999px; padding:1px 5px; font-size:0.56rem; font-weight:900; white-space:nowrap; flex-shrink:0">${roleLabel}</span>
               </div>
-              ${(mac.building || mac.line) ? `<div style="color:#64748b; font-size:0.75rem; margin-bottom:5px">${esc(mac.building || '')}${mac.line ? ` · Line ${esc(String(mac.line))}` : ''}</div>` : ''}
-              ${mac.tonnage ? `<div style="color:#334155; font-size:0.75rem; font-weight:700; margin-bottom:5px">Tonnage: ${esc(String(mac.tonnage))} T</div>` : ''}
-              <div style="display:flex; align-items:center; gap:5px; margin-top:auto; padding-top:6px; border-top:1px solid #f1f5f9">
-                <span style="font-size:0.7rem">${statusDot}</span>
-                <span style="font-weight:900; color:${statusColor}; font-size:0.82rem">${esc(statusText)}</span>
+              ${metaLine ? `<div style="color:#64748b; font-size:0.63rem; margin-bottom:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${metaLine}</div>` : ''}
+              <div style="display:flex; align-items:center; gap:3px; margin-top:auto; padding-top:4px; border-top:1px solid #f1f5f9; flex-wrap:wrap">
+                <span style="font-size:0.6rem; line-height:1">${statusDot}</span>
+                <span style="font-weight:900; color:${statusColor}; font-size:0.65rem">${esc(statusText)}</span>
+                ${freeFromText ? `<span style="color:#64748b; font-size:0.6rem; white-space:nowrap">· ${esc(freeFromText)}</span>` : ''}
               </div>
-              ${freeFromText ? `<div style="color:#64748b; font-size:0.73rem; margin-top:3px">${esc(freeFromText)}</div>` : ''}
-              ${mac.currentOrder && !isFree ? `<div style="color:#94a3b8; font-size:0.71rem; margin-top:2px">Running: ${esc(mac.currentOrder)}</div>` : ''}
+              ${runningDisplay && !isFree ? `<div style="color:#94a3b8; font-size:0.6rem; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">↳ ${esc(runningDisplay)}</div>` : ''}
             `;
 
             card.addEventListener('click', () => {
@@ -5075,11 +5091,14 @@
               item_code: row.item_code || row.mould_no || null,
               consumptionRatioQty: parseCpNumber(row.consumptionRatioQty ?? row.consumption_ratio_qty)
             })).filter((row) => row.code);
-            const colourPayload = await fetchCpColourPlanData(mould);
-            const machineEntries = await Promise.all(familyMoulds.map(async (variant) => {
-              const variantResult = await fetchCpMachinesForMould(variant);
-              return [variant.code, variantResult];
-            }));
+            // Fetch colour plan data AND machine availability in parallel (not sequential)
+            const [colourPayload, machineEntries] = await Promise.all([
+              fetchCpColourPlanData(mould),
+              Promise.all(familyMoulds.map(async (variant) => {
+                const variantResult = await fetchCpMachinesForMould(variant);
+                return [variant.code, variantResult];
+              }))
+            ]);
             window.cpVariantMachineMap = Object.fromEntries(
               machineEntries.map(([code, r]) => [code, Array.isArray(r.machines) ? r.machines : []])
             );
@@ -5149,13 +5168,13 @@
               </div>
 
               <!-- Machine Selection Cards — PRIMARY first, then SECONDARY -->
-              <div style="border:1px solid #e2e8f0; border-radius:14px; background:#fff; flex-shrink:0; padding:12px 14px">
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap">
-                  <span style="font-weight:900; color:#0f172a; font-size:0.88rem">&#9881; Select Machine</span>
-                  <span style="color:#94a3b8; font-size:0.76rem">Click a card to assign machine to this plan</span>
-                  <span id="cpColourMachineChip" style="display:none; background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; border-radius:999px; padding:2px 10px; font-size:0.76rem; font-weight:900"></span>
+              <div style="border:1px solid #e2e8f0; border-radius:12px; background:#fff; flex-shrink:0; padding:8px 10px">
+                <div style="display:flex; align-items:center; gap:6px; margin-bottom:7px; flex-wrap:wrap">
+                  <span style="font-weight:900; color:#0f172a; font-size:0.82rem">&#9881; Select Machine</span>
+                  <span style="color:#94a3b8; font-size:0.7rem">Click a card to assign machine to this plan</span>
+                  <span id="cpColourMachineChip" style="display:none; background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; border-radius:999px; padding:2px 8px; font-size:0.7rem; font-weight:900"></span>
                 </div>
-                <div id="cpColourMachineCards" style="display:flex; flex-wrap:wrap; gap:10px; align-items:stretch"></div>
+                <div id="cpColourMachineCards" style="display:flex; flex-wrap:wrap; gap:6px; align-items:stretch"></div>
               </div>
 
               <!-- Colour table — flex-grow to fill ALL remaining space, no max-height cap -->
@@ -6899,8 +6918,10 @@
                 let endMs;
 
                 // 3. Logic Branch
+                const isStopped = (status === 'STOPPED');
+
                 if (isRunning) {
-                  // DYNAMIC START: Actual First Entry > Start Date > NOW
+                  // RUNNING: actual start date; end = NOW + remaining work
                   if (p.firstDprEntry) {
                     startMs = new Date(p.firstDprEntry).getTime();
                   } else if (p.startDate) {
@@ -6908,24 +6929,32 @@
                   } else {
                     startMs = Date.now();
                   }
-
-                  // DYNAMIC END: NOW + Duration (Remaining Work)
-                  // We ignore 'startMs' for the end-date calculation because the 'durationMs' 
-                  // represents the *remaining* time from *this moment*.
+                  // End = remaining duration from NOW (not from startMs)
                   endMs = Date.now() + durationMs;
+                  // Cursor advances to this plan's expected end
+                  cursorTime = endMs;
+
+                } else if (isStopped) {
+                  // STOPPED: always show ORIGINAL DB start date (never use cursor as start)
+                  // But expected end (startDate + remaining) feeds cursor for the next plan
+                  if (p.startDate) {
+                    startMs = new Date(p.startDate).getTime();
+                  } else {
+                    startMs = Date.now();
+                  }
+                  endMs = startMs + durationMs;
+                  // Advance cursor: next PLANNED plan starts after this STOPPED plan's expected end
+                  cursorTime = endMs;
 
                 } else {
-                  // QUEUED or STOPPED
+                  // PLANNED / QUEUED: start = previous plan's Expected End Date (cursor)
                   if (idx === 0) {
-                    // First in chain (e.g. Machine was free, or top plan is Stopped/Planned)
                     startMs = Date.now();
                   } else {
-                    // Daisy chain
                     startMs = cursorTime;
                   }
-
-                  // Expected End = Start + Duration
                   endMs = startMs + durationMs;
+                  cursorTime = endMs;
                 }
 
                 // Safety: Normalize dates
@@ -6935,9 +6964,6 @@
                 // 4. Store High-Res Dates for Rendering
                 p._rippledStartRaw = new Date(startMs);
                 p._rippledEndRaw = new Date(endMs);
-
-                // Advance Cursor
-                cursorTime = endMs;
               });
             });
 
