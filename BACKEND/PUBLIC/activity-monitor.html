@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>JMS OCEAN - Activity Monitor</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#1e293b">
+  <link rel="stylesheet" href="/assets/app.css?v=5">
+  <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+  <style>
+    :root {
+      --online-color: #16a34a;
+      --idle-color: #d97706;
+      --offline-color: #94a3b8;
+      --card-bg: #fff;
+    }
+
+    body { background: #f1f5f9; }
+
+    /* ── Page Header ── */
+    .am-header {
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
+      color: #fff;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .am-header h1 { margin: 0; font-size: 1.1rem; font-weight: 900; flex: 1; }
+    .am-header .live-badge {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 999px; padding: 4px 10px; font-size: 0.72rem; font-weight: 700;
+    }
+    .am-header .pulse {
+      width: 8px; height: 8px; border-radius: 50%; background: #4ade80;
+      animation: am-pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes am-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.6)} }
+    #am-last-refresh { font-size: 0.68rem; color: rgba(255,255,255,0.55); }
+
+    /* ── Summary cards ── */
+    .am-stats {
+      display: flex; gap: 12px; padding: 16px 16px 4px; flex-wrap: wrap;
+    }
+    .am-stat-card {
+      flex: 1 0 130px; background: #fff; border-radius: 12px;
+      padding: 12px 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .am-stat-card .label { font-size: 0.68rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    .am-stat-card .value { font-size: 1.5rem; font-weight: 900; color: #0f172a; }
+    .am-stat-card.online .value { color: var(--online-color); }
+    .am-stat-card.idle   .value { color: var(--idle-color); }
+
+    /* ── Filters ── */
+    .am-filters {
+      display: flex; gap: 8px; padding: 10px 16px; flex-wrap: wrap; align-items: center;
+    }
+    .am-filters select, .am-filters input[type=date], .am-filters input[type=text] {
+      border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 10px;
+      font-size: 0.78rem; background: #fff; color: #0f172a; min-width: 140px;
+    }
+    .am-filters .btn-filter {
+      padding: 6px 14px; border-radius: 8px; border: none; cursor: pointer;
+      font-size: 0.78rem; font-weight: 700; background: #0f172a; color: #fff;
+    }
+    .am-filters .btn-clear {
+      padding: 6px 14px; border-radius: 8px; border: 1px solid #e2e8f0;
+      cursor: pointer; font-size: 0.78rem; font-weight: 600; background: #fff; color: #64748b;
+    }
+
+    /* ── Tabs ── */
+    .am-tabs {
+      display: flex; gap: 0; border-bottom: 2px solid #e2e8f0;
+      margin: 0 16px; padding-top: 6px;
+    }
+    .am-tab {
+      padding: 8px 18px; font-size: 0.82rem; font-weight: 700; cursor: pointer;
+      border-bottom: 2.5px solid transparent; margin-bottom: -2px; color: #64748b;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .am-tab.active { color: #0f172a; border-color: #0f172a; }
+
+    /* ── Section panels ── */
+    .am-panel { display: none; padding: 12px 16px; }
+    .am-panel.active { display: block; }
+
+    /* ── Who-is-online grid ── */
+    .am-online-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 10px; padding-bottom: 20px;
+    }
+    .am-user-card {
+      background: #fff; border-radius: 12px; padding: 12px 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      border-left: 4px solid #e2e8f0;
+      display: flex; flex-direction: column; gap: 6px;
+      position: relative;
+    }
+    .am-user-card.online { border-color: var(--online-color); }
+    .am-user-card.idle   { border-color: var(--idle-color); }
+    .am-user-card.offline{ border-color: #e2e8f0; opacity: 0.75; }
+
+    .am-user-card .top-row {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .am-user-card .avatar {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: #1e3a5f; color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 900; font-size: 0.85rem; flex-shrink: 0;
+    }
+    .am-user-card .name-block { flex: 1; min-width: 0; }
+    .am-user-card .username { font-weight: 900; font-size: 0.88rem; color: #0f172a; }
+    .am-user-card .role-chip {
+      display: inline-block; padding: 1px 7px; border-radius: 999px;
+      font-size: 0.62rem; font-weight: 700; background: #f1f5f9; color: #64748b; margin-top: 1px;
+    }
+    .am-status-dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    }
+    .am-status-dot.online { background: var(--online-color); box-shadow: 0 0 0 3px rgba(22,163,74,0.2); }
+    .am-status-dot.idle   { background: var(--idle-color); }
+    .am-status-dot.offline{ background: var(--offline-color); }
+
+    .am-user-card .info-row {
+      display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: #64748b;
+    }
+    .am-user-card .info-row i { font-size: 0.78rem; }
+    .am-user-card .page-badge {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;
+      padding: 2px 7px; font-size: 0.68rem; font-weight: 700; color: #334155;
+      max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .am-user-card .bottom-row {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      border-top: 1px solid #f1f5f9; padding-top: 6px; margin-top: 2px;
+    }
+    .am-user-card .stat-chip {
+      font-size: 0.64rem; color: #64748b; display: flex; align-items: center; gap: 3px;
+    }
+    .am-user-card .stat-chip strong { color: #0f172a; }
+
+    /* ── Activity Log table ── */
+    .am-table-wrap { overflow-x: auto; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    .am-table { width: 100%; border-collapse: collapse; background: #fff; font-size: 0.78rem; }
+    .am-table th {
+      background: #0f172a; color: #fff; padding: 9px 12px; text-align: left;
+      font-weight: 700; white-space: nowrap;
+    }
+    .am-table td {
+      padding: 8px 12px; border-bottom: 1px solid #f1f5f9; color: #334155;
+      vertical-align: middle;
+    }
+    .am-table tr:hover td { background: #f8fafc; }
+    .am-table .action-chip {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      font-size: 0.66rem; font-weight: 700;
+    }
+    .am-table .action-login    { background: #dbeafe; color: #1d4ed8; }
+    .am-table .action-page_open{ background: #dcfce7; color: #166534; }
+    .am-table .action-heartbeat{ background: #f0fdf4; color: #16a34a; }
+    .am-table .action-page_close{background: #fee2e2; color: #991b1b; }
+    .am-table .dev-mobile      { color: #7c3aed; }
+    .am-table .dev-desktop     { color: #0891b2; }
+
+    .am-empty { text-align: center; padding: 40px 20px; color: #94a3b8; font-size: 0.88rem; }
+    .am-loader { text-align: center; padding: 30px; color: #94a3b8; }
+
+    @media (max-width: 600px) {
+      .am-stats { gap: 8px; padding: 12px 10px 4px; }
+      .am-online-grid { grid-template-columns: 1fr; }
+      .am-filters { gap: 6px; padding: 8px 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="am-header">
+  <div style="display:flex;align-items:center;gap:10px;flex:1">
+    <i class="bi bi-activity" style="font-size:1.3rem"></i>
+    <h1>Activity Monitor</h1>
+  </div>
+  <div class="live-badge">
+    <div class="pulse"></div>
+    <span>LIVE</span>
+    &nbsp;·&nbsp;
+    <span id="am-last-refresh">Loading…</span>
+  </div>
+  <button onclick="loadData()" style="padding:6px 14px;border-radius:8px;border:none;cursor:pointer;font-size:0.78rem;font-weight:700;background:rgba(255,255,255,0.12);color:#fff">
+    <i class="bi bi-arrow-clockwise"></i> Refresh
+  </button>
+</div>
+
+<!-- Summary Stats -->
+<div class="am-stats" id="am-stats">
+  <div class="am-stat-card online"><div class="label">Online Now</div><div class="value" id="stat-online">—</div></div>
+  <div class="am-stat-card idle"><div class="label">Idle (30 min)</div><div class="value" id="stat-idle">—</div></div>
+  <div class="am-stat-card"><div class="label">Total Users Seen</div><div class="value" id="stat-total">—</div></div>
+  <div class="am-stat-card"><div class="label">Actions Today</div><div class="value" id="stat-actions">—</div></div>
+  <div class="am-stat-card"><div class="label">Logins Today</div><div class="value" id="stat-logins">—</div></div>
+</div>
+
+<!-- Filters -->
+<div class="am-filters">
+  <input type="text" id="f-username" placeholder="Filter by username…" oninput="applyFilters()">
+  <select id="f-app" onchange="applyFilters()">
+    <option value="">All Apps</option>
+    <option value="supervisor_app">Supervisor</option>
+    <option value="planning">Planning</option>
+    <option value="dpr">DPR</option>
+    <option value="qc_supervisor_app">QC Supervisor</option>
+    <option value="dashboard">Dashboard</option>
+    <option value="masters">Masters</option>
+    <option value="reports">Reports</option>
+    <option value="hr">HR</option>
+    <option value="analyze">Analyze</option>
+    <option value="shifting_supervisor_app">Shifting Supervisor</option>
+    <option value="wip_supervisor_app">WIP Supervisor</option>
+    <option value="mobile">Mobile</option>
+  </select>
+  <select id="f-status" onchange="applyFilters()">
+    <option value="">All Status</option>
+    <option value="online">Online</option>
+    <option value="idle">Idle</option>
+    <option value="offline">Offline</option>
+  </select>
+  <input type="date" id="f-date" onchange="loadData()">
+  <button class="btn-clear" onclick="clearFilters()">Clear</button>
+</div>
+
+<!-- Tabs -->
+<div class="am-tabs">
+  <div class="am-tab active" id="tab-users" onclick="switchTab('users')">
+    <i class="bi bi-people-fill"></i> Who Is Online
+  </div>
+  <div class="am-tab" id="tab-log" onclick="switchTab('log')">
+    <i class="bi bi-clock-history"></i> Activity Log
+  </div>
+</div>
+
+<!-- Panel: Who Is Online -->
+<div class="am-panel active" id="panel-users">
+  <div id="am-users-content">
+    <div class="am-loader"><i class="bi bi-hourglass-split"></i> Loading users…</div>
+  </div>
+</div>
+
+<!-- Panel: Activity Log -->
+<div class="am-panel" id="panel-log">
+  <div class="am-table-wrap">
+    <table class="am-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Action</th>
+          <th>Page / App</th>
+          <th>Device</th>
+          <th>IP</th>
+          <th>Factory</th>
+        </tr>
+      </thead>
+      <tbody id="am-log-body">
+        <tr><td colspan="8" class="am-loader"><i class="bi bi-hourglass-split"></i> Loading log…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script src="/assets/app.js"></script>
+<script>
+/* ── Auth guard ── */
+(function() {
+  let user = {};
+  try { user = JSON.parse(localStorage.getItem('user') || '{}'); } catch(_e) {}
+  const role = String(user.role_code || '').toLowerCase();
+  if (!user.username) { window.location.href = '/login.html'; return; }
+  if (role !== 'admin' && role !== 'superadmin') {
+    document.body.innerHTML = '<div style="padding:40px;text-align:center;color:#dc2626;font-size:1rem;font-weight:700"><i class="bi bi-shield-lock-fill" style="font-size:2rem;display:block;margin-bottom:10px"></i>Access Denied — Admins Only</div>';
+  }
+})();
+
+/* ── State ── */
+let _allUsers = [];
+let _allLog   = [];
+let _activeTab = 'users';
+let _refreshTimer = null;
+
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function fmt(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  const pad = n => String(n).padStart(2,'0');
+  return `${pad(d.getDate())}/${pad(d.getMonth()+1)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function timeAgo(ts) {
+  if (!ts) return '—';
+  const diffMs = Date.now() - new Date(ts).getTime();
+  const s = Math.floor(diffMs / 1000);
+  if (s < 60) return s + 's ago';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  return h + 'h ago';
+}
+
+function getAppLabel(appId) {
+  const MAP = {
+    supervisor_app: 'Supervisor', planning: 'Planning', dpr: 'DPR',
+    qc_supervisor_app: 'QC Supervisor', dashboard: 'Dashboard',
+    masters: 'Masters', reports: 'Reports', hr: 'HR', analyze: 'Analyze',
+    shifting_supervisor_app: 'Shifting Sup.', wip_supervisor_app: 'WIP Sup.',
+    raw_material: 'Raw Material', purchase: 'Purchase', wip_internal: 'WIP Internal',
+    shifting_module: 'Shifting', joy_learning: 'Joy Learning', grinding: 'Grinding',
+    packing: 'Packing', users: 'User Mgmt', notifications: 'Notifications',
+    settings: 'Settings', admin: 'Admin', web: 'Web', mobile: 'Mobile'
+  };
+  return MAP[appId] || appId || 'Web';
+}
+
+function statusColor(status) {
+  if (status === 'online') return 'var(--online-color)';
+  if (status === 'idle')   return 'var(--idle-color)';
+  return 'var(--offline-color)';
+}
+
+/* ── Load ── */
+async function loadData() {
+  const dateVal = document.getElementById('f-date').value;
+  const usernameVal = document.getElementById('f-username').value.trim();
+  const appVal = document.getElementById('f-app').value;
+
+  let url = '/api/activity/monitor?limit=300';
+  if (dateVal) url += '&date=' + encodeURIComponent(dateVal);
+  if (usernameVal) url += '&username=' + encodeURIComponent(usernameVal);
+  if (appVal) url += '&app_id=' + encodeURIComponent(appVal);
+
+  try {
+    const res = await fetch(url);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error);
+    _allUsers = json.users || [];
+    _allLog   = json.recent_log || [];
+    document.getElementById('am-last-refresh').textContent = 'Updated ' + timeAgo(new Date());
+    updateStats();
+    applyFilters();
+  } catch (e) {
+    document.getElementById('am-users-content').innerHTML =
+      `<div class="am-empty"><i class="bi bi-exclamation-triangle"></i><br>${esc(String(e))}</div>`;
+  }
+}
+
+/* ── Stats ── */
+function updateStats() {
+  const online  = _allUsers.filter(u => u.status === 'online').length;
+  const idle    = _allUsers.filter(u => u.status === 'idle').length;
+  const total   = _allUsers.length;
+  const actions = _allUsers.reduce((s, u) => s + (u.actions_today || 0), 0);
+  const logins  = _allUsers.reduce((s, u) => s + (u.logins_today || 0), 0);
+  document.getElementById('stat-online').textContent  = online;
+  document.getElementById('stat-idle').textContent    = idle;
+  document.getElementById('stat-total').textContent   = total;
+  document.getElementById('stat-actions').textContent = actions;
+  document.getElementById('stat-logins').textContent  = logins;
+}
+
+/* ── Apply Filters ── */
+function applyFilters() {
+  const username = document.getElementById('f-username').value.trim().toLowerCase();
+  const appId    = document.getElementById('f-app').value;
+  const status   = document.getElementById('f-status').value;
+
+  const filteredUsers = _allUsers.filter(u => {
+    if (username && !u.username.toLowerCase().includes(username)) return false;
+    if (appId  && u.app_id  !== appId)  return false;
+    if (status && u.status !== status) return false;
+    return true;
+  });
+
+  const filteredLog = _allLog.filter(r => {
+    if (username && !r.username.toLowerCase().includes(username)) return false;
+    if (appId  && r.app_id  !== appId) return false;
+    return true;
+  });
+
+  renderUsersPanel(filteredUsers);
+  renderLogPanel(filteredLog);
+}
+
+/* ── Who Is Online Panel ── */
+function renderUsersPanel(users) {
+  const container = document.getElementById('am-users-content');
+  if (!users.length) {
+    container.innerHTML = '<div class="am-empty"><i class="bi bi-people"></i><br>No users found</div>';
+    return;
+  }
+
+  // Sort: online → idle → offline, then by last_seen desc
+  const order = { online: 0, idle: 1, offline: 2 };
+  users.sort((a, b) => {
+    const so = (order[a.status] || 0) - (order[b.status] || 0);
+    if (so !== 0) return so;
+    return new Date(b.last_seen) - new Date(a.last_seen);
+  });
+
+  const grid = document.createElement('div');
+  grid.className = 'am-online-grid';
+
+  users.forEach(u => {
+    const initials = (u.username || '?').slice(0, 2).toUpperCase();
+    const statusLabel = u.status === 'online' ? 'Online' : u.status === 'idle' ? 'Idle' : 'Offline';
+    const deviceIcon = u.device_type === 'mobile'
+      ? '<i class="bi bi-phone-fill" title="Mobile" style="color:#7c3aed"></i>'
+      : '<i class="bi bi-monitor-fill" title="Desktop" style="color:#0891b2"></i>';
+
+    const card = document.createElement('div');
+    card.className = `am-user-card ${u.status || 'offline'}`;
+    card.innerHTML = `
+      <div class="top-row">
+        <div class="avatar">${esc(initials)}</div>
+        <div class="name-block">
+          <div class="username">${esc(u.username)}</div>
+          <div class="role-chip">${esc(u.role_code || 'user')}</div>
+        </div>
+        <div class="am-status-dot ${u.status || 'offline'}" title="${statusLabel}"></div>
+      </div>
+      <div class="info-row">
+        ${deviceIcon}
+        <span class="page-badge" title="${esc(u.page || '')}">
+          ${esc(getAppLabel(u.app_id))}${u.page ? ' · ' + esc(u.page) : ''}
+        </span>
+      </div>
+      <div class="info-row">
+        <i class="bi bi-clock"></i>
+        <span>${esc(timeAgo(u.last_seen))}</span>
+        <span style="color:#cbd5e1">·</span>
+        <span style="color:${statusColor(u.status)};font-weight:700">${statusLabel}</span>
+      </div>
+      ${u.ip_address ? `<div class="info-row"><i class="bi bi-hdd-network"></i><span>${esc(u.ip_address)}</span></div>` : ''}
+      <div class="bottom-row">
+        <div class="stat-chip"><i class="bi bi-activity"></i> <strong>${u.actions_today || 0}</strong>&nbsp;actions today</div>
+        <div class="stat-chip"><i class="bi bi-box-arrow-in-right"></i> <strong>${u.logins_today || 0}</strong>&nbsp;login${u.logins_today !== 1 ? 's' : ''}</div>
+        ${u.factory_id ? `<div class="stat-chip"><i class="bi bi-building"></i> F${esc(u.factory_id)}</div>` : ''}
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+
+  container.innerHTML = '';
+  container.appendChild(grid);
+}
+
+/* ── Activity Log Panel ── */
+function renderLogPanel(rows) {
+  const tbody = document.getElementById('am-log-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="am-empty"><i class="bi bi-journal-x"></i><br>No log entries found</td></tr>';
+    return;
+  }
+
+  const actionClass = {
+    login: 'action-login', page_open: 'action-page_open',
+    heartbeat: 'action-heartbeat', page_close: 'action-page_close'
+  };
+
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td style="white-space:nowrap;color:#64748b">${esc(fmt(r.created_at))}</td>
+      <td><strong>${esc(r.username)}</strong></td>
+      <td style="color:#64748b;font-size:0.72rem">${esc(r.role_code || '')}</td>
+      <td>
+        <span class="action-chip ${actionClass[r.action] || ''}">
+          ${esc(r.action || '')}
+        </span>
+      </td>
+      <td>
+        <span style="font-weight:700;font-size:0.72rem">${esc(getAppLabel(r.app_id))}</span>
+        ${r.page ? `<span style="color:#94a3b8;font-size:0.68rem"> · ${esc(r.page)}</span>` : ''}
+      </td>
+      <td class="dev-${esc(r.device_type || 'desktop')}">
+        <i class="bi bi-${r.device_type === 'mobile' ? 'phone-fill' : 'monitor-fill'}"></i>
+        ${esc(r.device_type || 'desktop')}
+      </td>
+      <td style="font-size:0.68rem;color:#94a3b8">${esc(r.ip_address || '')}</td>
+      <td style="font-size:0.7rem;color:#64748b">${r.factory_id ? 'F' + esc(r.factory_id) : '—'}</td>
+    </tr>
+  `).join('');
+}
+
+/* ── Tabs ── */
+function switchTab(tab) {
+  _activeTab = tab;
+  document.querySelectorAll('.am-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.am-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.getElementById('panel-' + tab).classList.add('active');
+}
+
+/* ── Clear Filters ── */
+function clearFilters() {
+  document.getElementById('f-username').value = '';
+  document.getElementById('f-app').value = '';
+  document.getElementById('f-status').value = '';
+  document.getElementById('f-date').value = '';
+  loadData();
+}
+
+/* ── Init ── */
+loadData();
+
+// Auto-refresh every 30 seconds
+_refreshTimer = setInterval(loadData, 30000);
+</script>
+</body>
+</html>
