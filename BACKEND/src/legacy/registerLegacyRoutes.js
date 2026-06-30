@@ -11746,7 +11746,8 @@ app.get('/api/planning/job-sheet', async (req, res) => {
     const to         = (req.query.to    || today).trim();
     const search     = (req.query.search || '').trim();
 
-    const params = [factoryId, from, to];
+    // $1=factoryId, $2=from, $3=to, $4=today (for priority join — always today regardless of filter range)
+    const params = [factoryId, from, to, today];
     let searchClause = '';
     if (search) {
       params.push(`%${search}%`);
@@ -11774,9 +11775,9 @@ app.get('/api/planning/job-sheet', async (req, res) => {
       FROM or_jr_report r
       LEFT JOIN order_high_priority ohp
         ON  ohp.order_no      = r.or_jr_no
-        AND ohp.priority_date = $2::date
-        AND ohp.factory_id    = $1
-      WHERE r.factory_id = $1
+        AND ohp.priority_date = $4::date
+        AND ($1 IS NULL OR ohp.factory_id = $1)
+      WHERE ($1 IS NULL OR r.factory_id = $1)
         AND r.or_jr_date BETWEEN $2::date AND $3::date
         ${searchClause}
       ORDER BY
@@ -11823,7 +11824,8 @@ app.post('/api/planning/job-sheet/priority', async (req, res) => {
     } else {
       await q(
         `DELETE FROM order_high_priority
-         WHERE order_no = $1 AND priority_date = $2::date AND factory_id = $3`,
+         WHERE order_no = $1 AND priority_date = $2::date
+           AND ($3 IS NULL OR factory_id = $3)`,
         [order_no, priority_date, factoryId]
       );
     }
