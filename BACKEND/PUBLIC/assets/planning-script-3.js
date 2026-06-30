@@ -9450,22 +9450,18 @@
 
   // ── View Details Modal — uses cached row, no second API call ──────────────
   window.jsViewDetails = function (rowIdx) {
-    const modal   = document.getElementById('jsDetailModal');
     const titleEl = document.getElementById('jsDetailTitle');
     const bodyEl  = document.getElementById('jsDetailBody');
-    if (!modal) return;
 
     const row = (window._jsRows || [])[rowIdx];
     if (!row) {
       if (bodyEl) bodyEl.innerHTML = '<div style="padding:40px;text-align:center;color:#ef4444">Row data not found. Please reload the page.</div>';
-      modal.setAttribute('aria-hidden', 'false');
-      modal.style.display = 'flex';
+      window.openModal('jsDetailModal');
       return;
     }
 
     if (titleEl) titleEl.textContent = `Order: ${row.or_jr_no || '—'}`;
-    modal.setAttribute('aria-hidden', 'false');
-    modal.style.display = 'flex';
+    window.openModal('jsDetailModal');
 
     const field = (label, val) => `
       <div style="display:flex;flex-direction:column;gap:3px">
