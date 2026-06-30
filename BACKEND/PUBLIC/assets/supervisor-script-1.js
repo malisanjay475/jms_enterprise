@@ -2154,6 +2154,12 @@
         if (colorSel) { colorSel.value = ''; }
         closeColorPickerPanel();
 
+        // Lock entry body immediately — colour must be chosen before any entry
+        const _eb = el('dpr-entry-body');
+        const _cp = el('colour-required-prompt');
+        if (_eb) { _eb.style.pointerEvents = 'none'; _eb.style.opacity = '0.35'; }
+        if (_cp) _cp.style.display = 'block';
+
         onColorChange();
 
         rejItems = []; dtItems = []; renderRejItems(); renderDtItems();
@@ -2185,13 +2191,11 @@
         loadUsedSlots();
         show('dpr-form');
         showPage('sec-dpr', el('tab-dpr'));
-        // Scroll to Colour & QTY table so operator immediately sees the colour breakdown
-        const _colorCard = el('color-plan-card');
-        if (_colorCard) {
-          _colorCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } else {
-          document.getElementById('sec-dpr').scrollIntoView({ behavior: 'smooth' });
-        }
+        // Scroll to the DPR entry form so operator immediately sees the slot/colour/shots inputs
+        setTimeout(() => {
+          const _entryForm = el('dpr-form') || el('d-slot') || el('sec-dpr');
+          if (_entryForm) _entryForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 80);
       } catch (e) { alert('Error opening DPR Form: ' + e.message); console.error(e); }
     }
 
@@ -2571,6 +2575,20 @@
           r.classList.remove('selected');
         }
       });
+
+      // Lock / unlock the entry body based on whether a colour is chosen
+      const entryBody = el('dpr-entry-body');
+      const prompt = el('colour-required-prompt');
+      if (val) {
+        if (entryBody) { entryBody.style.pointerEvents = ''; entryBody.style.opacity = '1'; }
+        if (prompt) prompt.style.display = 'none';
+      } else {
+        if (entryBody) { entryBody.style.pointerEvents = 'none'; entryBody.style.opacity = '0.35'; }
+        if (prompt) prompt.style.display = 'block';
+      }
+
+      // Always re-evaluate submit eligibility when colour changes
+      validateForm();
     }
 
     function validateForm() {
