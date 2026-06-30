@@ -11786,8 +11786,8 @@ app.get('/api/planning/job-sheet', async (req, res) => {
       LIMIT 500
     `;
 
-    const result = await q(sql, params);
-    res.json({ rows: result.rows, total: result.rows.length });
+    const rows = await q(sql, params);
+    res.json({ rows, total: rows.length });
   } catch (err) {
     console.error('[GET /api/planning/job-sheet]', err);
     res.status(500).json({ error: 'Failed to load job sheet data' });
