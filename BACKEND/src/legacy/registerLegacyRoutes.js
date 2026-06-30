@@ -5145,6 +5145,16 @@ async function initializeLegacyRuntime() {
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_or_jr_report_or_jr_no ON or_jr_report(TRIM(or_jr_no));`);
     // 8. mould_planning_summary join in mps_agg CTE
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_planning_summary_or_jr_no ON mould_planning_summary(TRIM(or_jr_no), TRIM(mould_name));`);
+    // 9. plan_board.order_no — heavily used in JOINs and report batch queries
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_order_no ON plan_board(order_no);`);
+    // 10. planning_drops.order_no — used in planning report batch queries
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_planning_drops_order_no ON planning_drops(order_no);`);
+    // 11. orders.order_no — used in many JOINs with plan_board and or_jr_report
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_orders_order_no ON orders(order_no);`);
+    // 12. orders.status + factory_id — used in reports/planning status filters
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_orders_status_factory ON orders(status, factory_id);`);
+    // 13. notifications.target_user — polled frequently for unread counts
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_notifications_target_user ON notifications(target_user, is_read);`);
 
     // Per-machine P1–P4 priority labels
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
@@ -5649,11 +5659,11 @@ app.post('/api/users/save', async (req, res) => {
     // Handle Factories Assignment
     // Body: { factories: [1, 2] }
     if (requestedFactoryIds) {
-      // Clear existing
+      // Clear existing then bulk-insert new in one shot
       await q('DELETE FROM user_factories WHERE user_id=$1', [userId]);
-      // Insert new
-      for (const fid of requestedFactoryIds) {
-        await q('INSERT INTO user_factories (user_id, factory_id) VALUES ($1, $2)', [userId, fid]);
+      if (requestedFactoryIds.length > 0) {
+        const fVals = requestedFactoryIds.map((_, i) => `($1, $${i + 2})`).join(',');
+        await q(`INSERT INTO user_factories (user_id, factory_id) VALUES ${fVals}`, [userId, ...requestedFactoryIds]);
       }
     }
 
@@ -11718,17 +11728,33 @@ app.get('/api/planning/completed', async (req, res) => {
       params.push(limit);
       const orders = await q(sql, params);
       const report = [];
-      for (const o of orders) {
-        const oNo = o.order_no;
-        const rpt = await q(`SELECT COUNT(DISTINCT mould_name):: int as total FROM mould_planning_report WHERE or_jr_no = $1`, [oNo]);
-        const totalMoulds = (rpt[0] && rpt[0].total) || 0;
-        const plans = await q(`SELECT mould_name, mould_code, machine, plan_qty, status, 'Planned' as type, updated_at as time, 'System' as user_name FROM plan_board WHERE order_no = $1`, [oNo]);
-        const drops = await q(`SELECT mould_name, mould_no as mould_code, 'N/A' as machine, 0 as plan_qty, 'Dropped' as status, 'Dropped' as type, created_at as time, 'System' as user_name, remarks FROM planning_drops WHERE order_no = $1`, [oNo]);
-        const details = [...plans, ...drops].sort((a, b) => new Date(a.time) - new Date(b.time));
-        report.push({
-          header: { orderNo: o.order_no, client: o.client_name, product: o.item_name, totalMoulds: totalMoulds, status: 'Fully Planned', completedAt: o.completed_at },
-          rows: details
-        });
+      if (orders.length > 0) {
+        // Batch-fetch all related data in 3 queries instead of 3×N queries
+        const orderNos = orders.map(o => o.order_no);
+        const [mouldCounts, allPlans, allDrops] = await Promise.all([
+          q(`SELECT or_jr_no, COUNT(DISTINCT mould_name)::int as total
+             FROM mould_planning_report WHERE or_jr_no = ANY($1) GROUP BY or_jr_no`, [orderNos]),
+          q(`SELECT order_no, mould_name, mould_code, machine, plan_qty, status,
+                    'Planned' as type, updated_at as time, 'System' as user_name
+             FROM plan_board WHERE order_no = ANY($1)`, [orderNos]),
+          q(`SELECT order_no, mould_name, mould_no as mould_code, 'N/A' as machine,
+                    0 as plan_qty, 'Dropped' as status, 'Dropped' as type,
+                    created_at as time, 'System' as user_name, remarks
+             FROM planning_drops WHERE order_no = ANY($1)`, [orderNos])
+        ]);
+        const mouldCountMap = Object.fromEntries(mouldCounts.map(r => [r.or_jr_no, r.total]));
+        const plansByOrder = {};
+        for (const p of allPlans) { (plansByOrder[p.order_no] = plansByOrder[p.order_no] || []).push(p); }
+        const dropsByOrder = {};
+        for (const d of allDrops) { (dropsByOrder[d.order_no] = dropsByOrder[d.order_no] || []).push(d); }
+        for (const o of orders) {
+          const details = [...(plansByOrder[o.order_no] || []), ...(dropsByOrder[o.order_no] || [])]
+            .sort((a, b) => new Date(a.time) - new Date(b.time));
+          report.push({
+            header: { orderNo: o.order_no, client: o.client_name, product: o.item_name, totalMoulds: mouldCountMap[o.order_no] || 0, status: 'Fully Planned', completedAt: o.completed_at },
+            rows: details
+          });
+        }
       }
       res.json({ ok: true, data: report });
     } else {
@@ -20724,15 +20750,12 @@ app.post('/api/qc/material-issues', (req, res, next) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb) RETURNING id`,
       [factoryId, machine, job_card_no || '', issue_description, severity || 'Medium', mediaUrl, assigned_to_role, assigned_to_name || '', created_by, initAudit]
     );
-    // Notify Moulding Manager, Sr. Moulding Manager, PPC
+    // Notify Moulding Manager, Sr. Moulding Manager, PPC — bulk insert (3 rows in 1 query)
     const notifyRoles = ['Moulding Manager', 'Sr. Moulding Manager', 'PPC'];
-    for (const role of notifyRoles) {
-      await q(
-        `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
-         VALUES ($1,$2,$3,'ISSUE',$4)`,
-        [factoryId, role, `New Issue on ${machine} by ${created_by}: ${issue_description.slice(0, 80)}`, r[0].id]
-      );
-    }
+    await q(
+      `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id) VALUES ${notifyRoles.map((_, i) => `($1,$${i+2},$${notifyRoles.length+2},'ISSUE',$${notifyRoles.length+3})`).join(',')}`,
+      [factoryId, ...notifyRoles, `New Issue on ${machine} by ${created_by}: ${issue_description.slice(0, 80)}`, r[0].id]
+    );
     res.json({ ok: true, id: r[0].id });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
