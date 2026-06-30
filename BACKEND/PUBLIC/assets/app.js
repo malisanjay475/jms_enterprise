@@ -1778,9 +1778,11 @@ function escHtml(value) {
     const ua = navigator.userAgent || '';
     const device = /mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop';
 
-    // Session id (tab-scoped)
+    // Session id (tab-scoped) — use crypto.getRandomValues for unpredictability
     if (!window._jmsSessionId) {
-      window._jmsSessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const _rnd = new Uint32Array(2);
+      (window.crypto || window.msCrypto).getRandomValues(_rnd);
+      window._jmsSessionId = 'sess_' + Date.now() + '_' + _rnd[0].toString(36) + _rnd[1].toString(36);
     }
 
     let factoryId = '';
