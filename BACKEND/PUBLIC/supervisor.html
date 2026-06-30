@@ -224,11 +224,12 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 8px;
       margin-bottom: 14px;
+      overflow: hidden;
     }
 
-    .brand-identity { display: flex; align-items: center; gap: 10px; min-width: 0 }
+    .brand-identity { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; overflow: hidden }
 
     .brand-mark {
       width: 40px;
@@ -265,18 +266,23 @@
     .brand-meta {
       display: flex;
       align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
+      gap: 6px;
+      flex-wrap: nowrap;
       justify-content: flex-end;
+      flex-shrink: 0;
     }
 
     .brand-chip, .brand-alert {
-      min-height: 34px;
-      padding: 6px 12px;
+      min-height: 32px;
+      padding: 4px 10px;
       border-radius: 999px;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
       box-shadow: none;
+      white-space: nowrap;
+      max-width: 160px;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .brand-chip {
@@ -1395,7 +1401,7 @@
     </div>
   </div>
 
-  <script src="/assets/supervisor-script-1.js?v=release71"></script>
+  <script src="/assets/supervisor-script-1.js?v=release75"></script>
   <script src="/assets/register-sw.js?v=release65"></script>
   <script>
     // Colour picker panel helpers — defined here so onclick in HTML always finds them
