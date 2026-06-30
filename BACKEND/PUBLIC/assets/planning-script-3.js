@@ -9360,6 +9360,15 @@
     return _JS_PRIORITY_ROLES.includes((_jsUser().role_code || ''));
   }
 
+  function _jsFactoryHeaders() {
+    const h = { 'Content-Type': 'application/json' };
+    const fid = localStorage.getItem('jpsms_factory_id');
+    if (fid) h['X-Factory-ID'] = fid;
+    const wfid = localStorage.getItem('jpsms_write_factory_id');
+    if (wfid) h['X-Write-Factory-ID'] = wfid;
+    return h;
+  }
+
   function _fmtDate(d) {
     if (!d) return '—';
     const dt = new Date(d);
@@ -9393,7 +9402,7 @@
 
     try {
       const params = new URLSearchParams({ from, to, search });
-      const res  = await fetch(`/api/planning/job-sheet?${params}`);
+      const res  = await fetch(`/api/planning/job-sheet?${params}`, { headers: _jsFactoryHeaders() });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       const rows = data.rows || [];
@@ -9467,7 +9476,7 @@
     try {
       const res = await fetch('/api/planning/job-sheet/priority', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: _jsFactoryHeaders(),
         body:    JSON.stringify({
           order_no:      orderNo,
           action:        'set',
@@ -9503,7 +9512,7 @@
       try {
         const res = await fetch('/api/planning/job-sheet/priority', {
           method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: _jsFactoryHeaders(),
           body:    JSON.stringify({
             order_no:      orderNo,
             action:        'remove',
