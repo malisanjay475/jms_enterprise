@@ -11776,8 +11776,8 @@ app.get('/api/planning/job-sheet', async (req, res) => {
       LEFT JOIN order_high_priority ohp
         ON  ohp.order_no      = r.or_jr_no
         AND ohp.priority_date = $4::date
-        AND ($1 IS NULL OR ohp.factory_id = $1)
-      WHERE ($1 IS NULL OR r.factory_id = $1)
+        AND ($1::integer IS NULL OR ohp.factory_id = $1::integer)
+      WHERE ($1::integer IS NULL OR r.factory_id = $1::integer)
         AND r.or_jr_date BETWEEN $2::date AND $3::date
         ${searchClause}
       ORDER BY
@@ -11825,7 +11825,7 @@ app.post('/api/planning/job-sheet/priority', async (req, res) => {
       await q(
         `DELETE FROM order_high_priority
          WHERE order_no = $1 AND priority_date = $2::date
-           AND ($3 IS NULL OR factory_id = $3)`,
+           AND ($3::integer IS NULL OR factory_id = $3::integer)`,
         [order_no, priority_date, factoryId]
       );
     }
