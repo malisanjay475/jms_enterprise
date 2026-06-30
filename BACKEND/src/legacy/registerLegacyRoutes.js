@@ -22884,10 +22884,11 @@ app.post('/api/activity/heartbeat', async (req, res) => {
     const ua = String(req.headers['user-agent'] || '').slice(0, 500);
     const device = device_type || (/mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop');
     const actionStr = String(req.body?.action || 'heartbeat').slice(0, 30);
+    const extraData  = req.body?.extra ? JSON.stringify(req.body.extra) : null;
     await q(
-      `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())`,
-      [username, role_code || '', app_id || 'web', actionStr, page || '', device, ip, ua, String(factory_id || ''), String(session_id || '')]
+      `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, extra, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())`,
+      [username, role_code || '', app_id || 'web', actionStr, page || '', device, ip, ua, String(factory_id || ''), String(session_id || ''), extraData]
     );
     res.json({ ok: true });
   } catch (e) {
@@ -22924,6 +22925,32 @@ app.get('/api/activity/monitor', async (req, res) => {
       WHERE created_at >= CURRENT_DATE AND action = 'login'
       GROUP BY username
     `);
+
+    // First seen today per user
+    const firstSeenRows = await q(`
+      SELECT username, MIN(created_at) AS first_seen_today
+      FROM user_activity_log
+      WHERE created_at >= CURRENT_DATE
+      GROUP BY username
+    `);
+    const firstSeenMap = {};
+    for (const r of firstSeenRows) firstSeenMap[r.username] = r.first_seen_today;
+
+    // Latest machine per supervisor (from dpr_entry / machine_select extra)
+    const machineRows = await q(`
+      SELECT DISTINCT ON (username)
+        username,
+        extra->>'machine' AS machine,
+        extra->>'order_no' AS order_no,
+        extra->>'colour' AS colour
+      FROM user_activity_log
+      WHERE action IN ('dpr_entry','machine_select','job_open')
+        AND extra IS NOT NULL
+        AND extra->>'machine' IS NOT NULL
+      ORDER BY username, created_at DESC
+    `);
+    const machineMap = {};
+    for (const r of machineRows) machineMap[r.username] = { machine: r.machine, order_no: r.order_no, colour: r.colour };
     const loginMap = {};
     for (const r of loginRows) loginMap[r.username] = Number(r.logins_today);
 
@@ -22946,7 +22973,9 @@ app.get('/api/activity/monitor', async (req, res) => {
         last_seen: r.created_at,
         status,
         actions_today: todayMap[r.username] || 0,
-        logins_today: loginMap[r.username] || 0
+        logins_today: loginMap[r.username] || 0,
+        first_seen_today: firstSeenMap[r.username] || null,
+        current_machine: machineMap[r.username] || null
       };
     });
 

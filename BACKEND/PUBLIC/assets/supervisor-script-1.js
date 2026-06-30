@@ -1694,6 +1694,9 @@
       const msg = el('login-msg');
       if (msg) msg.innerHTML = '<span class="ok">Login OK.</span>';
 
+      // Log supervisor login
+      _logSupervisorActivity('login', { line: session.line });
+
       showAppView(true);
       loadMachines();
     }
@@ -1834,8 +1837,37 @@
       }
     }
 
+    /* ── Activity logging helper ──────────────────────────────────────────
+       Posts a structured event to the Activity Monitor backend.
+       action: 'machine_select' | 'job_open' | 'dpr_entry' | 'quick_action' | etc.
+       extra : plain object with any detail fields (machine, slot, colour, etc.)
+    ─────────────────────────────────────────────────────────────────────── */
+    function _logSupervisorActivity(action, extra) {
+      try {
+        if (!session.username) return;
+        const ua = navigator.userAgent || '';
+        fetch('/api/activity/heartbeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username:    session.username,
+            role_code:   session.role_code || 'supervisor',
+            app_id:      'supervisor_app',
+            action:      action,
+            page:        'supervisor.html',
+            device_type: /mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop',
+            factory_id:  String(session.factoryId || ''),
+            extra:       extra || null
+          }),
+          keepalive: true
+        }).catch(function () {});
+      } catch (_e) {}
+    }
+
     function onMachineChange() {
       session.machine = el('dd-machine').value;
+      // Log machine selection
+      _logSupervisorActivity('machine_select', { machine: session.machine, line: session.line });
       checkPlantClosure();
       updateFilledSlots();
       loadQueue();
@@ -2131,6 +2163,15 @@
         if (!session.activeJob) return;
 
         const job = session.activeJob;
+
+        // Log job open
+        _logSupervisorActivity('job_open', {
+          machine:  job.Machine || session.machine,
+          plan_id:  job.PlanID,
+          order_no: job.OrderNo,
+          mould:    job.MouldNo || job.Mould || '',
+          item:     job.ItemName || job.item_name || ''
+        });
 
         // START in Main Entry Mode
         setDPRMode('Main');
@@ -2899,6 +2940,21 @@
         .then(r => {
           if (r && r.ok) {
             el('dpr-msg').innerHTML = '<span class="ok">Saved.</span>';
+            // Log DPR entry to Activity Monitor
+            _logSupervisorActivity('dpr_entry', {
+              machine:      entry.Machine,
+              plan_id:      entry.PlanID,
+              order_no:     entry.OrderNo,
+              mould:        entry.MouldNo,
+              slot:         entry.HourSlot,
+              shift:        entry.Shift,
+              date:         entry.Date,
+              colour:       entry.Colour,
+              shots:        entry.Shots,
+              good_qty:     entry.GoodQty,
+              reject_qty:   entry.RejectQty,
+              downtime_min: entry.DowntimeMin
+            });
             // Reset to Main Entry for next time
             setDPRMode('Main');
 
@@ -3236,6 +3292,17 @@
         .then(r => {
           if (r && r.ok) {
             el('mc-msg').innerHTML = '<span class="ok">Saved.</span>';
+            // Log quick action to Activity Monitor
+            _logSupervisorActivity('quick_action', {
+              machine:      entry.Machine,
+              plan_id:      entry.PlanID,
+              order_no:     entry.OrderNo,
+              slot:         entry.HourSlot,
+              shift:        entry.Shift,
+              date:         entry.Date,
+              action_type:  currentMcEntryType,
+              downtime_min: dt
+            });
             closeMc();
             loadRecent();
             loadUsedSlots();
