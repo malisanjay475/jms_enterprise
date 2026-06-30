@@ -707,29 +707,134 @@
             50%       { opacity: .5; transform: scale(1.4) }
         }
 
-        /* ── v3 Job Card ── */
-        .v3-flow-badge { min-height: 22px }
-        .v3-btn-row { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px }
+        /* ── v4 Job Card ── */
+        .v3-flow-badge {
+            min-height: 24px;
+            margin: 5px 0 4px;
+        }
+        .v3-flow-badge span {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            border-radius: 999px;
+            padding: 3px 10px;
+        }
+        .v3-btn-row {
+            display: flex;
+            gap: 5px;
+            flex-wrap: nowrap;
+            margin-top: 8px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            padding-bottom: 2px;
+        }
+        .v3-btn-row::-webkit-scrollbar { display: none }
         .v3-btn-row button {
-            font-size: 12px !important;
-            padding: 6px 10px !important;
-            min-height: 34px !important;
-            border-radius: 10px !important;
+            font-size: 11px !important;
+            padding: 5px 9px !important;
+            min-height: 32px !important;
+            border-radius: 9px !important;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
         .v3-btn-row button[disabled] {
-            opacity: 0.35;
+            opacity: 0.32;
             cursor: not-allowed;
             background: var(--surface-elevated) !important;
             color: var(--muted) !important;
             border-color: var(--line) !important;
+            box-shadow: none !important;
         }
-        /* FPA View Gallery */
+        .v3-mould-line {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 1px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* ── FPA Section v4 ── */
+        .fpa-form-thumb-v4 {
+            width: 100%;
+            height: 170px;
+            border: 2px dashed var(--line-bright);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            background: #fff;
+            overflow: hidden;
+            position: relative;
+        }
+        .fpa-form-thumb-v4 img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 12px;
+            display: none;
+        }
+        .fpa-product-cell {
+            position: relative;
+            border-radius: 11px;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            cursor: pointer;
+            background: var(--surface-elevated);
+        }
+        .fpa-product-cell img {
+            width: 100%;
+            aspect-ratio: 1;
+            object-fit: cover;
+            display: block;
+        }
+        .fpa-product-cell .fpa-rm-btn {
+            position: absolute;
+            top: 4px; right: 4px;
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            background: rgba(0,0,0,.62);
+            color: #fff;
+            border: none;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            min-height: 0;
+            box-shadow: none;
+            cursor: pointer;
+        }
+        .fpa-add-cell {
+            aspect-ratio: 1;
+            border: 2px dashed var(--line-bright);
+            border-radius: 11px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            background: #fff;
+            font-size: 20px;
+            color: var(--muted);
+            gap: 2px;
+        }
+        .fpa-add-cell span { font-size: 10px; color: var(--muted) }
         .fpa-done-banner {
             background: #ecfdf5;
             border: 1px solid #6ee7b7;
-            border-radius: 12px;
-            padding: 12px;
+            border-radius: 14px;
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
         }
+        /* FPA Gallery (view mode) */
         .fpa-img-gallery {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -737,23 +842,27 @@
             margin-top: 8px;
         }
         .fpa-img-gallery img {
-            width: 100%; aspect-ratio: 1;
+            width: 100%;
+            aspect-ratio: 1;
             object-fit: cover;
             border-radius: 10px;
             border: 1px solid var(--line);
             cursor: pointer;
+            display: block;
+            background: var(--surface-elevated);
         }
-        /* Recent v3 */
+        /* Recent v4 */
         .recent-slot-card {
             border: 1px solid var(--line);
             border-radius: 14px;
-            padding: 12px;
+            padding: 12px 14px;
             background: var(--surface);
             margin-bottom: 8px;
+            border-left-width: 3px;
         }
         .recent-slot-row {
             display: flex;
-            gap: 6px;
+            gap: 5px;
             flex-wrap: wrap;
             margin-top: 6px;
         }
@@ -761,12 +870,29 @@
             background: var(--surface-elevated);
             border: 1px solid var(--line);
             border-radius: 8px;
-            padding: 4px 8px;
-            font-size: 12px;
-            font-weight: 600;
+            padding: 3px 8px;
+            font-size: 11px;
+            font-weight: 700;
         }
-        .recent-ok { background: #ecfdf5; color: #059669; border-color: #6ee7b7 }
-        .recent-notok { background: #fef2f2; color: #dc2626; border-color: #fca5a5 }
+        .recent-ok   { background: #ecfdf5; color: #059669; border-color: #6ee7b7 }
+        .recent-notok{ background: #fef2f2; color: #dc2626; border-color: #fca5a5 }
+        /* QC Report banner v4 */
+        .qcr-job-banner-v4 {
+            background: var(--primary-bg);
+            border: 1px solid rgba(37,99,235,.2);
+            border-radius: 12px;
+            padding: 10px 14px;
+            margin-bottom: 10px;
+        }
+        .qcr-job-banner-v4 .job-name { font-weight: 800; font-size: 15px; color: var(--ink) }
+        .qcr-job-banner-v4 .job-meta { font-size: 12px; color: var(--muted); margin-top: 3px }
+        /* Verify slot cards v4 */
+        .vfy-slot-card {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px 14px;
+            background: var(--surface);
+        }
 
         /* ── Desktop polish ── */
         @media (min-width: 800px) {
@@ -913,8 +1039,8 @@
                     <button class="small" style="border-color:var(--err);color:var(--err);white-space:nowrap" onclick="showPage('sec-verify',document.getElementById('tab-verify'));loadVerifySlots()">Verify Now →</button>
                 </div>
 
-<h2 style="margin-bottom:6px">Job Queue</h2>
-                <div class="muted" style="font-size:13px;margin-bottom:10px">Tap <b>QC Check</b>, <b>FPA</b>, or <b>⚙️</b> on any job.</div>
+<h2 style="margin-bottom:4px">Job Queue</h2>
+                <div class="muted" style="font-size:12px;margin-bottom:10px">Tap <b>📋 QC</b> or <b>📷 FPA</b> on a job · FPA required before QC</div>
                 <div id="jobs" class="jobs"></div>
                 <div id="no-jobs" class="no-jobs hidden">No queued jobs for this machine.</div>
             </section>
@@ -948,12 +1074,12 @@
 
             <!-- ══ QC ONLINE REPORT (slot accordion) ══ -->
             <section id="sec-qc-report" class="page card hidden">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                    <button id="qcr-back-btn" class="small ghost hidden" onclick="showPage('sec-queue',document.getElementById('tab-queue'))" style="padding:6px 10px;font-size:13px">← Back</button>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                    <button id="qcr-back-btn" class="small ghost" onclick="showPage('sec-queue',document.getElementById('tab-queue'));document.getElementById('qcr-job-banner').classList.add('hidden');" style="padding:5px 10px;font-size:13px">← Back</button>
                     <h2 style="margin:0">Online QC Report</h2>
                 </div>
-                <div id="qcr-job-banner" class="hidden" style="margin-bottom:10px"></div>
-                <div class="muted" style="font-size:13px;margin-bottom:10px">2-hour slot checks: Visual, Colour, Function/Fitment.</div>
+                <div id="qcr-job-banner" class="hidden qcr-job-banner-v4" style="margin-bottom:10px"></div>
+                <div class="muted" style="font-size:12px;margin-bottom:10px">2-hr slot checks: Visual · Colour · Function/Fitment</div>
                 <div class="grid-2" style="margin-bottom:10px">
                     <label>Shift
                         <select id="qcr-shift" onchange="initOnlineQCReport()">
@@ -1029,33 +1155,37 @@
                         QC Reports
                         <button class="small ghost" onclick="toggleSidebar()"><i class="bi bi-x-lg"></i></button>
                     </div>
-                    <div style="flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:8px">
-                        <button class="ghost" style="justify-content:flex-start; text-align:left"
-                            onclick="showPage('sec-queue'); toggleSidebar()"><i class="bi bi-list-task"></i> Queue /
-                            DPR</button>
+                    <div style="flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:6px">
+                        <div class="muted" style="font-size:11px;padding:4px 12px;text-transform:uppercase;letter-spacing:.05em;font-weight:700">Main</div>
+                        <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
+                            onclick="showPage('sec-queue',document.getElementById('tab-queue')); toggleSidebar()">
+                            <i class="bi bi-list-task"></i>&nbsp; Job Queue</button>
+                        <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
+                            onclick="showPage('sec-verify',document.getElementById('tab-verify')); loadVerifySlots(); toggleSidebar()">
+                            <i class="bi bi-check2-square"></i>&nbsp; Verify Entries</button>
+                        <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
+                            onclick="showPage('sec-qc-report',document.getElementById('tab-qcreport')); initOnlineQCReport(); toggleSidebar()">
+                            <i class="bi bi-clipboard-data"></i>&nbsp; QC Report</button>
+                        <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
+                            onclick="showPage('sec-issues',document.getElementById('tab-issues')); loadMaterialIssues(); toggleSidebar()">
+                            <i class="bi bi-exclamation-circle"></i>&nbsp; Issues</button>
+                        <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
+                            onclick="showPage('sec-recent',document.getElementById('tab-recent')); loadRecent(); toggleSidebar()">
+                            <i class="bi bi-clock-history"></i>&nbsp; Recent</button>
                         <div class="hr"></div>
-                        <div class="muted"
-                            style="font-size:12px; padding-left:12px; text-transform:uppercase; letter-spacing:0.05em">
-                            Forms</div>
-                        <button class="ghost" style="justify-content:flex-start; text-align:left"
-                            onclick="showPage('sec-qc-online'); toggleSidebar()"><i class="bi bi-activity"></i> Online
-                            Quality
-                            Report</button>
-                        <button class="ghost" style="justify-content:flex-start; text-align:left"
-                            onclick="showPage('sec-qc-fpa'); toggleSidebar()"><i class="bi bi-camera"></i> FPA
-                            Images</button>
-                        <button class="ghost" style="justify-content:flex-start; text-align:left"
-                            onclick="showPage('sec-qc-issue'); toggleSidebar()"><i
-                                class="bi bi-exclamation-triangle"></i> Line Issue
-                            Memo</button>
-                        <button class="ghost" style="justify-content:flex-start; text-align:left"
-                            onclick="showPage('sec-qc-training'); toggleSidebar()"><i class="bi bi-mortarboard"></i>
-                            Training
-                            Sheet</button>
-                        <button class="ghost" style="justify-content:flex-start; text-align:left"
-                            onclick="showPage('sec-qc-deviation'); toggleSidebar()"><i class="bi bi-signpost-split"></i>
-                            Deviation
-                            Form</button>
+                        <div class="muted" style="font-size:11px;padding:4px 12px;text-transform:uppercase;letter-spacing:.05em;font-weight:700">Forms</div>
+                        <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
+                            onclick="showPage('sec-qc-fpa'); toggleSidebar()">
+                            <i class="bi bi-camera"></i>&nbsp; FPA Images</button>
+                        <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
+                            onclick="showPage('sec-qc-issue'); toggleSidebar()">
+                            <i class="bi bi-exclamation-triangle"></i>&nbsp; Line Issue Memo</button>
+                        <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
+                            onclick="showPage('sec-qc-training'); toggleSidebar()">
+                            <i class="bi bi-mortarboard"></i>&nbsp; Training Sheet</button>
+                        <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
+                            onclick="showPage('sec-qc-deviation'); toggleSidebar()">
+                            <i class="bi bi-signpost-split"></i>&nbsp; Deviation Form</button>
                     </div>
                     <div style="padding:16px; border-top:1px solid var(--line)">
                         <button class="ghost" onclick="logout()"
@@ -1104,40 +1234,54 @@
 
             <!-- QC FORM: First Piece Approval -->
             <section id="sec-qc-fpa" class="page card hidden">
-                <h2 style="margin-bottom:6px">First Piece Approval (FPA)</h2>
-                <div id="fpa-context" style="margin-bottom:12px"></div>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                    <button class="small ghost" onclick="showPage('sec-queue',document.getElementById('tab-queue'))" style="padding:5px 10px;font-size:13px">← Back</button>
+                    <h2 style="margin:0">First Piece Approval</h2>
+                </div>
+                <!-- Job context banner (filled by JS) -->
+                <div id="fpa-context" style="margin-bottom:10px"></div>
+                <!-- Done banner (shown in view mode) -->
+                <div id="fpa-done-banner" class="fpa-done-banner hidden">
+                    <div style="font-size:22px">✅</div>
+                    <div>
+                        <div style="font-weight:700;font-size:14px;color:#059669">FPA Already Submitted</div>
+                        <div id="fpa-done-meta" style="font-size:12px;color:#047857;margin-top:2px"></div>
+                    </div>
+                </div>
                 <div class="row">
                     <div class="grid-2">
                         <label>Date <select id="fpa-date"></select></label>
                         <label>Shift <select id="fpa-shift" onchange="updateFPASlots()">
-                                <option>Day</option>
-                                <option>Night</option>
+                                <option>Day</option><option>Night</option>
                             </select></label>
                     </div>
                     <label>Hour Slot <select id="fpa-slot"></select></label>
 
-                    <!-- FPA Form Image -->
+                    <!-- FPA Form Image (v4: 170px thumb) -->
                     <div class="card" style="background:var(--surface-elevated);border-style:dashed;padding:12px">
-                        <div style="font-weight:700;margin-bottom:6px">📋 FPA Form Image</div>
+                        <div style="font-weight:700;margin-bottom:8px">📋 FPA Form Image</div>
                         <input type="file" id="fpa-form-image" accept="image/*" capture="environment" style="display:none" onchange="fpaFormImageChanged(this)">
-                        <div id="fpa-form-thumb" onclick="document.getElementById('fpa-form-image').click()"
-                            style="width:100%;height:100px;border:2px dashed var(--line-bright);border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;background:#fff;overflow:hidden;position:relative">
-                            <span id="fpa-form-placeholder" style="color:var(--muted);font-size:13px;text-align:center">📷 Tap to capture<br><span style="font-size:11px">FPA form image</span></span>
-                            <img id="fpa-form-preview" style="display:none;width:100%;height:100%;object-fit:cover;border-radius:10px">
+                        <div id="fpa-form-thumb" class="fpa-form-thumb-v4" onclick="document.getElementById('fpa-form-image').click()">
+                            <div id="fpa-form-placeholder" style="display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--muted);font-size:13px;text-align:center">
+                                <span style="font-size:32px">📷</span>
+                                <span>Tap to capture FPA form</span>
+                                <span style="font-size:11px">Photo of the physical FPA sheet</span>
+                            </div>
+                            <img id="fpa-form-preview" alt="FPA form">
                         </div>
                     </div>
 
-                    <!-- Product Reference Images (min 2) -->
+                    <!-- Product Reference Images (v4: proper aspect-ratio cells) -->
                     <div class="card" style="background:var(--surface-elevated);border-style:dashed;padding:12px">
                         <div style="font-weight:700;margin-bottom:2px">🖼 Product Reference Images</div>
-                        <div class="muted" style="font-size:12px;margin-bottom:8px">Minimum 2 photos required. Tap + to capture.</div>
+                        <div class="muted" style="font-size:12px;margin-bottom:10px">Min 2 photos · Tap each to view full size</div>
                         <div id="fpa-product-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
                         <input type="file" id="fpa-product-input" accept="image/*" capture="environment" style="display:none" onchange="fpaProductImageCaptured(this)">
-                        <div id="fpa-img-count" class="muted" style="font-size:12px;margin-top:6px;text-align:right">0 / 6 images</div>
+                        <div id="fpa-img-count" class="muted" style="font-size:12px;margin-top:8px;text-align:right">0 / 6 images</div>
                     </div>
 
-                    <label>Remarks <textarea id="fpa-remarks" rows="2" placeholder="Optional remarks..."></textarea></label>
-                    <button class="primary" onclick="submitFPA()">Submit FPA</button>
+                    <label>Remarks <textarea id="fpa-remarks" rows="2" placeholder="Optional remarks…"></textarea></label>
+                    <button class="primary" id="fpa-submit-btn" onclick="submitFPA()">Submit FPA</button>
                     <span id="fpa-msg" class="muted"></span>
                 </div>
             </section>
@@ -1530,8 +1674,8 @@
             onclick="event.stopPropagation()">
     </div>
 
-  <script src="/assets/QCSupervisor-script-1.js?v=release67"></script>
-  <script src="/assets/register-sw.js?v=release67"></script>
+  <script src="/assets/QCSupervisor-script-1.js?v=release68"></script>
+  <script src="/assets/register-sw.js?v=release68"></script>
 
 </body>
 
