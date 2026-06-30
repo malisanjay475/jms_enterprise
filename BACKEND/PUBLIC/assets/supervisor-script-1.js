@@ -489,6 +489,74 @@
       return domCache[id];
     }
 
+    // ======== RECENT SLOT ENTRIES ========
+    async function openRecentSlots() {
+      const machine = session.machine;
+      const date    = el('d-date') ? el('d-date').value : session.shiftDate;
+      const shift   = el('d-shift') ? el('d-shift').value : session.shift;
+      if (!machine) return;
+
+      el('recent-slots-title').textContent    = '📋 ' + machine;
+      el('recent-slots-subtitle').textContent = shift + ' Shift · ' + date;
+      el('recent-slots-body').innerHTML = '<div class="muted" style="text-align:center;padding:24px">Loading…</div>';
+      show('modal-recent-slots');
+
+      let entries = [];
+      try {
+        const r = await fetch('/api/dpr/recent?machine=' + encodeURIComponent(machine) + '&date=' + date + '&shift=' + encodeURIComponent(shift) + '&limit=50');
+        const j = await r.json();
+        entries = Array.isArray(j.data) ? j.data : (Array.isArray(j.rows) ? j.rows : []);
+      } catch (e) {
+        el('recent-slots-body').innerHTML = '<div class="muted" style="text-align:center;padding:24px">Failed to load</div>';
+        return;
+      }
+
+      const SLOTS = ['07-08','08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07'];
+      // API returns capitalized field names: HourSlot, GoodQty, RejectQty, Colour, EntryType
+      const bySlot = {};
+      for (const e of entries) {
+        const s = e.HourSlot || e.slot || e.hour_slot;
+        if (s) bySlot[s] = e;
+      }
+
+      const TYPE_BADGE = {
+        'MAIN':             { icon: '✅', color: '#22c55e' },
+        'ColourChange':     { icon: '🎨', color: '#a78bfa' },
+        'Maintenance':      { icon: '🔧', color: '#f59e0b' },
+        'MouldChange':      { icon: '🔄', color: '#3b82f6' },
+        'ManPowerShortage': { icon: '👷', color: '#ef4444' },
+        'NoPlan':           { icon: '⛔', color: '#6b7280' },
+      };
+
+      let html = '<div style="display:flex;flex-direction:column;gap:6px">';
+      for (const slot of SLOTS) {
+        const e = bySlot[slot];
+        if (e) {
+          const entryType = e.EntryType || e.entry_type || 'Entry';
+          const b   = TYPE_BADGE[entryType] || { icon: '•', color: '#94a3b8' };
+          const qty = e.GoodQty != null ? e.GoodQty : (e.good_qty != null ? e.good_qty : '—');
+          const rejVal = e.RejectQty != null ? e.RejectQty : (e.reject_qty != null ? e.reject_qty : null);
+          const rej = rejVal ? ' &nbsp;<span style="color:#ef4444">' + rejVal + ' ✗</span>' : '';
+          const colVal = e.Colour || e.colour;
+          const col = colVal ? '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + colVal + ';border:1px solid #ccc;margin-left:4px;vertical-align:middle"></span>' : '';
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:var(--card);border:1px solid var(--line)">'
+            + '<span style="font-size:0.7rem;font-weight:600;min-width:38px;color:var(--muted)">' + slot + '</span>'
+            + '<span style="font-size:0.85rem">' + b.icon + '</span>'
+            + '<span style="flex:1;font-size:0.78rem;color:' + b.color + ';font-weight:600">' + entryType + '</span>'
+            + '<span style="font-size:0.78rem;font-weight:700">' + qty + ' ✓' + rej + col + '</span>'
+            + '</div>';
+        } else {
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:transparent;border:1px dashed var(--line);opacity:0.5">'
+            + '<span style="font-size:0.7rem;font-weight:600;min-width:38px;color:var(--muted)">' + slot + '</span>'
+            + '<span style="font-size:0.85rem">○</span>'
+            + '<span style="flex:1;font-size:0.78rem;color:var(--muted)">No entry</span>'
+            + '</div>';
+        }
+      }
+      html += '</div>';
+      el('recent-slots-body').innerHTML = html;
+    }
+
     // GLOBAL LOADING HANDLER
     let loadingCount = 0;
     let _loadingWatchdog = null;
