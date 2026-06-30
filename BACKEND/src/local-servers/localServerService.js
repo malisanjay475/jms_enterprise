@@ -2,10 +2,20 @@
 
 const crypto = require('crypto');
 const express = require('express');
+const { rateLimit } = require('express-rate-limit');
 const { getRequestUsername, normalizeFactoryId } = require('../app/requestContext');
 const buildProvisioningPackage = require('./buildProvisioningPackage');
 
 const router = express.Router();
+
+// Rate limiter for file-sync endpoints (60 req/min per IP is plenty for a 5-min cycle)
+const fileSyncLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many requests — try again in a minute.' }
+});
 
 let pool = null;
 
@@ -1030,7 +1040,7 @@ function collectManifest() {
   return manifest;
 }
 
-router.get('/:id/file-manifest', async (req, res) => {
+router.get('/:id/file-manifest', fileSyncLimiter, async (req, res) => {
   try {
     const localServerId = Number.parseInt(req.params.id, 10);
     if (!Number.isInteger(localServerId) || localServerId <= 0)
@@ -1045,7 +1055,7 @@ router.get('/:id/file-manifest', async (req, res) => {
   }
 });
 
-router.get('/:id/file', async (req, res) => {
+router.get('/:id/file', fileSyncLimiter, async (req, res) => {
   try {
     const localServerId = Number.parseInt(req.params.id, 10);
     if (!Number.isInteger(localServerId) || localServerId <= 0)
