@@ -9448,76 +9448,40 @@
     }
   };
 
-  // ── View Details Modal ────────────────────────────────────────────────────
-  // Built dynamically and appended to document.body so it survives
-  // root.innerHTML replacements done by the planning page shell.
+  // ── View Details — opens the same Order Modal used by Machine Timeline ────
   window.jsViewDetails = function (rowIdx) {
     const row = (window._jsRows || [])[rowIdx];
+    if (!row || !row.or_jr_no) return;
 
-    // Remove any previous instance
-    const old = document.getElementById('jsDetailModalDynamic');
+    const orderNo = row.or_jr_no;
+
+    // openOrderModal is defined in timeline_patch.js and appends the modal
+    // directly to document.body, so it survives root.innerHTML replacements.
+    if (typeof window.openOrderModal === 'function') {
+      window.openOrderModal(orderNo);
+      return;
+    }
+
+    // Fallback: timeline_patch.js not loaded yet — show a simple overlay
+    const old = document.getElementById('_jsFallbackOverlay');
     if (old) old.remove();
 
-    const field = (label, val) => `
-      <div style="display:flex;flex-direction:column;gap:4px">
-        <span style="font-size:.68rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em">${label}</span>
-        <span style="font-size:.875rem;color:#1e293b;font-weight:500">${(val !== undefined && val !== null && val !== '') ? val : '<span style="color:#cbd5e1">—</span>'}</span>
-      </div>`;
-
-    const body = row ? `
-      <div style="margin-bottom:8px;display:inline-flex;align-items:center;gap:7px;padding:4px 12px;border-radius:20px;background:#fff7ed;border:1px solid #fed7aa">
-        <span style="font-size:.73rem;font-weight:800;color:#f97316">🔥 HIGH PRIORITY ORDER</span>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:12px;padding-bottom:20px">
-        ${field('Order No.',     row.or_jr_no)}
-        ${field('Created Date',  _fmtDate(row.order_created_at))}
-        ${field('Order Status',  row.order_status || '—')}
-        ${field('Item Code',     row.item_code)}
-        ${field('Product Name',  row.product_name)}
-        ${field('Client Name',   row.client_name)}
-        ${field('Order Qty',     _fmtNum(row.order_qty))}
-        ${field('Balance Qty',   _fmtNum(row.order_balance))}
-        ${field('UOM',           row.uom)}
-      </div>
-      <hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 16px">
-      <div style="font-size:.74rem;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">OR / JR Details</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding-bottom:20px">
-        ${field('OR/JR Date',    _fmtDate(row.or_jr_date))}
-        ${field('OR Qty',        _fmtNum(row.or_qty))}
-        ${field('JR Qty',        _fmtNum(row.jr_qty))}
-        ${field('Job Card No.',  row.job_card_no)}
-        ${field('Job Card Date', _fmtDate(row.job_card_date))}
-        ${field('Prod Plan Qty', _fmtNum(row.prod_plan_qty))}
-        ${field('Std Pack',      _fmtNum(row.std_pack))}
-      </div>`
-    : '<div style="padding:40px;text-align:center;color:#ef4444">Row data not found. Please reload the Job Sheet.</div>';
-
     const overlay = document.createElement('div');
-    overlay.id = 'jsDetailModalDynamic';
+    overlay.id = '_jsFallbackOverlay';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:24px';
-
     overlay.innerHTML = `
-      <div style="width:min(820px,96vw);max-height:90vh;display:flex;flex-direction:column;background:#fff;border-radius:16px;box-shadow:0 20px 50px rgba(0,0,0,.3);border:1px solid #e2e8f0;overflow:hidden">
-        <div style="padding:14px 20px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;background:#f8fafc">
-          <strong style="font-size:1rem;color:#0f172a">
-            <i class="bi bi-file-earmark-text" style="color:#3b82f6;margin-right:6px"></i>
-            Job Sheet Details — ${(row && row.or_jr_no) ? row.or_jr_no : ''}
-          </strong>
-          <button id="jsDetailCloseDyn"
-            style="border:none;background:none;cursor:pointer;font-size:1.1rem;color:#64748b;padding:4px 8px;border-radius:6px;line-height:1">✕</button>
+      <div style="background:#fff;border-radius:16px;padding:32px 40px;max-width:420px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+        <div style="font-size:2rem;margin-bottom:8px">📋</div>
+        <div style="font-weight:700;font-size:1rem;color:#1e293b;margin-bottom:6px">Order: ${orderNo}</div>
+        <div style="color:#64748b;font-size:.87rem;margin-bottom:20px">
+          ${row.product_name || ''}${row.client_name ? ' — ' + row.client_name : ''}
         </div>
-        <div style="padding:20px 24px;overflow-y:auto">${body}</div>
+        <div style="color:#94a3b8;font-size:.8rem;margin-bottom:20px">Timeline not loaded. Please open Machine Timeline first.</div>
+        <button onclick="document.getElementById('_jsFallbackOverlay').remove()"
+          style="padding:8px 24px;border-radius:8px;background:#3b82f6;color:#fff;border:none;cursor:pointer;font-weight:600">Close</button>
       </div>`;
-
     document.body.appendChild(overlay);
-
-    // Close on button click
-    document.getElementById('jsDetailCloseDyn').addEventListener('click', () => overlay.remove());
-    // Close on backdrop click
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-    // Close on Escape
-    const onKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onKey); } };
-    document.addEventListener('keydown', onKey);
   };
 
 })(); // end Job Sheet IIFE

@@ -267,7 +267,11 @@
     function _omRenderRows(mergedList, orderNo, headerProd, headerClient) {
         if (mergedList.length === 0) {
             document.getElementById('om-tbody').innerHTML =
-                '<tr><td colspan="9" style="text-align:center; padding:30px;">No data found.</td></tr>';
+                '<tr><td colspan="9" style="text-align:center; padding:40px; color:#94a3b8;">' +
+                '<div style="font-size:1.8rem;margin-bottom:8px">📋</div>' +
+                '<div style="font-weight:700;color:#475569;margin-bottom:4px">No Plans Yet</div>' +
+                '<div style="font-size:0.82rem">No production plans have been created for this order.</div>' +
+                '</td></tr>';
             return;
         }
         document.getElementById('om-product').textContent = headerProd;
