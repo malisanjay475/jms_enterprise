@@ -527,6 +527,9 @@
       50%       { transform: scale(1.1); opacity: 0.8 }
     }
 
+    /* Force-hide bottom nav injected by app.js on supervisor pages */
+    .mobile-nav { display: none !important; }
+
     /* ── Chips ── */
     .chips { display: flex; flex-direction: column; gap: 8px }
 
@@ -1438,7 +1441,7 @@
       if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(180deg)';
     }
   </script>
-  <script src="/assets/app.js"></script>
+  <script src="/assets/app.js?v=release75"></script>
 
 </body>
 
