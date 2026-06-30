@@ -6631,8 +6631,9 @@
           const mouldChangeView = document.getElementById('mouldChangeReport');
           const printView = document.getElementById('printJCView');
           const approvalView = document.getElementById('pendingPlanApprovalView');
+          const jobSheetViewEl = document.getElementById('jobSheetView');
 
-          [masterView, timelineView, excelTimelineView, pcr, cv, mouldChangeView, printView, approvalView].forEach((el) => {
+          [masterView, timelineView, excelTimelineView, pcr, cv, mouldChangeView, printView, approvalView, jobSheetViewEl].forEach((el) => {
             if (el) el.style.display = 'none';
           });
           if (dashboard) dashboard.style.display = 'none';
@@ -6679,6 +6680,9 @@
           } else if (viewName === 'pending_plan_approval') {
             if (approvalView) approvalView.style.display = 'block';
             if (typeof window.loadJcApprovals === 'function') window.loadJcApprovals('pending');
+          } else if (viewName === 'job_sheet') {
+            if (jobSheetViewEl) jobSheetViewEl.style.display = 'block';
+            if (typeof window.loadJobSheet === 'function') window.loadJobSheet();
           } else {
             if (dashboard) dashboard.style.display = 'grid';
             if (kpiDeck) kpiDeck.style.display = 'grid';
@@ -6705,6 +6709,8 @@
           window.switchView('print_jc');
         } else if (view === 'pending_plan_approval') {
           window.switchView('pending_plan_approval');
+        } else if (view === 'job_sheet') {
+          window.switchView('job_sheet');
         }
 
 
