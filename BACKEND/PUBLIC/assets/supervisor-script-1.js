@@ -531,28 +531,58 @@
         'NoPlan':           { icon: '⛔', color: '#6b7280' },
       };
 
-      let html = '<div style="display:flex;flex-direction:column;gap:6px">';
+      // Helper: decode JSONB breakup {CODE: qty} to readable text
+      function decodeBreakup(jsonVal, lookupArr) {
+        if (!jsonVal) return '';
+        let obj = jsonVal;
+        if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch(_) { return ''; } }
+        return Object.entries(obj).filter(([,v]) => Number(v) > 0).map(([code, val]) => {
+          const found = lookupArr.find(r => r[0] === code);
+          const name = found ? found[1] : code;
+          return name + ' (' + val + ')';
+        }).join(', ');
+      }
+
+      let html = '<div style="display:flex;flex-direction:column;gap:5px">';
       for (const slot of SLOTS) {
         const e = bySlot[slot];
         if (e) {
           const entryType = e.EntryType || e.entry_type || 'Entry';
-          const b   = TYPE_BADGE[entryType] || { icon: '•', color: '#94a3b8' };
-          const qty = e.GoodQty != null ? e.GoodQty : (e.good_qty != null ? e.good_qty : '—');
-          const rejVal = e.RejectQty != null ? e.RejectQty : (e.reject_qty != null ? e.reject_qty : null);
-          const rej = rejVal ? ' &nbsp;<span style="color:#ef4444">' + rejVal + ' ✗</span>' : '';
-          const colVal = e.Colour || e.colour;
-          const col = colVal ? '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + colVal + ';border:1px solid #ccc;margin-left:4px;vertical-align:middle"></span>' : '';
-          html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:var(--card);border:1px solid var(--line)">'
-            + '<span style="font-size:0.7rem;font-weight:600;min-width:38px;color:var(--muted)">' + slot + '</span>'
-            + '<span style="font-size:0.85rem">' + b.icon + '</span>'
-            + '<span style="flex:1;font-size:0.78rem;color:' + b.color + ';font-weight:600">' + entryType + '</span>'
-            + '<span style="font-size:0.78rem;font-weight:700">' + qty + ' ✓' + rej + col + '</span>'
+          const b        = TYPE_BADGE[entryType] || { icon: '•', color: '#94a3b8' };
+          const qty      = e.GoodQty != null ? e.GoodQty : (e.good_qty != null ? e.good_qty : '—');
+          const rejTotal = e.RejectQty != null ? e.RejectQty : (e.reject_qty != null ? e.reject_qty : null);
+          const colVal   = e.Colour || e.colour || '';
+          const rejDetail = decodeBreakup(e.RejectBreakup || e.reject_breakup, REJECT_REASONS);
+          const dtDetail  = decodeBreakup(e.DowntimeBreakup || e.downtime_breakup, DOWNTIME_REASONS);
+
+          const qtyLine = '<span style="font-size:0.78rem;font-weight:700">' + qty + ' ✓'
+            + (rejTotal ? ' <span style="color:#ef4444">' + rejTotal + ' ✗</span>' : '') + '</span>';
+          const colBadge = colVal
+            ? '<span style="font-size:0.7rem;padding:1px 7px;border-radius:12px;background:#f1f5f9;border:1px solid #e2e8f0;font-weight:600;color:#334155;margin-top:2px;display:inline-block">🎨 ' + colVal + '</span>'
+            : '';
+          const rejBadge = rejDetail
+            ? '<span style="font-size:0.67rem;color:#ef4444;margin-top:1px;display:block">✗ ' + rejDetail + '</span>'
+            : '';
+          const dtBadge = dtDetail
+            ? '<span style="font-size:0.67rem;color:#f59e0b;margin-top:1px;display:block">⏱ ' + dtDetail + '</span>'
+            : '';
+
+          html += '<div style="padding:7px 10px;border-radius:8px;background:var(--card);border:1px solid var(--line)">'
+            + '<div style="display:flex;align-items:center;gap:6px">'
+            + '<span style="font-size:0.7rem;font-weight:700;min-width:36px;color:var(--muted)">' + slot + '</span>'
+            + '<span style="font-size:0.82rem">' + b.icon + '</span>'
+            + '<span style="flex:1;font-size:0.75rem;color:' + b.color + ';font-weight:700">' + entryType + '</span>'
+            + qtyLine
+            + '</div>'
+            + (colBadge || rejBadge || dtBadge
+              ? '<div style="margin-top:4px;padding-left:42px">' + colBadge + rejBadge + dtBadge + '</div>'
+              : '')
             + '</div>';
         } else {
-          html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:transparent;border:1px dashed var(--line);opacity:0.5">'
-            + '<span style="font-size:0.7rem;font-weight:600;min-width:38px;color:var(--muted)">' + slot + '</span>'
-            + '<span style="font-size:0.85rem">○</span>'
-            + '<span style="flex:1;font-size:0.78rem;color:var(--muted)">No entry</span>'
+          html += '<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;background:transparent;border:1px dashed var(--line);opacity:0.45">'
+            + '<span style="font-size:0.7rem;font-weight:700;min-width:36px;color:var(--muted)">' + slot + '</span>'
+            + '<span style="font-size:0.82rem">○</span>'
+            + '<span style="font-size:0.75rem;color:var(--muted)">No entry</span>'
             + '</div>';
         }
       }
@@ -1463,11 +1493,12 @@
 
       const update = (s) => {
         if (!s) return;
-        if (!uniq.length) {
-          s.add(new Option('—', ''));
-        } else {
+        // Always add blank placeholder first so browser never auto-selects a colour
+        s.add(new Option('— Select colour —', ''));
+        if (uniq.length) {
           uniq.forEach(v => s.add(new Option(v, v)));
         }
+        s.value = ''; // ensure blank is selected
       };
 
       update(sel);
@@ -2298,11 +2329,11 @@
         loadUsedSlots();
         show('dpr-form');
         showPage('sec-dpr', el('tab-dpr'));
-        // Scroll to DPR entry form so operator immediately sees it
-        setTimeout(() => {
+        // Scroll to DPR entry form — double rAF ensures DOM is painted before scroll
+        requestAnimationFrame(() => requestAnimationFrame(() => {
           const _form = el('dpr-form') || el('sec-dpr');
           if (_form) _form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 80);
+        }));
       } catch (e) { alert('Error opening DPR Form: ' + e.message); console.error(e); }
     }
 
