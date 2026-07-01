@@ -84,7 +84,7 @@ jobs:
           }
 
       - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: JMS-Local-Server-Setup-v${{ env.VERSION }}
           path: DESKTOP_APP/dist/*.exe
