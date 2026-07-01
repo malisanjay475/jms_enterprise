@@ -42,7 +42,7 @@ jobs:
       - name: Query sync health on the VPS (SSH + docker exec)
         id: query
         if: env.HAS_KEY == 'true'
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         env:
           SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
         with:
