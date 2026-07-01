@@ -16519,18 +16519,20 @@ app.post('/api/dpr/auto-fill-ongoing', async (req, res) => {
 
     const QUICK_TYPES = ['Maintenance','ManPowerShortage','MouldChangeover','MouldTrial','MouldMaintenance','NoPlan'];
 
-    // Find all machines whose last entry today is a quick-action type
+    // Find the last entry (any type) per machine today — then only carry forward if it's a quick-action.
+    // This prevents carry-forward when a user makes a manual Main entry after a quick-action run.
     const lastEntryQ = `
       SELECT DISTINCT ON (machine) machine, hour_slot, entry_type, shots, good_qty,
         reject_qty, downtime_min, remarks, plan_id, order_no, mould_no, jobcard_no,
         colour, reject_breakup, downtime_breakup, supervisor
       FROM dpr_hourly
       WHERE dpr_date = $1 AND shift = $2 AND is_deleted = false
-        AND entry_type = ANY($3::text[])
-        AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+        AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
       ORDER BY machine, id DESC
     `;
-    const lastEntries = await q(lastEntryQ, [dprDate, currentShift, QUICK_TYPES, factoryId || null]);
+    const allLastEntries = await q(lastEntryQ, [dprDate, currentShift, factoryId || null]);
+    // Only carry forward machines whose absolute last entry is a quick-action type
+    const lastEntries = allLastEntries.filter(e => QUICK_TYPES.includes(e.entry_type));
 
     let filled = 0;
     for (const last of lastEntries) {
