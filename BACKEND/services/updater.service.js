@@ -254,6 +254,59 @@ router.get('/check', async (req, res) => {
   }
 });
 
+// GET /api/update/status — returns current release info for LOCAL servers (settings page polling).
+router.get('/status', (req, res) => {
+  try {
+    const localRelease = getCurrentLocalRelease();
+    const serverType = getConfigValue('SERVER_TYPE', 'MAIN');
+    const pending = configMap.LOCAL_UPDATE_PENDING || '0';
+    const lastCheck = configMap.LOCAL_UPDATE_LAST_CHECK_AT || null;
+    const lastSuccess = configMap.LOCAL_UPDATE_LAST_SUCCESS_AT || null;
+    const targetRelease = configMap.LOCAL_UPDATE_TARGET_RELEASE || localRelease.releaseId;
+    const lastFailure = configMap.LOCAL_UPDATE_LAST_FAILURE_REASON || null;
+    res.json({
+      ok: true,
+      serverType,
+      currentRelease: localRelease.releaseId,
+      targetRelease,
+      updatePending: pending === '1',
+      lastCheckAt: lastCheck,
+      lastSuccessAt: lastSuccess,
+      lastFailureReason: lastFailure || null
+    });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// POST /api/update/force-check
+// LOCAL servers only — triggers an immediate update check against the MAIN server.
+// Requires an authenticated session (any logged-in user).
+// The check runs asynchronously; if an update is found, the server will download
+// and exit (process.exit 0) — the supervisor restarts it with the new code.
+router.post('/force-check', async (req, res) => {
+  const serverType = getConfigValue('SERVER_TYPE', 'MAIN');
+  const mainUrl = getConfigValue('MAIN_SERVER_URL', '');
+
+  if (serverType !== 'LOCAL') {
+    return res.status(400).json({ ok: false, error: 'force-check is only available on LOCAL servers' });
+  }
+  if (!mainUrl) {
+    return res.status(400).json({ ok: false, error: 'MAIN_SERVER_URL not configured' });
+  }
+
+  const localRelease = getCurrentLocalRelease();
+  res.json({ ok: true, message: 'Update check triggered', currentRelease: localRelease.releaseId });
+
+  // Run asynchronously AFTER the response is sent so the client gets its reply
+  // even if the update causes an immediate process.exit(0).
+  setImmediate(() => {
+    checkUpdate(mainUrl).catch(error => {
+      console.error('[Updater] force-check failed:', error.message);
+    });
+  });
+});
+
 router.get('/download', async (req, res) => {
   try {
     const requestedRelease = String(req.query.release || '').trim();
