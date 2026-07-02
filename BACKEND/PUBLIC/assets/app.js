@@ -31,7 +31,7 @@ function escHtml(value) {
  */
 (function initMobileApp() {
     const path = window.location.pathname.toLowerCase();
-    if (window.innerWidth > 768 || path.endsWith('/login.html') || path.includes('/vendor/login.html')) return;
+    if (window.innerWidth > 768 || path.endsWith('/login.html') || path.includes('/vendor/login.html') || path.includes('/supervisor.html') || path.includes('/qcsupervisor.html') || path.includes('/shifting_supervisor.html') || path.includes('/wip_supervisor.html')) return;
     const mobileUser = (() => {
         try {
             return JSON.parse(localStorage.getItem('user') || '{}');
@@ -1113,7 +1113,8 @@ function escHtml(value) {
                 { id: 'plan_jc_approval', label: 'Pending Plan Approval', icon: 'bi-shield-check', href: 'planning.html#view=pending_plan_approval' },
                 { id: 'plan_print_jc', label: 'Print JobCard', icon: 'bi-printer', href: 'planning.html#view=print_jc' },
                 { id: 'plan_completed', label: 'Complete Production Plan', icon: 'bi-check-circle-fill', href: 'planning.html?view=prod_complete' },
-                { id: 'mould_drop', label: 'Mould Change Report', icon: 'bi-exclamation-triangle', href: 'planning.html?view=mould_change' }
+                { id: 'mould_drop', label: 'Mould Change Report', icon: 'bi-exclamation-triangle', href: 'planning.html?view=mould_change' },
+                { id: 'plan_job_sheet', label: 'Job Sheet', icon: 'bi-file-earmark-spreadsheet', href: 'planning.html?view=job_sheet' }
             ]
         },
         {
@@ -1251,6 +1252,14 @@ function escHtml(value) {
             label: 'User Management',
             icon: 'bi-person-gear',
             href: 'users.html',
+            items: []
+        },
+        {
+            id: 'activity_monitor',
+            label: 'Activity Monitor',
+            icon: 'bi-activity',
+            href: 'activity-monitor.html',
+            visibleIf: (user) => isAdminLikeUser(user),
             items: []
         },
         {
@@ -1739,4 +1748,116 @@ function escHtml(value) {
       es = null;
     }
   };
+}());
+
+/* ============================================================
+   JMS OCEAN — Activity Heartbeat
+   Tracks which user is on which page, every 60 seconds.
+   Also fires once immediately on page load (page_open).
+   Works on every HTML page that includes app.js.
+============================================================ */
+(function initActivityHeartbeat() {
+  if (typeof document === 'undefined' || typeof fetch === 'undefined') return;
+  // Skip login pages
+  const _path = window.location.pathname.toLowerCase();
+  if (_path.includes('login')) return;
+
+  // Define PATH→APP_ID map FIRST so page_open gets the correct app_id
+  window.JPSMS = window.JPSMS || {};
+  window.JPSMS._pathAppMap = {
+    '': 'dashboard', '/': 'dashboard', 'index.html': 'dashboard',
+    'planning.html': 'planning', 'analyze.html': 'analyze',
+    'raw_material_jobwise.html': 'raw_material', 'dpr.html': 'dpr',
+    'dpr_daily_report.html': 'dpr', 'job_summary.html': 'dpr',
+    'purchase_orders.html': 'purchase', 'purchase_vendors.html': 'purchase',
+    'purchase_grn.html': 'purchase', 'masters.html': 'masters',
+    'quality.html': 'quality', 'hr.html': 'hr', 'hr_performance.html': 'hr',
+    'hr_interview_panel.html': 'hr', 'shifting_reports.html': 'shifting_module',
+    'shifting_logs.html': 'shifting_module', 'shifting_summary.html': 'shifting_module',
+    'shifting.html': 'shifting_module', 'wip.html': 'wip_internal',
+    'reports.html': 'reports', 'users.html': 'users',
+    'notifications.html': 'notifications', 'settings.html': 'settings',
+    'packing_settings.html': 'settings', 'joy.html': 'joy_learning',
+    'grinding.html': 'grinding', 'assembly.html': 'packing',
+    'scanning.html': 'packing', 'scanning_list.html': 'packing',
+    'scanning_dashboard.html': 'packing', 'barcode_printer.html': 'packing',
+    'supervisor.html': 'supervisor_app', 'qcsupervisor.html': 'qc_supervisor_app',
+    'shifting_supervisor.html': 'shifting_supervisor_app',
+    'wip_supervisor.html': 'wip_supervisor_app',
+    'activity-monitor.html': 'admin'
+  };
+
+  const _pageName = _path.split('/').pop().split('?')[0] || 'index.html';
+  const _appId = window.JPSMS._pathAppMap[_pageName] || window.JPSMS._pathAppMap[_pageName.toLowerCase()] || 'web';
+
+  function _getActivityPayload(action) {
+    let user = {};
+    try { user = JSON.parse(localStorage.getItem('user') || '{}'); } catch (_e) {}
+    // Fallback: supervisor app stores session in jpsmsSession, not 'user'
+    if (!user.username) {
+      try {
+        const sess = JSON.parse(localStorage.getItem('jpsmsSession') || '{}');
+        if (sess && sess.username) {
+          user = { username: sess.username, role_code: sess.role_code || 'supervisor' };
+        }
+      } catch (_e) {}
+    }
+    if (!user.username) return null; // still not logged in — skip
+
+    // Detect device
+    const ua = navigator.userAgent || '';
+    const device = /mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop';
+
+    // Session id (tab-scoped) — use crypto.getRandomValues for unpredictability
+    if (!window._jmsSessionId) {
+      const _rnd = new Uint32Array(2);
+      (window.crypto || window.msCrypto).getRandomValues(_rnd);
+      window._jmsSessionId = 'sess_' + Date.now() + '_' + _rnd[0].toString(36) + _rnd[1].toString(36);
+    }
+
+    let factoryId = '';
+    try {
+      factoryId = String(localStorage.getItem('jpsms_selected_factory_id') || '');
+      // Also check jpsmsSession for factory id (supervisor app)
+      if (!factoryId) {
+        const sess = JSON.parse(localStorage.getItem('jpsmsSession') || '{}');
+        if (sess.factoryId) factoryId = String(sess.factoryId);
+      }
+    } catch (_e) {}
+
+    return {
+      username: user.username,
+      role_code: user.role_code || '',
+      app_id: _appId,
+      action: action,
+      page: _pageName,
+      device_type: device,
+      factory_id: factoryId,
+      session_id: window._jmsSessionId
+    };
+  }
+
+  function _sendHeartbeat(action) {
+    const payload = _getActivityPayload(action || 'heartbeat');
+    if (!payload) return;
+    fetch('/api/activity/heartbeat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true
+    }).catch(function () {});
+  }
+
+  // Fire immediately on load (action = page_open)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { _sendHeartbeat('page_open'); });
+  } else {
+    _sendHeartbeat('page_open');
+  }
+
+  // Repeat every 60 seconds
+  setInterval(function () { _sendHeartbeat('heartbeat'); }, 60000);
+
+  // Best-effort page close
+  window.addEventListener('beforeunload', function () { _sendHeartbeat('page_close'); });
 }());

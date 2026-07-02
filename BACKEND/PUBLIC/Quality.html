@@ -271,31 +271,37 @@
                     <div class="kpi-value" id="kpi-checked">-</div>
                     <div class="kpi-sub">Units Processed</div>
                 </div>
-                <!-- Accepted -->
                 <div class="card kpi-card" style="border-left: 4px solid #10b981">
                     <div class="kpi-title">Accepted</div>
                     <div class="kpi-value" id="kpi-accepted" style="color: #10b981">-</div>
                     <div class="kpi-sub">Good Quality</div>
                 </div>
-                <!-- Rejected -->
                 <div class="card kpi-card" style="border-left: 4px solid #ef4444">
                     <div class="kpi-title">Rejected</div>
                     <div class="kpi-value" id="kpi-rejected" style="color: #ef4444">-</div>
                     <div class="kpi-sub">Scrap / Defect</div>
                 </div>
-                <!-- Rejection Rate -->
                 <div class="card kpi-card">
                     <div class="kpi-title">Rejection Rate %</div>
                     <div class="kpi-value" id="kpi-rej-rate">-</div>
-                    <div class="kpi-sub">Target: < 2.0%</div>
-                    </div>
-                    <!-- Active Issues -->
-                    <div class="card kpi-card" style="border-left: 4px solid #f59e0b">
-                        <div class="kpi-title">Quality Alerts</div>
-                        <div class="kpi-value" id="kpi-issues" style="color:#f59e0b">-</div>
-                        <div class="kpi-sub">Open Issues</div>
-                    </div>
+                    <div class="kpi-sub">Target: &lt; 2.0%</div>
                 </div>
+                <div class="card kpi-card" style="border-left: 4px solid #f59e0b">
+                    <div class="kpi-title">Open Issues</div>
+                    <div class="kpi-value" id="kpi-issues" style="color:#f59e0b">-</div>
+                    <div class="kpi-sub">Quality Alerts</div>
+                </div>
+                <div class="card kpi-card" style="border-left: 4px solid #6366f1">
+                    <div class="kpi-title">FPA Done Today</div>
+                    <div class="kpi-value" id="kpi-fpa" style="color:#6366f1">-</div>
+                    <div class="kpi-sub">Jobs approved</div>
+                </div>
+                <div class="card kpi-card" style="border-left: 4px solid #dc2626">
+                    <div class="kpi-title">Active QC Holds</div>
+                    <div class="kpi-value" id="kpi-holds" style="color:#dc2626">-</div>
+                    <div class="kpi-sub" id="kpi-holds-sub">Batches on hold</div>
+                </div>
+            </div>
 
                 <!-- Charts Row 1 -->
                 <!-- Analysis Grid -->
@@ -328,13 +334,40 @@
                         <div class="chart-title">Daily Rejection Trend (Last 15 Days)</div>
                         <div class="chart-body"><canvas id="chart-trend"></canvas></div>
                     </div>
-                    <!-- Shift Analysis -->
                     <div class="chart-card">
                         <div class="chart-title">Shift Performance (Rejection %)</div>
                         <div class="chart-body"><canvas id="chart-shift"></canvas></div>
                     </div>
                 </div>
 
+                <!-- ── FPA Submissions Panel ── -->
+                <div class="card" style="margin-top:24px; padding:20px; border:1px solid #e2e8f0; border-radius:12px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+                        <div style="font-size:1.1rem;font-weight:700;color:var(--text-dark)">📋 FPA Submissions Today</div>
+                        <a href="/QCSupervisor.html" target="_blank"
+                           style="font-size:0.85rem;font-weight:600;color:#6366f1;text-decoration:none;padding:6px 14px;border:1.5px solid #6366f1;border-radius:8px">
+                           📱 Open QC App ↗</a>
+                    </div>
+                    <div id="fpa-panel" style="overflow-x:auto">
+                        <div style="color:var(--text-muted);padding:20px;text-align:center">Loading FPA submissions…</div>
+                    </div>
+                </div>
+
+                <!-- ── Active QC Holds Panel ── -->
+                <div class="card" style="margin-top:20px; padding:20px; border:1px solid #e2e8f0; border-radius:12px">
+                    <div style="font-size:1.1rem;font-weight:700;color:var(--text-dark);margin-bottom:14px">🔴 Active QC Holds</div>
+                    <div id="holds-panel">
+                        <div style="color:var(--text-muted);padding:20px;text-align:center">Loading holds…</div>
+                    </div>
+                </div>
+
+                <!-- ── Open Issues Panel ── -->
+                <div class="card" style="margin-top:20px; padding:20px; border:1px solid #e2e8f0; border-radius:12px">
+                    <div style="font-size:1.1rem;font-weight:700;color:var(--text-dark);margin-bottom:14px">⚠️ Open Quality Issues</div>
+                    <div id="issues-panel">
+                        <div style="color:var(--text-muted);padding:20px;text-align:center">Loading issues…</div>
+                    </div>
+                </div>
 
             </div>
 
@@ -636,47 +669,144 @@
             }
 
 
-            /* Updated: Dashboard Logic v2.0 */
+            /* Updated: Dashboard Logic v3.0 — FPA + Holds + Issues panels */
             async function loadDashboard() {
-                const date = document.getElementById('filter-date').value;
+                const date    = document.getElementById('filter-date').value;
                 const machine = document.getElementById('filter-machine').value;
-                const q = `?date=${date}&machine=${encodeURIComponent(machine)}`;
+                const qs = `?date=${date}&machine=${encodeURIComponent(machine)}`;
 
-                // 1. Load KPIs
-                JPSMS.api.get(`/qc/dashboard/kpis${q}`).then(res => {
-                    if (res.ok && res.data) {
-                        const d = res.data;
-                        document.getElementById('kpi-checked').textContent = (d.production || 0).toLocaleString();
-                        document.getElementById('kpi-accepted').textContent = (d.accepted || 0).toLocaleString();
-                        document.getElementById('kpi-rejected').textContent = (d.rejected || 0).toLocaleString();
-                        document.getElementById('kpi-issues').textContent = d.active_issues || 0;
+                // 1. KPIs (now includes fpa_done, active_holds, held_machines)
+                JPSMS.api.get(`/qc/dashboard/kpis${qs}`).then(res => {
+                    if (!res.ok || !res.data) return;
+                    const d = res.data;
+                    document.getElementById('kpi-checked').textContent  = (d.production || 0).toLocaleString();
+                    document.getElementById('kpi-accepted').textContent = (d.accepted   || 0).toLocaleString();
+                    document.getElementById('kpi-rejected').textContent = (d.rejected   || 0).toLocaleString();
+                    document.getElementById('kpi-issues').textContent   = d.active_issues || 0;
+                    document.getElementById('kpi-fpa').textContent      = d.fpa_done    || 0;
+                    document.getElementById('kpi-holds').textContent    = d.active_holds || 0;
 
-                        const rate = Number(d.rejection_rate || 0);
-                        document.getElementById('kpi-rej-rate').textContent = rate + '%';
-                        const el = document.getElementById('kpi-rej-rate');
-                        // Reset classes if any, though here we use inline for simplicity or just color
-                        if (rate > 2) el.style.color = '#ef4444';
-                        else if (rate > 1) el.style.color = '#f59e0b';
-                        else el.style.color = '#10b981';
-                    }
+                    const hm = d.held_machines || 0;
+                    const sub = document.getElementById('kpi-holds-sub');
+                    if (sub) sub.textContent = hm ? `${hm} machine${hm > 1 ? 's' : ''} affected` : 'No active holds';
+
+                    const rate = Number(d.rejection_rate || 0);
+                    const rateEl = document.getElementById('kpi-rej-rate');
+                    rateEl.textContent = rate + '%';
+                    rateEl.style.color = rate > 2 ? '#ef4444' : rate > 1 ? '#f59e0b' : '#10b981';
                 });
 
                 const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1'];
 
-                // Helper for Charts
+                // 2. Charts
                 const loadChart = (id, type, endpointType, label, chartType = 'bar') => {
-                    JPSMS.api.get(`/qc/dashboard/analysis${q}&type=${endpointType}`).then(res => {
+                    JPSMS.api.get(`/qc/dashboard/analysis${qs}&type=${endpointType}`).then(res => {
                         const data = (res.ok && Array.isArray(res.data)) ? res.data : [];
                         renderChart(id, chartType, data.map(i => i.label), data.map(i => i.value), label, colors);
                     });
                 };
+                loadChart('chart-machine', 'bar',      'machine', 'Rejection %');
+                loadChart('chart-mould',   'bar',      'mould',   'Rejection %');
+                loadChart('chart-product', 'bar',      'product', 'Rejection %');
+                loadChart('chart-shift',   'bar',      'shift',   'Rejection %');
+                loadChart('chart-defect',  'doughnut', 'defect',  'Qty');
+                loadChart('chart-trend',   'line',     'trend',   'Rejection %');
 
-                loadChart('chart-machine', 'bar', 'machine', 'Rejection %');
-                loadChart('chart-mould', 'bar', 'mould', 'Rejection %');
-                loadChart('chart-product', 'bar', 'product', 'Rejection %');
-                loadChart('chart-shift', 'bar', 'shift', 'Rejection %');
-                loadChart('chart-defect', 'doughnut', 'defect', 'Qty');
-                loadChart('chart-trend', 'line', 'trend', 'Rejection %');
+                // 3. FPA submissions panel
+                JPSMS.api.get(`/qc/fpa/today${qs}`).then(res => {
+                    const panel = document.getElementById('fpa-panel');
+                    const rows  = (res.ok && Array.isArray(res.data)) ? res.data : [];
+                    if (!rows.length) {
+                        panel.innerHTML = '<div style="color:var(--text-muted);padding:16px;text-align:center">No FPA submissions yet for this date / machine.</div>';
+                        return;
+                    }
+                    const fmtTime = v => { try { return v ? new Date(v).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) : '-'; } catch(_){return '-';} };
+                    const rows_html = rows.map(r => {
+                        const prodCount = Array.isArray(r.product_images) ? r.product_images.length : (r.product_images ? JSON.parse(r.product_images).length : 0);
+                        return `<tr style="border-bottom:1px solid #f1f5f9">
+                            <td style="padding:10px 12px;font-weight:600">${escHtml(r.job_card_no || '-')}</td>
+                            <td style="padding:10px 12px">${escHtml(r.item_name || '-')}</td>
+                            <td style="padding:10px 12px"><strong>${escHtml(r.machine || '-')}</strong></td>
+                            <td style="padding:10px 12px">${escHtml(r.mould_name || '-')}</td>
+                            <td style="padding:10px 12px">${escHtml(r.shift || '-')}</td>
+                            <td style="padding:10px 12px;color:var(--text-muted)">${escHtml(r.fpa_done_by || '-')}</td>
+                            <td style="padding:10px 12px;color:var(--text-muted)">${fmtTime(r.fpa_done_at)}</td>
+                            <td style="padding:10px 12px;text-align:center">
+                                ${r.fpa_form_url ? `<a href="${escHtml(r.fpa_form_url)}" target="_blank" style="color:#6366f1;font-weight:600">📋 View</a>` : '-'}
+                            </td>
+                            <td style="padding:10px 12px;text-align:center;color:var(--text-muted)">${prodCount}</td>
+                        </tr>`;
+                    }).join('');
+                    panel.innerHTML = `<table style="width:100%;font-size:13px;border-collapse:collapse">
+                        <thead><tr style="background:#f8fafc;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)">
+                            <th style="padding:10px 12px;text-align:left;font-weight:700">Job Card</th>
+                            <th style="padding:10px 12px;text-align:left;font-weight:700">Product</th>
+                            <th style="padding:10px 12px;text-align:left;font-weight:700">Machine</th>
+                            <th style="padding:10px 12px;text-align:left;font-weight:700">Mould</th>
+                            <th style="padding:10px 12px;text-align:left;font-weight:700">Shift</th>
+                            <th style="padding:10px 12px;text-align:left;font-weight:700">By</th>
+                            <th style="padding:10px 12px;text-align:left;font-weight:700">Time</th>
+                            <th style="padding:10px 12px;text-align:center;font-weight:700">Form</th>
+                            <th style="padding:10px 12px;text-align:center;font-weight:700">Photos</th>
+                        </tr></thead>
+                        <tbody>${rows_html}</tbody>
+                    </table>`;
+                });
+
+                // 4. Active QC Holds panel
+                JPSMS.api.get(`/qc/holds?date=${date}&status=ACTIVE${machine && machine !== 'All Machines' ? '&machine=' + encodeURIComponent(machine) : ''}`).then(res => {
+                    const panel = document.getElementById('holds-panel');
+                    const rows  = (res.ok && Array.isArray(res.data)) ? res.data : [];
+                    if (!rows.length) {
+                        panel.innerHTML = '<div style="color:#10b981;padding:12px;font-weight:600;font-size:14px">✓ No active holds for this date.</div>';
+                        return;
+                    }
+                    const cards = rows.map(r => `
+                        <div style="border:1.5px solid #fecaca;border-radius:10px;padding:12px 14px;background:#fff5f5;margin-bottom:8px">
+                            <div style="display:flex;justify-content:space-between;align-items:center">
+                                <div>
+                                    <span style="font-weight:700;font-size:13px;color:#dc2626">${escHtml(r.machine || '-')}</span>
+                                    <span style="font-size:12px;color:#6b7280;margin-left:8px">${escHtml(r.job_card_no || '')}${r.slot ? ' · ' + r.slot : ''}</span>
+                                </div>
+                                <span style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:700">HOLD</span>
+                            </div>
+                            <div style="font-size:12px;color:#374151;margin-top:6px"><b>Reason:</b> ${escHtml(r.reason || '-')}</div>
+                            ${r.qty_on_hold ? `<div style="font-size:12px;color:#6b7280;margin-top:2px">Qty on Hold: <b>${r.qty_on_hold}</b></div>` : ''}
+                            ${r.remarks ? `<div style="font-size:12px;color:#6b7280;margin-top:2px;font-style:italic">"${escHtml(r.remarks)}"</div>` : ''}
+                            <div style="font-size:11px;color:#9ca3af;margin-top:4px">By ${escHtml(r.hold_by || '-')} · ${r.shift || ''} Shift</div>
+                        </div>`).join('');
+                    panel.innerHTML = cards;
+                });
+
+                // 5. Open Issues panel
+                JPSMS.api.get(`/qc/material-issues?status=OPEN&limit=30${machine && machine !== 'All Machines' ? '&machine=' + encodeURIComponent(machine) : ''}`).then(res => {
+                    const panel = document.getElementById('issues-panel');
+                    const rows  = (res.ok && Array.isArray(res.data)) ? res.data : [];
+                    if (!rows.length) {
+                        panel.innerHTML = '<div style="color:#10b981;padding:12px;font-weight:600;font-size:14px">✓ No open issues.</div>';
+                        return;
+                    }
+                    const sevColor = { Critical:'#dc2626', High:'#f59e0b', Medium:'#3b82f6', Low:'#6b7280' };
+                    const sevBg    = { Critical:'#fef2f2', High:'#fffbeb', Medium:'#eff6ff', Low:'#f9fafb' };
+                    const fmtDT = v => { try { return v ? new Date(v).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : ''; } catch(_){return '';} };
+                    const cards = rows.map(r => {
+                        const sev = r.severity || 'Medium';
+                        const sc  = sevColor[sev] || '#6b7280';
+                        const sb  = sevBg[sev]    || '#f9fafb';
+                        return `<div style="border:1.5px solid ${sc}33;border-left:4px solid ${sc};border-radius:10px;padding:12px 14px;background:${sb};margin-bottom:8px">
+                            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+                                <div style="font-size:13px;font-weight:600;color:#111;flex:1">${escHtml(r.issue_description || '-')}</div>
+                                <span style="background:${sb};color:${sc};border:1px solid ${sc}55;border-radius:999px;padding:2px 10px;font-size:11px;font-weight:700;white-space:nowrap">${sev}</span>
+                            </div>
+                            <div style="font-size:12px;color:#6b7280;margin-top:5px;display:flex;gap:12px;flex-wrap:wrap">
+                                <span><b>Machine:</b> ${escHtml(r.machine || '-')}</span>
+                                <span><b>Assigned:</b> ${escHtml(r.assigned_to_name || r.assigned_to_role || '-')}</span>
+                                <span>${fmtDT(r.created_at)}</span>
+                            </div>
+                        </div>`;
+                    }).join('');
+                    panel.innerHTML = cards;
+                });
             }
 
             function renderChart(id, type, labels, data, label, bgColors) {

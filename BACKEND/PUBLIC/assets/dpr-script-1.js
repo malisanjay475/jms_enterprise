@@ -1625,13 +1625,15 @@
                                                     const brk = typeof dEntry.downtime_breakup === 'string' ? {} : (dEntry.downtime_breakup || {});
                                                     overrideEntryDt = Number(dEntry.downtime_min) || 0;
                                                     overrideEntryGood = Number(dEntry.good_qty) || 0;
-                                                     if (brk['1']) { activeOverrideStatus = 'Man Power Shortage'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
-                                                     else if (brk['2']) { activeOverrideStatus = 'Mould Changeover'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
-                                                     else if (brk['5']) { activeOverrideStatus = '🏭 Machine Maintenance'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
-                                                     else if (brk['7']) { activeOverrideStatus = 'MOULD MAINT'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
-                                                     else if (brk['8']) { activeOverrideStatus = '⚡ POWER CUT'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
-                                                     else if (brk['11']) { activeOverrideStatus = 'MOULD TRIAL'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
-                                                     else if (brk['13']) { activeOverrideStatus = 'NO PLAN'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; }
+                                                     // NOTE: also register in machineEntryTypes so the View Filter catches
+                                                     // machines whose override came via downtime_breakup on a Main entry (not a quick-action entry_type)
+                                                     if (brk['1']) { activeOverrideStatus = 'Man Power Shortage'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; machineEntryTypes.add('ManPowerShortage'); }
+                                                     else if (brk['2']) { activeOverrideStatus = 'Mould Changeover'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; machineEntryTypes.add('MouldChangeover'); }
+                                                     else if (brk['5']) { activeOverrideStatus = '🏭 Machine Maintenance'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; machineEntryTypes.add('Maintenance'); }
+                                                     else if (brk['7']) { activeOverrideStatus = 'MOULD MAINT'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; machineEntryTypes.add('MouldMaintenance'); }
+                                                     else if (brk['8']) { activeOverrideStatus = '⚡ POWER CUT'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; machineEntryTypes.add('PowerCut'); }
+                                                     else if (brk['11']) { activeOverrideStatus = 'MOULD TRIAL'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; machineEntryTypes.add('MouldTrial'); }
+                                                     else if (brk['13']) { activeOverrideStatus = 'NO PLAN'; overrideTriggeredThisSlot = true; overrideEntryId = dEntry.id || null; machineEntryTypes.add('NoPlan'); }
                                                  }
                                              }
 
