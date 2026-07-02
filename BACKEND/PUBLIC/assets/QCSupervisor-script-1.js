@@ -2383,28 +2383,32 @@
             const blob = await compressImage(input.files[0]);
             if (!blob) { alert('Could not read image. Try a different photo.'); return; }
             fpaFormBlob = blob;
-            const url = URL.createObjectURL(blob);
-            const preview = el('fpa-form-preview');
-            const placeholder = el('fpa-form-placeholder');
-            const thumb = el('fpa-form-thumb');
-            // v4: show preview image (it's inside the thumb div)
-            if (preview) { preview.src = url; preview.style.display = 'block'; }
-            if (placeholder) placeholder.style.display = 'none';
-            // After capture: tap thumb → lightbox; add recapture button
-            if (thumb) {
-                thumb.onclick = () => openImageLightbox(url);
-                // Recapture button
-                let recapBtn = thumb.querySelector('.fpa-recapture-btn');
-                if (!recapBtn) {
-                    recapBtn = document.createElement('button');
-                    recapBtn.className = 'fpa-recapture-btn';
-                    recapBtn.innerHTML = '📷 Retake';
-                    recapBtn.title = 'Retake photo';
-                    recapBtn.style.cssText = 'position:absolute;bottom:10px;right:10px;padding:5px 10px;border-radius:20px;background:rgba(0,0,0,.6);color:#fff;border:none;font-size:11px;font-weight:700;min-height:0;box-shadow:none;z-index:2;cursor:pointer;letter-spacing:.02em';
-                    recapBtn.onclick = (e) => { e.stopPropagation(); el('fpa-form-image').click(); };
-                    thumb.appendChild(recapBtn);
+            // Use FileReader → data URL for preview (blob URLs fail on some Android browsers)
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                const dataUrl = ev.target.result;
+                const preview = el('fpa-form-preview');
+                const placeholder = el('fpa-form-placeholder');
+                const thumb = el('fpa-form-thumb');
+                // Show preview image
+                if (preview) { preview.src = dataUrl; preview.style.display = 'block'; }
+                if (placeholder) placeholder.style.display = 'none';
+                // Tap thumb → full lightbox; add Retake button
+                if (thumb) {
+                    thumb.onclick = () => openImageLightbox(dataUrl);
+                    let recapBtn = thumb.querySelector('.fpa-recapture-btn');
+                    if (!recapBtn) {
+                        recapBtn = document.createElement('button');
+                        recapBtn.className = 'fpa-recapture-btn';
+                        recapBtn.innerHTML = '📷 Retake';
+                        recapBtn.title = 'Retake photo';
+                        recapBtn.style.cssText = 'position:absolute;bottom:10px;right:10px;padding:5px 10px;border-radius:20px;background:rgba(0,0,0,.6);color:#fff;border:none;font-size:11px;font-weight:700;min-height:0;box-shadow:none;z-index:2;cursor:pointer;letter-spacing:.02em';
+                        recapBtn.onclick = (e) => { e.stopPropagation(); el('fpa-form-image').click(); };
+                        thumb.appendChild(recapBtn);
+                    }
                 }
-            }
+            };
+            reader.readAsDataURL(blob);
         }
 
         async function fpaProductImageCaptured(input) {
