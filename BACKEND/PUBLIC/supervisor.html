@@ -224,11 +224,12 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 8px;
       margin-bottom: 14px;
+      overflow: hidden;
     }
 
-    .brand-identity { display: flex; align-items: center; gap: 10px; min-width: 0 }
+    .brand-identity { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; overflow: hidden }
 
     .brand-mark {
       width: 40px;
@@ -265,18 +266,23 @@
     .brand-meta {
       display: flex;
       align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
+      gap: 6px;
+      flex-wrap: nowrap;
       justify-content: flex-end;
+      flex-shrink: 0;
     }
 
     .brand-chip, .brand-alert {
-      min-height: 34px;
-      padding: 6px 12px;
+      min-height: 32px;
+      padding: 4px 10px;
       border-radius: 999px;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
       box-shadow: none;
+      white-space: nowrap;
+      max-width: 160px;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .brand-chip {
@@ -521,21 +527,27 @@
       50%       { transform: scale(1.1); opacity: 0.8 }
     }
 
+    /* Force-hide bottom nav injected by app.js on supervisor pages */
+    .mobile-nav { display: none !important; }
+
     /* ── Chips ── */
     .chips { display: flex; flex-direction: column; gap: 8px }
 
     .chip {
       display: flex;
-      gap: 8px;
-      align-items: center;
+      flex-direction: column;
+      gap: 4px;
       padding: 8px;
       border: 1px solid var(--line);
       border-radius: 10px;
       background: var(--surface-elevated);
     }
 
-    .chip input   { width: 110px; text-align: right }
-    .chip select  { flex: 1 }
+    .chip-row    { display: flex; align-items: center; gap: 6px; width: 100% }
+    .chip-qty    { width: 58px; min-width: 58px; text-align: right; flex-shrink: 0 }
+    .chip-select { flex: 1; min-width: 0; max-width: 100%; overflow: hidden }
+    .chip-other  { width: 100%; box-sizing: border-box; margin-top: 2px }
+    .chip-rm     { flex-shrink: 0 }
 
     /* ── Colour table ── */
     .color-table {
@@ -835,12 +847,13 @@
   </div>
 
   <!-- GLOBAL LOADING OVERLAY -->
-  <div id="loading-overlay" class="hidden" aria-hidden="true">
+  <div id="loading-overlay" class="hidden" aria-hidden="true" onclick="_forceHideLoading()" title="Tap to dismiss">
     <div class="loading-box">
       <div class="loading-label">Processing…</div>
       <div class="loading-bar">
         <div class="loading-bar-inner"></div>
       </div>
+      <div style="margin-top:10px;font-size:0.7rem;color:#94a3b8;text-align:center">Tap to dismiss if stuck</div>
     </div>
   </div>
 
@@ -1091,12 +1104,15 @@
 
           <div class="row" style="margin-top:6px">
             <label>Hour Slot
-              <!-- NEW: loader text for slot -->
               <span id="slot-loader" class="muted" style="font-size:11px"></span>
-              <div class="inline">
-                <select id="d-slot" style="flex:1"></select>
-              </div>
             </label>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+              <select id="d-slot" style="flex:1;min-width:0"></select>
+              <button type="button" id="btn-recent-slots" onclick="openRecentSlots()"
+                style="flex-shrink:0;height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--accent);background:var(--card);color:var(--accent);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">
+                📋
+              </button>
+            </div>
             <label>Colour
               <!-- Hidden select — keeps value for JS/CC modal compatibility -->
               <select id="d-color" onchange="onColorChange()" style="display:none">
@@ -1395,7 +1411,23 @@
     </div>
   </div>
 
-  <script src="/assets/supervisor-script-1.js?v=release71"></script>
+  <!-- RECENT SLOTS MODAL -->
+  <div id="modal-recent-slots" class="modal hidden" onclick="if(event.target===this)hide('modal-recent-slots')" aria-hidden="true">
+    <div class="panel" style="max-width:400px;width:96vw;border-radius:16px;overflow:hidden">
+      <div class="glass-header" style="padding:16px 16px 12px">
+        <div style="font-weight:800;font-size:1.05rem;letter-spacing:-0.3px" id="recent-slots-title">Slot Entries</div>
+        <div style="font-size:0.75rem;color:var(--muted);margin-top:2px" id="recent-slots-subtitle"></div>
+      </div>
+      <div id="recent-slots-body" style="padding:10px 12px;min-height:80px;max-height:72vh;overflow-y:auto">
+        <div class="muted" style="text-align:center;padding:24px">Loading…</div>
+      </div>
+      <div style="padding:10px 12px;border-top:1px solid var(--line)">
+        <button class="btn ghost" onclick="hide('modal-recent-slots')" style="width:100%;border-radius:10px;font-weight:700">✕ Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/supervisor-script-1.js?v=release78"></script>
   <script src="/assets/register-sw.js?v=release65"></script>
   <script>
     // Colour picker panel helpers — defined here so onclick in HTML always finds them
@@ -1408,6 +1440,7 @@
       if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(180deg)';
     }
   </script>
+  <script src="/assets/app.js?v=release75"></script>
 
 </body>
 

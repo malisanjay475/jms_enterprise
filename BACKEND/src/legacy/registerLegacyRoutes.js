@@ -3990,6 +3990,28 @@ async function bootstrapFreshCoreTables() {
   await q(`ALTER TABLE user_factories ALTER COLUMN role_code SET DEFAULT 'member'`);
   await q(`UPDATE user_factories SET role_code = 'member' WHERE role_code IS NULL`);
 
+  // ── Activity Monitor: track all user sessions across every JMS app ──
+  await q(`
+    CREATE TABLE IF NOT EXISTS user_activity_log (
+      id         BIGSERIAL PRIMARY KEY,
+      username   TEXT NOT NULL,
+      role_code  TEXT,
+      app_id     TEXT,
+      action     TEXT NOT NULL,
+      page       TEXT,
+      device_type TEXT,
+      ip_address TEXT,
+      user_agent TEXT,
+      factory_id TEXT,
+      session_id TEXT,
+      extra      JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  await q(`CREATE INDEX IF NOT EXISTS ual_username_idx    ON user_activity_log(username)`);
+  await q(`CREATE INDEX IF NOT EXISTS ual_created_at_idx ON user_activity_log(created_at DESC)`);
+  await q(`CREATE INDEX IF NOT EXISTS ual_action_idx     ON user_activity_log(action)`);
+
   await q(`
     CREATE TABLE IF NOT EXISTS machines (
       id SERIAL PRIMARY KEY,
@@ -5452,6 +5474,17 @@ app.post('/api/login', async (req, res) => {
 
     u.shift = shift;
     u.shiftDate = dateStr;
+
+    // Log login event (non-blocking — never delay login response)
+    const _loginIp = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+    const _loginUa = String(req.headers['user-agent'] || '');
+    const _loginDevice = /mobile|android|iphone|ipad/i.test(_loginUa) ? 'mobile' : 'desktop';
+    const _loginAppId = requestedApp || 'web';
+    q(
+      `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, created_at)
+       VALUES ($1,$2,$3,'login',$4,$5,$6,$7,$8,$9,NOW())`,
+      [u.username, u.role_code || '', _loginAppId, null, _loginDevice, _loginIp, _loginUa.slice(0, 500), String(req.body?.factory_id || ''), String(req.body?.session_id || '')]
+    ).catch(() => {});
 
     // Return user info + factories list
     res.json({ ok: true, data: u, factories, can_select_all_factories: factoryAccess.canSelectAllFactories });
@@ -11684,6 +11717,75 @@ app.get('/api/planning/suggestions', async (req, res) => {
   }
 });
 
+// ─── JOB SHEET ────────────────────────────────────────────────────────────────
+
+// ─── JOB SHEET — High-Priority Orders (reads orders.priority set in Order Master) ──
+// Starts from `orders` table so orders with no JR report still appear.
+// Uses LATERAL to get the most recent or_jr_report row for each order.
+app.get('/api/planning/job-sheet', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const search    = (req.query.search || '').trim();
+
+    // $1 = factoryId
+    const params = [factoryId];
+    let searchClause = '';
+    if (search) {
+      params.push(`%${search}%`);
+      const p = params.length;
+      searchClause = `AND (
+        o.order_no    ILIKE $${p}
+        OR COALESCE(r.product_name, o.item_name) ILIKE $${p}
+        OR COALESCE(r.client_name,  o.client_name) ILIKE $${p}
+        OR COALESCE(r.item_code,    o.item_code)   ILIKE $${p}
+      )`;
+    }
+
+    const sql = `
+      SELECT
+        o.order_no                                       AS or_jr_no,
+        r.or_jr_date,
+        r.or_qty,
+        r.jr_qty,
+        r.job_card_no,
+        r.job_card_date,
+        COALESCE(r.item_code,    o.item_code)   AS item_code,
+        COALESCE(r.product_name, o.item_name)   AS product_name,
+        COALESCE(r.client_name,  o.client_name) AS client_name,
+        r.prod_plan_qty,
+        r.std_pack,
+        r.uom,
+        o.priority,
+        o.qty        AS order_qty,
+        o.balance    AS order_balance,
+        o.status     AS order_status,
+        o.created_at AS order_created_at
+      FROM orders o
+      LEFT JOIN LATERAL (
+        SELECT *
+        FROM or_jr_report rr
+        WHERE TRIM(rr.or_jr_no) = TRIM(o.order_no)
+          AND ($1::integer IS NULL OR rr.factory_id = $1::integer)
+        ORDER BY rr.or_jr_date DESC NULLS LAST, rr.id DESC
+        LIMIT 1
+      ) r ON true
+      WHERE ($1::integer IS NULL OR o.factory_id = $1::integer)
+        AND LOWER(o.priority) = 'high'
+        ${searchClause}
+      ORDER BY o.created_at DESC
+      LIMIT 500
+    `;
+
+    const rows = await q(sql, params);
+    res.json({ rows, total: rows.length });
+  } catch (err) {
+    console.error('[GET /api/planning/job-sheet]', err);
+    res.status(500).json({ error: 'Failed to load job sheet data' });
+  }
+});
+
+// ─── END JOB SHEET ────────────────────────────────────────────────────────────
+
 app.get('/api/planning/completed', async (req, res) => {
   try {
     const factoryId = getFactoryId(req);
@@ -16417,18 +16519,20 @@ app.post('/api/dpr/auto-fill-ongoing', async (req, res) => {
 
     const QUICK_TYPES = ['Maintenance','ManPowerShortage','MouldChangeover','MouldTrial','MouldMaintenance','NoPlan'];
 
-    // Find all machines whose last entry today is a quick-action type
+    // Find the last entry (any type) per machine today — then only carry forward if it's a quick-action.
+    // This prevents carry-forward when a user makes a manual Main entry after a quick-action run.
     const lastEntryQ = `
       SELECT DISTINCT ON (machine) machine, hour_slot, entry_type, shots, good_qty,
         reject_qty, downtime_min, remarks, plan_id, order_no, mould_no, jobcard_no,
         colour, reject_breakup, downtime_breakup, supervisor
       FROM dpr_hourly
       WHERE dpr_date = $1 AND shift = $2 AND is_deleted = false
-        AND entry_type = ANY($3::text[])
-        AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+        AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
       ORDER BY machine, id DESC
     `;
-    const lastEntries = await q(lastEntryQ, [dprDate, currentShift, QUICK_TYPES, factoryId || null]);
+    const allLastEntries = await q(lastEntryQ, [dprDate, currentShift, factoryId || null]);
+    // Only carry forward machines whose absolute last entry is a quick-action type
+    const lastEntries = allLastEntries.filter(e => QUICK_TYPES.includes(e.entry_type));
 
     let filled = 0;
     for (const last of lastEntries) {
@@ -20093,6 +20197,30 @@ app.get('/api/qc/fpa/status', async (req, res) => {
   }
 });
 
+// GET /api/qc/fpa/today — list all FPA submissions for a given date (Quality Dashboard)
+app.get('/api/qc/fpa/today', async (req, res) => {
+  try {
+    const { date, machine } = req.query;
+    const factoryId = getFactoryId(req);
+    const d = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    const rows = await q(
+      `SELECT id, date, shift, machine, line, job_card_no, order_no, item_name, mould_name,
+              fpa_form_url, product_images, fpa_done_by, fpa_done_at, remarks
+       FROM qc_job_checks
+       WHERE date = $1::date
+         AND fpa_status = 'Done'
+         AND ($2 IS NULL OR machine = $2)
+         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+       ORDER BY fpa_done_at DESC
+       LIMIT 100`,
+      [d, machine && machine !== 'All Machines' ? machine : null, factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // POST /api/qc/fpa — upload FPA form image + product reference images (multipart)
 app.post('/api/qc/fpa', (req, res, next) => {
   uploadQC.fields([
@@ -21111,21 +21239,48 @@ SUM(qty_checked) as total_checked,
     const totalRejected = Number(kpi.total_rejected || 0);
     const rejRate = totalChecked > 0 ? ((totalRejected / totalChecked) * 100).toFixed(2) : 0;
 
-    // 2. Active Issues
-    let issueSql = `SELECT COUNT(*) as c FROM qc_issue_memos WHERE status != 'Closed' AND date >= $1 AND date <= $2`;
-    const issueParams = [d1, d2];
-    if (machine && machine !== 'All') {
-      issueSql += ` AND machine = $3`;
+    // 2. Active Issues (qc_material_issues — live issue tracker)
+    let issueSql = `SELECT COUNT(*) as c FROM qc_material_issues WHERE status = 'OPEN'`;
+    const issueParams = [];
+    if (machine && machine !== 'All' && machine !== 'All Machines') {
       issueParams.push(machine);
+      issueSql += ` AND machine = $${issueParams.length}`;
     }
-
     if (factoryId) {
-      issueSql += ` AND factory_id = $${issueParams.length + 1}`;
       issueParams.push(factoryId);
+      issueSql += ` AND (factory_id = $${issueParams.length} OR factory_id IS NULL)`;
     }
-
     const issueRes = await q(issueSql, issueParams);
-    const activeIssues = issueRes[0] ? issueRes[0].c : 0;
+    const activeIssues = Number((issueRes[0] || {}).c || 0);
+
+    // 3. FPA done today
+    let fpaSql = `SELECT COUNT(DISTINCT job_card_no) as c FROM qc_job_checks WHERE date = $1::date AND fpa_status = 'Done'`;
+    const fpaParams = [d1];
+    if (machine && machine !== 'All' && machine !== 'All Machines') {
+      fpaParams.push(machine);
+      fpaSql += ` AND machine = $${fpaParams.length}`;
+    }
+    if (factoryId) {
+      fpaParams.push(factoryId);
+      fpaSql += ` AND (factory_id = $${fpaParams.length} OR factory_id IS NULL)`;
+    }
+    const fpaRes = await q(fpaSql, fpaParams);
+    const fpaDoneCount = Number((fpaRes[0] || {}).c || 0);
+
+    // 4. Active QC Holds
+    let holdSql = `SELECT COUNT(*) as c, COUNT(DISTINCT machine) as machines FROM qc_holds WHERE status = 'ACTIVE' AND dpr_date = $1::date`;
+    const holdParams = [d1];
+    if (machine && machine !== 'All' && machine !== 'All Machines') {
+      holdParams.push(machine);
+      holdSql += ` AND machine = $${holdParams.length}`;
+    }
+    if (factoryId) {
+      holdParams.push(factoryId);
+      holdSql += ` AND (factory_id = $${holdParams.length} OR factory_id IS NULL)`;
+    }
+    const holdRes = await q(holdSql, holdParams);
+    const activeHolds    = Number((holdRes[0] || {}).c || 0);
+    const heldMachines   = Number((holdRes[0] || {}).machines || 0);
 
     res.json({
       ok: true,
@@ -21135,7 +21290,10 @@ SUM(qty_checked) as total_checked,
         rejected: totalRejected,
         rejection_rate: rejRate,
         active_issues: activeIssues,
-        complaints: 0 // Placeholder
+        fpa_done: fpaDoneCount,
+        active_holds: activeHolds,
+        held_machines: heldMachines,
+        complaints: 0
       }
     });
   } catch (e) {
@@ -22835,6 +22993,142 @@ count(*) as total,
     });
   } catch (e) {
     res.json({ error: String(e), stack: e.stack });
+  }
+});
+
+/* ============================================================
+   ACTIVITY MONITOR — heartbeat + admin query
+============================================================ */
+
+// POST /api/activity/heartbeat  — called by every page every 60 s
+app.post('/api/activity/heartbeat', async (req, res) => {
+  try {
+    const { username, role_code, app_id, page, device_type, factory_id, session_id } = req.body || {};
+    if (!username) return res.json({ ok: false, error: 'username required' });
+    const ip = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+    const ua = String(req.headers['user-agent'] || '').slice(0, 500);
+    const device = device_type || (/mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop');
+    const actionStr = String(req.body?.action || 'heartbeat').slice(0, 30);
+    const extraData  = req.body?.extra ? JSON.stringify(req.body.extra) : null;
+    await q(
+      `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, extra, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())`,
+      [username, role_code || '', app_id || 'web', actionStr, page || '', device, ip, ua, String(factory_id || ''), String(session_id || ''), extraData]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/activity/monitor  — admin view: who is online + recent history
+app.get('/api/activity/monitor', async (req, res) => {
+  try {
+    // Latest status per user (last event within 10 min = online, 10-30 min = idle, >30 = offline)
+    const onlineRows = await q(`
+      SELECT DISTINCT ON (username)
+        username, role_code, app_id, page, device_type, ip_address, factory_id, action, created_at
+      FROM user_activity_log
+      ORDER BY username, created_at DESC
+    `);
+
+    // Actions today per user
+    const todayRows = await q(`
+      SELECT username, COUNT(*) AS actions_today
+      FROM user_activity_log
+      WHERE created_at >= CURRENT_DATE
+        AND action NOT IN ('heartbeat')
+      GROUP BY username
+    `);
+    const todayMap = {};
+    for (const r of todayRows) todayMap[r.username] = Number(r.actions_today);
+
+    // Logins today per user
+    const loginRows = await q(`
+      SELECT username, COUNT(*) AS logins_today
+      FROM user_activity_log
+      WHERE created_at >= CURRENT_DATE AND action = 'login'
+      GROUP BY username
+    `);
+
+    // First seen today per user
+    const firstSeenRows = await q(`
+      SELECT username, MIN(created_at) AS first_seen_today
+      FROM user_activity_log
+      WHERE created_at >= CURRENT_DATE
+      GROUP BY username
+    `);
+    const firstSeenMap = {};
+    for (const r of firstSeenRows) firstSeenMap[r.username] = r.first_seen_today;
+
+    // Latest machine per supervisor (from dpr_entry / machine_select extra)
+    const machineRows = await q(`
+      SELECT DISTINCT ON (username)
+        username,
+        extra->>'machine' AS machine,
+        extra->>'order_no' AS order_no,
+        extra->>'colour' AS colour
+      FROM user_activity_log
+      WHERE action IN ('dpr_entry','machine_select','job_open')
+        AND extra IS NOT NULL
+        AND extra->>'machine' IS NOT NULL
+      ORDER BY username, created_at DESC
+    `);
+    const machineMap = {};
+    for (const r of machineRows) machineMap[r.username] = { machine: r.machine, order_no: r.order_no, colour: r.colour };
+    const loginMap = {};
+    for (const r of loginRows) loginMap[r.username] = Number(r.logins_today);
+
+    const now = Date.now();
+    const users = onlineRows.map(r => {
+      const diffMs = now - new Date(r.created_at).getTime();
+      const diffMin = diffMs / 60000;
+      let status = 'offline';
+      if (diffMin <= 2.5) status = 'online';
+      else if (diffMin <= 30) status = 'idle';
+      return {
+        username: r.username,
+        role_code: r.role_code,
+        app_id: r.app_id,
+        page: r.page,
+        device_type: r.device_type,
+        ip_address: r.ip_address,
+        factory_id: r.factory_id,
+        last_action: r.action,
+        last_seen: r.created_at,
+        status,
+        actions_today: todayMap[r.username] || 0,
+        logins_today: loginMap[r.username] || 0,
+        first_seen_today: firstSeenMap[r.username] || null,
+        current_machine: machineMap[r.username] || null
+      };
+    });
+
+    // Recent full log (last 500 events, non-heartbeat, last 24h)
+    const recentLimit = Math.min(500, parseInt(req.query.limit || '200', 10));
+    const filterUser = req.query.username ? String(req.query.username) : null;
+    const filterApp  = req.query.app_id ? String(req.query.app_id) : null;
+    const filterDate = req.query.date ? String(req.query.date) : null;
+
+    let logWhere = `WHERE created_at >= NOW() - INTERVAL '7 days'`;
+    const logParams = [];
+    if (filterUser) { logWhere += ` AND username = $${logParams.length + 1}`; logParams.push(filterUser); }
+    if (filterApp)  { logWhere += ` AND app_id  = $${logParams.length + 1}`; logParams.push(filterApp); }
+    if (filterDate) { logWhere += ` AND created_at::date = $${logParams.length + 1}::date`; logParams.push(filterDate); }
+
+    const recentLog = await q(
+      `SELECT id, username, role_code, app_id, action, page, device_type, ip_address, factory_id, session_id, created_at
+       FROM user_activity_log
+       ${logWhere}
+       ORDER BY created_at DESC
+       LIMIT ${recentLimit}`,
+      logParams
+    );
+
+    res.json({ ok: true, users, recent_log: recentLog });
+  } catch (e) {
+    console.error('activity monitor error', e);
+    res.status(500).json({ ok: false, error: String(e) });
   }
 });
 
