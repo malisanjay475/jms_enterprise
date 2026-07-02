@@ -1249,13 +1249,17 @@
                     </div>
                 </div>
                 <div class="row">
-                    <div class="grid-2">
-                        <label>Date <select id="fpa-date"></select></label>
-                        <label>Shift <select id="fpa-shift" onchange="updateFPASlots()">
-                                <option>Day</option><option>Night</option>
-                            </select></label>
+                    <!-- fpa-capture-only: hidden in view mode, shown in capture mode -->
+                    <div class="fpa-capture-only">
+                        <div class="grid-2">
+                            <label>Date <select id="fpa-date"></select></label>
+                            <label>Shift <select id="fpa-shift" onchange="updateFPASlots()">
+                                    <option>Day</option><option>Night</option>
+                                </select></label>
+                        </div>
                     </div>
-                    <label>Hour Slot <select id="fpa-slot"></select></label>
+                    <!-- fpa-slot: hidden select kept for JS compat — not shown to user -->
+                    <select id="fpa-slot" style="display:none"></select>
 
                     <!-- FPA Form Image (v4: 170px thumb) -->
                     <div class="card" style="background:var(--surface-elevated);border-style:dashed;padding:12px">
@@ -1674,8 +1678,8 @@
             onclick="event.stopPropagation()">
     </div>
 
-  <script src="/assets/QCSupervisor-script-1.js?v=release68"></script>
-  <script src="/assets/register-sw.js?v=release68"></script>
+  <script src="/assets/QCSupervisor-script-1.js?v=release70"></script>
+  <script src="/assets/register-sw.js?v=release70"></script>
 
 </body>
 
