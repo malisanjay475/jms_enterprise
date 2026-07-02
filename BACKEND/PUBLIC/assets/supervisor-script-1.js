@@ -536,34 +536,42 @@
           return (found ? found[1] : code) + ' (' + val + ')';
         }).join(', ');
       }
-      let html = '<div style="display:flex;flex-direction:column;gap:5px">';
+      const TYPE_COLOR = {
+        'MAIN':'#22c55e','ColourChange':'#a78bfa','Maintenance':'#f59e0b',
+        'MouldChange':'#3b82f6','ManPowerShortage':'#ef4444','NoPlan':'#6b7280'
+      };
+      let html = '<div style="display:flex;flex-direction:column;gap:6px">';
       for (const slot of SLOTS) {
         const e = bySlot[slot];
         if (e) {
           const entryType = e.EntryType || e.entry_type || 'Entry';
-          const b = TYPE_BADGE[entryType] || { icon:'•', color:'#94a3b8' };
+          const tc = TYPE_COLOR[entryType] || '#94a3b8';
           const qty = e.GoodQty != null ? e.GoodQty : (e.good_qty != null ? e.good_qty : '—');
-          const rejTotal = e.RejectQty != null ? e.RejectQty : (e.reject_qty != null ? e.reject_qty : null);
+          const rejTotal = e.RejectQty != null ? e.RejectQty : (e.reject_qty != null ? e.reject_qty : 0);
           const colVal = e.Colour || e.colour || '';
           const rejDetail = decodeBreakup(e.RejectBreakup || e.reject_breakup, REJECT_REASONS);
           const dtDetail  = decodeBreakup(e.DowntimeBreakup || e.downtime_breakup, DOWNTIME_REASONS);
-          const qtyLine = '<span style="font-size:0.78rem;font-weight:700">' + qty + ' ✓' + (rejTotal ? ' <span style="color:#ef4444">' + rejTotal + ' ✗</span>' : '') + '</span>';
-          const colBadge = colVal ? '<span style="font-size:0.7rem;padding:1px 7px;border-radius:12px;background:#f1f5f9;border:1px solid #e2e8f0;font-weight:600;color:#334155;margin-top:2px;display:inline-block">🎨 ' + colVal + '</span>' : '';
-          const rejBadge = rejDetail ? '<span style="font-size:0.67rem;color:#ef4444;margin-top:1px;display:block">✗ ' + rejDetail + '</span>' : '';
-          const dtBadge  = dtDetail  ? '<span style="font-size:0.67rem;color:#f59e0b;margin-top:1px;display:block">⏱ ' + dtDetail + '</span>' : '';
-          html += '<div style="padding:7px 10px;border-radius:8px;background:var(--card);border:1px solid var(--line)">'
-            + '<div style="display:flex;align-items:center;gap:6px">'
-            + '<span style="font-size:0.7rem;font-weight:700;min-width:36px;color:var(--muted)">' + slot + '</span>'
-            + '<span style="font-size:0.82rem">' + b.icon + '</span>'
-            + '<span style="flex:1;font-size:0.75rem;color:' + b.color + ';font-weight:700">' + entryType + '</span>'
-            + qtyLine + '</div>'
-            + ((colBadge||rejBadge||dtBadge) ? '<div style="margin-top:4px;padding-left:42px">' + colBadge + rejBadge + dtBadge + '</div>' : '')
+          html += '<div style="border-radius:10px;background:var(--card);border:1px solid var(--line);overflow:hidden">'
+            // top row: slot | type pill | qty
+            + '<div style="display:flex;align-items:center;gap:8px;padding:9px 12px">'
+            + '<span style="font-size:0.72rem;font-weight:700;min-width:34px;color:var(--muted);font-variant-numeric:tabular-nums">' + slot + '</span>'
+            + '<span style="flex:1;font-size:0.72rem;font-weight:700;color:' + tc + ';background:' + tc + '18;padding:2px 8px;border-radius:20px;display:inline-block;max-width:fit-content">' + entryType + '</span>'
+            + '<span style="font-size:0.88rem;font-weight:800;color:var(--text)">' + qty + '</span>'
+            + '<span style="font-size:0.72rem;color:#22c55e;font-weight:700">✓</span>'
+            + (Number(rejTotal) > 0 ? '<span style="font-size:0.72rem;color:#ef4444;font-weight:700">' + rejTotal + ' ✗</span>' : '')
+            + '</div>'
+            // sub-row: colour + reject + downtime details
+            + ((colVal || rejDetail || dtDetail) ? '<div style="padding:0 12px 8px 12px;display:flex;flex-direction:column;gap:3px;border-top:1px solid var(--line)">'
+            + (colVal ? '<span style="font-size:0.7rem;color:var(--muted);padding-top:4px">🎨 <b style="color:var(--text)">' + colVal + '</b></span>' : '')
+            + (rejDetail ? '<span style="font-size:0.67rem;color:#ef4444">✗ ' + rejDetail + '</span>' : '')
+            + (dtDetail  ? '<span style="font-size:0.67rem;color:#f59e0b">⏱ ' + dtDetail  + '</span>' : '')
+            + '</div>' : '')
             + '</div>';
         } else {
-          html += '<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;background:transparent;border:1px dashed var(--line);opacity:0.45">'
-            + '<span style="font-size:0.7rem;font-weight:700;min-width:36px;color:var(--muted)">' + slot + '</span>'
-            + '<span style="font-size:0.82rem">○</span>'
-            + '<span style="font-size:0.75rem;color:var(--muted)">No entry</span></div>';
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;border:1px dashed var(--line);opacity:0.4">'
+            + '<span style="font-size:0.72rem;font-weight:700;min-width:34px;color:var(--muted);font-variant-numeric:tabular-nums">' + slot + '</span>'
+            + '<span style="font-size:0.72rem;color:var(--muted)">— No entry</span>'
+            + '</div>';
         }
       }
       html += '</div>';
