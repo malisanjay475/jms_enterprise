@@ -20179,7 +20179,7 @@ app.get('/api/qc/fpa/status', async (req, res) => {
        FROM qc_job_checks
        WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
          AND fpa_status = 'Done'
-         AND ($2 IS NULL OR machine = $2)
+         AND ($2::text IS NULL OR machine = $2::text)
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY fpa_done_at DESC LIMIT 1`,
       [job_card_no, machine || null, factoryId]
@@ -20221,7 +20221,7 @@ app.get('/api/qc/fpa/today', async (req, res) => {
        FROM qc_job_checks
        WHERE date = $1::date
          AND fpa_status = 'Done'
-         AND ($2 IS NULL OR machine = $2)
+         AND ($2::text IS NULL OR machine = $2::text)
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY fpa_done_at DESC
        LIMIT 100`,
