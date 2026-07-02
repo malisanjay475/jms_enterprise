@@ -2,10 +2,20 @@
 
 const crypto = require('crypto');
 const express = require('express');
+const { rateLimit } = require('express-rate-limit');
 const { getRequestUsername, normalizeFactoryId } = require('../app/requestContext');
 const buildProvisioningPackage = require('./buildProvisioningPackage');
 
 const router = express.Router();
+
+// Rate limiter for file-sync endpoints (60 req/min per IP is plenty for a 5-min cycle)
+const fileSyncLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many requests — try again in a minute.' }
+});
 
 let pool = null;
 
@@ -980,6 +990,94 @@ router.get('/desktop-installer/download', (req, res) => {
     fs.createReadStream(filePath).pipe(res);
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ── File manifest + individual file download (for auto-update) ───────────────
+// GET /api/local-servers/:id/file-manifest  — list of files with SHA-256 hashes
+// GET /api/local-servers/:id/file?p=PUBLIC/foo.html — download one file
+
+// Files/dirs that are included in the provisioning package (mirrors buildProvisioningPackage.js)
+const UPDATE_BACKEND_DIRS  = ['PUBLIC', 'middleware', 'migrations', 'nginx', 'routes', 'scripts', 'services', 'src', 'utils', 'REPORTS', 'graphify-view'];
+const UPDATE_BACKEND_FILES = ['server.js', 'package.json', 'package-lock.json', 'Dockerfile', 'docker-compose.yml', 'docker-entrypoint.sh', '.dockerignore'];
+
+function getBackendRoot() {
+  // In Docker: __dirname = /app/src/local-servers  → /app = BACKEND root
+  // In dev:    __dirname = .../BACKEND/src/local-servers → .../BACKEND
+  return path.resolve(__dirname, '..', '..');
+}
+
+function sha256File(filePath) {
+  try {
+    const buf = fs.readFileSync(filePath);
+    return crypto.createHash('sha256').update(buf).digest('hex');
+  } catch { return null; }
+}
+
+function collectManifest() {
+  const root = getBackendRoot();
+  const manifest = {};
+
+  function addFile(relPath) {
+    const absPath = path.join(root, relPath);
+    const hash = sha256File(absPath);
+    if (hash !== null) manifest[relPath.replace(/\\/g, '/')] = hash;
+  }
+
+  function walkDir(relDir) {
+    const absDir = path.join(root, relDir);
+    if (!fs.existsSync(absDir)) return;
+    for (const entry of fs.readdirSync(absDir, { withFileTypes: true })) {
+      if (['node_modules', 'uploads', 'tmp'].includes(entry.name)) continue;
+      if (entry.name === '.env' || entry.name.startsWith('.env.backup') || entry.name.endsWith('.log')) continue;
+      const rel = path.join(relDir, entry.name);
+      if (entry.isDirectory()) { walkDir(rel); } else { addFile(rel); }
+    }
+  }
+
+  for (const f of UPDATE_BACKEND_FILES) addFile(f);
+  for (const d of UPDATE_BACKEND_DIRS)  walkDir(d);
+  return manifest;
+}
+
+router.get('/:id/file-manifest', fileSyncLimiter, async (req, res) => {
+  try {
+    const localServerId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(localServerId) || localServerId <= 0)
+      return res.status(400).json({ ok: false, error: 'Invalid id' });
+
+    await authenticateNode(req, localServerId);   // verifies x-node-key
+
+    const manifest = collectManifest();
+    res.json({ ok: true, manifest });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, error: error.message });
+  }
+});
+
+router.get('/:id/file', fileSyncLimiter, async (req, res) => {
+  try {
+    const localServerId = Number.parseInt(req.params.id, 10);
+    if (!Number.isInteger(localServerId) || localServerId <= 0)
+      return res.status(400).json({ ok: false, error: 'Invalid id' });
+
+    await authenticateNode(req, localServerId);
+
+    const relPath = String(req.query.p || '').replace(/\.\./g, '').replace(/^[\\/]+/, '');
+    if (!relPath) return res.status(400).json({ ok: false, error: 'Missing ?p= path' });
+
+    const absPath = path.join(getBackendRoot(), relPath);
+    // Safety: must stay inside BACKEND root
+    if (!absPath.startsWith(getBackendRoot() + path.sep) && absPath !== getBackendRoot())
+      return res.status(403).json({ ok: false, error: 'Path outside BACKEND root' });
+    if (!fs.existsSync(absPath))
+      return res.status(404).json({ ok: false, error: 'File not found' });
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${path.basename(absPath)}"`);
+    fs.createReadStream(absPath).pipe(res);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, error: error.message });
   }
 });
 
