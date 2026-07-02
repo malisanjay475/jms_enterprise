@@ -2419,7 +2419,13 @@
             }
             const blob = await compressImage(input.files[0]);
             if (!blob) { alert('Could not read image. Try a different photo.'); return; }
-            const url  = URL.createObjectURL(blob);
+            // data URL for preview (blob URLs fail on some Android browsers)
+            const url = await new Promise(function(resolve) {
+                const r = new FileReader();
+                r.onload = function(ev) { resolve(ev.target.result); };
+                r.onerror = function() { resolve(''); };
+                r.readAsDataURL(blob);
+            });
             fpaProductBlobs.push({ blob, url });
             renderFPAProductGrid();
             input.value = '';  // reset so same image can be re-captured
