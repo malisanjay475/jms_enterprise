@@ -1024,7 +1024,7 @@
                         Issues<span id="issues-badge" class="hidden" style="display:inline-flex;align-items:center;justify-content:center;background:#dc2626;color:#fff;border-radius:999px;font-size:10px;font-weight:700;min-width:16px;height:16px;padding:0 4px;margin-left:4px;vertical-align:middle"></span>
                     </button>
                     <button id="tab-recent" role="tab" aria-selected="false"
-                        onclick="showPage('sec-recent', this); loadRecent()">Recent</button>
+                        onclick="showPage('sec-recent', this)">Recent</button>
                 </div>
             </div>
 
@@ -1112,8 +1112,36 @@
                 <div id="issues-empty" class="no-jobs hidden">No issues found.</div>
             </section>
 
-            <!-- job-summary placeholder kept for JS compat (loadQueue writes to it) -->
-            <div id="job-summary" style="display:none"></div>
+            <!-- QC CONTEXT (Selected Job) -->
+            <section id="sec-dpr" class="page card hidden">
+                <h2 style="margin-bottom:6px">Selected Job Context</h2>
+                <div id="job-summary" class="job" style="margin-top:10px"></div>
+
+                <div class="card"
+                    style="margin-top:15px; background:#f8fafc; border:1px dashed var(--line); text-align:center; padding:20px">
+                    <div style="font-weight:600; margin-bottom:10px">Select Action</div>
+                    <p class="muted" style="font-size:13px; margin-bottom:15px">Choose a report to fill for this job.
+                    </p>
+
+                    <div class="grid-2">
+                        <button class="ghost" onclick="openQCForm('sec-qc-online')"><i class="bi bi-activity"></i>
+                            Online QC
+                            Report</button>
+                        <button class="ghost" onclick="openQCForm('sec-qc-fpa')"><i class="bi bi-camera"></i>
+                            FPA
+                            Images</button>
+                        <button class="ghost" onclick="openQCForm('sec-qc-issue')"><i
+                                class="bi bi-exclamation-triangle"></i> Line
+                            Issue Memo</button>
+                        <button class="ghost" onclick="openQCForm('sec-qc-training')"><i class="bi bi-mortarboard"></i>
+                            Training
+                            Sheet</button>
+                        <button class="ghost" onclick="openQCForm('sec-qc-deviation')"><i
+                                class="bi bi-signpost-split"></i>
+                            Deviation Form</button>
+                    </div>
+                </div>
+            </section>
 
 
             <!-- SIDEBAR (Side Sheet) -->
@@ -1144,22 +1172,19 @@
                         <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
                             onclick="showPage('sec-recent',document.getElementById('tab-recent')); loadRecent(); toggleSidebar()">
                             <i class="bi bi-clock-history"></i>&nbsp; Recent</button>
-                        <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
-                            onclick="window.open('/Quality.html?view=dashboard','_blank'); toggleSidebar()">
-                            <i class="bi bi-bar-chart-line"></i>&nbsp; Quality Dashboard ↗</button>
                         <div class="hr"></div>
                         <div class="muted" style="font-size:11px;padding:4px 12px;text-transform:uppercase;letter-spacing:.05em;font-weight:700">Forms</div>
                         <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
-                            onclick="openFormWithJobCheck('sec-qc-fpa'); toggleSidebar()">
+                            onclick="showPage('sec-qc-fpa'); toggleSidebar()">
                             <i class="bi bi-camera"></i>&nbsp; FPA Images</button>
                         <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
                             onclick="showPage('sec-qc-issue'); toggleSidebar()">
                             <i class="bi bi-exclamation-triangle"></i>&nbsp; Line Issue Memo</button>
                         <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
-                            onclick="openFormWithJobCheck('sec-qc-training'); toggleSidebar()">
+                            onclick="showPage('sec-qc-training'); toggleSidebar()">
                             <i class="bi bi-mortarboard"></i>&nbsp; Training Sheet</button>
                         <button class="ghost" style="justify-content:flex-start;text-align:left;font-size:14px"
-                            onclick="openFormWithJobCheck('sec-qc-deviation'); toggleSidebar()">
+                            onclick="showPage('sec-qc-deviation'); toggleSidebar()">
                             <i class="bi bi-signpost-split"></i>&nbsp; Deviation Form</button>
                     </div>
                     <div style="padding:16px; border-top:1px solid var(--line)">
@@ -1171,7 +1196,41 @@
             </div>
 
 
-            <!-- sec-qc-online removed: replaced by slot-based QC Report tab (sec-qc-report) -->
+            <!-- QC FORM 1: Online Quality Report -->
+            <section id="sec-qc-online" class="page card hidden">
+                <h2 style="margin-bottom:10px">Online Quality Report</h2>
+                <div id="qc1-context" style="margin-bottom:12px"></div> <!-- Context Container -->
+
+
+                <div class="row">
+                    <label>Date <select id="qc1-date"></select></label>
+                    <label>Shift <select id="qc1-shift" onchange="updateQCSlots()">
+                            <option>Day</option>
+                            <option>Night</option>
+                        </select></label>
+                    <label>Hour Slot <select id="qc1-slot"></select></label>
+                    <label>Item Name <input id="qc1-item" placeholder="Auto-filled from job" readonly style="background:#f1f5fe;color:var(--muted);cursor:not-allowed"></label>
+                    <label>Mould Name <input id="qc1-mould" placeholder="Auto-filled from job" readonly style="background:#f1f5fe;color:var(--muted);cursor:not-allowed"></label>
+                    <div class="card" style="background:#f8fafc; border-style:dashed; padding:12px">
+                        <div style="font-weight:700; margin-bottom:4px">Shift Weight Checks</div>
+                        <div class="muted" style="font-size:12px; margin-bottom:8px">Enter 3 article weights per shift, one reading every 4 hours. These compare against STD weight in QC and DPR summaries.</div>
+                        <div class="qc-weight-grid">
+                            <label>Weight 1 <input type="number" step="0.001" id="qc1-weight1" placeholder="0.000" inputmode="decimal"></label>
+                            <label>Weight 2 <input type="number" step="0.001" id="qc1-weight2" placeholder="0.000" inputmode="decimal"></label>
+                            <label>Weight 3 <input type="number" step="0.001" id="qc1-weight3" placeholder="0.000" inputmode="decimal"></label>
+                        </div>
+                    </div>
+                    <label>Defect Description <textarea id="qc1-defect" rows="3"
+                            placeholder="Describe defect..."></textarea></label>
+                    <div class="grid-2">
+                        <label>Qty Checked <input type="number" id="qc1-checked" placeholder="0"></label>
+                        <label>Qty Rejected <input type="number" id="qc1-rejected" placeholder="0"></label>
+                    </div>
+                    <label>Action Taken <textarea id="qc1-action" rows="2"
+                            placeholder="Action taken..."></textarea></label>
+                    <button class="primary" onclick="submitQC1()">Submit Report</button>
+                </div>
+            </section>
 
             <!-- QC FORM: First Piece Approval -->
             <section id="sec-qc-fpa" class="page card hidden">
@@ -1190,13 +1249,17 @@
                     </div>
                 </div>
                 <div class="row">
-                    <div class="grid-2">
-                        <label>Date <select id="fpa-date"></select></label>
-                        <label>Shift <select id="fpa-shift" onchange="updateFPASlots()">
-                                <option>Day</option><option>Night</option>
-                            </select></label>
+                    <!-- fpa-capture-only: hidden in view mode, shown in capture mode -->
+                    <div class="fpa-capture-only">
+                        <div class="grid-2">
+                            <label>Date <select id="fpa-date"></select></label>
+                            <label>Shift <select id="fpa-shift" onchange="updateFPASlots()">
+                                    <option>Day</option><option>Night</option>
+                                </select></label>
+                        </div>
                     </div>
-                    <label>Hour Slot <select id="fpa-slot"></select></label>
+                    <!-- fpa-slot: hidden select kept for JS compat — not shown to user -->
+                    <select id="fpa-slot" style="display:none"></select>
 
                     <!-- FPA Form Image (v4: 170px thumb) -->
                     <div class="card" style="background:var(--surface-elevated);border-style:dashed;padding:12px">
@@ -1280,6 +1343,38 @@
                     <button class="primary" onclick="submitQC4()">Submit Deviation</button>
                 </div>
             </section>
+
+            <!-- NEW QC FORM (Legacy Placeholder) -->
+            <div id="qc-form-legacy" class="card hidden" style="margin-top:10px">
+                <h3 style="margin-top:0">Inspection Results</h3>
+                <div class="row">
+                    <label>Status
+                        <select id="qc-status">
+                            <option value="Pass">Pass (Approved)</option>
+                            <option value="First Piece">First Piece Approval</option>
+                            <option value="Hold">Hold / Under Observation</option>
+                            <option value="Reject">Reject</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div class="grid-2" style="margin-top:10px">
+                    <label>Sample Qty <input type="number" id="qc-sample-qty" value="5"></label>
+                    <label>Defect Qty <input type="number" id="qc-defect-qty" value="0"></label>
+                </div>
+
+                <div class="row" style="margin-top:10px">
+                    <label>Remarks / Issues
+                        <textarea id="qc-remarks" rows="3" placeholder="Enter findings..."></textarea>
+                    </label>
+                </div>
+
+                <div class="row" style="margin-top:15px">
+                    <button class="primary" onclick="submitQC()">Submit QC Report</button>
+                    <span id="qc-msg" class="muted"></span>
+                </div>
+            </div>
+
 
             </section>
 
@@ -1583,8 +1678,8 @@
             onclick="event.stopPropagation()">
     </div>
 
-  <script src="/assets/QCSupervisor-script-1.js?v=release69"></script>
-  <script src="/assets/register-sw.js?v=release69"></script>
+  <script src="/assets/QCSupervisor-script-1.js?v=release70"></script>
+  <script src="/assets/register-sw.js?v=release70"></script>
 
 </body>
 
