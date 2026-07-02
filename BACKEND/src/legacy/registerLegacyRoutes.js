@@ -20167,29 +20167,41 @@ VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
   }
 });
 
-// GET /api/qc/fpa/status — check if FPA already done for this job+date+shift (one-time per job)
+// GET /api/qc/fpa/status — check if FPA already done for this job card (any date/shift)
+// Once FPA is submitted for a job card it is permanently "done" — no date filter.
 app.get('/api/qc/fpa/status', async (req, res) => {
   try {
-    const { job_card_no, date, shift, machine } = req.query;
-    if (!job_card_no || !date) return res.json({ ok: true, done: false });
+    const { job_card_no, machine } = req.query;
+    if (!job_card_no) return res.json({ ok: true, done: false });
     const factoryId = getFactoryId(req);
     const rows = await q(
-      `SELECT id, fpa_done_at, fpa_done_by, fpa_form_url, product_images
+      `SELECT id, date, shift, fpa_done_at, fpa_done_by, fpa_form_url, product_images
        FROM qc_job_checks
        WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
-         AND date = $2::date
          AND fpa_status = 'Done'
-         AND ($3 IS NULL OR machine = $3)
-         AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
-       ORDER BY updated_at DESC LIMIT 1`,
-      [job_card_no, date, machine || null, factoryId]
+         AND ($2 IS NULL OR machine = $2)
+         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+       ORDER BY fpa_done_at DESC LIMIT 1`,
+      [job_card_no, machine || null, factoryId]
     );
     if (rows.length) {
       const r = rows[0];
       const fpaAt = r.fpa_done_at
         ? new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }).format(new Date(r.fpa_done_at))
         : null;
-      return res.json({ ok: true, done: true, done_by: r.fpa_done_by, done_at: fpaAt, form_url: r.fpa_form_url, product_images: r.product_images });
+      // Format date as "02 Jul 2026"
+      const fpaDate = r.date
+        ? new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(r.date))
+        : null;
+      return res.json({
+        ok: true, done: true,
+        date: fpaDate,
+        shift: r.shift || null,
+        done_by: r.fpa_done_by,
+        done_at: fpaAt,
+        form_url: r.fpa_form_url,
+        product_images: r.product_images
+      });
     }
     res.json({ ok: true, done: false });
   } catch (e) {

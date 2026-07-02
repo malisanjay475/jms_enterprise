@@ -1032,7 +1032,16 @@
                 : ['18:00-22:00', '22:00-02:00', '02:00-06:00'];
         }
 
-        // updateQCSlots removed — sec-qc-online section removed
+        function updateQCSlots() {
+            const sh = el('qc1-shift').value;
+            const sel = el('qc1-slot');
+            sel.innerHTML = '';
+            qcSlotsForShift(sh).forEach(s => sel.add(new Option(s, s)));
+
+            // Attempt to auto-select current slot
+            const h = new Date().getHours();
+            // Logic for current slot selection can be added here if needed
+        }
 
         function updateFPASlots() {
             const sh = el('fpa-shift') ? el('fpa-shift').value : getShiftFromTime();
@@ -1810,71 +1819,84 @@
             };
         }
 
-        // submitQC1 removed — sec-qc-online section removed; use QC Report tab (slot-based) instead
+        function submitQC1() {
+            const jobInfo = activeJobPayload();
+            const data = {
+                date: el('qc1-date').value,
+                shift: el('qc1-shift').value,
+                hour_slot: el('qc1-slot').value,
+                line: session.line,
+                machine: session.machine,
+                plan_id: jobInfo.plan_id,
+                job_card_no: jobInfo.job_card_no,
+                order_no: jobInfo.order_no,
+                item_name: el('qc1-item').value,
+                mould_name: el('qc1-mould').value,
+                qc_weight_1: el('qc1-weight1').value,
+                qc_weight_2: el('qc1-weight2').value,
+                qc_weight_3: el('qc1-weight3').value,
+                defect_description: el('qc1-defect').value,
+                qty_checked: Number(el('qc1-checked').value || 0),
+                qty_rejected: Number(el('qc1-rejected').value || 0),
+                action_taken: el('qc1-action').value,
+                supervisor: session.username
+            };
+
+            if (!data.date || !data.item_name) return alert('Date and Item Name are required.');
+
+            fetch('/api/qc/online', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            }).then(r => r.json()).then(r => {
+                if (r.ok) { alert('Report Submitted!'); showPage('sec-queue'); }
+                else alert('Error: ' + r.error);
+            });
+        }
 
         async function submitFPA() {
-            if (!session.activeJob) return alert('Select a job from Queue first — tap FPA on a job card.');
-            // v4: use fpaFormBlob (compressed blob from fpaFormImageChanged) instead of raw file input
-            if (!fpaFormBlob) return alert('Capture FPA Form image first (tap the photo area).');
-            if (fpaProductBlobs.length < 2) return alert('Minimum 2 product reference photos required (tap + Capture).');
+            if (!session.activeJob) return alert('Select a job first.');
+            const formFile = el('fpa-form-image').files[0];
+            const productFiles = Array.from(el('fpa-product-images').files || []);
+            if (!formFile) return alert('Upload FPA Form image.');
+            if (productFiles.length < 2) return alert('Upload minimum 2 product reference images.');
 
-            const btn    = el('fpa-submit-btn');
-            const msgEl  = el('fpa-msg');
-            if (btn)   { btn.disabled = true; btn.textContent = 'Uploading…'; }
-            if (msgEl) { msgEl.textContent = 'Uploading…'; msgEl.className = 'muted'; }
-            showLoading();
-
-            const job = session.activeJob || {};
-            const all = job._all || {};
-
-            // Build multipart FormData — backend expects multipart/form-data (multer)
-            const fd = new FormData();
-            fd.append('session',     JSON.stringify({ username: session.username, line: session.line }));
-            fd.append('date',        istDateStr());
-            fd.append('shift',       el('fpa-shift') ? el('fpa-shift').value : getShiftFromTime());
-            fd.append('hour_slot',   el('fpa-slot')  ? el('fpa-slot').value  : '');
-            fd.append('line',        session.line    || '');
-            fd.append('machine',     session.machine || '');
-            fd.append('plan_id',     safe(job.PlanID    || all['PlanID']    || ''));
-            fd.append('job_card_no', safe(job.JobCardNo || all['JobCardNo'] || ''));
-            fd.append('order_no',    safe(job.OrderNo   || all['Order No']  || ''));
-            fd.append('item_name',   safe(all['SFG Name'] || all['Item Name'] || ''));
-            fd.append('mould_name',  safe(job.Mould || all['Mould'] || all['Mould Name'] || ''));
-            fd.append('remarks',     el('fpa-remarks') ? el('fpa-remarks').value : '');
-            fd.append('supervisor',  session.username || '');
-
-            // Attach blobs as files (multer field names must match backend)
-            fd.append('fpa_form_image', fpaFormBlob, 'fpa-form.jpg');
-            fpaProductBlobs.forEach(function(item, i) {
-                fd.append('fpa_product_images', item.blob, 'product-' + i + '.jpg');
-            });
-
+            const jobInfo = activeJobPayload();
+            el('fpa-msg').textContent = 'Uploading FPA images...';
             try {
-                const res  = await fetch('/api/qc/fpa', { method: 'POST', body: fd });
-                const data = await res.json();
-                if (!data.ok) throw new Error(data.error || 'Upload failed');
+                const formImage = await fileToBase64(formFile);
+                const productImages = [];
+                for (const file of productFiles.slice(0, 8)) {
+                    productImages.push(await fileToBase64(file));
+                }
+                const data = {
+                    date: el('fpa-date').value,
+                    shift: el('fpa-shift').value,
+                    hour_slot: el('fpa-slot').value,
+                    line: session.line,
+                    machine: session.machine,
+                    plan_id: jobInfo.plan_id,
+                    job_card_no: jobInfo.job_card_no,
+                    order_no: jobInfo.order_no,
+                    item_name: jobInfo.item_name,
+                    mould_name: jobInfo.mould_name,
+                    fpa_form_image: formImage,
+                    product_images: productImages,
+                    remarks: el('fpa-remarks').value,
+                    supervisor: session.username
+                };
 
-                if (msgEl) { msgEl.className = 'ok'; msgEl.textContent = '✓ FPA submitted successfully.'; }
-
-                // Switch to view mode immediately — re-fetch status so gallery renders from server URLs
-                const jcNo    = safe(job.JobCardNo || all['JobCardNo'] || '');
-                const machine = session.machine || '';
-                const date    = istDateStr();
-                const shift   = el('fpa-shift') ? el('fpa-shift').value : getShiftFromTime();
-                try {
-                    const sr = await fetch('/api/qc/fpa/status?job_card_no=' + encodeURIComponent(jcNo) +
-                        '&date=' + date + '&shift=' + encodeURIComponent(shift) +
-                        '&machine=' + encodeURIComponent(machine));
-                    const sd = await sr.json();
-                    if (sd.ok && sd.done) { _v4RenderFPAViewMode(sd); }
-                } catch (_e) { /* non-fatal — view mode will load on next open */ }
-
+                const res = await fetch('/api/qc/fpa', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                }).then(r => r.json());
+                if (!res.ok) throw new Error(res.error || 'FPA save failed');
+                el('fpa-msg').innerHTML = '<span class="ok">FPA saved.</span>';
+                el('fpa-preview').innerHTML = [formImage, ...productImages].map(src => `<img src="${src}" alt="FPA image">`).join('');
                 loadRecent();
             } catch (err) {
-                if (msgEl) { msgEl.className = 'err'; msgEl.textContent = String(err.message || err); }
-                if (btn)   { btn.disabled = false; btn.textContent = 'Submit FPA'; }
-            } finally {
-                hideLoading();
+                el('fpa-msg').innerHTML = `<span class="err">${String(err.message || err)}</span>`;
             }
         }
 
@@ -3316,26 +3338,23 @@
         }
 
         /* ================================================================
-           openFormWithJobCheck — guard sidebar Form links
-           Shows a warning banner if no active job selected.
+           buildJobCard override — add ⚙️ Setup button per job
            ================================================================ */
-        function openFormWithJobCheck(sectionId) {
-            showPage(sectionId, null);
-            const sec = document.getElementById(sectionId);
-            if (!sec) return;
-            // Remove any old warning
-            const old = sec.querySelector('.no-job-warn');
-            if (old) old.remove();
-            if (!session.activeJob) {
-                const warn = document.createElement('div');
-                warn.className = 'no-job-warn';
-                warn.style.cssText = 'background:var(--warn-bg);border:1.5px solid var(--warn);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;font-weight:600;color:var(--warn);display:flex;align-items:center;gap:8px';
-                warn.innerHTML = '<span style="font-size:18px">⚠️</span><span>No job selected. Go to <b>Job Queue</b> and tap <b>FPA</b> on a job card first.</span>';
-                sec.prepend(warn);
+        const _origBuildJobCard = buildJobCard;
+        buildJobCard = function(item, idx, activeIndex) {
+            const div = _origBuildJobCard(item, idx, activeIndex);
+            // Find the action row and add a Setup button
+            const actionRow = div.querySelector('.qc-action-row');
+            if (actionRow) {
+                const setupBtn = document.createElement('button');
+                setupBtn.className = 'small ghost';
+                setupBtn.title = 'QC Job Setup';
+                setupBtn.textContent = '⚙️';
+                setupBtn.onclick = (e) => { e.stopPropagation(); openJobSetupModal(idx); };
+                actionRow.appendChild(setupBtn);
             }
-        }
-
-        // buildJobCard ⚙️ override removed — v4 buildJobCard (P3 below) already includes Setup button inline
+            return div;
+        };
 
         // Poll notifications every 2 minutes after login
         document.addEventListener('DOMContentLoaded', () => {
@@ -3380,7 +3399,7 @@
             const cached = _v3StatusCache.get(key);
             if (cached && (Date.now() - cached.ts < 45000)) return cached.data;
             const [fpaR, setupR] = await Promise.allSettled([
-                fetch('/api/qc/fpa/status?job_card_no=' + encodeURIComponent(jcNo) + '&date=' + date + '&shift=' + encodeURIComponent(shift) + '&machine=' + encodeURIComponent(machine)).then(r => r.json()).catch(() => ({ ok:true, done:false })),
+                fetch('/api/qc/fpa/status?job_card_no=' + encodeURIComponent(jcNo) + '&machine=' + encodeURIComponent(machine)).then(r => r.json()).catch(() => ({ ok:true, done:false })),
                 fetch('/api/qc/job-setup?job_card_no=' + encodeURIComponent(jcNo) + '&date=' + encodeURIComponent(date) + '&shift=' + encodeURIComponent(shift) + '&machine=' + encodeURIComponent(machine) + '&mould_name=' + encodeURIComponent(mouldName||'')).then(r => r.json()).catch(() => ({ ok:true, setup:null }))
             ]);
             const fpa   = fpaR.status   === 'fulfilled' ? fpaR.value   : { ok:true, done:false };
@@ -3428,8 +3447,9 @@
                 if (btnFPA) {
                     btnFPA.disabled = false;
                     if (fpaDone) {
-                        btnFPA.style.cssText = 'background:#ecfdf5;color:#059669;border-color:#6ee7b7';
-                        btnFPA.textContent = 'FPA Done';
+                        // Solid green — clearly done
+                        btnFPA.style.cssText = 'background:#059669;color:#fff;border-color:#047857;font-weight:700;box-shadow:0 2px 8px rgba(5,150,105,0.25)';
+                        btnFPA.textContent = '✓ FPA';
                     } else {
                         btnFPA.style.cssText = 'background:#fff7ed;color:#b45309;border-color:#fed7aa;font-weight:700';
                         btnFPA.textContent = 'FPA!';
@@ -3550,10 +3570,9 @@
             }
             if (!jcNo) { _v4FPACaptureMode(); showPage('sec-qc-fpa', null); return; }
             const machine = session.machine || '';
-            const date    = istDateStr();
-            const shift   = getShiftFromTime();
             try {
-                const r    = await fetch('/api/qc/fpa/status?job_card_no=' + encodeURIComponent(jcNo) + '&date=' + date + '&shift=' + encodeURIComponent(shift) + '&machine=' + encodeURIComponent(machine));
+                // No date filter — FPA is permanent once submitted for a job card
+                const r    = await fetch('/api/qc/fpa/status?job_card_no=' + encodeURIComponent(jcNo) + '&machine=' + encodeURIComponent(machine));
                 const data = await r.json();
                 if (data.ok && data.done) { showPage('sec-qc-fpa', null); _v4RenderFPAViewMode(data); return; }
             } catch (_e) {}
@@ -3563,7 +3582,11 @@
 
         function _v4FPACaptureMode() {
             const submitBtn = el('fpa-submit-btn');
-            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit FPA'; }
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Submit FPA';
+                submitBtn.style.cssText = '';
+            }
             const thumb = el('fpa-form-thumb');
             if (thumb) {
                 thumb.onclick = function() { el('fpa-form-image').click(); };
@@ -3582,20 +3605,32 @@
             if (oldGallery) oldGallery.remove();
             const msgEl = el('fpa-msg');
             if (msgEl) { msgEl.textContent = ''; msgEl.className = 'muted'; }
+            // Restore capture-only fields (date/shift) that view mode hides
+            document.querySelectorAll('#sec-qc-fpa .fpa-capture-only').forEach(function(d) { d.style.display = ''; });
         }
 
         function _v4RenderFPAViewMode(data) {
             const fpaSection = document.getElementById('sec-qc-fpa');
             if (!fpaSection) return;
+
+            // 1. Hide capture-only fields (Date selector, Shift selector)
+            fpaSection.querySelectorAll('.fpa-capture-only').forEach(function(d) { d.style.display = 'none'; });
+
+            // 2. Show done banner with Date + Shift (no Hour Slot)
             const doneBanner = el('fpa-done-banner');
             if (doneBanner) {
                 doneBanner.classList.remove('hidden');
                 const metaEl = el('fpa-done-meta');
                 if (metaEl) {
-                    const ts = data.done_at ? new Date(data.done_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) : '';
-                    metaEl.textContent = 'By ' + (data.done_by || 'QC') + (ts ? ' at ' + ts : '');
+                    const parts = [];
+                    if (data.date)  parts.push(data.date);
+                    if (data.shift) parts.push(data.shift + ' Shift');
+                    if (data.done_by) parts.push('By ' + data.done_by);
+                    metaEl.textContent = parts.join(' · ');
                 }
             }
+
+            // 3. Show FPA form image
             const preview = el('fpa-form-preview');
             const ph      = el('fpa-form-placeholder');
             const thumb   = el('fpa-form-thumb');
@@ -3604,8 +3639,16 @@
                 if (ph)      ph.style.display = 'none';
                 if (thumb)   thumb.onclick = function() { openImageLightbox(data.form_url); };
             }
+
+            // 4. Submit button — solid green locked state
             const submitBtn = el('fpa-submit-btn');
-            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'FPA Already Submitted'; }
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = '✓ FPA Submitted';
+                submitBtn.style.cssText = 'background:#059669;color:#fff;border-color:#047857;opacity:1;cursor:default';
+            }
+
+            // 5. Product reference images gallery
             const oldG = fpaSection.querySelector('.v4-fpa-gallery');
             if (oldG) oldG.remove();
             const productImgs = Array.isArray(data.product_images) ? data.product_images : [];
@@ -3613,18 +3656,20 @@
                 const gallery = document.createElement('div');
                 gallery.className = 'v4-fpa-gallery card';
                 gallery.style.cssText = 'background:var(--surface-elevated);border-style:dashed;padding:12px;margin-top:10px';
-                gallery.innerHTML = '<div style="font-weight:700;margin-bottom:10px">Product Reference Images (' + productImgs.length + ')</div><div class="fpa-img-gallery" id="v4-fpa-prod-grid"></div>';
+                gallery.innerHTML = '<div style="font-weight:700;margin-bottom:10px">📸 Product Reference Images (' + productImgs.length + ')</div><div class="fpa-img-gallery" id="v4-fpa-prod-grid"></div>';
                 const grid = gallery.querySelector('#v4-fpa-prod-grid');
                 productImgs.forEach(function(url, i) {
                     var img = document.createElement('img');
                     img.src   = url;
                     img.alt   = 'Ref ' + (i+1);
+                    img.style.cursor = 'zoom-in';
                     img.onerror = function() { this.style.opacity = '0.25'; };
                     img.onclick = (function(u){ return function(){ openImageLightbox(u); }; })(url);
                     grid.appendChild(img);
                 });
                 fpaSection.appendChild(gallery);
             }
+
             const msgEl = el('fpa-msg');
             if (msgEl) { msgEl.className = 'ok'; msgEl.textContent = ''; }
         }
