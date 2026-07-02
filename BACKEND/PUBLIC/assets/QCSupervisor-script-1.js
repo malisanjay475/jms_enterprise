@@ -3587,6 +3587,18 @@
                 submitBtn.textContent = 'Submit FPA';
                 submitBtn.style.cssText = '';
             }
+            // Populate date dropdown — openQCForm() is bypassed in v4 path so we do it here
+            const _fpaDsel = el('fpa-date');
+            if (_fpaDsel && _fpaDsel.tagName === 'SELECT') {
+                var _td = new Date(), _yd = new Date();
+                _yd.setDate(_td.getDate() - 1);
+                var _dfmt = function(d) { return d.toISOString().split('T')[0]; };
+                var _dnice = function(d) { return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0'); };
+                _fpaDsel.innerHTML = '';
+                _fpaDsel.add(new Option('Today (' + _dnice(_td) + ')', _dfmt(_td)));
+                _fpaDsel.add(new Option('Yesterday (' + _dnice(_yd) + ')', _dfmt(_yd)));
+                _fpaDsel.value = _dfmt(_td);
+            }
             const thumb = el('fpa-form-thumb');
             if (thumb) {
                 thumb.onclick = function() { el('fpa-form-image').click(); };
