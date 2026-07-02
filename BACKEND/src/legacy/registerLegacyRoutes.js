@@ -3977,6 +3977,8 @@ async function bootstrapFreshCoreTables() {
       status VARCHAR(50) DEFAULT 'active'
     );
   `);
+  // "Log out from all other devices": sessions whose login predates this timestamp are revoked.
+  await q(`ALTER TABLE users ADD COLUMN IF NOT EXISTS logout_all_after TIMESTAMPTZ`);
 
   await q(`
     CREATE TABLE IF NOT EXISTS user_factories (
@@ -23003,7 +23005,7 @@ count(*) as total,
 // POST /api/activity/heartbeat  — called by every page every 60 s
 app.post('/api/activity/heartbeat', async (req, res) => {
   try {
-    const { username, role_code, app_id, page, device_type, factory_id, session_id } = req.body || {};
+    const { username, role_code, app_id, page, device_type, factory_id, session_id, login_at } = req.body || {};
     if (!username) return res.json({ ok: false, error: 'username required' });
     const ip = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
     const ua = String(req.headers['user-agent'] || '').slice(0, 500);
@@ -23015,8 +23017,97 @@ app.post('/api/activity/heartbeat', async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())`,
       [username, role_code || '', app_id || 'web', actionStr, page || '', device, ip, ua, String(factory_id || ''), String(session_id || ''), extraData]
     );
-    res.json({ ok: true });
+
+    // Remote-logout check: if this session logged in before logout_all_after, revoke it.
+    let revoked = false;
+    const loginMs = Number(login_at);
+    if (Number.isFinite(loginMs) && loginMs > 0) {
+      const rev = await q('SELECT logout_all_after FROM users WHERE username=$1 LIMIT 1', [username]);
+      const cutoff = rev[0]?.logout_all_after ? new Date(rev[0].logout_all_after).getTime() : 0;
+      if (cutoff && loginMs < cutoff) revoked = true;
+    }
+    res.json({ ok: true, revoked });
   } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Parse a user-agent string into a short "Browser on OS" label.
+function _describeUserAgent(ua) {
+  ua = String(ua || '');
+  let os = 'Unknown OS';
+  if (/windows nt 10/i.test(ua)) os = 'Windows';
+  else if (/windows/i.test(ua)) os = 'Windows';
+  else if (/android/i.test(ua)) os = 'Android';
+  else if (/iphone|ipad|ipod/i.test(ua)) os = 'iOS';
+  else if (/mac os x/i.test(ua)) os = 'macOS';
+  else if (/linux/i.test(ua)) os = 'Linux';
+  let browser = 'Unknown browser';
+  if (/edg\//i.test(ua)) browser = 'Edge';
+  else if (/chrome\//i.test(ua) && !/edg\//i.test(ua)) browser = 'Chrome';
+  else if (/firefox\//i.test(ua)) browser = 'Firefox';
+  else if (/safari/i.test(ua) && !/chrome/i.test(ua)) browser = 'Safari';
+  return `${browser} on ${os}`;
+}
+
+// GET /api/my-sessions?username=  — devices/PCs where this user is currently active
+app.get('/api/my-sessions', async (req, res) => {
+  try {
+    const username = String(req.query.username || '').trim();
+    if (!username) return res.json({ ok: false, error: 'username required' });
+    const current = String(req.query.session_id || '');
+
+    // One row per session_id seen in the last 15 minutes.
+    const rows = await q(
+      `SELECT DISTINCT ON (session_id)
+         session_id, device_type, ip_address, user_agent, app_id, page, created_at
+       FROM user_activity_log
+       WHERE username = $1
+         AND session_id <> ''
+         AND created_at >= NOW() - INTERVAL '15 minutes'
+       ORDER BY session_id, created_at DESC`,
+      [username]
+    );
+
+    const sessions = rows
+      .map(r => ({
+        session_id: r.session_id,
+        device_type: r.device_type,
+        ip_address: r.ip_address,
+        description: _describeUserAgent(r.user_agent),
+        app_id: r.app_id,
+        page: r.page,
+        last_seen: r.created_at,
+        is_current: r.session_id === current
+      }))
+      .sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen));
+
+    res.json({ ok: true, sessions });
+  } catch (e) {
+    console.error('my-sessions error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/logout-all  — revoke all OTHER sessions for this user (keeps the caller).
+app.post('/api/logout-all', async (req, res) => {
+  try {
+    const username = String(req.body?.username || '').trim();
+    if (!username) return res.json({ ok: false, error: 'username required' });
+
+    const rows = await q(
+      `UPDATE users SET logout_all_after = NOW()
+       WHERE username = $1
+       RETURNING EXTRACT(EPOCH FROM logout_all_after) * 1000 AS cutoff_ms`,
+      [username]
+    );
+    if (!rows.length) return res.json({ ok: false, error: 'User not found' });
+
+    const cutoffMs = Math.round(Number(rows[0].cutoff_ms));
+    // Caller bumps its local login_at past this cutoff to stay logged in.
+    res.json({ ok: true, cutoff_ms: cutoffMs, keep_login_at: cutoffMs + 1000 });
+  } catch (e) {
+    console.error('logout-all error', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
