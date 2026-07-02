@@ -1647,7 +1647,13 @@
                                                 const eOrder = (e.order_no || '').trim().toLowerCase();
                                                 return eOrder && eOrder !== mOrder;
                                             });
-                                            if ((hasMachineProduction || hasDifferentJobEntry) && !overrideTriggeredThisSlot) {
+                                            // ALSO stop the carry when this slot has its OWN entry.
+                                            // A quick action (e.g. Man Power Shortage) only "continues" over EMPTY slots.
+                                            // The moment the operator records ANY entry for this machine in a later slot,
+                                            // the continuation must end — even if that manual entry has 0 production —
+                                            // otherwise the carried override paints over the real entry for the rest of the shift.
+                                            const hasOwnEntryThisSlot = list.length > 0;
+                                            if ((hasMachineProduction || hasDifferentJobEntry || hasOwnEntryThisSlot) && !overrideTriggeredThisSlot) {
                                                 activeOverrideStatus = ''; // Reset for the whole machine!
                                             }
 
@@ -1901,7 +1907,9 @@
                                                     const eOrder = (e.order_no || '').trim().toLowerCase();
                                                     return eOrder && eOrder !== sumMOrder;
                                                 });
-                                                if ((hasMachineProd || hasDiffJobEntry) && !hasOverrideThisSlot) sumActiveOverride = '';
+                                                // Stop the carry once this slot has its OWN entry (even 0-production manual entry).
+                                                const sumHasOwnEntryThisSlot = list.length > 0;
+                                                if ((hasMachineProd || hasDiffJobEntry || sumHasOwnEntryThisSlot) && !hasOverrideThisSlot) sumActiveOverride = '';
 
                                                 // sEnd, now, isFuture are already declared at top of loop
                                                 const sStart = sEnd - 3600000;
