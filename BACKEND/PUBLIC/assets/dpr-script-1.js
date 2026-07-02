@@ -1601,6 +1601,10 @@
                                             let overrideEntryId = null; // id of the quick-action entry in this slot (for superadmin delete)
                                             let overrideEntryDt = 0;    // downtime minutes of the covering quick-action entry
                                             let overrideEntryGood = 0;  // good qty of the covering quick-action entry
+                                            // Only a TRUE Quick Action (spEntry) carries forward over later empty slots.
+                                            // A manual Main entry that merely carries a downtime reason shows in its OWN
+                                            // slot only and must NOT paint the rest of the shift.
+                                            let overrideCarriesForward = false;
 
                                              // Check purely special Entry Types (Quick Actions)
                                              const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial', 'PowerCut'].includes(e.entry_type));
@@ -1618,6 +1622,7 @@
                                                  else if (spEntry.entry_type === 'PowerCut') activeOverrideStatus = '⚡ POWER CUT';
                                                  overrideEntryId = spEntry.id || null;
                                                  overrideTriggeredThisSlot = true;
+                                                 overrideCarriesForward = true; // real Quick Action → continues over empty slots
                                              } else {
                                                 // Check manually entered Main types where downtime is >= 45m and 0 production
                                                 const dEntry = entries.find(e => e.entry_type === 'Main' && Number(e.downtime_min) >= 45 && Number(e.good_qty || 0) === 0);
@@ -1820,6 +1825,13 @@
                                             }
 
                                             machineRowHtml += `<td style="position:relative; padding:3px; background:${bg}; border:${border}; border-bottom:1px solid #e2e8f0; vertical-align:top; height:44px; min-width:65px">${content}</td>`;
+
+                                            // END-OF-SLOT: a manual-entry downtime (dEntry) shows in THIS slot only.
+                                            // Clear the carry so it does NOT paint the remaining empty slots — only a
+                                            // real Quick Action (overrideCarriesForward) keeps continuing forward.
+                                            if (overrideTriggeredThisSlot && !overrideCarriesForward) {
+                                                activeOverrideStatus = '';
+                                            }
                                         });
 
                                         // D. Summary Column
@@ -1876,6 +1888,7 @@
 
                                                  // --- FEATURE: Auto-Fill Summary Integration ---
                                                  let hasOverrideThisSlot = false;
+                                                 let sumOverrideCarries = false; // only true Quick Actions carry forward
                                                  const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial', 'PowerCut'].includes(e.entry_type));
                                                  if (spEntry) {
                                                      if (spEntry.entry_type === 'Maintenance') sumActiveOverride = '🏭 Machine Maintenance';
@@ -1886,6 +1899,7 @@
                                                      else if (spEntry.entry_type === 'MouldTrial') sumActiveOverride = 'MOULD TRIAL';
                                                      else if (spEntry.entry_type === 'PowerCut') sumActiveOverride = '⚡ POWER CUT';
                                                      hasOverrideThisSlot = true;
+                                                     sumOverrideCarries = true; // real Quick Action → keeps counting over empty slots
                                                  } else {
                                                     const dEntry = entries.find(e => e.entry_type === 'Main' && Number(e.downtime_min) >= 45 && Number(e.good_qty || 0) === 0);
                                                     if (dEntry) {
@@ -2028,6 +2042,11 @@
                                                         sumStd += parseFloat(m.std || 0);
                                                     }
                                                 }
+
+                                                // END-OF-SLOT: a manual-entry downtime counts only for its own slot.
+                                                // Clear the carry so it does NOT keep adding 60 min DT to every later
+                                                // empty slot — only a real Quick Action (sumOverrideCarries) continues.
+                                                if (hasOverrideThisSlot && !sumOverrideCarries) sumActiveOverride = '';
                                             });
                                         }
 
