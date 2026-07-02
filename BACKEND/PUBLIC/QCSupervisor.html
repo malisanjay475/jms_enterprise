@@ -5,6 +5,29 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>JMS OCEAN – QC Supervisor Portal</title>
+    <!-- CACHE BUSTER: runs before anything else — clears stale SW caches automatically -->
+    <script>
+    (function() {
+        var BUILD = 'release70';
+        var stored = localStorage.getItem('jms_qc_build');
+        if (stored !== BUILD) {
+            localStorage.setItem('jms_qc_build', BUILD);
+            if ('caches' in window) {
+                caches.keys().then(function(keys) {
+                    return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+                }).then(function() {
+                    if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.getRegistrations().then(function(regs) {
+                            return Promise.all(regs.map(function(r) { return r.unregister(); }));
+                        }).then(function() { location.reload(true); });
+                    } else {
+                        location.reload(true);
+                    }
+                });
+            }
+        }
+    })();
+    </script>
     <link rel="manifest" href="/qc-manifest.json">
     <meta name="theme-color" content="#2563eb">
     <meta name="mobile-web-app-capable" content="yes">
