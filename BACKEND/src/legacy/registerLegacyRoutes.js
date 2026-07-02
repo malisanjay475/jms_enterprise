@@ -11717,6 +11717,75 @@ app.get('/api/planning/suggestions', async (req, res) => {
   }
 });
 
+// ─── JOB SHEET ────────────────────────────────────────────────────────────────
+
+// ─── JOB SHEET — High-Priority Orders (reads orders.priority set in Order Master) ──
+// Starts from `orders` table so orders with no JR report still appear.
+// Uses LATERAL to get the most recent or_jr_report row for each order.
+app.get('/api/planning/job-sheet', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const search    = (req.query.search || '').trim();
+
+    // $1 = factoryId
+    const params = [factoryId];
+    let searchClause = '';
+    if (search) {
+      params.push(`%${search}%`);
+      const p = params.length;
+      searchClause = `AND (
+        o.order_no    ILIKE $${p}
+        OR COALESCE(r.product_name, o.item_name) ILIKE $${p}
+        OR COALESCE(r.client_name,  o.client_name) ILIKE $${p}
+        OR COALESCE(r.item_code,    o.item_code)   ILIKE $${p}
+      )`;
+    }
+
+    const sql = `
+      SELECT
+        o.order_no                                       AS or_jr_no,
+        r.or_jr_date,
+        r.or_qty,
+        r.jr_qty,
+        r.job_card_no,
+        r.job_card_date,
+        COALESCE(r.item_code,    o.item_code)   AS item_code,
+        COALESCE(r.product_name, o.item_name)   AS product_name,
+        COALESCE(r.client_name,  o.client_name) AS client_name,
+        r.prod_plan_qty,
+        r.std_pack,
+        r.uom,
+        o.priority,
+        o.qty        AS order_qty,
+        o.balance    AS order_balance,
+        o.status     AS order_status,
+        o.created_at AS order_created_at
+      FROM orders o
+      LEFT JOIN LATERAL (
+        SELECT *
+        FROM or_jr_report rr
+        WHERE TRIM(rr.or_jr_no) = TRIM(o.order_no)
+          AND ($1::integer IS NULL OR rr.factory_id = $1::integer)
+        ORDER BY rr.or_jr_date DESC NULLS LAST, rr.id DESC
+        LIMIT 1
+      ) r ON true
+      WHERE ($1::integer IS NULL OR o.factory_id = $1::integer)
+        AND LOWER(o.priority) = 'high'
+        ${searchClause}
+      ORDER BY o.created_at DESC
+      LIMIT 500
+    `;
+
+    const rows = await q(sql, params);
+    res.json({ rows, total: rows.length });
+  } catch (err) {
+    console.error('[GET /api/planning/job-sheet]', err);
+    res.status(500).json({ error: 'Failed to load job sheet data' });
+  }
+});
+
+// ─── END JOB SHEET ────────────────────────────────────────────────────────────
+
 app.get('/api/planning/completed', async (req, res) => {
   try {
     const factoryId = getFactoryId(req);
@@ -16450,18 +16519,20 @@ app.post('/api/dpr/auto-fill-ongoing', async (req, res) => {
 
     const QUICK_TYPES = ['Maintenance','ManPowerShortage','MouldChangeover','MouldTrial','MouldMaintenance','NoPlan'];
 
-    // Find all machines whose last entry today is a quick-action type
+    // Find the last entry (any type) per machine today — then only carry forward if it's a quick-action.
+    // This prevents carry-forward when a user makes a manual Main entry after a quick-action run.
     const lastEntryQ = `
       SELECT DISTINCT ON (machine) machine, hour_slot, entry_type, shots, good_qty,
         reject_qty, downtime_min, remarks, plan_id, order_no, mould_no, jobcard_no,
         colour, reject_breakup, downtime_breakup, supervisor
       FROM dpr_hourly
       WHERE dpr_date = $1 AND shift = $2 AND is_deleted = false
-        AND entry_type = ANY($3::text[])
-        AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+        AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
       ORDER BY machine, id DESC
     `;
-    const lastEntries = await q(lastEntryQ, [dprDate, currentShift, QUICK_TYPES, factoryId || null]);
+    const allLastEntries = await q(lastEntryQ, [dprDate, currentShift, factoryId || null]);
+    // Only carry forward machines whose absolute last entry is a quick-action type
+    const lastEntries = allLastEntries.filter(e => QUICK_TYPES.includes(e.entry_type));
 
     let filled = 0;
     for (const last of lastEntries) {
@@ -20126,6 +20197,30 @@ app.get('/api/qc/fpa/status', async (req, res) => {
   }
 });
 
+// GET /api/qc/fpa/today — list all FPA submissions for a given date (Quality Dashboard)
+app.get('/api/qc/fpa/today', async (req, res) => {
+  try {
+    const { date, machine } = req.query;
+    const factoryId = getFactoryId(req);
+    const d = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    const rows = await q(
+      `SELECT id, date, shift, machine, line, job_card_no, order_no, item_name, mould_name,
+              fpa_form_url, product_images, fpa_done_by, fpa_done_at, remarks
+       FROM qc_job_checks
+       WHERE date = $1::date
+         AND fpa_status = 'Done'
+         AND ($2 IS NULL OR machine = $2)
+         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+       ORDER BY fpa_done_at DESC
+       LIMIT 100`,
+      [d, machine && machine !== 'All Machines' ? machine : null, factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // POST /api/qc/fpa — upload FPA form image + product reference images (multipart)
 app.post('/api/qc/fpa', (req, res, next) => {
   uploadQC.fields([
@@ -21144,21 +21239,48 @@ SUM(qty_checked) as total_checked,
     const totalRejected = Number(kpi.total_rejected || 0);
     const rejRate = totalChecked > 0 ? ((totalRejected / totalChecked) * 100).toFixed(2) : 0;
 
-    // 2. Active Issues
-    let issueSql = `SELECT COUNT(*) as c FROM qc_issue_memos WHERE status != 'Closed' AND date >= $1 AND date <= $2`;
-    const issueParams = [d1, d2];
-    if (machine && machine !== 'All') {
-      issueSql += ` AND machine = $3`;
+    // 2. Active Issues (qc_material_issues — live issue tracker)
+    let issueSql = `SELECT COUNT(*) as c FROM qc_material_issues WHERE status = 'OPEN'`;
+    const issueParams = [];
+    if (machine && machine !== 'All' && machine !== 'All Machines') {
       issueParams.push(machine);
+      issueSql += ` AND machine = $${issueParams.length}`;
     }
-
     if (factoryId) {
-      issueSql += ` AND factory_id = $${issueParams.length + 1}`;
       issueParams.push(factoryId);
+      issueSql += ` AND (factory_id = $${issueParams.length} OR factory_id IS NULL)`;
     }
-
     const issueRes = await q(issueSql, issueParams);
-    const activeIssues = issueRes[0] ? issueRes[0].c : 0;
+    const activeIssues = Number((issueRes[0] || {}).c || 0);
+
+    // 3. FPA done today
+    let fpaSql = `SELECT COUNT(DISTINCT job_card_no) as c FROM qc_job_checks WHERE date = $1::date AND fpa_status = 'Done'`;
+    const fpaParams = [d1];
+    if (machine && machine !== 'All' && machine !== 'All Machines') {
+      fpaParams.push(machine);
+      fpaSql += ` AND machine = $${fpaParams.length}`;
+    }
+    if (factoryId) {
+      fpaParams.push(factoryId);
+      fpaSql += ` AND (factory_id = $${fpaParams.length} OR factory_id IS NULL)`;
+    }
+    const fpaRes = await q(fpaSql, fpaParams);
+    const fpaDoneCount = Number((fpaRes[0] || {}).c || 0);
+
+    // 4. Active QC Holds
+    let holdSql = `SELECT COUNT(*) as c, COUNT(DISTINCT machine) as machines FROM qc_holds WHERE status = 'ACTIVE' AND dpr_date = $1::date`;
+    const holdParams = [d1];
+    if (machine && machine !== 'All' && machine !== 'All Machines') {
+      holdParams.push(machine);
+      holdSql += ` AND machine = $${holdParams.length}`;
+    }
+    if (factoryId) {
+      holdParams.push(factoryId);
+      holdSql += ` AND (factory_id = $${holdParams.length} OR factory_id IS NULL)`;
+    }
+    const holdRes = await q(holdSql, holdParams);
+    const activeHolds    = Number((holdRes[0] || {}).c || 0);
+    const heldMachines   = Number((holdRes[0] || {}).machines || 0);
 
     res.json({
       ok: true,
@@ -21168,7 +21290,10 @@ SUM(qty_checked) as total_checked,
         rejected: totalRejected,
         rejection_rate: rejRate,
         active_issues: activeIssues,
-        complaints: 0 // Placeholder
+        fpa_done: fpaDoneCount,
+        active_holds: activeHolds,
+        held_machines: heldMachines,
+        complaints: 0
       }
     });
   } catch (e) {

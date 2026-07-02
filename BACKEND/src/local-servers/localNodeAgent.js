@@ -1,7 +1,9 @@
 'use strict';
 
 const os = require('os');
+const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 // fetch is available globally in Node.js 18+ — no require needed
 
 const packageJson = require(path.resolve(__dirname, '..', '..', 'package.json'));
@@ -292,6 +294,86 @@ async function sendSyncStatus(pool, config, agentConfig) {
   );
 }
 
+// ── Auto-update: pull changed files from main server ─────────────────────────
+// Runs inside the backend process (works even with the old supervisor).
+// Every AUTO_UPDATE_INTERVAL_MS it fetches a file manifest, compares SHA-256
+// hashes with local files, downloads anything different, then exits so the
+// supervisor restarts the backend with the updated code.
+
+const AUTO_UPDATE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+// __dirname = BACKEND/src/local-servers  →  resolve up 2 levels = BACKEND root
+const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
+
+function sha256File(filePath) {
+  try {
+    return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+  } catch (_) { return null; }
+}
+
+async function fetchWithNodeKey(url, nodeKey) {
+  const res = await fetch(url, { headers: { 'x-node-key': nodeKey } });
+  return res;
+}
+
+async function runAutoUpdate(agentConfig) {
+  const { mainServerUrl, nodeId, nodeKey } = agentConfig;
+  if (!mainServerUrl || !nodeId || !nodeKey) return;
+
+  const base = mainServerUrl.replace(/\/+$/, '');
+  const manifestUrl = `${base}/api/local-servers/${nodeId}/file-manifest`;
+
+  let manifestRes;
+  try {
+    manifestRes = await fetchWithNodeKey(manifestUrl, nodeKey);
+  } catch (err) {
+    console.error('[AutoUpdate] Manifest fetch failed:', err.message);
+    return;
+  }
+
+  if (!manifestRes.ok) return;
+
+  let data;
+  try { data = await manifestRes.json(); } catch (_) { return; }
+  if (!data.ok || !data.manifest) return;
+
+  const manifest = data.manifest;
+  const toUpdate = Object.keys(manifest).filter(relPath => {
+    const localPath = path.join(BACKEND_ROOT, relPath);
+    return sha256File(localPath) !== manifest[relPath];
+  });
+
+  if (toUpdate.length === 0) return;
+
+  console.log(`[AutoUpdate] ${toUpdate.length} file(s) changed — downloading...`);
+
+  let anyUpdated = false;
+  for (const relPath of toUpdate) {
+    try {
+      const fileUrl = `${base}/api/local-servers/${nodeId}/file?p=${encodeURIComponent(relPath)}`;
+      const fileRes = await fetchWithNodeKey(fileUrl, nodeKey);
+      if (!fileRes.ok) {
+        console.warn(`[AutoUpdate] Skip ${relPath} (HTTP ${fileRes.status})`);
+        continue;
+      }
+      const buf = Buffer.from(await fileRes.arrayBuffer());
+      const localPath = path.join(BACKEND_ROOT, relPath);
+      fs.mkdirSync(path.dirname(localPath), { recursive: true });
+      fs.writeFileSync(localPath, buf);
+      console.log(`[AutoUpdate] Updated: ${relPath}`);
+      anyUpdated = true;
+    } catch (err) {
+      console.warn(`[AutoUpdate] Failed to update ${relPath}:`, err.message);
+    }
+  }
+
+  if (anyUpdated) {
+    console.log('[AutoUpdate] Restarting backend to apply updates...');
+    // Supervisor will restart us automatically
+    process.exit(0);
+  }
+}
+
 async function runCycle(pool, config, agentConfig) {
   if (state.inFlight) return;
   state.inFlight = true;
@@ -338,6 +420,25 @@ async function init({ pool, config }) {
 
   if (typeof state.timer.unref === 'function') {
     state.timer.unref();
+  }
+
+  // Auto-update: check for code changes from main server every 5 minutes.
+  // Works with both old and new supervisors — exits so supervisor restarts with new code.
+  console.log(`[AutoUpdate] Scheduled — checking every ${AUTO_UPDATE_INTERVAL_MS / 60000} min`);
+  const updateTimer = setInterval(() => {
+    runAutoUpdate(agentConfig).catch(err => {
+      console.error('[AutoUpdate] Unexpected error:', err.message);
+    });
+  }, AUTO_UPDATE_INTERVAL_MS);
+  // Also run once after 60 seconds (give backend time to fully start first)
+  setTimeout(() => {
+    runAutoUpdate(agentConfig).catch(err => {
+      console.error('[AutoUpdate] Initial check error:', err.message);
+    });
+  }, 60 * 1000);
+
+  if (typeof updateTimer.unref === 'function') {
+    updateTimer.unref();
   }
 }
 
