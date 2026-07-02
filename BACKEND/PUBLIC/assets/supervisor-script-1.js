@@ -301,12 +301,15 @@
           }
 
           if (hideFilled) {
-            // Main Dropdown: Hide if Main entry exists OR slot is a Quick Action entry
+            // Main Dropdown: Hide ONLY the slots that already have an entry —
+            //  - a Main entry (don't re-enter Main), or
+            //  - a Quick Action entry (that slot is already recorded).
             if (hasMain) return;
             if (currentStatus && currentStatus.isQuick) return; // Quick Action already recorded
-            // Only hide "Continued from" slots when the Quick Action is within the SAME shift.
-            // Cross-shift carry-over must NOT block operators from entering the new shift's data.
-            if (suffix && suffix.includes('Continued from') && !suffixFromPrevShift) return;
+            // NOTE: "Continued from …" slots are NO LONGER hidden.
+            // After a Quick Action (e.g. Maintenance) the machine may restart mid-shift,
+            // so the supervisor MUST be able to pick a later slot and enter Main production.
+            // We keep the "(Continued from X)" label purely as context — but never block entry.
           } else {
             // Colour Change Dropdown: Show All Past. Warn if entries exist.
             const parts = [];
