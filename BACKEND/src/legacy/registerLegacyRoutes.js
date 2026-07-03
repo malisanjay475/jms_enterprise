@@ -16731,6 +16731,15 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
     // 3. Get Setup Data (std_actual) for Range
     let setupQuery = `
+      WITH plan_prod AS (
+        -- Cumulative good produced per plan (factory scoped), computed ONCE.
+        SELECT dh.plan_id, SUM(dh.good_qty)::int AS produced
+        FROM dpr_hourly dh
+        WHERE dh.is_deleted = false
+          AND dh.plan_id IS NOT NULL
+          AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
+        GROUP BY dh.plan_id
+      )
       SELECT
         s.id,
         --CAVITY INFO
@@ -16750,26 +16759,21 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
         --SUMMARY STATS(Plan vs Actual)
         COALESCE(ojr.plan_qty, pb.plan_qty, 0) as plan_qty,
-        -- Cumulative good produced for this order across ALL dates (factory scoped)
-        COALESCE((
-          SELECT SUM(dh.good_qty)::int FROM dpr_hourly dh
-          WHERE dh.is_deleted = false
-            AND TRIM(dh.order_no) = TRIM(COALESCE(pb.order_no, s.order_no))
-            AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
-        ), 0) as produced_qty,
+        -- Cumulative good produced for THIS PLAN across ALL dates (factory scoped).
+        -- Scope by plan_id, not order_no: one order_no spans many plans (machines/moulds),
+        -- so matching by order_no over-counts production from other plans and breaks balance.
+        -- Pre-aggregated once in the plan_prod CTE (joined below) instead of a per-row
+        -- correlated subquery, so a week-range summary no longer runs thousands of scans.
+        COALESCE(pp.produced, 0) as produced_qty,
         -- Balance = plan - cumulative produced (allowed negative so <=0 completion trigger works)
-        (COALESCE(ojr.plan_qty, pb.plan_qty, 0) - COALESCE((
-          SELECT SUM(dh.good_qty)::int FROM dpr_hourly dh
-          WHERE dh.is_deleted = false
-            AND TRIM(dh.order_no) = TRIM(COALESCE(pb.order_no, s.order_no))
-            AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
-        ), 0)) as balance_qty,
+        (COALESCE(ojr.plan_qty, pb.plan_qty, 0) - COALESCE(pp.produced, 0)) as balance_qty,
         COALESCE(ojr.mld_status, pb.status) as job_status,
         COALESCE(ojr.job_card_no, '') as job_card_no,
         COALESCE(ojr.client_name, o.client_name, '') as client_name,
         s.machine, s.mould_name, s.order_no, s.plan_id, s.shift
 
       FROM std_actual s
+      LEFT JOIN plan_prod pp ON pp.plan_id = s.plan_id
       LEFT JOIN plan_board pb ON pb.plan_id = s.plan_id
       LEFT JOIN (
         SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no 
@@ -16778,15 +16782,40 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       ) mps ON mps.or_jr_no = COALESCE(pb.order_no, s.order_no) AND mps.mould_name = COALESCE(pb.mould_name, s.mould_name)
       LEFT JOIN moulds m ON TRIM(m.mould_number) = TRIM(COALESCE(pb.mould_code, ''))
       LEFT JOIN moulds m2 ON TRIM(m2.mould_number) = COALESCE(NULLIF(TRIM(mps.mould_no), ''), NULLIF(TRIM(pb.mould_code), ''), '')
-      LEFT JOIN moulds m3 ON (
-        TRIM(m3.mould_name) = TRIM(COALESCE(pb.mould_name, mps.mould_name, s.mould_name, ''))
-        OR COALESCE(pb.mould_name, mps.mould_name, s.mould_name, '') ILIKE '%' || m3.mould_name || '%'
-        OR m3.mould_name ILIKE '%' || COALESCE(pb.mould_name, mps.mould_name, s.mould_name, '') || '%'
-      )
-      LEFT JOIN moulds m4 ON (
-        s.article_act > 0 AND s.article_act < 10 AND m4.std_wt_kg = s.article_act
-        AND (COALESCE(pb.mould_name, s.mould_name) ILIKE '%' || SUBSTRING(m4.mould_name FROM 1 FOR 8) || '%')
-      )
+      -- m3/m4 are fuzzy mould-name fallbacks for std cycle-time/weight/cavity.
+      -- As plain LEFT JOINs they scanned all moulds per row AND multiplied rows on
+      -- multi-match. LATERAL ... LIMIT 1 returns a single deterministic best match
+      -- (exact name first, then lowest id) so the fuzzy scan can stop early and rows
+      -- are never duplicated. Same values as the old join for all but ambiguous matches.
+      LEFT JOIN LATERAL (
+        SELECT m3.cycle_time, m3.std_wt_kg, m3.no_of_cav
+        FROM moulds m3
+        WHERE
+          -- Only run the expensive fuzzy scan when the exact joins m/m2 have NOT
+          -- already supplied every std field this fallback feeds. This gate is a
+          -- constant per outer row, so matched rows skip the moulds scan entirely.
+          (COALESCE(m.cycle_time, m2.cycle_time) IS NULL
+            OR COALESCE(m.std_wt_kg, m2.std_wt_kg) IS NULL
+            OR COALESCE(m.no_of_cav, m2.no_of_cav) IS NULL)
+          AND (
+            TRIM(m3.mould_name) = TRIM(COALESCE(pb.mould_name, mps.mould_name, s.mould_name, ''))
+            OR COALESCE(pb.mould_name, mps.mould_name, s.mould_name, '') ILIKE '%' || m3.mould_name || '%'
+            OR m3.mould_name ILIKE '%' || COALESCE(pb.mould_name, mps.mould_name, s.mould_name, '') || '%'
+          )
+        ORDER BY (TRIM(m3.mould_name) = TRIM(COALESCE(pb.mould_name, mps.mould_name, s.mould_name, ''))) DESC, m3.id
+        LIMIT 1
+      ) m3 ON true
+      LEFT JOIN LATERAL (
+        SELECT m4.cycle_time, m4.std_wt_kg, m4.no_of_cav
+        FROM moulds m4
+        WHERE (COALESCE(m.cycle_time, m2.cycle_time) IS NULL
+            OR COALESCE(m.std_wt_kg, m2.std_wt_kg) IS NULL
+            OR COALESCE(m.no_of_cav, m2.no_of_cav) IS NULL)
+          AND s.article_act > 0 AND s.article_act < 10 AND m4.std_wt_kg = s.article_act
+          AND (COALESCE(pb.mould_name, s.mould_name) ILIKE '%' || SUBSTRING(m4.mould_name FROM 1 FOR 8) || '%')
+        ORDER BY m4.id
+        LIMIT 1
+      ) m4 ON true
       LEFT JOIN LATERAL(
         SELECT * FROM or_jr_report rpt 
         WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no)
