@@ -5553,6 +5553,27 @@ app.post('/api/factories/save', async (req, res) => {
    USER MANAGEMENT
 ============================================================ */
 // GET /api/users
+// Lightweight current-user access lookup — lets clients refresh line/global_access
+// without a full re-login (so date-entry access reflects the latest admin change).
+app.get('/api/user/access', async (req, res) => {
+  try {
+    const username = String(req.query.username || '').trim();
+    if (!username) return res.json({ ok: false, error: 'username required' });
+    const rows = await q('SELECT line, role_code, global_access FROM users WHERE username=$1 LIMIT 1', [username]);
+    if (!rows.length) return res.json({ ok: false, error: 'not found' });
+    res.json({
+      ok: true,
+      data: {
+        line: rows[0].line || '',
+        role_code: rows[0].role_code || '',
+        global_access: rows[0].global_access === true
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 app.get('/api/users', async (req, res) => {
   try {
     const rows = await q(
@@ -6235,6 +6256,57 @@ app.get('/api/dpr/used-slots', async (req, res) => {
 });
 
 /* ============================================================
+   DATE-ENTRY ACCESS GUARD
+   - All-lines users (line='all' or global_access=true): may back-date up to 30 days.
+   - Partial-line users: only Today / Yesterday (08:10 shift-handover rule).
+   Line access is re-derived from the DB — never trusted from the client body.
+============================================================ */
+function _isoLocalDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+// Mirrors the client's buildDateSelect() 08:10 handover logic to agree on "today"/"yesterday".
+function _allowedRelativeDates() {
+  const now = new Date();
+  const today = new Date(now); today.setHours(0, 0, 0, 0);
+  const yest = new Date(today); yest.setDate(today.getDate() - 1);
+  return { today: _isoLocalDate(today), yesterday: _isoLocalDate(yest) };
+}
+
+async function assertDateEntryAllowed(session, entryDate) {
+  const username = (session && session.username) ? String(session.username).trim() : '';
+  if (!entryDate) return { ok: false, error: 'Missing entry date.' };
+  if (!username) return { ok: false, error: 'Missing session. Please log in again.' };
+
+  const rows = await q('SELECT line, global_access FROM users WHERE username=$1 LIMIT 1', [username]);
+  if (!rows.length) return { ok: false, error: 'User not found. Please log in again.' };
+
+  const uLine = String(rows[0].line || '').trim().toLowerCase();
+  const allAccess = uLine === 'all' || rows[0].global_access === true;
+
+  const now = new Date();
+  const today = new Date(now); today.setHours(0, 0, 0, 0);
+
+  if (allAccess) {
+    const minD = new Date(today); minD.setDate(today.getDate() - 30);
+    const picked = new Date(entryDate + 'T00:00:00');
+    if (isNaN(picked.getTime()) || picked > today || picked < minD) {
+      return { ok: false, error: 'Date must be within the last 30 days.' };
+    }
+    return { ok: true };
+  }
+
+  const { today: todayStr, yesterday } = _allowedRelativeDates();
+  if (entryDate !== todayStr && entryDate !== yesterday) {
+    return { ok: false, error: 'You can only make entries for Today or Yesterday.' };
+  }
+  return { ok: true };
+}
+
+/* ============================================================
    DPR SUBMIT
 ============================================================ */
 app.post('/api/dpr/submit', async (req, res) => {
@@ -6262,6 +6334,13 @@ app.post('/api/dpr/submit', async (req, res) => {
 
     // [FIX] Factory Isolation
     const factoryId = getFactoryId(req);
+
+    // [NEW] Date-entry access guard — partial-line users are limited to Today/Yesterday,
+    // all-lines users may back-date up to 30 days. Access re-derived from DB.
+    const dateGuard = await assertDateEntryAllowed(session, Date);
+    if (!dateGuard.ok) {
+      return res.json({ ok: false, error: dateGuard.error });
+    }
 
     // [NEW] Check if plant or line is closed
     if (Machine) {
@@ -16671,6 +16750,20 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
         --SUMMARY STATS(Plan vs Actual)
         COALESCE(ojr.plan_qty, pb.plan_qty, 0) as plan_qty,
+        -- Cumulative good produced for this order across ALL dates (factory scoped)
+        COALESCE((
+          SELECT SUM(dh.good_qty)::int FROM dpr_hourly dh
+          WHERE dh.is_deleted = false
+            AND TRIM(dh.order_no) = TRIM(COALESCE(pb.order_no, s.order_no))
+            AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
+        ), 0) as produced_qty,
+        -- Balance = plan - cumulative produced (allowed negative so <=0 completion trigger works)
+        (COALESCE(ojr.plan_qty, pb.plan_qty, 0) - COALESCE((
+          SELECT SUM(dh.good_qty)::int FROM dpr_hourly dh
+          WHERE dh.is_deleted = false
+            AND TRIM(dh.order_no) = TRIM(COALESCE(pb.order_no, s.order_no))
+            AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
+        ), 0)) as balance_qty,
         COALESCE(ojr.mld_status, pb.status) as job_status,
         COALESCE(ojr.job_card_no, '') as job_card_no,
         COALESCE(ojr.client_name, o.client_name, '') as client_name,
@@ -16703,12 +16796,10 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       LEFT JOIN orders o ON o.order_no = pb.order_no
 
       WHERE s.dpr_date BETWEEN $1 AND $2 AND s.shift = $3 AND s.is_deleted = false
+        AND ($4::int IS NULL OR s.factory_id = $4)
     `;
-    const setupParams = [fDate, tDate, shift];
-    if (factoryId) {
-      setupQuery += ` AND s.factory_id = $4`;
-      setupParams.push(factoryId);
-    }
+    // $4 is always provided (null when no factory scope) so the balance subqueries can reference it
+    const setupParams = [fDate, tDate, shift, factoryId || null];
 
     // 3. Get Setup Data (std_actual) for Date Range
     const setups = await q(setupQuery, setupParams);
