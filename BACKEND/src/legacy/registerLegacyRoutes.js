@@ -16782,15 +16782,40 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       ) mps ON mps.or_jr_no = COALESCE(pb.order_no, s.order_no) AND mps.mould_name = COALESCE(pb.mould_name, s.mould_name)
       LEFT JOIN moulds m ON TRIM(m.mould_number) = TRIM(COALESCE(pb.mould_code, ''))
       LEFT JOIN moulds m2 ON TRIM(m2.mould_number) = COALESCE(NULLIF(TRIM(mps.mould_no), ''), NULLIF(TRIM(pb.mould_code), ''), '')
-      LEFT JOIN moulds m3 ON (
-        TRIM(m3.mould_name) = TRIM(COALESCE(pb.mould_name, mps.mould_name, s.mould_name, ''))
-        OR COALESCE(pb.mould_name, mps.mould_name, s.mould_name, '') ILIKE '%' || m3.mould_name || '%'
-        OR m3.mould_name ILIKE '%' || COALESCE(pb.mould_name, mps.mould_name, s.mould_name, '') || '%'
-      )
-      LEFT JOIN moulds m4 ON (
-        s.article_act > 0 AND s.article_act < 10 AND m4.std_wt_kg = s.article_act
-        AND (COALESCE(pb.mould_name, s.mould_name) ILIKE '%' || SUBSTRING(m4.mould_name FROM 1 FOR 8) || '%')
-      )
+      -- m3/m4 are fuzzy mould-name fallbacks for std cycle-time/weight/cavity.
+      -- As plain LEFT JOINs they scanned all moulds per row AND multiplied rows on
+      -- multi-match. LATERAL ... LIMIT 1 returns a single deterministic best match
+      -- (exact name first, then lowest id) so the fuzzy scan can stop early and rows
+      -- are never duplicated. Same values as the old join for all but ambiguous matches.
+      LEFT JOIN LATERAL (
+        SELECT m3.cycle_time, m3.std_wt_kg, m3.no_of_cav
+        FROM moulds m3
+        WHERE
+          -- Only run the expensive fuzzy scan when the exact joins m/m2 have NOT
+          -- already supplied every std field this fallback feeds. This gate is a
+          -- constant per outer row, so matched rows skip the moulds scan entirely.
+          (COALESCE(m.cycle_time, m2.cycle_time) IS NULL
+            OR COALESCE(m.std_wt_kg, m2.std_wt_kg) IS NULL
+            OR COALESCE(m.no_of_cav, m2.no_of_cav) IS NULL)
+          AND (
+            TRIM(m3.mould_name) = TRIM(COALESCE(pb.mould_name, mps.mould_name, s.mould_name, ''))
+            OR COALESCE(pb.mould_name, mps.mould_name, s.mould_name, '') ILIKE '%' || m3.mould_name || '%'
+            OR m3.mould_name ILIKE '%' || COALESCE(pb.mould_name, mps.mould_name, s.mould_name, '') || '%'
+          )
+        ORDER BY (TRIM(m3.mould_name) = TRIM(COALESCE(pb.mould_name, mps.mould_name, s.mould_name, ''))) DESC, m3.id
+        LIMIT 1
+      ) m3 ON true
+      LEFT JOIN LATERAL (
+        SELECT m4.cycle_time, m4.std_wt_kg, m4.no_of_cav
+        FROM moulds m4
+        WHERE (COALESCE(m.cycle_time, m2.cycle_time) IS NULL
+            OR COALESCE(m.std_wt_kg, m2.std_wt_kg) IS NULL
+            OR COALESCE(m.no_of_cav, m2.no_of_cav) IS NULL)
+          AND s.article_act > 0 AND s.article_act < 10 AND m4.std_wt_kg = s.article_act
+          AND (COALESCE(pb.mould_name, s.mould_name) ILIKE '%' || SUBSTRING(m4.mould_name FROM 1 FOR 8) || '%')
+        ORDER BY m4.id
+        LIMIT 1
+      ) m4 ON true
       LEFT JOIN LATERAL(
         SELECT * FROM or_jr_report rpt 
         WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no)
