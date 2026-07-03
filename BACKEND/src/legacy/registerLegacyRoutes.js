@@ -16729,6 +16729,20 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
         --SUMMARY STATS(Plan vs Actual)
         COALESCE(ojr.plan_qty, pb.plan_qty, 0) as plan_qty,
+        -- Cumulative good produced for this order across ALL dates (factory scoped)
+        COALESCE((
+          SELECT SUM(dh.good_qty)::int FROM dpr_hourly dh
+          WHERE dh.is_deleted = false
+            AND TRIM(dh.order_no) = TRIM(COALESCE(pb.order_no, s.order_no))
+            AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
+        ), 0) as produced_qty,
+        -- Balance = plan - cumulative produced (allowed negative so <=0 completion trigger works)
+        (COALESCE(ojr.plan_qty, pb.plan_qty, 0) - COALESCE((
+          SELECT SUM(dh.good_qty)::int FROM dpr_hourly dh
+          WHERE dh.is_deleted = false
+            AND TRIM(dh.order_no) = TRIM(COALESCE(pb.order_no, s.order_no))
+            AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
+        ), 0)) as balance_qty,
         COALESCE(ojr.mld_status, pb.status) as job_status,
         COALESCE(ojr.job_card_no, '') as job_card_no,
         COALESCE(ojr.client_name, o.client_name, '') as client_name,
@@ -16761,12 +16775,10 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       LEFT JOIN orders o ON o.order_no = pb.order_no
 
       WHERE s.dpr_date BETWEEN $1 AND $2 AND s.shift = $3 AND s.is_deleted = false
+        AND ($4::int IS NULL OR s.factory_id = $4)
     `;
-    const setupParams = [fDate, tDate, shift];
-    if (factoryId) {
-      setupQuery += ` AND s.factory_id = $4`;
-      setupParams.push(factoryId);
-    }
+    // $4 is always provided (null when no factory scope) so the balance subqueries can reference it
+    const setupParams = [fDate, tDate, shift, factoryId || null];
 
     // 3. Get Setup Data (std_actual) for Date Range
     const setups = await q(setupQuery, setupParams);

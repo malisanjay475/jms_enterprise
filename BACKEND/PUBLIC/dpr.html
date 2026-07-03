@@ -63,6 +63,22 @@
             z-index: 10 !important;
             /* Ensure it glows on top */
         }
+
+        /* Fast blink — whole machine highlighted red when its plan is met/exceeded (Bal <= 0) */
+        @keyframes blink-red-fast {
+            0%, 100% {
+                background-color: rgba(239, 68, 68, 0.15);
+                box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3) inset;
+            }
+            50% {
+                background-color: rgba(239, 68, 68, 0.55);
+                box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.8) inset;
+            }
+        }
+
+        tr.bal-complete-blink td {
+            animation: blink-red-fast 0.6s infinite;
+        }
     </style>
 </head>
 
