@@ -96,11 +96,19 @@ describe('Supervisor queue', () => {
   it('submits DPR entries with supervisor fields and triggers sync', async () => {
     const { app, pool, services } = createApp();
     pool.query.mockImplementation((sql) => {
+      // Date-entry access guard re-derives line access from the DB.
+      if (String(sql).includes('FROM users WHERE username')) {
+        return Promise.resolve({ rows: [{ line: 'Line 1', global_access: false }], rowCount: 1 });
+      }
       if (String(sql).includes('INSERT INTO dpr_hourly') && String(sql).includes('RETURNING id')) {
         return Promise.resolve({ rows: [{ id: 123 }], rowCount: 1 });
       }
       return Promise.resolve({ rows: [], rowCount: 0 });
     });
+
+    // A partial-line supervisor may only enter Today/Yesterday — use today's date.
+    const _t = new Date();
+    const todayIso = `${_t.getFullYear()}-${String(_t.getMonth() + 1).padStart(2, '0')}-${String(_t.getDate()).padStart(2, '0')}`;
 
     const res = await request(app)
       .post('/api/dpr/submit')
@@ -108,7 +116,7 @@ describe('Supervisor queue', () => {
       .send({
         session: { username: 'supervisor', line: 'Line 1' },
         entry: {
-          Date: '2026-05-23',
+          Date: todayIso,
           Shift: 'Day',
           HourSlot: '08-09',
           Shots: 100,
