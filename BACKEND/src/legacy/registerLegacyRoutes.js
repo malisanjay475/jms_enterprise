@@ -16750,18 +16750,22 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
         --SUMMARY STATS(Plan vs Actual)
         COALESCE(ojr.plan_qty, pb.plan_qty, 0) as plan_qty,
-        -- Cumulative good produced for this order across ALL dates (factory scoped)
+        -- Cumulative good produced for THIS PLAN across ALL dates (factory scoped).
+        -- Scope by plan_id, not order_no: one order_no spans many plans (machines/moulds),
+        -- so matching by order_no over-counts production from other plans and breaks balance.
         COALESCE((
           SELECT SUM(dh.good_qty)::int FROM dpr_hourly dh
           WHERE dh.is_deleted = false
-            AND TRIM(dh.order_no) = TRIM(COALESCE(pb.order_no, s.order_no))
+            AND s.plan_id IS NOT NULL
+            AND dh.plan_id = s.plan_id
             AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
         ), 0) as produced_qty,
         -- Balance = plan - cumulative produced (allowed negative so <=0 completion trigger works)
         (COALESCE(ojr.plan_qty, pb.plan_qty, 0) - COALESCE((
           SELECT SUM(dh.good_qty)::int FROM dpr_hourly dh
           WHERE dh.is_deleted = false
-            AND TRIM(dh.order_no) = TRIM(COALESCE(pb.order_no, s.order_no))
+            AND s.plan_id IS NOT NULL
+            AND dh.plan_id = s.plan_id
             AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
         ), 0)) as balance_qty,
         COALESCE(ojr.mld_status, pb.status) as job_status,
