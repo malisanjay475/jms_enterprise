@@ -64,20 +64,16 @@
             /* Ensure it glows on top */
         }
 
-        /* Fast blink — whole machine highlighted red when its plan is met/exceeded (Bal <= 0) */
-        @keyframes blink-red-fast {
-            0%, 100% {
-                background-color: rgba(239, 68, 68, 0.15);
-                box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3) inset;
-            }
-            50% {
-                background-color: rgba(239, 68, 68, 0.55);
-                box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.8) inset;
-            }
+        /* Fast blink — only the Bal Qty value blinks red when plan is met/exceeded (Bal <= 0) */
+        @keyframes bal-blink-text {
+            0%, 100% { opacity: 1; }
+            50%      { opacity: 0.15; }
         }
 
-        tr.bal-complete-blink td {
-            animation: blink-red-fast 0.6s infinite;
+        .bal-blink {
+            animation: bal-blink-text 0.6s infinite;
+            color: #dc2626 !important;
+            font-weight: 800;
         }
     </style>
 </head>
@@ -114,7 +110,7 @@
     </div>
 
     <script src="/assets/app.js"></script>
-  <script src="/assets/dpr-script-1.js?v=release66"></script>
+  <script src="/assets/dpr-script-1.js?v=release67"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"
