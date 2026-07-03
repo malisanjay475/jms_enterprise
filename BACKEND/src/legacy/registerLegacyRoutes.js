@@ -5553,6 +5553,27 @@ app.post('/api/factories/save', async (req, res) => {
    USER MANAGEMENT
 ============================================================ */
 // GET /api/users
+// Lightweight current-user access lookup — lets clients refresh line/global_access
+// without a full re-login (so date-entry access reflects the latest admin change).
+app.get('/api/user/access', async (req, res) => {
+  try {
+    const username = String(req.query.username || '').trim();
+    if (!username) return res.json({ ok: false, error: 'username required' });
+    const rows = await q('SELECT line, role_code, global_access FROM users WHERE username=$1 LIMIT 1', [username]);
+    if (!rows.length) return res.json({ ok: false, error: 'not found' });
+    res.json({
+      ok: true,
+      data: {
+        line: rows[0].line || '',
+        role_code: rows[0].role_code || '',
+        global_access: rows[0].global_access === true
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 app.get('/api/users', async (req, res) => {
   try {
     const rows = await q(
