@@ -1403,7 +1403,15 @@
             let plans = (pRes && pRes.data && pRes.data.plans) ? pRes.data.plans : [];
 
             // --- UNIFIED INFERENCE HELPER (v47) ---
-            const simplify = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+            // Memoized: simplify() is called millions of times across 600+ plans ×
+            // 140+ machine keys; caching the regex result is a large speed-up.
+            const _simpCache = new Map();
+            const simplify = (s) => {
+                const raw = String(s || '');
+                let v = _simpCache.get(raw);
+                if (v === undefined) { v = raw.toUpperCase().replace(/[^A-Z0-9]/g, ''); _simpCache.set(raw, v); }
+                return v;
+            };
             const inferInfo = (rawCode) => {
                 const parts = rawCode.split('>');
                 const prefix = parts.length > 0 ? parts.join('>').trim() : '';
@@ -1433,6 +1441,21 @@
             const mapCodeToInfo = {};
             window.allMachines.forEach(m => { mapCodeToInfo[m.code] = m; });
 
+            // Precompute the longest-first sorted [key, simpleKey] pairs once, rather than
+            // re-sorting all machine keys (and re-running simplify) for every plan. Rebuilt
+            // automatically if a new machine code gets discovered mid-loop (map size grows).
+            let _rmcPairs = null, _rmcLen = -1;
+            const rmcPairs = () => {
+                const len = Object.keys(mapCodeToInfo).length;
+                if (_rmcPairs === null || len !== _rmcLen) {
+                    _rmcPairs = Object.keys(mapCodeToInfo)
+                        .map((k) => [k, simplify(k)])
+                        .sort((a, b) => b[1].length - a[1].length);
+                    _rmcLen = len;
+                }
+                return _rmcPairs;
+            };
+
             const resolveMachineCode = (rawCode) => {
                 const raw = String(rawCode || '').trim();
                 if (!raw) return '';
@@ -1442,24 +1465,24 @@
                 const simpleRaw = simplify(raw);
                 const simpleMachine = simplify(machineName);
 
-                // Sort keys longest-first so exact matches on longer codes (e.g. "C-L4-OM-100-14")
+                // Sorted longest-first so exact matches on longer codes (e.g. "C-L4-OM-100-14")
                 // are tried before shorter ones ("C-L4-OM-100-1").
-                const sortedKeys = Object.keys(mapCodeToInfo).sort((a, b) => simplify(b).length - simplify(a).length);
+                const pairs = rmcPairs();
 
                 // Pass 1: exact match only
-                for (const key of sortedKeys) {
-                    const simpleKey = simplify(key);
+                for (let i = 0; i < pairs.length; i += 1) {
+                    const simpleKey = pairs[i][1];
                     if (!simpleKey) continue;
-                    if (simpleKey === simpleRaw || simpleKey === simpleMachine) return key;
+                    if (simpleKey === simpleRaw || simpleKey === simpleMachine) return pairs[i][0];
                 }
 
                 // Pass 2: endsWith fallback — handles "B-L1-HYD-350-1" stored as plan machine
                 // where master only has "HYD-350-1". Uses endsWith (not includes) so
                 // "CL4OM10014" never false-matches "CL4OM1001" (100-14 vs 100-1 bug).
-                for (const key of sortedKeys) {
-                    const simpleKey = simplify(key);
+                for (let i = 0; i < pairs.length; i += 1) {
+                    const simpleKey = pairs[i][1];
                     if (!simpleKey || simpleKey.length <= 3 || simpleMachine.length <= 3) continue;
-                    if (simpleMachine.endsWith(simpleKey) || simpleKey.endsWith(simpleMachine)) return key;
+                    if (simpleMachine.endsWith(simpleKey) || simpleKey.endsWith(simpleMachine)) return pairs[i][0];
                 }
 
                 return '';
