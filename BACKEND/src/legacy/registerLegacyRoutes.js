@@ -16731,6 +16731,15 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
     // 3. Get Setup Data (std_actual) for Range
     let setupQuery = `
+      WITH plan_prod AS (
+        -- Cumulative good produced per plan (factory scoped), computed ONCE.
+        SELECT dh.plan_id, SUM(dh.good_qty)::int AS produced
+        FROM dpr_hourly dh
+        WHERE dh.is_deleted = false
+          AND dh.plan_id IS NOT NULL
+          AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
+        GROUP BY dh.plan_id
+      )
       SELECT
         s.id,
         --CAVITY INFO
@@ -16753,27 +16762,18 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         -- Cumulative good produced for THIS PLAN across ALL dates (factory scoped).
         -- Scope by plan_id, not order_no: one order_no spans many plans (machines/moulds),
         -- so matching by order_no over-counts production from other plans and breaks balance.
-        COALESCE((
-          SELECT SUM(dh.good_qty)::int FROM dpr_hourly dh
-          WHERE dh.is_deleted = false
-            AND s.plan_id IS NOT NULL
-            AND dh.plan_id = s.plan_id
-            AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
-        ), 0) as produced_qty,
+        -- Pre-aggregated once in the plan_prod CTE (joined below) instead of a per-row
+        -- correlated subquery, so a week-range summary no longer runs thousands of scans.
+        COALESCE(pp.produced, 0) as produced_qty,
         -- Balance = plan - cumulative produced (allowed negative so <=0 completion trigger works)
-        (COALESCE(ojr.plan_qty, pb.plan_qty, 0) - COALESCE((
-          SELECT SUM(dh.good_qty)::int FROM dpr_hourly dh
-          WHERE dh.is_deleted = false
-            AND s.plan_id IS NOT NULL
-            AND dh.plan_id = s.plan_id
-            AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
-        ), 0)) as balance_qty,
+        (COALESCE(ojr.plan_qty, pb.plan_qty, 0) - COALESCE(pp.produced, 0)) as balance_qty,
         COALESCE(ojr.mld_status, pb.status) as job_status,
         COALESCE(ojr.job_card_no, '') as job_card_no,
         COALESCE(ojr.client_name, o.client_name, '') as client_name,
         s.machine, s.mould_name, s.order_no, s.plan_id, s.shift
 
       FROM std_actual s
+      LEFT JOIN plan_prod pp ON pp.plan_id = s.plan_id
       LEFT JOIN plan_board pb ON pb.plan_id = s.plan_id
       LEFT JOIN (
         SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no 
