@@ -1502,7 +1502,7 @@
                                             ? `<div style="font-size:0.72rem; font-weight:700; margin-top:2px">
                                                    <span style="color:#0f172a">Plan: ${_planQ.toLocaleString('en-IN')}</span>
                                                    <span style="color:#cbd5e1"> | </span>
-                                                   <span style="color:${_balDone ? '#dc2626' : '#16a34a'}">Bal: ${_balQ.toLocaleString('en-IN')}</span>
+                                                   <span class="${_balDone ? 'bal-blink' : ''}" style="color:${_balDone ? '#dc2626' : '#16a34a'}">Bal: ${_balQ.toLocaleString('en-IN')}</span>
                                                </div>`
                                             : '';
 
@@ -2126,11 +2126,8 @@
                                 let mEff = (machineEst > 0) ? (machineGood / machineEst) * 100 : 0;
 
                                 // Blink is now applied per-mould on the summary cell (see _summaryBlink above)
-
-                                // Plan-complete fast blink: highlight the WHOLE machine (all its rows) red when bal <= 0
-                                if (machineBalComplete) {
-                                    machineRowHtml = machineRowHtml.replace(/<tr /g, '<tr class="bal-complete-blink" ');
-                                }
+                                // Plan-complete blink is applied to ONLY the Bal Qty value (class "bal-blink"),
+                                // not the whole machine row — see planBalHtml above.
 
                                 if (flatMode) {
                                     globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, balComplete: machineBalComplete });
