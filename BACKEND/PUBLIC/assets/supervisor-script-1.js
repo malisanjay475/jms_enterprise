@@ -670,6 +670,31 @@
       return ln === 'all' || session.global_access === true;
     }
 
+    /* Refresh line access + global_access from the server so a stale cached session
+       (e.g. logged in before the feature shipped) still unlocks the date picker
+       without forcing a re-login. Fire-and-forget; rebuilds the date select on change. */
+    async function refreshUserAccess() {
+      if (!session.username) return;
+      try {
+        const r = await apiFetch(`/api/user/access?username=${encodeURIComponent(session.username)}`);
+        const j = await r.json();
+        if (!j || !j.ok || !j.data) return;
+        const wasAll = isAllLineAccess();
+        session.line = j.data.line || session.line;
+        session.role_code = j.data.role_code || session.role_code;
+        session.global_access = j.data.global_access === true;
+        try {
+          const raw = JSON.parse(localStorage.getItem('jpsmsSession') || '{}');
+          raw.line = session.line;
+          raw.role_code = session.role_code;
+          raw.global_access = session.global_access;
+          localStorage.setItem('jpsmsSession', JSON.stringify(raw));
+        } catch (_) { }
+        // If access changed and the date select is present, rebuild so the picker appears/hides.
+        if (isAllLineAccess() !== wasAll && el('d-date')) buildDateSelect();
+      } catch (_) { }
+    }
+
     // [FIX] Factory Isolation Wrapper
     async function apiFetch(url, options = {}) {
       options.headers = options.headers || {};
@@ -746,6 +771,7 @@
 
               el('line-name').textContent = session.line;
               showAppView(true);
+              refreshUserAccess(); // refresh line/global_access from server (no re-login needed)
               loadMachines();   // will respect session.machine if present & call loadQueue+loadRecent
               return;
             }
