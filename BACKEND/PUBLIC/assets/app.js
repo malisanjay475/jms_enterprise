@@ -417,6 +417,7 @@ function escHtml(value) {
             if (res.ok) {
                 localStorage.setItem('token', 'dummy-token-for-now'); // Simulating token
                 localStorage.setItem('user', JSON.stringify(res.data));
+                localStorage.setItem('jpsms_login_at', String(Date.now()));
                 localStorage.setItem('jpsms_allowed_factories', JSON.stringify(res.factories || []));
                 localStorage.setItem('jpsms_can_all_factories', res.can_select_all_factories ? 'true' : 'false');
                 return { user: res.data, factories: res.factories || [] };
@@ -430,6 +431,7 @@ function escHtml(value) {
             toggleLoader(false);
             localStorage.removeItem('token');
             localStorage.removeItem('user');
+            localStorage.removeItem('jpsms_login_at');
             localStorage.removeItem('jpsms_allowed_factories');
             localStorage.removeItem('jpsms_can_all_factories');
             localStorage.removeItem('jpsms_factory_id');
@@ -437,6 +439,70 @@ function escHtml(value) {
             localStorage.removeItem('jpsms_write_factory_id');
             localStorage.removeItem('jpsms_write_factory_name');
             window.location.href = getLogoutRedirectForCurrentPath();
+        },
+        // Show a modal listing the PCs/devices where this user is currently active,
+        // with an option to log out from all other devices.
+        showMyDevices: async () => {
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+            if (!user.username) return;
+
+            let m = document.getElementById('jms-devices-modal');
+            if (!m) {
+                m = document.createElement('div');
+                m.id = 'jms-devices-modal';
+                m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+                m.innerHTML = `
+                    <div style="background:#fff;padding:22px;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.2);width:min(460px,92vw);max-height:80vh;overflow:auto;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                            <h3 style="margin:0;font-size:1.1rem;">Logged-in Devices</h3>
+                            <button id="jms-devices-close" style="border:none;background:transparent;font-size:1.4rem;cursor:pointer;line-height:1;">&times;</button>
+                        </div>
+                        <div id="jms-devices-list" style="color:#555;font-size:0.9rem;">Loading…</div>
+                        <div style="margin-top:18px;text-align:right;">
+                            <button id="jms-logout-others" class="btn" style="padding:9px 16px;background:#dc2626;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;">Log out from all other devices</button>
+                        </div>
+                    </div>`;
+                document.body.appendChild(m);
+                m.querySelector('#jms-devices-close').addEventListener('click', () => { m.style.display = 'none'; });
+                m.addEventListener('click', (e) => { if (e.target === m) m.style.display = 'none'; });
+                m.querySelector('#jms-logout-others').addEventListener('click', async () => {
+                    if (!confirm('Log out from all OTHER devices? This device will stay logged in.')) return;
+                    try {
+                        const res = await exports.api.post('/logout-all', { username: user.username });
+                        if (res.ok) {
+                            if (res.keep_login_at) localStorage.setItem('jpsms_login_at', String(res.keep_login_at));
+                            toast('Other devices will be logged out within a minute.', 'success');
+                            m.style.display = 'none';
+                        } else {
+                            toast(res.error || 'Failed', 'error');
+                        }
+                    } catch (e) {
+                        toast('Failed to log out other devices', 'error');
+                    }
+                });
+            }
+            m.style.display = 'flex';
+
+            const listEl = m.querySelector('#jms-devices-list');
+            listEl.textContent = 'Loading…';
+            try {
+                const sid = window._jmsSessionId || '';
+                const res = await exports.api.get(`/my-sessions?username=${encodeURIComponent(user.username)}&session_id=${encodeURIComponent(sid)}`);
+                const sessions = (res && res.sessions) || [];
+                if (!sessions.length) { listEl.textContent = 'No active devices found.'; return; }
+                listEl.innerHTML = sessions.map(s => {
+                    const seen = new Date(s.last_seen);
+                    const mins = Math.max(0, Math.round((Date.now() - seen.getTime()) / 60000));
+                    const seenTxt = mins <= 0 ? 'just now' : `${mins} min ago`;
+                    const badge = s.is_current ? ' <span style="color:#16a34a;font-weight:600;">(this device)</span>' : '';
+                    return `<div style="padding:10px 0;border-bottom:1px solid #eee;">
+                        <div style="font-weight:600;color:#222;">${escHtml(s.description)}${badge}</div>
+                        <div style="font-size:0.8rem;color:#777;">${escHtml(s.device_type || '')} · IP ${escHtml(s.ip_address || 'unknown')} · ${escHtml(s.app_id || '')} · seen ${seenTxt}</div>
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                listEl.textContent = 'Failed to load devices.';
+            }
         },
         getUser: () => JSON.parse(localStorage.getItem('user') || '{}'),
         getAppAccessMap: (user = readStoredJson('user', {})) => getExplicitAppAccessMap(user),
@@ -530,9 +596,9 @@ function escHtml(value) {
             let logoutTimer;
             let countdownInterval;
 
-            // 29 Minutes Warning, 30 Minutes Logout
-            const WARNING_TIME = 29 * 60 * 1000;
-            const LOGOUT_TIME = 30 * 60 * 1000;
+            // 59 Minutes Warning, 60 Minutes Logout (idle-based)
+            const WARNING_TIME = 59 * 60 * 1000;
+            const LOGOUT_TIME = 60 * 60 * 1000;
 
             // Function Hoisting Solution: Define resetTimers first
             const resetTimers = () => {
@@ -785,7 +851,7 @@ function escHtml(value) {
 
     // Start Auto-Logout Monitor
     if (typeof document !== 'undefined') {
-        // try { exports.auth.initAutoLogout(); } catch (e) { console.error(e); }
+        try { exports.auth.initAutoLogout(); } catch (e) { console.error(e); }
         try { ensureViewportLayoutWatcher(); } catch (e) { console.error(e); }
     }
 
@@ -1476,6 +1542,10 @@ function escHtml(value) {
                 <i class="bi bi-arrow-repeat"></i>
             </button>` : ''}
 
+            <button onclick="JPSMS.auth.showMyDevices()" class="btn btn-outline" style="padding:2px 4px;font-size:1rem;border:none;background:transparent;color:var(--sidebar-text);" title="My Logged-in Devices">
+                <i class="bi bi-laptop"></i>
+            </button>
+
             <button onclick="JPSMS.auth.logout()" class="btn btn-outline" style="padding:2px 4px;font-size:1rem;border:none;background:transparent;color:white;" title="Logout">
                 <i class="bi bi-box-arrow-right"></i>
             </button>
@@ -1825,6 +1895,9 @@ function escHtml(value) {
       }
     } catch (_e) {}
 
+    let loginAt = '';
+    try { loginAt = String(localStorage.getItem('jpsms_login_at') || ''); } catch (_e) {}
+
     return {
       username: user.username,
       role_code: user.role_code || '',
@@ -1833,7 +1906,8 @@ function escHtml(value) {
       page: _pageName,
       device_type: device,
       factory_id: factoryId,
-      session_id: window._jmsSessionId
+      session_id: window._jmsSessionId,
+      login_at: loginAt
     };
   }
 
@@ -1845,7 +1919,15 @@ function escHtml(value) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
       keepalive: true
-    }).catch(function () {});
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (res) {
+        // Remote "log out from all other devices" signal — drop this session.
+        if (res && res.revoked && window.JPSMS && window.JPSMS.auth) {
+          try { window.JPSMS.auth.logout(); } catch (_e) {}
+        }
+      })
+      .catch(function () {});
   }
 
   // Fire immediately on load (action = page_open)
