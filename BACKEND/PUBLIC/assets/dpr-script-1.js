@@ -1277,6 +1277,7 @@
                                 let machineGood = 0, machineEst = 0;
                                 const machineEntryTypes = new Set(); // track special entry_types for View Filter
                                 let machineMissingSlots = 0; // count of past unfilled slots (for Pending filter)
+                                let machineBalComplete = false; // true when any mould's plan is met/exceeded (bal <= 0) → blink
                                 // Determine Shifts for this Machine Row(s)
                                 const shiftsToRender = (shiftMode === 'Both') ? ['Day', 'Night'] : [shiftMode];
 
@@ -1492,6 +1493,19 @@
 
                                         const nameHtml = !m.is_dummy ? `<div style="font-size:0.85rem; font-weight:700; color:#1e293b; line-height:1.3; margin-top:2px">${m.name}</div>` : `<div style="font-size:0.8rem; color:#94a3b8">-</div>`;
 
+                                        // Plan Qty | Bal Qty (cumulative balance from backend). Machine blinks red when plan met/exceeded (bal <= 0).
+                                        const _planQ = Number(d.plan_qty || 0);
+                                        const _balQ  = Number(d.balance_qty ?? _planQ);
+                                        const _balDone = (!m.is_dummy && _planQ > 0 && _balQ <= 0);
+                                        if (_balDone) machineBalComplete = true;
+                                        const planBalHtml = (!m.is_dummy && _planQ > 0)
+                                            ? `<div style="font-size:0.72rem; font-weight:700; margin-top:2px">
+                                                   <span style="color:#0f172a">Plan: ${_planQ.toLocaleString('en-IN')}</span>
+                                                   <span style="color:#cbd5e1"> | </span>
+                                                   <span style="color:${_balDone ? '#dc2626' : '#16a34a'}">Bal: ${_balQ.toLocaleString('en-IN')}</span>
+                                               </div>`
+                                            : '';
+
                                         let mouldDisplay = `
                                              <div style="cursor:pointer" onclick='showJobDetails(${JSON.stringify(d).replace(/'/g, "&apos;")}, "${m.order_no || ''}")'>
                                                  <div style="display:flex; flex-direction:column; gap:0px">
@@ -1499,6 +1513,7 @@
                                                      ${cliHtml}
                                                  </div>
                                                  ${nameHtml}
+                                                 ${planBalHtml}
                                              </div>
                                         `;
 
@@ -2112,8 +2127,13 @@
 
                                 // Blink is now applied per-mould on the summary cell (see _summaryBlink above)
 
+                                // Plan-complete fast blink: highlight the WHOLE machine (all its rows) red when bal <= 0
+                                if (machineBalComplete) {
+                                    machineRowHtml = machineRowHtml.replace(/<tr /g, '<tr class="bal-complete-blink" ');
+                                }
+
                                 if (flatMode) {
-                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots });
+                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, balComplete: machineBalComplete });
                                 } else {
                                     machineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine });
                                 }
@@ -2193,6 +2213,15 @@
                             } else {
                                 filteredMachineBuffer.sort((a, b) => a.eff - b.eff);
                             }
+                            // Filter result count banner
+                            const _filterLabels = { Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', ManPowerShortage: 'MP Shortage', MouldMaintenance: 'Mould Maintenance', PowerCut: 'Power Cut', NoPlan: 'No Plan', MachineMaintenance: 'Machine Maintenance', MouldTrial: 'Mould Trial' };
+                            const _fCount = filteredMachineBuffer.length;
+                            masterHtml += `
+                                <div style="display:flex; align-items:center; gap:8px; padding:8px 14px; background:#0f172a; color:#fff; border-radius:12px 12px 0 0; font-size:0.8rem; font-weight:700; letter-spacing:.3px">
+                                    <i class="bi bi-funnel-fill"></i>
+                                    <span>${_filterLabels[filterMode] || filterMode}</span>
+                                    <span style="margin-left:auto; background:${_fCount ? '#3b82f6' : '#64748b'}; padding:2px 10px; border-radius:12px; font-weight:800">${_fCount} machine${_fCount === 1 ? '' : 's'}</span>
+                                </div>`;
                             masterHtml += `
                                 <div style="margin-bottom:24px; background:white; border:1px solid #cbd5e1; border-radius:0 0 12px 12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-top:-1px">
                                     <div style="overflow-x:auto">
