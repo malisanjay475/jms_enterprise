@@ -341,21 +341,37 @@
 
 <script src="/assets/app.js"></script>
 <script>
-Chart.register(ChartDataLabels);
+try { if (typeof Chart !== 'undefined' && typeof ChartDataLabels !== 'undefined') Chart.register(ChartDataLabels); } catch(e) { console.warn('ChartDataLabels register failed:', e); }
 
 let charts = {};
 let dailyDprProcess = localStorage.getItem('jpsms_dpr_process') || 'Moulding';
 const DPR_PROCESS_OPTIONS = ['Moulding', 'Printing', 'Tuffting'];
+const DOWNTIME_CODES = {
+    '1':  'Manpower Shortage',   '2':  'Mould Change',
+    '3':  'Accessories Issue',   '4':  'No Material',
+    '5':  'Machine Maintenance', '6':  'Nozzle Blockage',
+    '7':  'Mould Problem',       '8':  'Power / Heater Failure',
+    '9':  'Color Change',        '10': 'Process Setting',
+    '11': 'Mould Trial',         '12': 'Crane / Loading'
+};
 
-document.addEventListener('DOMContentLoaded', () => {
-    JPSMS.auth.requireAuth();
-    JPSMS.renderShell('dpr');
-    const today = new Date();
-    if (today.getHours() < 8) today.setDate(today.getDate() - 1);
-    document.getElementById('report-date').value = today.toISOString().split('T')[0];
-    renderProcessButtons();
-    generateReport();
-});
+function _initPage() {
+    try { if (window.JPSMS && JPSMS.auth) JPSMS.auth.requireAuth(); } catch(e) { console.error('requireAuth:', e); }
+    try { if (window.JPSMS && JPSMS.renderShell) JPSMS.renderShell('dpr'); } catch(e) { console.error('renderShell:', e); }
+    try {
+        const today = new Date();
+        if (today.getHours() < 8) today.setDate(today.getDate() - 1);
+        const dateEl = document.getElementById('report-date');
+        if (dateEl) dateEl.value = today.toISOString().split('T')[0];
+        renderProcessButtons();
+        generateReport();
+    } catch(e) { console.error('init render:', e); }
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _initPage);
+} else {
+    _initPage();
+}
 
 /* ── Process Buttons ── */
 function renderProcessButtons() {
@@ -477,12 +493,23 @@ async function generateReport() {
                 const mSetups = setupsList.filter(s=>s.machine===machine);
                 let activeWt=0, activeStd=0;
                 if (mSetups.length>0) {
-                    activeWt  = parseFloat(mSetups[0].std_weight||mSetups[0].act_weight||mSetups[0].article_act||0);
-                    activeStd = parseFloat(mSetups[0].std_pcs_hr||0);
+                    const setup = mSetups[0];
+                    activeWt = parseFloat(setup.std_weight) || parseFloat(setup.act_weight) || parseFloat(setup.article_act) || 0;
+                    // std_pcs_hr is not returned by the API — derive from cycle time (sec/shot) × cavities
+                    const cavity = parseInt(setup.act_cavity || setup.std_cavity || 1) || 1;
+                    const ct = parseFloat(setup.std_cycle_time || setup.act_cycle_time || 0);
+                    activeStd = parseFloat(setup.std_pcs_hr) || (ct > 0 ? (3600 / ct) * cavity : 0);
                 } else {
                     for (const arr of Object.values(entriesMap[machine])) {
                         const list = Array.isArray(arr)?arr:[arr];
-                        if (list[0]) { activeStd=parseFloat(list[0].std_pcs_hr||0); activeWt=parseFloat(list[0].article_act||list[0].std_weight||0); break; }
+                        if (list[0]) {
+                            const e0 = list[0];
+                            const cavity = parseInt(e0.act_cavity || e0.std_cavity || 1) || 1;
+                            const ct = parseFloat(e0.std_cycle_time || e0.act_cycle_time || 0);
+                            activeStd = parseFloat(e0.std_pcs_hr) || (ct > 0 ? (3600 / ct) * cavity : 0);
+                            activeWt = parseFloat(e0.article_act) || parseFloat(e0.std_weight) || 0;
+                            break;
+                        }
                     }
                 }
                 if (activeWt>10) activeWt/=1000;
@@ -664,12 +691,22 @@ function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
     tbody += row('bi-shuffle','Job Change (JC)', d=>d.jc);
 
     tbody += grp('bi-list-nested','DOWNTIME BREAKDOWN (Hrs)');
-    const dtCodes = ['1','2','4','5','7','11','13','14','15','16'];
+    // Dynamically discover the DT codes actually present in the data (exclude 8 = power/heater → Other)
+    const dtCodeSet = new Set();
+    lines.forEach(l => ['Day','Night'].forEach(s => {
+        Object.keys(agg[l][s].dt||{}).forEach(c => { if (c !== '8') dtCodeSet.add(c); });
+    }));
+    const knownOrder = Object.keys(DOWNTIME_CODES).filter(c => c !== '8');
+    const dtCodes = [
+        ...knownOrder.filter(c => dtCodeSet.has(c)),
+        ...[...dtCodeSet].filter(c => !knownOrder.includes(c)).sort((a,b)=>Number(a)-Number(b))
+    ];
     dtCodes.forEach(c => {
-        tbody += row('bi-dash','  '+(reasonsMap[c]||`Reason ${c}`), d=>(d.dt[c]||0)/60);
+        const nm = DOWNTIME_CODES[c] || reasonsMap[c] || `Reason ${c}`;
+        tbody += row('bi-dash','  '+nm, d=>(d.dt[c]||0)/60);
     });
     // Other DT
-    lineKeys.forEach(l => {
+    lines.forEach(l => {
         ['Day','Night'].forEach(s => {
             let o=0; Object.entries(agg[l][s].dt).forEach(([c,v])=>{ if(!dtCodes.includes(c)&&c!=='8') o+=v; });
             agg[l][s]._otherDtHr=o/60;
@@ -702,7 +739,7 @@ function renderCharts(agg, lines, reasonsMap) {
 
     // Pie
     const sorted = Object.entries(dtTotals).sort((a,b)=>b[1]-a[1]).slice(0,8);
-    const pieLabels = sorted.map(([c])=>reasonsMap[c]||`Code ${c}`);
+    const pieLabels = sorted.map(([c])=>DOWNTIME_CODES[c]||reasonsMap[c]||`Code ${c}`);
     const pieData   = sorted.map(([,v])=>+(v/60).toFixed(1));
     const COLORS = ['#ef4444','#f59e0b','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#64748b','#0ea5e9'];
 
