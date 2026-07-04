@@ -5,6 +5,26 @@
         return String(value ?? '-').replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));
     }
 
+    const DPR_REJECT_REASONS = {
+        A: 'Short Moulding', B: 'Shrinkage Mark', C: 'Silver Streak/Colour Variation/Trail',
+        D: 'Flow Mark/Weld Line', E: 'Fitment Issue', F: 'Dent Mark/Air Bubble', G: 'Warpage',
+        H: 'Black/Water Marks', I: 'Startup Pcs/Color Change Pcs', J: 'Bottom bulging issue',
+        K: 'Scratch', L: 'Over Lapping', M: 'Punching Hole Issue'
+    };
+    const DPR_DOWNTIME_REASONS = {
+        '1': 'Manpower Shortage', '2': 'Mould Change Over', '3': 'Accessories Shortage', '4': 'Material Shortage',
+        '5': 'M/C Under Maintaince (Water/Oil/Air Leakage)', '6': 'Nozzle Block/Change', '7': 'Mould Problem',
+        '8': 'Power Failure/Pre Heating', '9': 'Color Change Time', '10': 'Process Setting', '11': 'Mould Trial',
+        '12': 'Crane/Hrtc', '13': 'No Plan'
+    };
+    function dprReasonName(code, map) {
+        const key = String(code ?? '').trim();
+        if (!key) return 'Unspecified';
+        if (key.startsWith('OTHER_')) return key.slice(6) || 'Other';
+        if (/^OTHER$/i.test(key)) return 'Other';
+        return map[key] || key;
+    }
+
     function dprNumber(value) {
         const n = Number(value);
         return Number.isFinite(n) ? n : 0;
@@ -118,11 +138,11 @@
         if (panel) panel.style.display = 'none';
     }
 
-    function renderReasonAnalysis(containerId, title, stats, unit, accent) {
+    function renderReasonAnalysis(containerId, title, stats, unit, accent, reasonMap) {
         const container = document.getElementById(containerId);
         if (!container) return;
         const rows = Object.entries(stats || {})
-            .map(([reason, qty]) => ({ reason, qty: dprNumber(qty) }))
+            .map(([reason, qty]) => ({ reason: reasonMap ? dprReasonName(reason, reasonMap) : reason, qty: dprNumber(qty) }))
             .filter(r => r.qty > 0)
             .sort((a, b) => b.qty - a.qty);
         const total = rows.reduce((sum, r) => sum + r.qty, 0);
@@ -414,8 +434,8 @@
                 }
 
 
-                renderReasonAnalysis('dtChartContainer', 'Downtime Analysis', dtStats, 'min', '#f97316');
-                renderReasonAnalysis('rejChartContainer', 'Rejection Analysis', rejStats, 'qty', '#dc2626');
+                renderReasonAnalysis('dtChartContainer', 'Downtime Analysis', dtStats, 'min', '#f97316', DPR_DOWNTIME_REASONS);
+                renderReasonAnalysis('rejChartContainer', 'Rejection Analysis', rejStats, 'qty', '#dc2626', DPR_REJECT_REASONS);
 
             } else {
                 tbody.innerHTML = '<tr><td colspan="5" style="padding:14px; text-align:center; color:#dc2626">Failed to load data.</td></tr>';
