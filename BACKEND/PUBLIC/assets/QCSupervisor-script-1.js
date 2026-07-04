@@ -1826,12 +1826,14 @@
 
             const job = session.activeJob || {};
             const all = job._all || {};
+            const fpaDate = el('fpa-date') ? el('fpa-date').value : istDateStr();
+            const fpaShift = el('fpa-shift') ? el('fpa-shift').value : getShiftFromTime();
 
             // Build multipart FormData — backend expects multipart/form-data (multer)
             const fd = new FormData();
             fd.append('session',     JSON.stringify({ username: session.username, line: session.line }));
-            fd.append('date',        istDateStr());
-            fd.append('shift',       el('fpa-shift') ? el('fpa-shift').value : getShiftFromTime());
+            fd.append('date',        fpaDate);
+            fd.append('shift',       fpaShift);
             fd.append('hour_slot',   el('fpa-slot')  ? el('fpa-slot').value  : '');
             fd.append('line',        session.line    || '');
             fd.append('machine',     session.machine || '');
@@ -1859,11 +1861,8 @@
                 // Switch to view mode immediately — re-fetch status so gallery renders from server URLs
                 const jcNo    = safe(job.JobCardNo || all['JobCardNo'] || '');
                 const machine = session.machine || '';
-                const date    = istDateStr();
-                const shift   = el('fpa-shift') ? el('fpa-shift').value : getShiftFromTime();
                 try {
                     const sr = await fetch('/api/qc/fpa/status?job_card_no=' + encodeURIComponent(jcNo) +
-                        '&date=' + date + '&shift=' + encodeURIComponent(shift) +
                         '&machine=' + encodeURIComponent(machine));
                     const sd = await sr.json();
                     if (sd.ok && sd.done) { _v4RenderFPAViewMode(sd); }
@@ -3330,7 +3329,7 @@
                 const warn = document.createElement('div');
                 warn.className = 'no-job-warn';
                 warn.style.cssText = 'background:var(--warn-bg);border:1.5px solid var(--warn);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;font-weight:600;color:var(--warn);display:flex;align-items:center;gap:8px';
-                warn.innerHTML = '<span style="font-size:18px">⚠️</span><span>No job selected. Go to <b>Job Queue</b> and tap <b>FPA</b> on a job card first.</span>';
+                warn.innerHTML = '<span style="font-size:18px">⚠️</span><span>No job selected. Go to <b>Job Queue</b> and select the relevant job card first.</span>';
                 sec.prepend(warn);
             }
         }
