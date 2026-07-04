@@ -362,36 +362,6 @@
 
     // Removed duplicate removePlan
 
-
-    window.deleteAllPlans = async function () {
-      const j = window.JPSMS;
-      if (!j || !j.api || !j.store) return;
-
-      const me = j.store.me || {};
-      // Strict Admin Check
-        if (!(window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isAdminLike && window.JPSMS.auth.isAdminLike(me))) {
-          alert('Access Denied: Admin or Superadmin only.');
-          return;
-        }
-
-      if (!confirm("⚠️ DANGER: This will DELETE ALL PLANS from the board.\n\nAre you sure you want to proceed?")) return;
-      if (!confirm("This action cannot be undone. Confirm delete all?")) return;
-
-      try {
-        const res = await j.api.post('/planning/delete-all', { user: me.name });
-        if (res && res.ok) {
-          j.toast('All Plans Deleted.', 'success');
-          if (typeof window.loadMasterPlan === 'function') window.loadMasterPlan();
-          else window.location.reload();
-        } else {
-          j.toast(res.error || 'Failed', 'error');
-        }
-      } catch (e) {
-        console.error(e);
-        j.toast(e.message, 'error');
-      }
-    };
-
     const waitForJmsShell = async (timeoutMs = 3000) => {
       const startedAt = Date.now();
       while (Date.now() - startedAt < timeoutMs) {
@@ -482,34 +452,6 @@
 
 
         const me = (store && store.me) || {};
-
-
-
-        window.deleteAllPlans = async function () {
-          if (!confirm('WARNING: ARE YOU SURE YOU WANT TO DELETE ALL PLANS?\n\nThis will wipe the entire planning board. This action cannot be undone.')) return;
-
-          const btn = document.getElementById('btnDeleteAll');
-          const oldTxt = btn.innerHTML;
-          btn.innerHTML = 'Deleting...'; btn.disabled = true;
-
-          try {
-            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-            const res = await api.post('/planning/delete-all', { user: 'Admin' });
-
-            if (res.ok || (res.data && res.data.ok)) {
-              if (typeof toast === 'function') toast('All Plans Deleted Successfully', 'success');
-              if (typeof loadMasterPlan === 'function') loadMasterPlan();
-              setTimeout(() => window.location.reload(), 500);
-            } else {
-              alert('Failed to delete all: ' + (res.error || 'Unknown Error'));
-            }
-          } catch (e) {
-            alert('Error: ' + e.message);
-          } finally {
-            btn.innerHTML = oldTxt; btn.disabled = false;
-          }
-        };
-
 
         // app.js renderShell now ensures #pageContent exists
         const root = document.getElementById("pageContent");
@@ -684,7 +626,6 @@
               <div class="master-toolbar-bottom">
                 <div class="master-toolbar-secondary">
                   <button class="btn" onclick="window.showAuditLog()" title="View Activity Log"><i class="bi bi-clock-history"></i> History</button>
-                  <button class="btn" id="btnDeleteAll" onclick="window.deleteAllPlans()" style="display:none; color:#ef4444; border-color:#ef4444; background:#fef2f2" title="Delete ALL Plans (Admin Only)"><i class="bi bi-trash"></i> Delete All</button>
                 </div>
               </div>
             </div>
@@ -1948,26 +1889,6 @@
         // We will attach these to window to ensure access from HTML onclicks
 
         // --- MASTER PLAN GLOBAL ACTIONS ---
-        window.deleteAllPlans = async function () {
-          if (!confirm('ARE YOU SURE?\n\nThis will DELETE ALL PLANS from the board.\nThis action cannot be undone.')) return;
-          const key = prompt('Type "DELETE" to confirm clearing the board:');
-          if (key !== 'DELETE') return toast('Invalid confirmation', 'error');
-
-          try {
-            toast('Deleting all plans...');
-            const $api = (typeof api !== 'undefined') ? api : (window.JPSMS && window.JPSMS.api);
-
-            // Direct Backend Truncate for 100% Reliability
-            await $api.post('/planning/delete-all', {});
-
-            toast('ALL plans deleted');
-            loadMasterPlan();
-          } catch (e) {
-            console.error(e);
-            toast('Error deleting: ' + e.message, 'error');
-          }
-        };
-
         window.activatePlan = async function (id, orderNo) {
           if (!confirm(`Activate Plan for Order ${orderNo}?`)) return;
           try {
@@ -9479,15 +9400,6 @@
         _pjReapply();
         setTimeout(_pjReapply, 0);
         setTimeout(_pjReapply, 150);
-      }
-
-      // --- Admin-Only Enforcement (Delete All Button) - Post Render ---
-      if (window.JPSMS && window.JPSMS.auth) {
-        const u = window.JPSMS.auth.getUser();
-        if (u && ((window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isAdminLike && window.JPSMS.auth.isAdminLike(u)) || u.role_code === 'admin')) {
-          const btnDel = document.getElementById('btnDeleteAll');
-          if (btnDel) btnDel.style.display = 'inline-block';
-        }
       }
 
     });

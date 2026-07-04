@@ -1091,7 +1091,9 @@
           <div class="grid-2">
             <label>Date
               <!-- NEW: date change hook -->
-              <select id="d-date" onchange="onDateShiftChange()"></select>
+              <select id="d-date" onchange="onDatePickChange()"></select>
+              <!-- All-lines users only: back-date up to 30 days -->
+              <input type="date" id="d-date-custom" class="hidden" onchange="onCustomDatePick()" style="margin-top:6px">
             </label>
             <label>Shift
               <!-- Keep old logic + add new one -->
@@ -1427,7 +1429,7 @@
     </div>
   </div>
 
-  <script src="/assets/supervisor-script-1.js?v=release77"></script>
+  <script src="/assets/supervisor-script-1.js?v=release80"></script>
   <script src="/assets/register-sw.js?v=release65"></script>
   <script>
     // Colour picker panel helpers — defined here so onclick in HTML always finds them
