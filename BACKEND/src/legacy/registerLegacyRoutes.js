@@ -10597,6 +10597,9 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
         pb.our_code,
         COALESCE(pb.job_no, pb.batch_no) AS job_no,
         COALESCE(pb.job_qty, pb.batch_qty) AS job_qty,
+        pb.plan_qty,
+        pb.bal_qty,
+        pb.colour_details,
         pb.mould_name,
         pb.mould_code,
         pb.machine,
@@ -10619,6 +10622,15 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
       ourCode: p.our_code || '',
       jobNo: p.job_no != null ? Number(p.job_no) : null,
       jobQty: toNum(p.job_qty) ?? 0,
+      planQty: toNum(p.plan_qty) ?? 0,
+      balQty: toNum(p.bal_qty) ?? 0,
+      colourDetails: (() => {
+        try {
+          return Array.isArray(p.colour_details)
+            ? p.colour_details
+            : (typeof p.colour_details === 'string' ? JSON.parse(p.colour_details || '[]') : []);
+        } catch { return []; }
+      })(),
       mouldName: p.mould_name || p.mould_code || '-',
       mouldCode: p.mould_code || '',
       machine: p.machine || '-',
@@ -10697,6 +10709,87 @@ app.post('/api/planning/update', async (req, res) => {
   } catch (e) {
     console.error('planning/update', e);
     res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/planning/superadmin-edit
+// Superadmin-only correction of an already-created plan: fix wrong colour qty,
+// and adjust Plan Qty / Job Qty. Every edit is written to plan_audit_logs.
+// body: { rowId, planQty, jobQty, balQty, colourDetails: [{ colourName, planQty, batchQty, ... }] }
+app.post('/api/planning/superadmin-edit', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    const isSuper = actor && (isSuperadminRole(actor) || String(actor.username || '').toLowerCase() === 'superadmin');
+    if (!isSuper) {
+      return res.status(403).json({ ok: false, error: 'Only a superadmin can edit created plans.' });
+    }
+
+    const { rowId } = req.body || {};
+    if (!rowId) return res.json({ ok: false, error: 'Missing rowId' });
+
+    const existingRows = await q(
+      'SELECT plan_id, plan_qty, bal_qty, job_qty, batch_qty, colour_details FROM plan_board WHERE id = $1',
+      [rowId]
+    );
+    if (!existingRows.length) return res.json({ ok: false, error: 'Plan not found' });
+    const before = existingRows[0];
+
+    // Normalize incoming colour rows and derive totals from them when provided.
+    let colourDetails = null;
+    if (Array.isArray(req.body.colourDetails)) {
+      colourDetails = req.body.colourDetails.map((c) => ({
+        itemCode: c.itemCode || '',
+        itemName: c.itemName || '',
+        colourName: c.colourName || c.itemColour || c.colour || c.name || '-',
+        planQty: Math.max(0, toNum(c.planQty ?? c.qty) ?? 0),
+        batchQty: Math.max(0, toNum(c.batchQty ?? c.useQty) ?? 0),
+        consumptionRatioQty: toNum(c.consumptionRatioQty)
+      }));
+    }
+
+    const colourPlanSum = colourDetails ? colourDetails.reduce((s, c) => s + (c.planQty || 0), 0) : null;
+    const colourBatchSum = colourDetails ? colourDetails.reduce((s, c) => s + (c.batchQty || 0), 0) : null;
+
+    // Explicit overrides win; otherwise fall back to colour-row totals; otherwise keep existing.
+    const planQty = toNum(req.body.planQty) ?? colourPlanSum ?? null;
+    const jobQty = toNum(req.body.jobQty) ?? colourBatchSum ?? null;
+    const balQty = toNum(req.body.balQty) ?? (planQty != null ? planQty : null);
+
+    if (planQty != null && planQty < 0) return res.json({ ok: false, error: 'Plan Qty cannot be negative.' });
+    if (jobQty != null && jobQty < 0) return res.json({ ok: false, error: 'Job Qty cannot be negative.' });
+
+    await q(
+      `UPDATE plan_board
+         SET plan_qty       = COALESCE($2, plan_qty),
+             job_qty        = COALESCE($3, job_qty),
+             batch_qty      = COALESCE($3, batch_qty),
+             bal_qty        = COALESCE($4, bal_qty),
+             colour_details = COALESCE($5::jsonb, colour_details),
+             updated_at     = NOW()
+       WHERE id = $1`,
+      [rowId, planQty, jobQty, balQty, colourDetails ? JSON.stringify(colourDetails) : null]
+    );
+
+    await q(
+      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SUPERADMIN_EDIT', $2, $3)",
+      [
+        rowId,
+        JSON.stringify({
+          before: {
+            plan_qty: before.plan_qty, bal_qty: before.bal_qty,
+            job_qty: before.job_qty, batch_qty: before.batch_qty,
+            colour_details: before.colour_details
+          },
+          after: { plan_qty: planQty, job_qty: jobQty, bal_qty: balQty, colour_details: colourDetails }
+        }),
+        actor.username || 'superadmin'
+      ]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('planning/superadmin-edit', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
 
@@ -10810,31 +10903,6 @@ app.post('/api/planning/delete', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('planning/delete', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
-
-// POST /api/planning/delete-all  body: { user }
-app.post('/api/planning/delete-all', async (req, res) => {
-  try {
-    const { user } = req.body || {};
-    // Check authentication in real scenario.
-
-    // Log DELETE ALL
-    await q(
-      "INSERT INTO plan_audit_logs (action, details, user_name) VALUES ('DELETE_ALL', '{}', $1)",
-      [user || 'System']
-    );
-
-    // Delete All
-    await q('DELETE FROM plan_board');
-
-    // Reset ALL Orders to Pending (since no plans exist)
-    await q("UPDATE orders SET status='Pending' WHERE status='Plan Completed'");
-
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('planning/delete-all', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
@@ -11733,18 +11801,6 @@ app.post('/api/planning/start', async (req, res) => {
   }
 });
 
-// POST /api/planning/delete-all
-app.post('/api/planning/delete-all', async (req, res) => {
-  try {
-    // Truncate or Delete All
-    await q('DELETE FROM plan_board');
-    await q("INSERT INTO plan_audit_logs (action, details, user_name) VALUES ('DELETE_ALL', 'Board Cleared', 'Admin')");
-    res.json({ ok: true, message: 'All plans deleted' });
-  } catch (e) {
-    console.error('planning/delete-all', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // POST /api/planning/stop body: { rowId }
 app.post('/api/planning/stop', async (req, res) => {

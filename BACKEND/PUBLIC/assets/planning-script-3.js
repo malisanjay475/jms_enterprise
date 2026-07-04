@@ -362,36 +362,6 @@
 
     // Removed duplicate removePlan
 
-
-    window.deleteAllPlans = async function () {
-      const j = window.JPSMS;
-      if (!j || !j.api || !j.store) return;
-
-      const me = j.store.me || {};
-      // Strict Admin Check
-        if (!(window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isAdminLike && window.JPSMS.auth.isAdminLike(me))) {
-          alert('Access Denied: Admin or Superadmin only.');
-          return;
-        }
-
-      if (!confirm("⚠️ DANGER: This will DELETE ALL PLANS from the board.\n\nAre you sure you want to proceed?")) return;
-      if (!confirm("This action cannot be undone. Confirm delete all?")) return;
-
-      try {
-        const res = await j.api.post('/planning/delete-all', { user: me.name });
-        if (res && res.ok) {
-          j.toast('All Plans Deleted.', 'success');
-          if (typeof window.loadMasterPlan === 'function') window.loadMasterPlan();
-          else window.location.reload();
-        } else {
-          j.toast(res.error || 'Failed', 'error');
-        }
-      } catch (e) {
-        console.error(e);
-        j.toast(e.message, 'error');
-      }
-    };
-
     const waitForJmsShell = async (timeoutMs = 3000) => {
       const startedAt = Date.now();
       while (Date.now() - startedAt < timeoutMs) {
@@ -482,34 +452,6 @@
 
 
         const me = (store && store.me) || {};
-
-
-
-        window.deleteAllPlans = async function () {
-          if (!confirm('WARNING: ARE YOU SURE YOU WANT TO DELETE ALL PLANS?\n\nThis will wipe the entire planning board. This action cannot be undone.')) return;
-
-          const btn = document.getElementById('btnDeleteAll');
-          const oldTxt = btn.innerHTML;
-          btn.innerHTML = 'Deleting...'; btn.disabled = true;
-
-          try {
-            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-            const res = await api.post('/planning/delete-all', { user: 'Admin' });
-
-            if (res.ok || (res.data && res.data.ok)) {
-              if (typeof toast === 'function') toast('All Plans Deleted Successfully', 'success');
-              if (typeof loadMasterPlan === 'function') loadMasterPlan();
-              setTimeout(() => window.location.reload(), 500);
-            } else {
-              alert('Failed to delete all: ' + (res.error || 'Unknown Error'));
-            }
-          } catch (e) {
-            alert('Error: ' + e.message);
-          } finally {
-            btn.innerHTML = oldTxt; btn.disabled = false;
-          }
-        };
-
 
         // app.js renderShell now ensures #pageContent exists
         const root = document.getElementById("pageContent");
@@ -684,7 +626,6 @@
               <div class="master-toolbar-bottom">
                 <div class="master-toolbar-secondary">
                   <button class="btn" onclick="window.showAuditLog()" title="View Activity Log"><i class="bi bi-clock-history"></i> History</button>
-                  <button class="btn" id="btnDeleteAll" onclick="window.deleteAllPlans()" style="display:none; color:#ef4444; border-color:#ef4444; background:#fef2f2" title="Delete ALL Plans (Admin Only)"><i class="bi bi-trash"></i> Delete All</button>
                 </div>
               </div>
             </div>
@@ -1948,26 +1889,6 @@
         // We will attach these to window to ensure access from HTML onclicks
 
         // --- MASTER PLAN GLOBAL ACTIONS ---
-        window.deleteAllPlans = async function () {
-          if (!confirm('ARE YOU SURE?\n\nThis will DELETE ALL PLANS from the board.\nThis action cannot be undone.')) return;
-          const key = prompt('Type "DELETE" to confirm clearing the board:');
-          if (key !== 'DELETE') return toast('Invalid confirmation', 'error');
-
-          try {
-            toast('Deleting all plans...');
-            const $api = (typeof api !== 'undefined') ? api : (window.JPSMS && window.JPSMS.api);
-
-            // Direct Backend Truncate for 100% Reliability
-            await $api.post('/planning/delete-all', {});
-
-            toast('ALL plans deleted');
-            loadMasterPlan();
-          } catch (e) {
-            console.error(e);
-            toast('Error deleting: ' + e.message, 'error');
-          }
-        };
-
         window.activatePlan = async function (id, orderNo) {
           if (!confirm(`Activate Plan for Order ${orderNo}?`)) return;
           try {
@@ -3139,6 +3060,152 @@
           return String(value);
         }
 
+        /* Superadmin gate: real superadmin role, or the built-in `superadmin`
+           account (whose role_code is seeded as 'admin'). Matches server check. */
+        function isCpSuperadmin() {
+          try {
+            const u = window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.getUser ? window.JPSMS.auth.getUser() : null;
+            if (!u) return false;
+            const role = String(u.role_code || '').toLowerCase();
+            const name = String(u.username || '').toLowerCase();
+            return role === 'superadmin' || name === 'superadmin';
+          } catch (_) { return false; }
+        }
+
+        /* Superadmin-only: correct a created plan's colour qty and Plan/Job Qty. */
+        window.openSuperadminPlanEdit = function (rowId) {
+          if (!isCpSuperadmin()) { toast('Superadmin only.', 'error'); return; }
+          const p = (window.__cpPlanEditCache || {})[rowId];
+          if (!p) { toast('Plan data unavailable — reopen the order.', 'error'); return; }
+
+          const colours = Array.isArray(p.colourDetails) ? p.colourDetails.map((c) => ({
+            itemCode: c.itemCode || '',
+            itemName: c.itemName || '',
+            colourName: c.colourName || c.itemColour || c.colour || c.name || '-',
+            planQty: Number(c.planQty ?? c.qty ?? 0) || 0,
+            batchQty: Number(c.batchQty ?? c.useQty ?? 0) || 0,
+            consumptionRatioQty: c.consumptionRatioQty
+          })) : [];
+
+          const old = document.getElementById('spe-modal');
+          if (old) old.remove();
+
+          const colourRows = colours.length ? colours.map((c, i) => `
+            <tr>
+              <td style="padding:5px 6px; font-weight:700; font-size:0.8rem">${esc(c.colourName)}</td>
+              <td style="padding:5px 6px"><input type="number" min="0" step="1" class="form-control spe-col-plan" data-idx="${i}" value="${c.planQty}" style="width:100%; padding:4px 6px; font-size:0.82rem"></td>
+              <td style="padding:5px 6px"><input type="number" min="0" step="1" class="form-control spe-col-batch" data-idx="${i}" value="${c.batchQty}" style="width:100%; padding:4px 6px; font-size:0.82rem"></td>
+            </tr>`).join('') : `<tr><td colspan="3" style="padding:10px; text-align:center; color:#94a3b8; font-size:0.82rem">No colour breakup on this plan.</td></tr>`;
+
+          const host = document.createElement('div');
+          host.id = 'spe-modal';
+          host.style.cssText = 'position:fixed; inset:0; background:rgba(15,23,42,0.55); z-index:99999; display:flex; align-items:center; justify-content:center; padding:16px';
+          host.innerHTML = `
+            <div style="background:#fff; border-radius:14px; width:min(560px,100%); max-height:90vh; overflow:auto; box-shadow:0 20px 60px rgba(0,0,0,0.3)">
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #e2e8f0">
+                <div>
+                  <div style="font-size:1rem; font-weight:900; color:#0f172a"><i class="bi bi-shield-lock"></i> Superadmin — Edit Plan</div>
+                  <div style="font-size:0.72rem; color:#64748b; font-family:monospace">${esc(p.planId || '-')} · ${esc(p.mouldName || '-')} · ${esc(p.machine || '-')}</div>
+                </div>
+                <button type="button" onclick="document.getElementById('spe-modal').remove()" style="border:none; background:none; font-size:1.4rem; cursor:pointer; color:#64748b">&times;</button>
+              </div>
+              <div style="padding:16px">
+                <div style="font-size:0.66rem; color:#475569; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px">Colour Qty</div>
+                <table style="width:100%; border-collapse:collapse; margin-bottom:6px">
+                  <thead><tr style="background:#f8fafc">
+                    <th style="padding:5px 6px; text-align:left; font-size:0.66rem; color:#64748b; text-transform:uppercase">Colour</th>
+                    <th style="padding:5px 6px; text-align:left; font-size:0.66rem; color:#64748b; text-transform:uppercase">Plan Qty</th>
+                    <th style="padding:5px 6px; text-align:left; font-size:0.66rem; color:#64748b; text-transform:uppercase">Job Qty</th>
+                  </tr></thead>
+                  <tbody>${colourRows}</tbody>
+                </table>
+                <label style="display:flex; align-items:center; gap:6px; font-size:0.78rem; color:#334155; font-weight:700; margin:8px 0 14px">
+                  <input type="checkbox" id="spe-autosum" ${colours.length ? 'checked' : ''}> Auto-sum Plan/Job Qty from colour rows
+                </label>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+                  <div>
+                    <div style="font-size:0.66rem; color:#475569; font-weight:800; text-transform:uppercase; margin-bottom:4px">Plan Qty</div>
+                    <input type="number" min="0" step="1" id="spe-plan-qty" class="form-control" value="${Number(p.planQty ?? 0) || 0}" style="width:100%; padding:6px 8px">
+                  </div>
+                  <div>
+                    <div style="font-size:0.66rem; color:#475569; font-weight:800; text-transform:uppercase; margin-bottom:4px">Job Qty</div>
+                    <input type="number" min="0" step="1" id="spe-job-qty" class="form-control" value="${Number(p.jobQty ?? 0) || 0}" style="width:100%; padding:6px 8px">
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex; justify-content:flex-end; gap:8px; padding:12px 16px; border-top:1px solid #e2e8f0">
+                <button type="button" class="btn" onclick="document.getElementById('spe-modal').remove()">Cancel</button>
+                <button type="button" class="btn primary" id="spe-save"><i class="bi bi-check2-circle"></i> Save Changes</button>
+              </div>
+            </div>`;
+          host.addEventListener('click', (e) => { if (e.target === host) host.remove(); });
+          document.body.appendChild(host);
+
+          const planInput = host.querySelector('#spe-plan-qty');
+          const jobInput = host.querySelector('#spe-job-qty');
+          const autoSum = host.querySelector('#spe-autosum');
+          const recompute = () => {
+            if (!autoSum.checked) return;
+            let planSum = 0, batchSum = 0;
+            host.querySelectorAll('.spe-col-plan').forEach((el) => { planSum += Number(el.value) || 0; });
+            host.querySelectorAll('.spe-col-batch').forEach((el) => { batchSum += Number(el.value) || 0; });
+            planInput.value = planSum;
+            jobInput.value = batchSum;
+          };
+          host.querySelectorAll('.spe-col-plan, .spe-col-batch').forEach((el) => el.addEventListener('input', recompute));
+          autoSum.addEventListener('change', recompute);
+          const toggleManual = () => {
+            const dis = autoSum.checked && colours.length;
+            planInput.disabled = dis; jobInput.disabled = dis;
+          };
+          autoSum.addEventListener('change', toggleManual);
+          toggleManual();
+
+          host.querySelector('#spe-save').addEventListener('click', async () => {
+            const saveBtn = host.querySelector('#spe-save');
+            const colourDetails = colours.map((c, i) => ({
+              ...c,
+              planQty: Number(host.querySelector(`.spe-col-plan[data-idx="${i}"]`)?.value) || 0,
+              batchQty: Number(host.querySelector(`.spe-col-batch[data-idx="${i}"]`)?.value) || 0
+            }));
+            const payload = {
+              rowId,
+              planQty: Number(planInput.value) || 0,
+              jobQty: Number(jobInput.value) || 0,
+              balQty: Number(planInput.value) || 0,
+              colourDetails: colours.length ? colourDetails : undefined
+            };
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving…';
+            try {
+              const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+              const res = await api.post('/planning/superadmin-edit', payload);
+              const body = (res && res.data && typeof res.data === 'object') ? res.data : res;
+              if (body && body.ok === false) throw new Error(body.error || 'Save failed');
+              host.remove();
+              toast('Plan updated.', 'success');
+              refreshCpOrderDetail();
+            } catch (e) {
+              saveBtn.disabled = false;
+              saveBtn.innerHTML = '<i class="bi bi-check2-circle"></i> Save Changes';
+              toast('Failed to save: ' + (e && e.message ? e.message : e), 'error');
+            }
+          });
+        };
+
+        // Re-fetch and re-render the currently open Create-Plan order panel (used
+        // after a superadmin edit so the Created Plans list reflects new values).
+        function refreshCpOrderDetail() {
+          const ctx = window.__cpOpenOrderPanel;
+          if (!ctx || !ctx.panel || !ctx.order) return;
+          const panel = ctx.panel;
+          const el = panel.closest('.cp-order-item') || panel.parentElement;
+          if (!el) return;
+          panel.dataset.loaded = '0';
+          panel.style.display = 'none';
+          toggleCpOrderJobCards(ctx.order, el);
+        }
+
         function normalizeCpSearchText(value) {
           return String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
         }
@@ -3592,6 +3659,8 @@
         }
 
         function renderCpJobCards(panel, order, data, moulds) {
+          // Remember the currently-open order panel so a superadmin edit can refresh it.
+          window.__cpOpenOrderPanel = { panel, order };
           const balQty = Number(data.balQty || 0);
           const orQty = Number(data.orQty || 0);
           const plannedQty = Number(data.plannedQty || 0);
@@ -3637,17 +3706,25 @@
           // the OR leaves the pending list, so the user can see existing plans
           // (and any auto-linked Job Card) before creating more.
           const plansArr = Array.isArray(data.plans) ? data.plans : [];
+          const cpIsSuperadmin = isCpSuperadmin();
           let plansSection = '';
           if (plansArr.length) {
+            if (cpIsSuperadmin) {
+              window.__cpPlanEditCache = window.__cpPlanEditCache || {};
+              plansArr.forEach((p) => { if (p && p.id != null) window.__cpPlanEditCache[p.id] = p; });
+            }
             const planRows = plansArr.map((p) => {
               const jcBadge = p.jobCardNo
                 ? `<span class="tag small" style="background:#dcfce7; color:#15803d; border-color:#bbf7d0">JC ${esc(p.jobCardNo)}</span>`
                 : '<span class="tag small" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe">JC later</span>';
+              const editBtn = (cpIsSuperadmin && p.id != null)
+                ? `<button type="button" class="btn small" style="padding:2px 8px; font-size:0.66rem" onclick="event.stopPropagation(); window.openSuperadminPlanEdit(${Number(p.id)})"><i class="bi bi-pencil-square"></i> Edit</button>`
+                : '';
               return `
                 <div style="border:1px solid #e2e8f0; border-radius:11px; padding:9px 10px; margin-bottom:7px; background:#f8fafc">
                   <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px">
                     <div style="font-size:0.7rem; color:#64748b; font-weight:800; text-transform:uppercase; letter-spacing:0.05em">Job Plan ${p.jobNo != null ? esc(String(p.jobNo)) : '-'}</div>
-                    ${jcBadge}
+                    <div style="display:flex; align-items:center; gap:6px">${jcBadge}${editBtn}</div>
                   </div>
                   <div style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:6px">
                     <div><div style="font-size:0.6rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; font-weight:700">Plan ID</div><div style="font-size:0.74rem; color:#0f172a; font-weight:700; font-family:monospace; overflow-wrap:anywhere">${esc(p.planId || '-')}</div></div>
@@ -9323,15 +9400,6 @@
         _pjReapply();
         setTimeout(_pjReapply, 0);
         setTimeout(_pjReapply, 150);
-      }
-
-      // --- Admin-Only Enforcement (Delete All Button) - Post Render ---
-      if (window.JPSMS && window.JPSMS.auth) {
-        const u = window.JPSMS.auth.getUser();
-        if (u && ((window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isAdminLike && window.JPSMS.auth.isAdminLike(u)) || u.role_code === 'admin')) {
-          const btnDel = document.getElementById('btnDeleteAll');
-          if (btnDel) btnDel.style.display = 'inline-block';
-        }
       }
 
     });
