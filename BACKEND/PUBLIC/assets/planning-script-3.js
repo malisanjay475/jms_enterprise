@@ -3087,6 +3087,18 @@
             consumptionRatioQty: c.consumptionRatioQty
           })) : [];
 
+          // Ceiling context: Mould Item (Order) Qty is the hard cap. This plan can
+          // take up to OR Qty minus what OTHER plans already booked, but never below
+          // its own current qty (so an unchanged value never reads as "over limit").
+          const orQty = Number(p.__orQty) || 0;
+          const plannedTotal = Number(p.__plannedQty) || 0;
+          const thisJobQty = Number(p.jobQty) || 0;
+          const plannedOthers = Math.max(0, plannedTotal - thisJobQty);
+          const hasCap = orQty > 0;
+          const maxForThisPlan = hasCap ? Math.max(orQty - plannedOthers, thisJobQty) : Infinity;
+          // Plan Qty defaults to Job Qty when the stored value is 0/blank.
+          const planQtyDefault = Number(p.planQty) || Number(p.jobQty) || 0;
+
           const old = document.getElementById('spe-modal');
           if (old) old.remove();
 
@@ -3119,19 +3131,35 @@
                   </tr></thead>
                   <tbody>${colourRows}</tbody>
                 </table>
-                <label style="display:flex; align-items:center; gap:6px; font-size:0.78rem; color:#334155; font-weight:700; margin:8px 0 14px">
+                <label style="display:flex; align-items:center; gap:6px; font-size:0.78rem; color:#334155; font-weight:700; margin:8px 0 12px">
                   <input type="checkbox" id="spe-autosum" ${colours.length ? 'checked' : ''}> Auto-sum Plan/Job Qty from colour rows
                 </label>
+                ${hasCap ? `
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-bottom:12px">
+                  <div style="background:#f1f5f9; border-radius:8px; padding:6px 8px">
+                    <div style="font-size:0.6rem; color:#64748b; text-transform:uppercase; font-weight:800">Mould Item Qty</div>
+                    <div style="font-size:0.9rem; font-weight:900; color:#0f172a">${formatCpQty(orQty)}</div>
+                  </div>
+                  <div style="background:#f1f5f9; border-radius:8px; padding:6px 8px">
+                    <div style="font-size:0.6rem; color:#64748b; text-transform:uppercase; font-weight:800">Already Planned</div>
+                    <div style="font-size:0.9rem; font-weight:900; color:#0f172a">${formatCpQty(plannedOthers)}</div>
+                  </div>
+                  <div style="background:#ecfdf5; border-radius:8px; padding:6px 8px">
+                    <div style="font-size:0.6rem; color:#047857; text-transform:uppercase; font-weight:800">Max for this Plan</div>
+                    <div style="font-size:0.9rem; font-weight:900; color:#047857">${formatCpQty(maxForThisPlan)}</div>
+                  </div>
+                </div>` : ''}
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
                   <div>
                     <div style="font-size:0.66rem; color:#475569; font-weight:800; text-transform:uppercase; margin-bottom:4px">Plan Qty</div>
-                    <input type="number" min="0" step="1" id="spe-plan-qty" class="form-control" value="${Number(p.planQty ?? 0) || 0}" style="width:100%; padding:6px 8px">
+                    <input type="number" min="0" step="1" id="spe-plan-qty" class="form-control" value="${planQtyDefault}" style="width:100%; padding:6px 8px">
                   </div>
                   <div>
                     <div style="font-size:0.66rem; color:#475569; font-weight:800; text-transform:uppercase; margin-bottom:4px">Job Qty</div>
                     <input type="number" min="0" step="1" id="spe-job-qty" class="form-control" value="${Number(p.jobQty ?? 0) || 0}" style="width:100%; padding:6px 8px">
                   </div>
                 </div>
+                <div id="spe-warn" style="display:none; margin-top:10px; padding:8px 10px; background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:8px; font-size:0.74rem; font-weight:700"></div>
               </div>
               <div style="display:flex; justify-content:flex-end; gap:8px; padding:12px 16px; border-top:1px solid #e2e8f0">
                 <button type="button" class="btn" onclick="document.getElementById('spe-modal').remove()">Cancel</button>
@@ -3144,15 +3172,35 @@
           const planInput = host.querySelector('#spe-plan-qty');
           const jobInput = host.querySelector('#spe-job-qty');
           const autoSum = host.querySelector('#spe-autosum');
+          const warnEl = host.querySelector('#spe-warn');
+          const saveBtn = host.querySelector('#spe-save');
+          // Hard-block Save whenever Plan or Job Qty exceeds the Mould Item Qty ceiling.
+          const validate = () => {
+            const pv = Number(planInput.value) || 0;
+            const jv = Number(jobInput.value) || 0;
+            const over = hasCap && (pv > maxForThisPlan || jv > maxForThisPlan);
+            if (warnEl) {
+              warnEl.style.display = over ? 'block' : 'none';
+              warnEl.textContent = over
+                ? `Qty exceeds the limit. Max for this plan is ${formatCpQty(maxForThisPlan)} (Mould Item Qty ${formatCpQty(orQty)} − already planned ${formatCpQty(plannedOthers)}).`
+                : '';
+            }
+            saveBtn.disabled = over;
+            return !over;
+          };
           const recompute = () => {
-            if (!autoSum.checked) return;
-            let planSum = 0, batchSum = 0;
-            host.querySelectorAll('.spe-col-plan').forEach((el) => { planSum += Number(el.value) || 0; });
-            host.querySelectorAll('.spe-col-batch').forEach((el) => { batchSum += Number(el.value) || 0; });
-            planInput.value = planSum;
-            jobInput.value = batchSum;
+            if (autoSum.checked) {
+              let planSum = 0, batchSum = 0;
+              host.querySelectorAll('.spe-col-plan').forEach((el) => { planSum += Number(el.value) || 0; });
+              host.querySelectorAll('.spe-col-batch').forEach((el) => { batchSum += Number(el.value) || 0; });
+              planInput.value = planSum;
+              jobInput.value = batchSum;
+            }
+            validate();
           };
           host.querySelectorAll('.spe-col-plan, .spe-col-batch').forEach((el) => el.addEventListener('input', recompute));
+          planInput.addEventListener('input', validate);
+          jobInput.addEventListener('input', validate);
           autoSum.addEventListener('change', recompute);
           const toggleManual = () => {
             const dis = autoSum.checked && colours.length;
@@ -3160,9 +3208,10 @@
           };
           autoSum.addEventListener('change', toggleManual);
           toggleManual();
+          validate();
 
-          host.querySelector('#spe-save').addEventListener('click', async () => {
-            const saveBtn = host.querySelector('#spe-save');
+          saveBtn.addEventListener('click', async () => {
+            if (!validate()) { toast('Qty exceeds the allowed limit.', 'error'); return; }
             const colourDetails = colours.map((c, i) => ({
               ...c,
               planQty: Number(host.querySelector(`.spe-col-plan[data-idx="${i}"]`)?.value) || 0,
@@ -3711,7 +3760,16 @@
           if (plansArr.length) {
             if (cpIsSuperadmin) {
               window.__cpPlanEditCache = window.__cpPlanEditCache || {};
-              plansArr.forEach((p) => { if (p && p.id != null) window.__cpPlanEditCache[p.id] = p; });
+              plansArr.forEach((p) => {
+                if (p && p.id != null) {
+                  // Attach OR-level ceiling context so the edit modal can cap qty
+                  // at the Mould Item (Order) Qty and show already-planned totals.
+                  window.__cpPlanEditCache[p.id] = Object.assign({}, p, {
+                    __orQty: Number(data.orQty) || 0,
+                    __plannedQty: Number(data.plannedQty) || 0
+                  });
+                }
+              });
             }
             const planRows = plansArr.map((p) => {
               const jcBadge = p.jobCardNo
