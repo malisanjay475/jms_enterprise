@@ -63,6 +63,18 @@
             z-index: 10 !important;
             /* Ensure it glows on top */
         }
+
+        /* Fast blink — only the Bal Qty value blinks red when plan is met/exceeded (Bal <= 0) */
+        @keyframes bal-blink-text {
+            0%, 100% { opacity: 1; }
+            50%      { opacity: 0.15; }
+        }
+
+        .bal-blink {
+            animation: bal-blink-text 0.6s infinite;
+            color: #dc2626 !important;
+            font-weight: 800;
+        }
     </style>
 </head>
 
@@ -98,7 +110,7 @@
     </div>
 
     <script src="/assets/app.js"></script>
-  <script src="/assets/dpr-script-1.js?v=release64"></script>
+  <script src="/assets/dpr-script-1.js?v=release68"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"
