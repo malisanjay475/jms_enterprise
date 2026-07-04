@@ -46,7 +46,7 @@
             btn.style.color = active ? '#ffffff' : '#0f172a';
             btn.style.borderColor = active ? '#0284c7' : '#cbd5e1';
         });
-        dprSetText('modalJobScopeLabel', jobDetailState.mode === 'current' ? 'Current shift' : 'Overall job');
+        dprSetText('modalJobScopeLabel', jobDetailState.mode === 'current' ? 'Current shift' : 'Overall job (all dates)');
         if (jobDetailState.orderNo) fetchDetailedStats(jobDetailState.orderNo, jobDetailState.machine, jobDetailState.details || {});
     }
 
@@ -209,7 +209,7 @@
 
         // Show Modal
         document.getElementById('jobDetailModal').style.display = 'flex';
-        setJobDetailMode('current');
+        setJobDetailMode('overall');
     }
 
     async function loadJobQCEvidence(details) {
