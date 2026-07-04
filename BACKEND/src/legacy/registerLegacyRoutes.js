@@ -10814,31 +10814,6 @@ app.post('/api/planning/delete', async (req, res) => {
   }
 });
 
-// POST /api/planning/delete-all  body: { user }
-app.post('/api/planning/delete-all', async (req, res) => {
-  try {
-    const { user } = req.body || {};
-    // Check authentication in real scenario.
-
-    // Log DELETE ALL
-    await q(
-      "INSERT INTO plan_audit_logs (action, details, user_name) VALUES ('DELETE_ALL', '{}', $1)",
-      [user || 'System']
-    );
-
-    // Delete All
-    await q('DELETE FROM plan_board');
-
-    // Reset ALL Orders to Pending (since no plans exist)
-    await q("UPDATE orders SET status='Pending' WHERE status='Plan Completed'");
-
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('planning/delete-all', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
-
 // GET /api/planning/audit
 app.get('/api/planning/audit', async (req, res) => {
   try {
@@ -11733,18 +11708,6 @@ app.post('/api/planning/start', async (req, res) => {
   }
 });
 
-// POST /api/planning/delete-all
-app.post('/api/planning/delete-all', async (req, res) => {
-  try {
-    // Truncate or Delete All
-    await q('DELETE FROM plan_board');
-    await q("INSERT INTO plan_audit_logs (action, details, user_name) VALUES ('DELETE_ALL', 'Board Cleared', 'Admin')");
-    res.json({ ok: true, message: 'All plans deleted' });
-  } catch (e) {
-    console.error('planning/delete-all', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // POST /api/planning/stop body: { rowId }
 app.post('/api/planning/stop', async (req, res) => {
