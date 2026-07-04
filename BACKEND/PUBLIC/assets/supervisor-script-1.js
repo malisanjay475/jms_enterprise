@@ -188,7 +188,9 @@
         if (selDateEl && selShiftEl) {
           const manualDate = selDateEl.value;
           const manualShift = selShiftEl.value;
-          if (manualDate && manualShift) {
+          // Ignore the "Pick another date…" sentinel — it is not a real date and
+          // would parse to "Invalid Date" in the slot labels below.
+          if (manualDate && manualDate !== '__pick__' && manualShift) {
             // Current active shift is always the LAST entry in shifts[]
             const currentShift = shifts[shifts.length - 1];
             const isCurrentShift = currentShift &&
@@ -2845,7 +2847,17 @@
           custom.max = isoDate(today);
           custom.value = customDateChoice || isoDate(today);
           custom.classList.remove('hidden');
-          try { custom.showPicker ? custom.showPicker() : custom.focus(); } catch (_) { custom.focus(); }
+          // showPicker() throws if called before the just-unhidden input has been
+          // laid out (InvalidStateError on mobile). Defer one frame so the element
+          // is actually being rendered, then open the native calendar.
+          requestAnimationFrame(() => {
+            try {
+              if (typeof custom.showPicker === 'function') custom.showPicker();
+              else custom.focus();
+            } catch (_) {
+              custom.focus();
+            }
+          });
         }
         return; // wait for onCustomDatePick()
       }
