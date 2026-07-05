@@ -849,13 +849,23 @@
       selDate.add(new Option('Yesterday (' + fmtD(yest) + ')', isoDate(yest)));
 
       // All-lines users may back-date up to 30 days. Partial-line users only see Today/Yesterday.
+      const custom = el('d-date-custom');
       if (isAllLineAccess()) {
         // Re-attach a previously picked custom back-date so it survives shift/job changes.
         if (customDateChoice && customDateChoice !== isoDate(today) && customDateChoice !== isoDate(yest)) {
           const cd = new Date(customDateChoice + 'T00:00:00');
           selDate.add(new Option(fmtD(cd) + ' (picked)', customDateChoice));
         }
-        selDate.add(new Option('📅 Pick another date…', '__pick__'));
+        // Show the native date field inline (always visible). No sentinel option,
+        // no showPicker() dance — the supervisor just taps the field to back-date.
+        if (custom) {
+          const minD = new Date(today); minD.setDate(today.getDate() - 30);
+          custom.min = isoDate(minD);
+          custom.max = isoDate(today);
+          custom.classList.remove('hidden');
+        }
+      } else if (custom) {
+        custom.classList.add('hidden');
       }
 
       // Auto-select calculated date
@@ -2837,37 +2847,14 @@
     // otherwise behaves exactly like the normal date/shift change.
     function onDatePickChange() {
       const sel = el('d-date');
-      const custom = el('d-date-custom');
-      if (sel && sel.value === '__pick__') {
-        // Reveal native date input constrained to the last 30 days (all-lines users only).
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        const minD = new Date(today); minD.setDate(today.getDate() - 30);
-        if (custom) {
-          custom.min = isoDate(minD);
-          custom.max = isoDate(today);
-          custom.value = customDateChoice || isoDate(today);
-          custom.classList.remove('hidden');
-          // showPicker() throws if called before the just-unhidden input has been
-          // laid out (InvalidStateError on mobile). Defer one frame so the element
-          // is actually being rendered, then open the native calendar.
-          requestAnimationFrame(() => {
-            try {
-              if (typeof custom.showPicker === 'function') custom.showPicker();
-              else custom.focus();
-            } catch (_) {
-              custom.focus();
-            }
-          });
-        }
-        return; // wait for onCustomDatePick()
-      }
-      if (custom) custom.classList.add('hidden');
-      // User switched back to a normal option — drop any sticky custom back-date.
+      // User picked a quick option (Today / Yesterday / a previously-picked date).
+      // Drop any sticky custom back-date unless they re-selected it.
       if (sel && sel.value !== customDateChoice) customDateChoice = null;
       onDateShiftChange();
     }
 
-    // Wired to <input type="date" id="d-date-custom"> — commits an all-lines back-date pick.
+    // Wired to the inline <input type="date" id="d-date-custom"> — commits an
+    // all-lines back-date pick straight into the d-date <select>.
     function onCustomDatePick() {
       const custom = el('d-date-custom');
       const sel = el('d-date');
@@ -2878,25 +2865,20 @@
       const picked = new Date(custom.value + 'T00:00:00');
 
       // Guard: only allow the last 30 days (matches server enforcement).
-      if (picked > today || picked < minD) {
+      if (isNaN(picked.getTime()) || picked > today || picked < minD) {
         alert('You can only pick a date within the last 30 days.');
-        custom.value = customDateChoice || isoDate(today);
+        custom.value = customDateChoice || '';
         return;
       }
 
       customDateChoice = custom.value;
       // Inject/select the picked date as a real option so all el('d-date').value reads work.
       if (sel) {
-        for (let i = sel.options.length - 1; i >= 0; i--) {
-          if (sel.options[i].value === '__pick__') sel.remove(i);
-        }
         if (!hasOption(sel, customDateChoice)) {
           sel.add(new Option(fmtD(picked) + ' (picked)', customDateChoice));
         }
         sel.value = customDateChoice;
-        sel.add(new Option('📅 Pick another date…', '__pick__'));
       }
-      custom.classList.add('hidden');
       onDateShiftChange();
     }
 
