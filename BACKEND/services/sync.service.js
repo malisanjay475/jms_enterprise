@@ -263,6 +263,7 @@ const SYNC_SCHEMA_READY_VERSION = '2026-06-21-failed-row-outbox-v1';
 const DECONFLICT_TOKEN_COLUMNS = ['sync_id', 'global_id'];
 const tableColumnCache = new Map();
 const tableExistsCache = new Map();
+const dateColumnCache = new Map();
 
 function getDeterministicNotificationSyncIdSql(tableAlias = '') {
     const prefix = tableAlias ? `${tableAlias}.` : '';
@@ -508,7 +509,7 @@ router.get('/pull', async (req, res) => {
         if (!TABLES_TO_PULL.includes(table)) return res.status(400).json({ error: 'Invalid Table' });
 
         const rows = await getChanges(table, since || lastSync, factoryId);
-        res.json({ ok: true, data: rows });
+        res.json({ ok: true, data: await coerceDateColumnsForWire(table, rows) });
     } catch (e) {
         console.error('[Sync] Pull Serve Error:', e);
         res.status(500).json({ error: e.message });
@@ -874,7 +875,8 @@ async function runSyncCycle() {
 // POST a batch of rows to MAIN. Returns {ok, error} instead of throwing so
 // callers can decide whether to record the rows in the outbox.
 async function pushRowsToMain(table, rows) {
-    const payload = { factoryId: LOCAL_FACTORY_ID, table, data: rows, apiKey: API_KEY };
+    const wireRows = await coerceDateColumnsForWire(table, rows);
+    const payload = { factoryId: LOCAL_FACTORY_ID, table, data: wireRows, apiKey: API_KEY };
     try {
         const response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, {
             method: 'POST',
@@ -2020,6 +2022,65 @@ async function tableHasColumn(table, column) {
     `, [table, column]);
 
     return result.rows.length > 0;
+}
+
+async function getDateColumns(table) {
+    if (dateColumnCache.has(table)) return dateColumnCache.get(table);
+
+    let columns = new Set();
+    try {
+        const result = await pool.query(`
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = $1 AND data_type = 'date'
+        `, [table]);
+        columns = new Set(result.rows.map((row) => row.column_name));
+    } catch (e) {
+        console.warn(`[Sync] Could not read date columns for ${table}:`, e.message);
+    }
+    dateColumnCache.set(table, columns);
+    return columns;
+}
+
+function pad2(n) {
+    return String(n).padStart(2, '0');
+}
+
+// A DATE column carries no time-of-day, but the pg driver hands it back as a JS
+// Date at local midnight. JSON.stringify then emits a UTC *instant* — e.g. the
+// IST date 2026-07-05 becomes "2026-07-04T18:30:00.000Z". When the receiving
+// server's Postgres session runs a different timezone (Hostinger MAIN defaults to
+// UTC) it truncates that instant back to a DATE and lands one calendar day early,
+// so every synced dpr_date/plan date silently shifts −1 day. Sending the value as
+// a bare 'YYYY-MM-DD' string is timezone-immune: it inserts as the same day on any
+// session. Idempotent for values already in 'YYYY-MM-DD' form (drained outbox rows).
+function toWireDateString(value) {
+    if (value == null) return value;
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+// Rewrite DATE columns to bare 'YYYY-MM-DD' strings before a row crosses the sync
+// wire, so timezone differences between LOCAL and MAIN cannot shift the calendar day.
+// Only touches columns whose Postgres type is exactly `date` — timestamp/timestamptz
+// (e.g. updated_at) are left intact so watermark comparisons stay precise.
+async function coerceDateColumnsForWire(table, rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+    const dateCols = await getDateColumns(table);
+    if (dateCols.size === 0) return rows;
+
+    return rows.map((row) => {
+        let clone = null;
+        for (const col of dateCols) {
+            if (Object.prototype.hasOwnProperty.call(row, col) && row[col] != null) {
+                if (!clone) clone = { ...row };
+                clone[col] = toWireDateString(row[col]);
+            }
+        }
+        return clone || row;
+    });
 }
 
 async function getCachedPendingChanges() {
