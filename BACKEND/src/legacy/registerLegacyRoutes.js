@@ -8721,7 +8721,10 @@ app.get('/api/planning/board', async (req, res) => {
 
     if (factoryId) {
       params.push(factoryId);
-      where += ` AND pb.factory_id = $${params.length}`;
+      // NULL factory_id means "unassigned / legacy / global" — keep it visible, matching
+      // the sibling queries (machine join below, bulk-approve). A strict equality here
+      // silently hides plans created before factory_id existed or imported without one.
+      where += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
     }
 
     if (date) {
