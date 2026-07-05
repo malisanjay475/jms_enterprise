@@ -1,0 +1,131 @@
+{
+  "_guide": {
+    "purpose": "Drives the in-app 'What's New' popup. After every release, add a new object at the TOP of `versions`.",
+    "rules": [
+      "1. `version` must match BACKEND/package.json version (semver MAJOR.MINOR.PATCH).",
+      "2. Bump PATCH (1.0.7 -> 1.0.8) for bug fixes, PERF, security. Bump MINOR (1.0.x -> 1.1.0) for new features. Bump MAJOR (1.x -> 2.0.0) for breaking changes.",
+      "3. Every change is tagged to a module via `app`. The popup only shows a module to users who have access to it.",
+      "4. `app` must be a valid id from APP_ACCESS_CONFIG in assets/app.js (dpr, planning, quality, hr, masters, purchase, supervisor_app, ...). Use app: 'all' for platform-wide notes (performance, security, login) that everyone should see.",
+      "5. `type` is one of: feat | fix | perf | security | improvement. It renders as a coloured pill.",
+      "6. Keep each change one clear sentence written for a factory user, not a developer. No commit hashes.",
+      "7. `date` is the release date in YYYY-MM-DD."
+    ]
+  },
+  "latest": "1.1.0",
+  "versions": [
+    {
+      "version": "1.1.0",
+      "date": "2026-07-05",
+      "title": "What's New notifications",
+      "summary": "The app now tells you exactly what changed after every update — tailored to the modules you use.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "System",
+          "icon": "bi-stars",
+          "changes": [
+            { "type": "feat", "text": "After every update, a 'What's New' popup shows the changes for the modules you have access to." },
+            { "type": "feat", "text": "Click the version number at the bottom of the sidebar any time to re-read the latest release notes." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.0.7",
+      "date": "2026-07-05",
+      "title": "Stability & Quality",
+      "summary": "Fixes across the Daily Production Report and Quality modules, plus a supervisor entry fix.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "fix", "text": "Fixed the Daily Production Report crashing and showing a blank page." },
+            { "type": "fix", "text": "Corrected reports that were showing zero target and zero efficiency." },
+            { "type": "fix", "text": "Compliance View filter now correctly includes machines stopped for MP Shortage, Maintenance and other downtime reasons." }
+          ]
+        },
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-check-circle-fill",
+          "changes": [
+            { "type": "fix", "text": "Fixed First Piece Approval (FPA) images not displaying." },
+            { "type": "feat", "text": "Added new panels to the Quality Dashboard for a clearer at-a-glance view." },
+            { "type": "improvement", "text": "Cleaned up unused screens for a faster, tidier module." }
+          ]
+        },
+        {
+          "app": "supervisor_app",
+          "label": "Moulding Supervisor App",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "fix", "text": "Stopped the quick-action auto-fill from carrying forward after you make a manual Main entry." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.0.6",
+      "date": "2026-05-29",
+      "title": "Planning & Supervisor upgrades",
+      "summary": "New Planning tools, a redesigned supervisor entry experience, and automatic factory-server updates.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-calendar-week",
+          "changes": [
+            { "type": "feat", "text": "Added a High Priority Job Sheet to the Planning Board." }
+          ]
+        },
+        {
+          "app": "supervisor_app",
+          "label": "Moulding Supervisor App",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "feat", "text": "New Recent Slots panel to quickly reopen your recent entries." },
+            { "type": "improvement", "text": "Redesigned entry cards with clearer type badges and better layout on mobile." },
+            { "type": "fix", "text": "Fixed reject/downtime chips and the header Line chip overflowing on small screens." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "System",
+          "icon": "bi-cloud-arrow-down",
+          "changes": [
+            { "type": "feat", "text": "Factory local servers now update themselves automatically from the main server." },
+            { "type": "feat", "text": "New Activity Monitor shows real-time user activity across all JMS Ocean apps." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.0.5",
+      "date": "2026-05-10",
+      "title": "Performance & QC redesign",
+      "summary": "A major speed-up across the platform and a refreshed Quality Control experience.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "System",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "perf", "text": "Made pages load noticeably faster by fixing slow database queries and adding indexes on hot paths." },
+            { "type": "security", "text": "Hardened session handling with secure random session IDs." }
+          ]
+        },
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-check-circle-fill",
+          "changes": [
+            { "type": "feat", "text": "Redesigned QC with compact cards, a machine-sorted queue, and a mandatory FPA -> Setup -> QC flow." },
+            { "type": "improvement", "text": "Added an image gallery and verify-from-queue for faster inspections." }
+          ]
+        }
+      ]
+    }
+  ]
+}
