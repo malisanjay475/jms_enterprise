@@ -169,7 +169,7 @@ const CONFLICT_KEYS = {
     shift_teams: 'line, shift_date, shift',
     closed_plants: 'factory_id, dpr_date, plant, shift',
     machine_audit_logs: 'sync_id',
-    notifications: 'sync_id',
+    notifications: 'target_user, type, title, created_at',
     order_completion_history: 'factory_id, order_no, action_type, changed_at',
     raw_material_issues: 'factory_id, plan_id, created_at',
     wip_stock_movements: 'factory_id, source_type, source_ref, movement_type, created_at',
