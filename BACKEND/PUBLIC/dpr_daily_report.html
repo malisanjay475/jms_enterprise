@@ -3,339 +3,300 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Daily Summary Report - JMS OCEAN</title>
+    <title>Daily Production Report · JMS OCEAN</title>
     <link href="/assets/vendor/fonts/g-5710dd5f5b.css" rel="stylesheet">
     <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
     <link rel="stylesheet" href="/assets/app.css">
     <script src="/assets/vendor/jsdelivr/chart.js"></script>
     <script src="/assets/vendor/jsdelivr/chartjs-plugin-datalabels@2.0.0"></script>
     <style>
-        /* ── KPI Cards ── */
-        .kpi-strip {
-            display: grid;
-            grid-template-columns: repeat(6, 1fr);
-            gap: 10px;
-            margin-bottom: 14px;
+        :root {
+            --brand-a: #0f8ea8;
+            --brand-b: #024c81;
+            --ink: #0f172a;
+            --muted: #64748b;
+            --line: #e2e8f0;
+            --bg: #f1f5f9;
+            --good: #16a34a;
+            --blue: #3b82f6;
+            --amber: #f59e0b;
+            --red: #ef4444;
+            --purple: #8b5cf6;
+            --card-shadow: 0 1px 2px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.18);
         }
-        .kpi-card {
-            background: #fff;
-            border-radius: 12px;
-            padding: 12px 14px;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-            border-left: 4px solid #e2e8f0;
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-            transition: transform .15s;
-        }
-        .kpi-card:hover { transform: translateY(-2px); }
-        .kpi-card.green  { border-left-color: #22c55e; }
-        .kpi-card.blue   { border-left-color: #3b82f6; }
-        .kpi-card.amber  { border-left-color: #f59e0b; }
-        .kpi-card.red    { border-left-color: #ef4444; }
-        .kpi-card.purple { border-left-color: #8b5cf6; }
-        .kpi-card.slate  { border-left-color: #64748b; }
-        .kpi-label {
-            font-size: 0.62rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: .6px;
-            color: #94a3b8;
-        }
-        .kpi-value {
-            font-size: 1.45rem;
-            font-weight: 900;
-            color: #0f172a;
-            line-height: 1.1;
-        }
-        .kpi-unit { font-size: 0.7rem; font-weight: 600; color: #94a3b8; }
-        .kpi-sub  { font-size: 0.65rem; color: #64748b; margin-top: 2px; }
+        body { background: var(--bg); }
+        .dpr-report { padding: 4px 2px 40px; }
 
-        /* ── Controls bar ── */
-        .ctrl-bar {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background: #fff;
-            padding: 10px 14px;
-            border-radius: 12px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-            margin-bottom: 12px;
-            flex-wrap: wrap;
-        }
-        .ctrl-bar .page-title { font-size: 1rem; font-weight: 800; color: #0f172a; white-space: nowrap; }
-        .ctrl-bar .sep { flex: 1; }
-        .process-btn {
-            padding: 6px 14px;
-            border-radius: 20px;
-            border: 1.5px solid rgba(148,163,184,.4);
-            background: #fff;
-            color: #334155;
-            font-size: 0.82rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all .15s;
-        }
-        .process-btn.active {
-            background: linear-gradient(135deg,#0f8ea8,#024c81);
+        /* ── Hero / control bar ── */
+        .hero {
+            background: linear-gradient(135deg, var(--brand-b) 0%, var(--brand-a) 100%);
+            border-radius: 18px;
+            padding: 16px 20px;
             color: #fff;
-            border-color: transparent;
-            box-shadow: 0 4px 12px rgba(2,76,129,.25);
+            box-shadow: 0 12px 30px -14px rgba(2,76,129,.55);
+            margin-bottom: 14px;
+            position: relative;
+            overflow: hidden;
         }
+        .hero::after {
+            content: "";
+            position: absolute; right: -60px; top: -60px;
+            width: 200px; height: 200px; border-radius: 50%;
+            background: rgba(255,255,255,.08);
+        }
+        .hero-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; position: relative; z-index: 1; }
+        .hero-title { font-size: 1.15rem; font-weight: 900; letter-spacing: .2px; display: flex; align-items: center; gap: 10px; }
+        .hero-title i { font-size: 1.4rem; opacity: .95; }
+        .hero-sub { font-size: .72rem; font-weight: 600; opacity: .85; margin-top: 2px; }
+        .hero-sep { flex: 1; }
+        .hero .field label { display: block; font-size: .58rem; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; opacity: .8; margin-bottom: 3px; }
+        .hero input[type=date] {
+            border: none; border-radius: 10px; padding: 8px 10px; font-weight: 800; color: var(--ink);
+            font-size: .85rem; box-shadow: 0 2px 6px rgba(0,0,0,.15);
+        }
+        .hero-actions { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+        .btn-glass {
+            background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.35);
+            color: #fff; padding: 8px 14px; border-radius: 10px; font-weight: 800; font-size: .82rem;
+            cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .15s, transform .1s;
+        }
+        .btn-glass:hover { background: rgba(255,255,255,.28); }
+        .btn-glass:active { transform: translateY(1px); }
+        .btn-solid {
+            background: #fff; color: var(--brand-b); padding: 8px 16px; border-radius: 10px; border: none;
+            font-weight: 900; font-size: .82rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,.18); transition: transform .1s;
+        }
+        .btn-solid:active { transform: translateY(1px); }
+
+        .hero-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; position: relative; z-index: 1; }
+        .process-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+        .process-btn {
+            padding: 6px 14px; border-radius: 20px; border: 1.5px solid rgba(255,255,255,.35);
+            background: rgba(255,255,255,.1); color: #fff; font-size: .8rem; font-weight: 800; cursor: pointer; transition: all .15s;
+        }
+        .process-btn.active { background: #fff; color: var(--brand-b); border-color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+        .gen-badge { font-size: .68rem; font-weight: 600; opacity: .85; display: inline-flex; align-items: center; gap: 5px; }
+        .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 0 0 rgba(74,222,128,.6); animation: pulse 2s infinite; }
+        @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(74,222,128,.6)} 70%{box-shadow:0 0 0 8px rgba(74,222,128,0)} 100%{box-shadow:0 0 0 0 rgba(74,222,128,0)} }
+
+        /* ── KPI cards ── */
+        .kpi-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 14px; }
+        .kpi-card {
+            background: #fff; border-radius: 16px; padding: 14px 16px; box-shadow: var(--card-shadow);
+            position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 4px;
+            border: 1px solid #eef2f7; transition: transform .15s, box-shadow .15s;
+        }
+        .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 16px 32px -16px rgba(15,23,42,.3); }
+        .kpi-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: var(--accent, #cbd5e1); }
+        .kpi-card.green  { --accent: linear-gradient(90deg,#22c55e,#16a34a); }
+        .kpi-card.blue   { --accent: linear-gradient(90deg,#60a5fa,#3b82f6); }
+        .kpi-card.amber  { --accent: linear-gradient(90deg,#fbbf24,#f59e0b); }
+        .kpi-card.red    { --accent: linear-gradient(90deg,#f87171,#ef4444); }
+        .kpi-card.purple { --accent: linear-gradient(90deg,#a78bfa,#8b5cf6); }
+        .kpi-head { display: flex; align-items: center; justify-content: space-between; }
+        .kpi-icon { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-size: .95rem; color: #fff; background: var(--accent, #94a3b8); }
+        .kpi-label { font-size: .6rem; font-weight: 800; text-transform: uppercase; letter-spacing: .7px; color: #94a3b8; }
+        .kpi-value { font-size: 1.55rem; font-weight: 900; color: var(--ink); line-height: 1.05; margin-top: 2px; }
+        .kpi-value small { font-size: .72rem; font-weight: 700; color: #94a3b8; }
+        .kpi-sub { font-size: .66rem; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+        .trend-up { color: var(--good); } .trend-down { color: var(--red); }
+
+        /* ── Insights ribbon ── */
+        .insights { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+        .insight-chip {
+            background: #fff; border: 1px solid #eef2f7; border-radius: 12px; padding: 9px 14px;
+            display: flex; align-items: center; gap: 10px; box-shadow: var(--card-shadow); flex: 1; min-width: 200px;
+        }
+        .insight-chip .ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-size: 1rem; color: #fff; flex-shrink: 0; }
+        .insight-chip .lbl { font-size: .6rem; font-weight: 800; text-transform: uppercase; letter-spacing: .6px; color: #94a3b8; }
+        .insight-chip .val { font-size: .9rem; font-weight: 800; color: var(--ink); line-height: 1.1; }
+        .insight-chip .val span { font-size: .72rem; font-weight: 700; color: var(--muted); }
 
         /* ── Charts ── */
-        .charts-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 14px;
-        }
-        .chart-card {
-            background: #fff;
-            border-radius: 12px;
-            padding: 12px 14px;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.07);
-            border: 1px solid #f1f5f9;
-        }
-        .chart-ttl {
-            font-size: 0.75rem;
-            font-weight: 800;
-            color: #334155;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
+        .charts-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+        .chart-card { background: #fff; border-radius: 16px; padding: 14px 16px; box-shadow: var(--card-shadow); border: 1px solid #eef2f7; }
+        .chart-ttl { font-size: .74rem; font-weight: 800; color: #334155; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
 
-        /* ── Table ── */
-        .grid-wrap {
-            background: #fff;
-            border-radius: 12px;
-            box-shadow: 0 1px 6px rgba(0,0,0,0.08);
-            overflow-x: auto;
-            margin-bottom: 16px;
-        }
-        .dpr-table {
-            width: 100%;
-            table-layout: auto;
-            border-collapse: collapse;
-            font-size: 0.76rem;
-            text-align: center;
-        }
-        .dpr-table th, .dpr-table td {
-            border: 1px solid #e2e8f0;
-            padding: 5px 4px;
-            white-space: nowrap;
-        }
-        .dpr-table thead th {
-            background: #f8fafc;
-            font-weight: 700;
-            color: #334155;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-        /* Sticky metric col */
-        .dpr-table td.metric-col,
-        .dpr-table th.metric-col {
-            position: sticky;
-            left: 0;
-            background: #f8fafc;
-            text-align: left;
-            font-weight: 700;
-            z-index: 15;
-            border-right: 2px solid #cbd5e1;
-            box-shadow: 2px 0 4px rgba(0,0,0,0.04);
-            min-width: 170px;
-            max-width: 200px;
-            white-space: normal;
+        /* ── Section card + view toggle ── */
+        .panel { background: #fff; border-radius: 16px; box-shadow: var(--card-shadow); border: 1px solid #eef2f7; margin-bottom: 16px; overflow: hidden; }
+        .panel-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+        .panel-title { font-size: .9rem; font-weight: 800; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+        .seg { display: inline-flex; background: var(--bg); border-radius: 10px; padding: 3px; gap: 2px; }
+        .seg button { border: none; background: transparent; padding: 6px 14px; border-radius: 8px; font-size: .78rem; font-weight: 800; color: var(--muted); cursor: pointer; }
+        .seg button.active { background: #fff; color: var(--brand-b); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+
+        /* ── Matrix table ── */
+        .grid-wrap { overflow-x: auto; }
+        .dpr-table { width: 100%; border-collapse: collapse; font-size: .76rem; text-align: center; }
+        .dpr-table th, .dpr-table td { border: 1px solid var(--line); padding: 6px 5px; white-space: nowrap; }
+        .dpr-table thead th { background: #f8fafc; font-weight: 800; color: #334155; position: sticky; top: 0; z-index: 10; }
+        .dpr-table td.metric-col, .dpr-table th.metric-col {
+            position: sticky; left: 0; background: #f8fafc; text-align: left; font-weight: 700; z-index: 15;
+            border-right: 2px solid #cbd5e1; box-shadow: 2px 0 4px rgba(0,0,0,.04); min-width: 190px; max-width: 220px; white-space: normal;
         }
         .dpr-table thead th.metric-col { z-index: 20; }
-
-        /* Shift header colours */
         .sh-day   { background: #fffbeb !important; color: #92400e !important; border-bottom: 2px solid #f59e0b !important; }
         .sh-night { background: #eef2ff !important; color: #3730a3 !important; border-bottom: 2px solid #6366f1 !important; }
         .sh-total { background: #f0fdf4 !important; color: #14532d !important; border-bottom: 2px solid #22c55e !important; }
-        .sh-dark  { background: #0f172a !important; color: #f8fafc !important; }
-
-        /* Group header rows */
-        .grp-row td {
-            background: #f1f5f9 !important;
-            font-size: 0.68rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: .8px;
-            color: #475569;
-            padding: 4px 6px;
-        }
+        .sh-dark  { background: linear-gradient(135deg,#1e293b,#0f172a) !important; color: #f8fafc !important; }
+        .grp-row td { background: #f1f5f9 !important; font-size: .66rem; font-weight: 800; text-transform: uppercase; letter-spacing: .8px; color: #475569; padding: 5px 8px; }
         .grp-row td.metric-col { background: #e2e8f0 !important; }
-
-        /* Data rows */
         .dpr-table tbody tr:not(.grp-row):hover td { background: #f8fafc !important; }
         .dpr-table tbody tr:not(.grp-row):hover td.metric-col { background: #f1f5f9 !important; }
-
-        /* Total cols */
-        .td-day-total   { background: #fffdf0 !important; font-weight: 700; }
+        .td-day-total { background: #fffdf0 !important; font-weight: 700; }
         .td-night-total { background: #f5f3ff !important; font-weight: 700; }
         .td-grand-total { background: #dcfce7 !important; font-weight: 900; color: #14532d !important; }
+        .eff-good { color: #16a34a !important; font-weight: 800; } .eff-mid { color: #d97706 !important; font-weight: 800; }
+        .eff-bad { color: #dc2626 !important; font-weight: 800; } .val-zero { color: #cbd5e1 !important; }
+        .drill-link { cursor: pointer; text-decoration: underline dotted; }
 
-        /* Efficiency colour coding */
-        .eff-good  { color: #16a34a !important; font-weight: 800; }
-        .eff-mid   { color: #d97706 !important; font-weight: 800; }
-        .eff-bad   { color: #dc2626 !important; font-weight: 800; }
-        .rej-high  { color: #dc2626 !important; font-weight: 700; }
-        .val-zero  { color: #cbd5e1 !important; }
+        /* ── Machine list view ── */
+        .mc-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+        .mc-table thead th { background: #f8fafc; padding: 9px 12px; text-align: right; font-weight: 800; color: #475569; border-bottom: 2px solid var(--line); font-size: .7rem; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; user-select: none; white-space: nowrap; }
+        .mc-table thead th.txt { text-align: left; }
+        .mc-table thead th .arw { opacity: .4; font-size: .65rem; }
+        .mc-table thead th.sorted .arw { opacity: 1; color: var(--brand-a); }
+        .mc-table td { padding: 8px 12px; text-align: right; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
+        .mc-table td.txt { text-align: left; }
+        .mc-table tbody tr:hover { background: #f8fafc; }
+        .mc-name { font-weight: 800; color: var(--ink); }
+        .mc-sub { font-size: .68rem; color: var(--muted); }
+        .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .68rem; font-weight: 800; }
+        .pill.g { background: #dcfce7; color: #166534; } .pill.a { background: #fef3c7; color: #92400e; } .pill.r { background: #fee2e2; color: #991b1b; } .pill.z { background: #f1f5f9; color: #94a3b8; }
+        .bar-mini { height: 6px; border-radius: 999px; background: #e2e8f0; overflow: hidden; min-width: 60px; display: inline-block; vertical-align: middle; }
+        .bar-mini > i { display: block; height: 100%; border-radius: 999px; }
 
-        /* Drilldown modal */
-        .drill-modal-overlay {
-            position: fixed; top:0; left:0; right:0; bottom:0;
-            background: rgba(15,23,42,.82);
-            z-index: 9999;
-            display: flex; align-items: center; justify-content: center;
-            backdrop-filter: blur(4px);
-        }
-        .drill-modal-box {
-            background: #fff;
-            border-radius: 16px;
-            width: 860px;
-            max-width: 96vw;
-            max-height: 88vh;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 25px 60px rgba(0,0,0,.45);
-        }
-        .drill-modal-head {
-            padding: 14px 18px;
-            border-bottom: 1px solid #e2e8f0;
-            background: #f8fafc;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+        /* ── Drilldown modal ── */
+        .drill-modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.82); z-index: 9999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+        .drill-modal-box { background: #fff; border-radius: 16px; width: 880px; max-width: 96vw; max-height: 88vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 25px 60px rgba(0,0,0,.45); }
+        .drill-modal-head { padding: 14px 18px; border-bottom: 1px solid var(--line); background: #f8fafc; display: flex; justify-content: space-between; align-items: center; }
         .drill-modal-body { padding: 0; overflow-y: auto; flex: 1; }
-        .drill-table { width: 100%; border-collapse: collapse; font-size: 0.79rem; }
-        .drill-table th { background: #f1f5f9; padding: 8px 10px; text-align: left; font-weight: 700; color: #334155; border-bottom: 2px solid #e2e8f0; position: sticky; top: 0; }
+        .drill-table { width: 100%; border-collapse: collapse; font-size: .79rem; }
+        .drill-table th { background: #f1f5f9; padding: 8px 10px; text-align: left; font-weight: 700; color: #334155; border-bottom: 2px solid var(--line); position: sticky; top: 0; }
         .drill-table td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
         .drill-table tr:hover td { background: #f8fafc; }
 
-        /* Empty state */
-        .empty-state {
-            padding: 48px 20px;
-            text-align: center;
-            color: #94a3b8;
-        }
-        .empty-state i { font-size: 2.5rem; display: block; margin-bottom: 10px; opacity: .4; }
+        .empty-state { padding: 54px 20px; text-align: center; color: #94a3b8; }
+        .empty-state i { font-size: 2.6rem; display: block; margin-bottom: 12px; opacity: .4; }
 
-        /* Last-gen badge */
-        #last-gen-badge {
-            font-size: 0.65rem;
-            color: #94a3b8;
-            font-weight: 500;
-        }
-
-        /* Print */
         @media print {
-            .ctrl-bar, .no-print { display: none !important; }
-            .kpi-strip { grid-template-columns: repeat(6,1fr); }
+            .no-print, .hero-actions, .seg, .process-pills { display: none !important; }
+            .hero { background: #fff !important; color: #000 !important; box-shadow: none; border: 1px solid #ccc; }
+            .hero-title, .hero-sub, .gen-badge { color: #000 !important; }
             .charts-row { display: none; }
-            .grid-wrap { box-shadow: none; border: 1px solid #e2e8f0; }
+            .kpi-strip { grid-template-columns: repeat(6,1fr); }
+            .panel, .kpi-card, .insight-chip { box-shadow: none; border: 1px solid #ddd; }
             body { font-size: 11px; }
         }
-
-        /* Responsive */
-        @media (max-width: 900px) {
-            .kpi-strip { grid-template-columns: repeat(3,1fr); }
-            .charts-row { grid-template-columns: 1fr; }
-        }
+        @media (max-width: 1100px) { .kpi-strip { grid-template-columns: repeat(3,1fr); } .insights .insight-chip { min-width: 45%; } }
+        @media (max-width: 900px) { .charts-row { grid-template-columns: 1fr; } }
+        @media (max-width: 640px) { .kpi-strip { grid-template-columns: repeat(2,1fr); } }
     </style>
 </head>
 <body>
 <div class="main-content">
-    <div class="header">
-        <h2 class="page-title"><i class="bi bi-bar-chart-fill"></i> DPR Daily Summary Report</h2>
-    </div>
+    <div class="dpr-report">
 
-    <div class="content-body" style="padding-top:12px">
-
-        <!-- Controls -->
-        <div class="ctrl-bar no-print">
-            <span class="page-title"><i class="bi bi-calendar3" style="color:#3b82f6; margin-right:6px"></i>Daily Factory Operations</span>
-            <input type="date" id="report-date" class="form-control" style="width:auto; font-weight:700;">
-            <div id="report-process" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
-            <span class="sep"></span>
-            <span id="last-gen-badge"></span>
-            <button class="btn btn-primary" onclick="generateReport()" style="font-weight:800; gap:6px; display:flex; align-items:center">
-                <i class="bi bi-magic"></i> Generate
-            </button>
-            <button class="btn btn-outline" onclick="window.print()" style="gap:6px; display:flex; align-items:center">
-                <i class="bi bi-printer"></i> Print
-            </button>
+        <!-- ── Hero / Controls ── -->
+        <div class="hero">
+            <div class="hero-top">
+                <div>
+                    <div class="hero-title"><i class="bi bi-clipboard2-data-fill"></i> Daily Production Report</div>
+                    <div class="hero-sub" id="hero-date-label">Select a date to generate the report</div>
+                </div>
+                <div class="hero-sep"></div>
+                <div class="field no-print">
+                    <label>Report Date</label>
+                    <input type="date" id="report-date">
+                </div>
+                <div class="hero-actions no-print">
+                    <button class="btn-solid" onclick="generateReport()"><i class="bi bi-arrow-repeat"></i> Generate</button>
+                    <button class="btn-glass" onclick="exportCSV()"><i class="bi bi-filetype-csv"></i> Export</button>
+                    <button class="btn-glass" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>
+                </div>
+            </div>
+            <div class="hero-meta">
+                <div class="process-pills" id="report-process"></div>
+                <div class="hero-sep"></div>
+                <span class="gen-badge" id="last-gen-badge"></span>
+            </div>
         </div>
 
-        <!-- KPI Strip -->
+        <!-- ── KPI Strip ── -->
         <div class="kpi-strip" id="kpi-strip" style="display:none">
             <div class="kpi-card blue">
-                <div class="kpi-label"><i class="bi bi-bullseye"></i> Target</div>
+                <div class="kpi-head"><span class="kpi-label">Target</span><span class="kpi-icon"><i class="bi bi-bullseye"></i></span></div>
                 <div class="kpi-value" id="kpi-target">—</div>
-                <div class="kpi-unit">Kg &nbsp;<span id="kpi-target-pcs" class="kpi-sub"></span></div>
+                <div class="kpi-sub"><span id="kpi-target-sub">Kg planned output</span></div>
             </div>
             <div class="kpi-card green">
-                <div class="kpi-label"><i class="bi bi-box-fill"></i> Actual Tonnage</div>
+                <div class="kpi-head"><span class="kpi-label">Actual Good</span><span class="kpi-icon"><i class="bi bi-box-seam-fill"></i></span></div>
                 <div class="kpi-value" id="kpi-actual">—</div>
-                <div class="kpi-unit">Kg</div>
                 <div class="kpi-sub" id="kpi-actual-sub"></div>
             </div>
             <div class="kpi-card" id="kpi-eff-card">
-                <div class="kpi-label"><i class="bi bi-speedometer2"></i> Efficiency</div>
+                <div class="kpi-head"><span class="kpi-label">Efficiency</span><span class="kpi-icon"><i class="bi bi-speedometer2"></i></span></div>
                 <div class="kpi-value" id="kpi-eff">—</div>
-                <div class="kpi-unit">%</div>
                 <div class="kpi-sub" id="kpi-eff-sub"></div>
             </div>
             <div class="kpi-card red">
-                <div class="kpi-label"><i class="bi bi-exclamation-triangle-fill"></i> Rejection</div>
+                <div class="kpi-head"><span class="kpi-label">Rejection</span><span class="kpi-icon"><i class="bi bi-exclamation-triangle-fill"></i></span></div>
                 <div class="kpi-value" id="kpi-rej">—</div>
-                <div class="kpi-unit">Kg &nbsp;<span id="kpi-rej-pct" class="kpi-sub"></span></div>
+                <div class="kpi-sub" id="kpi-rej-sub"></div>
             </div>
-            <div class="kpi-card green">
-                <div class="kpi-label"><i class="bi bi-cpu"></i> Machines Running</div>
-                <div class="kpi-value" id="kpi-mc"><span id="kpi-mc-run">—</span><span style="font-size:.85rem; color:#94a3b8"> / </span><span id="kpi-mc-ttl" style="font-size:.85rem; color:#64748b">—</span></div>
+            <div class="kpi-card purple">
+                <div class="kpi-head"><span class="kpi-label">Machines Running</span><span class="kpi-icon"><i class="bi bi-cpu-fill"></i></span></div>
+                <div class="kpi-value"><span id="kpi-mc-run">—</span><small> / <span id="kpi-mc-ttl">—</span></small></div>
                 <div class="kpi-sub" id="kpi-mc-sub"></div>
             </div>
             <div class="kpi-card amber">
-                <div class="kpi-label"><i class="bi bi-clock-history"></i> Total Downtime</div>
+                <div class="kpi-head"><span class="kpi-label">Total Downtime</span><span class="kpi-icon"><i class="bi bi-clock-history"></i></span></div>
                 <div class="kpi-value" id="kpi-dt">—</div>
-                <div class="kpi-unit">Hrs</div>
                 <div class="kpi-sub" id="kpi-dt-sub"></div>
             </div>
         </div>
 
-        <!-- Charts -->
+        <!-- ── Insights ── -->
+        <div class="insights" id="insights" style="display:none"></div>
+
+        <!-- ── Charts ── -->
         <div class="charts-row" id="charts-section" style="display:none">
             <div class="chart-card">
-                <div class="chart-ttl"><i class="bi bi-speedometer2" style="color:#3b82f6"></i> Line-wise Efficiency % (Day vs Night)</div>
-                <div style="position:relative; height:200px"><canvas id="effChart"></canvas></div>
+                <div class="chart-ttl"><i class="bi bi-speedometer2" style="color:var(--blue)"></i> Line Efficiency % — Day vs Night</div>
+                <div style="position:relative; height:210px"><canvas id="effChart"></canvas></div>
             </div>
             <div class="chart-card">
-                <div class="chart-ttl"><i class="bi bi-exclamation-diamond-fill" style="color:#ef4444"></i> Line-wise Rejection Wt (Kg)</div>
-                <div style="position:relative; height:200px"><canvas id="rejChart"></canvas></div>
+                <div class="chart-ttl"><i class="bi bi-exclamation-diamond-fill" style="color:var(--red)"></i> Line Rejection Weight (Kg)</div>
+                <div style="position:relative; height:210px"><canvas id="rejChart"></canvas></div>
             </div>
             <div class="chart-card">
-                <div class="chart-ttl"><i class="bi bi-pie-chart-fill" style="color:#8b5cf6"></i> Top Downtime Reasons (Factory)</div>
-                <div style="position:relative; height:200px"><canvas id="dtChart"></canvas></div>
+                <div class="chart-ttl"><i class="bi bi-pie-chart-fill" style="color:var(--purple)"></i> Top Downtime Reasons</div>
+                <div style="position:relative; height:210px"><canvas id="dtChart"></canvas></div>
             </div>
         </div>
 
-        <!-- Main Grid -->
-        <div class="grid-wrap" id="grid-section">
-            <div class="empty-state">
-                <i class="bi bi-bar-chart-steps"></i>
-                <p style="font-weight:600; font-size:.9rem; color:#64748b">Select a date and click <strong>Generate</strong> to view the daily operations matrix.</p>
+        <!-- ── Data panel with view toggle ── -->
+        <div class="panel">
+            <div class="panel-head no-print">
+                <div class="panel-title"><i class="bi bi-table" style="color:var(--brand-a)"></i> Operations Breakdown</div>
+                <div class="hero-sep" style="flex:1"></div>
+                <div class="seg" id="view-seg">
+                    <button data-view="line" class="active" onclick="setView('line')"><i class="bi bi-diagram-3"></i> Line Matrix</button>
+                    <button data-view="machine" onclick="setView('machine')"><i class="bi bi-cpu"></i> Machine List</button>
+                </div>
             </div>
+            <div id="view-line" class="grid-wrap">
+                <div class="empty-state">
+                    <i class="bi bi-bar-chart-steps"></i>
+                    <p style="font-weight:600; font-size:.9rem; color:#64748b">Select a date and click <strong>Generate</strong> to view the daily operations matrix.</p>
+                </div>
+            </div>
+            <div id="view-machine" style="display:none; overflow-x:auto"></div>
         </div>
 
-    </div><!-- content-body -->
-</div><!-- main-content -->
+    </div>
+</div>
 
 <div id="loader" class="loader-overlay" style="display:none"><div class="spinner"></div></div>
 
@@ -344,15 +305,15 @@
 try { if (typeof Chart !== 'undefined' && typeof ChartDataLabels !== 'undefined') Chart.register(ChartDataLabels); } catch(e) { console.warn('ChartDataLabels register failed:', e); }
 
 let charts = {};
+let currentView = 'line';
+let lastReport = null;               // { agg, lineKeys, machineList, dateStr, reasonsMap, meta }
+let machineSort = { key: 'rejPct', dir: 'desc' };
 let dailyDprProcess = localStorage.getItem('jpsms_dpr_process') || 'Moulding';
 const DPR_PROCESS_OPTIONS = ['Moulding', 'Printing', 'Tuffting'];
 const DOWNTIME_CODES = {
-    '1':  'Manpower Shortage',   '2':  'Mould Change',
-    '3':  'Accessories Issue',   '4':  'No Material',
-    '5':  'Machine Maintenance', '6':  'Nozzle Blockage',
-    '7':  'Mould Problem',       '8':  'Power / Heater Failure',
-    '9':  'Color Change',        '10': 'Process Setting',
-    '11': 'Mould Trial',         '12': 'Crane / Loading'
+    '1':'Manpower Shortage','2':'Mould Change','3':'Accessories Issue','4':'No Material',
+    '5':'Machine Maintenance','6':'Nozzle Blockage','7':'Mould Problem','8':'Power / Heater Failure',
+    '9':'Color Change','10':'Process Setting','11':'Mould Trial','12':'Crane / Loading'
 };
 
 function _initPage() {
@@ -367,13 +328,9 @@ function _initPage() {
         generateReport();
     } catch(e) { console.error('init render:', e); }
 }
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _initPage);
-} else {
-    _initPage();
-}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _initPage); else _initPage();
 
-/* ── Process Buttons ── */
+/* ── Process pills ── */
 function renderProcessButtons() {
     const host = document.getElementById('report-process');
     if (!host) return;
@@ -391,32 +348,13 @@ function renderProcessButtons() {
 }
 
 /* ── Helpers ── */
-function fmt(v, dec = 1) {
-    if (v == null || isNaN(v) || v === 0) return '—';
-    return Number(v).toLocaleString('en-IN', { maximumFractionDigits: dec });
-}
-function fmtForce(v, dec = 1) {
-    return Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: dec });
-}
-function effClass(v) {
-    if (v >= 85) return 'eff-good';
-    if (v >= 65) return 'eff-mid';
-    return v > 0 ? 'eff-bad' : 'val-zero';
-}
-function initMetrics() {
-    return { targetWt:0, goodWt:0, rejWt:0, grossWt:0, totalDtHr:0, dt:{}, rej:{}, cc:0, mc:0, jc:0, runMachines:0, totalMachines:0 };
-}
+function fmt(v, dec = 1) { if (v == null || isNaN(v) || v === 0) return '—'; return Number(v).toLocaleString('en-IN', { maximumFractionDigits: dec }); }
+function fmtForce(v, dec = 1) { return Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: dec }); }
+function effClass(v) { if (v >= 85) return 'eff-good'; if (v >= 65) return 'eff-mid'; return v > 0 ? 'eff-bad' : 'val-zero'; }
+function effPillClass(v) { if (v >= 85) return 'g'; if (v >= 65) return 'a'; return v > 0 ? 'r' : 'z'; }
+function initMetrics() { return { targetWt:0, goodWt:0, rejWt:0, grossWt:0, totalDtHr:0, dt:{}, rej:{}, cc:0, mc:0, jc:0, runMachines:0, totalMachines:0, goodPcs:0, rejPcs:0 }; }
 function addMetrics(dest, src) {
-    dest.targetWt  += src.targetWt;
-    dest.goodWt    += src.goodWt;
-    dest.rejWt     += src.rejWt;
-    dest.grossWt   += src.grossWt;
-    dest.totalDtHr += src.totalDtHr;
-    dest.cc        += src.cc;
-    dest.mc        += src.mc;
-    dest.jc        += src.jc;
-    dest.runMachines   += src.runMachines;
-    dest.totalMachines += src.totalMachines;
+    ['targetWt','goodWt','rejWt','grossWt','totalDtHr','cc','mc','jc','runMachines','totalMachines','goodPcs','rejPcs'].forEach(k => dest[k] += src[k]);
     Object.entries(src.dt).forEach(([c,v]) => dest.dt[c] = (dest.dt[c]||0)+v);
     Object.entries(src.rej).forEach(([c,v]) => dest.rej[c] = (dest.rej[c]||0)+v);
 }
@@ -427,8 +365,9 @@ async function generateReport() {
     if (!date) return JPSMS.toast('Please select a date', 'error');
     const pq = `&process=${encodeURIComponent(dailyDprProcess)}`;
     const dtStr = new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+    document.getElementById('hero-date-label').textContent = dtStr + ' · ' + dailyDprProcess;
 
-    JPSMS.toggleLoader(true);
+    if (window.JPSMS && JPSMS.toggleLoader) JPSMS.toggleLoader(true);
     try {
         const [dayRaw, nightRaw, reasonsRes, teamDayRes, teamNightRes, machinesRes] = await Promise.all([
             JPSMS.api.get(`/dpr/summary-matrix?fromDate=${date}&toDate=${date}&shift=Day${pq}`),
@@ -451,13 +390,10 @@ async function generateReport() {
             });
             return { ...res, data: { ...d, machines:(d.machines||[]).filter(m=>allowedSet.has(m.machine)), dates } };
         };
-        const dayRes   = filterRes(dayRaw);
-        const nightRes = filterRes(nightRaw);
+        const dayRes = filterRes(dayRaw), nightRes = filterRes(nightRaw);
 
         const allMachines = dayRes.data.machines.length ? dayRes.data.machines : nightRes.data.machines;
-        const reasonsMap  = {};
-        (reasonsRes.data||[]).forEach(r => reasonsMap[r.code]=r.reason);
-
+        const reasonsMap = {}; (reasonsRes.data||[]).forEach(r => reasonsMap[r.code]=r.reason);
         const teamDayMap={}, teamNightMap={};
         ((teamDayRes.data||{})[date]||[]).forEach(t => teamDayMap[t.line]=t);
         ((teamNightRes.data||{})[date]||[]).forEach(t => teamNightMap[t.line]=t);
@@ -471,31 +407,31 @@ async function generateReport() {
         });
         const lineKeys = Object.keys(linesMap).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'}));
 
-        // Aggregation
-        const agg = {};
-        lineKeys.forEach(l => { agg[l]={ Day:initMetrics(), Night:initMetrics(), Total:initMetrics() }; });
+        // Aggregation stores
+        const agg = {};   lineKeys.forEach(l => { agg[l]={ Day:initMetrics(), Night:initMetrics(), Total:initMetrics() }; });
+        const magg = {};  // machine -> {line,name,client,jc,std,actWt, Day, Night, Total}
         window._drillData = {};
 
         const processShift = (shiftName, res) => {
             const shiftData = (res.data?.dates||{})[date] || {};
             const entriesMap = shiftData.entries || {};
-            const setupsList = shiftData.setups  || [];
-
-            lineKeys.forEach(l => {
-                agg[l][shiftName].totalMachines = linesMap[l].length;
-            });
+            const setupsList = shiftData.setups || [];
+            lineKeys.forEach(l => { agg[l][shiftName].totalMachines = linesMap[l].length; });
 
             Object.keys(entriesMap).forEach(machine => {
                 const mObj = allMachines.find(m=>m.machine===machine);
                 const line = mObj ? (mObj.line||mObj.building||mObj.machine_process||'General') : null;
                 if (!line || !agg[line]) return;
 
+                if (!magg[machine]) magg[machine] = { line, name:machine, client:'', jc:'', std:0, actWt:0, Day:initMetrics(), Night:initMetrics(), Total:initMetrics() };
+                const mm = magg[machine][shiftName];   // per-machine per-shift metrics
+                const L  = agg[line][shiftName];        // per-line per-shift metrics
+
                 const mSetups = setupsList.filter(s=>s.machine===machine);
                 let activeWt=0, activeStd=0;
                 if (mSetups.length>0) {
                     const setup = mSetups[0];
                     activeWt = parseFloat(setup.std_weight) || parseFloat(setup.act_weight) || parseFloat(setup.article_act) || 0;
-                    // std_pcs_hr is not returned by the API — derive from cycle time (sec/shot) × cavities
                     const cavity = parseInt(setup.act_cavity || setup.std_cavity || 1) || 1;
                     const ct = parseFloat(setup.std_cycle_time || setup.act_cycle_time || 0);
                     activeStd = parseFloat(setup.std_pcs_hr) || (ct > 0 ? (3600 / ct) * cavity : 0);
@@ -513,25 +449,25 @@ async function generateReport() {
                     }
                 }
                 if (activeWt>10) activeWt/=1000;
-                if (activeWt>0&&activeStd>0) agg[line][shiftName].targetWt += (activeWt*activeStd*12);
+                const targetWt = (activeWt>0 && activeStd>0) ? (activeWt*activeStd*12) : 0;
+                L.targetWt += targetWt; mm.targetWt += targetWt;
+                if (activeStd) magg[machine].std = activeStd;
+                if (activeWt) magg[machine].actWt = activeWt;
 
                 const slots = entriesMap[machine];
                 const uniqueMoulds = new Set();
-                let mGood=0,mRej=0,mShots=0, latestJc='',latestClient='';
                 let mHasData = false;
 
                 Object.keys(slots).forEach(slot => {
                     let slotEntries = slots[slot];
                     if (!Array.isArray(slotEntries)) slotEntries=[slotEntries];
                     let slotDt=0;
-
                     slotEntries.forEach(e => {
                         if (!e) return;
                         mHasData = true;
-                        if (e.mould_no||e.order_no||e.mould_name)
-                            uniqueMoulds.add((e.order_no||e.mould_no||e.mould_name).trim().toLowerCase());
-                        if (e.job_card_no)  latestJc=e.job_card_no;
-                        if (e.client_name)  latestClient=e.client_name;
+                        if (e.mould_no||e.order_no||e.mould_name) uniqueMoulds.add((e.order_no||e.mould_no||e.mould_name).trim().toLowerCase());
+                        if (e.job_card_no) magg[machine].jc = e.job_card_no;
+                        if (e.client_name) magg[machine].client = e.client_name;
 
                         let ew=0;
                         if (e.plan_id) { const st=mSetups.find(s=>String(s.plan_id)===String(e.plan_id)); if(st) ew=parseFloat(st.article_act||st.std_weight||0); }
@@ -542,133 +478,160 @@ async function generateReport() {
 
                         const gq=parseInt(e.good_qty)||0, rq=parseInt(e.reject_qty)||0;
                         slotDt += (parseInt(e.downtime_min)||0);
-                        mGood+=gq; mRej+=rq; mShots+=(gq+rq);
-
-                        agg[line][shiftName].goodWt  += (gq*ew);
-                        agg[line][shiftName].rejWt   += (rq*ew);
-                        agg[line][shiftName].grossWt += ((gq+rq)*ew);
+                        L.goodPcs+=gq; L.rejPcs+=rq; mm.goodPcs+=gq; mm.rejPcs+=rq;
+                        L.goodWt+=(gq*ew);  L.rejWt+=(rq*ew);  L.grossWt+=((gq+rq)*ew);
+                        mm.goodWt+=(gq*ew); mm.rejWt+=(rq*ew); mm.grossWt+=((gq+rq)*ew);
 
                         if (e.downtime_breakup&&typeof e.downtime_breakup==='object')
-                            Object.entries(e.downtime_breakup).forEach(([c,m])=>{ agg[line][shiftName].dt[c]=(agg[line][shiftName].dt[c]||0)+parseInt(m); });
+                            Object.entries(e.downtime_breakup).forEach(([c,m])=>{ L.dt[c]=(L.dt[c]||0)+parseInt(m); mm.dt[c]=(mm.dt[c]||0)+parseInt(m); });
                         if (e.reject_breakup&&typeof e.reject_breakup==='object')
-                            Object.entries(e.reject_breakup).forEach(([c,q])=>{ agg[line][shiftName].rej[c]=(agg[line][shiftName].rej[c]||0)+(parseInt(q)*ew); });
-
-                        if (e.entry_type==='ColourChange'||(e.downtime_breakup&&e.downtime_breakup['9'])) agg[line][shiftName].cc++;
-                        if (e.downtime_breakup&&e.downtime_breakup['2']) agg[line][shiftName].mc++;
+                            Object.entries(e.reject_breakup).forEach(([c,qv])=>{ L.rej[c]=(L.rej[c]||0)+(parseInt(qv)*ew); });
+                        if (e.entry_type==='ColourChange'||(e.downtime_breakup&&e.downtime_breakup['9'])) { L.cc++; mm.cc++; }
+                        if (e.downtime_breakup&&e.downtime_breakup['2']) { L.mc++; mm.mc++; }
                     });
-                    agg[line][shiftName].totalDtHr += (Math.min(60,slotDt)/60);
+                    const dtHr = Math.min(60,slotDt)/60;
+                    L.totalDtHr += dtHr; mm.totalDtHr += dtHr;
                 });
 
-                if (mHasData) agg[line][shiftName].runMachines++;
-                agg[line][shiftName].jc += Math.max(0,uniqueMoulds.size-1);
+                if (mHasData) { L.runMachines++; mm.runMachines = 1; }
+                const jcCount = Math.max(0,uniqueMoulds.size-1);
+                L.jc += jcCount; mm.jc += jcCount;
 
-                // Drilldown store
+                // legacy drill store (line -> machine)
                 window._drillData[line] = window._drillData[line]||{};
-                const dr = window._drillData[line][machine] || { mName:machine, jc:'', client:'', std:activeStd, actWt:activeWt, shots:0, good:0, rej:0, dtHr:0 };
-                if (latestJc) dr.jc=latestJc;
-                if (latestClient) dr.client=latestClient;
-                dr.shots+=mShots; dr.good+=mGood; dr.rej+=mRej;
-                window._drillData[line][machine]=dr;
+                window._drillData[line][machine] = {
+                    mName:machine, jc:magg[machine].jc, client:magg[machine].client, std:activeStd, actWt:activeWt,
+                    shots:(magg[machine].Day.goodPcs+magg[machine].Day.rejPcs+magg[machine].Night.goodPcs+magg[machine].Night.rejPcs),
+                    good:(magg[machine].Day.goodPcs+magg[machine].Night.goodPcs),
+                    rej:(magg[machine].Day.rejPcs+magg[machine].Night.rejPcs), dtHr:0
+                };
             });
         };
 
         processShift('Day', dayRes);
         processShift('Night', nightRes);
 
-        // Calculate Totals
-        lineKeys.forEach(l => {
-            addMetrics(agg[l].Total, agg[l].Day);
-            addMetrics(agg[l].Total, agg[l].Night);
-        });
+        lineKeys.forEach(l => { addMetrics(agg[l].Total, agg[l].Day); addMetrics(agg[l].Total, agg[l].Night); });
+        Object.keys(magg).forEach(mc => { addMetrics(magg[mc].Total, magg[mc].Day); addMetrics(magg[mc].Total, magg[mc].Night); });
 
-        // ── KPI Strip ──
-        let psTarget=0, psGood=0, psRej=0, psDtHr=0, psRun=new Set(), psTtlMc=allMachines.length;
-        lineKeys.forEach(l => { psTarget+=agg[l].Total.targetWt; psGood+=agg[l].Total.goodWt; psRej+=agg[l].Total.rejWt; psDtHr+=agg[l].Total.totalDtHr; });
+        // ── Factory KPIs ──
+        let psTarget=0, psGood=0, psRej=0, psDtHr=0, psGross=0;
+        lineKeys.forEach(l => { psTarget+=agg[l].Total.targetWt; psGood+=agg[l].Total.goodWt; psRej+=agg[l].Total.rejWt; psGross+=agg[l].Total.grossWt; psDtHr+=agg[l].Total.totalDtHr; });
+        const psRun = new Set();
         [dayRes,nightRes].forEach(res => { const d=(res.data?.dates||{})[date]; if(d?.entries) Object.keys(d.entries).forEach(mc=>psRun.add(mc)); });
+        const psTtlMc = allMachines.length;
         const psEff = psTarget>0 ? (psGood/psTarget)*100 : 0;
-        const psRejPct = psGood>0 ? (psRej/(psGood+psRej))*100 : 0;
+        const psRejPct = psGross>0 ? (psRej/psGross)*100 : 0;
 
-        document.getElementById('kpi-strip').style.display='grid';
-        document.getElementById('kpi-target').textContent  = fmtForce(psTarget);
-        document.getElementById('kpi-actual').textContent  = fmtForce(psGood);
-        document.getElementById('kpi-actual-sub').textContent = psTarget>0 ? (psGood>=psTarget?'▲':'▼')+' '+(Math.abs(psGood-psTarget)).toFixed(1)+' Kg vs target' : '';
-        document.getElementById('kpi-rej').textContent    = fmtForce(psRej);
-        document.getElementById('kpi-rej-pct').textContent = psRejPct>0 ? fmtForce(psRejPct)+'%' : '';
-        document.getElementById('kpi-eff').textContent    = fmtForce(psEff)+'%';
-        document.getElementById('kpi-eff-sub').textContent = psEff>=85?'✅ On Target':psEff>=65?'⚠ Below Target':'❌ Critical';
-        const effCard = document.getElementById('kpi-eff-card');
-        effCard.className = 'kpi-card '+(psEff>=85?'green':psEff>=65?'amber':'red');
-        document.getElementById('kpi-mc-run').textContent = psRun.size;
-        document.getElementById('kpi-mc-ttl').textContent = psTtlMc;
-        document.getElementById('kpi-mc-sub').textContent = psTtlMc>0 ? fmtForce((psRun.size/psTtlMc)*100)+'% utilised' : '';
-        document.getElementById('kpi-dt').textContent  = fmtForce(psDtHr);
-        document.getElementById('kpi-dt-sub').textContent = psDtHr>0 ? fmtForce((psDtHr/(psTtlMc*24))*100)+'% of available hrs' : '';
+        const meta = { date, dtStr, allMachines, teamDayMap, teamNightMap,
+                       kpi: { psTarget, psGood, psRej, psGross, psDtHr, psEff, psRejPct, psRun:psRun.size, psTtlMc } };
+        const machineList = Object.values(magg);
+        lastReport = { agg, lineKeys, machineList, reasonsMap, meta };
 
-        document.getElementById('last-gen-badge').textContent = 'Generated: '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
-
-        renderGrid(agg, lineKeys, dtStr, reasonsMap, teamDayMap, teamNightMap);
+        renderKPIs(meta.kpi);
+        renderInsights(agg, lineKeys, reasonsMap, meta.kpi);
         renderCharts(agg, lineKeys, reasonsMap);
-
+        renderGrid(agg, lineKeys, dtStr, reasonsMap, teamDayMap, teamNightMap);
+        renderMachineView();
+        document.getElementById('last-gen-badge').innerHTML =
+            `<span class="live-dot"></span> Generated ${new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}`;
     } catch(e) {
         console.error(e);
-        JPSMS.toast('Error: '+e.message, 'error');
+        if (window.JPSMS && JPSMS.toast) JPSMS.toast('Error: '+e.message, 'error');
     } finally {
-        JPSMS.toggleLoader(false);
+        if (window.JPSMS && JPSMS.toggleLoader) JPSMS.toggleLoader(false);
     }
 }
 
-/* ── Grid ── */
-function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
-    const colSpanLines = lines.length * 2;
-    const totalCols = colSpanLines + 3;
+/* ── KPIs ── */
+function renderKPIs(k) {
+    document.getElementById('kpi-strip').style.display='grid';
+    document.getElementById('insights').style.display='flex';
+    document.getElementById('kpi-target').textContent = fmtForce(k.psTarget);
+    document.getElementById('kpi-actual').textContent = fmtForce(k.psGood);
+    const diff = k.psGood - k.psTarget;
+    document.getElementById('kpi-actual-sub').innerHTML = k.psTarget>0
+        ? `<span class="${diff>=0?'trend-up':'trend-down'}"><i class="bi bi-arrow-${diff>=0?'up':'down'}-right"></i> ${fmtForce(Math.abs(diff))} Kg vs target</span>` : 'Kg produced';
+    document.getElementById('kpi-rej').textContent = fmtForce(k.psRej);
+    document.getElementById('kpi-rej-sub').textContent = k.psRejPct>0 ? fmtForce(k.psRejPct)+'% of gross weight' : 'Kg rejected';
+    document.getElementById('kpi-eff').textContent = fmtForce(k.psEff)+'%';
+    document.getElementById('kpi-eff-sub').textContent = k.psEff>=85?'On target':k.psEff>=65?'Below target':'Critical';
+    document.getElementById('kpi-eff-card').className = 'kpi-card '+(k.psEff>=85?'green':k.psEff>=65?'amber':'red');
+    document.getElementById('kpi-mc-run').textContent = k.psRun;
+    document.getElementById('kpi-mc-ttl').textContent = k.psTtlMc;
+    document.getElementById('kpi-mc-sub').textContent = k.psTtlMc>0 ? fmtForce((k.psRun/k.psTtlMc)*100)+'% utilisation' : '';
+    document.getElementById('kpi-dt').textContent = fmtForce(k.psDtHr);
+    document.getElementById('kpi-dt-sub').textContent = k.psTtlMc>0 ? fmtForce((k.psDtHr/(k.psTtlMc*24))*100)+'% of available hrs' : 'Hrs lost';
+}
 
-    // ── THEAD ──
+/* ── Insights ── */
+function renderInsights(agg, lines, reasonsMap, k) {
+    const host = document.getElementById('insights');
+    // Best & worst line by efficiency
+    let best=null, worst=null;
+    lines.forEach(l => {
+        const t=agg[l].Total; if (t.targetWt<=0) return;
+        const eff=(t.goodWt/t.targetWt)*100;
+        if (!best||eff>best.eff) best={l,eff};
+        if (!worst||eff<worst.eff) worst={l,eff};
+    });
+    // Highest rejection line
+    let hiRej=null; lines.forEach(l => { const r=agg[l].Total.rejWt; if(!hiRej||r>hiRej.r) hiRej={l,r}; });
+    // Top downtime reason (factory)
+    const dtAll={}; lines.forEach(l => Object.entries(agg[l].Total.dt).forEach(([c,v])=>dtAll[c]=(dtAll[c]||0)+v));
+    const topDt = Object.entries(dtAll).sort((a,b)=>b[1]-a[1])[0];
+    const chip = (color,icon,lbl,val,sub)=>`<div class="insight-chip"><div class="ic" style="background:${color}"><i class="bi ${icon}"></i></div><div><div class="lbl">${lbl}</div><div class="val">${val}${sub?` <span>${sub}</span>`:''}</div></div></div>`;
+    const html = [];
+    if (best) html.push(chip('linear-gradient(135deg,#22c55e,#16a34a)','bi-trophy-fill','Best Line', best.l, fmtForce(best.eff)+'% eff'));
+    if (worst && (!best || worst.l!==best.l)) html.push(chip('linear-gradient(135deg,#f87171,#ef4444)','bi-graph-down-arrow','Needs Attention', worst.l, fmtForce(worst.eff)+'% eff'));
+    if (hiRej && hiRej.r>0) html.push(chip('linear-gradient(135deg,#fb923c,#ea580c)','bi-exclamation-octagon-fill','Highest Rejection', hiRej.l, fmtForce(hiRej.r)+' Kg'));
+    if (topDt) html.push(chip('linear-gradient(135deg,#a78bfa,#7c3aed)','bi-hourglass-split','Top Downtime', DOWNTIME_CODES[topDt[0]]||reasonsMap[topDt[0]]||('Code '+topDt[0]), fmtForce(topDt[1]/60)+' hrs'));
+    host.innerHTML = html.join('') || '';
+}
+
+/* ── View switch ── */
+function setView(v) {
+    currentView = v;
+    document.querySelectorAll('#view-seg button').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
+    document.getElementById('view-line').style.display   = v==='line' ? '' : 'none';
+    document.getElementById('view-machine').style.display= v==='machine' ? '' : 'none';
+}
+
+/* ── Line Matrix ── */
+function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
+    const totalCols = lines.length*2 + 3;
     let thead = `<tr>
-        <th class="metric-col sh-dark" rowspan="2" style="font-size:.75rem; vertical-align:middle; text-align:center; color:#94a3b8">
+        <th class="metric-col sh-dark" rowspan="2" style="font-size:.75rem; vertical-align:middle; text-align:center; color:#cbd5e1">
             <i class="bi bi-calendar3" style="display:block;font-size:1.1rem;margin-bottom:3px"></i>${dateStr}
         </th>`;
-    lines.forEach(l => { thead += `<th colspan="2" style="background:#f1f5f9;font-size:.72rem;font-weight:800;color:#334155;letter-spacing:.3px">${l.replace(' -',' ')}</th>`; });
+    lines.forEach(l => { thead += `<th colspan="2" style="background:#f1f5f9;font-size:.72rem;font-weight:800;color:#334155">${l.replace(' -',' ')}</th>`; });
     thead += `<th colspan="3" class="sh-dark" style="font-size:.72rem;letter-spacing:.5px">FACTORY TOTAL</th></tr><tr>`;
     lines.forEach(l => {
-        const dp = teamDayMap[l]?.entry_person||teamDayMap[l]?.prod_supervisor||'';
-        const np = teamNightMap[l]?.entry_person||teamNightMap[l]?.prod_supervisor||'';
-        const shortDp = dp.length>13?dp.slice(0,11)+'…':dp;
-        const shortNp = np.length>13?np.slice(0,11)+'…':np;
-        thead += `
-            <th class="sh-day" style="padding:5px 3px;font-size:.67rem">
-                ☀️ DAY${shortDp?`<br><span style="font-size:.58rem;color:#92400e;font-weight:700">${shortDp}</span>`:''}
-            </th>
-            <th class="sh-night" style="padding:5px 3px;font-size:.67rem">
-                🌙 NIGHT${shortNp?`<br><span style="font-size:.58rem;color:#3730a3;font-weight:700">${shortNp}</span>`:''}
-            </th>`;
+        const dp=(teamDayMap[l]?.entry_person||teamDayMap[l]?.prod_supervisor||''); const np=(teamNightMap[l]?.entry_person||teamNightMap[l]?.prod_supervisor||'');
+        const sd=dp.length>13?dp.slice(0,11)+'…':dp; const sn=np.length>13?np.slice(0,11)+'…':np;
+        thead += `<th class="sh-day" style="padding:5px 3px;font-size:.67rem">☀️ DAY${sd?`<br><span style="font-size:.58rem;color:#92400e;font-weight:700">${sd}</span>`:''}</th>
+                  <th class="sh-night" style="padding:5px 3px;font-size:.67rem">🌙 NIGHT${sn?`<br><span style="font-size:.58rem;color:#3730a3;font-weight:700">${sn}</span>`:''}</th>`;
     });
     thead += `<th class="sh-day" style="font-size:.7rem">☀️ DAY</th><th class="sh-night" style="font-size:.7rem">🌙 NIGHT</th><th class="sh-total" style="font-size:.7rem">⏱ 24 HRS</th></tr>`;
 
-    // ── Row builder ──
     const row = (icon, title, fn, opts={}) => {
         const { bold=false, color='', drillLine=false } = opts;
         let h = `<tr><td class="metric-col" style="${bold?'font-weight:800;':''}">${icon?`<i class="bi ${icon}" style="opacity:.6;margin-right:4px;font-size:.7rem"></i>`:''}${title}</td>`;
         let tDay=0, tNight=0;
         lines.forEach(l => {
-            const dv = fn(agg[l].Day,l,'Day');
-            const nv = fn(agg[l].Night,l,'Night');
-            tDay   += (Number(dv)||0);
-            tNight += (Number(nv)||0);
-            const dCls = color==='eff'?effClass(dv):dv>0?'':'val-zero';
-            const nCls = color==='eff'?effClass(nv):nv>0?'':'val-zero';
-            const drEv = drillLine?`onclick="openDrill('${encodeURIComponent(l)}')" style="cursor:pointer;text-decoration:underline dotted" title="Click to see machine breakdown"`:'';
-            h += `<td class="${dCls}" ${drEv}>${fmt(dv,color==='eff'?1:1)}</td><td class="${nCls}" ${drEv}>${fmt(nv,color==='eff'?1:1)}</td>`;
+            const dv=fn(agg[l].Day,l,'Day'), nv=fn(agg[l].Night,l,'Night');
+            tDay+=(Number(dv)||0); tNight+=(Number(nv)||0);
+            const dCls=color==='eff'?effClass(dv):dv>0?'':'val-zero'; const nCls=color==='eff'?effClass(nv):nv>0?'':'val-zero';
+            const drEv=drillLine?`onclick="openDrill('${encodeURIComponent(l)}')" class="drill-link" title="Click for machine breakdown"`:'';
+            h += `<td class="${dCls}" ${drEv}>${fmt(dv,1)}</td><td class="${nCls}" ${drEv}>${fmt(nv,1)}</td>`;
         });
-        const grandTotal = tDay+tNight;
-        const tdCls = color==='eff'?effClass(grandTotal):'';
-        h += `<td class="td-day-total ${color==='eff'?effClass(tDay):''}">${fmt(tDay,1)}</td><td class="td-night-total ${color==='eff'?effClass(tNight):''}">${fmt(tNight,1)}</td><td class="td-grand-total ${tdCls}">${fmt(grandTotal,1)}</td></tr>`;
+        const gt=tDay+tNight; const tdCls=color==='eff'?effClass(gt):'';
+        h += `<td class="td-day-total ${color==='eff'?effClass(tDay):''}">${fmt(tDay,1)}</td><td class="td-night-total ${color==='eff'?effClass(tNight):''}">${fmt(tNight,1)}</td><td class="td-grand-total ${tdCls}">${fmt(gt,1)}</td></tr>`;
         return h;
     };
-    const grp = (icon, title) =>
-        `<tr class="grp-row"><td class="metric-col" colspan="${totalCols}"><i class="bi ${icon}" style="margin-right:6px"></i>${title}</td></tr>`;
+    const grp = (icon,title)=>`<tr class="grp-row"><td class="metric-col" colspan="${totalCols}"><i class="bi ${icon}" style="margin-right:6px"></i>${title}</td></tr>`;
 
-    // ── TBODY ──
-    let tbody = grp('bi-box-fill','PRODUCTION METRICS');
+    let tbody = grp('bi-box-fill','Production Metrics');
     tbody += row('bi-bullseye','Target Wt (Kg)', d=>d.targetWt);
     tbody += row('bi-boxes','Gross Production Wt (Kg)', d=>d.grossWt,{bold:true});
     tbody += row('bi-check-circle-fill','Good Production Wt (Kg)', d=>d.goodWt,{bold:true});
@@ -676,176 +639,178 @@ function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
     tbody += row('bi-percent','Rejection %', d=>d.grossWt>0?(d.rejWt/d.grossWt)*100:0);
     tbody += row('bi-speedometer2','Efficiency % (Good/Target)', d=>d.targetWt>0?(d.goodWt/d.targetWt)*100:0,{bold:true,color:'eff'});
     tbody += row('bi-plus-slash-minus','Plan vs Actual (±Kg)', d=>d.goodWt-d.targetWt);
-
-    tbody += grp('bi-people-fill','MACHINES & UTILISATION');
+    tbody += grp('bi-people-fill','Machines & Utilisation');
     tbody += row('bi-cpu','Running Machines', d=>d.runMachines,{bold:true});
     tbody += row('bi-cpu-fill','Total Machines', d=>d.totalMachines);
     tbody += row('bi-activity','Machine Utilisation %', d=>d.totalMachines>0?(d.runMachines/d.totalMachines)*100:0,{color:'eff'});
-
-    tbody += grp('bi-clock-history','DOWNTIME');
+    tbody += grp('bi-clock-history','Downtime');
     tbody += row('bi-hourglass-split','Total Downtime Hrs', d=>d.totalDtHr);
-
-    tbody += grp('bi-arrow-repeat','CHANGEOVERS');
+    tbody += grp('bi-arrow-repeat','Changeovers');
     tbody += row('bi-tools','Mould Change (MC)', d=>d.mc);
     tbody += row('bi-palette-fill','Colour Change (CC)', d=>d.cc);
     tbody += row('bi-shuffle','Job Change (JC)', d=>d.jc);
-
-    tbody += grp('bi-list-nested','DOWNTIME BREAKDOWN (Hrs)');
-    // Dynamically discover the DT codes actually present in the data (exclude 8 = power/heater → Other)
-    const dtCodeSet = new Set();
-    lines.forEach(l => ['Day','Night'].forEach(s => {
-        Object.keys(agg[l][s].dt||{}).forEach(c => { if (c !== '8') dtCodeSet.add(c); });
-    }));
-    const knownOrder = Object.keys(DOWNTIME_CODES).filter(c => c !== '8');
-    const dtCodes = [
-        ...knownOrder.filter(c => dtCodeSet.has(c)),
-        ...[...dtCodeSet].filter(c => !knownOrder.includes(c)).sort((a,b)=>Number(a)-Number(b))
-    ];
-    dtCodes.forEach(c => {
-        const nm = DOWNTIME_CODES[c] || reasonsMap[c] || `Reason ${c}`;
-        tbody += row('bi-dash','  '+nm, d=>(d.dt[c]||0)/60);
-    });
-    // Other DT
-    lines.forEach(l => {
-        ['Day','Night'].forEach(s => {
-            let o=0; Object.entries(agg[l][s].dt).forEach(([c,v])=>{ if(!dtCodes.includes(c)&&c!=='8') o+=v; });
-            agg[l][s]._otherDtHr=o/60;
-        });
-    });
+    tbody += grp('bi-list-nested','Downtime Breakdown (Hrs)');
+    const dtCodeSet=new Set();
+    lines.forEach(l=>['Day','Night'].forEach(s=>Object.keys(agg[l][s].dt||{}).forEach(c=>{ if(c!=='8') dtCodeSet.add(c); })));
+    const knownOrder=Object.keys(DOWNTIME_CODES).filter(c=>c!=='8');
+    const dtCodes=[...knownOrder.filter(c=>dtCodeSet.has(c)), ...[...dtCodeSet].filter(c=>!knownOrder.includes(c)).sort((a,b)=>Number(a)-Number(b))];
+    dtCodes.forEach(c => { const nm=DOWNTIME_CODES[c]||reasonsMap[c]||`Reason ${c}`; tbody += row('bi-dash','  '+nm, d=>(d.dt[c]||0)/60); });
+    lines.forEach(l=>['Day','Night'].forEach(s=>{ let o=0; Object.entries(agg[l][s].dt).forEach(([c,v])=>{ if(!dtCodes.includes(c)&&c!=='8') o+=v; }); agg[l][s]._otherDtHr=o/60; }));
     tbody += row('bi-three-dots','  Other Downtime', d=>d._otherDtHr||0);
 
-    document.getElementById('grid-section').innerHTML =
-        `<table class="dpr-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+    document.getElementById('view-line').innerHTML = `<table class="dpr-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+}
+
+/* ── Machine List view ── */
+function machineRowMetrics(m) {
+    const t=m.Total;
+    return {
+        name:m.name, line:m.line, client:m.client||'—', jc:m.jc||'—',
+        goodPcs:t.goodPcs, rejPcs:t.rejPcs, goodWt:t.goodWt, rejWt:t.rejWt, targetWt:t.targetWt, dtHr:t.totalDtHr,
+        eff: t.targetWt>0 ? (t.goodWt/t.targetWt)*100 : 0,
+        rejPct: (t.goodPcs+t.rejPcs)>0 ? (t.rejPcs/(t.goodPcs+t.rejPcs))*100 : 0,
+        running: (m.Day.runMachines||m.Night.runMachines) ? 1 : 0
+    };
+}
+function renderMachineView() {
+    if (!lastReport) return;
+    const rows = lastReport.machineList.map(machineRowMetrics);
+    const dir = machineSort.dir==='asc'?1:-1;
+    rows.sort((a,b)=>{
+        const k=machineSort.key;
+        if (typeof a[k]==='string') return dir*String(a[k]).localeCompare(String(b[k]),undefined,{numeric:true});
+        return dir*((a[k]||0)-(b[k]||0));
+    });
+    const th=(key,label,cls='')=>`<th class="${cls} ${machineSort.key===key?'sorted':''}" onclick="sortMachines('${key}')">${label} <span class="arw">${machineSort.key===key?(machineSort.dir==='asc'?'▲':'▼'):'⇅'}</span></th>`;
+    let head = `<tr>${th('name','Machine','txt')}${th('line','Line','txt')}${th('goodPcs','Good Pcs')}${th('rejPcs','Reject Pcs')}${th('rejPct','Rej %')}${th('goodWt','Good Kg')}${th('eff','Efficiency','txt')}${th('dtHr','Downtime Hr')}</tr>`;
+    let body='';
+    if (!rows.length) {
+        body = `<tr><td colspan="8" class="empty-state" style="text-align:center"><i class="bi bi-cpu"></i> No machine activity for this date.</td></tr>`;
+    } else {
+        rows.forEach(r => {
+            const rejCls = r.rejPct>5?'r':r.rejPct>2?'a':r.rejPcs>0?'g':'z';
+            const effP = Math.min(100, r.eff);
+            const effColor = r.eff>=85?'#16a34a':r.eff>=65?'#d97706':r.eff>0?'#dc2626':'#cbd5e1';
+            body += `<tr>
+                <td class="txt"><span class="mc-name">${r.name}</span>${r.client!=='—'?`<div class="mc-sub">${r.client}</div>`:''}</td>
+                <td class="txt mc-sub">${r.line}</td>
+                <td>${fmtForce(r.goodPcs,0)}</td>
+                <td style="color:#dc2626;font-weight:700">${fmtForce(r.rejPcs,0)}</td>
+                <td><span class="pill ${rejCls}">${fmtForce(r.rejPct,1)}%</span></td>
+                <td>${fmt(r.goodWt,1)}</td>
+                <td class="txt"><span style="font-weight:800;color:${effColor};display:inline-block;min-width:44px">${r.targetWt>0?fmtForce(r.eff,1)+'%':'—'}</span> <span class="bar-mini"><i style="width:${effP}%;background:${effColor}"></i></span></td>
+                <td>${fmt(r.dtHr,1)}</td>
+            </tr>`;
+        });
+    }
+    document.getElementById('view-machine').innerHTML = `<table class="mc-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+function sortMachines(key) {
+    if (machineSort.key===key) machineSort.dir = machineSort.dir==='asc'?'desc':'asc';
+    else machineSort = { key, dir: (key==='name'||key==='line') ? 'asc':'desc' };
+    renderMachineView();
 }
 
 /* ── Charts ── */
 function renderCharts(agg, lines, reasonsMap) {
     document.getElementById('charts-section').style.display='grid';
-    const labels = lines.map(l=>l.replace(' -',' '));
-
+    const labels=lines.map(l=>l.replace(' -',' '));
     const effDay=[], effNight=[], rejDay=[], rejNight=[], dtTotals={};
     lines.forEach(l => {
         const D=agg[l].Day, N=agg[l].Night;
         effDay.push(D.targetWt>0?+((D.goodWt/D.targetWt)*100).toFixed(1):0);
         effNight.push(N.targetWt>0?+((N.goodWt/N.targetWt)*100).toFixed(1):0);
-        rejDay.push(+D.rejWt.toFixed(1));
-        rejNight.push(+N.rejWt.toFixed(1));
+        rejDay.push(+D.rejWt.toFixed(1)); rejNight.push(+N.rejWt.toFixed(1));
         Object.entries(D.dt).forEach(([c,v])=>dtTotals[c]=(dtTotals[c]||0)+v);
         Object.entries(N.dt).forEach(([c,v])=>dtTotals[c]=(dtTotals[c]||0)+v);
     });
-
     makeGroupedBar('effChart', labels, effDay, effNight, '%', '#3b82f6','#6366f1');
     makeGroupedBar('rejChart', labels, rejDay, rejNight, 'Kg', '#f87171','#f59e0b');
-
-    // Pie
-    const sorted = Object.entries(dtTotals).sort((a,b)=>b[1]-a[1]).slice(0,8);
-    const pieLabels = sorted.map(([c])=>DOWNTIME_CODES[c]||reasonsMap[c]||`Code ${c}`);
-    const pieData   = sorted.map(([,v])=>+(v/60).toFixed(1));
-    const COLORS = ['#ef4444','#f59e0b','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#64748b','#0ea5e9'];
-
+    const sorted=Object.entries(dtTotals).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    const pieLabels=sorted.map(([c])=>DOWNTIME_CODES[c]||reasonsMap[c]||`Code ${c}`);
+    const pieData=sorted.map(([,v])=>+(v/60).toFixed(1));
+    const COLORS=['#ef4444','#f59e0b','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#64748b','#0ea5e9'];
     if (charts.dtChart) charts.dtChart.destroy();
-    charts.dtChart = new Chart(document.getElementById('dtChart').getContext('2d'),{
+    charts.dtChart=new Chart(document.getElementById('dtChart').getContext('2d'),{
         type:'doughnut',
         data:{ labels:pieLabels, datasets:[{ data:pieData, backgroundColor:COLORS, borderWidth:2, borderColor:'#fff' }] },
-        options:{
-            responsive:true, maintainAspectRatio:false,
-            plugins:{
-                legend:{ position:'right', labels:{ boxWidth:10, font:{size:9}, padding:6 } },
-                datalabels:{ color:'#fff', font:{weight:'bold',size:9}, formatter:v=>v>0?v+'h':'' }
-            }
-        }
+        options:{ responsive:true, maintainAspectRatio:false, cutout:'55%',
+            plugins:{ legend:{ position:'right', labels:{ boxWidth:10, font:{size:9}, padding:6 } },
+                      datalabels:{ color:'#fff', font:{weight:'bold',size:9}, formatter:v=>v>0?v+'h':'' } } }
     });
 }
-
 function makeGroupedBar(id, labels, dayData, nightData, unit, dayColor, nightColor) {
     if (charts[id]) charts[id].destroy();
-    charts[id] = new Chart(document.getElementById(id).getContext('2d'),{
+    charts[id]=new Chart(document.getElementById(id).getContext('2d'),{
         type:'bar',
-        data:{
-            labels,
-            datasets:[
-                { label:'Day',   data:dayData,   backgroundColor:dayColor,   borderRadius:4, borderSkipped:false },
-                { label:'Night', data:nightData, backgroundColor:nightColor, borderRadius:4, borderSkipped:false }
-            ]
-        },
-        options:{
-            responsive:true, maintainAspectRatio:false,
-            scales:{
-                x:{ grid:{display:false}, ticks:{font:{size:9}} },
-                y:{ beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:9}}, grace:'15%' }
-            },
-            plugins:{
-                legend:{ labels:{ boxWidth:10, font:{size:10}, padding:10 } },
-                datalabels:{
-                    anchor:'end', align:'top',
-                    color:'#334155', font:{weight:'bold',size:8},
-                    formatter:v=>v>0?v+unit:''
-                }
-            }
-        }
+        data:{ labels, datasets:[
+            { label:'Day', data:dayData, backgroundColor:dayColor, borderRadius:5, borderSkipped:false },
+            { label:'Night', data:nightData, backgroundColor:nightColor, borderRadius:5, borderSkipped:false } ] },
+        options:{ responsive:true, maintainAspectRatio:false,
+            scales:{ x:{ grid:{display:false}, ticks:{font:{size:9}} }, y:{ beginAtZero:true, grid:{color:'#f1f5f9'}, ticks:{font:{size:9}}, grace:'15%' } },
+            plugins:{ legend:{ labels:{ boxWidth:10, font:{size:10}, padding:10 } },
+                      datalabels:{ anchor:'end', align:'top', color:'#334155', font:{weight:'bold',size:8}, formatter:v=>v>0?v+unit:'' } } }
     });
 }
 
-/* ── Drilldown Modal ── */
+/* ── Drilldown (line -> machines) ── */
 function openDrill(encodedLine) {
-    const line = decodeURIComponent(encodedLine);
-    const dataMap = window._drillData?.[line];
+    const line=decodeURIComponent(encodedLine);
+    const dataMap=window._drillData?.[line];
     if (!dataMap) return JPSMS.toast('No data for '+line,'warning');
-
-    const machines = Object.values(dataMap).filter(m=>m.good>0||m.rej>0||m.shots>0);
-    machines.sort((a,b)=>b.rej-a.rej);
-
-    let rows = '';
-    if (!machines.length) {
-        rows = `<tr><td colspan="7" style="text-align:center;padding:30px;color:#94a3b8">No data</td></tr>`;
-    } else {
-        machines.forEach(m => {
-            const rejPct = m.shots>0?((m.rej/m.shots)*100).toFixed(1):'0.0';
-            const rejPctNum = parseFloat(rejPct);
-            const rejColor = rejPctNum>5?'#dc2626':rejPctNum>2?'#d97706':'#16a34a';
-            const rejKg = m.actWt>0?(m.rej*m.actWt).toFixed(2):'—';
-            rows += `<tr>
-                <td><strong style="color:#0f172a;font-size:.82rem">${m.mName}</strong><br><span style="font-size:.68rem;color:#64748b">${m.client||'—'}</span></td>
-                <td style="font-size:.75rem">${m.jc||'—'}</td>
-                <td style="font-weight:700;color:#334155">${(m.shots||0).toLocaleString('en-IN')}</td>
-                <td style="font-weight:700;color:#16a34a">${(m.good||0).toLocaleString('en-IN')}</td>
-                <td><span style="font-weight:800;font-size:.88rem;color:#dc2626">${(m.rej||0).toLocaleString('en-IN')}</span><br><span style="font-size:.68rem;color:#64748b">${rejKg} Kg</span></td>
-                <td style="font-weight:800;color:${rejColor}">${rejPct}%</td>
-                <td style="font-size:.75rem;color:#64748b">Std: ${m.std||'—'} pcs/hr<br>Act: ${m.actWt>0?(m.actWt*1000).toFixed(1)+'g':'—'}</td>
-            </tr>`;
-        });
-    }
-
+    const machines=Object.values(dataMap).filter(m=>m.good>0||m.rej>0||m.shots>0).sort((a,b)=>b.rej-a.rej);
+    let rows='';
+    if (!machines.length) rows=`<tr><td colspan="7" style="text-align:center;padding:30px;color:#94a3b8">No data</td></tr>`;
+    else machines.forEach(m=>{
+        const rejPct=m.shots>0?((m.rej/m.shots)*100).toFixed(1):'0.0'; const n=parseFloat(rejPct);
+        const rejColor=n>5?'#dc2626':n>2?'#d97706':'#16a34a'; const rejKg=m.actWt>0?(m.rej*m.actWt).toFixed(2):'—';
+        rows+=`<tr>
+            <td><strong style="color:#0f172a;font-size:.82rem">${m.mName}</strong><br><span style="font-size:.68rem;color:#64748b">${m.client||'—'}</span></td>
+            <td style="font-size:.75rem">${m.jc||'—'}</td>
+            <td style="font-weight:700;color:#334155">${(m.shots||0).toLocaleString('en-IN')}</td>
+            <td style="font-weight:700;color:#16a34a">${(m.good||0).toLocaleString('en-IN')}</td>
+            <td><span style="font-weight:800;font-size:.88rem;color:#dc2626">${(m.rej||0).toLocaleString('en-IN')}</span><br><span style="font-size:.68rem;color:#64748b">${rejKg} Kg</span></td>
+            <td style="font-weight:800;color:${rejColor}">${rejPct}%</td>
+            <td style="font-size:.75rem;color:#64748b">Std: ${m.std?fmtForce(m.std,0):'—'} pcs/hr<br>Act: ${m.actWt>0?(m.actWt*1000).toFixed(1)+'g':'—'}</td>
+        </tr>`;
+    });
     document.getElementById('drillModal')?.remove();
     document.body.insertAdjacentHTML('beforeend',`
     <div class="drill-modal-overlay" id="drillModal" onclick="if(event.target===this)this.remove()">
         <div class="drill-modal-box">
             <div class="drill-modal-head">
-                <div style="font-size:1rem;font-weight:800;color:#0f172a">
-                    <i class="bi bi-cpu" style="color:#3b82f6;margin-right:8px"></i>
-                    Machine Drilldown — <span style="color:#3b82f6">${line}</span>
-                    <span style="font-size:.75rem;color:#64748b;font-weight:500;margin-left:8px">(${machines.length} machines)</span>
-                </div>
+                <div style="font-size:1rem;font-weight:800;color:#0f172a"><i class="bi bi-cpu" style="color:#3b82f6;margin-right:8px"></i>Machine Drilldown — <span style="color:#3b82f6">${line}</span> <span style="font-size:.75rem;color:#64748b;font-weight:500;margin-left:8px">(${machines.length} machines)</span></div>
                 <button onclick="document.getElementById('drillModal').remove()" style="background:none;border:none;font-size:1.4rem;line-height:1;cursor:pointer;color:#94a3b8;padding:0">×</button>
             </div>
             <div class="drill-modal-body">
-                <table class="drill-table">
-                    <thead>
-                        <tr>
-                            <th>Machine / Client</th>
-                            <th>Job Card</th>
-                            <th style="text-align:right">Shots</th>
-                            <th style="text-align:right;color:#16a34a">Good Pcs</th>
-                            <th style="text-align:right;color:#dc2626">Reject Pcs</th>
-                            <th style="text-align:right">Rej %</th>
-                            <th>Std / Act Weight</th>
-                        </tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                </table>
+                <table class="drill-table"><thead><tr>
+                    <th>Machine / Client</th><th>Job Card</th><th style="text-align:right">Shots</th>
+                    <th style="text-align:right;color:#16a34a">Good Pcs</th><th style="text-align:right;color:#dc2626">Reject Pcs</th>
+                    <th style="text-align:right">Rej %</th><th>Std / Act Weight</th>
+                </tr></thead><tbody>${rows}</tbody></table>
             </div>
         </div>
     </div>`);
+}
+
+/* ── CSV Export ── */
+function exportCSV() {
+    if (!lastReport) return JPSMS.toast('Generate a report first', 'warning');
+    const { machineList, meta } = lastReport;
+    const rows = machineList.map(machineRowMetrics);
+    const head = ['Machine','Line','Client','Job Card','Good Pcs','Reject Pcs','Rej %','Good Kg','Reject Kg','Target Kg','Efficiency %','Downtime Hr'];
+    const esc = v => '"' + String(v == null ? '' : v).split('"').join('""') + '"';
+    const lines = [head.map(esc).join(',')];
+    rows.forEach(r => lines.push([r.name,r.line,r.client,r.jc,Math.round(r.goodPcs),Math.round(r.rejPcs),r.rejPct.toFixed(1),r.goodWt.toFixed(1),r.rejWt.toFixed(1),r.targetWt.toFixed(1),r.eff.toFixed(1),r.dtHr.toFixed(1)].map(esc).join(',')));
+    const k=meta.kpi;
+    lines.push('');
+    lines.push(['FACTORY TOTAL','','','',Math.round(rows.reduce((s,r)=>s+r.goodPcs,0)),Math.round(rows.reduce((s,r)=>s+r.rejPcs,0)),k.psRejPct.toFixed(1),k.psGood.toFixed(1),k.psRej.toFixed(1),k.psTarget.toFixed(1),k.psEff.toFixed(1),k.psDtHr.toFixed(1)].map(esc).join(','));
+    const blob = new Blob(["﻿"+lines.join('\r\n')], { type:'text/csv;charset=utf-8;' });
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`DPR_Daily_${meta.date}_${dailyDprProcess}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    if (window.JPSMS && JPSMS.toast) JPSMS.toast('CSV exported', 'success');
 }
 </script>
 </body>
