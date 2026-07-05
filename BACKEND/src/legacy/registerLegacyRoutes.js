@@ -10728,7 +10728,7 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
     if (!rowId) return res.json({ ok: false, error: 'Missing rowId' });
 
     const existingRows = await q(
-      'SELECT plan_id, plan_qty, bal_qty, job_qty, batch_qty, colour_details FROM plan_board WHERE id = $1',
+      'SELECT plan_id, order_no, plan_qty, bal_qty, job_qty, batch_qty, colour_details FROM plan_board WHERE id = $1',
       [rowId]
     );
     if (!existingRows.length) return res.json({ ok: false, error: 'Plan not found' });
@@ -10757,6 +10757,50 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
 
     if (planQty != null && planQty < 0) return res.json({ ok: false, error: 'Plan Qty cannot be negative.' });
     if (jobQty != null && jobQty < 0) return res.json({ ok: false, error: 'Job Qty cannot be negative.' });
+
+    // Ceiling: total planned for the OR must not exceed the Order (Mould Item) Qty.
+    // Max this plan can take = OR Qty − qty already planned by OTHER plans, but never
+    // below this plan's current qty (so an unchanged value is never rejected). Skipped
+    // when OR Qty is unknown, and treated as non-fatal so a data glitch can't lock out
+    // a legitimate superadmin correction.
+    try {
+      const orderNo = before.order_no;
+      if (orderNo) {
+        const orRows = await q(
+          `SELECT COALESCE(MAX(or_qty), 0)::numeric AS or_qty
+             FROM or_jr_report WHERE TRIM(or_jr_no) = TRIM($1)`,
+          [orderNo]
+        );
+        const orQty = toNum(orRows[0]?.or_qty) ?? 0;
+        if (orQty > 0) {
+          const otherRows = await q(
+            `SELECT COALESCE(SUM(jq), 0)::numeric AS planned_others FROM (
+               SELECT DISTINCT ON (COALESCE(pb.job_no, pb.batch_no), pb.our_code)
+                 COALESCE(pb.job_qty, pb.batch_qty, 0)::numeric AS jq
+               FROM plan_board pb
+               WHERE TRIM(COALESCE(pb.order_no, '')) = TRIM($1)
+                 AND COALESCE(pb.job_no, pb.batch_no, 0) > 0
+                 AND pb.id <> $2
+               ORDER BY COALESCE(pb.job_no, pb.batch_no), pb.our_code, pb.id ASC
+             ) t`,
+            [orderNo, rowId]
+          );
+          const plannedOthers = toNum(otherRows[0]?.planned_others) ?? 0;
+          const currentJobQty = toNum(before.job_qty ?? before.batch_qty) ?? 0;
+          const maxForThisPlan = Math.max(orQty - plannedOthers, currentJobQty);
+          const checkJob = jobQty != null ? jobQty : currentJobQty;
+          const checkPlan = planQty != null ? planQty : (toNum(before.plan_qty) ?? 0);
+          if (checkJob > maxForThisPlan || checkPlan > maxForThisPlan) {
+            return res.json({
+              ok: false,
+              error: `Qty exceeds the limit. Max for this plan is ${maxForThisPlan} (Mould Item Qty ${orQty} − already planned ${plannedOthers}).`
+            });
+          }
+        }
+      }
+    } catch (capErr) {
+      console.warn('superadmin-edit ceiling check skipped:', capErr.message);
+    }
 
     await q(
       `UPDATE plan_board
