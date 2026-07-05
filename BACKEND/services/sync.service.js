@@ -263,6 +263,7 @@ const SYNC_SCHEMA_READY_VERSION = '2026-06-21-failed-row-outbox-v1';
 const DECONFLICT_TOKEN_COLUMNS = ['sync_id', 'global_id'];
 const tableColumnCache = new Map();
 const tableExistsCache = new Map();
+const dateColumnCache = new Map();
 
 function getDeterministicNotificationSyncIdSql(tableAlias = '') {
     const prefix = tableAlias ? `${tableAlias}.` : '';
@@ -508,7 +509,7 @@ router.get('/pull', async (req, res) => {
         if (!TABLES_TO_PULL.includes(table)) return res.status(400).json({ error: 'Invalid Table' });
 
         const rows = await getChanges(table, since || lastSync, factoryId);
-        res.json({ ok: true, data: rows });
+        res.json({ ok: true, data: await coerceDateColumnsForWire(table, rows) });
     } catch (e) {
         console.error('[Sync] Pull Serve Error:', e);
         res.status(500).json({ error: e.message });
@@ -689,6 +690,82 @@ router.post('/admin/full-push-reset', async (req, res) => {
    CORE SYNC LOGIC
    ============================================================ */
 
+const DATE_TZ_BACKFILL_MARKER = 'DATE_TZ_BACKFILL_V1';
+const DATE_TZ_BACKFILL_LOCK = 918273645;
+
+// One-time repair (MAIN only) for rows synced BEFORE the DATE-wire fix
+// (see coerceDateColumnsForWire). Old pushes serialized DATE columns as UTC
+// instants, so on MAIN's UTC session every synced date landed one calendar day
+// early. This shifts those pre-fix rows +1 day across every synced DATE column,
+// exactly once, inside a single all-or-nothing transaction. LOCAL is the source
+// of truth and is never touched. A server_config marker plus a transaction-scoped
+// advisory lock guard against double-application (a second run would push +2).
+async function ensureDateTimezoneBackfill() {
+    if (SERVER_TYPE !== 'MAIN') return; // LOCAL/STANDALONE dates are authoritative
+
+    let alreadyDone = false;
+    try {
+        const r = await pool.query('SELECT value FROM server_config WHERE key = $1', [DATE_TZ_BACKFILL_MARKER]);
+        alreadyDone = r.rows.length > 0 && !!r.rows[0].value;
+    } catch (e) {
+        console.warn('[Sync] Date-TZ backfill marker check failed; skipping:', e.message);
+        return;
+    }
+    if (alreadyDone) return;
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        // Serialize against a concurrent boot so the shift can never run twice.
+        await client.query('SELECT pg_advisory_xact_lock($1)', [DATE_TZ_BACKFILL_LOCK]);
+
+        // Re-check under the lock: another worker may have completed the backfill
+        // between our first read and acquiring the lock.
+        const mk = await client.query('SELECT value FROM server_config WHERE key = $1', [DATE_TZ_BACKFILL_MARKER]);
+        if (mk.rows.length > 0 && mk.rows[0].value) {
+            await client.query('COMMIT');
+            return;
+        }
+
+        // Rows written before this instant came from the old (broken) code and are
+        // shifted -1 day. Anything the fixed code writes carries updated_at >= now
+        // and is left untouched, so the run is race-free even if a push lands mid-way.
+        const cutoff = (await client.query('SELECT NOW() AS c')).rows[0].c;
+        console.log(`[Sync] Date-TZ backfill starting (MAIN); +1 day on pre-fix rows, cutoff=${cutoff.toISOString()}`);
+
+        let totalRows = 0;
+        let totalTables = 0;
+        for (const table of SYNC_ALL) {
+            if (!(await tableExistsPublic(table))) continue;
+            const dateCols = await getDateColumns(table);
+            if (dateCols.size === 0) continue;
+            const hasUpdatedAt = await tableHasColumn(table, 'updated_at');
+
+            const setClause = [...dateCols].map((c) => `"${c}" = "${c}" + 1`).join(', ');
+            const sql = `UPDATE "${table}" SET ${setClause}${hasUpdatedAt ? ' WHERE updated_at < $1' : ''}`;
+            const res = await client.query(sql, hasUpdatedAt ? [cutoff] : []);
+            if (res.rowCount > 0) {
+                totalRows += res.rowCount;
+                totalTables += 1;
+                console.log(`[Sync] Date-TZ backfill: ${table} +1 day on ${res.rowCount} row(s) [${[...dateCols].join(', ')}]`);
+            }
+        }
+
+        await client.query(
+            `INSERT INTO server_config (key, value) VALUES ($1, $2)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+            [DATE_TZ_BACKFILL_MARKER, new Date().toISOString()]
+        );
+        await client.query('COMMIT');
+        console.log(`[Sync] Date-TZ backfill complete: ${totalRows} row(s) across ${totalTables} table(s). Marker set.`);
+    } catch (e) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('[Sync] Date-TZ backfill failed; rolled back, will retry next boot:', e.message);
+    } finally {
+        client.release();
+    }
+}
+
 async function init(dbPool) {
     pool = dbPool;
     try {
@@ -710,6 +787,8 @@ async function init(dbPool) {
 
         console.log(`[Sync] Init. Type: ${SERVER_TYPE}, Factory: ${LOCAL_FACTORY_ID}, Main: ${MAIN_SERVER_URL}`);
         console.log('[Sync] Service Version: v4.7 (Global Master Tables, Paginated Pull, Moulds Full Sync)');
+
+        await ensureDateTimezoneBackfill();
 
         if (SERVER_TYPE === 'LOCAL') {
             startSchedule();
@@ -874,7 +953,8 @@ async function runSyncCycle() {
 // POST a batch of rows to MAIN. Returns {ok, error} instead of throwing so
 // callers can decide whether to record the rows in the outbox.
 async function pushRowsToMain(table, rows) {
-    const payload = { factoryId: LOCAL_FACTORY_ID, table, data: rows, apiKey: API_KEY };
+    const wireRows = await coerceDateColumnsForWire(table, rows);
+    const payload = { factoryId: LOCAL_FACTORY_ID, table, data: wireRows, apiKey: API_KEY };
     try {
         const response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, {
             method: 'POST',
@@ -2020,6 +2100,65 @@ async function tableHasColumn(table, column) {
     `, [table, column]);
 
     return result.rows.length > 0;
+}
+
+async function getDateColumns(table) {
+    if (dateColumnCache.has(table)) return dateColumnCache.get(table);
+
+    let columns = new Set();
+    try {
+        const result = await pool.query(`
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = $1 AND data_type = 'date'
+        `, [table]);
+        columns = new Set(result.rows.map((row) => row.column_name));
+    } catch (e) {
+        console.warn(`[Sync] Could not read date columns for ${table}:`, e.message);
+    }
+    dateColumnCache.set(table, columns);
+    return columns;
+}
+
+function pad2(n) {
+    return String(n).padStart(2, '0');
+}
+
+// A DATE column carries no time-of-day, but the pg driver hands it back as a JS
+// Date at local midnight. JSON.stringify then emits a UTC *instant* — e.g. the
+// IST date 2026-07-05 becomes "2026-07-04T18:30:00.000Z". When the receiving
+// server's Postgres session runs a different timezone (Hostinger MAIN defaults to
+// UTC) it truncates that instant back to a DATE and lands one calendar day early,
+// so every synced dpr_date/plan date silently shifts −1 day. Sending the value as
+// a bare 'YYYY-MM-DD' string is timezone-immune: it inserts as the same day on any
+// session. Idempotent for values already in 'YYYY-MM-DD' form (drained outbox rows).
+function toWireDateString(value) {
+    if (value == null) return value;
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+// Rewrite DATE columns to bare 'YYYY-MM-DD' strings before a row crosses the sync
+// wire, so timezone differences between LOCAL and MAIN cannot shift the calendar day.
+// Only touches columns whose Postgres type is exactly `date` — timestamp/timestamptz
+// (e.g. updated_at) are left intact so watermark comparisons stay precise.
+async function coerceDateColumnsForWire(table, rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+    const dateCols = await getDateColumns(table);
+    if (dateCols.size === 0) return rows;
+
+    return rows.map((row) => {
+        let clone = null;
+        for (const col of dateCols) {
+            if (Object.prototype.hasOwnProperty.call(row, col) && row[col] != null) {
+                if (!clone) clone = { ...row };
+                clone[col] = toWireDateString(row[col]);
+            }
+        }
+        return clone || row;
+    });
 }
 
 async function getCachedPendingChanges() {
