@@ -690,6 +690,82 @@ router.post('/admin/full-push-reset', async (req, res) => {
    CORE SYNC LOGIC
    ============================================================ */
 
+const DATE_TZ_BACKFILL_MARKER = 'DATE_TZ_BACKFILL_V1';
+const DATE_TZ_BACKFILL_LOCK = 918273645;
+
+// One-time repair (MAIN only) for rows synced BEFORE the DATE-wire fix
+// (see coerceDateColumnsForWire). Old pushes serialized DATE columns as UTC
+// instants, so on MAIN's UTC session every synced date landed one calendar day
+// early. This shifts those pre-fix rows +1 day across every synced DATE column,
+// exactly once, inside a single all-or-nothing transaction. LOCAL is the source
+// of truth and is never touched. A server_config marker plus a transaction-scoped
+// advisory lock guard against double-application (a second run would push +2).
+async function ensureDateTimezoneBackfill() {
+    if (SERVER_TYPE !== 'MAIN') return; // LOCAL/STANDALONE dates are authoritative
+
+    let alreadyDone = false;
+    try {
+        const r = await pool.query('SELECT value FROM server_config WHERE key = $1', [DATE_TZ_BACKFILL_MARKER]);
+        alreadyDone = r.rows.length > 0 && !!r.rows[0].value;
+    } catch (e) {
+        console.warn('[Sync] Date-TZ backfill marker check failed; skipping:', e.message);
+        return;
+    }
+    if (alreadyDone) return;
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        // Serialize against a concurrent boot so the shift can never run twice.
+        await client.query('SELECT pg_advisory_xact_lock($1)', [DATE_TZ_BACKFILL_LOCK]);
+
+        // Re-check under the lock: another worker may have completed the backfill
+        // between our first read and acquiring the lock.
+        const mk = await client.query('SELECT value FROM server_config WHERE key = $1', [DATE_TZ_BACKFILL_MARKER]);
+        if (mk.rows.length > 0 && mk.rows[0].value) {
+            await client.query('COMMIT');
+            return;
+        }
+
+        // Rows written before this instant came from the old (broken) code and are
+        // shifted -1 day. Anything the fixed code writes carries updated_at >= now
+        // and is left untouched, so the run is race-free even if a push lands mid-way.
+        const cutoff = (await client.query('SELECT NOW() AS c')).rows[0].c;
+        console.log(`[Sync] Date-TZ backfill starting (MAIN); +1 day on pre-fix rows, cutoff=${cutoff.toISOString()}`);
+
+        let totalRows = 0;
+        let totalTables = 0;
+        for (const table of SYNC_ALL) {
+            if (!(await tableExistsPublic(table))) continue;
+            const dateCols = await getDateColumns(table);
+            if (dateCols.size === 0) continue;
+            const hasUpdatedAt = await tableHasColumn(table, 'updated_at');
+
+            const setClause = [...dateCols].map((c) => `"${c}" = "${c}" + 1`).join(', ');
+            const sql = `UPDATE "${table}" SET ${setClause}${hasUpdatedAt ? ' WHERE updated_at < $1' : ''}`;
+            const res = await client.query(sql, hasUpdatedAt ? [cutoff] : []);
+            if (res.rowCount > 0) {
+                totalRows += res.rowCount;
+                totalTables += 1;
+                console.log(`[Sync] Date-TZ backfill: ${table} +1 day on ${res.rowCount} row(s) [${[...dateCols].join(', ')}]`);
+            }
+        }
+
+        await client.query(
+            `INSERT INTO server_config (key, value) VALUES ($1, $2)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+            [DATE_TZ_BACKFILL_MARKER, new Date().toISOString()]
+        );
+        await client.query('COMMIT');
+        console.log(`[Sync] Date-TZ backfill complete: ${totalRows} row(s) across ${totalTables} table(s). Marker set.`);
+    } catch (e) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('[Sync] Date-TZ backfill failed; rolled back, will retry next boot:', e.message);
+    } finally {
+        client.release();
+    }
+}
+
 async function init(dbPool) {
     pool = dbPool;
     try {
@@ -711,6 +787,8 @@ async function init(dbPool) {
 
         console.log(`[Sync] Init. Type: ${SERVER_TYPE}, Factory: ${LOCAL_FACTORY_ID}, Main: ${MAIN_SERVER_URL}`);
         console.log('[Sync] Service Version: v4.7 (Global Master Tables, Paginated Pull, Moulds Full Sync)');
+
+        await ensureDateTimezoneBackfill();
 
         if (SERVER_TYPE === 'LOCAL') {
             startSchedule();
