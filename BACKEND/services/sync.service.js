@@ -504,11 +504,17 @@ router.post('/push-deletions', async (req, res) => {
 router.get('/pull', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
-        const { table, lastSync, since, apiKey, factoryId } = req.query;
+        const { table, lastSync, since, apiKey, factoryId, afterId } = req.query;
         if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
         if (!TABLES_TO_PULL.includes(table)) return res.status(400).json({ error: 'Invalid Table' });
 
-        const rows = await getChanges(table, since || lastSync, factoryId);
+        // afterId is the keyset tiebreaker: the id of the last row the client
+        // already has at the `since` timestamp. Lets pagination page through a
+        // block of rows sharing an identical updated_at. Parsed as an integer;
+        // anything non-numeric is ignored (falls back to updated_at-only paging).
+        const parsedAfterId = Number.parseInt(afterId, 10);
+        const afterIdArg = Number.isFinite(parsedAfterId) ? parsedAfterId : null;
+        const rows = await getChanges(table, since || lastSync, factoryId, afterIdArg);
         res.json({ ok: true, data: await coerceDateColumnsForWire(table, rows) });
     } catch (e) {
         console.error('[Sync] Pull Serve Error:', e);
@@ -1055,17 +1061,40 @@ async function pushTableAllBatches(table, lastPush) {
     const PUSH_BATCH_SIZE = 100;
     const stats = { pushed: 0, failed: 0 };
     const hasFactoryId = await tableHasColumn(table, 'factory_id');
-    let currentSince = lastPush;
+    // Keyset pagination needs a tiebreaker column so we can page THROUGH a block
+    // of rows that all share the same updated_at. Bulk regenerations (e.g. a
+    // mould_planning_report rebuild) can stamp tens of thousands of rows with an
+    // identical updated_at; paging by updated_at alone advances the cursor past
+    // that timestamp after the first batch and permanently skips the rest. When
+    // the table has an `id` column we page by the composite key (updated_at, id).
+    const hasId = await tableHasColumn(table, 'id');
+    let currentSince = lastPush;   // last updated_at seen
+    let currentId = null;          // last id seen at currentSince (keyset tiebreaker)
     let batchNum = 0;
 
     while (true) {
         batchNum += 1;
         let rows;
         try {
-            const sql = hasFactoryId
-                ? `SELECT * FROM ${table} WHERE updated_at > $1 AND factory_id = $2 ORDER BY updated_at ASC LIMIT ${PUSH_BATCH_SIZE}`
-                : `SELECT * FROM ${table} WHERE updated_at > $1 ORDER BY updated_at ASC LIMIT ${PUSH_BATCH_SIZE}`;
-            const params = hasFactoryId ? [currentSince, LOCAL_FACTORY_ID] : [currentSince];
+            // First batch (currentId === null): strictly updated_at > watermark,
+            // preserving the exclusive-watermark semantics. Subsequent batches use
+            // the composite keyset so no identical-timestamp row is skipped.
+            const cursorClause = (hasId && currentId !== null)
+                ? `(updated_at > $1 OR (updated_at = $1 AND id > $__id))`
+                : `updated_at > $1`;
+            const factoryClause = hasFactoryId ? ` AND factory_id = $__fac` : '';
+            const orderClause = hasId ? 'ORDER BY updated_at ASC, id ASC' : 'ORDER BY updated_at ASC';
+
+            const params = [currentSince];
+            let idPlaceholder = '';
+            if (hasId && currentId !== null) { params.push(currentId); idPlaceholder = `$${params.length}`; }
+            let facPlaceholder = '';
+            if (hasFactoryId) { params.push(LOCAL_FACTORY_ID); facPlaceholder = `$${params.length}`; }
+
+            const sql = `SELECT * FROM ${table} WHERE `
+                + cursorClause.replace('$__id', idPlaceholder)
+                + factoryClause.replace('$__fac', facPlaceholder)
+                + ` ${orderClause} LIMIT ${PUSH_BATCH_SIZE}`;
             const result = await pool.query(sql, params);
             rows = result.rows;
         } catch (err) {
@@ -1097,9 +1126,19 @@ async function pushTableAllBatches(table, lastPush) {
 
         if (rows.length < PUSH_BATCH_SIZE) break; // last batch — no more rows
 
-        const lastUpdatedAt = rows[rows.length - 1]?.updated_at;
-        if (!lastUpdatedAt || lastUpdatedAt <= currentSince) break; // safety: no forward progress
-        currentSince = lastUpdatedAt;
+        const lastRow = rows[rows.length - 1];
+        const lastUpdatedAt = lastRow?.updated_at;
+        if (!lastUpdatedAt) break; // no ordering key — cannot advance safely
+
+        if (hasId) {
+            // Composite keyset always makes forward progress: even when every row
+            // in the batch shares the same updated_at, id strictly increases.
+            currentSince = lastUpdatedAt;
+            currentId = lastRow.id;
+        } else {
+            if (lastUpdatedAt <= currentSince) break; // safety: no forward progress
+            currentSince = lastUpdatedAt;
+        }
     }
 
     return stats;
@@ -1211,11 +1250,13 @@ async function pullTableAllPages(table, since) {
     const PAGE_LIMIT = 1000; // must match LIMIT in getChanges() on MAIN
     const allData = [];
     let currentSince = since;
+    let currentAfterId = null; // keyset tiebreaker: last id seen at currentSince
     let pageNum = 0;
 
     while (true) {
         pageNum += 1;
-        const url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`;
+        let url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`;
+        if (currentAfterId !== null) url += `&afterId=${encodeURIComponent(currentAfterId)}`;
         const response = await fetchWithSyncRetry(url, `Pull ${table} page ${pageNum}`);
 
         if (!response.ok) {
@@ -1229,12 +1270,26 @@ async function pullTableAllPages(table, since) {
 
         if (rows.length < PAGE_LIMIT) break; // this was the last page
 
-        // Advance 'since' to the last row's updated_at so the next page starts after it.
-        const lastUpdatedAt = rows[rows.length - 1]?.updated_at;
-        if (!lastUpdatedAt || lastUpdatedAt <= currentSince) break; // safety: no forward progress
+        const lastRow = rows[rows.length - 1];
+        const lastUpdatedAt = lastRow?.updated_at;
+        if (!lastUpdatedAt) break; // no ordering key — cannot advance safely
+
+        // When rows carry an id, advance the composite keyset (updated_at, id) so
+        // a block of rows sharing an identical updated_at is paged through rather
+        // than skipped. MAIN orders by (updated_at, id) when afterId is supplied.
+        const lastId = lastRow?.id;
+        if (lastId !== undefined && lastId !== null) {
+            currentSince = lastUpdatedAt;
+            currentAfterId = lastId;
+        } else {
+            // No id column: fall back to updated_at-only paging (requires strict
+            // forward progress to avoid an infinite loop on a same-timestamp block).
+            if (lastUpdatedAt <= currentSince) break;
+            currentSince = lastUpdatedAt;
+            currentAfterId = null;
+        }
 
         console.log(`[Sync] Pull ${table} page ${pageNum} (${rows.length} rows). Fetching more since ${lastUpdatedAt}...`);
-        currentSince = lastUpdatedAt;
     }
 
     return allData;
@@ -1668,7 +1723,7 @@ async function upsertData(table, data) {
     }
 }
 
-async function getChanges(table, since, targetFactoryId) {
+async function getChanges(table, since, targetFactoryId, afterId) {
     if (!(await tableExistsPublic(table))) {
         return [];
     }
@@ -1677,10 +1732,24 @@ async function getChanges(table, since, targetFactoryId) {
     const params = [];
     const where = [];
     const normalizedSince = normalizeSyncTimestampInput(since);
+    const hasUpdatedAt = await tableHasColumn(table, 'updated_at');
+    // Keyset tiebreaker: when the client sends afterId, page THROUGH a block of
+    // rows sharing the same updated_at (e.g. a bulk regeneration timestamped
+    // identically across tens of thousands of rows) instead of skipping the rest
+    // once the cursor advances past that timestamp. Requires an `id` column.
+    const hasId = await tableHasColumn(table, 'id');
+    const keyset = hasUpdatedAt && hasId && normalizedSince && afterId !== null && afterId !== undefined;
 
-    if (normalizedSince && await tableHasColumn(table, 'updated_at')) {
-        params.push(normalizedSince);
-        where.push(`updated_at > $${params.length}`);
+    if (normalizedSince && hasUpdatedAt) {
+        if (keyset) {
+            params.push(normalizedSince);
+            const sinceIdx = params.length;
+            params.push(afterId);
+            where.push(`(updated_at > $${sinceIdx} OR (updated_at = $${sinceIdx} AND id > $${params.length}))`);
+        } else {
+            params.push(normalizedSince);
+            where.push(`updated_at > $${params.length}`);
+        }
     }
 
     // Global master tables are NOT scoped to a factory — every LOCAL server should
@@ -1694,7 +1763,7 @@ async function getChanges(table, since, targetFactoryId) {
         sql += ` WHERE ${where.join(' AND ')}`;
     }
 
-    sql += ' ORDER BY updated_at ASC LIMIT 1000';
+    sql += hasId ? ' ORDER BY updated_at ASC, id ASC LIMIT 1000' : ' ORDER BY updated_at ASC LIMIT 1000';
 
     try {
         const rows = await pool.query(sql, params);
