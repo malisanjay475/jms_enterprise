@@ -43,13 +43,23 @@ const apiLimiter = rateLimit({
 });
 
 // Sync routes get a separate, more focused limiter — they skip the main apiLimiter but still
-// need protection. 120 req/min covers normal sync cycles without opening an abuse path.
+// need protection against unauthenticated abuse. Requests carrying the correct SYNC_API_KEY
+// are trusted (LOCAL→MAIN pushes) and bypass the limiter entirely, so a full re-sync or
+// backlog drain can't get throttled to 429 mid-flight — that previously advanced the LOCAL
+// watermark past rows that never landed, stranding them. Unauthenticated traffic still hits
+// the (raised) ceiling.
+const SYNC_KEY = process.env.SYNC_API_KEY || 'jpsms-sync-key';
+function shouldSkipSyncLimiter(req) {
+  const key = (req.body && req.body.apiKey) || (req.query && req.query.apiKey);
+  return key === SYNC_KEY;
+}
 const syncLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 120,
+  max: 2000,
   standardHeaders: true,
   legacyHeaders: false,
   validate: false,
+  skip: shouldSkipSyncLimiter,
   message: { ok: false, error: 'Sync rate limit exceeded.' }
 });
 
