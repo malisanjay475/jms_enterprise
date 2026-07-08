@@ -20,7 +20,8 @@ concurrency:
   # workflows never SSH into the VPS at the same time (prevents dial tcp :22
   # i/o timeout collisions). cancel-in-progress: false makes a second deploy
   # queue and wait instead of cancelling an in-flight, health-gated deploy.
-  group: jms-v1-vps-production-deploy
+  # v2: kept in sync with deploy-vps-docker-isolated.yml (old group got stuck).
+  group: jms-v1-vps-production-deploy-v2
   cancel-in-progress: false
 
 env:
