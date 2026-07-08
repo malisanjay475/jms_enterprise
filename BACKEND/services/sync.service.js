@@ -504,11 +504,17 @@ router.post('/push-deletions', async (req, res) => {
 router.get('/pull', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
-        const { table, lastSync, since, apiKey, factoryId } = req.query;
+        const { table, lastSync, since, apiKey, factoryId, afterId } = req.query;
         if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
         if (!TABLES_TO_PULL.includes(table)) return res.status(400).json({ error: 'Invalid Table' });
 
-        const rows = await getChanges(table, since || lastSync, factoryId);
+        // afterId is the keyset tiebreaker: the id of the last row the client
+        // already has at the `since` timestamp. Lets pagination page through a
+        // block of rows sharing an identical updated_at. Parsed as an integer;
+        // anything non-numeric is ignored (falls back to updated_at-only paging).
+        const parsedAfterId = Number.parseInt(afterId, 10);
+        const afterIdArg = Number.isFinite(parsedAfterId) ? parsedAfterId : null;
+        const rows = await getChanges(table, since || lastSync, factoryId, afterIdArg);
         res.json({ ok: true, data: await coerceDateColumnsForWire(table, rows) });
     } catch (e) {
         console.error('[Sync] Pull Serve Error:', e);
@@ -1055,17 +1061,36 @@ async function pushTableAllBatches(table, lastPush) {
     const PUSH_BATCH_SIZE = 100;
     const stats = { pushed: 0, failed: 0 };
     const hasFactoryId = await tableHasColumn(table, 'factory_id');
-    let currentSince = lastPush;
+    // Pagination strategy:
+    //   When the table has an integer `id` primary key we page by ID, using the
+    //   updated_at watermark only as a FILTER (updated_at > lastPush). This is
+    //   immune to two problems that broke updated_at-cursor paging:
+    //     1. Bulk regenerations stamp tens of thousands of rows with an identical
+    //        updated_at; an updated_at-only cursor jumps past that timestamp after
+    //        the first batch and permanently SKIPS the rest.
+    //     2. node-postgres reads timestamptz into a JS Date truncated to
+    //        millisecond precision, while Postgres stores microseconds. A cursor
+    //        derived from that truncated Date (updated_at > cursor) re-matches the
+    //        same sub-millisecond rows forever → an infinite push loop.
+    //   The id cursor strictly increases and never repeats or skips a row.
+    //   lastPush comes from server_config as a full-precision string, so the
+    //   watermark boundary itself is exact (no truncation there).
+    const hasId = await tableHasColumn(table, 'id');
+    let currentSince = lastPush;   // updated_at watermark (filter only)
+    let lastId = null;             // id keyset cursor
     let batchNum = 0;
 
     while (true) {
         batchNum += 1;
         let rows;
         try {
-            const sql = hasFactoryId
-                ? `SELECT * FROM ${table} WHERE updated_at > $1 AND factory_id = $2 ORDER BY updated_at ASC LIMIT ${PUSH_BATCH_SIZE}`
-                : `SELECT * FROM ${table} WHERE updated_at > $1 ORDER BY updated_at ASC LIMIT ${PUSH_BATCH_SIZE}`;
-            const params = hasFactoryId ? [currentSince, LOCAL_FACTORY_ID] : [currentSince];
+            const where = ['updated_at > $1'];
+            const params = [currentSince];
+            if (hasId && lastId !== null) { params.push(lastId); where.push(`id > $${params.length}`); }
+            if (hasFactoryId) { params.push(LOCAL_FACTORY_ID); where.push(`factory_id = $${params.length}`); }
+            const orderClause = hasId ? 'ORDER BY id ASC' : 'ORDER BY updated_at ASC';
+
+            const sql = `SELECT * FROM ${table} WHERE ${where.join(' AND ')} ${orderClause} LIMIT ${PUSH_BATCH_SIZE}`;
             const result = await pool.query(sql, params);
             rows = result.rows;
         } catch (err) {
@@ -1077,7 +1102,7 @@ async function pushTableAllBatches(table, lastPush) {
         if (rows.length === 0) break;
 
         if (batchNum > 1) {
-            console.log(`[Sync] Pushing ${rows.length} rows for ${table} (batch ${batchNum}, since=${currentSince})...`);
+            console.log(`[Sync] Pushing ${rows.length} rows for ${table} (batch ${batchNum}, afterId=${lastId})...`);
         } else {
             console.log(`[Sync] Pushing ${rows.length} rows for ${table}...`);
         }
@@ -1097,9 +1122,16 @@ async function pushTableAllBatches(table, lastPush) {
 
         if (rows.length < PUSH_BATCH_SIZE) break; // last batch — no more rows
 
-        const lastUpdatedAt = rows[rows.length - 1]?.updated_at;
-        if (!lastUpdatedAt || lastUpdatedAt <= currentSince) break; // safety: no forward progress
-        currentSince = lastUpdatedAt;
+        const lastRow = rows[rows.length - 1];
+        if (hasId) {
+            // id strictly increases → always forward progress, never re-matches.
+            if (lastRow.id === undefined || lastRow.id === null || lastRow.id === lastId) break;
+            lastId = lastRow.id;
+        } else {
+            const lastUpdatedAt = lastRow?.updated_at;
+            if (!lastUpdatedAt || lastUpdatedAt <= currentSince) break; // safety: no forward progress
+            currentSince = lastUpdatedAt;
+        }
     }
 
     return stats;
@@ -1210,12 +1242,21 @@ async function pushDeletionChanges() {
 async function pullTableAllPages(table, since) {
     const PAGE_LIMIT = 1000; // must match LIMIT in getChanges() on MAIN
     const allData = [];
-    let currentSince = since;
+    // `since` (the updated_at watermark) stays FIXED for the whole pagination;
+    // MAIN pages by id (ORDER BY id) when the table has an id column, so only the
+    // id cursor advances. Advancing `since` mid-pagination would wrongly drop rows
+    // whose updated_at is <= the last row's timestamp but id is beyond the cursor.
+    // Paging by id is immune to identical-timestamp blocks and to millisecond
+    // truncation of timestamps that broke the previous updated_at cursor.
+    let currentAfterId = null; // id keyset cursor
+    let usedIdCursor = false;
+    let currentSince = since;  // only advances in the no-id fallback path
     let pageNum = 0;
 
     while (true) {
         pageNum += 1;
-        const url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`;
+        let url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`;
+        if (currentAfterId !== null) url += `&afterId=${encodeURIComponent(currentAfterId)}`;
         const response = await fetchWithSyncRetry(url, `Pull ${table} page ${pageNum}`);
 
         if (!response.ok) {
@@ -1229,12 +1270,23 @@ async function pullTableAllPages(table, since) {
 
         if (rows.length < PAGE_LIMIT) break; // this was the last page
 
-        // Advance 'since' to the last row's updated_at so the next page starts after it.
-        const lastUpdatedAt = rows[rows.length - 1]?.updated_at;
-        if (!lastUpdatedAt || lastUpdatedAt <= currentSince) break; // safety: no forward progress
+        const lastRow = rows[rows.length - 1];
+        const lastId = lastRow?.id;
 
-        console.log(`[Sync] Pull ${table} page ${pageNum} (${rows.length} rows). Fetching more since ${lastUpdatedAt}...`);
-        currentSince = lastUpdatedAt;
+        if (lastId !== undefined && lastId !== null) {
+            // id keyset: keep `since` fixed, advance only afterId.
+            if (usedIdCursor && lastId === currentAfterId) break; // safety: no progress
+            currentAfterId = lastId;
+            usedIdCursor = true;
+            console.log(`[Sync] Pull ${table} page ${pageNum} (${rows.length} rows). Fetching more afterId ${lastId}...`);
+        } else {
+            // No id column: fall back to updated_at cursor (strict forward progress
+            // required to avoid looping on a same-timestamp block).
+            const lastUpdatedAt = lastRow?.updated_at;
+            if (!lastUpdatedAt || lastUpdatedAt <= currentSince) break;
+            currentSince = lastUpdatedAt;
+            console.log(`[Sync] Pull ${table} page ${pageNum} (${rows.length} rows). Fetching more since ${lastUpdatedAt}...`);
+        }
     }
 
     return allData;
@@ -1668,7 +1720,7 @@ async function upsertData(table, data) {
     }
 }
 
-async function getChanges(table, since, targetFactoryId) {
+async function getChanges(table, since, targetFactoryId, afterId) {
     if (!(await tableExistsPublic(table))) {
         return [];
     }
@@ -1677,10 +1729,24 @@ async function getChanges(table, since, targetFactoryId) {
     const params = [];
     const where = [];
     const normalizedSince = normalizeSyncTimestampInput(since);
+    const hasUpdatedAt = await tableHasColumn(table, 'updated_at');
+    // When the table has an integer `id` primary key we page by ID (cursor =
+    // afterId), using updated_at only as a filter. This is immune to (1) blocks
+    // of rows sharing an identical updated_at being skipped once the cursor
+    // advances past that timestamp, and (2) millisecond-truncation of timestamps
+    // (JS Date / JSON ISO strings only carry ms, Postgres stores microseconds) —
+    // an updated_at cursor re-matches sub-ms rows forever. The id cursor strictly
+    // increases, so no row is skipped or repeated.
+    const hasId = await tableHasColumn(table, 'id');
 
-    if (normalizedSince && await tableHasColumn(table, 'updated_at')) {
+    if (normalizedSince && hasUpdatedAt) {
         params.push(normalizedSince);
         where.push(`updated_at > $${params.length}`);
+    }
+
+    if (hasId && afterId !== null && afterId !== undefined) {
+        params.push(afterId);
+        where.push(`id > $${params.length}`);
     }
 
     // Global master tables are NOT scoped to a factory — every LOCAL server should
@@ -1694,7 +1760,7 @@ async function getChanges(table, since, targetFactoryId) {
         sql += ` WHERE ${where.join(' AND ')}`;
     }
 
-    sql += ' ORDER BY updated_at ASC LIMIT 1000';
+    sql += hasId ? ' ORDER BY id ASC LIMIT 1000' : ' ORDER BY updated_at ASC LIMIT 1000';
 
     try {
         const rows = await pool.query(sql, params);
