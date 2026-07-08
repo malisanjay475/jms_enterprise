@@ -5,6 +5,29 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>JMS OCEAN – QC Supervisor Portal</title>
+    <!-- CACHE BUSTER: runs before anything else — clears stale SW caches automatically -->
+    <script>
+    (function() {
+        var BUILD = 'release70';
+        var stored = localStorage.getItem('jms_qc_build');
+        if (stored !== BUILD) {
+            localStorage.setItem('jms_qc_build', BUILD);
+            if ('caches' in window) {
+                caches.keys().then(function(keys) {
+                    return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+                }).then(function() {
+                    if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.getRegistrations().then(function(regs) {
+                            return Promise.all(regs.map(function(r) { return r.unregister(); }));
+                        }).then(function() { location.reload(true); });
+                    } else {
+                        location.reload(true);
+                    }
+                });
+            }
+        }
+    })();
+    </script>
     <link rel="manifest" href="/qc-manifest.json">
     <meta name="theme-color" content="#2563eb">
     <meta name="mobile-web-app-capable" content="yes">
@@ -1190,13 +1213,17 @@
                     </div>
                 </div>
                 <div class="row">
-                    <div class="grid-2">
-                        <label>Date <select id="fpa-date"></select></label>
-                        <label>Shift <select id="fpa-shift" onchange="updateFPASlots()">
-                                <option>Day</option><option>Night</option>
-                            </select></label>
+                    <!-- fpa-capture-only: hidden in view mode, shown in capture mode -->
+                    <div class="fpa-capture-only">
+                        <div class="grid-2">
+                            <label>Date <select id="fpa-date"></select></label>
+                            <label>Shift <select id="fpa-shift" onchange="updateFPASlots()">
+                                    <option>Day</option><option>Night</option>
+                                </select></label>
+                        </div>
                     </div>
-                    <label>Hour Slot <select id="fpa-slot"></select></label>
+                    <!-- fpa-slot: hidden select kept for JS compat — not shown to user -->
+                    <select id="fpa-slot" style="display:none"></select>
 
                     <!-- FPA Form Image (v4: 170px thumb) -->
                     <div class="card" style="background:var(--surface-elevated);border-style:dashed;padding:12px">
@@ -1583,8 +1610,8 @@
             onclick="event.stopPropagation()">
     </div>
 
-  <script src="/assets/QCSupervisor-script-1.js?v=release69"></script>
-  <script src="/assets/register-sw.js?v=release69"></script>
+  <script src="/assets/QCSupervisor-script-1.js?v=release70"></script>
+  <script src="/assets/register-sw.js?v=release70"></script>
 
 </body>
 

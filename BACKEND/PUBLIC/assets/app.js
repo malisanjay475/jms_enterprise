@@ -417,6 +417,7 @@ function escHtml(value) {
             if (res.ok) {
                 localStorage.setItem('token', 'dummy-token-for-now'); // Simulating token
                 localStorage.setItem('user', JSON.stringify(res.data));
+                localStorage.setItem('jpsms_login_at', String(Date.now()));
                 localStorage.setItem('jpsms_allowed_factories', JSON.stringify(res.factories || []));
                 localStorage.setItem('jpsms_can_all_factories', res.can_select_all_factories ? 'true' : 'false');
                 return { user: res.data, factories: res.factories || [] };
@@ -430,6 +431,7 @@ function escHtml(value) {
             toggleLoader(false);
             localStorage.removeItem('token');
             localStorage.removeItem('user');
+            localStorage.removeItem('jpsms_login_at');
             localStorage.removeItem('jpsms_allowed_factories');
             localStorage.removeItem('jpsms_can_all_factories');
             localStorage.removeItem('jpsms_factory_id');
@@ -437,6 +439,70 @@ function escHtml(value) {
             localStorage.removeItem('jpsms_write_factory_id');
             localStorage.removeItem('jpsms_write_factory_name');
             window.location.href = getLogoutRedirectForCurrentPath();
+        },
+        // Show a modal listing the PCs/devices where this user is currently active,
+        // with an option to log out from all other devices.
+        showMyDevices: async () => {
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+            if (!user.username) return;
+
+            let m = document.getElementById('jms-devices-modal');
+            if (!m) {
+                m = document.createElement('div');
+                m.id = 'jms-devices-modal';
+                m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+                m.innerHTML = `
+                    <div style="background:#fff;padding:22px;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.2);width:min(460px,92vw);max-height:80vh;overflow:auto;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                            <h3 style="margin:0;font-size:1.1rem;">Logged-in Devices</h3>
+                            <button id="jms-devices-close" style="border:none;background:transparent;font-size:1.4rem;cursor:pointer;line-height:1;">&times;</button>
+                        </div>
+                        <div id="jms-devices-list" style="color:#555;font-size:0.9rem;">Loading…</div>
+                        <div style="margin-top:18px;text-align:right;">
+                            <button id="jms-logout-others" class="btn" style="padding:9px 16px;background:#dc2626;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;">Log out from all other devices</button>
+                        </div>
+                    </div>`;
+                document.body.appendChild(m);
+                m.querySelector('#jms-devices-close').addEventListener('click', () => { m.style.display = 'none'; });
+                m.addEventListener('click', (e) => { if (e.target === m) m.style.display = 'none'; });
+                m.querySelector('#jms-logout-others').addEventListener('click', async () => {
+                    if (!confirm('Log out from all OTHER devices? This device will stay logged in.')) return;
+                    try {
+                        const res = await exports.api.post('/logout-all', { username: user.username });
+                        if (res.ok) {
+                            if (res.keep_login_at) localStorage.setItem('jpsms_login_at', String(res.keep_login_at));
+                            toast('Other devices will be logged out within a minute.', 'success');
+                            m.style.display = 'none';
+                        } else {
+                            toast(res.error || 'Failed', 'error');
+                        }
+                    } catch (e) {
+                        toast('Failed to log out other devices', 'error');
+                    }
+                });
+            }
+            m.style.display = 'flex';
+
+            const listEl = m.querySelector('#jms-devices-list');
+            listEl.textContent = 'Loading…';
+            try {
+                const sid = window._jmsSessionId || '';
+                const res = await exports.api.get(`/my-sessions?username=${encodeURIComponent(user.username)}&session_id=${encodeURIComponent(sid)}`);
+                const sessions = (res && res.sessions) || [];
+                if (!sessions.length) { listEl.textContent = 'No active devices found.'; return; }
+                listEl.innerHTML = sessions.map(s => {
+                    const seen = new Date(s.last_seen);
+                    const mins = Math.max(0, Math.round((Date.now() - seen.getTime()) / 60000));
+                    const seenTxt = mins <= 0 ? 'just now' : `${mins} min ago`;
+                    const badge = s.is_current ? ' <span style="color:#16a34a;font-weight:600;">(this device)</span>' : '';
+                    return `<div style="padding:10px 0;border-bottom:1px solid #eee;">
+                        <div style="font-weight:600;color:#222;">${escHtml(s.description)}${badge}</div>
+                        <div style="font-size:0.8rem;color:#777;">${escHtml(s.device_type || '')} · IP ${escHtml(s.ip_address || 'unknown')} · ${escHtml(s.app_id || '')} · seen ${seenTxt}</div>
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                listEl.textContent = 'Failed to load devices.';
+            }
         },
         getUser: () => JSON.parse(localStorage.getItem('user') || '{}'),
         getAppAccessMap: (user = readStoredJson('user', {})) => getExplicitAppAccessMap(user),
@@ -530,9 +596,9 @@ function escHtml(value) {
             let logoutTimer;
             let countdownInterval;
 
-            // 29 Minutes Warning, 30 Minutes Logout
-            const WARNING_TIME = 29 * 60 * 1000;
-            const LOGOUT_TIME = 30 * 60 * 1000;
+            // 59 Minutes Warning, 60 Minutes Logout (idle-based)
+            const WARNING_TIME = 59 * 60 * 1000;
+            const LOGOUT_TIME = 60 * 60 * 1000;
 
             // Function Hoisting Solution: Define resetTimers first
             const resetTimers = () => {
@@ -785,7 +851,7 @@ function escHtml(value) {
 
     // Start Auto-Logout Monitor
     if (typeof document !== 'undefined') {
-        // try { exports.auth.initAutoLogout(); } catch (e) { console.error(e); }
+        try { exports.auth.initAutoLogout(); } catch (e) { console.error(e); }
         try { ensureViewportLayoutWatcher(); } catch (e) { console.error(e); }
     }
 
@@ -1476,6 +1542,10 @@ function escHtml(value) {
                 <i class="bi bi-arrow-repeat"></i>
             </button>` : ''}
 
+            <button onclick="JPSMS.auth.showMyDevices()" class="btn btn-outline" style="padding:2px 4px;font-size:1rem;border:none;background:transparent;color:var(--sidebar-text);" title="My Logged-in Devices">
+                <i class="bi bi-laptop"></i>
+            </button>
+
             <button onclick="JPSMS.auth.logout()" class="btn btn-outline" style="padding:2px 4px;font-size:1rem;border:none;background:transparent;color:white;" title="Logout">
                 <i class="bi bi-box-arrow-right"></i>
             </button>
@@ -1531,13 +1601,22 @@ function escHtml(value) {
         ensureMobileSidebarControls();
         applyViewportLayoutMode();
 
-        // Populate version badge
+        // Populate version badge + wire up the "What's New" popup
+        const versionBadge = document.getElementById('jms-version-badge');
+        if (versionBadge) {
+            versionBadge.style.cursor = 'pointer';
+            versionBadge.title = 'View what\'s new in this version';
+            versionBadge.onclick = () => exports.whatsNew.open({ user, manual: true });
+        }
         fetch('/api/version').then(r => r.json()).then(v => {
             const el = document.getElementById('jms-version-text');
-            if (!el) return;
-            const type = v.serverType === 'LOCAL' ? ' · LOCAL' : '';
-            el.textContent = `v${v.version}${type}`;
-            el.title = v.buildDate ? 'Built: ' + v.buildDate : '';
+            if (el) {
+                const type = v.serverType === 'LOCAL' ? ' · LOCAL' : '';
+                el.textContent = `v${v.version}${type}`;
+            }
+            // Auto-show the popup once when the running version is newer than what
+            // this user has already seen. Access-filtered inside whatsNew.
+            exports.whatsNew.maybeShow({ user, version: v.version });
         }).catch(() => {});
 
         // Inject Hamburger if Header Exists
@@ -1587,6 +1666,206 @@ function escHtml(value) {
 
         schedulePremiumMotionRefresh(document);
     };
+
+    // --- "What's New" popup (release changelog, access-filtered) ---
+    (function initWhatsNew() {
+        let changelogCache = null;
+
+        function seenKey(user) {
+            const id = user?.id || user?.username || 'anon';
+            return `jpsms_whatsnew_seen_${id}`;
+        }
+
+        // Compare semver strings. Returns 1 if a>b, -1 if a<b, 0 if equal.
+        function cmpVersion(a, b) {
+            const pa = String(a || '0').split('.').map(n => parseInt(n, 10) || 0);
+            const pb = String(b || '0').split('.').map(n => parseInt(n, 10) || 0);
+            for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+                const d = (pa[i] || 0) - (pb[i] || 0);
+                if (d !== 0) return d > 0 ? 1 : -1;
+            }
+            return 0;
+        }
+
+        async function loadChangelog() {
+            if (changelogCache) return changelogCache;
+            const res = await fetch('/assets/changelog.json', { cache: 'no-store' });
+            changelogCache = await res.json();
+            return changelogCache;
+        }
+
+        // Keep only modules this user can access; app:'all' is always shown.
+        function filterModules(modules, user) {
+            return (modules || []).filter(m => {
+                if (!m || !Array.isArray(m.changes) || !m.changes.length) return false;
+                if (m.app === 'all') return true;
+                try { return exports.auth.canAccessApp(m.app, user) === true; }
+                catch (_e) { return false; }
+            });
+        }
+
+        const TYPE_STYLE = {
+            feat:        { label: 'New',      bg: '#dcfce7', fg: '#166534' },
+            improvement: { label: 'Improved', bg: '#e0f2fe', fg: '#075985' },
+            fix:         { label: 'Fix',      bg: '#fef9c3', fg: '#854d0e' },
+            perf:        { label: 'Faster',   bg: '#ede9fe', fg: '#5b21b6' },
+            security:    { label: 'Security', bg: '#fee2e2', fg: '#991b1b' }
+        };
+
+        function injectStyles() {
+            if (document.getElementById('whatsNewStyles')) return;
+            const st = document.createElement('style');
+            st.id = 'whatsNewStyles';
+            st.textContent = `
+            .wn-backdrop{position:fixed;inset:0;background:rgba(15,23,42,0.55);backdrop-filter:blur(3px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;animation:wnFade .18s ease;}
+            @keyframes wnFade{from{opacity:0}to{opacity:1}}
+            .wn-card{background:#fff;border-radius:16px;width:min(560px,100%);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(2,6,23,.35);animation:wnPop .22s cubic-bezier(.2,.8,.3,1);}
+            @keyframes wnPop{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+            .wn-head{background:linear-gradient(135deg,#0ea5e9,#2563eb);color:#fff;padding:20px 22px;position:relative;}
+            .wn-head h3{margin:0;font-size:1.15rem;font-weight:800;letter-spacing:.2px;display:flex;align-items:center;gap:8px;}
+            .wn-head p{margin:6px 0 0;font-size:.82rem;opacity:.92;}
+            .wn-close{position:absolute;top:14px;right:14px;background:rgba(255,255,255,.18);border:none;color:#fff;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:1rem;line-height:1;display:flex;align-items:center;justify-content:center;transition:background .15s;}
+            .wn-close:hover{background:rgba(255,255,255,.32);}
+            .wn-body{padding:16px 22px 6px;overflow-y:auto;}
+            .wn-ver{margin-bottom:18px;}
+            .wn-ver-head{display:flex;align-items:baseline;gap:8px;margin-bottom:10px;}
+            .wn-ver-tag{background:#eff6ff;color:#1d4ed8;font-weight:800;font-size:.78rem;padding:2px 9px;border-radius:999px;}
+            .wn-ver-date{font-size:.72rem;color:#94a3b8;}
+            .wn-ver-title{font-size:.82rem;color:#475569;font-weight:600;}
+            .wn-mod{border:1px solid #eef2f7;border-radius:12px;padding:12px 14px;margin-bottom:10px;background:#fbfdff;}
+            .wn-mod-head{display:flex;align-items:center;gap:8px;font-weight:700;color:#0f172a;font-size:.92rem;margin-bottom:8px;}
+            .wn-mod-head i{color:#2563eb;font-size:1rem;}
+            .wn-change{display:flex;gap:8px;align-items:flex-start;padding:4px 0;font-size:.85rem;color:#334155;line-height:1.45;}
+            .wn-pill{flex:none;font-size:.64rem;font-weight:800;text-transform:uppercase;letter-spacing:.4px;padding:2px 7px;border-radius:6px;margin-top:1px;}
+            .wn-foot{padding:14px 22px 18px;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;}
+            .wn-btn{background:#2563eb;color:#fff;border:none;border-radius:10px;padding:10px 22px;font-weight:700;font-size:.9rem;cursor:pointer;transition:background .15s;}
+            .wn-btn:hover{background:#1d4ed8;}
+            .wn-empty{padding:26px 22px;text-align:center;color:#64748b;font-size:.9rem;}
+            `;
+            document.head.appendChild(st);
+        }
+
+        function render(versionsToShow, headline) {
+            injectStyles();
+            document.getElementById('wnBackdrop')?.remove();
+
+            let inner = '';
+            for (const ver of versionsToShow) {
+                const mods = ver._modules;
+                let modsHtml = '';
+                for (const m of mods) {
+                    const changes = m.changes.map(c => {
+                        const s = TYPE_STYLE[c.type] || { label: c.type || '', bg: '#f1f5f9', fg: '#475569' };
+                        return `<div class="wn-change">
+                            <span class="wn-pill" style="background:${s.bg};color:${s.fg}">${escHtml(s.label)}</span>
+                            <span>${escHtml(c.text)}</span>
+                        </div>`;
+                    }).join('');
+                    modsHtml += `<div class="wn-mod">
+                        <div class="wn-mod-head"><i class="bi ${escHtml(m.icon || 'bi-box')}"></i>${escHtml(m.label || m.app)}</div>
+                        ${changes}
+                    </div>`;
+                }
+                inner += `<div class="wn-ver">
+                    <div class="wn-ver-head">
+                        <span class="wn-ver-tag">v${escHtml(ver.version)}</span>
+                        <span class="wn-ver-date">${escHtml(ver.date || '')}</span>
+                    </div>
+                    ${ver.title ? `<div class="wn-ver-title">${escHtml(ver.title)}</div>` : ''}
+                    <div style="margin-top:10px">${modsHtml}</div>
+                </div>`;
+            }
+
+            if (!inner) inner = `<div class="wn-empty">You're all up to date. No new changes for your modules.</div>`;
+
+            const backdrop = document.createElement('div');
+            backdrop.className = 'wn-backdrop';
+            backdrop.id = 'wnBackdrop';
+            backdrop.innerHTML = `
+                <div class="wn-card" role="dialog" aria-modal="true" aria-label="What's new">
+                    <div class="wn-head">
+                        <button class="wn-close" id="wnCloseX" aria-label="Close">&times;</button>
+                        <h3><i class="bi bi-stars"></i> What's New</h3>
+                        <p>${escHtml(headline)}</p>
+                    </div>
+                    <div class="wn-body">${inner}</div>
+                    <div class="wn-foot"><button class="wn-btn" id="wnGotIt">Got it</button></div>
+                </div>`;
+            document.body.appendChild(backdrop);
+
+            const close = () => backdrop.remove();
+            backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+            backdrop.querySelector('#wnCloseX').onclick = close;
+            backdrop.querySelector('#wnGotIt').onclick = close;
+            document.addEventListener('keydown', function onEsc(e) {
+                if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onEsc); }
+            });
+        }
+
+        // Build access-filtered version list from a raw changelog.
+        function buildVisible(changelog, user, minExclusiveVersion) {
+            const out = [];
+            for (const ver of (changelog.versions || [])) {
+                if (minExclusiveVersion && cmpVersion(ver.version, minExclusiveVersion) <= 0) continue;
+                const mods = filterModules(ver.modules, user);
+                if (mods.length) out.push({ ...ver, _modules: mods });
+            }
+            return out;
+        }
+
+        // Manual open (clicking the version badge) — always shows the latest release.
+        async function open({ user = exports.auth.getUser(), manual = false } = {}) {
+            try {
+                const changelog = await loadChangelog();
+                const visible = buildVisible(changelog, user, null);
+                const latest = visible.slice(0, 1); // show only the newest on manual open
+                render(latest.length ? latest : [], manual ? 'Latest updates for your modules' : '');
+            } catch (e) {
+                console.warn('[WhatsNew] open failed:', e);
+                exports.toast && exports.toast('Could not load release notes.', 'error');
+            }
+        }
+
+        // For a first run (no seen record), only show the latest version by using
+        // the version just below the current one as the exclusive floor.
+        function cmpFloorForFirstRun(changelog, currentVersion) {
+            const below = (changelog.versions || [])
+                .map(v => v.version)
+                .filter(v => cmpVersion(v, currentVersion) < 0)
+                .sort(cmpVersion);
+            return below.length ? below[below.length - 1] : null;
+        }
+
+        // Auto-show once per new version. Filters by access and by last-seen version.
+        async function maybeShow({ user = exports.auth.getUser(), version } = {}) {
+            if (!version || !user?.username) return;
+            const key = seenKey(user);
+            let lastSeen = '';
+            try { lastSeen = localStorage.getItem(key) || ''; } catch (_e) {}
+
+            // Already seen this (or newer) version — nothing to do.
+            if (lastSeen && cmpVersion(lastSeen, version) >= 0) return;
+
+            try {
+                const changelog = await loadChangelog();
+                // First-ever login on this device: only surface the current release,
+                // don't dump the entire history.
+                const floor = lastSeen || cmpFloorForFirstRun(changelog, version);
+                const visible = buildVisible(changelog, user, floor).filter(v => cmpVersion(v.version, version) <= 0);
+
+                // Mark as seen regardless, so we don't re-check every page load.
+                try { localStorage.setItem(key, version); } catch (_e) {}
+
+                if (visible.length) {
+                    render(visible, 'Here\'s what changed in the modules you use');
+                }
+            } catch (e) {
+                console.warn('[WhatsNew] maybeShow failed:', e);
+            }
+        }
+
+        exports.whatsNew = { open, maybeShow };
+    })();
 
     // --- Notification Helper ---
     function initNotificationBell() {
@@ -1825,6 +2104,9 @@ function escHtml(value) {
       }
     } catch (_e) {}
 
+    let loginAt = '';
+    try { loginAt = String(localStorage.getItem('jpsms_login_at') || ''); } catch (_e) {}
+
     return {
       username: user.username,
       role_code: user.role_code || '',
@@ -1833,7 +2115,8 @@ function escHtml(value) {
       page: _pageName,
       device_type: device,
       factory_id: factoryId,
-      session_id: window._jmsSessionId
+      session_id: window._jmsSessionId,
+      login_at: loginAt
     };
   }
 
@@ -1845,7 +2128,15 @@ function escHtml(value) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
       keepalive: true
-    }).catch(function () {});
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (res) {
+        // Remote "log out from all other devices" signal — drop this session.
+        if (res && res.revoked && window.JPSMS && window.JPSMS.auth) {
+          try { window.JPSMS.auth.logout(); } catch (_e) {}
+        }
+      })
+      .catch(function () {});
   }
 
   // Fire immediately on load (action = page_open)

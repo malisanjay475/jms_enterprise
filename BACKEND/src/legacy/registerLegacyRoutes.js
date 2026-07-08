@@ -3977,6 +3977,8 @@ async function bootstrapFreshCoreTables() {
       status VARCHAR(50) DEFAULT 'active'
     );
   `);
+  // "Log out from all other devices": sessions whose login predates this timestamp are revoked.
+  await q(`ALTER TABLE users ADD COLUMN IF NOT EXISTS logout_all_after TIMESTAMPTZ`);
 
   await q(`
     CREATE TABLE IF NOT EXISTS user_factories (
@@ -5551,6 +5553,27 @@ app.post('/api/factories/save', async (req, res) => {
    USER MANAGEMENT
 ============================================================ */
 // GET /api/users
+// Lightweight current-user access lookup — lets clients refresh line/global_access
+// without a full re-login (so date-entry access reflects the latest admin change).
+app.get('/api/user/access', async (req, res) => {
+  try {
+    const username = String(req.query.username || '').trim();
+    if (!username) return res.json({ ok: false, error: 'username required' });
+    const rows = await q('SELECT line, role_code, global_access FROM users WHERE username=$1 LIMIT 1', [username]);
+    if (!rows.length) return res.json({ ok: false, error: 'not found' });
+    res.json({
+      ok: true,
+      data: {
+        line: rows[0].line || '',
+        role_code: rows[0].role_code || '',
+        global_access: rows[0].global_access === true
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 app.get('/api/users', async (req, res) => {
   try {
     const rows = await q(
@@ -6233,6 +6256,57 @@ app.get('/api/dpr/used-slots', async (req, res) => {
 });
 
 /* ============================================================
+   DATE-ENTRY ACCESS GUARD
+   - All-lines users (line='all' or global_access=true): may back-date up to 30 days.
+   - Partial-line users: only Today / Yesterday (08:10 shift-handover rule).
+   Line access is re-derived from the DB — never trusted from the client body.
+============================================================ */
+function _isoLocalDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+// Mirrors the client's buildDateSelect() 08:10 handover logic to agree on "today"/"yesterday".
+function _allowedRelativeDates() {
+  const now = new Date();
+  const today = new Date(now); today.setHours(0, 0, 0, 0);
+  const yest = new Date(today); yest.setDate(today.getDate() - 1);
+  return { today: _isoLocalDate(today), yesterday: _isoLocalDate(yest) };
+}
+
+async function assertDateEntryAllowed(session, entryDate) {
+  const username = (session && session.username) ? String(session.username).trim() : '';
+  if (!entryDate) return { ok: false, error: 'Missing entry date.' };
+  if (!username) return { ok: false, error: 'Missing session. Please log in again.' };
+
+  const rows = await q('SELECT line, global_access FROM users WHERE username=$1 LIMIT 1', [username]);
+  if (!rows.length) return { ok: false, error: 'User not found. Please log in again.' };
+
+  const uLine = String(rows[0].line || '').trim().toLowerCase();
+  const allAccess = uLine === 'all' || rows[0].global_access === true;
+
+  const now = new Date();
+  const today = new Date(now); today.setHours(0, 0, 0, 0);
+
+  if (allAccess) {
+    const minD = new Date(today); minD.setDate(today.getDate() - 30);
+    const picked = new Date(entryDate + 'T00:00:00');
+    if (isNaN(picked.getTime()) || picked > today || picked < minD) {
+      return { ok: false, error: 'Date must be within the last 30 days.' };
+    }
+    return { ok: true };
+  }
+
+  const { today: todayStr, yesterday } = _allowedRelativeDates();
+  if (entryDate !== todayStr && entryDate !== yesterday) {
+    return { ok: false, error: 'You can only make entries for Today or Yesterday.' };
+  }
+  return { ok: true };
+}
+
+/* ============================================================
    DPR SUBMIT
 ============================================================ */
 app.post('/api/dpr/submit', async (req, res) => {
@@ -6260,6 +6334,13 @@ app.post('/api/dpr/submit', async (req, res) => {
 
     // [FIX] Factory Isolation
     const factoryId = getFactoryId(req);
+
+    // [NEW] Date-entry access guard — partial-line users are limited to Today/Yesterday,
+    // all-lines users may back-date up to 30 days. Access re-derived from DB.
+    const dateGuard = await assertDateEntryAllowed(session, Date);
+    if (!dateGuard.ok) {
+      return res.json({ ok: false, error: dateGuard.error });
+    }
 
     // [NEW] Check if plant or line is closed
     if (Machine) {
@@ -8640,7 +8721,10 @@ app.get('/api/planning/board', async (req, res) => {
 
     if (factoryId) {
       params.push(factoryId);
-      where += ` AND pb.factory_id = $${params.length}`;
+      // NULL factory_id means "unassigned / legacy / global" — keep it visible, matching
+      // the sibling queries (machine join below, bulk-approve). A strict equality here
+      // silently hides plans created before factory_id existed or imported without one.
+      where += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
     }
 
     if (date) {
@@ -10516,6 +10600,9 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
         pb.our_code,
         COALESCE(pb.job_no, pb.batch_no) AS job_no,
         COALESCE(pb.job_qty, pb.batch_qty) AS job_qty,
+        pb.plan_qty,
+        pb.bal_qty,
+        pb.colour_details,
         pb.mould_name,
         pb.mould_code,
         pb.machine,
@@ -10538,6 +10625,15 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
       ourCode: p.our_code || '',
       jobNo: p.job_no != null ? Number(p.job_no) : null,
       jobQty: toNum(p.job_qty) ?? 0,
+      planQty: toNum(p.plan_qty) ?? 0,
+      balQty: toNum(p.bal_qty) ?? 0,
+      colourDetails: (() => {
+        try {
+          return Array.isArray(p.colour_details)
+            ? p.colour_details
+            : (typeof p.colour_details === 'string' ? JSON.parse(p.colour_details || '[]') : []);
+        } catch { return []; }
+      })(),
       mouldName: p.mould_name || p.mould_code || '-',
       mouldCode: p.mould_code || '',
       machine: p.machine || '-',
@@ -10616,6 +10712,131 @@ app.post('/api/planning/update', async (req, res) => {
   } catch (e) {
     console.error('planning/update', e);
     res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/planning/superadmin-edit
+// Superadmin-only correction of an already-created plan: fix wrong colour qty,
+// and adjust Plan Qty / Job Qty. Every edit is written to plan_audit_logs.
+// body: { rowId, planQty, jobQty, balQty, colourDetails: [{ colourName, planQty, batchQty, ... }] }
+app.post('/api/planning/superadmin-edit', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    const isSuper = actor && (isSuperadminRole(actor) || String(actor.username || '').toLowerCase() === 'superadmin');
+    if (!isSuper) {
+      return res.status(403).json({ ok: false, error: 'Only a superadmin can edit created plans.' });
+    }
+
+    const { rowId } = req.body || {};
+    if (!rowId) return res.json({ ok: false, error: 'Missing rowId' });
+
+    const existingRows = await q(
+      'SELECT plan_id, order_no, plan_qty, bal_qty, job_qty, batch_qty, colour_details FROM plan_board WHERE id = $1',
+      [rowId]
+    );
+    if (!existingRows.length) return res.json({ ok: false, error: 'Plan not found' });
+    const before = existingRows[0];
+
+    // Normalize incoming colour rows and derive totals from them when provided.
+    let colourDetails = null;
+    if (Array.isArray(req.body.colourDetails)) {
+      colourDetails = req.body.colourDetails.map((c) => ({
+        itemCode: c.itemCode || '',
+        itemName: c.itemName || '',
+        colourName: c.colourName || c.itemColour || c.colour || c.name || '-',
+        planQty: Math.max(0, toNum(c.planQty ?? c.qty) ?? 0),
+        batchQty: Math.max(0, toNum(c.batchQty ?? c.useQty) ?? 0),
+        consumptionRatioQty: toNum(c.consumptionRatioQty)
+      }));
+    }
+
+    const colourPlanSum = colourDetails ? colourDetails.reduce((s, c) => s + (c.planQty || 0), 0) : null;
+    const colourBatchSum = colourDetails ? colourDetails.reduce((s, c) => s + (c.batchQty || 0), 0) : null;
+
+    // Explicit overrides win; otherwise fall back to colour-row totals; otherwise keep existing.
+    const planQty = toNum(req.body.planQty) ?? colourPlanSum ?? null;
+    const jobQty = toNum(req.body.jobQty) ?? colourBatchSum ?? null;
+    const balQty = toNum(req.body.balQty) ?? (planQty != null ? planQty : null);
+
+    if (planQty != null && planQty < 0) return res.json({ ok: false, error: 'Plan Qty cannot be negative.' });
+    if (jobQty != null && jobQty < 0) return res.json({ ok: false, error: 'Job Qty cannot be negative.' });
+
+    // Ceiling: total planned for the OR must not exceed the Order (Mould Item) Qty.
+    // Max this plan can take = OR Qty − qty already planned by OTHER plans, but never
+    // below this plan's current qty (so an unchanged value is never rejected). Skipped
+    // when OR Qty is unknown, and treated as non-fatal so a data glitch can't lock out
+    // a legitimate superadmin correction.
+    try {
+      const orderNo = before.order_no;
+      if (orderNo) {
+        const orRows = await q(
+          `SELECT COALESCE(MAX(or_qty), 0)::numeric AS or_qty
+             FROM or_jr_report WHERE TRIM(or_jr_no) = TRIM($1)`,
+          [orderNo]
+        );
+        const orQty = toNum(orRows[0]?.or_qty) ?? 0;
+        if (orQty > 0) {
+          const otherRows = await q(
+            `SELECT COALESCE(SUM(jq), 0)::numeric AS planned_others FROM (
+               SELECT DISTINCT ON (COALESCE(pb.job_no, pb.batch_no), pb.our_code)
+                 COALESCE(pb.job_qty, pb.batch_qty, 0)::numeric AS jq
+               FROM plan_board pb
+               WHERE TRIM(COALESCE(pb.order_no, '')) = TRIM($1)
+                 AND COALESCE(pb.job_no, pb.batch_no, 0) > 0
+                 AND pb.id <> $2
+               ORDER BY COALESCE(pb.job_no, pb.batch_no), pb.our_code, pb.id ASC
+             ) t`,
+            [orderNo, rowId]
+          );
+          const plannedOthers = toNum(otherRows[0]?.planned_others) ?? 0;
+          const currentJobQty = toNum(before.job_qty ?? before.batch_qty) ?? 0;
+          const maxForThisPlan = Math.max(orQty - plannedOthers, currentJobQty);
+          const checkJob = jobQty != null ? jobQty : currentJobQty;
+          const checkPlan = planQty != null ? planQty : (toNum(before.plan_qty) ?? 0);
+          if (checkJob > maxForThisPlan || checkPlan > maxForThisPlan) {
+            return res.json({
+              ok: false,
+              error: `Qty exceeds the limit. Max for this plan is ${maxForThisPlan} (Mould Item Qty ${orQty} − already planned ${plannedOthers}).`
+            });
+          }
+        }
+      }
+    } catch (capErr) {
+      console.warn('superadmin-edit ceiling check skipped:', capErr.message);
+    }
+
+    await q(
+      `UPDATE plan_board
+         SET plan_qty       = COALESCE($2, plan_qty),
+             job_qty        = COALESCE($3, job_qty),
+             batch_qty      = COALESCE($3, batch_qty),
+             bal_qty        = COALESCE($4, bal_qty),
+             colour_details = COALESCE($5::jsonb, colour_details),
+             updated_at     = NOW()
+       WHERE id = $1`,
+      [rowId, planQty, jobQty, balQty, colourDetails ? JSON.stringify(colourDetails) : null]
+    );
+
+    await q(
+      "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SUPERADMIN_EDIT', $2, $3)",
+      [
+        rowId,
+        JSON.stringify({
+          before: {
+            plan_qty: before.plan_qty, bal_qty: before.bal_qty,
+            job_qty: before.job_qty, batch_qty: before.batch_qty,
+            colour_details: before.colour_details
+          },
+          after: { plan_qty: planQty, job_qty: jobQty, bal_qty: balQty, colour_details: colourDetails }
+        }),
+        actor.username || 'superadmin'
+      ]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('planning/superadmin-edit', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
 
@@ -10729,31 +10950,6 @@ app.post('/api/planning/delete', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('planning/delete', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
-
-// POST /api/planning/delete-all  body: { user }
-app.post('/api/planning/delete-all', async (req, res) => {
-  try {
-    const { user } = req.body || {};
-    // Check authentication in real scenario.
-
-    // Log DELETE ALL
-    await q(
-      "INSERT INTO plan_audit_logs (action, details, user_name) VALUES ('DELETE_ALL', '{}', $1)",
-      [user || 'System']
-    );
-
-    // Delete All
-    await q('DELETE FROM plan_board');
-
-    // Reset ALL Orders to Pending (since no plans exist)
-    await q("UPDATE orders SET status='Pending' WHERE status='Plan Completed'");
-
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('planning/delete-all', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
@@ -11652,18 +11848,6 @@ app.post('/api/planning/start', async (req, res) => {
   }
 });
 
-// POST /api/planning/delete-all
-app.post('/api/planning/delete-all', async (req, res) => {
-  try {
-    // Truncate or Delete All
-    await q('DELETE FROM plan_board');
-    await q("INSERT INTO plan_audit_logs (action, details, user_name) VALUES ('DELETE_ALL', 'Board Cleared', 'Admin')");
-    res.json({ ok: true, message: 'All plans deleted' });
-  } catch (e) {
-    console.error('planning/delete-all', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 // POST /api/planning/stop body: { rowId }
 app.post('/api/planning/stop', async (req, res) => {
@@ -16650,6 +16834,15 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
     // 3. Get Setup Data (std_actual) for Range
     let setupQuery = `
+      WITH plan_prod AS (
+        -- Cumulative good produced per plan (factory scoped), computed ONCE.
+        SELECT dh.plan_id, SUM(dh.good_qty)::int AS produced
+        FROM dpr_hourly dh
+        WHERE dh.is_deleted = false
+          AND dh.plan_id IS NOT NULL
+          AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
+        GROUP BY dh.plan_id
+      )
       SELECT
         s.id,
         --CAVITY INFO
@@ -16669,12 +16862,21 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
         --SUMMARY STATS(Plan vs Actual)
         COALESCE(ojr.plan_qty, pb.plan_qty, 0) as plan_qty,
+        -- Cumulative good produced for THIS PLAN across ALL dates (factory scoped).
+        -- Scope by plan_id, not order_no: one order_no spans many plans (machines/moulds),
+        -- so matching by order_no over-counts production from other plans and breaks balance.
+        -- Pre-aggregated once in the plan_prod CTE (joined below) instead of a per-row
+        -- correlated subquery, so a week-range summary no longer runs thousands of scans.
+        COALESCE(pp.produced, 0) as produced_qty,
+        -- Balance = plan - cumulative produced (allowed negative so <=0 completion trigger works)
+        (COALESCE(ojr.plan_qty, pb.plan_qty, 0) - COALESCE(pp.produced, 0)) as balance_qty,
         COALESCE(ojr.mld_status, pb.status) as job_status,
         COALESCE(ojr.job_card_no, '') as job_card_no,
         COALESCE(ojr.client_name, o.client_name, '') as client_name,
         s.machine, s.mould_name, s.order_no, s.plan_id, s.shift
 
       FROM std_actual s
+      LEFT JOIN plan_prod pp ON pp.plan_id = s.plan_id
       LEFT JOIN plan_board pb ON pb.plan_id = s.plan_id
       LEFT JOIN (
         SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no 
@@ -16683,15 +16885,40 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       ) mps ON mps.or_jr_no = COALESCE(pb.order_no, s.order_no) AND mps.mould_name = COALESCE(pb.mould_name, s.mould_name)
       LEFT JOIN moulds m ON TRIM(m.mould_number) = TRIM(COALESCE(pb.mould_code, ''))
       LEFT JOIN moulds m2 ON TRIM(m2.mould_number) = COALESCE(NULLIF(TRIM(mps.mould_no), ''), NULLIF(TRIM(pb.mould_code), ''), '')
-      LEFT JOIN moulds m3 ON (
-        TRIM(m3.mould_name) = TRIM(COALESCE(pb.mould_name, mps.mould_name, s.mould_name, ''))
-        OR COALESCE(pb.mould_name, mps.mould_name, s.mould_name, '') ILIKE '%' || m3.mould_name || '%'
-        OR m3.mould_name ILIKE '%' || COALESCE(pb.mould_name, mps.mould_name, s.mould_name, '') || '%'
-      )
-      LEFT JOIN moulds m4 ON (
-        s.article_act > 0 AND s.article_act < 10 AND m4.std_wt_kg = s.article_act
-        AND (COALESCE(pb.mould_name, s.mould_name) ILIKE '%' || SUBSTRING(m4.mould_name FROM 1 FOR 8) || '%')
-      )
+      -- m3/m4 are fuzzy mould-name fallbacks for std cycle-time/weight/cavity.
+      -- As plain LEFT JOINs they scanned all moulds per row AND multiplied rows on
+      -- multi-match. LATERAL ... LIMIT 1 returns a single deterministic best match
+      -- (exact name first, then lowest id) so the fuzzy scan can stop early and rows
+      -- are never duplicated. Same values as the old join for all but ambiguous matches.
+      LEFT JOIN LATERAL (
+        SELECT m3.cycle_time, m3.std_wt_kg, m3.no_of_cav
+        FROM moulds m3
+        WHERE
+          -- Only run the expensive fuzzy scan when the exact joins m/m2 have NOT
+          -- already supplied every std field this fallback feeds. This gate is a
+          -- constant per outer row, so matched rows skip the moulds scan entirely.
+          (COALESCE(m.cycle_time, m2.cycle_time) IS NULL
+            OR COALESCE(m.std_wt_kg, m2.std_wt_kg) IS NULL
+            OR COALESCE(m.no_of_cav, m2.no_of_cav) IS NULL)
+          AND (
+            TRIM(m3.mould_name) = TRIM(COALESCE(pb.mould_name, mps.mould_name, s.mould_name, ''))
+            OR COALESCE(pb.mould_name, mps.mould_name, s.mould_name, '') ILIKE '%' || m3.mould_name || '%'
+            OR m3.mould_name ILIKE '%' || COALESCE(pb.mould_name, mps.mould_name, s.mould_name, '') || '%'
+          )
+        ORDER BY (TRIM(m3.mould_name) = TRIM(COALESCE(pb.mould_name, mps.mould_name, s.mould_name, ''))) DESC, m3.id
+        LIMIT 1
+      ) m3 ON true
+      LEFT JOIN LATERAL (
+        SELECT m4.cycle_time, m4.std_wt_kg, m4.no_of_cav
+        FROM moulds m4
+        WHERE (COALESCE(m.cycle_time, m2.cycle_time) IS NULL
+            OR COALESCE(m.std_wt_kg, m2.std_wt_kg) IS NULL
+            OR COALESCE(m.no_of_cav, m2.no_of_cav) IS NULL)
+          AND s.article_act > 0 AND s.article_act < 10 AND m4.std_wt_kg = s.article_act
+          AND (COALESCE(pb.mould_name, s.mould_name) ILIKE '%' || SUBSTRING(m4.mould_name FROM 1 FOR 8) || '%')
+        ORDER BY m4.id
+        LIMIT 1
+      ) m4 ON true
       LEFT JOIN LATERAL(
         SELECT * FROM or_jr_report rpt 
         WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no)
@@ -16701,12 +16928,10 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       LEFT JOIN orders o ON o.order_no = pb.order_no
 
       WHERE s.dpr_date BETWEEN $1 AND $2 AND s.shift = $3 AND s.is_deleted = false
+        AND ($4::int IS NULL OR s.factory_id = $4)
     `;
-    const setupParams = [fDate, tDate, shift];
-    if (factoryId) {
-      setupQuery += ` AND s.factory_id = $4`;
-      setupParams.push(factoryId);
-    }
+    // $4 is always provided (null when no factory scope) so the balance subqueries can reference it
+    const setupParams = [fDate, tDate, shift, factoryId || null];
 
     // 3. Get Setup Data (std_actual) for Date Range
     const setups = await q(setupQuery, setupParams);
@@ -20167,29 +20392,41 @@ VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
   }
 });
 
-// GET /api/qc/fpa/status — check if FPA already done for this job+date+shift (one-time per job)
+// GET /api/qc/fpa/status — check if FPA already done for this job card (any date/shift)
+// Once FPA is submitted for a job card it is permanently "done" — no date filter.
 app.get('/api/qc/fpa/status', async (req, res) => {
   try {
-    const { job_card_no, date, shift, machine } = req.query;
-    if (!job_card_no || !date) return res.json({ ok: true, done: false });
+    const { job_card_no, machine } = req.query;
+    if (!job_card_no) return res.json({ ok: true, done: false });
     const factoryId = getFactoryId(req);
     const rows = await q(
-      `SELECT id, fpa_done_at, fpa_done_by, fpa_form_url, product_images
+      `SELECT id, date, shift, fpa_done_at, fpa_done_by, fpa_form_url, product_images
        FROM qc_job_checks
        WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
-         AND date = $2::date
          AND fpa_status = 'Done'
-         AND ($3 IS NULL OR machine = $3)
-         AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
-       ORDER BY updated_at DESC LIMIT 1`,
-      [job_card_no, date, machine || null, factoryId]
+         AND ($2 IS NULL OR machine = $2)
+         AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+       ORDER BY fpa_done_at DESC LIMIT 1`,
+      [job_card_no, machine || null, factoryId]
     );
     if (rows.length) {
       const r = rows[0];
       const fpaAt = r.fpa_done_at
         ? new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }).format(new Date(r.fpa_done_at))
         : null;
-      return res.json({ ok: true, done: true, done_by: r.fpa_done_by, done_at: fpaAt, form_url: r.fpa_form_url, product_images: r.product_images });
+      // Format date as "02 Jul 2026"
+      const fpaDate = r.date
+        ? new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(r.date))
+        : null;
+      return res.json({
+        ok: true, done: true,
+        date: fpaDate,
+        shift: r.shift || null,
+        done_by: r.fpa_done_by,
+        done_at: fpaAt,
+        form_url: r.fpa_form_url,
+        product_images: r.product_images
+      });
     }
     res.json({ ok: true, done: false });
   } catch (e) {
@@ -23003,7 +23240,7 @@ count(*) as total,
 // POST /api/activity/heartbeat  — called by every page every 60 s
 app.post('/api/activity/heartbeat', async (req, res) => {
   try {
-    const { username, role_code, app_id, page, device_type, factory_id, session_id } = req.body || {};
+    const { username, role_code, app_id, page, device_type, factory_id, session_id, login_at } = req.body || {};
     if (!username) return res.json({ ok: false, error: 'username required' });
     const ip = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
     const ua = String(req.headers['user-agent'] || '').slice(0, 500);
@@ -23015,8 +23252,97 @@ app.post('/api/activity/heartbeat', async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())`,
       [username, role_code || '', app_id || 'web', actionStr, page || '', device, ip, ua, String(factory_id || ''), String(session_id || ''), extraData]
     );
-    res.json({ ok: true });
+
+    // Remote-logout check: if this session logged in before logout_all_after, revoke it.
+    let revoked = false;
+    const loginMs = Number(login_at);
+    if (Number.isFinite(loginMs) && loginMs > 0) {
+      const rev = await q('SELECT logout_all_after FROM users WHERE username=$1 LIMIT 1', [username]);
+      const cutoff = rev[0]?.logout_all_after ? new Date(rev[0].logout_all_after).getTime() : 0;
+      if (cutoff && loginMs < cutoff) revoked = true;
+    }
+    res.json({ ok: true, revoked });
   } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Parse a user-agent string into a short "Browser on OS" label.
+function _describeUserAgent(ua) {
+  ua = String(ua || '');
+  let os = 'Unknown OS';
+  if (/windows nt 10/i.test(ua)) os = 'Windows';
+  else if (/windows/i.test(ua)) os = 'Windows';
+  else if (/android/i.test(ua)) os = 'Android';
+  else if (/iphone|ipad|ipod/i.test(ua)) os = 'iOS';
+  else if (/mac os x/i.test(ua)) os = 'macOS';
+  else if (/linux/i.test(ua)) os = 'Linux';
+  let browser = 'Unknown browser';
+  if (/edg\//i.test(ua)) browser = 'Edge';
+  else if (/chrome\//i.test(ua) && !/edg\//i.test(ua)) browser = 'Chrome';
+  else if (/firefox\//i.test(ua)) browser = 'Firefox';
+  else if (/safari/i.test(ua) && !/chrome/i.test(ua)) browser = 'Safari';
+  return `${browser} on ${os}`;
+}
+
+// GET /api/my-sessions?username=  — devices/PCs where this user is currently active
+app.get('/api/my-sessions', async (req, res) => {
+  try {
+    const username = String(req.query.username || '').trim();
+    if (!username) return res.json({ ok: false, error: 'username required' });
+    const current = String(req.query.session_id || '');
+
+    // One row per session_id seen in the last 15 minutes.
+    const rows = await q(
+      `SELECT DISTINCT ON (session_id)
+         session_id, device_type, ip_address, user_agent, app_id, page, created_at
+       FROM user_activity_log
+       WHERE username = $1
+         AND session_id <> ''
+         AND created_at >= NOW() - INTERVAL '15 minutes'
+       ORDER BY session_id, created_at DESC`,
+      [username]
+    );
+
+    const sessions = rows
+      .map(r => ({
+        session_id: r.session_id,
+        device_type: r.device_type,
+        ip_address: r.ip_address,
+        description: _describeUserAgent(r.user_agent),
+        app_id: r.app_id,
+        page: r.page,
+        last_seen: r.created_at,
+        is_current: r.session_id === current
+      }))
+      .sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen));
+
+    res.json({ ok: true, sessions });
+  } catch (e) {
+    console.error('my-sessions error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/logout-all  — revoke all OTHER sessions for this user (keeps the caller).
+app.post('/api/logout-all', async (req, res) => {
+  try {
+    const username = String(req.body?.username || '').trim();
+    if (!username) return res.json({ ok: false, error: 'username required' });
+
+    const rows = await q(
+      `UPDATE users SET logout_all_after = NOW()
+       WHERE username = $1
+       RETURNING EXTRACT(EPOCH FROM logout_all_after) * 1000 AS cutoff_ms`,
+      [username]
+    );
+    if (!rows.length) return res.json({ ok: false, error: 'User not found' });
+
+    const cutoffMs = Math.round(Number(rows[0].cutoff_ms));
+    // Caller bumps its local login_at past this cutoff to stay logged in.
+    res.json({ ok: true, cutoff_ms: cutoffMs, keep_login_at: cutoffMs + 1000 });
+  } catch (e) {
+    console.error('logout-all error', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
