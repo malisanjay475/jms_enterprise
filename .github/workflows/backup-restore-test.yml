@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     env:
-      HAS_MAIL: ${{ secrets.MAIL_PASSWORD != '' }}
+      HAS_MAIL: ${{ secrets.ALERT_EMAIL_PASSWORD != '' }}
     steps:
       - name: Verify SSH secrets
         shell: bash
@@ -67,11 +67,11 @@ jobs:
           server_address: smtp.gmail.com
           server_port: 465
           secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
+          username: ${{ secrets.ALERT_EMAIL_USER }}
+          password: ${{ secrets.ALERT_EMAIL_PASSWORD }}
           subject: "🔴 JMS BACKUP RESTORE TEST FAILED — backups may be unusable"
           to: joyo44064@gmail.com
-          from: JMS Backup Bot <${{ secrets.MAIL_USERNAME }}>
+          from: JMS Backup Bot <${{ secrets.ALERT_EMAIL_USER }}>
           body: |
             The monthly JMS backup RESTORE TEST FAILED.
 
