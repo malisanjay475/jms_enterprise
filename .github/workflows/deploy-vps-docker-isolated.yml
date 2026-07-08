@@ -17,7 +17,9 @@ concurrency:
   # never SSH into the VPS at the same time (prevents dial tcp :22 i/o timeout
   # collisions). cancel-in-progress: false makes a second deploy queue and wait
   # instead of cancelling an in-flight, health-gated deploy.
-  group: jms-v1-vps-production-deploy
+  # v2: the old group `jms-v1-vps-production-deploy` got stuck — runs sat in
+  # `pending` with no job assigned and never released the slot. Fresh name.
+  group: jms-v1-vps-production-deploy-v2
   cancel-in-progress: false
 
 env:
