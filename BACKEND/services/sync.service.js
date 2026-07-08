@@ -1746,7 +1746,7 @@ async function applyRemoteDeletions(deletions) {
     if (!Array.isArray(deletions) || deletions.length === 0) return { deleted: 0, failed: 0 };
 
     const client = await pool.connect();
-    const stats = { deleted: 0, failed: 0 };
+    const stats = { deleted: 0, failed: 0, skipped: 0 };
     try {
         await client.query('BEGIN');
 
@@ -1756,7 +1756,14 @@ async function applyRemoteDeletions(deletions) {
 
             const keyValues = parseDeletionRecordPk(table, deletion.record_pk);
             if (!keyValues) {
-                stats.failed += 1;
+                // Legacy/malformed record_pk that can't be resolved against this table's
+                // current conflict key — e.g. old single-id (UUID) tombstones for a table
+                // since migrated to a multi-column composite key. We genuinely can't
+                // identify the target row, so skip it instead of failing. A hard failure
+                // here makes the whole batch return 500, which stalls the sender's delete
+                // watermark and re-pushes the same un-appliable rows forever.
+                stats.skipped += 1;
+                console.warn(`[Sync] Skipping unresolvable deletion for ${table} (record_pk=${deletion.record_pk})`);
                 continue;
             }
 
