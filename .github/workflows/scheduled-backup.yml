@@ -23,7 +23,13 @@ concurrency:
 jobs:
   backup:
     runs-on: ubuntu-latest
-    environment: production
+    # Use an UNGATED environment. The 'production' environment requires manual
+    # reviewer approval, which cron (scheduled) runs can never satisfy — every
+    # scheduled backup would sit at the approval gate and get auto-cancelled
+    # (silently, since GitHub treats cancelled != failure). The 'backup'
+    # environment holds the same SSH/mail secrets but has NO required reviewers,
+    # so unattended scheduled backups actually run.
+    environment: backup
     env:
       HAS_MAIL: ${{ secrets.MAIL_PASSWORD != '' }}
     steps:
