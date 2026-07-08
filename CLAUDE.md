@@ -151,17 +151,23 @@ node bridge.js
 
 | Environment | How | Trigger |
 |-------------|-----|---------|
-| Staging | Auto | Push to develop (via PR merge) |
-| Production (Hostinger VPS) | Manual | GitHub Actions → `deploy-vps-docker-isolated.yml` → Run workflow |
+| Staging | Auto | Push to develop (via PR merge) → `JMS v1 - validate, publish, and deploy staging` |
+| Production (Hostinger VPS) | **Auto** | Push to main (via PR merge) → `JMS v1 - validate, publish, and deploy production` |
 
-### To deploy to LIVE after merging develop → main:
-1. Go to GitHub → Actions → `deploy-vps-docker-isolated.yml`
-2. Click "Run workflow"
-3. Select branch: `main`
-4. Click Run
+### To deploy to LIVE:
+Just merge `develop → main`. The push to `main` **automatically** runs
+`JMS v1 - validate, publish, and deploy production`, which validates the
+backend, publishes the Docker image to GHCR (`ghcr.io/<owner>/jms-v1-app:sha-<commit>`),
+and deploys it to the VPS over SSH. No manual "Run workflow" step is needed.
 
-### Rollback
-The deploy script auto-rolls back if health check fails. Manual rollback: re-run workflow with previous image tag.
+The deploy takes a safety DB dump before swapping containers and waits for the
+app container to report `healthy` before finishing.
+
+### Manual deploy / rollback
+`deploy-vps-docker-isolated.yml` is the **manual** path — use it only to redeploy
+a specific image tag or to roll back. Actions → `deploy-vps-docker-isolated.yml`
+→ Run workflow → branch `main` → set the image tag input (default `latest`).
+The auto-deploy also self-rolls-back if the health check fails.
 
 ---
 
@@ -183,7 +189,9 @@ gh run list --limit 5          # recent CI runs
 |------|-------------|
 | `pr-backend-ci.yml` | Runs on every PR — validates backend boots + DB connects |
 | `deploy-v1-staging.yml` | Auto-deploys to staging when develop changes |
-| `deploy-vps-docker-isolated.yml` | Manual deploy to Hostinger production VPS |
+| `publish-v1-app.yml` | **Auto-deploys to production VPS on push to main** — "JMS v1 - validate, publish, and deploy production" (validate → publish image → deploy) |
+| `deploy-vps-docker-isolated.yml` | Manual deploy / rollback to Hostinger production VPS (specific image tag) |
+| `scheduled-backup.yml` | Every 6h (+ manual) — pg_dump + uploads archive + rclone to Google Drive, run on the VPS over SSH |
 | `refresh-staging-from-live.yml` | Copies production DB to staging |
 
 ---
