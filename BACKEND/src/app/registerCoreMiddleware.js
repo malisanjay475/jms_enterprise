@@ -43,13 +43,29 @@ const apiLimiter = rateLimit({
 });
 
 // Sync routes get a separate, more focused limiter — they skip the main apiLimiter but still
-// need protection. 120 req/min covers normal sync cycles without opening an abuse path.
+// need protection against unauthenticated abuse. Requests carrying the correct SYNC_API_KEY
+// are trusted (LOCAL→MAIN pushes) and bypass the limiter entirely, so a full re-sync or
+// backlog drain can't get throttled to 429 mid-flight — that previously advanced the LOCAL
+// watermark past rows that never landed, stranding them. Unauthenticated traffic still hits
+// the (raised) ceiling.
+//
+// Fail closed: the bypass only applies when SYNC_API_KEY is explicitly configured in the
+// environment. We intentionally do NOT fall back to a hardcoded default here — a repo-visible
+// default would let anyone using that well-known value skip the limiter if the env var were
+// ever unset. If SYNC_API_KEY is missing, no request bypasses the limiter.
+const SYNC_KEY = process.env.SYNC_API_KEY || '';
+function shouldSkipSyncLimiter(req) {
+  if (!SYNC_KEY) return false;
+  const key = (req.body && req.body.apiKey) || (req.query && req.query.apiKey);
+  return key === SYNC_KEY;
+}
 const syncLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 120,
+  max: 2000,
   standardHeaders: true,
   legacyHeaders: false,
   validate: false,
+  skip: shouldSkipSyncLimiter,
   message: { ok: false, error: 'Sync rate limit exceeded.' }
 });
 
