@@ -17,7 +17,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: jms-scheduled-backup
+  # Renamed from `jms-scheduled-backup` (v2): the old group got into a stuck
+  # state where every run sat in `pending` with no job assigned and never
+  # released the slot, so no backup completed. A fresh group name forces a
+  # clean concurrency slot. cancel-in-progress:false keeps overlapping SSH
+  # backups from running at once.
+  group: jms-scheduled-backup-v2
   cancel-in-progress: false
 
 jobs:
