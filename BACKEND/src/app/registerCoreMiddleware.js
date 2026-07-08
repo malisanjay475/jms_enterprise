@@ -48,8 +48,14 @@ const apiLimiter = rateLimit({
 // backlog drain can't get throttled to 429 mid-flight — that previously advanced the LOCAL
 // watermark past rows that never landed, stranding them. Unauthenticated traffic still hits
 // the (raised) ceiling.
-const SYNC_KEY = process.env.SYNC_API_KEY || 'jpsms-sync-key';
+//
+// Fail closed: the bypass only applies when SYNC_API_KEY is explicitly configured in the
+// environment. We intentionally do NOT fall back to a hardcoded default here — a repo-visible
+// default would let anyone using that well-known value skip the limiter if the env var were
+// ever unset. If SYNC_API_KEY is missing, no request bypasses the limiter.
+const SYNC_KEY = process.env.SYNC_API_KEY || '';
 function shouldSkipSyncLimiter(req) {
+  if (!SYNC_KEY) return false;
   const key = (req.body && req.body.apiKey) || (req.query && req.query.apiKey);
   return key === SYNC_KEY;
 }
