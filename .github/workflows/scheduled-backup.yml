@@ -23,7 +23,12 @@ concurrency:
 jobs:
   backup:
     runs-on: ubuntu-latest
-    environment: production
+    # NOTE: Intentionally NOT gated behind the `production` environment.
+    # That environment has a required-reviewer approval rule, which made every
+    # scheduled/manual backup stall in `pending` awaiting a human click and then
+    # get cancelled by the next run — so unattended backups never actually ran.
+    # A read-only pg_dump does not need a deployment-approval gate. All SSH/VPS
+    # secrets used here are repo-level, so they still resolve without the env.
     env:
       HAS_MAIL: ${{ secrets.MAIL_PASSWORD != '' }}
     steps:
