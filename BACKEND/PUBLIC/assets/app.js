@@ -1240,6 +1240,7 @@ function escHtml(value) {
                 { id: 'master_order', label: 'Order Master', icon: 'bi-cart-fill', href: 'masters.html?type=orders' },
                 { id: 'master_machine', label: 'Machine Master', icon: 'bi-hdd-network', href: 'masters.html?type=machines' },
                 { id: 'master_orjr', label: 'OR-JR Status', icon: 'bi-graph-up', href: 'masters.html?type=orjr' },
+                { id: 'master_erp_jr_status', label: 'JR Status ERP', icon: 'bi-cloud-arrow-down', href: 'masters.html?type=erpjrstatus' },
         { id: 'master_orjr_wise_summary', label: 'ORJR Wise Summary', icon: 'bi-table', href: 'masters.html?type=orjrwise' },
         { id: 'master_orjr_wise_detail', label: 'ORJR Wise Detail', icon: 'bi-file-earmark-richtext', href: 'masters.html?type=orjrwisedetail' },
         { id: 'master_jc_detail', label: 'JC Detail', icon: 'bi-journal-richtext', href: 'masters.html?type=jcdetails' },
