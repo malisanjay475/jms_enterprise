@@ -448,6 +448,13 @@
           <span class="muted small" id="omLastFetch"
             style="margin-right:10px; display:none; font-size:0.75rem; color:#64748b"></span>
 
+          <button id="erpFetchBtn" class="btn-action" onclick="fetchErpLatest()"
+            style="padding:5px 12px; background:#065f46; color:#fff; border:1px solid #064e3b; display:none; margin-right:5px">
+            <i class="bi bi-cloud-arrow-down"></i> Fetch Latest Data
+          </button>
+          <span class="muted small" id="erpLastSync"
+            style="margin-right:10px; display:none; font-size:0.75rem; color:#64748b"></span>
+
           <input type="file" id="uploadFile" class="form-input"
                 style="padding:4px; background:white; width:auto; flex:1" accept=".xlsx,.xls,.xlsm,.xlsb,.csv">
               <button class="btn-action" onclick="uploadMaster()" style="padding:5px 12px">Preview Upload</button>
