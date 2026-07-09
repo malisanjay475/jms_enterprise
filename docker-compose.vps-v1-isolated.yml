@@ -82,6 +82,17 @@ services:
       retries: 12
       start_period: 90s
     networks: [jms_v1_net]
+    # Routing for the host-level Traefik reverse proxy (project traefik-nru0).
+    # Traefik runs with providers.docker + exposedbydefault=false, so the app is
+    # only routed when it carries these labels. They MUST live here: every deploy
+    # runs `git pull` + `docker compose up`, which recreates the container — any
+    # labels added manually on the VPS are lost and the site 404s. Keep them in-repo.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jms.rule=Host(`jmsocean.cloud`) || Host(`www.jmsocean.cloud`)"
+      - "traefik.http.routers.jms.entrypoints=websecure"
+      - "traefik.http.routers.jms.tls.certresolver=letsencrypt"
+      - "traefik.http.services.jms.loadbalancer.server.port=3000"
 
 networks:
   jms_v1_net:
