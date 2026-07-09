@@ -14280,6 +14280,60 @@ app.get('/api/reports/erp-jr-summary', async (req, res) => {
   }
 });
 
+// GET /api/reports/erp-jr-details
+// Live proxy: pulls OR/JR details straight from the ERP (read-only, no DB write).
+// ERP endpoint takes no params and returns a flat JSON array (one row per component).
+const ERP_JR_DETAILS_URL = process.env.ERP_JR_DETAILS_URL
+  || 'http://erp.joyo.in:8464/api/Values/GetORJRDetails';
+
+function mapErpJrDetailsRow(r) {
+  return {
+    or_jr_no: r.orjrNo,
+    or_jr_date: r.orjrDate,
+    jc_qty: r.jcQty,
+    our_code: r.ourCode,
+    bom_type: r.bomType,
+    item_name: r.itemName,
+    jr_qty: r.jrQty,
+    uom: r.uom,
+    c_item_code: r.cItemCode,
+    c_item_name: r.cItemName,
+    mould_no: r.mouldNo,
+    mould: r.mould,
+    mould_item_qty: r.mouldItemQty,
+    tonnage: r.tonnage,
+    machine: r.machine,
+    cycle_time: r.cycleTime,
+    cavity: r.cavity,
+    status: r.status
+  };
+}
+
+app.get('/api/reports/erp-jr-details', async (req, res) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const upstream = await fetch(ERP_JR_DETAILS_URL, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal
+    });
+    if (!upstream.ok) {
+      return res.status(502).json({ ok: false, error: `ERP responded ${upstream.status}` });
+    }
+    const raw = await upstream.json();
+    if (!Array.isArray(raw)) {
+      return res.status(502).json({ ok: false, error: 'Unexpected ERP response (not an array)' });
+    }
+    res.json({ ok: true, data: raw.map(mapErpJrDetailsRow) });
+  } catch (e) {
+    const msg = e.name === 'AbortError' ? 'ERP request timed out' : String(e.message || e);
+    console.error('/api/reports/erp-jr-details', msg);
+    res.status(502).json({ ok: false, error: `Failed to reach ERP: ${msg}` });
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
 // POST /api/upload/excel (Mock - requires 'xlsx' library for real parsing)
 app.post('/api/upload/excel', async (req, res) => {
   // In a real app, use 'multer' to handle file upload and 'xlsx' to parse
