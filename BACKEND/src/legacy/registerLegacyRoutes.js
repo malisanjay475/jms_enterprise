@@ -4344,6 +4344,7 @@ async function initializeLegacyRuntime() {
       migrateOrderCompletionWorkflowSchema(),
       migrateWipStockMasterSchema(),
       migrateRawMaterialSchema(),
+      ensureErpReportSchema(),
     ]);
     await Promise.all([
       hrPerformanceRuntime.ensureTables ? hrPerformanceRuntime.ensureTables() : Promise.resolve(),
@@ -14263,33 +14264,7 @@ function mapErpJrStatusRow(r) {
   };
 }
 
-app.get('/api/reports/erp-jr-status', async (req, res) => {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
-  try {
-    const upstream = await fetch(ERP_JR_STATUS_URL, {
-      headers: { Accept: 'application/json' },
-      signal: controller.signal
-    });
-    if (!upstream.ok) {
-      return res.status(502).json({ ok: false, error: `ERP responded ${upstream.status}` });
-    }
-    const raw = await upstream.json();
-    if (!Array.isArray(raw)) {
-      return res.status(502).json({ ok: false, error: 'Unexpected ERP response (not an array)' });
-    }
-    res.json({ ok: true, data: raw.map(mapErpJrStatusRow) });
-  } catch (e) {
-    const msg = e.name === 'AbortError' ? 'ERP request timed out' : String(e.message || e);
-    console.error('/api/reports/erp-jr-status', msg);
-    res.status(502).json({ ok: false, error: `Failed to reach ERP: ${msg}` });
-  } finally {
-    clearTimeout(timeout);
-  }
-});
-
 // GET /api/reports/erp-jr-summary
-// Live proxy: pulls OR/JR summary straight from the ERP (read-only, no DB write).
 // ERP endpoint takes no params and returns a flat JSON array (one row per mould).
 const ERP_JR_SUMMARY_URL = process.env.ERP_JR_SUMMARY_URL
   || 'http://erp.joyo.in:8464/api/Values/GetORJRSummary';
@@ -14314,33 +14289,7 @@ function mapErpJrSummaryRow(r) {
   };
 }
 
-app.get('/api/reports/erp-jr-summary', async (req, res) => {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
-  try {
-    const upstream = await fetch(ERP_JR_SUMMARY_URL, {
-      headers: { Accept: 'application/json' },
-      signal: controller.signal
-    });
-    if (!upstream.ok) {
-      return res.status(502).json({ ok: false, error: `ERP responded ${upstream.status}` });
-    }
-    const raw = await upstream.json();
-    if (!Array.isArray(raw)) {
-      return res.status(502).json({ ok: false, error: 'Unexpected ERP response (not an array)' });
-    }
-    res.json({ ok: true, data: raw.map(mapErpJrSummaryRow) });
-  } catch (e) {
-    const msg = e.name === 'AbortError' ? 'ERP request timed out' : String(e.message || e);
-    console.error('/api/reports/erp-jr-summary', msg);
-    res.status(502).json({ ok: false, error: `Failed to reach ERP: ${msg}` });
-  } finally {
-    clearTimeout(timeout);
-  }
-});
-
 // GET /api/reports/erp-jr-details
-// Live proxy: pulls OR/JR details straight from the ERP (read-only, no DB write).
 // ERP endpoint takes no params and returns a flat JSON array (one row per component).
 const ERP_JR_DETAILS_URL = process.env.ERP_JR_DETAILS_URL
   || 'http://erp.joyo.in:8464/api/Values/GetORJRDetails';
@@ -14368,30 +14317,157 @@ function mapErpJrDetailsRow(r) {
   };
 }
 
-app.get('/api/reports/erp-jr-details', async (req, res) => {
+/* ============================================================
+   ERP JR REPORTS — persisted store (DB-backed, upsert on fetch)
+   ------------------------------------------------------------
+   The three ERP reports are no longer live-proxied on every open.
+   Data is stored in local tables and served from the DB. A superadmin
+   presses "Fetch Latest Data" which pulls from the ERP and UPSERTS:
+   new rows are inserted, changed rows are updated (matched by row_key),
+   and rows are never deleted. If the ERP returns an empty array (its
+   known intermittent-empty glitch), the fetch is skipped and existing
+   records are kept untouched.
+   ============================================================ */
+const ERP_REPORTS = {
+  status:  { table: 'erp_jr_status',  url: ERP_JR_STATUS_URL,  mapRow: mapErpJrStatusRow,  keyCols: ['or_jr_no', 'job_card_no', 'item_code'] },
+  summary: { table: 'erp_jr_summary', url: ERP_JR_SUMMARY_URL, mapRow: mapErpJrSummaryRow, keyCols: ['or_jr_no', 'mould_no', 'our_code'] },
+  details: { table: 'erp_jr_details', url: ERP_JR_DETAILS_URL, mapRow: mapErpJrDetailsRow, keyCols: ['or_jr_no', 'mould_no', 'c_item_code'] },
+};
+// Column list is derived from the mapper so schema + upsert always match it.
+for (const k of Object.keys(ERP_REPORTS)) {
+  ERP_REPORTS[k].columns = Object.keys(ERP_REPORTS[k].mapRow({}));
+}
+
+// Create the three ERP report tables (idempotent). Wired into startup migrations.
+async function ensureErpReportSchema() {
+  for (const k of Object.keys(ERP_REPORTS)) {
+    const { table, columns } = ERP_REPORTS[k];
+    const colDefs = columns.map((c) => `"${c}" TEXT`).join(',\n      ');
+    await q(`
+      CREATE TABLE IF NOT EXISTS ${table} (
+        id SERIAL PRIMARY KEY,
+        row_key TEXT NOT NULL UNIQUE,
+        ${colDefs},
+        synced_at TIMESTAMPTZ DEFAULT now(),
+        updated_at TIMESTAMPTZ DEFAULT now()
+      )
+    `);
+  }
+}
+
+// Deterministic identity for a mapped row so re-fetches update in place.
+function erpRowKey(mapped, keyCols) {
+  const parts = keyCols.map((c) => String(mapped[c] == null ? '' : mapped[c]).trim().toLowerCase());
+  if (parts.some((p) => p !== '')) return parts.join('|');
+  // Fallback: no natural key present — hash the whole row so it can't collide/drop.
+  return 'json:' + JSON.stringify(mapped);
+}
+
+// Superadmin gate (role_code === 'superadmin' OR username === 'superadmin').
+async function requireErpSuperadmin(req) {
+  const username = req.body && req.body.username;
+  if (!username) return { ok: false, status: 401, error: 'Authorization required (missing username)' };
+  const u = (await q('SELECT username, role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
+  if (!u) return { ok: false, status: 401, error: 'Invalid user' };
+  const isSuper = String(u.role_code || '').toLowerCase() === 'superadmin'
+    || String(u.username || '').toLowerCase() === 'superadmin';
+  if (!isSuper) return { ok: false, status: 403, error: 'Superadmin access required' };
+  return { ok: true, user: u };
+}
+
+// Read a persisted ERP report from the DB.
+async function readErpReport(cfgKey, res) {
+  const { table, columns } = ERP_REPORTS[cfgKey];
+  try {
+    const cols = columns.map((c) => `"${c}"`).join(', ');
+    const rows = await q(`SELECT ${cols} FROM ${table} ORDER BY id`);
+    const meta = (await q(
+      `SELECT to_char(max(synced_at), 'YYYY-MM-DD HH24:MI') AS last_sync, count(*)::int AS n FROM ${table}`
+    ))[0] || {};
+    res.json({ ok: true, data: rows, source: 'db', synced_at: meta.last_sync || null, count: meta.n || 0 });
+  } catch (e) {
+    console.error(`/api/reports/${table} read`, e.message);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+}
+
+// Fetch from ERP and upsert into the store. Keeps existing rows on empty/failure.
+async function syncErpReport(cfgKey) {
+  const cfg = ERP_REPORTS[cfgKey];
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
+  let raw;
   try {
-    const upstream = await fetch(ERP_JR_DETAILS_URL, {
-      headers: { Accept: 'application/json' },
-      signal: controller.signal
-    });
-    if (!upstream.ok) {
-      return res.status(502).json({ ok: false, error: `ERP responded ${upstream.status}` });
-    }
-    const raw = await upstream.json();
-    if (!Array.isArray(raw)) {
-      return res.status(502).json({ ok: false, error: 'Unexpected ERP response (not an array)' });
-    }
-    res.json({ ok: true, data: raw.map(mapErpJrDetailsRow) });
+    const upstream = await fetch(cfg.url, { headers: { Accept: 'application/json' }, signal: controller.signal });
+    if (!upstream.ok) throw new Error(`ERP responded ${upstream.status}`);
+    raw = await upstream.json();
   } catch (e) {
     const msg = e.name === 'AbortError' ? 'ERP request timed out' : String(e.message || e);
-    console.error('/api/reports/erp-jr-details', msg);
-    res.status(502).json({ ok: false, error: `Failed to reach ERP: ${msg}` });
+    throw new Error(`Failed to reach ERP: ${msg}`);
   } finally {
     clearTimeout(timeout);
   }
-});
+  if (!Array.isArray(raw)) throw new Error('Unexpected ERP response (not an array)');
+  // ERP intermittently returns []; do NOT wipe the store — keep what we have.
+  if (raw.length === 0) return { skipped: true, inserted: 0, updated: 0, total: 0 };
+
+  const { table, columns, keyCols, mapRow } = cfg;
+  const colList = columns.map((c) => `"${c}"`).join(', ');
+  const placeholders = columns.map((_, i) => `$${i + 2}`).join(', '); // $1 = row_key
+  const updates = columns.map((c) => `"${c}" = EXCLUDED."${c}"`).join(', ');
+  const sql = `
+    INSERT INTO ${table} (row_key, ${colList}, synced_at, updated_at)
+    VALUES ($1, ${placeholders}, now(), now())
+    ON CONFLICT (row_key) DO UPDATE SET ${updates}, synced_at = now(), updated_at = now()
+    RETURNING (xmax = 0) AS inserted
+  `;
+
+  let inserted = 0, updated = 0;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const r of raw) {
+      const mapped = mapRow(r);
+      const rowKey = erpRowKey(mapped, keyCols);
+      const vals = columns.map((c) => (mapped[c] == null ? null : String(mapped[c])));
+      const out = await client.query(sql, [rowKey, ...vals]);
+      if (out.rows[0] && out.rows[0].inserted) inserted++; else updated++;
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+  return { skipped: false, inserted, updated, total: raw.length };
+}
+
+// POST sync handler (superadmin only).
+async function handleErpSync(cfgKey, req, res) {
+  const auth = await requireErpSuperadmin(req);
+  if (!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
+  try {
+    const result = await syncErpReport(cfgKey);
+    const message = result.skipped
+      ? 'ERP returned no data — kept existing records.'
+      : `Fetched ${result.total} row(s): ${result.inserted} added, ${result.updated} updated.`;
+    res.json({ ok: true, ...result, message });
+  } catch (e) {
+    console.error(`/api/reports/${ERP_REPORTS[cfgKey].table} sync`, e.message);
+    res.status(502).json({ ok: false, error: String(e.message || e) });
+  }
+}
+
+// Read routes (served from DB).
+app.get('/api/reports/erp-jr-status',  (req, res) => readErpReport('status', res));
+app.get('/api/reports/erp-jr-summary', (req, res) => readErpReport('summary', res));
+app.get('/api/reports/erp-jr-details', (req, res) => readErpReport('details', res));
+
+// Sync routes (superadmin-only "Fetch Latest Data").
+app.post('/api/reports/erp-jr-status/sync',  (req, res) => handleErpSync('status', req, res));
+app.post('/api/reports/erp-jr-summary/sync', (req, res) => handleErpSync('summary', req, res));
+app.post('/api/reports/erp-jr-details/sync', (req, res) => handleErpSync('details', req, res));
 
 // POST /api/upload/excel (Mock - requires 'xlsx' library for real parsing)
 app.post('/api/upload/excel', async (req, res) => {

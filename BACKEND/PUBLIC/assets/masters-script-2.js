@@ -745,9 +745,9 @@
         'wipstock': { title: 'WIP Stock', hint: 'Upload dated WIP stock sheet', hasDates: true, icon: 'bi-box-seam-fill' },
         'users': { title: 'User Master', hint: 'Admin Only', hasDates: false },
         'labour-parties': { title: 'Labour Job Parties', hint: 'N/A', hasDates: false },
-        'erpjrstatus': { title: 'JR Status ERP', hint: 'Live from ERP', hasDates: false, icon: 'bi-cloud-arrow-down' },
-        'erpjrsummary': { title: 'JR Summary ERP', hint: 'Live from ERP', hasDates: false, icon: 'bi-cloud-arrow-down' },
-        'erpjrdetails': { title: 'OR JR Details ERP', hint: 'Live from ERP', hasDates: false, icon: 'bi-cloud-arrow-down' }
+        'erpjrstatus': { title: 'JR Status ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' },
+        'erpjrsummary': { title: 'JR Summary ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' },
+        'erpjrdetails': { title: 'OR JR Details ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' }
       };
 
       const cfg = configs[type] || { title: 'Master Data', hint: 'Upload file', hasDates: false };
@@ -817,6 +817,26 @@
 
       if (reportOnlyTypes.includes(type)) {
         document.getElementById('uploadSection').style.display = 'none';
+      }
+
+      // ERP reports: show a slim bar with a superadmin-only "Fetch Latest Data" button.
+      const erpTypes = ['erpjrstatus', 'erpjrsummary', 'erpjrdetails'];
+      const erpFetchBtn = document.getElementById('erpFetchBtn');
+      const erpLastSync = document.getElementById('erpLastSync');
+      if (erpTypes.includes(type) && JPSMS.auth.isSuperadmin()) {
+        const us = document.getElementById('uploadSection');
+        us.style.display = 'flex';
+        document.getElementById('uploadFile').style.display = 'none';
+        document.getElementById('uploadHint').style.display = 'none';
+        const previewBtn = us.querySelector('button[onclick="uploadMaster()"]');
+        if (previewBtn) previewBtn.style.display = 'none';
+        const tmplBtn = document.getElementById('templateBtn');
+        if (tmplBtn) tmplBtn.style.display = 'none';
+        if (erpFetchBtn) erpFetchBtn.style.display = 'inline-flex';
+        if (erpLastSync) erpLastSync.style.display = 'inline-block';
+      } else {
+        if (erpFetchBtn) erpFetchBtn.style.display = 'none';
+        if (erpLastSync) erpLastSync.style.display = 'none';
       }
 
       // Hide Upload Section for Orders (Auto-fetch)
@@ -916,6 +936,34 @@
       }
     }
 
+    async function fetchErpLatest() {
+      const syncMap = {
+        erpjrstatus: '/reports/erp-jr-status/sync',
+        erpjrsummary: '/reports/erp-jr-summary/sync',
+        erpjrdetails: '/reports/erp-jr-details/sync'
+      };
+      const endpoint = syncMap[currentType];
+      if (!endpoint) return;
+      const user = JPSMS.auth.getUser() || {};
+      const btn = document.getElementById('erpFetchBtn');
+      const original = btn ? btn.innerHTML : '';
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Fetching...'; }
+      try {
+        const res = await JPSMS.api.post(endpoint, { username: user.username });
+        if (res && res.ok) {
+          alert(res.message || 'Fetch complete.');
+          await loadMasterData();
+        } else {
+          alert('Fetch failed: ' + ((res && res.error) || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Fetch failed: ' + (e.message || e));
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = original; }
+      }
+    }
+    window.fetchErpLatest = fetchErpLatest;
+
     async function loadMasterData() {
       // Labour Parties has its own dedicated UI — bypass the generic DataTable rendering
       if (currentType === 'labour-parties') {
@@ -970,6 +1018,12 @@
 
         const res = await JPSMS.api.get(endpoint);
         let rows = res.data || [];
+
+        // ERP reports: reflect when the store was last refreshed.
+        if (['erpjrstatus', 'erpjrsummary', 'erpjrdetails'].includes(currentType)) {
+          const el = document.getElementById('erpLastSync');
+          if (el) el.textContent = res.synced_at ? `Last fetched: ${res.synced_at}` : 'Not fetched yet';
+        }
 
         // CLIENT-SIDE FILTERING for OR-JR View (Active vs Closed)
         // CRITICAL FIX: If Searching, DO NOT FILTER. Show everything found.

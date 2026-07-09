@@ -59,6 +59,9 @@ const SYNC_ALL = [
     'dispatch_items',
     'dpr_hourly',
     'dpr_reasons',
+    'erp_jr_details',
+    'erp_jr_status',
+    'erp_jr_summary',
     'factories',
     'grinding_logs',
     'grn_entries',
@@ -124,7 +127,10 @@ const TABLES_TO_PULL = [...SYNC_ALL];
 // Tables that LOCAL servers must NEVER push to MAIN.
 // These are auth/identity tables where the VPS (MAIN) is the authoritative source.
 // Pushing them from LOCAL would overwrite VPS user credentials with local seed data.
-const LOCAL_NO_PUSH_TABLES = ['users', 'roles'];
+// ERP report tables (erp_jr_*) are populated on MAIN by the superadmin "Fetch
+// Latest Data" button pulling from the Joyo ERP. MAIN is authoritative; LOCAL
+// only pulls them down and must never push, or empty local tables would wipe MAIN.
+const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary', 'erp_jr_details'];
 
 const CONFLICT_KEYS = {
     users: 'id',
@@ -198,7 +204,11 @@ const CONFLICT_KEYS = {
     hr_interview_scores: 'id',
     // Job card / planning tables
     job_card_label_print_log: 'label_uid',
-    plan_job_card_approval_history: 'id'
+    plan_job_card_approval_history: 'id',
+    // ERP report tables — row_key is the stable natural key (unique) from the ERP source
+    erp_jr_status: 'row_key',
+    erp_jr_summary: 'row_key',
+    erp_jr_details: 'row_key'
 };
 
 const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
@@ -244,7 +254,11 @@ const SYNC_CONFLICT_INDEXES = {
 // (or factory_id IS NULL), permanently missing master records that belong to other
 // factories on MAIN (e.g. moulds imported under factory_id = 2 when LOCAL is factory 1).
 const GLOBAL_MASTER_TABLES = new Set([
-    'moulds'        // Mould master — company-wide reference, not factory-scoped
+    'moulds',       // Mould master — company-wide reference, not factory-scoped
+    // ERP report tables have no factory_id — they are company-wide ERP snapshots.
+    'erp_jr_status',
+    'erp_jr_summary',
+    'erp_jr_details'
 ]);
 
 const SYNC_ID_REQUIRED_TABLES = ['notifications'];
