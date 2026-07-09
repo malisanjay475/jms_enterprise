@@ -14161,6 +14161,7 @@ app.get('/api/reports/mould-wise-qty', async (req, res) => {
        AND ($4::int IS NULL OR m.factory_id = $4 OR m.factory_id IS NULL)
       WHERE COALESCE(d.is_deleted, false) = false
         AND TRIM(COALESCE(d.mould_no, '')) <> ''
+        AND TRIM(COALESCE(m.mould_name, '')) <> ''
         AND ($1::date IS NULL OR d.dpr_date >= $1::date)
         AND ($2::date IS NULL OR d.dpr_date <= $2::date)
         AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
