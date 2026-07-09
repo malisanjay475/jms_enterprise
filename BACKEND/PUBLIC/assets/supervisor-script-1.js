@@ -3462,6 +3462,15 @@
         return;
       }
 
+      // Colour is mandatory whenever the plan has colours configured — matches the backend
+      // guard in /api/dpr/submit so no entry (production OR downtime) is ever saved colourless.
+      const mcColourOptCount = el('d-color')?.options?.length || 0;
+      const mcColourVal = (el('d-color')?.value || '').trim();
+      if (mcColourOptCount > 1 && !mcColourVal) {
+        el('mc-msg').innerHTML = '<span class="err">Select a colour (in the DPR form) before saving this entry.</span>';
+        return;
+      }
+
       const getFinalCode = (i) => i.code === 'OTHER' && i.otherText ? `OTHER_${i.otherText.trim()}` : i.code;
 
       const dtObj = {};
