@@ -3462,14 +3462,10 @@
         return;
       }
 
-      // Colour is mandatory whenever the plan has colours configured — matches the backend
-      // guard in /api/dpr/submit so no entry (production OR downtime) is ever saved colourless.
-      const mcColourOptCount = el('d-color')?.options?.length || 0;
-      const mcColourVal = (el('d-color')?.value || '').trim();
-      if (mcColourOptCount > 1 && !mcColourVal) {
-        el('mc-msg').innerHTML = '<span class="err">Select a colour (in the DPR form) before saving this entry.</span>';
-        return;
-      }
+      // Quick-action / downtime entries are NOT blocked for a missing colour — if the operator
+      // hasn't picked one, the backend auto-fills the LAST running colour of this job so the
+      // entry still sits under the right colour instead of the "Default" bucket. We pass through
+      // whatever colour is selected (if any); the server handles the empty case.
 
       const getFinalCode = (i) => i.code === 'OTHER' && i.otherText ? `OTHER_${i.otherText.trim()}` : i.code;
 

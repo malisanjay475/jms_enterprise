@@ -6356,11 +6356,16 @@ app.post('/api/dpr/submit', async (req, res) => {
       }
     }
 
-    // [NEW] COLOUR GUARD — if this plan has colours configured, every entry MUST carry a colour.
+    // [NEW] COLOUR GUARD — keep every per-colour / per-machine DPR total correct.
     // Colourless entries leak into a separate "Default" bucket in the per-colour drill-down,
-    // which is what made a machine's real total (e.g. 701) show as a smaller per-colour figure
-    // (e.g. 460). Blocking them at save time keeps every per-colour / per-machine sum correct.
-    if (PlanID) {
+    // which is what made a machine's real total (e.g. 701) show as a smaller figure (e.g. 460).
+    //
+    // Rules when the plan has colours configured and the entry has NO colour:
+    //   • PRODUCTION entry (good/shots > 0)  -> REJECT: the operator must pick the colour.
+    //   • QUICK-ACTION / downtime (good = 0) -> AUTO-FILL with the LAST running colour of this
+    //     job (same plan, preferring same machine). Downtime shouldn't force a colour pick, but
+    //     it should still inherit the colour that was running so it never lands in "Default".
+    if (PlanID && !String(Colour || '').trim()) {
       try {
         const pcRows = await q(
           'SELECT colour_details FROM plan_board WHERE CAST(id AS TEXT)=$1 OR CAST(plan_id AS TEXT)=$1 LIMIT 1',
@@ -6377,12 +6382,34 @@ app.post('/api/dpr/submit', async (req, res) => {
             }).length;
           }
         }
-        if (configuredColours > 0 && !String(Colour || '').trim()) {
-          return res.json({ ok: false, error: 'Colour is required for this plan. Please select a colour before saving.' });
+
+        if (configuredColours > 0) {
+          const isProduction = toNum(GoodQty) > 0 || toNum(Shots) > 0;
+          if (isProduction) {
+            return res.json({ ok: false, error: 'Colour is required for this plan. Please select a colour before saving.' });
+          }
+
+          // Non-production (Quick Action / downtime): inherit the last running colour of this job.
+          const findLastColour = async (withMachine) => {
+            const params = [String(PlanID)];
+            let sql = `SELECT colour FROM dpr_hourly
+                       WHERE plan_id = $1 AND is_deleted = false
+                         AND colour IS NOT NULL AND TRIM(colour) <> ''`;
+            if (withMachine && Machine) { params.push(Machine); sql += ` AND machine = $2`; }
+            sql += ` ORDER BY dpr_date DESC, created_at DESC, id DESC LIMIT 1`;
+            const r = await q(sql, params);
+            return r.length ? r[0].colour : null;
+          };
+          const inherited = (await findLastColour(true)) || (await findLastColour(false));
+          if (inherited) {
+            Colour = inherited; // auto-fill so the downtime entry sits under the right colour
+          }
+          // If nothing to inherit (no coloured entry exists yet on this job), allow the blank
+          // colour through — it's a non-production row and can't be attributed to anything.
         }
       } catch (err) {
-        // Guard-query failure must not silently allow colourless entries on colour-plans,
-        // but it also should not hard-block the factory on a transient DB hiccup — log and continue.
+        // Guard-query failure must not silently allow colourless production entries, but it also
+        // should not hard-block the factory on a transient DB hiccup — log and continue.
         console.error('dpr/submit colour-guard', err.message);
       }
     }
