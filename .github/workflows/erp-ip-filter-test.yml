@@ -8,6 +8,8 @@ name: ERP IP-filter test (manual)
 # side sees DATA and the other is empty => the empty side is being filtered.
 
 on:
+  push:
+    branches: [chore/erp-ip-filter-workflow]
   workflow_dispatch:
     inputs:
       endpoint:
@@ -36,7 +38,7 @@ jobs:
         run: |
           pubip="$(curl -s --max-time 8 https://api.ipify.org || echo '?')"
           echo "VANTAGE=runner  public IP=$pubip"
-          url="http://erp.joyo.in:8464/api/Values/${ENDPOINT}"
+          ENDPOINT="${ENDPOINT:-GetORJRDetails}"; POLLS="${POLLS:-12}"; INTERVAL="${INTERVAL:-15}"; url="http://erp.joyo.in:8464/api/Values/${ENDPOINT}"
           hits=0
           for i in $(seq 1 "$POLLS"); do
             ts="$(date -u +%H:%M:%S)"
@@ -79,7 +81,7 @@ jobs:
           script: |
             pubip="$(curl -s --max-time 8 https://api.ipify.org || echo '?')"
             echo "VANTAGE=vps  public IP=$pubip"
-            url="http://erp.joyo.in:8464/api/Values/${ENDPOINT}"
+            ENDPOINT="${ENDPOINT:-GetORJRDetails}"; POLLS="${POLLS:-12}"; INTERVAL="${INTERVAL:-15}"; url="http://erp.joyo.in:8464/api/Values/${ENDPOINT}"
             hits=0
             for i in $(seq 1 "$POLLS"); do
               ts="$(date -u +%H:%M:%S)"
@@ -112,7 +114,7 @@ jobs:
           script: |
             pubip="$(curl -s --max-time 8 https://api.ipify.org || echo '?')"
             echo "VANTAGE=vps  public IP=$pubip"
-            url="http://erp.joyo.in:8464/api/Values/${ENDPOINT}"
+            ENDPOINT="${ENDPOINT:-GetORJRDetails}"; POLLS="${POLLS:-12}"; INTERVAL="${INTERVAL:-15}"; url="http://erp.joyo.in:8464/api/Values/${ENDPOINT}"
             hits=0
             for i in $(seq 1 "$POLLS"); do
               ts="$(date -u +%H:%M:%S)"
