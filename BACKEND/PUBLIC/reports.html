@@ -175,6 +175,42 @@
     .badge-summary { background: #eff6ff; color: #2563eb; }
     .badge-detail { background: #fdf2f8; color: #db2777; }
 
+    /* Mould-wise printable report */
+    .mould-report-table {
+      border-collapse: collapse;
+      margin-bottom: 28px;
+      font-size: 0.9rem;
+      page-break-inside: avoid;
+    }
+    .mould-report-table td,
+    .mould-report-table th {
+      border: 1px solid #000;
+      padding: 6px 14px;
+      text-align: center;
+    }
+    .mould-report-table .mr-label { font-weight: 700; text-align: left; }
+    .mould-report-table .mr-mould-name {
+      background: #ffff00;
+      font-weight: 800;
+      text-align: left;
+    }
+    .mould-report-table .mr-colhead { font-weight: 700; text-align: left; }
+    .mould-report-table td.mr-num { text-align: right; }
+    .mould-report-table .mr-grand td {
+      font-weight: 800;
+      font-size: 1rem;
+      text-align: right;
+      border-top: 2px solid #000;
+    }
+
+    @media print {
+      body { background: #fff; font-size: 12px; }
+      .no-print, .header-row,
+      #filterCard, #tableCard, #emptyState { display: none !important; }
+      .card { box-shadow: none; border: none; padding: 0; }
+      #mouldReportCard { display: block !important; }
+    }
+
     @media (max-width: 768px) {
       .filter-bar {
         flex-direction: column;
@@ -205,7 +241,7 @@
     </div>
 
     <!-- Filter Card -->
-    <div class="card">
+    <div class="card" id="filterCard">
       <div class="filter-bar">
         <div class="control-group">
           <label class="control-label">Factory</label>
@@ -216,11 +252,17 @@
 
         <div class="control-group">
           <label class="control-label">Report Type</label>
-          <select id="reportType" class="form-input">
+          <select id="reportType" class="form-input" onchange="onReportTypeChange()">
             <option value="summary">Summary View</option>
             <option value="detail">Detailed View</option>
             <option value="jms-plan">JMS Plan</option>
+            <option value="mould-wise-qty">Mould Wise Item QTY</option>
           </select>
+        </div>
+
+        <div class="control-group" id="mouldSearchGroup" style="display:none">
+          <label class="control-label">Mould Name / No</label>
+          <input type="text" id="mouldSearch" class="form-input" placeholder="e.g. MULTI LOOP BASKET">
         </div>
 
         <div class="control-group">
@@ -253,6 +295,17 @@
           <tbody id="tableBody"></tbody>
         </table>
       </div>
+    </div>
+
+    <!-- Mould-Wise Printable Report -->
+    <div class="card" id="mouldReportCard" style="display:none">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px" class="no-print">
+        <h3 style="margin:0; font-size:1.1rem; font-weight:700">Mould Wise Item QTY</h3>
+        <button class="btn-action" onclick="window.print()">
+          <i class="bi bi-printer"></i> Print
+        </button>
+      </div>
+      <div id="mouldReportBody"></div>
     </div>
 
     <!-- Empty State -->
@@ -307,6 +360,12 @@
       if (scope.id) selector.value = scope.id;
     }
 
+    function onReportTypeChange() {
+      const type = document.getElementById('reportType').value;
+      document.getElementById('mouldSearchGroup').style.display =
+        type === 'mould-wise-qty' ? 'flex' : 'none';
+    }
+
     async function generateReport() {
       const type = document.getElementById('reportType').value;
       const factoryId = document.getElementById('factorySelector').value;
@@ -314,13 +373,23 @@
       const to = document.getElementById('dateTo').value;
 
       try {
-        const endpoint = type === 'jms-plan'
-          ? `/reports/jms-plan?factory_id=${factoryId}&from=${from}&to=${to}`
-          : `/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`;
+        let endpoint;
+        if (type === 'jms-plan') {
+          endpoint = `/reports/jms-plan?factory_id=${factoryId}&from=${from}&to=${to}`;
+        } else if (type === 'mould-wise-qty') {
+          const search = encodeURIComponent(document.getElementById('mouldSearch').value.trim());
+          endpoint = `/reports/mould-wise-qty?factory_id=${factoryId}&from=${from}&to=${to}&q=${search}`;
+        } else {
+          endpoint = `/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`;
+        }
         const res = await JPSMS.api.get(endpoint);
-        
+
         if (res.ok) {
-          renderReport(res.data, type);
+          if (type === 'mould-wise-qty') {
+            renderMouldReport(res.data);
+          } else {
+            renderReport(res.data, type);
+          }
         } else {
           JPSMS.toast(res.error || 'Failed to fetch report', 'error');
         }
@@ -330,8 +399,59 @@
       }
     }
 
+    function fmtDate(iso) {
+      if (!iso) return '';
+      const [y, m, d] = String(iso).split('T')[0].split('-');
+      return `${d}-${m}-${y}`;
+    }
+
+    function renderMouldReport(groups) {
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('tableCard').style.display = 'none';
+      const card = document.getElementById('mouldReportCard');
+      const body = document.getElementById('mouldReportBody');
+      card.style.display = 'block';
+
+      if (!groups || groups.length === 0) {
+        body.innerHTML = '<p style="color:var(--text-light)">No production found for this mould / date range.</p>';
+        return;
+      }
+
+      const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+      body.innerHTML = groups.map(g => {
+        const rows = g.rows.map(r => `
+          <tr>
+            <td class="mr-label">${fmtDate(r.date)}</td>
+            <td class="mr-num">${r.day}</td>
+            <td class="mr-num">${r.night}</td>
+            <td class="mr-num">${r.total}</td>
+          </tr>`).join('');
+        const title = esc(g.mouldName || g.mouldNo || 'Unknown Mould');
+        return `
+          <table class="mould-report-table">
+            <tr>
+              <td class="mr-label">Mould Name</td>
+              <td class="mr-mould-name" colspan="3">${title}</td>
+            </tr>
+            <tr>
+              <td class="mr-colhead">Date</td>
+              <td class="mr-colhead">Day</td>
+              <td class="mr-colhead">Night</td>
+              <td class="mr-colhead">Total</td>
+            </tr>
+            ${rows}
+            <tr class="mr-grand">
+              <td></td><td></td><td></td><td>${g.grandTotal}</td>
+            </tr>
+          </table>`;
+      }).join('');
+    }
+
     function renderReport(data, type) {
       document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('mouldReportCard').style.display = 'none';
       document.getElementById('tableCard').style.display = 'block';
 
       const badge = document.getElementById('reportStatusBadge');
