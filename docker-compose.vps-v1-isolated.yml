@@ -89,10 +89,21 @@ services:
     # labels added manually on the VPS are lost and the site 404s. Keep them in-repo.
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.jms.rule=Host(`jmsocean.cloud`) || Host(`www.jmsocean.cloud`)"
+      # Apex router — serves the app.
+      - "traefik.http.routers.jms.rule=Host(`jmsocean.cloud`)"
       - "traefik.http.routers.jms.entrypoints=websecure"
       - "traefik.http.routers.jms.tls.certresolver=letsencrypt"
       - "traefik.http.services.jms.loadbalancer.server.port=3000"
+      # www router — 301-redirects to the bare apex (canonical host).
+      # $$ escapes docker-compose interpolation so Traefik receives a literal ${1}.
+      - "traefik.http.routers.jms-www.rule=Host(`www.jmsocean.cloud`)"
+      - "traefik.http.routers.jms-www.entrypoints=websecure"
+      - "traefik.http.routers.jms-www.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.jms-www.service=jms"
+      - "traefik.http.routers.jms-www.middlewares=jms-wwwtoapex"
+      - "traefik.http.middlewares.jms-wwwtoapex.redirectregex.regex=^https?://www\\.jmsocean\\.cloud/(.*)"
+      - "traefik.http.middlewares.jms-wwwtoapex.redirectregex.replacement=https://jmsocean.cloud/$${1}"
+      - "traefik.http.middlewares.jms-wwwtoapex.redirectregex.permanent=true"
 
 networks:
   jms_v1_net:
