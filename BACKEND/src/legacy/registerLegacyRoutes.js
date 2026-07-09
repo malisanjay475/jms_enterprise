@@ -14137,6 +14137,65 @@ app.get('/api/reports/jms-plan', async (req, res) => {
   }
 });
 
+// GET /api/reports/mould-wise-qty
+// Mould-wise daily production (Day / Night / Total) for a date range.
+// Searchable by mould name OR mould number. Returns rows grouped per mould
+// so the frontend can render one printable table per mould.
+app.get('/api/reports/mould-wise-qty', async (req, res) => {
+  try {
+    const requestFactoryId = getFactoryId(req);
+    const from = normalizePlanningText(req.query.from);
+    const to = normalizePlanningText(req.query.to);
+    const search = normalizePlanningText(req.query.q);
+
+    const rows = await q(`
+      SELECT
+        TRIM(COALESCE(d.mould_no, '')) AS mould_no,
+        COALESCE(m.mould_name, '') AS mould_name,
+        d.dpr_date::text AS dpr_date,
+        SUM(CASE WHEN d.shift = 'Day'   THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS day_qty,
+        SUM(CASE WHEN d.shift = 'Night' THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS night_qty
+      FROM dpr_hourly d
+      LEFT JOIN moulds m
+        ON TRIM(COALESCE(m.mould_number, '')) = TRIM(COALESCE(d.mould_no, ''))
+       AND ($4::int IS NULL OR m.factory_id = $4 OR m.factory_id IS NULL)
+      WHERE COALESCE(d.is_deleted, false) = false
+        AND TRIM(COALESCE(d.mould_no, '')) <> ''
+        AND TRIM(COALESCE(m.mould_name, '')) <> ''
+        AND ($1::date IS NULL OR d.dpr_date >= $1::date)
+        AND ($2::date IS NULL OR d.dpr_date <= $2::date)
+        AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
+        AND (
+          $3::text IS NULL OR $3 = ''
+          OR TRIM(COALESCE(d.mould_no, '')) ILIKE '%' || $3 || '%'
+          OR COALESCE(m.mould_name, '') ILIKE '%' || $3 || '%'
+        )
+      GROUP BY TRIM(COALESCE(d.mould_no, '')), COALESCE(m.mould_name, ''), d.dpr_date
+      ORDER BY COALESCE(m.mould_name, ''), TRIM(COALESCE(d.mould_no, '')), d.dpr_date
+    `, [from || null, to || null, search || null, requestFactoryId]);
+
+    // Group flat rows into one entry per mould.
+    const byMould = new Map();
+    for (const r of rows) {
+      const key = `${r.mould_no}||${r.mould_name}`;
+      if (!byMould.has(key)) {
+        byMould.set(key, { mouldNo: r.mould_no, mouldName: r.mould_name, rows: [], grandTotal: 0 });
+      }
+      const entry = byMould.get(key);
+      const day = Number(r.day_qty) || 0;
+      const night = Number(r.night_qty) || 0;
+      const total = day + night;
+      entry.rows.push({ date: r.dpr_date, day, night, total });
+      entry.grandTotal += total;
+    }
+
+    res.json({ ok: true, data: Array.from(byMould.values()) });
+  } catch (e) {
+    console.error('/api/reports/mould-wise-qty', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 // GET /api/reports/or-jr
 app.get('/api/reports/or-jr', async (req, res) => {
   try {
