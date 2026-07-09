@@ -1,0 +1,134 @@
+name: ERP IP-filter test (manual)
+
+# Manual diagnostic: does the Joyo ERP filter our staging VPS source IP?
+# Runs the SAME ERP poll from two vantage points in parallel:
+#   - from-runner : the GitHub-hosted runner (a non-VPS IP)
+#   - from-vps    : SSH into the staging VPS (the IP our proxy uses)
+# Both print UTC timestamps so windows can be lined up. A window where one
+# side sees DATA and the other is empty => the empty side is being filtered.
+
+on:
+  workflow_dispatch:
+    inputs:
+      endpoint:
+        description: "ERP endpoint to poll"
+        default: "GetORJRDetails"
+        required: true
+      polls:
+        description: "number of samples"
+        default: "12"
+        required: true
+      interval:
+        description: "seconds between samples"
+        default: "15"
+        required: true
+
+jobs:
+  from-runner:
+    name: Poll ERP from GitHub runner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Poll ERP
+        env:
+          ENDPOINT: ${{ github.event.inputs.endpoint }}
+          POLLS: ${{ github.event.inputs.polls }}
+          INTERVAL: ${{ github.event.inputs.interval }}
+        run: |
+          pubip="$(curl -s --max-time 8 https://api.ipify.org || echo '?')"
+          echo "VANTAGE=runner  public IP=$pubip"
+          url="http://erp.joyo.in:8464/api/Values/${ENDPOINT}"
+          hits=0
+          for i in $(seq 1 "$POLLS"); do
+            ts="$(date -u +%H:%M:%S)"
+            body="$(curl -s --max-time 15 "$url" || true)"
+            bytes="$(printf '%s' "$body" | wc -c | tr -d ' ')"
+            if [ "$bytes" -gt 2 ]; then state="DATA"; hits=$((hits+1)); else state="empty"; fi
+            printf '[%s] poll %2d/%s  %-5s bytes=%s\n' "$ts" "$i" "$POLLS" "$state" "$bytes"
+            [ "$i" -lt "$POLLS" ] && sleep "$INTERVAL"
+          done
+          echo "runner data windows: $hits / $POLLS"
+
+  from-vps:
+    name: Poll ERP from staging VPS (via SSH)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide auth
+        id: gate
+        env:
+          PW: ${{ secrets.STAGING_VPS_SSH_PASSWORD }}
+          KEY: ${{ secrets.STAGING_HOSTINGER_SSH_KEY }}
+        run: |
+          if [ -n "$PW" ]; then echo "mode=password" >> "$GITHUB_OUTPUT"
+          elif [ -n "$KEY" ]; then echo "mode=key" >> "$GITHUB_OUTPUT"
+          else echo "mode=none" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Poll ERP on VPS (password)
+        if: steps.gate.outputs.mode == 'password'
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          ENDPOINT: ${{ github.event.inputs.endpoint }}
+          POLLS: ${{ github.event.inputs.polls }}
+          INTERVAL: ${{ github.event.inputs.interval }}
+        with:
+          host: ${{ secrets.STAGING_HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.STAGING_HOSTINGER_SSH_USER }}
+          password: ${{ secrets.STAGING_VPS_SSH_PASSWORD }}
+          port: 22
+          command_timeout: 15m
+          envs: ENDPOINT,POLLS,INTERVAL
+          script: |
+            pubip="$(curl -s --max-time 8 https://api.ipify.org || echo '?')"
+            echo "VANTAGE=vps  public IP=$pubip"
+            url="http://erp.joyo.in:8464/api/Values/${ENDPOINT}"
+            hits=0
+            for i in $(seq 1 "$POLLS"); do
+              ts="$(date -u +%H:%M:%S)"
+              body="$(curl -s --max-time 15 "$url" || true)"
+              bytes="$(printf '%s' "$body" | wc -c | tr -d ' ')"
+              if [ "$bytes" -gt 2 ]; then state="DATA"; hits=$((hits+1)); else state="empty"; fi
+              printf '[%s] poll %2d/%s  %-5s bytes=%s\n' "$ts" "$i" "$POLLS" "$state" "$bytes"
+              [ "$i" -lt "$POLLS" ] && sleep "$INTERVAL"
+            done
+            echo "vps data windows: $hits / $POLLS"
+            echo "--- proxy cross-check (raw vs local proxy) ---"
+            echo "RAW  : $(curl -s --max-time 15 "$url" | head -c 100)"
+            echo "PROXY: $(curl -s --max-time 15 http://127.0.0.1:9093/api/reports/erp-jr-details | head -c 100)"
+
+      - name: Poll ERP on VPS (key)
+        if: steps.gate.outputs.mode == 'key'
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          ENDPOINT: ${{ github.event.inputs.endpoint }}
+          POLLS: ${{ github.event.inputs.polls }}
+          INTERVAL: ${{ github.event.inputs.interval }}
+        with:
+          host: ${{ secrets.STAGING_HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.STAGING_HOSTINGER_SSH_USER }}
+          key: ${{ secrets.STAGING_HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.STAGING_HOSTINGER_SSH_KEY_PASSPHRASE }}
+          port: 22
+          command_timeout: 15m
+          envs: ENDPOINT,POLLS,INTERVAL
+          script: |
+            pubip="$(curl -s --max-time 8 https://api.ipify.org || echo '?')"
+            echo "VANTAGE=vps  public IP=$pubip"
+            url="http://erp.joyo.in:8464/api/Values/${ENDPOINT}"
+            hits=0
+            for i in $(seq 1 "$POLLS"); do
+              ts="$(date -u +%H:%M:%S)"
+              body="$(curl -s --max-time 15 "$url" || true)"
+              bytes="$(printf '%s' "$body" | wc -c | tr -d ' ')"
+              if [ "$bytes" -gt 2 ]; then state="DATA"; hits=$((hits+1)); else state="empty"; fi
+              printf '[%s] poll %2d/%s  %-5s bytes=%s\n' "$ts" "$i" "$POLLS" "$state" "$bytes"
+              [ "$i" -lt "$POLLS" ] && sleep "$INTERVAL"
+            done
+            echo "vps data windows: $hits / $POLLS"
+            echo "--- proxy cross-check (raw vs local proxy) ---"
+            echo "RAW  : $(curl -s --max-time 15 "$url" | head -c 100)"
+            echo "PROXY: $(curl -s --max-time 15 http://127.0.0.1:9093/api/reports/erp-jr-details | head -c 100)"
+
+      - name: No SSH secret configured
+        if: steps.gate.outputs.mode == 'none'
+        run: |
+          echo "::error::No STAGING_VPS_SSH_PASSWORD or STAGING_HOSTINGER_SSH_KEY secret set."
+          exit 1
