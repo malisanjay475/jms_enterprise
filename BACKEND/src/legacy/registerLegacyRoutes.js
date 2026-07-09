@@ -14142,6 +14142,27 @@ app.get('/api/reports/jms-plan', async (req, res) => {
 // Mould-wise daily production (Day / Night / Total) for a date range.
 // Searchable by mould name OR mould number. Returns rows grouped per mould
 // so the frontend can render one printable table per mould.
+//
+// Optional `fields` query param (comma list) turns extra dimensions/metrics on:
+//   Grouping dimensions: or_no, jc_no, machine, colour
+//   Metrics:             std_prod, efficiency, downtime, reject_qty, reject_pct
+// Metrics are always computed and returned; the frontend decides which columns
+// to render. Only the grouping dimensions change the row granularity here.
+const MOULD_DOWNTIME_REASONS = {
+  '1': 'Manpower Shortage', '2': 'Mould Change Over', '3': 'Accessories Shortage',
+  '4': 'Material Shortage', '5': 'M/C Under Maintaince (Water/Oil/Air Leakage)',
+  '6': 'Nozzle Block/Change', '7': 'Mould Problem', '8': 'Power Failure/Pre Heating',
+  '9': 'Color Change Time', '10': 'Process Setting', '11': 'Mould Trial',
+  '12': 'Crane/Hrtc', '13': 'No Plan'
+};
+function mouldReasonName(code) {
+  const key = String(code == null ? '' : code).trim();
+  if (!key) return 'Unspecified';
+  if (key.startsWith('OTHER_')) return key.slice(6) || 'Other';
+  if (/^OTHER$/i.test(key)) return 'Other';
+  return MOULD_DOWNTIME_REASONS[key] || key;
+}
+
 app.get('/api/reports/mould-wise-qty', async (req, res) => {
   try {
     const requestFactoryId = getFactoryId(req);
@@ -14149,20 +14170,49 @@ app.get('/api/reports/mould-wise-qty', async (req, res) => {
     const to = normalizePlanningText(req.query.to);
     const search = normalizePlanningText(req.query.q);
 
+    // Whitelist of grouping dimensions -> SQL expression (safe, not user text).
+    const DIMS = {
+      or_no:  { expr: "TRIM(COALESCE(d.order_no, ''))",   alias: 'or_no' },
+      jc_no:  { expr: "TRIM(COALESCE(d.jobcard_no, ''))", alias: 'jc_no' },
+      machine:{ expr: "TRIM(COALESCE(d.machine, ''))",    alias: 'machine' },
+      colour: { expr: "TRIM(COALESCE(d.colour, ''))",     alias: 'colour' }
+    };
+    const requested = String(req.query.fields || '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+    const activeDims = requested.filter(f => DIMS[f]);
+
+    const dimSelect = activeDims.map(f => `${DIMS[f].expr} AS ${DIMS[f].alias}`);
+    const dimGroup = activeDims.map(f => DIMS[f].expr);
+
+    const selectParts = [
+      "TRIM(COALESCE(d.mould_no, '')) AS mould_no",
+      "COALESCE(m.mould_name, '') AS mould_name",
+      "d.dpr_date::text AS dpr_date",
+      ...dimSelect,
+      "SUM(CASE WHEN d.shift = 'Day'   THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS day_qty",
+      "SUM(CASE WHEN d.shift = 'Night' THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS night_qty",
+      "SUM(COALESCE(d.reject_qty, 0)) AS reject_qty",
+      "SUM(COALESCE(d.downtime_min, 0)) AS downtime_min",
+      "jsonb_agg(d.downtime_breakup) FILTER (WHERE d.downtime_breakup IS NOT NULL) AS downtime_breakups",
+      "MAX(COALESCE(m.pcs_per_hour, 0)) AS pcs_per_hour"
+    ];
+
+    const groupParts = [
+      "TRIM(COALESCE(d.mould_no, ''))",
+      "COALESCE(m.mould_name, '')",
+      "d.dpr_date",
+      ...dimGroup
+    ];
+
     const rows = await q(`
       SELECT
-        TRIM(COALESCE(d.mould_no, '')) AS mould_no,
-        COALESCE(m.mould_name, '') AS mould_name,
-        d.dpr_date::text AS dpr_date,
-        SUM(CASE WHEN d.shift = 'Day'   THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS day_qty,
-        SUM(CASE WHEN d.shift = 'Night' THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS night_qty
+        ${selectParts.join(',\n        ')}
       FROM dpr_hourly d
       LEFT JOIN moulds m
         ON TRIM(COALESCE(m.mould_number, '')) = TRIM(COALESCE(d.mould_no, ''))
        AND ($4::int IS NULL OR m.factory_id = $4 OR m.factory_id IS NULL)
       WHERE COALESCE(d.is_deleted, false) = false
         AND TRIM(COALESCE(d.mould_no, '')) <> ''
-        AND TRIM(COALESCE(m.mould_name, '')) <> ''
         AND ($1::date IS NULL OR d.dpr_date >= $1::date)
         AND ($2::date IS NULL OR d.dpr_date <= $2::date)
         AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
@@ -14171,26 +14221,65 @@ app.get('/api/reports/mould-wise-qty', async (req, res) => {
           OR TRIM(COALESCE(d.mould_no, '')) ILIKE '%' || $3 || '%'
           OR COALESCE(m.mould_name, '') ILIKE '%' || $3 || '%'
         )
-      GROUP BY TRIM(COALESCE(d.mould_no, '')), COALESCE(m.mould_name, ''), d.dpr_date
+      GROUP BY ${groupParts.join(', ')}
       ORDER BY COALESCE(m.mould_name, ''), TRIM(COALESCE(d.mould_no, '')), d.dpr_date
     `, [from || null, to || null, search || null, requestFactoryId]);
 
     // Group flat rows into one entry per mould.
     const byMould = new Map();
     for (const r of rows) {
-      const key = `${r.mould_no}||${r.mould_name}`;
+      const mouldName = r.mould_name || r.mould_no;
+      const key = `${r.mould_no}||${mouldName}`;
       if (!byMould.has(key)) {
-        byMould.set(key, { mouldNo: r.mould_no, mouldName: r.mould_name, rows: [], grandTotal: 0 });
+        byMould.set(key, { mouldNo: r.mould_no, mouldName, rows: [], grandTotal: 0 });
       }
       const entry = byMould.get(key);
       const day = Number(r.day_qty) || 0;
       const night = Number(r.night_qty) || 0;
       const total = day + night;
-      entry.rows.push({ date: r.dpr_date, day, night, total });
+
+      // STD production per shift = pcs_per_hour * 12, counted per shift present.
+      const pcsPerHour = Number(r.pcs_per_hour) || 0;
+      const shiftsPresent = (day > 0 ? 1 : 0) + (night > 0 ? 1 : 0) || 1;
+      const stdProd = pcsPerHour * 12 * shiftsPresent;
+      const efficiency = stdProd > 0 ? (total / stdProd) * 100 : 0;
+
+      const rejectQty = Number(r.reject_qty) || 0;
+      const rejectPct = (total + rejectQty) > 0
+        ? (rejectQty / (total + rejectQty)) * 100 : 0;
+
+      // Merge per-slot downtime maps -> { reasonCode: minutes }.
+      const dtTotals = {};
+      const breakups = Array.isArray(r.downtime_breakups) ? r.downtime_breakups : [];
+      for (const bk of breakups) {
+        if (!bk || typeof bk !== 'object') continue;
+        for (const code of Object.keys(bk)) {
+          const min = Number(bk[code]);
+          if (min > 0) dtTotals[code] = (dtTotals[code] || 0) + min;
+        }
+      }
+      const downtimeReason = Object.keys(dtTotals)
+        .map(code => `${mouldReasonName(code)} (${dtTotals[code]}m)`)
+        .join(', ');
+
+      entry.rows.push({
+        date: r.dpr_date,
+        day, night, total,
+        orNo: r.or_no || '',
+        jcNo: r.jc_no || '',
+        machine: r.machine || '',
+        colour: r.colour || '',
+        stdProd: Math.round(stdProd),
+        efficiency: Math.round(efficiency * 10) / 10,
+        downtimeMin: Number(r.downtime_min) || 0,
+        downtimeReason,
+        rejectQty,
+        rejectPct: Math.round(rejectPct * 10) / 10
+      });
       entry.grandTotal += total;
     }
 
-    res.json({ ok: true, data: Array.from(byMould.values()) });
+    res.json({ ok: true, fields: activeDims, data: Array.from(byMould.values()) });
   } catch (e) {
     console.error('/api/reports/mould-wise-qty', e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
