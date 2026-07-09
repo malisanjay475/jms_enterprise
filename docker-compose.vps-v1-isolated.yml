@@ -89,7 +89,7 @@ services:
     # labels added manually on the VPS are lost and the site 404s. Keep them in-repo.
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.jms.rule=Host(`jmsocean.cloud`)"
+      - "traefik.http.routers.jms.rule=Host(`jmsocean.cloud`) || Host(`www.jmsocean.cloud`)"
       - "traefik.http.routers.jms.entrypoints=websecure"
       - "traefik.http.routers.jms.tls.certresolver=letsencrypt"
       - "traefik.http.services.jms.loadbalancer.server.port=3000"
