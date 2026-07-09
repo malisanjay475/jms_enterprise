@@ -6356,6 +6356,37 @@ app.post('/api/dpr/submit', async (req, res) => {
       }
     }
 
+    // [NEW] COLOUR GUARD — if this plan has colours configured, every entry MUST carry a colour.
+    // Colourless entries leak into a separate "Default" bucket in the per-colour drill-down,
+    // which is what made a machine's real total (e.g. 701) show as a smaller per-colour figure
+    // (e.g. 460). Blocking them at save time keeps every per-colour / per-machine sum correct.
+    if (PlanID) {
+      try {
+        const pcRows = await q(
+          'SELECT colour_details FROM plan_board WHERE CAST(id AS TEXT)=$1 OR CAST(plan_id AS TEXT)=$1 LIMIT 1',
+          [String(PlanID)]
+        );
+        let configuredColours = 0;
+        if (pcRows.length && pcRows[0].colour_details) {
+          let cd = pcRows[0].colour_details;
+          if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = []; } }
+          if (Array.isArray(cd)) {
+            configuredColours = cd.filter(c => {
+              const n = String(c.colourName || c.itemColour || c.colour || c.color || c.name || '').trim();
+              return n.length > 0;
+            }).length;
+          }
+        }
+        if (configuredColours > 0 && !String(Colour || '').trim()) {
+          return res.json({ ok: false, error: 'Colour is required for this plan. Please select a colour before saving.' });
+        }
+      } catch (err) {
+        // Guard-query failure must not silently allow colourless entries on colour-plans,
+        // but it also should not hard-block the factory on a transient DB hiccup — log and continue.
+        console.error('dpr/submit colour-guard', err.message);
+      }
+    }
+
     // --- [NEW] QUICK ACTION CONTINUITY LOGIC ---
     if (Machine && Date && Shift && HourSlot) {
       try {
