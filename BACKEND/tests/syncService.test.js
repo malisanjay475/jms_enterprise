@@ -181,4 +181,121 @@ describe('Sync service push outbox (no row loss)', () => {
     expect(stats.stillFailed).toBe(0);
     expect(deletes.length).toBe(1);
   });
+
+  it('parks rows and does NOT advance when MAIN reports partial row failures (HTTP 200 + stats.failed)', async () => {
+    const syncService = require('../services/sync.service');
+    const outboxInserts = [];
+    const pool = {
+      query: jest.fn(async (sql, params = []) => {
+        const text = String(sql);
+        if (text.includes('information_schema') || text.includes('column_name')) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (text.includes('FROM orders')) {
+          if (!pool._served) {
+            pool._served = true;
+            return { rows: [{ id: 1, updated_at: 'x' }, { id: 2, updated_at: 'y' }], rowCount: 2 };
+          }
+          return { rows: [], rowCount: 0 };
+        }
+        if (text.includes('INSERT INTO sync_failed_rows')) {
+          outboxInserts.push(params);
+          return { rows: [], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      })
+    };
+
+    syncService.__test.setRuntimeForTests({
+      pool,
+      MAIN_SERVER_URL: 'http://main.example',
+      LOCAL_FACTORY_ID: 1,
+      API_KEY: 'test-key'
+    });
+
+    // MAIN accepts the request (200) but reports one row failed to upsert.
+    global.fetch = jest.fn().mockResolvedValue(mockResponse(200, { ok: true, stats: { failed: 1 } }));
+
+    const stats = await syncService.__test.pushTableAllBatches('orders', '1970-01-01');
+
+    // the failure is surfaced and the rows are parked for retry, not lost
+    expect(stats.failed).toBe(1);
+    expect(outboxInserts.length).toBe(2);
+  });
+
+  it('keeps outbox rows parked when a retry still partially fails on MAIN', async () => {
+    const syncService = require('../services/sync.service');
+    const deletes = [];
+    const pool = {
+      query: jest.fn(async (sql, params = []) => {
+        const text = String(sql);
+        if (text.includes('SELECT DISTINCT table_name FROM sync_failed_rows')) {
+          return { rows: [{ table_name: 'orders' }], rowCount: 1 };
+        }
+        if (text.includes('SELECT id, payload FROM sync_failed_rows')) {
+          return { rows: [{ id: 10, payload: { id: 2 } }], rowCount: 1 };
+        }
+        if (text.includes('DELETE FROM sync_failed_rows')) {
+          deletes.push(params);
+          return { rows: [], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      })
+    };
+
+    syncService.__test.setRuntimeForTests({
+      pool,
+      SERVER_TYPE: 'LOCAL',
+      MAIN_SERVER_URL: 'http://main.example',
+      LOCAL_FACTORY_ID: 1,
+      API_KEY: 'test-key'
+    });
+
+    global.fetch = jest.fn().mockResolvedValue(mockResponse(200, { ok: true, stats: { failed: 1 } }));
+
+    const stats = await syncService.__test.drainOutbox();
+
+    expect(stats.recovered).toBe(0);
+    expect(stats.stillFailed).toBe(1);
+    expect(deletes.length).toBe(0);
+  });
+});
+
+describe('Sync service JSONB array coercion', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  it('stringifies array-valued jsonb columns before sending to MAIN', async () => {
+    const syncService = require('../services/sync.service');
+    const pool = {
+      query: jest.fn(async (sql) => {
+        const text = String(sql);
+        if (text.includes("data_type IN ('json', 'jsonb')")) {
+          return { rows: [{ column_name: 'colour_details' }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      })
+    };
+    syncService.__test.setRuntimeForTests({ pool });
+
+    const rows = [{ id: 1, colour_details: [{ c: 'red' }], other: 'x' }];
+    const out = await syncService.__test.coerceJsonColumnsForWire('plan_board', rows);
+
+    // the array is serialized to a JSON string so node-pg binds it as jsonb
+    expect(typeof out[0].colour_details).toBe('string');
+    expect(out[0].colour_details).toBe('[{"c":"red"}]');
+    // untouched columns pass through, original row is not mutated
+    expect(out[0].other).toBe('x');
+    expect(Array.isArray(rows[0].colour_details)).toBe(true);
+  });
 });
