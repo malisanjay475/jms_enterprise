@@ -263,6 +263,7 @@ const SYNC_SCHEMA_READY_VERSION = '2026-06-21-failed-row-outbox-v1';
 const DECONFLICT_TOKEN_COLUMNS = ['sync_id', 'global_id'];
 const tableColumnCache = new Map();
 const tableExistsCache = new Map();
+const jsonColumnCache = new Map();
 const dateColumnCache = new Map();
 
 function getDeterministicNotificationSyncIdSql(tableAlias = '') {
@@ -959,7 +960,8 @@ async function runSyncCycle() {
 // POST a batch of rows to MAIN. Returns {ok, error} instead of throwing so
 // callers can decide whether to record the rows in the outbox.
 async function pushRowsToMain(table, rows) {
-    const wireRows = await coerceDateColumnsForWire(table, rows);
+    let wireRows = await coerceDateColumnsForWire(table, rows);
+    wireRows = await coerceJsonColumnsForWire(table, wireRows);
     const payload = { factoryId: LOCAL_FACTORY_ID, table, data: wireRows, apiKey: API_KEY };
     try {
         const response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, {
@@ -971,7 +973,14 @@ async function pushRowsToMain(table, rows) {
             const text = await response.text().catch(() => '');
             return { ok: false, error: `HTTP ${response.status}: ${text.slice(0, 200)}` };
         }
-        return { ok: true };
+        // MAIN returns HTTP 200 even when individual rows fail to upsert
+        // (stats.failed > 0). Surface that count so the caller can park the
+        // batch for retry instead of silently advancing the watermark past
+        // rows that never actually landed.
+        let body = null;
+        try { body = await response.json(); } catch (e) { body = null; }
+        const partialFailed = body && body.stats ? Number(body.stats.failed) || 0 : 0;
+        return { ok: true, partialFailed };
     } catch (err) {
         return { ok: false, error: err.message };
     }
@@ -1038,19 +1047,25 @@ async function drainOutbox() {
         stats.retried += rows.length;
 
         const result = await pushRowsToMain(table, rows);
-        if (result.ok) {
+        // Only clear parked rows when MAIN accepted them AND reported no
+        // row-level failures. A partial failure (HTTP 200 + stats.failed > 0)
+        // means the rows still did not land, so keep them for the next retry.
+        if (result.ok && !result.partialFailed) {
             await pool.query('DELETE FROM sync_failed_rows WHERE id = ANY($1::bigint[])', [ids]).catch((e) => {
                 console.error(`[Sync] Outbox cleanup failed for ${table}:`, e.message);
             });
             stats.recovered += rows.length;
             console.log(`[Sync] Outbox recovered ${rows.length} row(s) for ${table}.`);
         } else {
+            const errMsg = result.partialFailed
+                ? `MAIN reported ${result.partialFailed} partial failure(s)`
+                : result.error;
             stats.stillFailed += rows.length;
             await pool.query(
                 'UPDATE sync_failed_rows SET attempts = attempts + 1, last_error = $2, updated_at = NOW() WHERE id = ANY($1::bigint[])',
-                [ids, String(result.error || '').slice(0, 500)]
+                [ids, String(errMsg || '').slice(0, 500)]
             ).catch(() => {});
-            console.warn(`[Sync] Outbox retry still failing for ${table}: ${result.error}`);
+            console.warn(`[Sync] Outbox retry still failing for ${table}: ${errMsg}`);
         }
     }
 
@@ -1119,6 +1134,15 @@ async function pushTableAllBatches(table, lastPush) {
         }
 
         stats.pushed += rows.length;
+
+        // MAIN accepted the request (HTTP 200) but reported that some rows
+        // failed to upsert. Park those so drainOutbox retries them next cycle
+        // rather than losing them once LAST_PUSH advances. Keep going through
+        // the remaining batches — the failure is row-level, not table-level.
+        if (result.partialFailed > 0) {
+            stats.failed += result.partialFailed;
+            await recordFailedRows(table, rows, `MAIN reported ${result.partialFailed} partial failure(s)`);
+        }
 
         if (rows.length < PUSH_BATCH_SIZE) break; // last batch — no more rows
 
@@ -2234,6 +2258,55 @@ async function coerceDateColumnsForWire(table, rows) {
     });
 }
 
+// Names of json / jsonb columns for a table (cached). Used to serialize array
+// values before sending to MAIN — see coerceJsonColumnsForWire.
+async function getJsonColumns(table) {
+    if (jsonColumnCache.has(table)) return jsonColumnCache.get(table);
+    let columns = new Set();
+    try {
+        const result = await pool.query(`
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = $1
+              AND data_type IN ('json', 'jsonb')
+        `, [table]);
+        columns = new Set(result.rows.map((row) => row.column_name));
+    } catch (e) {
+        console.error(`[Sync] getJsonColumns failed for ${table}:`, e.message);
+    }
+    jsonColumnCache.set(table, columns);
+    return columns;
+}
+
+function toWireJsonString(value) {
+    if (value === null || value === undefined) return value;
+    if (typeof value === 'string') return value;
+    return JSON.stringify(value);
+}
+
+// node-postgres binds a JS ARRAY parameter as a Postgres array literal ("{...}"),
+// NOT as JSON. So a jsonb column holding an array (e.g. plan_board.colour_details,
+// plan_audit_logs.details, mould_audit_logs.changed_fields) fails MAIN's upsert
+// with `invalid input syntax for type json`. Plain objects are auto-stringified by
+// node-pg and bind fine. To make arrays (and objects) bind reliably, stringify all
+// non-null json/jsonb values on the SEND side so MAIN always receives a JSON string.
+async function coerceJsonColumnsForWire(table, rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+    const jsonCols = await getJsonColumns(table);
+    if (jsonCols.size === 0) return rows;
+    return rows.map((row) => {
+        let clone = null;
+        for (const col of jsonCols) {
+            const value = row[col];
+            if (value !== null && value !== undefined && typeof value === 'object') {
+                if (!clone) clone = { ...row };
+                clone[col] = toWireJsonString(value);
+            }
+        }
+        return clone || row;
+    });
+}
+
 async function getCachedPendingChanges() {
     const now = Date.now();
     if (
@@ -2312,6 +2385,7 @@ function setRuntimeForTests(patch = {}) {
     lastPendingCountValue = 0;
     tableColumnCache.clear();
     tableExistsCache.clear();
+    jsonColumnCache.clear();
 }
 
 module.exports = {
@@ -2326,6 +2400,8 @@ module.exports = {
         drainOutbox,
         recordFailedRows,
         rowRecordPk,
+        pushRowsToMain,
+        coerceJsonColumnsForWire,
         setRuntimeForTests
     }
 };
