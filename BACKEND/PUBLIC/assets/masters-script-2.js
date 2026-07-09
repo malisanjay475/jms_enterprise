@@ -44,7 +44,7 @@
     let currentWriteScope = { id: null, name: '', isAll: false };
     let currentMachineIconBase64 = null;
     const templateSupportedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
-    const reportOnlyTypes = ['labour-parties', 'erpjrstatus', 'erpjrsummary'];
+    const reportOnlyTypes = ['labour-parties', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails'];
     const clientPreviewSchemas = {
       boplanningdetail: {
         label: 'BO Planning Detail',
@@ -253,7 +253,8 @@
         wipstock: 'WIP Stock',
         users: 'User Master',
         erpjrstatus: 'JR Status ERP',
-        erpjrsummary: 'JR Summary ERP'
+        erpjrsummary: 'JR Summary ERP',
+        erpjrdetails: 'OR JR Details ERP'
       };
       return labels[currentType] || 'Master Data';
     }
@@ -653,7 +654,7 @@
       JPSMS.auth.requireAuth();
 
       const params = new URLSearchParams(window.location.search);
-      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users', 'labour-parties', 'erpjrstatus', 'erpjrsummary'];
+      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users', 'labour-parties', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails'];
       const requestedType = params.get('type') || 'orders';
         const optionalDateTypes = ['orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
       const manualDateTypes = ['orjr'];
@@ -745,7 +746,8 @@
         'users': { title: 'User Master', hint: 'Admin Only', hasDates: false },
         'labour-parties': { title: 'Labour Job Parties', hint: 'N/A', hasDates: false },
         'erpjrstatus': { title: 'JR Status ERP', hint: 'Live from ERP', hasDates: false, icon: 'bi-cloud-arrow-down' },
-        'erpjrsummary': { title: 'JR Summary ERP', hint: 'Live from ERP', hasDates: false, icon: 'bi-cloud-arrow-down' }
+        'erpjrsummary': { title: 'JR Summary ERP', hint: 'Live from ERP', hasDates: false, icon: 'bi-cloud-arrow-down' },
+        'erpjrdetails': { title: 'OR JR Details ERP', hint: 'Live from ERP', hasDates: false, icon: 'bi-cloud-arrow-down' }
       };
 
       const cfg = configs[type] || { title: 'Master Data', hint: 'Upload file', hasDates: false };
@@ -959,6 +961,8 @@
           endpoint = `/reports/erp-jr-status`;
         } else if (currentType === 'erpjrsummary') {
           endpoint = `/reports/erp-jr-summary`;
+        } else if (currentType === 'erpjrdetails') {
+          endpoint = `/reports/erp-jr-details`;
         }
 
         console.log('[Masters] Loading data for type:', currentType);
@@ -1090,6 +1094,14 @@
             "or_jr_no", "or_jr_date", "jc_qty", "our_code", "bom_type",
             "item_name", "jr_qty", "uom", "mould_no", "mould",
             "mould_item_qty", "tonnage", "machine", "cycle_time", "cavity"
+          ];
+        } else if (currentType === 'erpjrdetails') {
+          // Read-only live ERP feed — one row per component item.
+          cols = [
+            "or_jr_no", "or_jr_date", "jc_qty", "our_code", "bom_type",
+            "item_name", "jr_qty", "uom", "c_item_code", "c_item_name",
+            "mould_no", "mould", "mould_item_qty", "tonnage", "machine",
+            "cycle_time", "cavity", "status"
           ];
         } else if (currentType === 'orders') {
           // STRICT User Request: "Get All data Same in Or-JR status Dont Change Or dont ADD"
