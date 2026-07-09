@@ -177,7 +177,10 @@ function escHtml(value) {
     }
 
     function isSuperadminUser(user = readStoredJson('user', {})) {
-        return String(user?.role_code || '').toLowerCase() === 'superadmin';
+        // Match backend requireErpSuperadmin: role_code OR username === 'superadmin'.
+        // The seed superadmin account has role_code 'admin' but username 'superadmin'.
+        return String(user?.role_code || '').toLowerCase() === 'superadmin'
+            || String(user?.username || '').toLowerCase() === 'superadmin';
     }
 
     function formatSidebarLabel(value) {
