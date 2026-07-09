@@ -44,7 +44,7 @@
     let currentWriteScope = { id: null, name: '', isAll: false };
     let currentMachineIconBase64 = null;
     const templateSupportedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
-    const reportOnlyTypes = ['labour-parties'];
+    const reportOnlyTypes = ['labour-parties', 'erpjrstatus'];
     const clientPreviewSchemas = {
       boplanningdetail: {
         label: 'BO Planning Detail',
@@ -251,7 +251,8 @@
         jcdetails: 'JC Detail',
         boplanningdetail: 'BO Planning Detail',
         wipstock: 'WIP Stock',
-        users: 'User Master'
+        users: 'User Master',
+        erpjrstatus: 'JR Status ERP'
       };
       return labels[currentType] || 'Master Data';
     }
@@ -651,7 +652,7 @@
       JPSMS.auth.requireAuth();
 
       const params = new URLSearchParams(window.location.search);
-      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users', 'labour-parties'];
+      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users', 'labour-parties', 'erpjrstatus'];
       const requestedType = params.get('type') || 'orders';
         const optionalDateTypes = ['orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
       const manualDateTypes = ['orjr'];
@@ -741,7 +742,8 @@
         'boplanningdetail': { title: 'BO Planning Detail', hint: 'Upload .xlsx', hasDates: true, icon: 'bi-clipboard-data' },
         'wipstock': { title: 'WIP Stock', hint: 'Upload dated WIP stock sheet', hasDates: true, icon: 'bi-box-seam-fill' },
         'users': { title: 'User Master', hint: 'Admin Only', hasDates: false },
-        'labour-parties': { title: 'Labour Job Parties', hint: 'N/A', hasDates: false }
+        'labour-parties': { title: 'Labour Job Parties', hint: 'N/A', hasDates: false },
+        'erpjrstatus': { title: 'JR Status ERP', hint: 'Live from ERP', hasDates: false, icon: 'bi-cloud-arrow-down' }
       };
 
       const cfg = configs[type] || { title: 'Master Data', hint: 'Upload file', hasDates: false };
@@ -951,6 +953,8 @@
           endpoint = `/users`; // GET /api/users
         } else if (currentType === 'machines') {
           endpoint = `/masters/machines?${qParams}`;
+        } else if (currentType === 'erpjrstatus') {
+          endpoint = `/reports/erp-jr-status`;
         }
 
         console.log('[Masters] Loading data for type:', currentType);
@@ -1063,6 +1067,19 @@
             "created_by", "created_date", "edited_by", "edited_date"
           ];
           cols = ['actions', 'factory_name', ...orJrCols.filter(c => c !== 'factory_name')];
+        } else if (currentType === 'erpjrstatus') {
+          // Read-only live ERP feed — same columns as OR-JR Status, no actions/factory.
+          cols = [
+            "or_jr_no", "or_jr_date", "or_qty", "jr_qty",
+            "job_card_no", "job_card_date", "item_code", "product_name", "client_name",
+            "prod_plan_qty", "std_pack", "uom", "planned_comp_date",
+            "mld_start_date", "mld_end_date", "actual_mld_start_date",
+            "prt_tuf_end_date", "pack_end_date",
+            "mld_status", "shift_status", "prt_tuf_status", "pack_status", "wh_status",
+            "rev_mld_end_date", "shift_comp_date", "rev_ptd_tuf_end_date", "rev_pak_end_date", "wh_rec_date",
+            "jr_close", "status", "or_remarks", "jr_remarks",
+            "created_by", "created_date", "edited_by", "edited_date"
+          ];
         } else if (currentType === 'orders') {
           // STRICT User Request: "Get All data Same in Or-JR status Dont Change Or dont ADD"
           // We use the exact schema order from DB, plus Action/Status at start.

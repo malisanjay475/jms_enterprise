@@ -14157,6 +14157,78 @@ app.get('/api/reports/or-jr', async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
 
+// GET /api/reports/erp-jr-status
+// Live proxy: pulls OR/JR status straight from the ERP (read-only, no DB write).
+// ERP endpoint takes no params and returns a flat JSON array.
+const ERP_JR_STATUS_URL = process.env.ERP_JR_STATUS_URL
+  || 'http://erp.joyo.in:8464/api/Values/GetORJRStatus';
+
+function mapErpJrStatusRow(r) {
+  return {
+    or_jr_no: r.orjrNo,
+    or_jr_date: r.orjrDate,
+    or_qty: r.orjrQty,
+    jr_qty: r.jrQty,
+    job_card_no: r.jobCardNo,
+    job_card_date: r.jobCardDate,
+    item_code: r.itemCode,
+    product_name: r.productName,
+    client_name: r.clientName,
+    prod_plan_qty: r.productionPlanQty,
+    std_pack: r.stdPack,
+    uom: r.uom,
+    planned_comp_date: r.jobCompletionDate,
+    mld_start_date: r.mouldingStartDate,
+    mld_end_date: r.mouldingEndDate,
+    actual_mld_start_date: r.actualMouldStartDate,
+    prt_tuf_end_date: r.printingEndDate,
+    pack_end_date: r.packingEndDate,
+    mld_status: r.mouldingStatus,
+    shift_status: r.shiftingStatus,
+    prt_tuf_status: r.printingStatus,
+    pack_status: r.packingStatus,
+    wh_status: r.wareHouseStatus,
+    rev_mld_end_date: r.revisedMouldingEndDate,
+    shift_comp_date: r.shiftingCompDate,
+    rev_ptd_tuf_end_date: r.revisedPrintingEndDate,
+    rev_pak_end_date: r.revisedPackingEndDate,
+    wh_rec_date: r.whReceivedDate,
+    or_remarks: r.orRemarks,
+    jr_remarks: r.jrRemarks,
+    jr_close: r.jrCloseStatus,
+    status: r.current_status,
+    created_by: r.createdBy,
+    created_date: r.createdDate,
+    edited_by: r.editedBy,
+    edited_date: r.editedDate
+  };
+}
+
+app.get('/api/reports/erp-jr-status', async (req, res) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const upstream = await fetch(ERP_JR_STATUS_URL, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal
+    });
+    if (!upstream.ok) {
+      return res.status(502).json({ ok: false, error: `ERP responded ${upstream.status}` });
+    }
+    const raw = await upstream.json();
+    if (!Array.isArray(raw)) {
+      return res.status(502).json({ ok: false, error: 'Unexpected ERP response (not an array)' });
+    }
+    res.json({ ok: true, data: raw.map(mapErpJrStatusRow) });
+  } catch (e) {
+    const msg = e.name === 'AbortError' ? 'ERP request timed out' : String(e.message || e);
+    console.error('/api/reports/erp-jr-status', msg);
+    res.status(502).json({ ok: false, error: `Failed to reach ERP: ${msg}` });
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
 // POST /api/upload/excel (Mock - requires 'xlsx' library for real parsing)
 app.post('/api/upload/excel', async (req, res) => {
   // In a real app, use 'multer' to handle file upload and 'xlsx' to parse
