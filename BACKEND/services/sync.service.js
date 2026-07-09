@@ -169,7 +169,7 @@ const CONFLICT_KEYS = {
     shift_teams: 'line, shift_date, shift',
     closed_plants: 'factory_id, dpr_date, plant, shift',
     machine_audit_logs: 'sync_id',
-    notifications: 'sync_id',
+    notifications: 'target_user, type, title, created_at',
     order_completion_history: 'factory_id, order_no, action_type, changed_at',
     raw_material_issues: 'factory_id, plan_id, created_at',
     wip_stock_movements: 'factory_id, source_type, source_ref, movement_type, created_at',
@@ -263,6 +263,7 @@ const SYNC_SCHEMA_READY_VERSION = '2026-06-21-failed-row-outbox-v1';
 const DECONFLICT_TOKEN_COLUMNS = ['sync_id', 'global_id'];
 const tableColumnCache = new Map();
 const tableExistsCache = new Map();
+const dateColumnCache = new Map();
 
 function getDeterministicNotificationSyncIdSql(tableAlias = '') {
     const prefix = tableAlias ? `${tableAlias}.` : '';
@@ -503,12 +504,18 @@ router.post('/push-deletions', async (req, res) => {
 router.get('/pull', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
-        const { table, lastSync, since, apiKey, factoryId } = req.query;
+        const { table, lastSync, since, apiKey, factoryId, afterId } = req.query;
         if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
         if (!TABLES_TO_PULL.includes(table)) return res.status(400).json({ error: 'Invalid Table' });
 
-        const rows = await getChanges(table, since || lastSync, factoryId);
-        res.json({ ok: true, data: rows });
+        // afterId is the keyset tiebreaker: the id of the last row the client
+        // already has at the `since` timestamp. Lets pagination page through a
+        // block of rows sharing an identical updated_at. Parsed as an integer;
+        // anything non-numeric is ignored (falls back to updated_at-only paging).
+        const parsedAfterId = Number.parseInt(afterId, 10);
+        const afterIdArg = Number.isFinite(parsedAfterId) ? parsedAfterId : null;
+        const rows = await getChanges(table, since || lastSync, factoryId, afterIdArg);
+        res.json({ ok: true, data: await coerceDateColumnsForWire(table, rows) });
     } catch (e) {
         console.error('[Sync] Pull Serve Error:', e);
         res.status(500).json({ error: e.message });
@@ -689,6 +696,82 @@ router.post('/admin/full-push-reset', async (req, res) => {
    CORE SYNC LOGIC
    ============================================================ */
 
+const DATE_TZ_BACKFILL_MARKER = 'DATE_TZ_BACKFILL_V1';
+const DATE_TZ_BACKFILL_LOCK = 918273645;
+
+// One-time repair (MAIN only) for rows synced BEFORE the DATE-wire fix
+// (see coerceDateColumnsForWire). Old pushes serialized DATE columns as UTC
+// instants, so on MAIN's UTC session every synced date landed one calendar day
+// early. This shifts those pre-fix rows +1 day across every synced DATE column,
+// exactly once, inside a single all-or-nothing transaction. LOCAL is the source
+// of truth and is never touched. A server_config marker plus a transaction-scoped
+// advisory lock guard against double-application (a second run would push +2).
+async function ensureDateTimezoneBackfill() {
+    if (SERVER_TYPE !== 'MAIN') return; // LOCAL/STANDALONE dates are authoritative
+
+    let alreadyDone = false;
+    try {
+        const r = await pool.query('SELECT value FROM server_config WHERE key = $1', [DATE_TZ_BACKFILL_MARKER]);
+        alreadyDone = r.rows.length > 0 && !!r.rows[0].value;
+    } catch (e) {
+        console.warn('[Sync] Date-TZ backfill marker check failed; skipping:', e.message);
+        return;
+    }
+    if (alreadyDone) return;
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        // Serialize against a concurrent boot so the shift can never run twice.
+        await client.query('SELECT pg_advisory_xact_lock($1)', [DATE_TZ_BACKFILL_LOCK]);
+
+        // Re-check under the lock: another worker may have completed the backfill
+        // between our first read and acquiring the lock.
+        const mk = await client.query('SELECT value FROM server_config WHERE key = $1', [DATE_TZ_BACKFILL_MARKER]);
+        if (mk.rows.length > 0 && mk.rows[0].value) {
+            await client.query('COMMIT');
+            return;
+        }
+
+        // Rows written before this instant came from the old (broken) code and are
+        // shifted -1 day. Anything the fixed code writes carries updated_at >= now
+        // and is left untouched, so the run is race-free even if a push lands mid-way.
+        const cutoff = (await client.query('SELECT NOW() AS c')).rows[0].c;
+        console.log(`[Sync] Date-TZ backfill starting (MAIN); +1 day on pre-fix rows, cutoff=${cutoff.toISOString()}`);
+
+        let totalRows = 0;
+        let totalTables = 0;
+        for (const table of SYNC_ALL) {
+            if (!(await tableExistsPublic(table))) continue;
+            const dateCols = await getDateColumns(table);
+            if (dateCols.size === 0) continue;
+            const hasUpdatedAt = await tableHasColumn(table, 'updated_at');
+
+            const setClause = [...dateCols].map((c) => `"${c}" = "${c}" + 1`).join(', ');
+            const sql = `UPDATE "${table}" SET ${setClause}${hasUpdatedAt ? ' WHERE updated_at < $1' : ''}`;
+            const res = await client.query(sql, hasUpdatedAt ? [cutoff] : []);
+            if (res.rowCount > 0) {
+                totalRows += res.rowCount;
+                totalTables += 1;
+                console.log(`[Sync] Date-TZ backfill: ${table} +1 day on ${res.rowCount} row(s) [${[...dateCols].join(', ')}]`);
+            }
+        }
+
+        await client.query(
+            `INSERT INTO server_config (key, value) VALUES ($1, $2)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+            [DATE_TZ_BACKFILL_MARKER, new Date().toISOString()]
+        );
+        await client.query('COMMIT');
+        console.log(`[Sync] Date-TZ backfill complete: ${totalRows} row(s) across ${totalTables} table(s). Marker set.`);
+    } catch (e) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('[Sync] Date-TZ backfill failed; rolled back, will retry next boot:', e.message);
+    } finally {
+        client.release();
+    }
+}
+
 async function init(dbPool) {
     pool = dbPool;
     try {
@@ -710,6 +793,8 @@ async function init(dbPool) {
 
         console.log(`[Sync] Init. Type: ${SERVER_TYPE}, Factory: ${LOCAL_FACTORY_ID}, Main: ${MAIN_SERVER_URL}`);
         console.log('[Sync] Service Version: v4.7 (Global Master Tables, Paginated Pull, Moulds Full Sync)');
+
+        await ensureDateTimezoneBackfill();
 
         if (SERVER_TYPE === 'LOCAL') {
             startSchedule();
@@ -874,7 +959,8 @@ async function runSyncCycle() {
 // POST a batch of rows to MAIN. Returns {ok, error} instead of throwing so
 // callers can decide whether to record the rows in the outbox.
 async function pushRowsToMain(table, rows) {
-    const payload = { factoryId: LOCAL_FACTORY_ID, table, data: rows, apiKey: API_KEY };
+    const wireRows = await coerceDateColumnsForWire(table, rows);
+    const payload = { factoryId: LOCAL_FACTORY_ID, table, data: wireRows, apiKey: API_KEY };
     try {
         const response = await fetch(`${MAIN_SERVER_URL}/api/sync/push`, {
             method: 'POST',
@@ -975,17 +1061,36 @@ async function pushTableAllBatches(table, lastPush) {
     const PUSH_BATCH_SIZE = 100;
     const stats = { pushed: 0, failed: 0 };
     const hasFactoryId = await tableHasColumn(table, 'factory_id');
-    let currentSince = lastPush;
+    // Pagination strategy:
+    //   When the table has an integer `id` primary key we page by ID, using the
+    //   updated_at watermark only as a FILTER (updated_at > lastPush). This is
+    //   immune to two problems that broke updated_at-cursor paging:
+    //     1. Bulk regenerations stamp tens of thousands of rows with an identical
+    //        updated_at; an updated_at-only cursor jumps past that timestamp after
+    //        the first batch and permanently SKIPS the rest.
+    //     2. node-postgres reads timestamptz into a JS Date truncated to
+    //        millisecond precision, while Postgres stores microseconds. A cursor
+    //        derived from that truncated Date (updated_at > cursor) re-matches the
+    //        same sub-millisecond rows forever → an infinite push loop.
+    //   The id cursor strictly increases and never repeats or skips a row.
+    //   lastPush comes from server_config as a full-precision string, so the
+    //   watermark boundary itself is exact (no truncation there).
+    const hasId = await tableHasColumn(table, 'id');
+    let currentSince = lastPush;   // updated_at watermark (filter only)
+    let lastId = null;             // id keyset cursor
     let batchNum = 0;
 
     while (true) {
         batchNum += 1;
         let rows;
         try {
-            const sql = hasFactoryId
-                ? `SELECT * FROM ${table} WHERE updated_at > $1 AND factory_id = $2 ORDER BY updated_at ASC LIMIT ${PUSH_BATCH_SIZE}`
-                : `SELECT * FROM ${table} WHERE updated_at > $1 ORDER BY updated_at ASC LIMIT ${PUSH_BATCH_SIZE}`;
-            const params = hasFactoryId ? [currentSince, LOCAL_FACTORY_ID] : [currentSince];
+            const where = ['updated_at > $1'];
+            const params = [currentSince];
+            if (hasId && lastId !== null) { params.push(lastId); where.push(`id > $${params.length}`); }
+            if (hasFactoryId) { params.push(LOCAL_FACTORY_ID); where.push(`factory_id = $${params.length}`); }
+            const orderClause = hasId ? 'ORDER BY id ASC' : 'ORDER BY updated_at ASC';
+
+            const sql = `SELECT * FROM ${table} WHERE ${where.join(' AND ')} ${orderClause} LIMIT ${PUSH_BATCH_SIZE}`;
             const result = await pool.query(sql, params);
             rows = result.rows;
         } catch (err) {
@@ -997,7 +1102,7 @@ async function pushTableAllBatches(table, lastPush) {
         if (rows.length === 0) break;
 
         if (batchNum > 1) {
-            console.log(`[Sync] Pushing ${rows.length} rows for ${table} (batch ${batchNum}, since=${currentSince})...`);
+            console.log(`[Sync] Pushing ${rows.length} rows for ${table} (batch ${batchNum}, afterId=${lastId})...`);
         } else {
             console.log(`[Sync] Pushing ${rows.length} rows for ${table}...`);
         }
@@ -1017,9 +1122,16 @@ async function pushTableAllBatches(table, lastPush) {
 
         if (rows.length < PUSH_BATCH_SIZE) break; // last batch — no more rows
 
-        const lastUpdatedAt = rows[rows.length - 1]?.updated_at;
-        if (!lastUpdatedAt || lastUpdatedAt <= currentSince) break; // safety: no forward progress
-        currentSince = lastUpdatedAt;
+        const lastRow = rows[rows.length - 1];
+        if (hasId) {
+            // id strictly increases → always forward progress, never re-matches.
+            if (lastRow.id === undefined || lastRow.id === null || lastRow.id === lastId) break;
+            lastId = lastRow.id;
+        } else {
+            const lastUpdatedAt = lastRow?.updated_at;
+            if (!lastUpdatedAt || lastUpdatedAt <= currentSince) break; // safety: no forward progress
+            currentSince = lastUpdatedAt;
+        }
     }
 
     return stats;
@@ -1130,12 +1242,21 @@ async function pushDeletionChanges() {
 async function pullTableAllPages(table, since) {
     const PAGE_LIMIT = 1000; // must match LIMIT in getChanges() on MAIN
     const allData = [];
-    let currentSince = since;
+    // `since` (the updated_at watermark) stays FIXED for the whole pagination;
+    // MAIN pages by id (ORDER BY id) when the table has an id column, so only the
+    // id cursor advances. Advancing `since` mid-pagination would wrongly drop rows
+    // whose updated_at is <= the last row's timestamp but id is beyond the cursor.
+    // Paging by id is immune to identical-timestamp blocks and to millisecond
+    // truncation of timestamps that broke the previous updated_at cursor.
+    let currentAfterId = null; // id keyset cursor
+    let usedIdCursor = false;
+    let currentSince = since;  // only advances in the no-id fallback path
     let pageNum = 0;
 
     while (true) {
         pageNum += 1;
-        const url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`;
+        let url = `${MAIN_SERVER_URL}/api/sync/pull?table=${encodeURIComponent(table)}&since=${encodeURIComponent(currentSince)}&apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(LOCAL_FACTORY_ID)}`;
+        if (currentAfterId !== null) url += `&afterId=${encodeURIComponent(currentAfterId)}`;
         const response = await fetchWithSyncRetry(url, `Pull ${table} page ${pageNum}`);
 
         if (!response.ok) {
@@ -1149,12 +1270,23 @@ async function pullTableAllPages(table, since) {
 
         if (rows.length < PAGE_LIMIT) break; // this was the last page
 
-        // Advance 'since' to the last row's updated_at so the next page starts after it.
-        const lastUpdatedAt = rows[rows.length - 1]?.updated_at;
-        if (!lastUpdatedAt || lastUpdatedAt <= currentSince) break; // safety: no forward progress
+        const lastRow = rows[rows.length - 1];
+        const lastId = lastRow?.id;
 
-        console.log(`[Sync] Pull ${table} page ${pageNum} (${rows.length} rows). Fetching more since ${lastUpdatedAt}...`);
-        currentSince = lastUpdatedAt;
+        if (lastId !== undefined && lastId !== null) {
+            // id keyset: keep `since` fixed, advance only afterId.
+            if (usedIdCursor && lastId === currentAfterId) break; // safety: no progress
+            currentAfterId = lastId;
+            usedIdCursor = true;
+            console.log(`[Sync] Pull ${table} page ${pageNum} (${rows.length} rows). Fetching more afterId ${lastId}...`);
+        } else {
+            // No id column: fall back to updated_at cursor (strict forward progress
+            // required to avoid looping on a same-timestamp block).
+            const lastUpdatedAt = lastRow?.updated_at;
+            if (!lastUpdatedAt || lastUpdatedAt <= currentSince) break;
+            currentSince = lastUpdatedAt;
+            console.log(`[Sync] Pull ${table} page ${pageNum} (${rows.length} rows). Fetching more since ${lastUpdatedAt}...`);
+        }
     }
 
     return allData;
@@ -1588,7 +1720,7 @@ async function upsertData(table, data) {
     }
 }
 
-async function getChanges(table, since, targetFactoryId) {
+async function getChanges(table, since, targetFactoryId, afterId) {
     if (!(await tableExistsPublic(table))) {
         return [];
     }
@@ -1597,10 +1729,24 @@ async function getChanges(table, since, targetFactoryId) {
     const params = [];
     const where = [];
     const normalizedSince = normalizeSyncTimestampInput(since);
+    const hasUpdatedAt = await tableHasColumn(table, 'updated_at');
+    // When the table has an integer `id` primary key we page by ID (cursor =
+    // afterId), using updated_at only as a filter. This is immune to (1) blocks
+    // of rows sharing an identical updated_at being skipped once the cursor
+    // advances past that timestamp, and (2) millisecond-truncation of timestamps
+    // (JS Date / JSON ISO strings only carry ms, Postgres stores microseconds) —
+    // an updated_at cursor re-matches sub-ms rows forever. The id cursor strictly
+    // increases, so no row is skipped or repeated.
+    const hasId = await tableHasColumn(table, 'id');
 
-    if (normalizedSince && await tableHasColumn(table, 'updated_at')) {
+    if (normalizedSince && hasUpdatedAt) {
         params.push(normalizedSince);
         where.push(`updated_at > $${params.length}`);
+    }
+
+    if (hasId && afterId !== null && afterId !== undefined) {
+        params.push(afterId);
+        where.push(`id > $${params.length}`);
     }
 
     // Global master tables are NOT scoped to a factory — every LOCAL server should
@@ -1614,7 +1760,7 @@ async function getChanges(table, since, targetFactoryId) {
         sql += ` WHERE ${where.join(' AND ')}`;
     }
 
-    sql += ' ORDER BY updated_at ASC LIMIT 1000';
+    sql += hasId ? ' ORDER BY id ASC LIMIT 1000' : ' ORDER BY updated_at ASC LIMIT 1000';
 
     try {
         const rows = await pool.query(sql, params);
@@ -1666,7 +1812,7 @@ async function applyRemoteDeletions(deletions) {
     if (!Array.isArray(deletions) || deletions.length === 0) return { deleted: 0, failed: 0 };
 
     const client = await pool.connect();
-    const stats = { deleted: 0, failed: 0 };
+    const stats = { deleted: 0, failed: 0, skipped: 0 };
     try {
         await client.query('BEGIN');
 
@@ -1676,7 +1822,14 @@ async function applyRemoteDeletions(deletions) {
 
             const keyValues = parseDeletionRecordPk(table, deletion.record_pk);
             if (!keyValues) {
-                stats.failed += 1;
+                // Legacy/malformed record_pk that can't be resolved against this table's
+                // current conflict key — e.g. old single-id (UUID) tombstones for a table
+                // since migrated to a multi-column composite key. We genuinely can't
+                // identify the target row, so skip it instead of failing. A hard failure
+                // here makes the whole batch return 500, which stalls the sender's delete
+                // watermark and re-pushes the same un-appliable rows forever.
+                stats.skipped += 1;
+                console.warn(`[Sync] Skipping unresolvable deletion for ${table} (record_pk=${deletion.record_pk})`);
                 continue;
             }
 
@@ -2020,6 +2173,65 @@ async function tableHasColumn(table, column) {
     `, [table, column]);
 
     return result.rows.length > 0;
+}
+
+async function getDateColumns(table) {
+    if (dateColumnCache.has(table)) return dateColumnCache.get(table);
+
+    let columns = new Set();
+    try {
+        const result = await pool.query(`
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = $1 AND data_type = 'date'
+        `, [table]);
+        columns = new Set(result.rows.map((row) => row.column_name));
+    } catch (e) {
+        console.warn(`[Sync] Could not read date columns for ${table}:`, e.message);
+    }
+    dateColumnCache.set(table, columns);
+    return columns;
+}
+
+function pad2(n) {
+    return String(n).padStart(2, '0');
+}
+
+// A DATE column carries no time-of-day, but the pg driver hands it back as a JS
+// Date at local midnight. JSON.stringify then emits a UTC *instant* — e.g. the
+// IST date 2026-07-05 becomes "2026-07-04T18:30:00.000Z". When the receiving
+// server's Postgres session runs a different timezone (Hostinger MAIN defaults to
+// UTC) it truncates that instant back to a DATE and lands one calendar day early,
+// so every synced dpr_date/plan date silently shifts −1 day. Sending the value as
+// a bare 'YYYY-MM-DD' string is timezone-immune: it inserts as the same day on any
+// session. Idempotent for values already in 'YYYY-MM-DD' form (drained outbox rows).
+function toWireDateString(value) {
+    if (value == null) return value;
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+// Rewrite DATE columns to bare 'YYYY-MM-DD' strings before a row crosses the sync
+// wire, so timezone differences between LOCAL and MAIN cannot shift the calendar day.
+// Only touches columns whose Postgres type is exactly `date` — timestamp/timestamptz
+// (e.g. updated_at) are left intact so watermark comparisons stay precise.
+async function coerceDateColumnsForWire(table, rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+    const dateCols = await getDateColumns(table);
+    if (dateCols.size === 0) return rows;
+
+    return rows.map((row) => {
+        let clone = null;
+        for (const col of dateCols) {
+            if (Object.prototype.hasOwnProperty.call(row, col) && row[col] != null) {
+                if (!clone) clone = { ...row };
+                clone[col] = toWireDateString(row[col]);
+            }
+        }
+        return clone || row;
+    });
 }
 
 async function getCachedPendingChanges() {

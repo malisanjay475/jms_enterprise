@@ -1826,12 +1826,14 @@
 
             const job = session.activeJob || {};
             const all = job._all || {};
+            const fpaDate = el('fpa-date') ? el('fpa-date').value : istDateStr();
+            const fpaShift = el('fpa-shift') ? el('fpa-shift').value : getShiftFromTime();
 
             // Build multipart FormData — backend expects multipart/form-data (multer)
             const fd = new FormData();
             fd.append('session',     JSON.stringify({ username: session.username, line: session.line }));
-            fd.append('date',        istDateStr());
-            fd.append('shift',       el('fpa-shift') ? el('fpa-shift').value : getShiftFromTime());
+            fd.append('date',        fpaDate);
+            fd.append('shift',       fpaShift);
             fd.append('hour_slot',   el('fpa-slot')  ? el('fpa-slot').value  : '');
             fd.append('line',        session.line    || '');
             fd.append('machine',     session.machine || '');
@@ -1859,11 +1861,8 @@
                 // Switch to view mode immediately — re-fetch status so gallery renders from server URLs
                 const jcNo    = safe(job.JobCardNo || all['JobCardNo'] || '');
                 const machine = session.machine || '';
-                const date    = istDateStr();
-                const shift   = el('fpa-shift') ? el('fpa-shift').value : getShiftFromTime();
                 try {
                     const sr = await fetch('/api/qc/fpa/status?job_card_no=' + encodeURIComponent(jcNo) +
-                        '&date=' + date + '&shift=' + encodeURIComponent(shift) +
                         '&machine=' + encodeURIComponent(machine));
                     const sd = await sr.json();
                     if (sd.ok && sd.done) { _v4RenderFPAViewMode(sd); }
@@ -3330,7 +3329,7 @@
                 const warn = document.createElement('div');
                 warn.className = 'no-job-warn';
                 warn.style.cssText = 'background:var(--warn-bg);border:1.5px solid var(--warn);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;font-weight:600;color:var(--warn);display:flex;align-items:center;gap:8px';
-                warn.innerHTML = '<span style="font-size:18px">⚠️</span><span>No job selected. Go to <b>Job Queue</b> and tap <b>FPA</b> on a job card first.</span>';
+                warn.innerHTML = '<span style="font-size:18px">⚠️</span><span>No job selected. Go to <b>Job Queue</b> and select the relevant job card first.</span>';
                 sec.prepend(warn);
             }
         }
@@ -3380,7 +3379,7 @@
             const cached = _v3StatusCache.get(key);
             if (cached && (Date.now() - cached.ts < 45000)) return cached.data;
             const [fpaR, setupR] = await Promise.allSettled([
-                fetch('/api/qc/fpa/status?job_card_no=' + encodeURIComponent(jcNo) + '&date=' + date + '&shift=' + encodeURIComponent(shift) + '&machine=' + encodeURIComponent(machine)).then(r => r.json()).catch(() => ({ ok:true, done:false })),
+                fetch('/api/qc/fpa/status?job_card_no=' + encodeURIComponent(jcNo) + '&machine=' + encodeURIComponent(machine)).then(r => r.json()).catch(() => ({ ok:true, done:false })),
                 fetch('/api/qc/job-setup?job_card_no=' + encodeURIComponent(jcNo) + '&date=' + encodeURIComponent(date) + '&shift=' + encodeURIComponent(shift) + '&machine=' + encodeURIComponent(machine) + '&mould_name=' + encodeURIComponent(mouldName||'')).then(r => r.json()).catch(() => ({ ok:true, setup:null }))
             ]);
             const fpa   = fpaR.status   === 'fulfilled' ? fpaR.value   : { ok:true, done:false };
@@ -3428,8 +3427,9 @@
                 if (btnFPA) {
                     btnFPA.disabled = false;
                     if (fpaDone) {
-                        btnFPA.style.cssText = 'background:#ecfdf5;color:#059669;border-color:#6ee7b7';
-                        btnFPA.textContent = 'FPA Done';
+                        // Solid green — clearly done
+                        btnFPA.style.cssText = 'background:#059669;color:#fff;border-color:#047857;font-weight:700;box-shadow:0 2px 8px rgba(5,150,105,0.25)';
+                        btnFPA.textContent = '✓ FPA';
                     } else {
                         btnFPA.style.cssText = 'background:#fff7ed;color:#b45309;border-color:#fed7aa;font-weight:700';
                         btnFPA.textContent = 'FPA!';
@@ -3550,10 +3550,9 @@
             }
             if (!jcNo) { _v4FPACaptureMode(); showPage('sec-qc-fpa', null); return; }
             const machine = session.machine || '';
-            const date    = istDateStr();
-            const shift   = getShiftFromTime();
             try {
-                const r    = await fetch('/api/qc/fpa/status?job_card_no=' + encodeURIComponent(jcNo) + '&date=' + date + '&shift=' + encodeURIComponent(shift) + '&machine=' + encodeURIComponent(machine));
+                // No date filter — FPA is permanent once submitted for a job card
+                const r    = await fetch('/api/qc/fpa/status?job_card_no=' + encodeURIComponent(jcNo) + '&machine=' + encodeURIComponent(machine));
                 const data = await r.json();
                 if (data.ok && data.done) { showPage('sec-qc-fpa', null); _v4RenderFPAViewMode(data); return; }
             } catch (_e) {}
@@ -3563,7 +3562,23 @@
 
         function _v4FPACaptureMode() {
             const submitBtn = el('fpa-submit-btn');
-            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Submit FPA'; }
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Submit FPA';
+                submitBtn.style.cssText = '';
+            }
+            // Populate date dropdown — openQCForm() is bypassed in v4 path so we do it here
+            const _fpaDsel = el('fpa-date');
+            if (_fpaDsel && _fpaDsel.tagName === 'SELECT') {
+                var _td = new Date(), _yd = new Date();
+                _yd.setDate(_td.getDate() - 1);
+                var _dfmt = function(d) { return d.toISOString().split('T')[0]; };
+                var _dnice = function(d) { return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0'); };
+                _fpaDsel.innerHTML = '';
+                _fpaDsel.add(new Option('Today (' + _dnice(_td) + ')', _dfmt(_td)));
+                _fpaDsel.add(new Option('Yesterday (' + _dnice(_yd) + ')', _dfmt(_yd)));
+                _fpaDsel.value = _dfmt(_td);
+            }
             const thumb = el('fpa-form-thumb');
             if (thumb) {
                 thumb.onclick = function() { el('fpa-form-image').click(); };
@@ -3582,20 +3597,32 @@
             if (oldGallery) oldGallery.remove();
             const msgEl = el('fpa-msg');
             if (msgEl) { msgEl.textContent = ''; msgEl.className = 'muted'; }
+            // Restore capture-only fields (date/shift) that view mode hides
+            document.querySelectorAll('#sec-qc-fpa .fpa-capture-only').forEach(function(d) { d.style.display = ''; });
         }
 
         function _v4RenderFPAViewMode(data) {
             const fpaSection = document.getElementById('sec-qc-fpa');
             if (!fpaSection) return;
+
+            // 1. Hide capture-only fields (Date selector, Shift selector)
+            fpaSection.querySelectorAll('.fpa-capture-only').forEach(function(d) { d.style.display = 'none'; });
+
+            // 2. Show done banner with Date + Shift (no Hour Slot)
             const doneBanner = el('fpa-done-banner');
             if (doneBanner) {
                 doneBanner.classList.remove('hidden');
                 const metaEl = el('fpa-done-meta');
                 if (metaEl) {
-                    const ts = data.done_at ? new Date(data.done_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) : '';
-                    metaEl.textContent = 'By ' + (data.done_by || 'QC') + (ts ? ' at ' + ts : '');
+                    const parts = [];
+                    if (data.date)  parts.push(data.date);
+                    if (data.shift) parts.push(data.shift + ' Shift');
+                    if (data.done_by) parts.push('By ' + data.done_by);
+                    metaEl.textContent = parts.join(' · ');
                 }
             }
+
+            // 3. Show FPA form image
             const preview = el('fpa-form-preview');
             const ph      = el('fpa-form-placeholder');
             const thumb   = el('fpa-form-thumb');
@@ -3604,8 +3631,16 @@
                 if (ph)      ph.style.display = 'none';
                 if (thumb)   thumb.onclick = function() { openImageLightbox(data.form_url); };
             }
+
+            // 4. Submit button — solid green locked state
             const submitBtn = el('fpa-submit-btn');
-            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'FPA Already Submitted'; }
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = '✓ FPA Submitted';
+                submitBtn.style.cssText = 'background:#059669;color:#fff;border-color:#047857;opacity:1;cursor:default';
+            }
+
+            // 5. Product reference images gallery
             const oldG = fpaSection.querySelector('.v4-fpa-gallery');
             if (oldG) oldG.remove();
             const productImgs = Array.isArray(data.product_images) ? data.product_images : [];
@@ -3613,18 +3648,20 @@
                 const gallery = document.createElement('div');
                 gallery.className = 'v4-fpa-gallery card';
                 gallery.style.cssText = 'background:var(--surface-elevated);border-style:dashed;padding:12px;margin-top:10px';
-                gallery.innerHTML = '<div style="font-weight:700;margin-bottom:10px">Product Reference Images (' + productImgs.length + ')</div><div class="fpa-img-gallery" id="v4-fpa-prod-grid"></div>';
+                gallery.innerHTML = '<div style="font-weight:700;margin-bottom:10px">📸 Product Reference Images (' + productImgs.length + ')</div><div class="fpa-img-gallery" id="v4-fpa-prod-grid"></div>';
                 const grid = gallery.querySelector('#v4-fpa-prod-grid');
                 productImgs.forEach(function(url, i) {
                     var img = document.createElement('img');
                     img.src   = url;
                     img.alt   = 'Ref ' + (i+1);
+                    img.style.cursor = 'zoom-in';
                     img.onerror = function() { this.style.opacity = '0.25'; };
                     img.onclick = (function(u){ return function(){ openImageLightbox(u); }; })(url);
                     grid.appendChild(img);
                 });
                 fpaSection.appendChild(gallery);
             }
+
             const msgEl = el('fpa-msg');
             if (msgEl) { msgEl.className = 'ok'; msgEl.textContent = ''; }
         }

@@ -448,6 +448,7 @@
                       <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">View Filter</label>
                       <select id="s-eff-filter" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:160px">
                         <option value="">All</option>
+                        <option value="AbovePlan">🔴 Above Plan Qty</option>
                         <option value="Pending">⚠️ Pending Entries</option>
                         <option value="LowEff">Low EFF</option>
                         <option value="ManPowerShortage">MP Shortage</option>
@@ -1277,6 +1278,7 @@
                                 let machineGood = 0, machineEst = 0;
                                 const machineEntryTypes = new Set(); // track special entry_types for View Filter
                                 let machineMissingSlots = 0; // count of past unfilled slots (for Pending filter)
+                                let machineBalComplete = false; // true when any mould's plan is met/exceeded (bal <= 0) → blink
                                 // Determine Shifts for this Machine Row(s)
                                 const shiftsToRender = (shiftMode === 'Both') ? ['Day', 'Night'] : [shiftMode];
 
@@ -1492,6 +1494,19 @@
 
                                         const nameHtml = !m.is_dummy ? `<div style="font-size:0.85rem; font-weight:700; color:#1e293b; line-height:1.3; margin-top:2px">${m.name}</div>` : `<div style="font-size:0.8rem; color:#94a3b8">-</div>`;
 
+                                        // Plan Qty | Bal Qty (cumulative balance from backend). Machine blinks red when plan met/exceeded (bal <= 0).
+                                        const _planQ = Number(d.plan_qty || 0);
+                                        const _balQ  = Number(d.balance_qty ?? _planQ);
+                                        const _balDone = (!m.is_dummy && _planQ > 0 && _balQ <= 0);
+                                        if (_balDone) machineBalComplete = true;
+                                        const planBalHtml = (!m.is_dummy && _planQ > 0)
+                                            ? `<div style="font-size:0.72rem; font-weight:700; margin-top:2px">
+                                                   <span style="color:#0f172a">Plan: ${_planQ.toLocaleString('en-IN')}</span>
+                                                   <span style="color:#cbd5e1"> | </span>
+                                                   <span class="${_balDone ? 'bal-blink' : ''}" style="color:${_balDone ? '#dc2626' : '#16a34a'}">Bal: ${_balQ.toLocaleString('en-IN')}</span>
+                                               </div>`
+                                            : '';
+
                                         let mouldDisplay = `
                                              <div style="cursor:pointer" onclick='showJobDetails(${JSON.stringify(d).replace(/'/g, "&apos;")}, "${m.order_no || ''}")'>
                                                  <div style="display:flex; flex-direction:column; gap:0px">
@@ -1499,6 +1514,7 @@
                                                      ${cliHtml}
                                                  </div>
                                                  ${nameHtml}
+                                                 ${planBalHtml}
                                              </div>
                                         `;
 
@@ -1601,6 +1617,10 @@
                                             let overrideEntryId = null; // id of the quick-action entry in this slot (for superadmin delete)
                                             let overrideEntryDt = 0;    // downtime minutes of the covering quick-action entry
                                             let overrideEntryGood = 0;  // good qty of the covering quick-action entry
+                                            // Only a TRUE Quick Action (spEntry) carries forward over later empty slots.
+                                            // A manual Main entry that merely carries a downtime reason shows in its OWN
+                                            // slot only and must NOT paint the rest of the shift.
+                                            let overrideCarriesForward = false;
 
                                              // Check purely special Entry Types (Quick Actions)
                                              const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial', 'PowerCut'].includes(e.entry_type));
@@ -1618,6 +1638,7 @@
                                                  else if (spEntry.entry_type === 'PowerCut') activeOverrideStatus = '⚡ POWER CUT';
                                                  overrideEntryId = spEntry.id || null;
                                                  overrideTriggeredThisSlot = true;
+                                                 overrideCarriesForward = true; // real Quick Action → continues over empty slots
                                              } else {
                                                 // Check manually entered Main types where downtime is >= 45m and 0 production
                                                 const dEntry = entries.find(e => e.entry_type === 'Main' && Number(e.downtime_min) >= 45 && Number(e.good_qty || 0) === 0);
@@ -1647,7 +1668,13 @@
                                                 const eOrder = (e.order_no || '').trim().toLowerCase();
                                                 return eOrder && eOrder !== mOrder;
                                             });
-                                            if ((hasMachineProduction || hasDifferentJobEntry) && !overrideTriggeredThisSlot) {
+                                            // ALSO stop the carry when this slot has its OWN entry.
+                                            // A quick action (e.g. Man Power Shortage) only "continues" over EMPTY slots.
+                                            // The moment the operator records ANY entry for this machine in a later slot,
+                                            // the continuation must end — even if that manual entry has 0 production —
+                                            // otherwise the carried override paints over the real entry for the rest of the shift.
+                                            const hasOwnEntryThisSlot = list.length > 0;
+                                            if ((hasMachineProduction || hasDifferentJobEntry || hasOwnEntryThisSlot) && !overrideTriggeredThisSlot) {
                                                 activeOverrideStatus = ''; // Reset for the whole machine!
                                             }
 
@@ -1814,6 +1841,13 @@
                                             }
 
                                             machineRowHtml += `<td style="position:relative; padding:3px; background:${bg}; border:${border}; border-bottom:1px solid #e2e8f0; vertical-align:top; height:44px; min-width:65px">${content}</td>`;
+
+                                            // END-OF-SLOT: a manual-entry downtime (dEntry) shows in THIS slot only.
+                                            // Clear the carry so it does NOT paint the remaining empty slots — only a
+                                            // real Quick Action (overrideCarriesForward) keeps continuing forward.
+                                            if (overrideTriggeredThisSlot && !overrideCarriesForward) {
+                                                activeOverrideStatus = '';
+                                            }
                                         });
 
                                         // D. Summary Column
@@ -1870,6 +1904,7 @@
 
                                                  // --- FEATURE: Auto-Fill Summary Integration ---
                                                  let hasOverrideThisSlot = false;
+                                                 let sumOverrideCarries = false; // only true Quick Actions carry forward
                                                  const spEntry = list.find(e => ['Maintenance', 'MouldChange', 'MouldChangeover', 'ManPowerShortage', 'MouldMaintenance', 'NoPlan', 'MouldTrial', 'PowerCut'].includes(e.entry_type));
                                                  if (spEntry) {
                                                      if (spEntry.entry_type === 'Maintenance') sumActiveOverride = '🏭 Machine Maintenance';
@@ -1880,6 +1915,7 @@
                                                      else if (spEntry.entry_type === 'MouldTrial') sumActiveOverride = 'MOULD TRIAL';
                                                      else if (spEntry.entry_type === 'PowerCut') sumActiveOverride = '⚡ POWER CUT';
                                                      hasOverrideThisSlot = true;
+                                                     sumOverrideCarries = true; // real Quick Action → keeps counting over empty slots
                                                  } else {
                                                     const dEntry = entries.find(e => e.entry_type === 'Main' && Number(e.downtime_min) >= 45 && Number(e.good_qty || 0) === 0);
                                                     if (dEntry) {
@@ -1901,7 +1937,9 @@
                                                     const eOrder = (e.order_no || '').trim().toLowerCase();
                                                     return eOrder && eOrder !== sumMOrder;
                                                 });
-                                                if ((hasMachineProd || hasDiffJobEntry) && !hasOverrideThisSlot) sumActiveOverride = '';
+                                                // Stop the carry once this slot has its OWN entry (even 0-production manual entry).
+                                                const sumHasOwnEntryThisSlot = list.length > 0;
+                                                if ((hasMachineProd || hasDiffJobEntry || sumHasOwnEntryThisSlot) && !hasOverrideThisSlot) sumActiveOverride = '';
 
                                                 // sEnd, now, isFuture are already declared at top of loop
                                                 const sStart = sEnd - 3600000;
@@ -2020,6 +2058,11 @@
                                                         sumStd += parseFloat(m.std || 0);
                                                     }
                                                 }
+
+                                                // END-OF-SLOT: a manual-entry downtime counts only for its own slot.
+                                                // Clear the carry so it does NOT keep adding 60 min DT to every later
+                                                // empty slot — only a real Quick Action (sumOverrideCarries) continues.
+                                                if (hasOverrideThisSlot && !sumOverrideCarries) sumActiveOverride = '';
                                             });
                                         }
 
@@ -2084,9 +2127,11 @@
                                 let mEff = (machineEst > 0) ? (machineGood / machineEst) * 100 : 0;
 
                                 // Blink is now applied per-mould on the summary cell (see _summaryBlink above)
+                                // Plan-complete blink is applied to ONLY the Bal Qty value (class "bal-blink"),
+                                // not the whole machine row — see planBalHtml above.
 
                                 if (flatMode) {
-                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots });
+                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, balComplete: machineBalComplete });
                                 } else {
                                     machineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine });
                                 }
@@ -2143,7 +2188,9 @@
                         if (flatMode) {
                             // Apply View Filter — keep only machines matching the selected filter
                             let filteredMachineBuffer = globalMachineBuffer;
-                            if (filterMode === 'Pending') {
+                            if (filterMode === 'AbovePlan') {
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.balComplete === true);
+                            } else if (filterMode === 'Pending') {
                                 filteredMachineBuffer = globalMachineBuffer.filter(m => m.missingSlots > 0);
                             } else if (filterMode === 'LowEff') {
                                 filteredMachineBuffer = globalMachineBuffer.filter(m => m.eff > 0 && m.eff < 75);
@@ -2166,6 +2213,15 @@
                             } else {
                                 filteredMachineBuffer.sort((a, b) => a.eff - b.eff);
                             }
+                            // Filter result count banner
+                            const _filterLabels = { AbovePlan: '🔴 Above Plan Qty', Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', ManPowerShortage: 'MP Shortage', MouldMaintenance: 'Mould Maintenance', PowerCut: 'Power Cut', NoPlan: 'No Plan', MachineMaintenance: 'Machine Maintenance', MouldTrial: 'Mould Trial' };
+                            const _fCount = filteredMachineBuffer.length;
+                            masterHtml += `
+                                <div style="display:flex; align-items:center; gap:8px; padding:8px 14px; background:#0f172a; color:#fff; border-radius:12px 12px 0 0; font-size:0.8rem; font-weight:700; letter-spacing:.3px">
+                                    <i class="bi bi-funnel-fill"></i>
+                                    <span>${_filterLabels[filterMode] || filterMode}</span>
+                                    <span style="margin-left:auto; background:${_fCount ? '#3b82f6' : '#64748b'}; padding:2px 10px; border-radius:12px; font-weight:800">${_fCount} machine${_fCount === 1 ? '' : 's'}</span>
+                                </div>`;
                             masterHtml += `
                                 <div style="margin-bottom:24px; background:white; border:1px solid #cbd5e1; border-radius:0 0 12px 12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-top:-1px">
                                     <div style="overflow-x:auto">

@@ -766,7 +766,14 @@
           const rawMachines = ((mRes && mRes.data) ? mRes.data : []);
           const plans = ((pRes && pRes.data && pRes.data.plans) ? pRes.data.plans : []);
 
-          const simplify = s => String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+          // Memoized simplify — called across 600+ plans × 140+ machine keys.
+          const _simpCache = new Map();
+          const simplify = s => {
+            const raw = String(s||'');
+            let v = _simpCache.get(raw);
+            if (v === undefined) { v = raw.toUpperCase().replace(/[^A-Z0-9]/g,''); _simpCache.set(raw, v); }
+            return v;
+          };
           const machMap = {};
           rawMachines.forEach(m => {
             // Use the stripped code as the map key so that plans referencing either the
@@ -777,6 +784,11 @@
             machMap[code] = { code, building: m.building || proc, line: m.line || 'Machines', machine_process: m.machine_process || proc, is_active: m.is_active !== false };
           });
 
+          // Precompute simplified-key → machine-key lookup once (first key wins, matching the
+          // original insertion-order first-match loop) instead of scanning all keys per plan.
+          const machSimpMap = {};
+          Object.keys(machMap).forEach(k => { const sk = simplify(k); if (!(sk in machSimpMap)) machSimpMap[sk] = k; });
+
           /* group plans */
           const byMach = {};
           plans.filter(p => p.machine && p.machine.trim() !== '-').forEach(p => {
@@ -784,11 +796,8 @@
             const parts = raw.split('>');
             const mName = parts.pop().trim();
             const simM = simplify(mName);
-            let key = '';
-            for (const k of Object.keys(machMap)) {
-              if (simplify(k) === simM || simplify(k) === simplify(raw)) { key = k; break; }
-            }
-            if (!key) { key = mName; if (!machMap[key]) machMap[key] = { code:key, building:'?', line:'?', machine_process:proc }; }
+            let key = machSimpMap[simM] || machSimpMap[simplify(raw)] || '';
+            if (!key) { key = mName; if (!machMap[key]) { machMap[key] = { code:key, building:'?', line:'?', machine_process:proc }; const nsk = simplify(key); if (!(nsk in machSimpMap)) machSimpMap[nsk] = key; } }
             p._excelMachKey = key;
             if (!byMach[key]) byMach[key] = [];
             byMach[key].push(p);
@@ -887,16 +896,24 @@
           }));
         }
 
-        /* ── Cycle-time prediction: realistic output learned from history ── */
-        window._etvCyclePred = { pair: {}, mould: {} };
-        try {
-          const simp = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-          const cp = await api.get('/planning/cycle-prediction?days=120');
-          if (cp && cp.ok) {
-            (cp.byMould || []).forEach(r => { const k = simp(r.mouldNo); if (k) window._etvCyclePred.mould[k] = r; });
-            (cp.byPair || []).forEach(r => { const k = simp(r.mouldNo) + '||' + simp(stripMachPfx(r.machine || '')); if (k) window._etvCyclePred.pair[k] = r; });
-          }
-        } catch (e) { console.warn('[ExcelTimeline] cycle prediction failed', e); }
+        /* ── Cycle-time prediction: realistic output learned from history ──
+           This 120-day aggregate is slow (~0.8s) and changes slowly, so serve it
+           from a 5-minute memory cache to keep re-opens of the Excel View snappy. */
+        const _cpNow = Date.now();
+        if (window._etvCyclePredCache && (_cpNow - window._etvCyclePredCache.ts) < 300000) {
+          window._etvCyclePred = window._etvCyclePredCache.data;
+        } else {
+          window._etvCyclePred = { pair: {}, mould: {} };
+          try {
+            const simp = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+            const cp = await api.get('/planning/cycle-prediction?days=120');
+            if (cp && cp.ok) {
+              (cp.byMould || []).forEach(r => { const k = simp(r.mouldNo); if (k) window._etvCyclePred.mould[k] = r; });
+              (cp.byPair || []).forEach(r => { const k = simp(r.mouldNo) + '||' + simp(stripMachPfx(r.machine || '')); if (k) window._etvCyclePred.pair[k] = r; });
+            }
+            window._etvCyclePredCache = { ts: _cpNow, data: window._etvCyclePred };
+          } catch (e) { console.warn('[ExcelTimeline] cycle prediction failed', e); }
+        }
 
         renderExcelView(wrap);
         /* Fix 5: stamp last-refreshed time and start the "X min ago" ticker */

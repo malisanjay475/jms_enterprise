@@ -188,7 +188,9 @@
         if (selDateEl && selShiftEl) {
           const manualDate = selDateEl.value;
           const manualShift = selShiftEl.value;
-          if (manualDate && manualShift) {
+          // Ignore the "Pick another date…" sentinel — it is not a real date and
+          // would parse to "Invalid Date" in the slot labels below.
+          if (manualDate && manualDate !== '__pick__' && manualShift) {
             // Current active shift is always the LAST entry in shifts[]
             const currentShift = shifts[shifts.length - 1];
             const isCurrentShift = currentShift &&
@@ -301,12 +303,15 @@
           }
 
           if (hideFilled) {
-            // Main Dropdown: Hide if Main entry exists OR slot is a Quick Action entry
+            // Main Dropdown: Hide ONLY the slots that already have an entry —
+            //  - a Main entry (don't re-enter Main), or
+            //  - a Quick Action entry (that slot is already recorded).
             if (hasMain) return;
             if (currentStatus && currentStatus.isQuick) return; // Quick Action already recorded
-            // Only hide "Continued from" slots when the Quick Action is within the SAME shift.
-            // Cross-shift carry-over must NOT block operators from entering the new shift's data.
-            if (suffix && suffix.includes('Continued from') && !suffixFromPrevShift) return;
+            // NOTE: "Continued from …" slots are NO LONGER hidden.
+            // After a Quick Action (e.g. Maintenance) the machine may restart mid-shift,
+            // so the supervisor MUST be able to pick a later slot and enter Main production.
+            // We keep the "(Continued from X)" label purely as context — but never block entry.
           } else {
             // Colour Change Dropdown: Show All Past. Warn if entries exist.
             const parts = [];
@@ -654,11 +659,43 @@
     }
 
     /* ==================== Session + bootstrap ==================== */
-    const session = { username: null, line: null, machine: null, activeJob: null, factoryId: null };
+    const session = { username: null, line: null, machine: null, activeJob: null, factoryId: null, global_access: null };
     let setupDone = false;
     let jobColorsData = {};   // colour → {plan, bal}
     let usedSlots = [];       // locked hour slots
     let sessionDateChoice = null; // 'today' | 'yesterday' — remembered date pick for this page session only (resets on reload)
+    let customDateChoice = null;  // ISO date — back-date picked by an all-lines user (this page session only)
+
+    /* All-lines users may back-date entries (up to 30 days). Partial-line users are limited to Today/Yesterday. */
+    function isAllLineAccess() {
+      const ln = (session.line || '').trim().toLowerCase();
+      return ln === 'all' || session.global_access === true;
+    }
+
+    /* Refresh line access + global_access from the server so a stale cached session
+       (e.g. logged in before the feature shipped) still unlocks the date picker
+       without forcing a re-login. Fire-and-forget; rebuilds the date select on change. */
+    async function refreshUserAccess() {
+      if (!session.username) return;
+      try {
+        const r = await apiFetch(`/api/user/access?username=${encodeURIComponent(session.username)}`);
+        const j = await r.json();
+        if (!j || !j.ok || !j.data) return;
+        const wasAll = isAllLineAccess();
+        session.line = j.data.line || session.line;
+        session.role_code = j.data.role_code || session.role_code;
+        session.global_access = j.data.global_access === true;
+        try {
+          const raw = JSON.parse(localStorage.getItem('jpsmsSession') || '{}');
+          raw.line = session.line;
+          raw.role_code = session.role_code;
+          raw.global_access = session.global_access;
+          localStorage.setItem('jpsmsSession', JSON.stringify(raw));
+        } catch (_) { }
+        // If access changed and the date select is present, rebuild so the picker appears/hides.
+        if (isAllLineAccess() !== wasAll && el('d-date')) buildDateSelect();
+      } catch (_) { }
+    }
 
     // [FIX] Factory Isolation Wrapper
     async function apiFetch(url, options = {}) {
@@ -730,11 +767,13 @@
               session.machine = s.machine || null;
               session.factoryId = s.factoryId || null; // [FIX] Load Factory ID
               session.role_code = s.role_code || null; // [NEW] Load Role Code
+              session.global_access = s.global_access || null; // [NEW] All-lines back-date access
 
               if (session.machine) updateFilledSlots();
 
               el('line-name').textContent = session.line;
               showAppView(true);
+              refreshUserAccess(); // refresh line/global_access from server (no re-login needed)
               loadMachines();   // will respect session.machine if present & call loadQueue+loadRecent
               return;
             }
@@ -809,12 +848,34 @@
       selDate.add(new Option('Today (' + fmtD(today) + ')', isoDate(today)));
       selDate.add(new Option('Yesterday (' + fmtD(yest) + ')', isoDate(yest)));
 
+      // All-lines users may back-date up to 30 days. Partial-line users only see Today/Yesterday.
+      const custom = el('d-date-custom');
+      if (isAllLineAccess()) {
+        // Re-attach a previously picked custom back-date so it survives shift/job changes.
+        if (customDateChoice && customDateChoice !== isoDate(today) && customDateChoice !== isoDate(yest)) {
+          const cd = new Date(customDateChoice + 'T00:00:00');
+          selDate.add(new Option(fmtD(cd) + ' (picked)', customDateChoice));
+        }
+        // Show the native date field inline (always visible). No sentinel option,
+        // no showPicker() dance — the supervisor just taps the field to back-date.
+        if (custom) {
+          const minD = new Date(today); minD.setDate(today.getDate() - 30);
+          custom.min = isoDate(minD);
+          custom.max = isoDate(today);
+          custom.classList.remove('hidden');
+        }
+      } else if (custom) {
+        custom.classList.add('hidden');
+      }
+
       // Auto-select calculated date
       selDate.value = isoDate(useDate);
 
       // Re-apply the supervisor's manual date pick if one was made this session,
       // so switching to Yesterday "sticks" across job opens / refreshes.
-      if (sessionDateChoice === 'yesterday' && hasOption(selDate, isoDate(yest))) {
+      if (customDateChoice && hasOption(selDate, customDateChoice)) {
+        selDate.value = customDateChoice;
+      } else if (sessionDateChoice === 'yesterday' && hasOption(selDate, isoDate(yest))) {
         selDate.value = isoDate(yest);
       } else if (sessionDateChoice === 'today' && hasOption(selDate, isoDate(today))) {
         selDate.value = isoDate(today);
@@ -1784,6 +1845,7 @@
       session.machine = null;
       session.factoryId = fid;
       session.role_code = s.role_code || null; // [NEW] Store Role
+      session.global_access = s.global_access || null; // [NEW] All-lines back-date access
 
       try {
         localStorage.setItem('jpsmsSession', JSON.stringify({
@@ -1791,7 +1853,8 @@
           line: session.line,
           machine: null,
           factoryId: session.factoryId,
-          role_code: session.role_code // [NEW] Persist Role
+          role_code: session.role_code, // [NEW] Persist Role
+          global_access: session.global_access // [NEW] Persist all-lines access
         }));
       } catch (_) { }
 
@@ -1927,7 +1990,10 @@
           localStorage.setItem('jpsmsSession', JSON.stringify({
             username: session.username,
             line: session.line,
-            machine: session.machine
+            machine: session.machine,
+            factoryId: session.factoryId,
+            role_code: session.role_code,
+            global_access: session.global_access
           }));
         } catch (_) { }
 
@@ -2776,6 +2842,48 @@
       btn.setAttribute('aria-disabled', String(disabled));
       btn.title = disabled ? `Cannot submit: ${firstReason}` : 'Submit DPR';
     }
+
+    // Wired to <select id="d-date">. Handles the all-lines "Pick another date…" option,
+    // otherwise behaves exactly like the normal date/shift change.
+    function onDatePickChange() {
+      const sel = el('d-date');
+      // User picked a quick option (Today / Yesterday / a previously-picked date).
+      // Drop any sticky custom back-date unless they re-selected it.
+      if (sel && sel.value !== customDateChoice) customDateChoice = null;
+      onDateShiftChange();
+    }
+
+    // Wired to the inline <input type="date" id="d-date-custom"> — commits an
+    // all-lines back-date pick straight into the d-date <select>.
+    function onCustomDatePick() {
+      const custom = el('d-date-custom');
+      const sel = el('d-date');
+      if (!custom || !custom.value) return;
+
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const minD = new Date(today); minD.setDate(today.getDate() - 30);
+      const picked = new Date(custom.value + 'T00:00:00');
+
+      // Guard: only allow the last 30 days (matches server enforcement).
+      if (isNaN(picked.getTime()) || picked > today || picked < minD) {
+        alert('You can only pick a date within the last 30 days.');
+        custom.value = customDateChoice || '';
+        return;
+      }
+
+      customDateChoice = custom.value;
+      // Inject/select the picked date as a real option so all el('d-date').value reads work.
+      if (sel) {
+        if (!hasOption(sel, customDateChoice)) {
+          sel.add(new Option(fmtD(picked) + ' (picked)', customDateChoice));
+        }
+        sel.value = customDateChoice;
+      }
+      onDateShiftChange();
+    }
+
+    window.onDatePickChange = onDatePickChange;
+    window.onCustomDatePick = onCustomDatePick;
 
     function onDateShiftChange() {
       // Remember the supervisor's relative date pick (Today/Yesterday) for this

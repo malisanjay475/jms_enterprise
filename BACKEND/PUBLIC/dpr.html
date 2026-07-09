@@ -63,6 +63,18 @@
             z-index: 10 !important;
             /* Ensure it glows on top */
         }
+
+        /* Fast blink — only the Bal Qty value blinks red when plan is met/exceeded (Bal <= 0) */
+        @keyframes bal-blink-text {
+            0%, 100% { opacity: 1; }
+            50%      { opacity: 0.15; }
+        }
+
+        .bal-blink {
+            animation: bal-blink-text 0.6s infinite;
+            color: #dc2626 !important;
+            font-weight: 800;
+        }
     </style>
 </head>
 
@@ -98,7 +110,7 @@
     </div>
 
     <script src="/assets/app.js"></script>
-  <script src="/assets/dpr-script-1.js?v=release64"></script>
+  <script src="/assets/dpr-script-1.js?v=release68"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"
@@ -283,7 +295,7 @@
     </script>
 </body>
 
-  <script src="/assets/dpr-script-2.js?v=release63"></script>
+  <script src="/assets/dpr-script-2.js?v=release70"></script>
 
 <!-- JOB DETAIL MODAL -->
 <div id="jobDetailModal"
@@ -304,10 +316,7 @@
                 </div>
             </div>
             <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end">
-                <div style="display:flex; gap:6px; background:#e0f2fe; border:1px solid #bae6fd; border-radius:999px; padding:4px">
-                    <button type="button" data-job-detail-mode="current" onclick="setJobDetailMode('current')" style="border:1px solid #cbd5e1; background:#f8fafc; color:#0f172a; padding:7px 14px; border-radius:999px; font-weight:900; cursor:pointer">Current</button>
-                    <button type="button" data-job-detail-mode="overall" onclick="setJobDetailMode('overall')" style="border:1px solid #cbd5e1; background:#f8fafc; color:#0f172a; padding:7px 14px; border-radius:999px; font-weight:900; cursor:pointer">Overall</button>
-                </div>
+                <span style="display:inline-flex; align-items:center; gap:6px; background:#e0f2fe; border:1px solid #bae6fd; color:#0369a1; padding:6px 14px; border-radius:999px; font-weight:900; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.04em"><i class="bi bi-clipboard-data"></i> Overall Job</span>
                 <button id="btnDeleteSetup" style="display:none; background:#fee2e2; border:1px solid #ef4444; color:#b91c1c; padding:4px 12px; border-radius:6px; font-weight:600; cursor:pointer" onclick="deleteSetupFromModal()">Delete Setup</button>
                 <button onclick="closeJobModal()" class="hover:bg-slate-50"
                     style="background:white; border:1px solid #cbd5e1; padding:4px 12px; border-radius:6px; font-weight:600; color:#475569;">&times;
@@ -348,11 +357,27 @@
                 <!-- Col 3: Standards -->
                 <div style="display:flex; flex-direction:column; gap:8px">
                     <div style="font-size:0.75rem; color:#94a3b8; font-weight:700; text-transform:uppercase">STD vs Actual</div>
-                    <div class="text-sm">Cycle: <b id="modalJobStdCycle">-</b> / <b id="modalJobActCycle" style="color:#0ea5e9">-</b></div>
-                    <div class="text-sm">Weight: <b id="modalJobStdWeight">-</b> / <b id="modalJobActWeight" style="color:#0ea5e9">-</b></div>
-                    <div class="text-sm">Cavity: <b id="modalJobStdCavity">-</b> / <b id="modalJobActCavity" style="color:#0ea5e9">-</b></div>
+                    <div style="display:grid; grid-template-columns:auto 1fr 1fr; gap:6px 12px; align-items:center; font-size:0.82rem">
+                        <span></span>
+                        <span style="color:#64748b; font-weight:800; text-transform:uppercase; font-size:0.62rem; text-align:right">Std</span>
+                        <span style="color:#0ea5e9; font-weight:800; text-transform:uppercase; font-size:0.62rem; text-align:right">Actual</span>
+
+                        <span style="color:#475569; font-weight:700">Cycle (s)</span>
+                        <b id="modalJobStdCycle" style="text-align:right; color:#0f172a">-</b>
+                        <b id="modalJobActCycle" style="text-align:right; color:#0ea5e9">-</b>
+
+                        <span style="color:#475569; font-weight:700">Weight (kg)</span>
+                        <b id="modalJobStdWeight" style="text-align:right; color:#0f172a">-</b>
+                        <b id="modalJobActWeight" style="text-align:right; color:#0ea5e9">-</b>
+
+                        <span style="color:#475569; font-weight:700">Cavity</span>
+                        <b id="modalJobStdCavity" style="text-align:right; color:#0f172a">-</b>
+                        <b id="modalJobActCavity" style="text-align:right; color:#0ea5e9">-</b>
+                    </div>
                     <span style="display:none" id="modalJobCycle">0</span>
                     <span style="display:none" id="modalJobWeight">0</span>
+                    <span style="display:none" id="modalJobStdCav">-</span>
+                    <span style="display:none" id="modalJobActCav">-</span>
                 </div>
             </div>
 

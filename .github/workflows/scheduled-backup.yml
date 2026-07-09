@@ -17,15 +17,29 @@ permissions:
   contents: read
 
 concurrency:
-  group: jms-scheduled-backup
+  # Renamed from `jms-scheduled-backup` (v2): the old group got into a stuck
+  # state where every run sat in `pending` with no job assigned and never
+  # released the slot, so no backup completed. A fresh group name forces a
+  # clean concurrency slot. cancel-in-progress:false keeps overlapping SSH
+  # backups from running at once.
+  group: jms-scheduled-backup-v2
   cancel-in-progress: false
 
 jobs:
   backup:
     runs-on: ubuntu-latest
-    environment: production
+    # NOTE: Intentionally NOT gated behind the `production` environment.
+    # That environment has a required-reviewer approval rule, which made every
+    # scheduled/manual backup stall in `pending` awaiting a human click and then
+    # get cancelled by the next run — so unattended backups never actually ran.
+    # A read-only pg_dump does not need a deployment-approval gate. All SSH/VPS
+    # secrets used here are repo-level, so they still resolve without the env.
     env:
-      HAS_MAIL: ${{ secrets.MAIL_PASSWORD != '' }}
+      # Reuse the existing repo-level ALERT_EMAIL_* secrets (Gmail + app
+      # password) that sync-alert.yml already uses. The old MAIL_* names were
+      # never created as secrets, so HAS_MAIL was always false and failure
+      # alerts never sent.
+      HAS_MAIL: ${{ secrets.ALERT_EMAIL_PASSWORD != '' }}
     steps:
       - name: Verify SSH secrets
         shell: bash
@@ -71,11 +85,11 @@ jobs:
           server_address: smtp.gmail.com
           server_port: 465
           secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
+          username: ${{ secrets.ALERT_EMAIL_USER }}
+          password: ${{ secrets.ALERT_EMAIL_PASSWORD }}
           subject: "🔴 JMS BACKUP FAILED — action required"
           to: joyo44064@gmail.com
-          from: JMS Backup Bot <${{ secrets.MAIL_USERNAME }}>
+          from: JMS Backup Bot <${{ secrets.ALERT_EMAIL_USER }}>
           body: |
             The scheduled JMS database backup FAILED.
 
