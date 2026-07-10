@@ -2,6 +2,7 @@
 const path = require('path');
 const os = require('os');
 const express = require('express');
+const { stripMachinePrefix, dedupePlansById } = require('../utils/machineName');
 const multer = require('multer');
 const upload = multer({
   dest: 'uploads/',
@@ -226,7 +227,9 @@ function getFactoryIdFromObjectRow(row, fallbackFactoryId) {
 }
 
 function normalizeMachineName(value) {
-  return String(value || '').trim();
+  // Strip the legacy "B -L1>" building/line prefix at every write so no new
+  // prefixed duplicate of a clean machine row can be created (see machineName.js).
+  return stripMachinePrefix(value);
 }
 
 const MACHINE_PROCESS_OPTIONS = ['Moulding', 'Tuffting', 'Printing', 'Labour Job'];
@@ -8906,8 +8909,12 @@ app.get('/api/planning/board', async (req, res) => {
       `, params
     );
 
+    // JS safety net: collapse any repeated plan id in case the SQL DISTINCT ON
+    // guard is ever removed or a new join fans out. Mirrors the SQL behaviour.
+    const dedupedRows = dedupePlansById(rows);
+
     // Normalize
-    const normalized = rows.map(r => ({
+    const normalized = dedupedRows.map(r => ({
       ...r,
       machineProcess: r.machineProcess || 'Moulding',
       // Priority: Master CT > Report CT
