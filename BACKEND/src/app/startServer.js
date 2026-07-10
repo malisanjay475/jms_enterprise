@@ -66,7 +66,19 @@ async function startServer() {
   server.keepAliveTimeout = 60000;
   server.headersTimeout = 61000;
 
+  // Track every open socket so shutdown can force-close them. Without this,
+  // server.close() waits forever for idle keep-alive / half-closed (CLOSE_WAIT)
+  // connections to end — which is exactly how the old process wedged and kept
+  // holding the port after a restart, blocking the new process from binding.
+  const openSockets = new Set();
+  const trackSocket = (socket) => {
+    openSockets.add(socket);
+    socket.once('close', () => openSockets.delete(socket));
+  };
+  server.on('connection', trackSocket);
+
   if (httpsRuntime?.httpsServer) {
+    httpsRuntime.httpsServer.on('connection', trackSocket);
     httpsRuntime.httpsServer.setTimeout(600000);
     httpsRuntime.httpsServer.keepAliveTimeout = 60000;
     httpsRuntime.httpsServer.headersTimeout = 61000;
@@ -104,16 +116,45 @@ async function startServer() {
     await services.localNodeAgent.init({ pool, config });
   }
 
-  // Graceful shutdown — allows in-flight requests to complete before Docker stop
+  // Graceful, DETERMINISTIC shutdown. Give in-flight requests a short grace
+  // window, then force-close every remaining socket so the listener always
+  // releases the port. A hard fallback guarantees the process exits even if
+  // something hangs — the process must NEVER linger holding the port.
+  let shuttingDown = false;
   function shutdown(signal) {
-    console.log(`[shutdown] ${signal} received — closing server`);
-    server.close(async () => {
-      try { await pool.end(); } catch (_) {}
-      console.log('[shutdown] clean exit');
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[shutdown] ${signal} received — draining (${openSockets.size} open sockets)`);
+
+    // Stop accepting new connections.
+    server.close(() => console.log('[shutdown] http listener closed'));
+    if (httpsRuntime?.httpsServer) {
+      try { httpsRuntime.httpsServer.close(); } catch (_) {}
+    }
+    // Stop keep-alive so idle connections don't block the close.
+    server.keepAliveTimeout = 1;
+
+    // After a brief grace period, destroy anything still open (stuck/CLOSE_WAIT).
+    setTimeout(() => {
+      for (const socket of openSockets) {
+        try { socket.destroy(); } catch (_) {}
+      }
+      openSockets.clear();
+      Promise.resolve()
+        .then(() => pool.end())
+        .catch(() => {})
+        .finally(() => {
+          console.log('[shutdown] clean exit');
+          process.exit(0);
+        });
+    }, 3000);
+
+    // Absolute hard stop — always fires, never unref'd, so the process can
+    // never get stuck mid-shutdown holding the port.
+    setTimeout(() => {
+      console.error('[shutdown] hard force exit');
       process.exit(0);
-    });
-    // Force exit after 15 s if requests don't drain
-    setTimeout(() => { console.error('[shutdown] force exit after timeout'); process.exit(1); }, 15000).unref();
+    }, 8000);
   }
   process.once('SIGTERM', () => shutdown('SIGTERM'));
   process.once('SIGINT', () => shutdown('SIGINT'));
