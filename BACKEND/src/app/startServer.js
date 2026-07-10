@@ -85,6 +85,21 @@ async function startServer() {
 
   if (legacyHooks.startupLog) legacyHooks.startupLog(server);
   if (legacyHooks.onServerStarted) legacyHooks.onServerStarted(server);
+
+  // Pre-compress static assets (.js/.css → .br/.gz) off the request path so the
+  // factory PC serves them without re-compressing on every cache miss. Runs
+  // after listen (non-blocking) and is idempotent, so restarts/syncs are cheap.
+  setImmediate(() => {
+    try {
+      const precompressAssets = require('../../scripts/precompress-assets');
+      const publicDir = path.join(process.cwd(), fs.existsSync(path.join(process.cwd(), 'PUBLIC')) ? 'PUBLIC' : 'public');
+      const t0 = Date.now();
+      const r = precompressAssets(publicDir);
+      console.log(`[precompress] ${r.files} assets, ${r.written} written, ${r.skipped} up-to-date in ${Date.now() - t0}ms`);
+    } catch (e) {
+      console.warn('[precompress] skipped:', e.message);
+    }
+  });
   if (services.localNodeAgent?.init) {
     await services.localNodeAgent.init({ pool, config });
   }
