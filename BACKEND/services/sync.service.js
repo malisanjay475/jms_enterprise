@@ -1506,6 +1506,20 @@ async function upsertData(table, data) {
                     Object.entries(row).filter(([key]) => tableColumns.has(key))
                 );
 
+                // Coerce json/jsonb array values before INSERT. node-postgres sends JS
+                // arrays as Postgres array literals ("{...}"), not JSON, which causes
+                // "invalid input syntax for type json" on jsonb columns like
+                // plan_board.colour_details. Stringify any object/array so PG accepts it.
+                const jsonColsForRow = await getJsonColumns(table);
+                if (jsonColsForRow.size > 0) {
+                    for (const col of jsonColsForRow) {
+                        const v = row[col];
+                        if (v !== null && v !== undefined && typeof v === 'object') {
+                            row[col] = JSON.stringify(v);
+                        }
+                    }
+                }
+
                 const conflictColumns = getConflictColumns(table, row);
                 const missingConflictColumns = conflictColumns.filter((column) => !tableColumns.has(column));
                 if (missingConflictColumns.length) {
@@ -2194,6 +2208,28 @@ async function getTableColumns(table) {
     `, [table]);
     const columns = new Set(result.rows.map((row) => row.column_name));
     tableColumnCache.set(table, columns);
+    return columns;
+}
+
+// Names of json / jsonb columns for a table (cached). Used to stringify array
+// values before INSERT — node-postgres sends JS arrays as Postgres array literals
+// ("{...}") not JSON, causing "invalid input syntax for type json" on jsonb columns.
+const jsonColumnCache = new Map();
+async function getJsonColumns(table) {
+    if (jsonColumnCache.has(table)) return jsonColumnCache.get(table);
+    let columns = new Set();
+    try {
+        const result = await pool.query(`
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = $1
+              AND data_type IN ('json', 'jsonb')
+        `, [table]);
+        columns = new Set(result.rows.map((row) => row.column_name));
+    } catch (e) {
+        console.error(`[Sync] getJsonColumns failed for ${table}:`, e.message);
+    }
+    jsonColumnCache.set(table, columns);
     return columns;
 }
 
