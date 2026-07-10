@@ -2211,28 +2211,6 @@ async function getTableColumns(table) {
     return columns;
 }
 
-// Names of json / jsonb columns for a table (cached). Used to stringify array
-// values before INSERT — node-postgres sends JS arrays as Postgres array literals
-// ("{...}") not JSON, causing "invalid input syntax for type json" on jsonb columns.
-const jsonColumnCache = new Map();
-async function getJsonColumns(table) {
-    if (jsonColumnCache.has(table)) return jsonColumnCache.get(table);
-    let columns = new Set();
-    try {
-        const result = await pool.query(`
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = $1
-              AND data_type IN ('json', 'jsonb')
-        `, [table]);
-        columns = new Set(result.rows.map((row) => row.column_name));
-    } catch (e) {
-        console.error(`[Sync] getJsonColumns failed for ${table}:`, e.message);
-    }
-    jsonColumnCache.set(table, columns);
-    return columns;
-}
-
 async function tableHasColumn(table, column) {
     if (tableExistsCache.get(table) === false) return false;
 
