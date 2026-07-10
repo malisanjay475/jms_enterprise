@@ -2732,7 +2732,14 @@
           if (activePlan) tooltip += `\nOrder: ${activePlan.orderNo}\nItem: ${activePlan.itemName}\nStatus: ${activePlan.status}`;
 
           btn.title = tooltip;
-          const iconSrc = String(m.machine_icon || '').trim();
+          let iconSrc = String(m.machine_icon || '').trim();
+          if (/^https?:\/\//i.test(iconSrc)) {
+            // Absolute upload URLs (e.g. http://72.62.228.195:9092/uploads/...) are blocked
+            // as mixed content on https://jmsocean.cloud. Make uploads origin-relative;
+            // never downgrade other absolute URLs to insecure http on an https page.
+            const uploadsIdx = iconSrc.search(/\/uploads\//i);
+            iconSrc = uploadsIdx !== -1 ? iconSrc.slice(uploadsIdx) : iconSrc.replace(/^http:\/\//i, 'https://');
+          }
           const safeIconSrc = iconSrc ? iconSrc.replace(/"/g, '&quot;') : '';
 
           btn.innerHTML = `

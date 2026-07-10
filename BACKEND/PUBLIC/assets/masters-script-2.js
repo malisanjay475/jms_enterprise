@@ -2139,7 +2139,15 @@
       const raw = String(src || '').trim();
       if (!raw) return '';
       if (/^data:image\//i.test(raw)) return raw;
-      if (/^https?:\/\//i.test(raw)) return raw;
+      if (/^https?:\/\//i.test(raw)) {
+        // An icon stored as an absolute URL (e.g. http://72.62.228.195:9092/uploads/...)
+        // is blocked as mixed content on https://jmsocean.cloud. If it points at an
+        // uploads path, make it origin-relative so it loads from the current host/scheme.
+        const uploadsIdx = raw.search(/\/uploads\//i);
+        if (uploadsIdx !== -1) return raw.slice(uploadsIdx);
+        // Non-upload absolute URL: never downgrade to insecure http on an https page.
+        return raw.replace(/^http:\/\//i, 'https://');
+      }
 
       const normalized = raw.replace(/\\/g, '/');
       if (normalized.startsWith('/uploads/')) return normalized;
