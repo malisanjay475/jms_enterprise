@@ -8888,9 +8888,15 @@ app.get('/api/planning/board', async (req, res) => {
       -- returned exactly once. DISTINCT ON requires the inner ORDER BY to lead with
       -- pb.id; the tiebreaker prefers the row that actually matched a machines master
       -- row. The outer query restores the board's machine/running/seq display order.
+      -- The mould_planning_summary join keys on (or_jr_no, mould_name) but the table is
+      -- keyed by (or_jr_no, mould_no, plan_date), so a plan can match several summary
+      -- rows; without a deterministic mps tiebreaker the mould fields (mould_no → cycleTime,
+      -- cavity, stdWt, pcsHour) could flip between loads. Prefer the latest plan_date.
       ORDER BY pb.id ASC,
                CASE WHEN planMachine.machine IS NULL THEN 1 ELSE 0 END ASC,
-               planMachine.machine ASC
+               planMachine.machine ASC,
+               mps.plan_date DESC NULLS LAST,
+               mps.id DESC NULLS LAST
       ) t
       ORDER BY t.machine ASC,
                CASE WHEN UPPER(COALESCE(t.status, '')) = 'RUNNING' THEN 0 ELSE 1 END ASC,
