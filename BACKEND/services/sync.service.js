@@ -1506,6 +1506,20 @@ async function upsertData(table, data) {
                     Object.entries(row).filter(([key]) => tableColumns.has(key))
                 );
 
+                // Coerce json/jsonb array values before INSERT. node-postgres sends JS
+                // arrays as Postgres array literals ("{...}"), not JSON, which causes
+                // "invalid input syntax for type json" on jsonb columns like
+                // plan_board.colour_details. Stringify any object/array so PG accepts it.
+                const jsonColsForRow = await getJsonColumns(table);
+                if (jsonColsForRow.size > 0) {
+                    for (const col of jsonColsForRow) {
+                        const v = row[col];
+                        if (v !== null && v !== undefined && typeof v === 'object') {
+                            row[col] = JSON.stringify(v);
+                        }
+                    }
+                }
+
                 const conflictColumns = getConflictColumns(table, row);
                 const missingConflictColumns = conflictColumns.filter((column) => !tableColumns.has(column));
                 if (missingConflictColumns.length) {
