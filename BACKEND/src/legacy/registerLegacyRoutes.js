@@ -932,6 +932,17 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, '.well-known', 'assetlinks.json'));
 });
 
+// Serve Brotli/Gzip pre-compressed .js/.css when the browser supports it.
+// Must run BEFORE express.static so it can intercept the asset request; falls
+// through cleanly when no fresh precompressed sibling exists.
+const createPrecompressedStatic = require('../app/precompressedStatic');
+app.use(createPrecompressedStatic(PUBLIC_DIR, (req) => {
+  const p = req.path;
+  if (path.basename(p) === 'app.js') return 'no-cache';
+  if (p.includes('/assets/vendor/')) return 'public, max-age=31536000, immutable';
+  return 'public, max-age=604800';
+}));
+
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
     const normalized = filePath.replace(/\\/g, '/');

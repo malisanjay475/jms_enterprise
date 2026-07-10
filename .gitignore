@@ -3,6 +3,10 @@ node_modules/
 **/node_modules/
 jspm_packages/
 
+# Pre-compressed static assets (generated at boot/build by scripts/precompress-assets.js)
+BACKEND/PUBLIC/**/*.br
+BACKEND/PUBLIC/**/*.gz
+
 # Logs
 logs
 *.log
