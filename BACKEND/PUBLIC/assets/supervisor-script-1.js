@@ -210,6 +210,19 @@
         }
       }
 
+      // Returns true if any real saved entry exists chronologically AFTER the given
+      // (shiftIdx, slotIdx) — i.e. a later entry that "closes" a Quick Action continuation.
+      function hasLaterRealEntry(fromShiftIdx, fromSlotIdx) {
+        for (let si = fromShiftIdx; si < shifts.length; si++) {
+          const startSlot = (si === fromShiftIdx) ? fromSlotIdx + 1 : 0;
+          for (let li = startSlot; li < SLOT_LABELS.length; li++) {
+            const k = `${shifts[si].date}_${shifts[si].shift.toUpperCase()}_${SLOT_LABELS[li]}`;
+            if (SLOT_STATUS.get(k)) return true;
+          }
+        }
+        return false;
+      }
+
       shifts.forEach((s, shiftIdx) => {
         SLOT_LABELS.forEach(slot => {
           // USER REQUEST: Only show 07-08 from LAST shift for regular supervisors
@@ -270,6 +283,7 @@
 
           // [NEW] Continuity Label Logic
           let suffixFromPrevShift = false; // track if "Continued from" crossed a shift boundary
+          let contQuickSameShift = false;  // this empty slot is carried forward by a same-shift Quick Action
           if (!currentStatus) {
             // Find the most recent entry before this slot (in the same or previous shift)
             let foundPrev = false;
@@ -289,6 +303,7 @@
                       // suffix stays '' — no label, no hiding
                     } else {
                       suffix = ` (Continued from ${prevStatus.type})`;
+                      contQuickSameShift = true;
                     }
                   }
                   foundPrev = true;
@@ -308,10 +323,13 @@
             //  - a Quick Action entry (that slot is already recorded).
             if (hasMain) return;
             if (currentStatus && currentStatus.isQuick) return; // Quick Action already recorded
-            // NOTE: "Continued from …" slots are NO LONGER hidden.
-            // After a Quick Action (e.g. Maintenance) the machine may restart mid-shift,
-            // so the supervisor MUST be able to pick a later slot and enter Main production.
-            // We keep the "(Continued from X)" label purely as context — but never block entry.
+            // A slot carried forward by a same-shift Quick Action is hidden ONLY when a
+            // later real entry closes the range (Quick Action → … empty gap … → Manual entry).
+            // The gap slots belong to the continuous entry, so once the range is closed they
+            // must not be re-entered. A TRAILING (open-ended) continuation with no later entry
+            // stays selectable, so the supervisor can still add Main production after a restart.
+            if (contQuickSameShift && hasLaterRealEntry(shiftIdx, SLOT_LABELS.indexOf(slot))) return;
+            // NOTE: open-ended "Continued from …" slots are still NOT hidden — see above.
           } else {
             // Colour Change Dropdown: Show All Past. Warn if entries exist.
             const parts = [];
