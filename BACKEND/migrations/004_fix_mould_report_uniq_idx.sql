@@ -32,8 +32,21 @@ BEGIN
          WHERE table_schema = 'public'
            AND table_name   = 'mould_planning_report'
     ) THEN
-        -- 2. Drop whatever the stale index currently is.
-        EXECUTE 'DROP INDEX IF EXISTS mould_report_date_uniq_idx';
+        -- 2. Drop whatever the stale unique enforcer currently is. On some
+        --    databases `mould_report_date_uniq_idx` is a bare unique INDEX; on
+        --    others (e.g. production) the same name backs a UNIQUE CONSTRAINT,
+        --    and Postgres refuses `DROP INDEX` on a constraint-owned index
+        --    (SQLSTATE 2BP01). Handle both so the migration is universally safe.
+        IF EXISTS (
+            SELECT 1 FROM pg_constraint
+             WHERE conname  = 'mould_report_date_uniq_idx'
+               AND conrelid = 'mould_planning_report'::regclass
+        ) THEN
+            EXECUTE 'ALTER TABLE mould_planning_report '
+                 || 'DROP CONSTRAINT IF EXISTS mould_report_date_uniq_idx';
+        ELSE
+            EXECUTE 'DROP INDEX IF EXISTS mould_report_date_uniq_idx';
+        END IF;
 
         -- 3. Remove duplicate rows on the intended natural key, keeping the
         --    newest row (highest id) for each key group.
