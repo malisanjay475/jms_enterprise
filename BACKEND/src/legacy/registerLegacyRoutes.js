@@ -14514,20 +14514,6 @@ async function readErpReport(cfgKey, res) {
   }
 }
 
-// Build request headers for the ERP API. Joyo enabled auth, so when
-// ERP_AUTH_TOKEN is set in the environment it is sent as a Bearer token.
-// Optional ERP_AUTH_HEADER overrides the header name (default: Authorization);
-// if the token already starts with a scheme (e.g. "Bearer x") it is sent as-is.
-function erpAuthHeaders() {
-  const headers = { Accept: 'application/json' };
-  const raw = process.env.ERP_AUTH_TOKEN && String(process.env.ERP_AUTH_TOKEN).trim();
-  if (raw) {
-    const headerName = (process.env.ERP_AUTH_HEADER && String(process.env.ERP_AUTH_HEADER).trim()) || 'Authorization';
-    headers[headerName] = /^(bearer|token|basic)\s/i.test(raw) ? raw : `Bearer ${raw}`;
-  }
-  return headers;
-}
-
 // Fetch from ERP and upsert into the store. Keeps existing rows on empty/failure.
 async function syncErpReport(cfgKey) {
   const cfg = ERP_REPORTS[cfgKey];
@@ -14535,7 +14521,7 @@ async function syncErpReport(cfgKey) {
   const timeout = setTimeout(() => controller.abort(), 15000);
   let raw;
   try {
-    const upstream = await fetch(cfg.url, { headers: erpAuthHeaders(), signal: controller.signal });
+    const upstream = await fetch(cfg.url, { headers: { Accept: 'application/json' }, signal: controller.signal });
     if (!upstream.ok) throw new Error(`ERP responded ${upstream.status}`);
     raw = await upstream.json();
   } catch (e) {
