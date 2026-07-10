@@ -45,8 +45,20 @@ function buildUrl(baseUrl, pathname) {
   return new URL(pathname, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`).toString();
 }
 
+// Bounded fetch — aborts if the remote (MAIN/VPS) never responds, so a
+// half-open socket can never park the event loop or leak a pending request.
+async function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, options);
+  const response = await fetchWithTimeout(url, options, options.timeoutMs || 20000);
   const text = await response.text();
   let json = null;
 
@@ -312,7 +324,8 @@ function sha256File(filePath) {
 }
 
 async function fetchWithNodeKey(url, nodeKey) {
-  const res = await fetch(url, { headers: { 'x-node-key': nodeKey } });
+  // 30s allows for larger file downloads during auto-update, but never hangs forever.
+  const res = await fetchWithTimeout(url, { headers: { 'x-node-key': nodeKey } }, 30000);
   return res;
 }
 
