@@ -69,11 +69,19 @@ async function runMigrations(pool) {
       console.log(`[migrations] done — ran ${ran} migration(s)`);
     }
   } finally {
-    // Best-effort unlock; releasing the connection drops the lock regardless.
+    // Release the session-level advisory lock. client.release() only returns the
+    // connection to the pool without resetting session state, so a still-held
+    // lock would persist on that pooled backend and block the next migrator. If
+    // the explicit unlock fails, destroy the connection (release(true)) so the
+    // stuck lock leaves the pool along with it.
+    let unlockFailed = false;
     try {
       await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]);
-    } catch (_) { /* ignore */ }
-    client.release();
+    } catch (err) {
+      unlockFailed = true;
+      console.error(`[migrations] advisory unlock failed, destroying client: ${err.message}`);
+    }
+    client.release(unlockFailed);
   }
 }
 
