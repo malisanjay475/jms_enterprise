@@ -44,8 +44,15 @@ function createPrecompressedStatic(publicDir, cacheControlFor) {
     if (!choice) return next();
 
     // Resolve the request path safely inside the public dir (block traversal).
-    const decoded = decodeURIComponent(req.path);
-    const sourcePath = path.resolve(root, '.' + decoded);
+    // Strict allowlist on the request path first: only plain, nested asset names.
+    // req.path is already URL-decoded by Express; reject anything with traversal
+    // segments or characters outside a conservative set before it touches the FS.
+    const reqPath = req.path;
+    if (!/^\/(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:js|css)$/.test(reqPath)) return next();
+    if (reqPath.split('/').includes('..')) return next();
+
+    const sourcePath = path.join(root, reqPath);
+    // Defence in depth: the joined path must still resolve inside the public dir.
     if (sourcePath !== root && !sourcePath.startsWith(root + path.sep)) return next();
 
     const compressedPath = sourcePath + choice.ext;
