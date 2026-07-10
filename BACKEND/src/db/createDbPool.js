@@ -18,6 +18,15 @@ function createDbPool(config) {
     max: 50,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
+    // Detect dead TCP sockets so a hung DB connection can't park a request forever.
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
+    // Safety caps — high enough that legitimate heavy reports still finish (5 min),
+    // but a runaway/stuck query is aborted instead of wedging the event loop.
+    statement_timeout: 300000,
+    query_timeout: 300000,
+    // Never let an abandoned open transaction hold locks indefinitely.
+    idle_in_transaction_session_timeout: 120000,
   });
 
   pool.on('error', (error) => {
