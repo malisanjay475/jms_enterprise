@@ -14514,14 +14514,120 @@ async function readErpReport(cfgKey, res) {
   }
 }
 
+// --- ERP authentication ---------------------------------------------------
+// Joyo enabled auth on the ERP API. Two modes are supported, in priority order:
+//   1. Static token — set ERP_AUTH_TOKEN. Sent as `Bearer <token>` (or as-is if
+//      it already begins with a scheme like "Bearer"/"Token"/"Basic").
+//   2. Auto-login — set ERP_LOGIN_URL (+ credentials). We POST to it, extract a
+//      token from the JSON response, cache it, and refresh it on expiry or when
+//      the data API answers 401.
+// The header name defaults to Authorization; override with ERP_AUTH_HEADER.
+// Env knobs for auto-login:
+//   ERP_LOGIN_URL, ERP_LOGIN_USERNAME, ERP_LOGIN_PASSWORD
+//   ERP_LOGIN_USER_FIELD (default "username"), ERP_LOGIN_PASS_FIELD (default "password")
+//   ERP_LOGIN_BODY (raw JSON string; overrides the username/password body)
+//   ERP_LOGIN_TOKEN_PATH (dot-path to the token, e.g. "data.token")
+//   ERP_TOKEN_TTL_SECONDS (default 3300 = 55 min)
+let _erpTokenCache = { token: null, expiresAt: 0 };
+
+function _erpEnv(name) {
+  const v = process.env[name];
+  return (v != null && String(v).trim()) ? String(v).trim() : '';
+}
+
+// Pull the token string out of a login response, honoring ERP_LOGIN_TOKEN_PATH
+// or probing the common field names ERPs use.
+function _erpPickToken(obj) {
+  if (obj == null) return null;
+  const path = _erpEnv('ERP_LOGIN_TOKEN_PATH');
+  if (path) {
+    let cur = obj;
+    for (const part of path.split('.')) {
+      if (cur == null) return null;
+      cur = cur[part];
+    }
+    return (typeof cur === 'string' && cur) ? cur : null;
+  }
+  const d = (obj.data && typeof obj.data === 'object') ? obj.data : {};
+  const candidates = [
+    obj.token, obj.access_token, obj.accessToken, obj.jwt, obj.id_token, obj.bearerToken,
+    d.token, d.access_token, d.accessToken, d.jwt,
+  ];
+  for (const c of candidates) if (typeof c === 'string' && c) return c;
+  return null;
+}
+
+// Log in to the ERP and cache the returned token. Returns null if not configured.
+async function erpLogin() {
+  const url = _erpEnv('ERP_LOGIN_URL');
+  if (!url) return null;
+  const userField = _erpEnv('ERP_LOGIN_USER_FIELD') || 'username';
+  const passField = _erpEnv('ERP_LOGIN_PASS_FIELD') || 'password';
+  const body = _erpEnv('ERP_LOGIN_BODY') || JSON.stringify({
+    [userField]: process.env.ERP_LOGIN_USERNAME || '',
+    [passField]: process.env.ERP_LOGIN_PASSWORD || '',
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body,
+      signal: controller.signal,
+    });
+    if (!resp.ok) throw new Error(`ERP login responded ${resp.status}`);
+    const json = await resp.json().catch(() => null);
+    const token = _erpPickToken(json);
+    if (!token) throw new Error('ERP login succeeded but no token was found in the response');
+    const ttlRaw = parseInt(_erpEnv('ERP_TOKEN_TTL_SECONDS') || '3300', 10);
+    const ttl = Number.isFinite(ttlRaw) && ttlRaw > 0 ? ttlRaw : 3300;
+    _erpTokenCache = { token, expiresAt: Date.now() + ttl * 1000 };
+    return token;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Resolve the current ERP token: static env token wins, else cached login token,
+// else a fresh login. forceRefresh bypasses the cache (used after a 401).
+async function getErpToken(forceRefresh = false) {
+  const staticTok = _erpEnv('ERP_AUTH_TOKEN');
+  if (staticTok) return staticTok;
+  if (!forceRefresh && _erpTokenCache.token && Date.now() < _erpTokenCache.expiresAt) {
+    return _erpTokenCache.token;
+  }
+  return erpLogin();
+}
+
+// Build request headers for an ERP data call, attaching the auth token if any.
+async function erpAuthHeaders(forceRefresh = false) {
+  const headers = { Accept: 'application/json' };
+  const tok = await getErpToken(forceRefresh);
+  if (tok) {
+    const headerName = _erpEnv('ERP_AUTH_HEADER') || 'Authorization';
+    headers[headerName] = /^(bearer|token|basic)\s/i.test(tok) ? tok : `Bearer ${tok}`;
+  }
+  return headers;
+}
+
+// True when auto-login is configured (so a 401 is worth a token refresh + retry).
+function erpAutoLoginEnabled() {
+  return !!_erpEnv('ERP_LOGIN_URL') && !_erpEnv('ERP_AUTH_TOKEN');
+}
+
 // Fetch from ERP and upsert into the store. Keeps existing rows on empty/failure.
 async function syncErpReport(cfgKey) {
   const cfg = ERP_REPORTS[cfgKey];
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), 20000);
   let raw;
   try {
-    const upstream = await fetch(cfg.url, { headers: { Accept: 'application/json' }, signal: controller.signal });
+    let upstream = await fetch(cfg.url, { headers: await erpAuthHeaders(), signal: controller.signal });
+    // Token expired/invalid? If auto-login is configured, refresh once and retry.
+    if (upstream.status === 401 && erpAutoLoginEnabled()) {
+      upstream = await fetch(cfg.url, { headers: await erpAuthHeaders(true), signal: controller.signal });
+    }
     if (!upstream.ok) throw new Error(`ERP responded ${upstream.status}`);
     raw = await upstream.json();
   } catch (e) {
