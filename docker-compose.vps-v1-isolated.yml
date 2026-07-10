@@ -88,7 +88,10 @@ services:
     # runs `git pull` + `docker compose up`, which recreates the container — any
     # labels added manually on the VPS are lost and the site 404s. Keep them in-repo.
     labels:
-      - "traefik.enable=true"
+      # Default true (production owns jmsocean.cloud). Staging sets TRAEFIK_ENABLE=false
+      # so it does NOT register the shared `jms` router/service — otherwise Traefik
+      # round-robins the domain across prod+staging and serves the wrong database.
+      - "traefik.enable=${TRAEFIK_ENABLE:-true}"
       # Apex router — serves the app.
       - "traefik.http.routers.jms.rule=Host(`jmsocean.cloud`)"
       - "traefik.http.routers.jms.entrypoints=websecure"

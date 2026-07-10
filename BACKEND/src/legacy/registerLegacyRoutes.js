@@ -2,6 +2,7 @@
 const path = require('path');
 const os = require('os');
 const express = require('express');
+const { stripMachinePrefix, dedupePlansById } = require('../utils/machineName');
 const multer = require('multer');
 const upload = multer({
   dest: 'uploads/',
@@ -226,7 +227,9 @@ function getFactoryIdFromObjectRow(row, fallbackFactoryId) {
 }
 
 function normalizeMachineName(value) {
-  return String(value || '').trim();
+  // Strip the legacy "B -L1>" building/line prefix at every write so no new
+  // prefixed duplicate of a clean machine row can be created (see machineName.js).
+  return stripMachinePrefix(value);
 }
 
 const MACHINE_PROCESS_OPTIONS = ['Moulding', 'Tuffting', 'Printing', 'Labour Job'];
@@ -8798,7 +8801,8 @@ app.get('/api/planning/board', async (req, res) => {
 
     const rows = await q(
       `
-      SELECT
+      SELECT * FROM (
+      SELECT DISTINCT ON (pb.id)
         pb.id,
         pb.plan_id      AS "planId",
         pb.plant,
@@ -8882,16 +8886,35 @@ app.get('/api/planning/board', async (req, res) => {
             AND dh.is_deleted = false
       ) dpr ON true
       WHERE ${where}
-      ORDER BY pb.machine ASC,
-               CASE WHEN UPPER(COALESCE(pb.status, '')) = 'RUNNING' THEN 0 ELSE 1 END ASC,
-               COALESCE(pb.seq, 999999) ASC,
-               pb.start_date ASC,
-               pb.id ASC
+      -- DISTINCT ON (pb.id) collapses any join fan-out (e.g. a machine that appears
+      -- twice in the machines master, or a duplicate mould_name) so each plan is
+      -- returned exactly once. DISTINCT ON requires the inner ORDER BY to lead with
+      -- pb.id; the tiebreaker prefers the row that actually matched a machines master
+      -- row. The outer query restores the board's machine/running/seq display order.
+      -- The mould_planning_summary join keys on (or_jr_no, mould_name) but the table is
+      -- keyed by (or_jr_no, mould_no, plan_date), so a plan can match several summary
+      -- rows; without a deterministic mps tiebreaker the mould fields (mould_no → cycleTime,
+      -- cavity, stdWt, pcsHour) could flip between loads. Prefer the latest plan_date.
+      ORDER BY pb.id ASC,
+               CASE WHEN planMachine.machine IS NULL THEN 1 ELSE 0 END ASC,
+               planMachine.machine ASC,
+               mps.plan_date DESC NULLS LAST,
+               mps.id DESC NULLS LAST
+      ) t
+      ORDER BY t.machine ASC,
+               CASE WHEN UPPER(COALESCE(t.status, '')) = 'RUNNING' THEN 0 ELSE 1 END ASC,
+               COALESCE(t.seq, 999999) ASC,
+               t."startDate" ASC,
+               t.id ASC
       `, params
     );
 
+    // JS safety net: collapse any repeated plan id in case the SQL DISTINCT ON
+    // guard is ever removed or a new join fans out. Mirrors the SQL behaviour.
+    const dedupedRows = dedupePlansById(rows);
+
     // Normalize
-    const normalized = rows.map(r => ({
+    const normalized = dedupedRows.map(r => ({
       ...r,
       machineProcess: r.machineProcess || 'Moulding',
       // Priority: Master CT > Report CT
