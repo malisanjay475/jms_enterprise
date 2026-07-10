@@ -556,6 +556,14 @@
       }
 
       if (uploadSection && reportOnlyTypes.includes(currentType)) {
+        // ERP reports keep the upload bar for superadmins so the
+        // "Fetch Latest Data" button stays visible (setReportUI shows it).
+        const erpTypes = ['erpjrstatus', 'erpjrsummary', 'erpjrdetails'];
+        if (erpTypes.includes(currentType) && JPSMS.auth.isSuperadmin()) {
+          uploadSection.style.display = 'flex';
+          if (allFactoryUploadLock) allFactoryUploadLock.style.display = 'none';
+          return;
+        }
         uploadSection.style.display = 'none';
         if (allFactoryUploadLock) allFactoryUploadLock.style.display = 'none';
         return;

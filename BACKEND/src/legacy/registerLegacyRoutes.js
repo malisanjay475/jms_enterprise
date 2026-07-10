@@ -8798,7 +8798,8 @@ app.get('/api/planning/board', async (req, res) => {
 
     const rows = await q(
       `
-      SELECT
+      SELECT * FROM (
+      SELECT DISTINCT ON (pb.id)
         pb.id,
         pb.plan_id      AS "planId",
         pb.plant,
@@ -8882,11 +8883,20 @@ app.get('/api/planning/board', async (req, res) => {
             AND dh.is_deleted = false
       ) dpr ON true
       WHERE ${where}
-      ORDER BY pb.machine ASC,
-               CASE WHEN UPPER(COALESCE(pb.status, '')) = 'RUNNING' THEN 0 ELSE 1 END ASC,
-               COALESCE(pb.seq, 999999) ASC,
-               pb.start_date ASC,
-               pb.id ASC
+      -- DISTINCT ON (pb.id) collapses any join fan-out (e.g. a machine that appears
+      -- twice in the machines master, or a duplicate mould_name) so each plan is
+      -- returned exactly once. DISTINCT ON requires the inner ORDER BY to lead with
+      -- pb.id; the tiebreaker prefers the row that actually matched a machines master
+      -- row. The outer query restores the board's machine/running/seq display order.
+      ORDER BY pb.id ASC,
+               CASE WHEN planMachine.machine IS NULL THEN 1 ELSE 0 END ASC,
+               planMachine.machine ASC
+      ) t
+      ORDER BY t.machine ASC,
+               CASE WHEN UPPER(COALESCE(t.status, '')) = 'RUNNING' THEN 0 ELSE 1 END ASC,
+               COALESCE(t.seq, 999999) ASC,
+               t."startDate" ASC,
+               t.id ASC
       `, params
     );
 
