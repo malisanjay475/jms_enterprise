@@ -1571,33 +1571,38 @@ async function migrateOrjrWiseMasterSchema() {
     `).catch(err => console.warn(`[DB] mould_planning_summary ${column} type migration skipped:`, err.message));
   }
 
-  /* ── Fix: remove duplicate summary rows before enforcing uniqueness ──
-     LOCAL↔MAIN sync formerly upserted this table ON CONFLICT (id); since
-     the serial id diverges between servers, the same OR/mould/plan_date
-     row got inserted twice on LOCAL (report showed it doubled). Collapse
-     each natural-key group down to the freshest row so the unique index
-     below can be created and the doubling is cleared retroactively.
+  /* ── Fix: collapse the summary to ONE row per (or_jr_no, mould_no) ──
+     The ORJR Wise Summary upload has NO plan_date column — the import
+     derives plan_date from the JR Date. Keying the table on plan_date
+     therefore split the same mould into a new, identical-looking row
+     whenever the JR Date changed between uploads/syncs (the "double").
+     The summary is meant to be one row per mould per OR (the rest of the
+     app already pre-aggregates it that way), so the identity drops
+     plan_date. Collapse existing dupes to the most recently written row
+     before rebuilding the unique index on the new key.
   ────────────────────────────────────────────────────────────────── */
   await q(`
     DELETE FROM mould_planning_summary s
     WHERE s.id NOT IN (
-      SELECT DISTINCT ON (or_jr_no, mould_no, COALESCE(plan_date, '1970-01-01'::date)) id
+      SELECT DISTINCT ON (or_jr_no, mould_no) id
       FROM mould_planning_summary
-      ORDER BY or_jr_no, mould_no, COALESCE(plan_date, '1970-01-01'::date),
-               updated_at DESC NULLS LAST, id DESC
+      ORDER BY or_jr_no, mould_no,
+               updated_at DESC NULLS LAST, or_jr_date DESC NULLS LAST, id DESC
     )
   `).catch(err => console.warn('[DB] mould_planning_summary dedup skipped:', err.message));
 
   /* ── Fix: unique index for ON CONFLICT upsert ──────────────────────
-     Without this index, ON CONFLICT (or_jr_no, mould_no, plan_date)
-     has no constraint to target → PostgreSQL errors / falls through
-     to a plain INSERT that hits the serial pkey conflict.
-     COALESCE handles NULL plan_date (NULL != NULL in unique indexes,
-     so two NULLs would not conflict without COALESCE).
+     Identity is (or_jr_no, mould_no) — NOT plan_date. Re-uploading or
+     re-syncing the same mould (even with a changed JR Date) UPDATES the
+     existing row instead of inserting a duplicate. The old 3-column
+     index (…, plan_date) must be dropped first: CREATE INDEX IF NOT
+     EXISTS only checks the name, so it would keep the stale definition.
   ────────────────────────────────────────────────────────────────── */
+  await q(`DROP INDEX IF EXISTS mould_planning_summary_upsert_idx`)
+    .catch(err => console.warn('[DB] mould_planning_summary old index drop skipped:', err.message));
   await q(`
     CREATE UNIQUE INDEX IF NOT EXISTS mould_planning_summary_upsert_idx
-    ON mould_planning_summary(or_jr_no, mould_no, COALESCE(plan_date, '1970-01-01'::date))
+    ON mould_planning_summary(or_jr_no, mould_no)
   `).catch(err => console.warn('[DB] mould_planning_summary unique index skipped:', err.message));
 
   /* ── Fix: reset serial sequence to max(id) to prevent pkey conflicts
@@ -16620,7 +16625,7 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
               $8, $9, $10, $11, $12, $13, $14,
               $15, $16, 'BulkUpload', NOW(), 'BulkUpload', NOW(), $17, NOW()
             )
-            ON CONFLICT (or_jr_no, mould_no, COALESCE(plan_date, '1970-01-01'::date))
+            ON CONFLICT (or_jr_no, mould_no)
             DO UPDATE SET
               or_jr_date = EXCLUDED.or_jr_date,
               item_code = EXCLUDED.item_code,
