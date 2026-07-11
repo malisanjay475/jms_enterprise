@@ -1138,17 +1138,21 @@
           ];
           cols = ['actions', 'factory_name', ...orJrCols.filter(c => c !== 'factory_name')];
         } else if (currentType === 'erpjrstatus') {
-          // Read-only live ERP feed — same columns as OR-JR Status, no actions/factory.
+          // Read-only live ERP feed — every column the ERP returns.
           cols = [
+            "orjr_id", "sno", "factory_id", "factory",
             "or_jr_no", "or_jr_date", "or_qty", "jr_qty",
             "job_card_no", "job_card_date", "item_code", "product_name", "client_name",
             "prod_plan_qty", "std_pack", "uom", "planned_comp_date",
             "mld_start_date", "mld_end_date", "actual_mld_start_date",
             "prt_tuf_end_date", "pack_end_date",
+            "moulding", "printing", "packing",
             "mld_status", "shift_status", "prt_tuf_status", "pack_status", "wh_status",
             "rev_mld_end_date", "shift_comp_date", "rev_ptd_tuf_end_date", "rev_pak_end_date", "wh_rec_date",
-            "jr_close", "status", "or_remarks", "jr_remarks",
-            "created_by", "created_date", "edited_by", "edited_date"
+            "wh_received_date", "mld_prt_pack", "meeting_conclusion",
+            "plan_qty", "plan_date",
+            "jr_close", "status", "or_remarks", "jr_remarks", "shift_remarks",
+            "created_by", "created_date", "edited_by", "edited_date", "erp_action"
           ];
         } else if (currentType === 'erpjrsummary') {
           // Read-only live ERP feed — one row per mould.
@@ -2003,7 +2007,19 @@
           'created_by': 'Created By',
           'created_date': 'Created Date',
           'edited_by': 'Edited By',
-          'edited_date': 'Edited Date'
+          'edited_date': 'Edited Date',
+          // --- additional ERP JR Status columns ---
+          'orjr_id': 'ORJR ID',
+          'sno': 'S.No',
+          'factory': 'Factory',
+          'moulding': 'Moulding',
+          'printing': 'Printing',
+          'packing': 'Packing',
+          'mld_prt_pack': 'Mld/Prt/Pack',
+          'meeting_conclusion': 'Meeting Conclusion',
+          'wh_received_date': 'Warehouse Received Date',
+          'shift_remarks': 'Shift Remarks',
+          'erp_action': 'Action'
         };
 
         const first = toProcess[0];

@@ -14383,7 +14383,22 @@ function mapErpJrStatusRow(r) {
     created_by: r.createdBy,
     created_date: r.createdDate,
     edited_by: r.editedBy,
-    edited_date: r.editedDate
+    edited_date: r.editedDate,
+    // --- additional ERP fields (added on request: capture every column) ---
+    orjr_id: r.orjrid,
+    sno: r.sno,
+    factory_id: r.factoryID,
+    factory: r.factory,
+    moulding: r.moulding,
+    printing: r.printing,
+    packing: r.packing,
+    mld_prt_pack: r.mouldingPrintingPacking,
+    meeting_conclusion: r.meetingConclusion,
+    wh_received_date: r.warehousereceiveddate,
+    shift_remarks: r.shiftingRemarks,
+    plan_qty: r.planQty,
+    plan_date: r.planDate,
+    erp_action: r.action
   };
 }
 
@@ -14475,6 +14490,11 @@ async function ensureErpReportSchema() {
         updated_at TIMESTAMPTZ DEFAULT now()
       )
     `);
+    // Additive migration: ensure any newly-mapped columns exist on tables
+    // that were created before those columns were added to the mapper.
+    for (const c of ERP_REPORTS[k].columns) {
+      await q(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS "${c}" TEXT`);
+    }
   }
 }
 
