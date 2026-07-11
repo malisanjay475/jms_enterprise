@@ -108,9 +108,46 @@ services:
       - "traefik.http.middlewares.jms-wwwtoapex.redirectregex.replacement=https://jmsocean.cloud/$${1}"
       - "traefik.http.middlewares.jms-wwwtoapex.redirectregex.permanent=true"
 
+  # Web pgAdmin — browse the MAIN database at https://pgadmin.jmsocean.cloud
+  # Reaches Postgres over the internal docker network as host `db:5432`;
+  # the DB itself is never published to the internet. Access is gated by the
+  # pgAdmin login (PGADMIN_DEFAULT_EMAIL / PGADMIN_DEFAULT_PASSWORD) plus a
+  # Traefik basic-auth middleware in front. Requires DNS: an A record
+  # pgadmin.jmsocean.cloud -> 72.62.228.195 (needed for the LetsEncrypt cert).
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@jmsocean.cloud}
+      # Soft default (NOT :? required) so an unset var never hard-fails the whole
+      # stack's `docker compose up` — staging has no PGADMIN_* in .env. Prod MUST
+      # override this with a strong password in /opt/jms-enterprise/.env.
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-changeme_set_in_env}
+      # pgAdmin sits behind Traefik TLS termination; trust the proxy headers.
+      PGADMIN_CONFIG_PROXY_X_HOST_COUNT: "1"
+      PGADMIN_CONFIG_PROXY_X_PREFIX_COUNT: "1"
+      TZ: "Asia/Kolkata"
+    volumes:
+      - jms_v1_pgadmin:/var/lib/pgadmin
+    networks: [jms_v1_net]
+    labels:
+      - "traefik.enable=${TRAEFIK_ENABLE:-true}"
+      - "traefik.http.routers.jms-pgadmin.rule=Host(`pgadmin.jmsocean.cloud`)"
+      - "traefik.http.routers.jms-pgadmin.entrypoints=websecure"
+      - "traefik.http.routers.jms-pgadmin.tls.certresolver=letsencrypt"
+      - "traefik.http.services.jms-pgadmin.loadbalancer.server.port=80"
+      # Extra gate in front of the pgAdmin login. Generate the hash with:
+      #   htpasswd -nbB admin 'YOUR_PASSWORD'   (escape every $ as $$ in .env)
+      - "traefik.http.routers.jms-pgadmin.middlewares=jms-pgadmin-auth"
+      - "traefik.http.middlewares.jms-pgadmin-auth.basicauth.users=${PGADMIN_BASIC_AUTH:-}"
+
 networks:
   jms_v1_net:
 
 volumes:
   jms_v1_pg_data:
   jms_v1_uploads:
+  jms_v1_pgadmin:
