@@ -10530,6 +10530,14 @@ app.get('/api/planning/orders/:orderNo/batches', async (req, res) => {
       FROM plan_board pb
       WHERE TRIM(COALESCE(pb.order_no, '')) = TRIM($1)
         AND COALESCE(pb.batch_no, 0) > 0
+        -- Hide rejected plans from "Created Job Plans": once PPC/Moulding rejects a job
+        -- card the plan is no longer a valid job plan, so it must drop off the Create
+        -- Plan screen instead of lingering as a ghost card. Rejection is detected by
+        -- BOTH signals (status='REJECTED' and jc_approval_status='REJECTED') because a
+        -- plan can be jc-rejected while its status was independently set to Running,
+        -- mirroring the planning board and the pending-orders availability check.
+        AND pb.status <> 'REJECTED'
+        AND UPPER(COALESCE(pb.jc_approval_status, '')) <> 'REJECTED'
         AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
       ORDER BY pb.batch_no ASC, pb.created_at ASC NULLS LAST, pb.id ASC
     `, [orderNo, factoryId || null]);
@@ -11116,8 +11124,13 @@ app.get('/api/planning/orders/pending', async (req, res) => {
       ) rpt ON true
       WHERE COALESCE(NULLIF(TRIM(o.status), ''), 'Pending') NOT IN ('Completed', 'Dropped')
         AND ($1::int IS NULL OR s.factory_id = $1 OR s.factory_id IS NULL)
-        -- Exclude orders where ALL moulds already have an active (non-completed/non-dropped) plan.
-        -- An order appears only if at least one mould still needs planning.
+        -- Exclude orders where ALL moulds already have an active plan. An order appears
+        -- only if at least one mould still needs planning. A plan stops "occupying" a
+        -- mould once it is COMPLETED, DROPPED, or REJECTED — a rejected job card must
+        -- free the mould so the order can be planned again. Rejection is detected by
+        -- BOTH signals (status='REJECTED' and jc_approval_status='REJECTED') because a
+        -- plan can be jc-rejected while its status was independently set to Running,
+        -- mirroring how the planning board itself hides rejected plans.
         AND EXISTS (
           SELECT 1 FROM mould_planning_summary mps2
           WHERE TRIM(mps2.or_jr_no) = TRIM(s.or_jr_no)
@@ -11125,7 +11138,8 @@ app.get('/api/planning/orders/pending', async (req, res) => {
               SELECT 1 FROM plan_board pb2
               WHERE TRIM(pb2.order_no) = TRIM(mps2.or_jr_no)
                 AND LOWER(TRIM(pb2.mould_name)) = LOWER(TRIM(mps2.mould_name))
-                AND pb2.status NOT IN ('COMPLETED', 'DROPPED')
+                AND pb2.status NOT IN ('COMPLETED', 'DROPPED', 'REJECTED')
+                AND UPPER(COALESCE(pb2.jc_approval_status, '')) <> 'REJECTED'
                 AND ($1::int IS NULL OR pb2.factory_id = $1 OR pb2.factory_id IS NULL)
             )
         )
