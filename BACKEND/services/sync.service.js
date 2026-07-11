@@ -146,7 +146,12 @@ const CONFLICT_KEYS = {
     dpr_reasons: 'id',
     // Natural key matches mould_report_date_uniq_idx — serial id diverges LOCAL↔MAIN
     mould_planning_report: 'or_jr_no, mould_no, mould_item_code, plan_date',
-    mould_planning_summary: 'id',
+    // Summary identity is one row per (or_jr_no, mould_no) — plan_date is NOT part
+    // of it (the upload has no plan_date; it's derived from JR Date, which changing
+    // would otherwise split the mould into a duplicate row). Matches
+    // mould_planning_summary_upsert_idx. Serial id diverges LOCAL↔MAIN so it can't
+    // be the key.
+    mould_planning_summary: 'or_jr_no, mould_no',
     jc_details: 'id',
     jc_summaries: 'id',
     job_cards: 'id',
