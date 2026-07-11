@@ -19150,13 +19150,8 @@ app.post('/api/masters/orjrwisedetail/delete-by-orjr', async (req, res) => {
 app.post('/api/admin/clear-data', async (req, res) => {
   try {
     const { type, username } = req.body;
-    const writeContext = await getWritableFactoryContext(req, 'clear master data');
-    if (!writeContext.ok) {
-      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
-    }
-    const factoryId = writeContext.factoryId;
 
-    // Security: Check Permissions
+    // Security: Check Permissions (needed for every clear, factory-scoped or not)
     if (!username) return res.json({ ok: false, error: 'Authorization required (Missing Username)' });
 
     const u = (await q('SELECT role_code, permissions FROM users WHERE username=$1', [username]))[0];
@@ -19166,6 +19161,28 @@ app.post('/api/admin/clear-data', async (req, res) => {
     const allowed = isAdminLikeRole(u) || (perms.critical_ops && perms.critical_ops.data_wipe);
 
     if (!allowed) return res.json({ ok: false, error: 'Access Denied: Data Wipe permission required' });
+
+    // ERP mirror tables are global (no factory_id column) and keyed on row_key.
+    // They're wiped wholesale rather than scoped to a factory, so they must be
+    // handled BEFORE the factory-context requirement (no factory to select).
+    const ERP_CLEAR_TABLES = {
+      erpjrstatus: 'erp_jr_status',
+      erpjrsummary: 'erp_jr_summary',
+      erpjrdetails: 'erp_jr_details',
+    };
+    if (ERP_CLEAR_TABLES[type]) {
+      const erpTable = ERP_CLEAR_TABLES[type];
+      const del = await pool.query(`DELETE FROM ${erpTable}`);
+      const removed = (del && del.rowCount != null) ? del.rowCount : 0;
+      return res.json({ ok: true, message: `All ${erpTable} data cleared (${removed} row(s) deleted).` });
+    }
+
+    // Factory-scoped master tables require a single writable factory context.
+    const writeContext = await getWritableFactoryContext(req, 'clear master data');
+    if (!writeContext.ok) {
+      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
+    }
+    const factoryId = writeContext.factoryId;
 
     let table = '';
     if (type === 'orders') table = 'orders';
