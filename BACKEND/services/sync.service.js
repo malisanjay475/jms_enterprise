@@ -146,7 +146,9 @@ const CONFLICT_KEYS = {
     dpr_reasons: 'id',
     // Natural key matches mould_report_date_uniq_idx — serial id diverges LOCAL↔MAIN
     mould_planning_report: 'or_jr_no, mould_no, mould_item_code, plan_date',
-    mould_planning_summary: 'id',
+    // Natural key matches mould_planning_summary_upsert_idx — serial id diverges
+    // LOCAL↔MAIN, so ON CONFLICT (id) inserted a duplicate summary row per sync.
+    mould_planning_summary: 'or_jr_no, mould_no, plan_date',
     jc_details: 'id',
     jc_summaries: 'id',
     job_cards: 'id',
@@ -231,7 +233,11 @@ const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
 // index expression exactly. getConflictColumns still returns ['or_jr_no'] for deletion-PK
 // parsing; only the upsert conflict target is overridden here.
 const RAW_CONFLICT_TARGETS = {
-    or_jr_report: `or_jr_no, COALESCE(job_card_no, '')`
+    or_jr_report: `or_jr_no, COALESCE(job_card_no, '')`,
+    // mould_planning_summary_upsert_idx is an expression index (COALESCE on plan_date,
+    // since NULL != NULL would let two NULL-plan_date rows escape the unique constraint).
+    // The ON CONFLICT target must reproduce that expression exactly to match the index.
+    mould_planning_summary: `or_jr_no, mould_no, COALESCE(plan_date, '1970-01-01'::date)`
 };
 
 const SYNC_CONFLICT_INDEXES = {
