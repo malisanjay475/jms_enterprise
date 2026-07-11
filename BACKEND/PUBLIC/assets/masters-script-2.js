@@ -556,6 +556,14 @@
       }
 
       if (uploadSection && reportOnlyTypes.includes(currentType)) {
+        // ERP reports keep the upload bar for superadmins so the
+        // "Fetch Latest Data" button stays visible (setReportUI shows it).
+        const erpTypes = ['erpjrstatus', 'erpjrsummary', 'erpjrdetails'];
+        if (erpTypes.includes(currentType) && JPSMS.auth.isSuperadmin()) {
+          uploadSection.style.display = 'flex';
+          if (allFactoryUploadLock) allFactoryUploadLock.style.display = 'none';
+          return;
+        }
         uploadSection.style.display = 'none';
         if (allFactoryUploadLock) allFactoryUploadLock.style.display = 'none';
         return;
@@ -1130,32 +1138,38 @@
           ];
           cols = ['actions', 'factory_name', ...orJrCols.filter(c => c !== 'factory_name')];
         } else if (currentType === 'erpjrstatus') {
-          // Read-only live ERP feed — same columns as OR-JR Status, no actions/factory.
+          // Read-only live ERP feed — every column the ERP returns.
           cols = [
+            "orjr_id", "sno", "factory_id", "factory",
             "or_jr_no", "or_jr_date", "or_qty", "jr_qty",
             "job_card_no", "job_card_date", "item_code", "product_name", "client_name",
             "prod_plan_qty", "std_pack", "uom", "planned_comp_date",
             "mld_start_date", "mld_end_date", "actual_mld_start_date",
             "prt_tuf_end_date", "pack_end_date",
+            "moulding", "printing", "packing",
             "mld_status", "shift_status", "prt_tuf_status", "pack_status", "wh_status",
             "rev_mld_end_date", "shift_comp_date", "rev_ptd_tuf_end_date", "rev_pak_end_date", "wh_rec_date",
-            "jr_close", "status", "or_remarks", "jr_remarks",
-            "created_by", "created_date", "edited_by", "edited_date"
+            "wh_received_date", "mld_prt_pack", "meeting_conclusion",
+            "plan_qty", "plan_date",
+            "jr_close", "status", "or_remarks", "jr_remarks", "shift_remarks",
+            "created_by", "created_date", "edited_by", "edited_date", "erp_action"
           ];
         } else if (currentType === 'erpjrsummary') {
-          // Read-only live ERP feed — one row per mould.
+          // Read-only live ERP feed — one row per mould. Every column the ERP returns.
           cols = [
+            "orjr_id", "factory_id", "factory",
             "or_jr_no", "or_jr_date", "jc_qty", "our_code", "bom_type",
             "item_name", "jr_qty", "uom", "mould_no", "mould",
             "mould_item_qty", "tonnage", "machine", "cycle_time", "cavity"
           ];
         } else if (currentType === 'erpjrdetails') {
-          // Read-only live ERP feed — one row per component item.
+          // Read-only live ERP feed — one row per component item. Every column the ERP returns.
           cols = [
+            "orjr_id", "factory_id", "factory",
             "or_jr_no", "or_jr_date", "jc_qty", "our_code", "bom_type",
             "item_name", "jr_qty", "uom", "c_item_code", "c_item_name",
             "mould_no", "mould", "mould_item_qty", "tonnage", "machine",
-            "cycle_time", "cavity", "status"
+            "cycle_time", "cavity", "status", "erp_action"
           ];
         } else if (currentType === 'orders') {
           // STRICT User Request: "Get All data Same in Or-JR status Dont Change Or dont ADD"
@@ -1995,7 +2009,19 @@
           'created_by': 'Created By',
           'created_date': 'Created Date',
           'edited_by': 'Edited By',
-          'edited_date': 'Edited Date'
+          'edited_date': 'Edited Date',
+          // --- additional ERP JR Status columns ---
+          'orjr_id': 'ORJR ID',
+          'sno': 'S.No',
+          'factory': 'Factory',
+          'moulding': 'Moulding',
+          'printing': 'Printing',
+          'packing': 'Packing',
+          'mld_prt_pack': 'Mld/Prt/Pack',
+          'meeting_conclusion': 'Meeting Conclusion',
+          'wh_received_date': 'Warehouse Received Date',
+          'shift_remarks': 'Shift Remarks',
+          'erp_action': 'Action'
         };
 
         const first = toProcess[0];
@@ -2131,7 +2157,15 @@
       const raw = String(src || '').trim();
       if (!raw) return '';
       if (/^data:image\//i.test(raw)) return raw;
-      if (/^https?:\/\//i.test(raw)) return raw;
+      if (/^https?:\/\//i.test(raw)) {
+        // An icon stored as an absolute URL (e.g. http://72.62.228.195:9092/uploads/...)
+        // is blocked as mixed content on https://jmsocean.cloud. If it points at an
+        // uploads path, make it origin-relative so it loads from the current host/scheme.
+        const uploadsIdx = raw.search(/\/uploads\//i);
+        if (uploadsIdx !== -1) return raw.slice(uploadsIdx);
+        // Non-upload absolute URL: never downgrade to insecure http on an https page.
+        return raw.replace(/^http:\/\//i, 'https://');
+      }
 
       const normalized = raw.replace(/\\/g, '/');
       if (normalized.startsWith('/uploads/')) return normalized;

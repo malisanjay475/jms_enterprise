@@ -175,6 +175,21 @@
     .badge-summary { background: #eff6ff; color: #2563eb; }
     .badge-detail { background: #fdf2f8; color: #db2777; }
 
+    .mw-chk {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-main);
+      cursor: pointer;
+      user-select: none;
+    }
+    .mw-chk input { width: 15px; height: 15px; cursor: pointer; }
+    .mw-chk input:disabled { cursor: not-allowed; }
+    .mw-chk input:disabled + span,
+    .mw-chk:has(input:disabled) { color: var(--text-light); }
+
     /* Mould-wise printable report */
     .mould-report-table {
       border-collapse: collapse;
@@ -279,6 +294,22 @@
           <i class="bi bi-play-fill"></i> Generate Report
         </button>
       </div>
+
+      <!-- Mould-Wise field strip (extra columns / group-by dimensions) -->
+      <div id="mouldFieldStrip" style="display:none; margin-top:14px; padding-top:14px; border-top:1px dashed var(--border);">
+        <div class="control-label" style="margin-bottom:8px;">Include Columns</div>
+        <div style="display:flex; flex-wrap:wrap; gap:16px 22px;">
+          <label class="mw-chk"><input type="checkbox" value="or_no"      onchange="onMouldFieldChange()"> OR No.</label>
+          <label class="mw-chk"><input type="checkbox" value="jc_no"      onchange="onMouldFieldChange()"> JC No.</label>
+          <label class="mw-chk"><input type="checkbox" value="colour" id="mwColour" disabled onchange="onMouldFieldChange()"> Colours <span style="color:var(--text-light); font-size:0.72rem;">(needs OR No.)</span></label>
+          <label class="mw-chk"><input type="checkbox" value="machine"    onchange="onMouldFieldChange()"> Machine</label>
+          <label class="mw-chk"><input type="checkbox" value="efficiency" onchange="onMouldFieldChange()"> Efficiency</label>
+          <label class="mw-chk"><input type="checkbox" value="std_prod"   onchange="onMouldFieldChange()"> Production As Per STD</label>
+          <label class="mw-chk"><input type="checkbox" value="downtime"   onchange="onMouldFieldChange()"> Downtime (reason + min)</label>
+          <label class="mw-chk"><input type="checkbox" value="reject_qty" onchange="onMouldFieldChange()"> Reject Qty</label>
+          <label class="mw-chk"><input type="checkbox" value="reject_pct" onchange="onMouldFieldChange()"> Reject %</label>
+        </div>
+      </div>
     </div>
 
     <!-- Data Table Card -->
@@ -362,8 +393,23 @@
 
     function onReportTypeChange() {
       const type = document.getElementById('reportType').value;
-      document.getElementById('mouldSearchGroup').style.display =
-        type === 'mould-wise-qty' ? 'flex' : 'none';
+      const isMould = type === 'mould-wise-qty';
+      document.getElementById('mouldSearchGroup').style.display = isMould ? 'flex' : 'none';
+      document.getElementById('mouldFieldStrip').style.display = isMould ? 'block' : 'none';
+    }
+
+    function onMouldFieldChange() {
+      // Colour is only meaningful when grouped by OR No.
+      const orNo = document.querySelector('#mouldFieldStrip input[value="or_no"]');
+      const colour = document.getElementById('mwColour');
+      colour.disabled = !orNo.checked;
+      if (!orNo.checked) colour.checked = false;
+    }
+
+    function getSelectedMouldFields() {
+      return Array.from(
+        document.querySelectorAll('#mouldFieldStrip input[type="checkbox"]:checked')
+      ).map(c => c.value);
     }
 
     async function generateReport() {
@@ -378,7 +424,8 @@
           endpoint = `/reports/jms-plan?factory_id=${factoryId}&from=${from}&to=${to}`;
         } else if (type === 'mould-wise-qty') {
           const search = encodeURIComponent(document.getElementById('mouldSearch').value.trim());
-          endpoint = `/reports/mould-wise-qty?factory_id=${factoryId}&from=${from}&to=${to}&q=${search}`;
+          const fields = getSelectedMouldFields().join(',');
+          endpoint = `/reports/mould-wise-qty?factory_id=${factoryId}&from=${from}&to=${to}&q=${search}&fields=${encodeURIComponent(fields)}`;
         } else {
           endpoint = `/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`;
         }
@@ -386,7 +433,7 @@
 
         if (res.ok) {
           if (type === 'mould-wise-qty') {
-            renderMouldReport(res.data);
+            renderMouldReport(res.data, getSelectedMouldFields());
           } else {
             renderReport(res.data, type);
           }
@@ -405,7 +452,7 @@
       return `${d}-${m}-${y}`;
     }
 
-    function renderMouldReport(groups) {
+    function renderMouldReport(groups, fields) {
       document.getElementById('emptyState').style.display = 'none';
       document.getElementById('tableCard').style.display = 'none';
       const card = document.getElementById('mouldReportCard');
@@ -420,30 +467,64 @@
       const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+      const on = new Set(fields || []);
+
+      // Leading dimension columns (before Date), in the strip's visual order.
+      const leadCols = [];
+      if (on.has('or_no'))   leadCols.push({ label: 'OR No.',  get: r => r.orNo, num: false });
+      if (on.has('jc_no'))   leadCols.push({ label: 'JC No.',  get: r => r.jcNo, num: false });
+      if (on.has('colour'))  leadCols.push({ label: 'Colour',  get: r => r.colour, num: false });
+      if (on.has('machine')) leadCols.push({ label: 'Machine', get: r => r.machine, num: false });
+
+      // Trailing metric columns (after Total).
+      const metricCols = [];
+      if (on.has('std_prod'))   metricCols.push({ label: 'Prod (STD)',  get: r => r.stdProd, num: true, sum: true });
+      if (on.has('efficiency')) metricCols.push({ label: 'Eff %',       get: r => r.efficiency + '%', num: true });
+      if (on.has('downtime'))   metricCols.push({ label: 'Downtime',    get: r => (r.downtimeMin ? r.downtimeMin + 'm' : '') + (r.downtimeReason ? ' — ' + r.downtimeReason : ''), num: false });
+      if (on.has('reject_qty')) metricCols.push({ label: 'Reject Qty',  get: r => r.rejectQty, num: true, sum: true });
+      if (on.has('reject_pct')) metricCols.push({ label: 'Reject %',    get: r => r.rejectPct + '%', num: true });
+
+      const totalCols = leadCols.length + 4 + metricCols.length;
+
       body.innerHTML = groups.map(g => {
         const rows = g.rows.map(r => `
           <tr>
+            ${leadCols.map(c => `<td class="${c.num ? 'mr-num' : 'mr-label'}">${esc(c.get(r))}</td>`).join('')}
             <td class="mr-label">${fmtDate(r.date)}</td>
             <td class="mr-num">${r.day}</td>
             <td class="mr-num">${r.night}</td>
             <td class="mr-num">${r.total}</td>
+            ${metricCols.map(c => `<td class="mr-num">${esc(c.get(r))}</td>`).join('')}
           </tr>`).join('');
+
+        const headCells = [
+          ...leadCols.map(c => `<td class="mr-colhead">${esc(c.label)}</td>`),
+          '<td class="mr-colhead">Date</td>',
+          '<td class="mr-colhead">Day</td>',
+          '<td class="mr-colhead">Night</td>',
+          '<td class="mr-colhead">Total</td>',
+          ...metricCols.map(c => `<td class="mr-colhead">${esc(c.label)}</td>`)
+        ].join('');
+
+        // Grand-total row: blanks up to the Total column, then column sums.
+        const grandLead = leadCols.map(() => '<td></td>').join('') + '<td></td><td></td><td></td>';
+        const grandMetrics = metricCols.map(c => {
+          if (!c.sum) return '<td></td>';
+          const s = g.rows.reduce((acc, r) => acc + (Number(c.get(r)) || 0), 0);
+          return `<td>${s}</td>`;
+        }).join('');
+
         const title = esc(g.mouldName || g.mouldNo || 'Unknown Mould');
         return `
           <table class="mould-report-table">
             <tr>
               <td class="mr-label">Mould Name</td>
-              <td class="mr-mould-name" colspan="3">${title}</td>
+              <td class="mr-mould-name" colspan="${totalCols - 1}">${title}</td>
             </tr>
-            <tr>
-              <td class="mr-colhead">Date</td>
-              <td class="mr-colhead">Day</td>
-              <td class="mr-colhead">Night</td>
-              <td class="mr-colhead">Total</td>
-            </tr>
+            <tr>${headCells}</tr>
             ${rows}
             <tr class="mr-grand">
-              <td></td><td></td><td></td><td>${g.grandTotal}</td>
+              ${grandLead}<td>${g.grandTotal}</td>${grandMetrics}
             </tr>
           </table>`;
       }).join('');

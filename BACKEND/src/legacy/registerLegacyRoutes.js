@@ -2,6 +2,7 @@
 const path = require('path');
 const os = require('os');
 const express = require('express');
+const { stripMachinePrefix, dedupePlansById } = require('../utils/machineName');
 const multer = require('multer');
 const upload = multer({
   dest: 'uploads/',
@@ -226,7 +227,9 @@ function getFactoryIdFromObjectRow(row, fallbackFactoryId) {
 }
 
 function normalizeMachineName(value) {
-  return String(value || '').trim();
+  // Strip the legacy "B -L1>" building/line prefix at every write so no new
+  // prefixed duplicate of a clean machine row can be created (see machineName.js).
+  return stripMachinePrefix(value);
 }
 
 const MACHINE_PROCESS_OPTIONS = ['Moulding', 'Tuffting', 'Printing', 'Labour Job'];
@@ -929,6 +932,17 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, '.well-known', 'assetlinks.json'));
 });
 
+// Serve Brotli/Gzip pre-compressed .js/.css when the browser supports it.
+// Must run BEFORE express.static so it can intercept the asset request; falls
+// through cleanly when no fresh precompressed sibling exists.
+const createPrecompressedStatic = require('../app/precompressedStatic');
+app.use(createPrecompressedStatic(PUBLIC_DIR, (req) => {
+  const p = req.path;
+  if (path.basename(p) === 'app.js') return 'no-cache';
+  if (p.includes('/assets/vendor/')) return 'public, max-age=31536000, immutable';
+  return 'public, max-age=604800';
+}));
+
 app.use(express.static(PUBLIC_DIR, {
   setHeaders: (res, filePath) => {
     const normalized = filePath.replace(/\\/g, '/');
@@ -1557,16 +1571,39 @@ async function migrateOrjrWiseMasterSchema() {
     `).catch(err => console.warn(`[DB] mould_planning_summary ${column} type migration skipped:`, err.message));
   }
 
-  /* ── Fix: unique index for ON CONFLICT upsert ──────────────────────
-     Without this index, ON CONFLICT (or_jr_no, mould_no, plan_date)
-     has no constraint to target → PostgreSQL errors / falls through
-     to a plain INSERT that hits the serial pkey conflict.
-     COALESCE handles NULL plan_date (NULL != NULL in unique indexes,
-     so two NULLs would not conflict without COALESCE).
+  /* ── Fix: collapse the summary to ONE row per (or_jr_no, mould_no) ──
+     The ORJR Wise Summary upload has NO plan_date column — the import
+     derives plan_date from the JR Date. Keying the table on plan_date
+     therefore split the same mould into a new, identical-looking row
+     whenever the JR Date changed between uploads/syncs (the "double").
+     The summary is meant to be one row per mould per OR (the rest of the
+     app already pre-aggregates it that way), so the identity drops
+     plan_date. Collapse existing dupes to the row with the latest JR Date
+     (tie-broken by most recently written) before rebuilding the unique
+     index on the new key.
   ────────────────────────────────────────────────────────────────── */
   await q(`
+    DELETE FROM mould_planning_summary s
+    WHERE s.id NOT IN (
+      SELECT DISTINCT ON (or_jr_no, mould_no) id
+      FROM mould_planning_summary
+      ORDER BY or_jr_no, mould_no,
+               or_jr_date DESC NULLS LAST, updated_at DESC NULLS LAST, id DESC
+    )
+  `).catch(err => console.warn('[DB] mould_planning_summary dedup skipped:', err.message));
+
+  /* ── Fix: unique index for ON CONFLICT upsert ──────────────────────
+     Identity is (or_jr_no, mould_no) — NOT plan_date. Re-uploading or
+     re-syncing the same mould (even with a changed JR Date) UPDATES the
+     existing row instead of inserting a duplicate. The old 3-column
+     index (…, plan_date) must be dropped first: CREATE INDEX IF NOT
+     EXISTS only checks the name, so it would keep the stale definition.
+  ────────────────────────────────────────────────────────────────── */
+  await q(`DROP INDEX IF EXISTS mould_planning_summary_upsert_idx`)
+    .catch(err => console.warn('[DB] mould_planning_summary old index drop skipped:', err.message));
+  await q(`
     CREATE UNIQUE INDEX IF NOT EXISTS mould_planning_summary_upsert_idx
-    ON mould_planning_summary(or_jr_no, mould_no, COALESCE(plan_date, '1970-01-01'::date))
+    ON mould_planning_summary(or_jr_no, mould_no)
   `).catch(err => console.warn('[DB] mould_planning_summary unique index skipped:', err.message));
 
   /* ── Fix: reset serial sequence to max(id) to prevent pkey conflicts
@@ -8798,7 +8835,8 @@ app.get('/api/planning/board', async (req, res) => {
 
     const rows = await q(
       `
-      SELECT
+      SELECT * FROM (
+      SELECT DISTINCT ON (pb.id)
         pb.id,
         pb.plan_id      AS "planId",
         pb.plant,
@@ -8882,16 +8920,35 @@ app.get('/api/planning/board', async (req, res) => {
             AND dh.is_deleted = false
       ) dpr ON true
       WHERE ${where}
-      ORDER BY pb.machine ASC,
-               CASE WHEN UPPER(COALESCE(pb.status, '')) = 'RUNNING' THEN 0 ELSE 1 END ASC,
-               COALESCE(pb.seq, 999999) ASC,
-               pb.start_date ASC,
-               pb.id ASC
+      -- DISTINCT ON (pb.id) collapses any join fan-out (e.g. a machine that appears
+      -- twice in the machines master, or a duplicate mould_name) so each plan is
+      -- returned exactly once. DISTINCT ON requires the inner ORDER BY to lead with
+      -- pb.id; the tiebreaker prefers the row that actually matched a machines master
+      -- row. The outer query restores the board's machine/running/seq display order.
+      -- The mould_planning_summary join keys on (or_jr_no, mould_name) but the table is
+      -- keyed by (or_jr_no, mould_no, plan_date), so a plan can match several summary
+      -- rows; without a deterministic mps tiebreaker the mould fields (mould_no → cycleTime,
+      -- cavity, stdWt, pcsHour) could flip between loads. Prefer the latest plan_date.
+      ORDER BY pb.id ASC,
+               CASE WHEN planMachine.machine IS NULL THEN 1 ELSE 0 END ASC,
+               planMachine.machine ASC,
+               mps.plan_date DESC NULLS LAST,
+               mps.id DESC NULLS LAST
+      ) t
+      ORDER BY t.machine ASC,
+               CASE WHEN UPPER(COALESCE(t.status, '')) = 'RUNNING' THEN 0 ELSE 1 END ASC,
+               COALESCE(t.seq, 999999) ASC,
+               t."startDate" ASC,
+               t.id ASC
       `, params
     );
 
+    // JS safety net: collapse any repeated plan id in case the SQL DISTINCT ON
+    // guard is ever removed or a new join fans out. Mirrors the SQL behaviour.
+    const dedupedRows = dedupePlansById(rows);
+
     // Normalize
-    const normalized = rows.map(r => ({
+    const normalized = dedupedRows.map(r => ({
       ...r,
       machineProcess: r.machineProcess || 'Moulding',
       // Priority: Master CT > Report CT
@@ -10496,6 +10553,17 @@ app.get('/api/planning/orders/:orderNo/batches', async (req, res) => {
       FROM plan_board pb
       WHERE TRIM(COALESCE(pb.order_no, '')) = TRIM($1)
         AND COALESCE(pb.batch_no, 0) > 0
+        -- Hide rejected plans from "Created Job Plans": once PPC/Moulding rejects a job
+        -- card the plan is no longer a valid job plan, so it must drop off the Create
+        -- Plan screen instead of lingering as a ghost card. Rejection is detected by
+        -- BOTH signals (status='REJECTED' and jc_approval_status='REJECTED') because a
+        -- plan can be jc-rejected while its status was independently set to Running,
+        -- mirroring the planning board and the pending-orders availability check.
+        -- NULL-safe: plan_board.status is nullable (VARCHAR DEFAULT 'PLANNED'); a bare
+        -- status inequality is NULL for a NULL status and would silently drop a valid
+        -- non-rejected batch, so COALESCE keeps such rows visible.
+        AND COALESCE(pb.status, '') <> 'REJECTED'
+        AND UPPER(COALESCE(pb.jc_approval_status, '')) <> 'REJECTED'
         AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
       ORDER BY pb.batch_no ASC, pb.created_at ASC NULLS LAST, pb.id ASC
     `, [orderNo, factoryId || null]);
@@ -11082,8 +11150,13 @@ app.get('/api/planning/orders/pending', async (req, res) => {
       ) rpt ON true
       WHERE COALESCE(NULLIF(TRIM(o.status), ''), 'Pending') NOT IN ('Completed', 'Dropped')
         AND ($1::int IS NULL OR s.factory_id = $1 OR s.factory_id IS NULL)
-        -- Exclude orders where ALL moulds already have an active (non-completed/non-dropped) plan.
-        -- An order appears only if at least one mould still needs planning.
+        -- Exclude orders where ALL moulds already have an active plan. An order appears
+        -- only if at least one mould still needs planning. A plan stops "occupying" a
+        -- mould once it is COMPLETED, DROPPED, or REJECTED — a rejected job card must
+        -- free the mould so the order can be planned again. Rejection is detected by
+        -- BOTH signals (status='REJECTED' and jc_approval_status='REJECTED') because a
+        -- plan can be jc-rejected while its status was independently set to Running,
+        -- mirroring how the planning board itself hides rejected plans.
         AND EXISTS (
           SELECT 1 FROM mould_planning_summary mps2
           WHERE TRIM(mps2.or_jr_no) = TRIM(s.or_jr_no)
@@ -11091,7 +11164,8 @@ app.get('/api/planning/orders/pending', async (req, res) => {
               SELECT 1 FROM plan_board pb2
               WHERE TRIM(pb2.order_no) = TRIM(mps2.or_jr_no)
                 AND LOWER(TRIM(pb2.mould_name)) = LOWER(TRIM(mps2.mould_name))
-                AND pb2.status NOT IN ('COMPLETED', 'DROPPED')
+                AND pb2.status NOT IN ('COMPLETED', 'DROPPED', 'REJECTED')
+                AND UPPER(COALESCE(pb2.jc_approval_status, '')) <> 'REJECTED'
                 AND ($1::int IS NULL OR pb2.factory_id = $1 OR pb2.factory_id IS NULL)
             )
         )
@@ -14142,6 +14216,27 @@ app.get('/api/reports/jms-plan', async (req, res) => {
 // Mould-wise daily production (Day / Night / Total) for a date range.
 // Searchable by mould name OR mould number. Returns rows grouped per mould
 // so the frontend can render one printable table per mould.
+//
+// Optional `fields` query param (comma list) turns extra dimensions/metrics on:
+//   Grouping dimensions: or_no, jc_no, machine, colour
+//   Metrics:             std_prod, efficiency, downtime, reject_qty, reject_pct
+// Metrics are always computed and returned; the frontend decides which columns
+// to render. Only the grouping dimensions change the row granularity here.
+const MOULD_DOWNTIME_REASONS = {
+  '1': 'Manpower Shortage', '2': 'Mould Change Over', '3': 'Accessories Shortage',
+  '4': 'Material Shortage', '5': 'M/C Under Maintaince (Water/Oil/Air Leakage)',
+  '6': 'Nozzle Block/Change', '7': 'Mould Problem', '8': 'Power Failure/Pre Heating',
+  '9': 'Color Change Time', '10': 'Process Setting', '11': 'Mould Trial',
+  '12': 'Crane/Hrtc', '13': 'No Plan'
+};
+function mouldReasonName(code) {
+  const key = String(code == null ? '' : code).trim();
+  if (!key) return 'Unspecified';
+  if (key.startsWith('OTHER_')) return key.slice(6) || 'Other';
+  if (/^OTHER$/i.test(key)) return 'Other';
+  return MOULD_DOWNTIME_REASONS[key] || key;
+}
+
 app.get('/api/reports/mould-wise-qty', async (req, res) => {
   try {
     const requestFactoryId = getFactoryId(req);
@@ -14149,20 +14244,49 @@ app.get('/api/reports/mould-wise-qty', async (req, res) => {
     const to = normalizePlanningText(req.query.to);
     const search = normalizePlanningText(req.query.q);
 
+    // Whitelist of grouping dimensions -> SQL expression (safe, not user text).
+    const DIMS = {
+      or_no:  { expr: "TRIM(COALESCE(d.order_no, ''))",   alias: 'or_no' },
+      jc_no:  { expr: "TRIM(COALESCE(d.jobcard_no, ''))", alias: 'jc_no' },
+      machine:{ expr: "TRIM(COALESCE(d.machine, ''))",    alias: 'machine' },
+      colour: { expr: "TRIM(COALESCE(d.colour, ''))",     alias: 'colour' }
+    };
+    const requested = String(req.query.fields || '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+    const activeDims = requested.filter(f => DIMS[f]);
+
+    const dimSelect = activeDims.map(f => `${DIMS[f].expr} AS ${DIMS[f].alias}`);
+    const dimGroup = activeDims.map(f => DIMS[f].expr);
+
+    const selectParts = [
+      "TRIM(COALESCE(d.mould_no, '')) AS mould_no",
+      "COALESCE(m.mould_name, '') AS mould_name",
+      "d.dpr_date::text AS dpr_date",
+      ...dimSelect,
+      "SUM(CASE WHEN d.shift = 'Day'   THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS day_qty",
+      "SUM(CASE WHEN d.shift = 'Night' THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS night_qty",
+      "SUM(COALESCE(d.reject_qty, 0)) AS reject_qty",
+      "SUM(COALESCE(d.downtime_min, 0)) AS downtime_min",
+      "jsonb_agg(d.downtime_breakup) FILTER (WHERE d.downtime_breakup IS NOT NULL) AS downtime_breakups",
+      "MAX(COALESCE(m.pcs_per_hour, 0)) AS pcs_per_hour"
+    ];
+
+    const groupParts = [
+      "TRIM(COALESCE(d.mould_no, ''))",
+      "COALESCE(m.mould_name, '')",
+      "d.dpr_date",
+      ...dimGroup
+    ];
+
     const rows = await q(`
       SELECT
-        TRIM(COALESCE(d.mould_no, '')) AS mould_no,
-        COALESCE(m.mould_name, '') AS mould_name,
-        d.dpr_date::text AS dpr_date,
-        SUM(CASE WHEN d.shift = 'Day'   THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS day_qty,
-        SUM(CASE WHEN d.shift = 'Night' THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS night_qty
+        ${selectParts.join(',\n        ')}
       FROM dpr_hourly d
       LEFT JOIN moulds m
         ON TRIM(COALESCE(m.mould_number, '')) = TRIM(COALESCE(d.mould_no, ''))
        AND ($4::int IS NULL OR m.factory_id = $4 OR m.factory_id IS NULL)
       WHERE COALESCE(d.is_deleted, false) = false
         AND TRIM(COALESCE(d.mould_no, '')) <> ''
-        AND TRIM(COALESCE(m.mould_name, '')) <> ''
         AND ($1::date IS NULL OR d.dpr_date >= $1::date)
         AND ($2::date IS NULL OR d.dpr_date <= $2::date)
         AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
@@ -14171,26 +14295,65 @@ app.get('/api/reports/mould-wise-qty', async (req, res) => {
           OR TRIM(COALESCE(d.mould_no, '')) ILIKE '%' || $3 || '%'
           OR COALESCE(m.mould_name, '') ILIKE '%' || $3 || '%'
         )
-      GROUP BY TRIM(COALESCE(d.mould_no, '')), COALESCE(m.mould_name, ''), d.dpr_date
+      GROUP BY ${groupParts.join(', ')}
       ORDER BY COALESCE(m.mould_name, ''), TRIM(COALESCE(d.mould_no, '')), d.dpr_date
     `, [from || null, to || null, search || null, requestFactoryId]);
 
     // Group flat rows into one entry per mould.
     const byMould = new Map();
     for (const r of rows) {
-      const key = `${r.mould_no}||${r.mould_name}`;
+      const mouldName = r.mould_name || r.mould_no;
+      const key = `${r.mould_no}||${mouldName}`;
       if (!byMould.has(key)) {
-        byMould.set(key, { mouldNo: r.mould_no, mouldName: r.mould_name, rows: [], grandTotal: 0 });
+        byMould.set(key, { mouldNo: r.mould_no, mouldName, rows: [], grandTotal: 0 });
       }
       const entry = byMould.get(key);
       const day = Number(r.day_qty) || 0;
       const night = Number(r.night_qty) || 0;
       const total = day + night;
-      entry.rows.push({ date: r.dpr_date, day, night, total });
+
+      // STD production per shift = pcs_per_hour * 12, counted per shift present.
+      const pcsPerHour = Number(r.pcs_per_hour) || 0;
+      const shiftsPresent = (day > 0 ? 1 : 0) + (night > 0 ? 1 : 0) || 1;
+      const stdProd = pcsPerHour * 12 * shiftsPresent;
+      const efficiency = stdProd > 0 ? (total / stdProd) * 100 : 0;
+
+      const rejectQty = Number(r.reject_qty) || 0;
+      const rejectPct = (total + rejectQty) > 0
+        ? (rejectQty / (total + rejectQty)) * 100 : 0;
+
+      // Merge per-slot downtime maps -> { reasonCode: minutes }.
+      const dtTotals = {};
+      const breakups = Array.isArray(r.downtime_breakups) ? r.downtime_breakups : [];
+      for (const bk of breakups) {
+        if (!bk || typeof bk !== 'object') continue;
+        for (const code of Object.keys(bk)) {
+          const min = Number(bk[code]);
+          if (min > 0) dtTotals[code] = (dtTotals[code] || 0) + min;
+        }
+      }
+      const downtimeReason = Object.keys(dtTotals)
+        .map(code => `${mouldReasonName(code)} (${dtTotals[code]}m)`)
+        .join(', ');
+
+      entry.rows.push({
+        date: r.dpr_date,
+        day, night, total,
+        orNo: r.or_no || '',
+        jcNo: r.jc_no || '',
+        machine: r.machine || '',
+        colour: r.colour || '',
+        stdProd: Math.round(stdProd),
+        efficiency: Math.round(efficiency * 10) / 10,
+        downtimeMin: Number(r.downtime_min) || 0,
+        downtimeReason,
+        rejectQty,
+        rejectPct: Math.round(rejectPct * 10) / 10
+      });
       entry.grandTotal += total;
     }
 
-    res.json({ ok: true, data: Array.from(byMould.values()) });
+    res.json({ ok: true, fields: activeDims, data: Array.from(byMould.values()) });
   } catch (e) {
     console.error('/api/reports/mould-wise-qty', e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
@@ -14260,7 +14423,22 @@ function mapErpJrStatusRow(r) {
     created_by: r.createdBy,
     created_date: r.createdDate,
     edited_by: r.editedBy,
-    edited_date: r.editedDate
+    edited_date: r.editedDate,
+    // --- additional ERP fields (added on request: capture every column) ---
+    orjr_id: r.orjrid,
+    sno: r.sno,
+    factory_id: r.factoryID,
+    factory: r.factory,
+    moulding: r.moulding,
+    printing: r.printing,
+    packing: r.packing,
+    mld_prt_pack: r.mouldingPrintingPacking,
+    meeting_conclusion: r.meetingConclusion,
+    wh_received_date: r.warehousereceiveddate,
+    shift_remarks: r.shiftingRemarks,
+    plan_qty: r.planQty,
+    plan_date: r.planDate,
+    erp_action: r.action
   };
 }
 
@@ -14271,6 +14449,9 @@ const ERP_JR_SUMMARY_URL = process.env.ERP_JR_SUMMARY_URL
 
 function mapErpJrSummaryRow(r) {
   return {
+    orjr_id: r.orjrid,
+    factory_id: r.factoryID,
+    factory: r.factory,
     or_jr_no: r.orjrNo,
     or_jr_date: r.orjrDate,
     jc_qty: r.jcQty,
@@ -14296,6 +14477,9 @@ const ERP_JR_DETAILS_URL = process.env.ERP_JR_DETAILS_URL
 
 function mapErpJrDetailsRow(r) {
   return {
+    orjr_id: r.orjrid,
+    factory_id: r.factoryID,
+    factory: r.factory,
     or_jr_no: r.orjrNo,
     or_jr_date: r.orjrDate,
     jc_qty: r.jcQty,
@@ -14313,7 +14497,8 @@ function mapErpJrDetailsRow(r) {
     machine: r.machine,
     cycle_time: r.cycleTime,
     cavity: r.cavity,
-    status: r.status
+    status: r.status,
+    erp_action: r.action
   };
 }
 
@@ -14352,6 +14537,11 @@ async function ensureErpReportSchema() {
         updated_at TIMESTAMPTZ DEFAULT now()
       )
     `);
+    // Additive migration: ensure any newly-mapped columns exist on tables
+    // that were created before those columns were added to the mapper.
+    for (const c of ERP_REPORTS[k].columns) {
+      await q(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS "${c}" TEXT`);
+    }
   }
 }
 
@@ -14391,22 +14581,80 @@ async function readErpReport(cfgKey, res) {
   }
 }
 
-// Fetch from ERP and upsert into the store. Keeps existing rows on empty/failure.
-async function syncErpReport(cfgKey) {
-  const cfg = ERP_REPORTS[cfgKey];
+/* ============================================================
+   ERP JWT authentication.
+   The ERP secures every /api/Values/* endpoint with a Bearer JWT.
+   A token is minted by POSTing { UserName } to /api/Auth/token and
+   is valid until `expiresOn` (~30 days). We cache it in memory and
+   refresh a bit early, or immediately on a 401.
+   ============================================================ */
+const ERP_AUTH_URL = process.env.ERP_AUTH_URL
+  || 'http://erp.joyo.in:8464/api/Auth/token';
+const ERP_API_USERNAME = process.env.ERP_API_USERNAME || 'Sanjay';
+
+let _erpTokenCache = { token: null, expiresAt: 0 };
+
+// Fetch (or reuse) a valid ERP JWT. Set force=true to bypass the cache.
+async function getErpToken(force = false) {
+  const now = Date.now();
+  // Reuse cached token until 5 min before expiry.
+  if (!force && _erpTokenCache.token && now < _erpTokenCache.expiresAt - 5 * 60 * 1000) {
+    return _erpTokenCache.token;
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
-  let raw;
+  let body;
   try {
-    const upstream = await fetch(cfg.url, { headers: { Accept: 'application/json' }, signal: controller.signal });
-    if (!upstream.ok) throw new Error(`ERP responded ${upstream.status}`);
-    raw = await upstream.json();
+    const resp = await fetch(ERP_AUTH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: '*/*' },
+      body: JSON.stringify({ UserName: ERP_API_USERNAME }),
+      signal: controller.signal,
+    });
+    body = await resp.json().catch(() => ({}));
   } catch (e) {
-    const msg = e.name === 'AbortError' ? 'ERP request timed out' : String(e.message || e);
-    throw new Error(`Failed to reach ERP: ${msg}`);
+    const msg = e.name === 'AbortError' ? 'ERP auth timed out' : String(e.message || e);
+    throw new Error(`Failed to authenticate with ERP: ${msg}`);
   } finally {
     clearTimeout(timeout);
   }
+  if (!body || !body.success || !body.token) {
+    throw new Error(`ERP auth rejected: ${(body && body.message) || 'no token returned'}`);
+  }
+  const expiresAt = body.expiresOn ? Date.parse(body.expiresOn) : (now + 30 * 60 * 1000);
+  _erpTokenCache = { token: body.token, expiresAt: Number.isFinite(expiresAt) ? expiresAt : now + 30 * 60 * 1000 };
+  return body.token;
+}
+
+// GET an ERP endpoint with a Bearer token, retrying once on a 401 (expired token).
+async function erpAuthedGet(url) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = await getErpToken(attempt > 0); // force refresh on retry
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const upstream = await fetch(url, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
+      if (upstream.status === 401 && attempt === 0) continue; // token stale — refresh & retry
+      if (!upstream.ok) throw new Error(`ERP responded ${upstream.status}`);
+      return await upstream.json();
+    } catch (e) {
+      if (attempt === 0 && e.name !== 'AbortError') continue; // transient — one retry
+      const msg = e.name === 'AbortError' ? 'ERP request timed out' : String(e.message || e);
+      throw new Error(`Failed to reach ERP: ${msg}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw new Error('Failed to reach ERP: exhausted retries');
+}
+
+// Fetch from ERP and upsert into the store. Keeps existing rows on empty/failure.
+async function syncErpReport(cfgKey) {
+  const cfg = ERP_REPORTS[cfgKey];
+  const raw = await erpAuthedGet(cfg.url);
   if (!Array.isArray(raw)) throw new Error('Unexpected ERP response (not an array)');
   // ERP intermittently returns []; do NOT wipe the store — keep what we have.
   if (raw.length === 0) return { skipped: true, inserted: 0, updated: 0, total: 0 };
@@ -16378,7 +16626,7 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
               $8, $9, $10, $11, $12, $13, $14,
               $15, $16, 'BulkUpload', NOW(), 'BulkUpload', NOW(), $17, NOW()
             )
-            ON CONFLICT (or_jr_no, mould_no, COALESCE(plan_date, '1970-01-01'::date))
+            ON CONFLICT (or_jr_no, mould_no)
             DO UPDATE SET
               or_jr_date = EXCLUDED.or_jr_date,
               item_code = EXCLUDED.item_code,
@@ -18949,13 +19197,8 @@ app.post('/api/masters/orjrwisedetail/delete-by-orjr', async (req, res) => {
 app.post('/api/admin/clear-data', async (req, res) => {
   try {
     const { type, username } = req.body;
-    const writeContext = await getWritableFactoryContext(req, 'clear master data');
-    if (!writeContext.ok) {
-      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
-    }
-    const factoryId = writeContext.factoryId;
 
-    // Security: Check Permissions
+    // Security: Check Permissions (needed for every clear, factory-scoped or not)
     if (!username) return res.json({ ok: false, error: 'Authorization required (Missing Username)' });
 
     const u = (await q('SELECT role_code, permissions FROM users WHERE username=$1', [username]))[0];
@@ -18965,6 +19208,28 @@ app.post('/api/admin/clear-data', async (req, res) => {
     const allowed = isAdminLikeRole(u) || (perms.critical_ops && perms.critical_ops.data_wipe);
 
     if (!allowed) return res.json({ ok: false, error: 'Access Denied: Data Wipe permission required' });
+
+    // ERP mirror tables are global (no factory_id column) and keyed on row_key.
+    // They're wiped wholesale rather than scoped to a factory, so they must be
+    // handled BEFORE the factory-context requirement (no factory to select).
+    const ERP_CLEAR_TABLES = {
+      erpjrstatus: 'erp_jr_status',
+      erpjrsummary: 'erp_jr_summary',
+      erpjrdetails: 'erp_jr_details',
+    };
+    if (ERP_CLEAR_TABLES[type]) {
+      const erpTable = ERP_CLEAR_TABLES[type];
+      const del = await pool.query(`DELETE FROM ${erpTable}`);
+      const removed = (del && del.rowCount != null) ? del.rowCount : 0;
+      return res.json({ ok: true, message: `All ${erpTable} data cleared (${removed} row(s) deleted).` });
+    }
+
+    // Factory-scoped master tables require a single writable factory context.
+    const writeContext = await getWritableFactoryContext(req, 'clear master data');
+    if (!writeContext.ok) {
+      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
+    }
+    const factoryId = writeContext.factoryId;
 
     let table = '';
     if (type === 'orders') table = 'orders';
