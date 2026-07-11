@@ -1155,19 +1155,21 @@
             "created_by", "created_date", "edited_by", "edited_date", "erp_action"
           ];
         } else if (currentType === 'erpjrsummary') {
-          // Read-only live ERP feed — one row per mould.
+          // Read-only live ERP feed — one row per mould. Every column the ERP returns.
           cols = [
+            "orjr_id", "factory_id", "factory",
             "or_jr_no", "or_jr_date", "jc_qty", "our_code", "bom_type",
             "item_name", "jr_qty", "uom", "mould_no", "mould",
             "mould_item_qty", "tonnage", "machine", "cycle_time", "cavity"
           ];
         } else if (currentType === 'erpjrdetails') {
-          // Read-only live ERP feed — one row per component item.
+          // Read-only live ERP feed — one row per component item. Every column the ERP returns.
           cols = [
+            "orjr_id", "factory_id", "factory",
             "or_jr_no", "or_jr_date", "jc_qty", "our_code", "bom_type",
             "item_name", "jr_qty", "uom", "c_item_code", "c_item_name",
             "mould_no", "mould", "mould_item_qty", "tonnage", "machine",
-            "cycle_time", "cavity", "status"
+            "cycle_time", "cavity", "status", "erp_action"
           ];
         } else if (currentType === 'orders') {
           // STRICT User Request: "Get All data Same in Or-JR status Dont Change Or dont ADD"
