@@ -10536,7 +10536,10 @@ app.get('/api/planning/orders/:orderNo/batches', async (req, res) => {
         -- BOTH signals (status='REJECTED' and jc_approval_status='REJECTED') because a
         -- plan can be jc-rejected while its status was independently set to Running,
         -- mirroring the planning board and the pending-orders availability check.
-        AND pb.status <> 'REJECTED'
+        -- NULL-safe: plan_board.status is nullable (VARCHAR DEFAULT 'PLANNED'); a bare
+        -- status inequality is NULL for a NULL status and would silently drop a valid
+        -- non-rejected batch, so COALESCE keeps such rows visible.
+        AND COALESCE(pb.status, '') <> 'REJECTED'
         AND UPPER(COALESCE(pb.jc_approval_status, '')) <> 'REJECTED'
         AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
       ORDER BY pb.batch_no ASC, pb.created_at ASC NULLS LAST, pb.id ASC
