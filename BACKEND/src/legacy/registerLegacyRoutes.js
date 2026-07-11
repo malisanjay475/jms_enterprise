@@ -14409,6 +14409,9 @@ const ERP_JR_SUMMARY_URL = process.env.ERP_JR_SUMMARY_URL
 
 function mapErpJrSummaryRow(r) {
   return {
+    orjr_id: r.orjrid,
+    factory_id: r.factoryID,
+    factory: r.factory,
     or_jr_no: r.orjrNo,
     or_jr_date: r.orjrDate,
     jc_qty: r.jcQty,
@@ -14434,6 +14437,9 @@ const ERP_JR_DETAILS_URL = process.env.ERP_JR_DETAILS_URL
 
 function mapErpJrDetailsRow(r) {
   return {
+    orjr_id: r.orjrid,
+    factory_id: r.factoryID,
+    factory: r.factory,
     or_jr_no: r.orjrNo,
     or_jr_date: r.orjrDate,
     jc_qty: r.jcQty,
@@ -14451,7 +14457,8 @@ function mapErpJrDetailsRow(r) {
     machine: r.machine,
     cycle_time: r.cycleTime,
     cavity: r.cavity,
-    status: r.status
+    status: r.status,
+    erp_action: r.action
   };
 }
 
