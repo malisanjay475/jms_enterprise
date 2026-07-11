@@ -1571,6 +1571,23 @@ async function migrateOrjrWiseMasterSchema() {
     `).catch(err => console.warn(`[DB] mould_planning_summary ${column} type migration skipped:`, err.message));
   }
 
+  /* ── Fix: remove duplicate summary rows before enforcing uniqueness ──
+     LOCAL↔MAIN sync formerly upserted this table ON CONFLICT (id); since
+     the serial id diverges between servers, the same OR/mould/plan_date
+     row got inserted twice on LOCAL (report showed it doubled). Collapse
+     each natural-key group down to the freshest row so the unique index
+     below can be created and the doubling is cleared retroactively.
+  ────────────────────────────────────────────────────────────────── */
+  await q(`
+    DELETE FROM mould_planning_summary s
+    WHERE s.id NOT IN (
+      SELECT DISTINCT ON (or_jr_no, mould_no, COALESCE(plan_date, '1970-01-01'::date)) id
+      FROM mould_planning_summary
+      ORDER BY or_jr_no, mould_no, COALESCE(plan_date, '1970-01-01'::date),
+               updated_at DESC NULLS LAST, id DESC
+    )
+  `).catch(err => console.warn('[DB] mould_planning_summary dedup skipped:', err.message));
+
   /* ── Fix: unique index for ON CONFLICT upsert ──────────────────────
      Without this index, ON CONFLICT (or_jr_no, mould_no, plan_date)
      has no constraint to target → PostgreSQL errors / falls through
