@@ -122,7 +122,10 @@ services:
         condition: service_healthy
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@jmsocean.cloud}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:?set PGADMIN_DEFAULT_PASSWORD in .env}
+      # Soft default (NOT :? required) so an unset var never hard-fails the whole
+      # stack's `docker compose up` — staging has no PGADMIN_* in .env. Prod MUST
+      # override this with a strong password in /opt/jms-enterprise/.env.
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-changeme_set_in_env}
       # pgAdmin sits behind Traefik TLS termination; trust the proxy headers.
       PGADMIN_CONFIG_PROXY_X_HOST_COUNT: "1"
       PGADMIN_CONFIG_PROXY_X_PREFIX_COUNT: "1"
