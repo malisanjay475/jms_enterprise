@@ -14514,22 +14514,80 @@ async function readErpReport(cfgKey, res) {
   }
 }
 
-// Fetch from ERP and upsert into the store. Keeps existing rows on empty/failure.
-async function syncErpReport(cfgKey) {
-  const cfg = ERP_REPORTS[cfgKey];
+/* ============================================================
+   ERP JWT authentication.
+   The ERP secures every /api/Values/* endpoint with a Bearer JWT.
+   A token is minted by POSTing { UserName } to /api/Auth/token and
+   is valid until `expiresOn` (~30 days). We cache it in memory and
+   refresh a bit early, or immediately on a 401.
+   ============================================================ */
+const ERP_AUTH_URL = process.env.ERP_AUTH_URL
+  || 'http://erp.joyo.in:8464/api/Auth/token';
+const ERP_API_USERNAME = process.env.ERP_API_USERNAME || 'Sanjay';
+
+let _erpTokenCache = { token: null, expiresAt: 0 };
+
+// Fetch (or reuse) a valid ERP JWT. Set force=true to bypass the cache.
+async function getErpToken(force = false) {
+  const now = Date.now();
+  // Reuse cached token until 5 min before expiry.
+  if (!force && _erpTokenCache.token && now < _erpTokenCache.expiresAt - 5 * 60 * 1000) {
+    return _erpTokenCache.token;
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
-  let raw;
+  let body;
   try {
-    const upstream = await fetch(cfg.url, { headers: { Accept: 'application/json' }, signal: controller.signal });
-    if (!upstream.ok) throw new Error(`ERP responded ${upstream.status}`);
-    raw = await upstream.json();
+    const resp = await fetch(ERP_AUTH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: '*/*' },
+      body: JSON.stringify({ UserName: ERP_API_USERNAME }),
+      signal: controller.signal,
+    });
+    body = await resp.json().catch(() => ({}));
   } catch (e) {
-    const msg = e.name === 'AbortError' ? 'ERP request timed out' : String(e.message || e);
-    throw new Error(`Failed to reach ERP: ${msg}`);
+    const msg = e.name === 'AbortError' ? 'ERP auth timed out' : String(e.message || e);
+    throw new Error(`Failed to authenticate with ERP: ${msg}`);
   } finally {
     clearTimeout(timeout);
   }
+  if (!body || !body.success || !body.token) {
+    throw new Error(`ERP auth rejected: ${(body && body.message) || 'no token returned'}`);
+  }
+  const expiresAt = body.expiresOn ? Date.parse(body.expiresOn) : (now + 30 * 60 * 1000);
+  _erpTokenCache = { token: body.token, expiresAt: Number.isFinite(expiresAt) ? expiresAt : now + 30 * 60 * 1000 };
+  return body.token;
+}
+
+// GET an ERP endpoint with a Bearer token, retrying once on a 401 (expired token).
+async function erpAuthedGet(url) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = await getErpToken(attempt > 0); // force refresh on retry
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const upstream = await fetch(url, {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
+      if (upstream.status === 401 && attempt === 0) continue; // token stale — refresh & retry
+      if (!upstream.ok) throw new Error(`ERP responded ${upstream.status}`);
+      return await upstream.json();
+    } catch (e) {
+      if (attempt === 0 && e.name !== 'AbortError') continue; // transient — one retry
+      const msg = e.name === 'AbortError' ? 'ERP request timed out' : String(e.message || e);
+      throw new Error(`Failed to reach ERP: ${msg}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw new Error('Failed to reach ERP: exhausted retries');
+}
+
+// Fetch from ERP and upsert into the store. Keeps existing rows on empty/failure.
+async function syncErpReport(cfgKey) {
+  const cfg = ERP_REPORTS[cfgKey];
+  const raw = await erpAuthedGet(cfg.url);
   if (!Array.isArray(raw)) throw new Error('Unexpected ERP response (not an array)');
   // ERP intermittently returns []; do NOT wipe the store — keep what we have.
   if (raw.length === 0) return { skipped: true, inserted: 0, updated: 0, total: 0 };
