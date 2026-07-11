@@ -1578,8 +1578,9 @@ async function migrateOrjrWiseMasterSchema() {
      whenever the JR Date changed between uploads/syncs (the "double").
      The summary is meant to be one row per mould per OR (the rest of the
      app already pre-aggregates it that way), so the identity drops
-     plan_date. Collapse existing dupes to the most recently written row
-     before rebuilding the unique index on the new key.
+     plan_date. Collapse existing dupes to the row with the latest JR Date
+     (tie-broken by most recently written) before rebuilding the unique
+     index on the new key.
   ────────────────────────────────────────────────────────────────── */
   await q(`
     DELETE FROM mould_planning_summary s
@@ -1587,7 +1588,7 @@ async function migrateOrjrWiseMasterSchema() {
       SELECT DISTINCT ON (or_jr_no, mould_no) id
       FROM mould_planning_summary
       ORDER BY or_jr_no, mould_no,
-               updated_at DESC NULLS LAST, or_jr_date DESC NULLS LAST, id DESC
+               or_jr_date DESC NULLS LAST, updated_at DESC NULLS LAST, id DESC
     )
   `).catch(err => console.warn('[DB] mould_planning_summary dedup skipped:', err.message));
 
