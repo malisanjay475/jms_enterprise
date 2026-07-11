@@ -180,7 +180,11 @@ const CONFLICT_KEYS = {
     shift_teams: 'line, shift_date, shift',
     closed_plants: 'factory_id, dpr_date, plant, shift',
     machine_audit_logs: 'sync_id',
-    notifications: 'target_user, type, title, created_at',
+    // notifications sync identity is sync_id (backed by uq_sync_id_notifications,
+    // built in ensureSyncIdSchema). The old 4-column natural key emitted
+    // ON CONFLICT (target_user, type, title, created_at) which matched no index
+    // on servers where uq_sync_conflict_notifications was never created (42P10).
+    notifications: 'sync_id',
     order_completion_history: 'factory_id, order_no, action_type, changed_at',
     raw_material_issues: 'factory_id, plan_id, created_at',
     wip_stock_movements: 'factory_id, source_type, source_ref, movement_type, created_at',
