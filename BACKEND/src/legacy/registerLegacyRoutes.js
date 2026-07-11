@@ -10530,6 +10530,14 @@ app.get('/api/planning/orders/:orderNo/batches', async (req, res) => {
       FROM plan_board pb
       WHERE TRIM(COALESCE(pb.order_no, '')) = TRIM($1)
         AND COALESCE(pb.batch_no, 0) > 0
+        -- Hide rejected plans from "Created Job Plans": once PPC/Moulding rejects a job
+        -- card the plan is no longer a valid job plan, so it must drop off the Create
+        -- Plan screen instead of lingering as a ghost card. Rejection is detected by
+        -- BOTH signals (status='REJECTED' and jc_approval_status='REJECTED') because a
+        -- plan can be jc-rejected while its status was independently set to Running,
+        -- mirroring the planning board and the pending-orders availability check.
+        AND pb.status <> 'REJECTED'
+        AND UPPER(COALESCE(pb.jc_approval_status, '')) <> 'REJECTED'
         AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
       ORDER BY pb.batch_no ASC, pb.created_at ASC NULLS LAST, pb.id ASC
     `, [orderNo, factoryId || null]);
