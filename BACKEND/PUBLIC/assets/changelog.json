@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.1.0",
+  "latest": "1.2.0",
   "versions": [
+    {
+      "version": "1.2.0",
+      "date": "2026-07-12",
+      "title": "ORJR Wise Summary row delete",
+      "summary": "You can now remove individual rows from the ORJR Wise Summary, just like the ORJR Wise Detail view.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-sliders",
+          "changes": [
+            { "type": "feat", "text": "Added a delete button on each ORJR Wise Summary row so you can remove a single row you no longer need." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.1.0",
       "date": "2026-07-05",
