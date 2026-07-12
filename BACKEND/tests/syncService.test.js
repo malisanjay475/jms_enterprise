@@ -299,3 +299,88 @@ describe('Sync service JSONB array coercion', () => {
     expect(Array.isArray(rows[0].colour_details)).toBe(true);
   });
 });
+
+describe('Sync service plan_board resurrection guard', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  // A plan_board schema with the columns upsertData filters against.
+  function makePool(clientQuery) {
+    const query = jest.fn(async (sql) => {
+      const text = String(sql);
+      if (text.includes("data_type IN ('json', 'jsonb')")) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (text.includes('information_schema.columns')) {
+        return {
+          rows: ['plan_id', 'updated_at', 'status', 'mould_name'].map((c) => ({ column_name: c })),
+          rowCount: 4
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    const client = { query: clientQuery, release: jest.fn() };
+    return { pool: { query, connect: jest.fn(async () => client) }, client };
+  }
+
+  it('skips an incoming plan_board row when a tombstone is at least as new as its edit', async () => {
+    const syncService = require('../services/sync.service');
+    const insertCalls = [];
+    const clientQuery = jest.fn(async (sql) => {
+      const text = String(sql);
+      if (text.includes('FROM sync_deletions')) {
+        return { rows: [{ '?column?': 1 }], rowCount: 1 };
+      }
+      if (text.includes('INSERT INTO plan_board')) {
+        insertCalls.push(text);
+        return { rows: [{ inserted: true }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    const { pool } = makePool(clientQuery);
+    syncService.__test.setRuntimeForTests({ pool });
+
+    const stats = await syncService.__test.upsertData('plan_board', [
+      { plan_id: 'PLN-2627-0989', updated_at: '2026-07-11T09:00:00.000Z', status: 'Planned' }
+    ]);
+
+    expect(stats.skipped).toBe(1);
+    expect(stats.created).toBe(0);
+    expect(stats.updated).toBe(0);
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it('inserts an incoming plan_board row when no tombstone exists', async () => {
+    const syncService = require('../services/sync.service');
+    const insertCalls = [];
+    const clientQuery = jest.fn(async (sql) => {
+      const text = String(sql);
+      if (text.includes('FROM sync_deletions')) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (text.includes('INSERT INTO plan_board')) {
+        insertCalls.push(text);
+        return { rows: [{ inserted: true }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    const { pool } = makePool(clientQuery);
+    syncService.__test.setRuntimeForTests({ pool });
+
+    const stats = await syncService.__test.upsertData('plan_board', [
+      { plan_id: 'PLN-2627-0989', updated_at: '2026-07-11T09:00:00.000Z', status: 'Planned' }
+    ]);
+
+    expect(stats.skipped).toBe(0);
+    expect(stats.created).toBe(1);
+    expect(insertCalls).toHaveLength(1);
+  });
+});

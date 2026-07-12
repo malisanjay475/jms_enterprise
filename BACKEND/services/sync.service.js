@@ -1482,7 +1482,7 @@ async function upsertData(table, data) {
 
     const MAX_RETRIES = 3;
     let attempt = 0;
-    const stats = { created: 0, updated: 0, failed: 0 };
+    const stats = { created: 0, updated: 0, failed: 0, skipped: 0 };
     const tableColumns = await getTableColumns(table);
     const hasUpdatedAtColumn = tableColumns.has('updated_at');
     if (tableColumns.size === 0) {
@@ -1555,6 +1555,28 @@ async function upsertData(table, data) {
                 const idx = keys.map((_, i) => `$${i + 1}`);
                 const setClause = keys.map((k) => `${k} = EXCLUDED.${k}`).join(', ');
                 const conflictKey = RAW_CONFLICT_TARGETS[table] || conflictColumns.join(', ');
+
+                // plan_board resurrection guard. When a plan was deleted on THIS server,
+                // the incoming row hits no ON CONFLICT target and would be re-INSERTed —
+                // silently resurrecting a plan the user removed, which drives the
+                // LOCAL<->MAIN create/delete churn. If a tombstone for this plan_id is at
+                // least as new as the incoming row's own edit, the delete wins: skip it.
+                // A row edited strictly AFTER the delete (updated_at > deleted_at) is a
+                // genuine newer intent and still passes through.
+                if (table === 'plan_board') {
+                    const tomb = await client.query(
+                        `SELECT 1 FROM sync_deletions
+                          WHERE table_name = 'plan_board'
+                            AND record_pk = $1
+                            AND deleted_at >= COALESCE($2::timestamptz, deleted_at)
+                          LIMIT 1`,
+                        [String(row.plan_id), row.updated_at ?? null]
+                    );
+                    if (tomb.rowCount > 0) {
+                        stats.skipped += 1;
+                        continue;
+                    }
+                }
 
                 let whereClause = hasUpdatedAtColumn
                     ? `WHERE (EXCLUDED.updated_at > ${table}.updated_at OR ${table}.updated_at IS NULL)`
@@ -2439,6 +2461,7 @@ module.exports = {
         rowRecordPk,
         pushRowsToMain,
         coerceJsonColumnsForWire,
+        upsertData,
         setRuntimeForTests
     }
 };
