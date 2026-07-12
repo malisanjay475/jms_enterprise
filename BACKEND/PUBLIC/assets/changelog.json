@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.2.0",
+  "latest": "1.2.1",
   "versions": [
+    {
+      "version": "1.2.1",
+      "date": "2026-07-12",
+      "title": "Planning stability",
+      "summary": "Cleared plans now stay cleared, and every plan deletion records who did it.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-calendar-week",
+          "changes": [
+            { "type": "fix", "text": "Fixed deleted plans reappearing after a factory-server sync." },
+            { "type": "improvement", "text": "Plan deletions now record the actual user who cleared the plan instead of showing 'System'." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.2.0",
       "date": "2026-07-12",
