@@ -14502,6 +14502,64 @@ function mapErpJrDetailsRow(r) {
   };
 }
 
+// GET /api/reports/erp-bom
+// ERP endpoint takes no params and returns a flat JSON array (one row per BOM raw-material line).
+const ERP_BOM_URL = process.env.ERP_BOM_URL
+  || 'http://erp.joyo.in:8464/api/Values/GetBOM';
+
+function mapErpBomRow(r) {
+  return {
+    item_id: r.itemID,
+    bom_item_type: r.bomItemType,
+    bom_item_code: r.bomItemCode,
+    bom_item_name: r.bomItemName,
+    bom_item_weight_kgs: r.bomItemWeightInKgs,
+    bom_uom: r.bomuom,
+    bom_type: r.bomType,
+    bom_quantity: r.bomQuantity,
+    rm_item_type: r.rmItemType,
+    rm_item_code: r.rmItemCode,
+    rm_item_name: r.rmItemName,
+    rm_sr_no: r.rmsrno,
+    rm_item_weight_kgs: r.rmItemWeightInKgs,
+    rm_item_uom: r.rmItemUOM,
+    rm_item_quantity: r.rmItemQuantity,
+    has_bom: r.hasBOM,
+    grinding_item_code: r.grindingItemCode,
+    grinding_item_name: r.grindingItemName,
+    grinding_percentage: r.grindingPercentage,
+    alt_items: r.altItems,
+    bom_status: r.bomStatus,
+    erp_action: r.action
+  };
+}
+
+// GET /api/reports/erp-mould-item
+// ERP endpoint takes no params and returns a flat JSON array (one row per mould/our-code line).
+const ERP_MOULD_ITEM_URL = process.env.ERP_MOULD_ITEM_URL
+  || 'http://erp.joyo.in:8464/api/Values/GetMouldItemMaster';
+
+function mapErpMouldItemRow(r) {
+  return {
+    mould_id: r.mouldID,
+    mould_code: r.mould_code,
+    mould_name: r.mould_name,
+    factory: r.factory,
+    our_code: r.ourCode,
+    our_name: r.ourName,
+    linked_item_code: r.linked_item_code,
+    linked_variant_code: r.linked_variant_code,
+    cavity_count: r.cavity_count,
+    tonnage: r.tonnage,
+    mould_loading_time: r.mouldLoadingTime,
+    mould_unloading_time: r.mouldUnloadingTime,
+    mould_type: r.mould_type,
+    location: r.location,
+    status: r.status,
+    erp_action: r.action
+  };
+}
+
 /* ============================================================
    ERP JR REPORTS — persisted store (DB-backed, upsert on fetch)
    ------------------------------------------------------------
@@ -14517,6 +14575,8 @@ const ERP_REPORTS = {
   status:  { table: 'erp_jr_status',  url: ERP_JR_STATUS_URL,  mapRow: mapErpJrStatusRow,  keyCols: ['or_jr_no', 'job_card_no', 'item_code'] },
   summary: { table: 'erp_jr_summary', url: ERP_JR_SUMMARY_URL, mapRow: mapErpJrSummaryRow, keyCols: ['or_jr_no', 'mould_no', 'our_code'] },
   details: { table: 'erp_jr_details', url: ERP_JR_DETAILS_URL, mapRow: mapErpJrDetailsRow, keyCols: ['or_jr_no', 'mould_no', 'c_item_code'] },
+  bom:       { table: 'erp_bom',        url: ERP_BOM_URL,        mapRow: mapErpBomRow,       keyCols: ['bom_item_code', 'rm_item_code', 'rm_sr_no'] },
+  mouldItem: { table: 'erp_mould_item', url: ERP_MOULD_ITEM_URL, mapRow: mapErpMouldItemRow, keyCols: ['mould_code', 'our_code'] },
 };
 // Column list is derived from the mapper so schema + upsert always match it.
 for (const k of Object.keys(ERP_REPORTS)) {
@@ -14711,11 +14771,15 @@ async function handleErpSync(cfgKey, req, res) {
 app.get('/api/reports/erp-jr-status',  (req, res) => readErpReport('status', res));
 app.get('/api/reports/erp-jr-summary', (req, res) => readErpReport('summary', res));
 app.get('/api/reports/erp-jr-details', (req, res) => readErpReport('details', res));
+app.get('/api/reports/erp-bom',        (req, res) => readErpReport('bom', res));
+app.get('/api/reports/erp-mould-item', (req, res) => readErpReport('mouldItem', res));
 
 // Sync routes (superadmin-only "Fetch Latest Data").
 app.post('/api/reports/erp-jr-status/sync',  (req, res) => handleErpSync('status', req, res));
 app.post('/api/reports/erp-jr-summary/sync', (req, res) => handleErpSync('summary', req, res));
 app.post('/api/reports/erp-jr-details/sync', (req, res) => handleErpSync('details', req, res));
+app.post('/api/reports/erp-bom/sync',        (req, res) => handleErpSync('bom', req, res));
+app.post('/api/reports/erp-mould-item/sync', (req, res) => handleErpSync('mouldItem', req, res));
 
 // POST /api/upload/excel (Mock - requires 'xlsx' library for real parsing)
 app.post('/api/upload/excel', async (req, res) => {
