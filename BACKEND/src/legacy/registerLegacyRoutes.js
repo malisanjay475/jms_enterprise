@@ -15392,6 +15392,7 @@ app.get('/api/reports/orjr-wise-summary', async (req, res) => {
 
     let query = `
       SELECT
+        s.id,
         s.factory_id,
         s.or_jr_no,
         s.or_jr_date AS jr_date,
@@ -19188,6 +19189,29 @@ app.post('/api/masters/orjrwisedetail/delete-by-orjr', async (req, res) => {
     );
     const deleted = result.rowCount ?? (Array.isArray(result) ? result.length : 0);
     res.json({ ok: true, deleted, message: `Deleted ${deleted} row(s) for OR/JR No: ${or_jr_no}` });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+app.post('/api/masters/orjrwise/delete-row', async (req, res) => {
+  try {
+    const writeContext = await getWritableFactoryContext(req, 'delete OR/JR Wise Summary');
+    if (!writeContext.ok) return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
+    const factoryId = writeContext.factoryId;
+
+    const id = parseInt(req.body.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: 'id is required' });
+
+    const result = await q(
+      `DELETE FROM mould_planning_summary
+       WHERE id = $1
+         AND ($2::int IS NULL OR factory_id = $2)`,
+      [id, factoryId]
+    );
+    const deleted = result.rowCount ?? (Array.isArray(result) ? result.length : 0);
+    if (!deleted) return res.status(404).json({ ok: false, error: 'Row not found (or outside your factory scope)' });
+    res.json({ ok: true, deleted, message: `Deleted row id ${id}` });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }

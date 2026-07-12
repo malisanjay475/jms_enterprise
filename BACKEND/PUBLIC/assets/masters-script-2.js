@@ -1114,7 +1114,7 @@
             cols = ['actions', ...cols];
           }
         } else if (currentType === 'orjrwise') {
-          cols = ['factory_name', ...orjrWiseSummaryColumns].filter(c => cols.includes(c));
+          cols = ['actions', 'factory_name', ...orjrWiseSummaryColumns].filter(c => c === 'actions' || cols.includes(c));
         } else if (currentType === 'orjrwisedetail') {
           cols = ['actions', 'factory_name', ...orjrWiseDetailColumns].filter(c => c === 'actions' || cols.includes(c));
         } else if (currentType === 'jcdetails') {
@@ -1303,6 +1303,11 @@
                             <button onclick="openMachineModal('edit', JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon"><i class="bi bi-pencil-square text-blue-600"></i></button>
                             <button onclick="viewMachineHistory('${machineId}')" class="btn-action-icon" title="History"><i class="bi bi-clock-history text-gray-600"></i></button>
                         </div>`;
+              } else if (currentType === 'orjrwise') {
+                if (!canWriteCurrentFactoryScope()) {
+                  return `<span style="color:#94a3b8; font-size:0.74rem; white-space:nowrap;">${getWriteLockShortHint()}</span>`;
+                }
+                return `<button onclick="deleteOrJrSummary('${row.id}')" class="btn-action-icon" style="color:#dc2626" title="Delete this row"><i class="bi bi-trash"></i></button>`;
               } else if (currentType === 'orjrwisedetail') {
                 if (!canWriteCurrentFactoryScope()) {
                   return `<span style="color:#94a3b8; font-size:0.74rem; white-space:nowrap;">${getWriteLockShortHint()}</span>`;
@@ -2418,6 +2423,22 @@
         const res = await JPSMS.api.post('/masters/orjrwisedetail/delete-by-orjr', { or_jr_no: orJrNo });
         if (res.ok) {
           alert(`Deleted ${res.deleted || 0} row(s) for OR/JR No: ${orJrNo}`);
+          loadMasterData();
+        } else {
+          alert('Error: ' + (res.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function deleteOrJrSummary(id) {
+      if (!ensureSingleFactoryScope('delete OR/JR Wise Summary records')) return;
+      if (!confirm('Delete this OR/JR Wise Summary row?\n\nThis cannot be undone.')) return;
+      try {
+        const res = await JPSMS.api.post('/masters/orjrwise/delete-row', { id });
+        if (res.ok) {
+          JPSMS.toast('Row deleted', 'success');
           loadMasterData();
         } else {
           alert('Error: ' + (res.error || 'Unknown error'));
