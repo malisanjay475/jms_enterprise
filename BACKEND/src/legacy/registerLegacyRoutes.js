@@ -11055,19 +11055,19 @@ app.post('/api/planning/delete', async (req, res) => {
     const { rowId } = req.body || {};
     if (!rowId) return res.json({ ok: false, error: 'Missing rowId' });
 
+    const actor = getRequestUsername(req) || 'System';
+
     // 1. Fetch before delete for logging
     const check = await q('SELECT * FROM plan_board WHERE id = $1', [rowId]);
     if (check.length) {
       const p = check[0];
       // Log DELETE
       await q(
-        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'DELETE', $2, 'System')",
-        [rowId, JSON.stringify({ machine: p.machine, order: p.order_no })]
+        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'DELETE', $2, $3)",
+        [rowId, JSON.stringify({ machine: p.machine, order: p.order_no }), actor]
       );
     }
 
-    // 2. Delete
-    await q('DELETE FROM plan_board WHERE id = $1', [rowId]);
     // 2. Delete
     await q('DELETE FROM plan_board WHERE id = $1', [rowId]);
 
@@ -12659,23 +12659,6 @@ app.get('/api/planning/cycle-prediction', async (req, res) => {
 });
 
 
-
-// POST /api/planning/delete
-app.post('/api/planning/delete', async (req, res) => {
-  try {
-    const { rowId } = req.body || {};
-    if (!rowId) return res.json({ ok: false, error: 'Missing rowId' });
-    const rows = await q(`DELETE FROM plan_board WHERE id = $1 RETURNING id`, [rowId]);
-    if (!rows.length) return res.json({ ok: false, error: 'Plan not found or already deleted' });
-    // [Real-Time Sync]
-    syncService.triggerSync();
-
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('planning/delete', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
 
 /* =========================
    JOB CARD APIs
