@@ -51,82 +51,58 @@
 
 * {
   box-sizing: border-box;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(2, 76, 129, 0.78) rgba(7, 36, 80, 0.08);
 }
 
-*::-webkit-scrollbar {
-  width: var(--scrollbar-size);
-  height: var(--scrollbar-size);
-}
-
-*::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-  border-radius: 999px;
-  border: 1px solid rgba(2, 76, 129, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
-}
-
-*::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 999px;
-  border: 2px solid rgba(246, 251, 255, 0.9);
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 0.45),
-    0 6px 14px rgba(2, 76, 129, 0.18);
-  transition:
-    background var(--motion-duration-fast) ease,
-    transform var(--motion-duration-fast) ease,
-    box-shadow var(--motion-duration-fast) ease;
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 0.52),
-    0 10px 18px rgba(2, 76, 129, 0.24);
-}
-
-*::-webkit-scrollbar-thumb:active {
-  background: linear-gradient(180deg, rgba(2, 76, 129, 1) 0%, rgba(0, 146, 158, 1) 100%);
-}
-
-*::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
+/* Custom scrollbars only on the app chrome; everything else uses the
+   browser default so scrolling large tables stays cheap. */
 .sidebar,
 .nav-links,
 .nav-sub,
-.user-profile {
-  scrollbar-color: rgba(1, 168, 221, 0.92) rgba(255, 255, 255, 0.08);
+.user-profile,
+.main-content {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(2, 76, 129, 0.6) transparent;
+}
+
+.sidebar::-webkit-scrollbar,
+.nav-links::-webkit-scrollbar,
+.nav-sub::-webkit-scrollbar,
+.user-profile::-webkit-scrollbar,
+.main-content::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
 }
 
 .sidebar::-webkit-scrollbar-track,
 .nav-links::-webkit-scrollbar-track,
 .nav-sub::-webkit-scrollbar-track,
-.user-profile::-webkit-scrollbar-track {
-  background: var(--scrollbar-track-dark);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+.user-profile::-webkit-scrollbar-track,
+.main-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar::-webkit-scrollbar-thumb,
+.nav-links::-webkit-scrollbar-thumb,
+.nav-sub::-webkit-scrollbar-thumb,
+.user-profile::-webkit-scrollbar-thumb,
+.main-content::-webkit-scrollbar-thumb {
+  background: rgba(2, 76, 129, 0.55);
+  border-radius: 999px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover,
+.nav-links::-webkit-scrollbar-thumb:hover,
+.nav-sub::-webkit-scrollbar-thumb:hover,
+.user-profile::-webkit-scrollbar-thumb:hover,
+.main-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(1, 168, 221, 0.8);
 }
 
 .sidebar::-webkit-scrollbar-thumb,
 .nav-links::-webkit-scrollbar-thumb,
 .nav-sub::-webkit-scrollbar-thumb,
 .user-profile::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb-dark);
-  border-color: rgba(4, 20, 39, 0.64);
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 0.32),
-    0 8px 18px rgba(0, 0, 0, 0.22);
-}
-
-.sidebar::-webkit-scrollbar-thumb:hover,
-.nav-links::-webkit-scrollbar-thumb:hover,
-.nav-sub::-webkit-scrollbar-thumb:hover,
-.user-profile::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(250, 172, 36, 0.98) 0%, rgba(1, 168, 221, 0.98) 42%, rgba(2, 76, 129, 1) 100%);
+  background: rgba(1, 168, 221, 0.7);
 }
 
 .main-content,
@@ -145,14 +121,12 @@ body {
     radial-gradient(circle at bottom right, rgba(250, 172, 36, 0.12), transparent 28%),
     linear-gradient(180deg, #f8fdff 0%, #eef7fa 48%, #edf4f8 100%);
   background-size: 120% 120%, 120% 120%, 100% 100%;
-  background-attachment: fixed;
   color: var(--text-main);
   margin: 0;
   padding: 0;
   height: 100vh;
   display: flex;
   overflow: hidden;
-  animation: ambientCanvasShift 18s ease-in-out infinite alternate;
 }
 
 /* Sidebar (Dark Theme) */
@@ -720,28 +694,9 @@ body.viewport-short .header {
   isolation: isolate;
 }
 
-.card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--motion-sheen);
-  opacity: 0;
-  transform: translateX(-125%);
-  transition:
-    transform 900ms var(--motion-ease-premium),
-    opacity var(--motion-duration-fast) ease;
-  pointer-events: none;
-}
-
 .card:hover {
-  transform: translateY(-4px);
   box-shadow: var(--shadow-premium);
   border-color: rgba(1, 168, 221, 0.22);
-}
-
-.card:hover::after {
-  opacity: 0.8;
-  transform: translateX(125%);
 }
 
 /* Tables */
@@ -965,27 +920,16 @@ tbody tr {
 }
 
 .sidebar-unit-card:hover {
-  transform: translateY(-2px);
   box-shadow: 0 16px 28px rgba(1, 10, 30, 0.18);
   border-color: rgba(108, 230, 245, 0.16);
 }
 
 tbody tr:hover {
-  transform: translateX(3px);
+  background-color: rgba(1, 168, 221, 0.06);
 }
 
 .mobile-nav .nav-item:hover {
   transform: translateY(-3px);
-}
-
-@keyframes ambientCanvasShift {
-  from {
-    background-position: 0% 0%, 100% 100%, 0% 0%;
-  }
-
-  to {
-    background-position: 10% 8%, 92% 90%, 0% 0%;
-  }
 }
 
 @keyframes premiumShellSlideIn {
