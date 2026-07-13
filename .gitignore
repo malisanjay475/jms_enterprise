@@ -53,14 +53,22 @@ restore/
 seed/*.dump
 seed/*.backup
 
-# Environment Variables
+# Environment Variables & Secrets (never commit real values)
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-*.env.example
-! .env.example
+.env.*
+*.env
+*.env.backup*
+.env.backup*
+*.env.bak
+# Local credential / secret files
+secrets.*
+*credentials*.json
+*.pem
+*.key
+# Allow committed example templates only
+!*.example
+!.env.example
+!.env.*.example
 !BACKEND/.env.local-v1.example
 !scripts/github-actions.secrets.env.example
 

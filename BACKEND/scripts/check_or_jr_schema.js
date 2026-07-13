@@ -1,5 +1,5 @@
 const { Pool } = require('pg');
-const pool = new Pool({ host: 'localhost', port: 5432, user: 'postgres', password: 'Sanjay@541##', database: 'jpsms' });
+const pool = new Pool({ host: 'localhost', port: 5432, user: 'postgres', password: process.env.PGPASSWORD || '', database: 'jpsms' });
 async function checkSchema() {
     try {
         const res = await pool.query("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'or_jr_report'");

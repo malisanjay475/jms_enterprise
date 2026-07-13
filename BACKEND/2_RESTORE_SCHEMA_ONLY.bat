@@ -8,7 +8,7 @@ echo WARNING: This might overwrite existing tables!
 echo.
 
 set PGUSER=postgres
-set PGPASSWORD=Sanjay@541##
+if "%PGPASSWORD%"=="" set /p PGPASSWORD=Enter Postgres password:
 set PGHOST=localhost
 set PGDATABASE=jpsms
 set INPUT_FILE=jpsms_schema_only.sql

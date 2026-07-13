@@ -4,7 +4,7 @@
   Requires Docker Desktop running. Reaches the PC's Postgres via host.docker.internal.
 
   Example:
-    .\scripts\export-db-via-docker.ps1 -Password 'Sanjay@541##'
+    .\scripts\export-db-via-docker.ps1 -Password '<your-db-password>'
 #>
 param(
   [string]$PgHost = "host.docker.internal",
