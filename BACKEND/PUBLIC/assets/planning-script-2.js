@@ -1244,6 +1244,198 @@
 
     })();
 
+    /* =====================================================================
+       EDIT PLAN MODAL — Superadmin only
+       Lets the superadmin correct plan qty / job qty / batch qty, per-colour
+       qty breakdown, item/mould selection, and dates on an already-created
+       plan (e.g. fixing a wrong colour/qty picked at creation time).
+    ===================================================================== */
+    (function () {
+      const MODAL_ID = 'editPlanModal';
+
+      function _ensureEditPlanModal() {
+        if (document.getElementById(MODAL_ID)) return;
+        const el = document.createElement('div');
+        el.id = MODAL_ID;
+        el.style.cssText = 'display:none; position:fixed; inset:0; z-index:9800; background:rgba(15,23,42,.55); align-items:center; justify-content:center;';
+        el.innerHTML = `
+          <div style="background:#fff; border-radius:14px; width:900px; max-width:96vw; max-height:92vh; display:flex; flex-direction:column; box-shadow:0 24px 64px rgba(0,0,0,.22); overflow:hidden;">
+            <div style="background:linear-gradient(135deg,#92400e,#f59e0b); padding:16px 20px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
+              <div>
+                <div style="font-size:0.72rem; font-weight:800; color:#fef3c7; letter-spacing:.1em; text-transform:uppercase">Superadmin Override</div>
+                <div style="font-size:1.15rem; font-weight:900; color:#fff; margin-top:2px"><i class="bi bi-pencil-square"></i> Edit Plan</div>
+              </div>
+              <div id="editPlanOrderLabel" style="font-size:0.9rem; font-weight:700; color:#fffbeb; text-align:right"></div>
+              <button onclick="window.closeEditPlanModal()" style="background:rgba(255,255,255,.15); border:none; color:#fff; width:32px; height:32px; border-radius:8px; cursor:pointer; font-size:1.1rem; display:flex; align-items:center; justify-content:center;">&times;</button>
+            </div>
+            <div style="background:#fef3c7; border-bottom:1px solid #fbbf24; padding:9px 20px; display:flex; align-items:center; gap:8px; flex-shrink:0;">
+              <i class="bi bi-exclamation-triangle-fill" style="color:#d97706; font-size:1.1rem"></i>
+              <span style="font-size:0.82rem; font-weight:600; color:#92400e;">This directly corrects the plan record (qty, colour, item/mould, dates). Changes are logged with your username for audit.</span>
+            </div>
+            <div style="overflow-y:auto; flex:1; padding:16px 20px;">
+              <div id="editPlanBody">
+                <div style="text-align:center; padding:40px; color:#94a3b8">Loading plan data…</div>
+              </div>
+            </div>
+            <div style="padding:14px 20px; border-top:1px solid #f1f5f9; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; background:#fafafa;">
+              <div id="editPlanStatus" style="font-size:0.82rem; color:#64748b"></div>
+              <div style="display:flex; gap:10px;">
+                <button onclick="window.closeEditPlanModal()" style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0; border-radius:8px; padding:8px 18px; font-weight:700; cursor:pointer;">Cancel</button>
+                <button id="editPlanApplyBtn" onclick="window.applyEditPlan()" style="background:#b45309; color:#fff; border:none; border-radius:8px; padding:8px 22px; font-weight:800; cursor:pointer;"><i class="bi bi-check2-all"></i> Apply Changes</button>
+              </div>
+            </div>
+          </div>`;
+        document.body.appendChild(el);
+        el.addEventListener('click', function (e) {
+          if (e.target === this) window.closeEditPlanModal();
+        });
+      }
+
+      let _epState = { rowId: null, orderNo: '', machine: '', plan: null };
+
+      window.openEditPlanModal = async function (rowId, planIdStr, orderNo, machine) {
+        _ensureEditPlanModal();
+        const modal = document.getElementById(MODAL_ID);
+
+        let callerRole = '';
+        try {
+          callerRole = String(window.JPSMS.auth.getUser().role_code || '').toLowerCase();
+          if (callerRole !== 'superadmin') { alert('Edit Plan is for Superadmin only.'); return; }
+        } catch (_) { alert('Cannot verify role.'); return; }
+
+        _epState = { rowId, orderNo, machine, plan: null };
+        document.getElementById('editPlanOrderLabel').textContent = `OR: ${orderNo}  |  Machine: ${machine}`;
+        document.getElementById('editPlanBody').innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8">Loading plan data…</div>';
+        document.getElementById('editPlanStatus').textContent = '';
+        modal.style.display = 'flex';
+
+        try {
+          const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          const res = await api.get(`/planning/plan/${encodeURIComponent(rowId)}`);
+          if (!res || !res.ok || !res.plan) {
+            document.getElementById('editPlanBody').innerHTML = `<div style="text-align:center;padding:40px;color:#ef4444">Could not load plan.</div>`;
+            return;
+          }
+          _epState.plan = res.plan;
+          renderEditPlanForm(res.plan);
+        } catch (e) {
+          document.getElementById('editPlanBody').innerHTML = `<div style="text-align:center;padding:40px;color:#ef4444">Error loading plan: ${e.message || e}</div>`;
+        }
+      };
+
+      function renderEditPlanForm(plan) {
+        const escH = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+        const fieldS = 'width:100%; border:1px solid #e2e8f0; border-radius:8px; padding:8px 10px; font-size:0.92rem; font-weight:600; color:#1e293b;';
+        const labS = 'font-size:0.72rem; font-weight:800; color:#92400e; text-transform:uppercase; letter-spacing:.04em; margin-bottom:4px; display:block;';
+        const toDateInput = (v) => v ? String(v).slice(0, 10) : '';
+
+        let html = `
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:16px;">
+            <div><label style="${labS}">Plan Qty</label><input id="epPlanQty" type="number" min="0" value="${Number(plan.planQty || 0)}" style="${fieldS}"></div>
+            <div><label style="${labS}">Job Qty</label><input id="epJobQty" type="number" min="0" value="${Number(plan.jobQty || 0)}" style="${fieldS}"></div>
+            <div><label style="${labS}">Batch Qty</label><input id="epBatchQty" type="number" min="0" value="${Number(plan.batchQty || 0)}" style="${fieldS}"></div>
+            <div><label style="${labS}">Item Code</label><input id="epItemCode" type="text" value="${escH(plan.itemCode)}" style="${fieldS}"></div>
+            <div style="grid-column:span 2;"><label style="${labS}">Item Name</label><input id="epItemName" type="text" value="${escH(plan.itemName)}" style="${fieldS}"></div>
+            <div><label style="${labS}">Mould Name</label><input id="epMouldName" type="text" value="${escH(plan.mouldName)}" style="${fieldS}"></div>
+            <div><label style="${labS}">Mould Code</label><input id="epMouldCode" type="text" value="${escH(plan.mouldCode)}" style="${fieldS}"></div>
+            <div></div>
+            <div><label style="${labS}">Start Date</label><input id="epStartDate" type="date" value="${toDateInput(plan.startDate)}" style="${fieldS}"></div>
+            <div><label style="${labS}">End Date</label><input id="epEndDate" type="date" value="${toDateInput(plan.endDate)}" style="${fieldS}"></div>
+          </div>`;
+
+        const colours = Array.isArray(plan.colourDetails) ? plan.colourDetails : [];
+        if (colours.length) {
+          const thS = 'padding:10px 14px; background:#fef3c7; color:#92400e; font-weight:800; font-size:0.78rem; text-transform:uppercase; border:1px solid #fde68a; text-align:left;';
+          const tdS = 'padding:9px 14px; border:1px solid #e2e8f0; font-size:0.9rem; vertical-align:middle;';
+          html += `<div style="font-size:0.78rem; font-weight:800; color:#92400e; text-transform:uppercase; margin-bottom:8px;">Colour-wise Qty</div>
+            <table style="border-collapse:collapse; width:100%">
+              <thead><tr><th style="${thS}">Colour</th><th style="${thS}; text-align:right">Qty</th></tr></thead>
+              <tbody>`;
+          colours.forEach((c, i) => {
+            const name = c.colourName || c.itemColour || c.colour || c.color || c.name || '';
+            const qty = c.planQty ?? c.batchQty ?? c.qty ?? 0;
+            html += `<tr>
+              <td style="${tdS} font-weight:700; color:#1e293b">
+                <input type="text" data-colour-idx="${i}" data-field="name" value="${escH(name)}" style="${fieldS}">
+              </td>
+              <td style="${tdS} text-align:right">
+                <input type="number" min="0" data-colour-idx="${i}" data-field="qty" value="${Number(qty || 0)}" style="${fieldS} text-align:right">
+              </td>
+            </tr>`;
+          });
+          html += '</tbody></table>';
+        } else {
+          html += '<div style="color:#94a3b8; font-size:0.85rem;">No colour breakdown on this plan.</div>';
+        }
+
+        document.getElementById('editPlanBody').innerHTML = html;
+      }
+
+      window.closeEditPlanModal = function () {
+        const m = document.getElementById(MODAL_ID);
+        if (m) m.style.display = 'none';
+      };
+
+      window.applyEditPlan = async function () {
+        const plan = _epState.plan;
+        if (!plan) return;
+
+        const planQty = Number(document.getElementById('epPlanQty').value || 0);
+        const jobQty = Number(document.getElementById('epJobQty').value || 0);
+        const batchQty = Number(document.getElementById('epBatchQty').value || 0);
+        const itemCode = document.getElementById('epItemCode').value.trim();
+        const itemName = document.getElementById('epItemName').value.trim();
+        const mouldName = document.getElementById('epMouldName').value.trim();
+        const mouldCode = document.getElementById('epMouldCode').value.trim();
+        const startDate = document.getElementById('epStartDate').value || null;
+        const endDate = document.getElementById('epEndDate').value || null;
+
+        let colourDetails = null;
+        const colourInputs = document.querySelectorAll(`#${MODAL_ID} input[data-colour-idx]`);
+        if (colourInputs.length) {
+          const byIdx = {};
+          colourInputs.forEach(inp => {
+            const idx = inp.dataset.colourIdx;
+            byIdx[idx] = byIdx[idx] || { ...(plan.colourDetails[idx] || {}) };
+            if (inp.dataset.field === 'name') byIdx[idx].colourName = inp.value.trim();
+            else byIdx[idx].planQty = Number(inp.value || 0);
+          });
+          colourDetails = Object.keys(byIdx).sort((a, b) => a - b).map(k => byIdx[k]);
+        }
+
+        if (!confirm('Apply superadmin edits to this plan? This directly corrects the plan record.')) return;
+
+        const btn = document.getElementById('editPlanApplyBtn');
+        btn.disabled = true; btn.textContent = 'Applying…';
+        document.getElementById('editPlanStatus').textContent = '';
+
+        try {
+          const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          const r = await api.post('/planning/superadmin-edit', {
+            rowId: _epState.rowId,
+            planQty, jobQty, batchQty, colourDetails,
+            itemCode, itemName, mouldName, mouldCode,
+            startDate, endDate
+          });
+          if (!r || !r.ok) {
+            document.getElementById('editPlanStatus').innerHTML = `<span style="color:#ef4444">${r?.error || 'Unknown error'}</span>`;
+          } else {
+            document.getElementById('editPlanStatus').innerHTML = `<span style="color:#16a34a; font-weight:700"><i class="bi bi-check-circle-fill"></i> Plan updated.</span>`;
+            if (window._planBoardCache) { window._planBoardCache.data = null; window._planBoardCache.timestamp = 0; }
+            setTimeout(() => {
+              window.closeEditPlanModal();
+              if (typeof window.superLoadTimeline === 'function') window.superLoadTimeline();
+              else if (typeof window.loadTimeline === 'function') window.loadTimeline();
+            }, 1000);
+          }
+        } catch (e) {
+          document.getElementById('editPlanStatus').innerHTML = `<span style="color:#ef4444">${e.message || e}</span>`;
+        } finally {
+          btn.disabled = false; btn.innerHTML = '<i class="bi bi-check2-all"></i> Apply Changes';
+        }
+      };
+    })();
+
     // Debounce for PCR Search
     let pcrTimer;
     window.pcrDebounceSearch = function() {
