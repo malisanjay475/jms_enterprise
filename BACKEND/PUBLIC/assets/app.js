@@ -856,6 +856,18 @@ function escHtml(value) {
     if (typeof document !== 'undefined') {
         try { exports.auth.initAutoLogout(); } catch (e) { console.error(e); }
         try { ensureViewportLayoutWatcher(); } catch (e) { console.error(e); }
+        // Inject the drawer FAB/backdrop on any page that has a sidebar,
+        // even if it renders its own static markup instead of the app shell.
+        const bootMobileSidebar = () => {
+            try {
+                if (document.querySelector('.sidebar')) ensureMobileSidebarControls();
+            } catch (e) { console.error(e); }
+        };
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', bootMobileSidebar, { once: true });
+        } else {
+            bootMobileSidebar();
+        }
     }
 
     // --- Store (Frontend State) ---

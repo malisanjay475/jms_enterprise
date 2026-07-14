@@ -5,8 +5,8 @@
   If -Container is omitted, uses the first running container whose image name contains "postgres".
 
   Example:
-    .\scripts\export-db-docker-exec.ps1 -Password 'Sanjay@541##'
-    .\scripts\export-db-docker-exec.ps1 -Container backend-db-1 -Password 'Sanjay@541##'
+    .\scripts\export-db-docker-exec.ps1 -Password '<your-db-password>'
+    .\scripts\export-db-docker-exec.ps1 -Container backend-db-1 -Password '<your-db-password>'
 #>
 param(
   [string]$Container = "",

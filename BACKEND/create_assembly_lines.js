@@ -5,7 +5,7 @@ const pool = new Pool({
     user: process.env.PGUSER || 'postgres',
     host: process.env.PGHOST || 'localhost',
     database: process.env.PGDATABASE || 'jpsms',
-    password: process.env.PGPASSWORD || 'Sanjay@541##',
+    password: process.env.PGPASSWORD || '',
     port: process.env.PGPORT || 5432,
 });
 

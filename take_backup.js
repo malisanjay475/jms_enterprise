@@ -6,7 +6,7 @@ const AdmZip = require('./BACKEND/node_modules/adm-zip');
 // Configuration
 const DB_USER = 'postgres';
 const DB_NAME = 'jpsms';
-const DB_PASS = 'Sanjay@541##';
+const DB_PASS = process.env.PGPASSWORD || '';
 const PG_DUMP_PATH = '"C:\\Program Files\\PostgreSQL\\18\\bin\\pg_dump.exe"';
 const ROOT_DIR = __dirname;
 const BACKUP_NAME = `JPSMS_COMPLETE_BACKUP_${new Date().toISOString().replace(/[:.]/g, '-')}`;
