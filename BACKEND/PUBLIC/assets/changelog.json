@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.2.2",
+  "latest": "1.2.3",
   "versions": [
+    {
+      "version": "1.2.3",
+      "date": "2026-07-14",
+      "title": "Faster page loads (fix)",
+      "summary": "Fixed the faster app scripts not building on the live server.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "System",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "fix", "text": "Fixed the smaller app script not being generated during the live build, so pages now load correctly and faster." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.2.2",
       "date": "2026-07-14",
