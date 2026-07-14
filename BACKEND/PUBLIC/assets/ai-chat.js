@@ -2,7 +2,7 @@
   // --- Modern Styles (Glassmorphism + Animations) ---
   const style = document.createElement('style');
   style.innerHTML = `
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap');
+    @import url('/assets/vendor/fonts/g-f8efc19333.css');
 
     .ai-chat-widget {
       position: fixed; bottom: 30px; right: 30px;

@@ -75,6 +75,18 @@ function buildManifest(root) {
       });
     }
   }
+
+  // Transparent minify: a request for an un-minified source (/assets/app.js) is
+  // served the compressed *.min.js bytes when a fresh sibling exists, so HTML
+  // keeps referencing app.js (failsafe — falls through to the raw file via
+  // express.static if the .min.js is missing/stale) while browsers get the
+  // smaller, minified payload. Done in a second pass so the .min.js alias always
+  // wins regardless of readdir order.
+  for (const [urlPath, entry] of Array.from(manifest)) {
+    if (urlPath.endsWith('.min.js')) {
+      manifest.set(urlPath.replace(/\.min\.js$/, '.js'), entry);
+    }
+  }
   return manifest;
 }
 

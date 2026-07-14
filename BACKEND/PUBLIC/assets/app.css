@@ -1,5 +1,7 @@
-﻿/* Font Import */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+﻿/* Font Import — self-hosted Inter (see scripts/selfhost-fonts.js). Was a live
+   @import from fonts.googleapis.com; now local so there's no third-party fetch
+   (works offline on the factory LOCAL box) and no CSP font/style exemption. */
+@import url('/assets/vendor/fonts/g-5710dd5f5b.css');
 
 :root {
   /* JMS OCEAN logo palette */

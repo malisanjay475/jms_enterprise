@@ -26,7 +26,8 @@ COPY . .
 # Pre-compress static JS/CSS to Brotli (.br) + Gzip (.gz) so the app serves them
 # directly (see src/app/precompressedStatic.js) without re-compressing per request.
 # Also keep .html gzipped for Nginx gzip_static on MAIN.
-RUN node scripts/precompress-assets.js PUBLIC \
+RUN node scripts/minify-assets.js PUBLIC/assets \
+ && node scripts/precompress-assets.js PUBLIC \
  && find PUBLIC -type f -name "*.html" -exec gzip -9 -k {} \;
 
 RUN chmod +x /app/docker-entrypoint.sh
