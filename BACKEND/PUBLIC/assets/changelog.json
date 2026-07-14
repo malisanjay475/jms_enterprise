@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.2.0",
+  "latest": "1.2.1",
   "versions": [
+    {
+      "version": "1.2.1",
+      "date": "2026-07-14",
+      "title": "Faster page loads",
+      "summary": "Pages now load quicker and work fully offline on the factory server.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "System",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "perf", "text": "Made the app scripts smaller so pages load faster, especially on slower connections." },
+            { "type": "perf", "text": "Fonts and the logo now load from our own server — no outside downloads, so the app is faster and works offline." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.2.0",
       "date": "2026-07-12",
