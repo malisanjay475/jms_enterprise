@@ -1225,6 +1225,12 @@
                                    title="Fill DPR (Superadmin)"
                                    style="background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe; width:26px; height:26px; display:flex; align-items:center; justify-content:center; border-radius:4px; cursor:pointer;">
                                    <i class="bi bi-clipboard2-data-fill" style="font-size:0.85rem"></i>
+                               </button>
+                               <button class="btn icon mini"
+                                   onclick="window.openEditPlanModal(${Number(p.id)},'${esc(String(p.planId||p.plan_id||''))}','${esc(p.orderNo||'')}','${esc(m.code||'')}'); event.stopPropagation();"
+                                   title="Edit Plan (Superadmin)"
+                                   style="background:#fef3c7; color:#b45309; border:1px solid #fde68a; width:26px; height:26px; display:flex; align-items:center; justify-content:center; border-radius:4px; cursor:pointer;">
+                                   <i class="bi bi-pencil-square" style="font-size:0.85rem"></i>
                                </button>` : ''}
                                ${st !== 'running' && st !== 'completed' ? `
                                <button class="btn icon mini"
