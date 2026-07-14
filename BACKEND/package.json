@@ -1,12 +1,13 @@
 {
   "name": "backend",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "",
   "main": "index.js",
   "scripts": {
     "setup:local:v1": "node scripts/create-local-v1-env.js",
     "check:config": "node scripts/print-runtime-config.js",
-    "precompress": "node scripts/precompress-assets.js",
+    "minify": "node scripts/minify-assets.js",
+    "precompress": "node scripts/minify-assets.js && node scripts/precompress-assets.js",
     "mcp:stitch": "node scripts/stitch-mcp-server.js",
     "stitch:push:qc": "node scripts/push-qc-design-to-stitch.js",
     "test": "jest",
@@ -20,6 +21,7 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "esbuild": "^0.28.1",
     "jest": "^30.3.0",
     "supertest": "^7.2.2"
   },

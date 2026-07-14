@@ -102,9 +102,18 @@ async function startServer() {
   // factory PC serves them without re-compressing on every cache miss. Runs
   // after listen (non-blocking) and is idempotent, so restarts/syncs are cheap.
   setImmediate(() => {
+    const publicDir = path.join(process.cwd(), fs.existsSync(path.join(process.cwd(), 'PUBLIC')) ? 'PUBLIC' : 'public');
+    // Minify first so the .min.js siblings exist before we precompress them.
+    try {
+      const minifyAssets = require('../../scripts/minify-assets');
+      const t0 = Date.now();
+      const r = minifyAssets(path.join(publicDir, 'assets'));
+      console.log(`[minify] ${r.files} assets, ${r.written} written, ${r.skipped} up-to-date in ${Date.now() - t0}ms`);
+    } catch (e) {
+      console.warn('[minify] skipped:', e.message);
+    }
     try {
       const precompressAssets = require('../../scripts/precompress-assets');
-      const publicDir = path.join(process.cwd(), fs.existsSync(path.join(process.cwd(), 'PUBLIC')) ? 'PUBLIC' : 'public');
       const t0 = Date.now();
       const r = precompressAssets(publicDir);
       console.log(`[precompress] ${r.files} assets, ${r.written} written, ${r.skipped} up-to-date in ${Date.now() - t0}ms`);
