@@ -10967,6 +10967,46 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
   }
 });
 
+// GET /api/planning/plan/:id — fetch a single plan_board row (used to prefill
+// the Superadmin Edit Plan modal). Superadmin-only, matching the edit endpoint.
+app.get('/api/planning/plan/:id', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    if (!isSuperadminRole(actor)) {
+      return res.status(403).json({ ok: false, error: 'Superadmin access required.' });
+    }
+    const rows = await q('SELECT * FROM plan_board WHERE id = $1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Plan not found' });
+    const r = rows[0];
+    let colourDetails = r.colour_details || [];
+    if (typeof colourDetails === 'string') {
+      try { colourDetails = JSON.parse(colourDetails); } catch (_) { colourDetails = []; }
+    }
+    res.json({
+      ok: true,
+      plan: {
+        id: r.id,
+        planId: r.plan_id,
+        orderNo: r.order_no,
+        planQty: toNum(r.plan_qty) ?? 0,
+        jobQty: toNum(r.job_qty ?? r.batch_qty) ?? 0,
+        batchQty: toNum(r.batch_qty) ?? 0,
+        colourDetails,
+        itemCode: r.item_code || '',
+        itemName: r.item_name || '',
+        mouldName: r.mould_name || '',
+        mouldCode: r.mould_code || '',
+        startDate: r.start_date,
+        endDate: r.end_date,
+        status: r.status
+      }
+    });
+  } catch (e) {
+    console.error('planning/plan/:id', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // POST /api/planning/run  body: { rowId, force }
 app.post('/api/planning/run', async (req, res) => {
   try {
