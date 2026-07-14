@@ -4,10 +4,10 @@ import 'package:ios_app_demo/main.dart';
 void main() {
   testWidgets('Hybrid App smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const HybridApp());
+    await tester.pumpWidget(const JMSApp());
 
     // Verify that the app builds without crashing.
     // We can also check for specific text based on platform, but for now just building is enough.
-    expect(find.byType(HybridApp), findsOneWidget);
+    expect(find.byType(JMSApp), findsOneWidget);
   });
 }

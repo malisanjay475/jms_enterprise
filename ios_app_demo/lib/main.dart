@@ -1,161 +1,178 @@
-import 'dart:io' show Platform;
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 void main() {
-  runApp(const HybridApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const JMSApp());
 }
 
-class HybridApp extends StatelessWidget {
-  const HybridApp({super.key});
+class JMSApp extends StatelessWidget {
+  const JMSApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // Determine if we should show iOS style
-    // We check for iOS directly, OR if we are on Web (just for demo purposes to default to Material)
-    final bool isIOS = !kIsWeb && Platform.isIOS;
-
-    if (isIOS) {
-      return const CupertinoApp(
-        title: 'Hybrid App',
-        theme: CupertinoThemeData(
-          primaryColor: CupertinoColors.activeBlue,
+    return MaterialApp(
+      title: 'JMS OCEAN',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF0F172A), // Modern slate primary color
           brightness: Brightness.light,
         ),
-        home: IOSHomePage(),
-      );
-    } else {
-      return MaterialApp(
-        title: 'Hybrid App',
-        theme: ThemeData(
-          primarySwatch: Colors.blue,
-          useMaterial3: true,
-        ),
-        home: const AndroidHomePage(),
-      );
-    }
-  }
-}
-
-// -----------------------------------------------------------------------------
-// iOS Implementation (Cupertino)
-// -----------------------------------------------------------------------------
-class IOSHomePage extends StatelessWidget {
-  const IOSHomePage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      navigationBar: const CupertinoNavigationBar(
-        middle: Text('iOS View'),
+        useMaterial3: true,
       ),
-      child: SafeArea(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(CupertinoIcons.phone, size: 80, color: CupertinoColors.activeBlue),
-              const SizedBox(height: 20),
-              const Text(
-                'This is Cupertino Style',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 10),
-              CupertinoButton.filled(
-                child: const Text('Show Action Sheet'),
-                onPressed: () {
-                  showCupertinoModalPopup(
-                    context: context,
-                    builder: (context) => CupertinoActionSheet(
-                      title: const Text('iOS Choices'),
-                      actions: [
-                        CupertinoActionSheetAction(
-                          child: const Text('Option A'),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                        CupertinoActionSheetAction(
-                          child: const Text('Option B'),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ],
-                      cancelButton: CupertinoActionSheetAction(
-                        isDestructiveAction: true,
-                        child: const Text('Cancel'),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF0F172A),
+          brightness: Brightness.dark,
         ),
+        useMaterial3: true,
       ),
+      themeMode: ThemeMode.system, // Automatically adapts to light/dark mode
+      home: const WebViewScreen(),
     );
   }
 }
 
-// -----------------------------------------------------------------------------
-// Android Implementation (Material)
-// -----------------------------------------------------------------------------
-class AndroidHomePage extends StatelessWidget {
-  const AndroidHomePage({super.key});
+class WebViewScreen extends StatefulWidget {
+  const WebViewScreen({super.key});
+
+  @override
+  State<WebViewScreen> createState() => _WebViewScreenState();
+}
+
+class _WebViewScreenState extends State<WebViewScreen> {
+  late final WebViewController _controller;
+  bool _isLoading = true;
+  double _progress = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (String url) {
+            setState(() {
+              _isLoading = true;
+            });
+          },
+          onPageFinished: (String url) {
+            setState(() {
+              _isLoading = false;
+            });
+          },
+          onProgress: (int progress) {
+            setState(() {
+              _progress = progress / 100.0;
+            });
+          },
+          onWebResourceError: (WebResourceError error) {
+            debugPrint('Web Resource Error: ${error.description}');
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse('http://192.168.1.173:3001/QCSupervisor.html'));
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Android View'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.android, size: 80, color: Colors.green),
-            const SizedBox(height: 20),
-            Text(
-              'This is Material Style',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 10),
-            FilledButton(
-              onPressed: () {
-                showModalBottomSheet(
-                  context: context,
-                  builder: (context) => Container(
-                    padding: const EdgeInsets.all(20),
+    // Smart hardware Back button handling on Android
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (bool didPop) async {
+        if (didPop) return;
+        if (await _controller.canGoBack()) {
+          await _controller.goBack();
+        } else {
+          // If we cannot go back further, exit the application cleanly
+          await SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Stack(
+            children: [
+              // Main WebView with direct gesture mapping for smooth scrolling
+              WebViewWidget(
+                controller: _controller,
+                gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                  Factory<VerticalDragGestureRecognizer>(
+                    () => VerticalDragGestureRecognizer(),
+                  ),
+                  Factory<HorizontalDragGestureRecognizer>(
+                    () => HorizontalDragGestureRecognizer(),
+                  ),
+                  Factory<ScaleGestureRecognizer>(
+                    () => ScaleGestureRecognizer(),
+                  ),
+                },
+              ),
+              
+              // Top horizontal loading progress bar
+              if (_isLoading)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: LinearProgressIndicator(
+                    value: _progress,
+                    backgroundColor: Colors.transparent,
+                    color: Theme.of(context).colorScheme.primary,
+                    minHeight: 3,
+                  ),
+                ),
+                
+              // Native Full-Screen Loading Screen
+              if (_isLoading && _progress < 0.3)
+                Container(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  child: Center(
                     child: Column(
-                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Text(
-                          'Android Bottom Sheet',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(24),
+                          child: Image.asset(
+                            'assets/logo/logo_cropped.jpg',
+                            width: 240,
+                            height: 240,
+                            fit: BoxFit.contain,
+                          ),
                         ),
-                        ListTile(
-                          leading: const Icon(Icons.share),
-                          title: const Text('Share'),
-                          onTap: () => Navigator.pop(context),
+                        const SizedBox(height: 32),
+                        const CircularProgressIndicator(
+                          strokeWidth: 3,
                         ),
-                        ListTile(
-                          leading: const Icon(Icons.link),
-                          title: const Text('Get Link'),
-                          onTap: () => Navigator.pop(context),
+                        const SizedBox(height: 24),
+                        Text(
+                          'JMS OCEAN',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.onSurface,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Loading JMS OCEAN...',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
                         ),
                       ],
                     ),
                   ),
-                );
-              },
-              child: const Text('Show Bottom Sheet'),
-            ),
-          ],
+                ),
+            ],
+          ),
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {},
-        child: const Icon(Icons.add),
       ),
     );
   }

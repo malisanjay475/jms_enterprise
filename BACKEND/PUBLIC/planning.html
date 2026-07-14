@@ -8108,11 +8108,13 @@
               item_code: row.item_code || row.mould_no || null,
               consumptionRatioQty: parseCpNumber(row.consumptionRatioQty ?? row.consumption_ratio_qty)
             })).filter((row) => row.code);
-            const colourPayload = await fetchCpColourPlanData(mould);
-            const machineEntries = await Promise.all(familyMoulds.map(async (variant) => {
-              const variantResult = await fetchCpMachinesForMould(variant);
-              return [variant.code, variantResult];
-            }));
+            const [colourPayload, machineEntries] = await Promise.all([
+              fetchCpColourPlanData(mould),
+              Promise.all(familyMoulds.map(async (variant) => {
+                const variantResult = await fetchCpMachinesForMould(variant);
+                return [variant.code, variantResult];
+              }))
+            ]);
             window.cpVariantMachineMap = Object.fromEntries(
               machineEntries.map(([code, r]) => [code, Array.isArray(r.machines) ? r.machines : []])
             );
