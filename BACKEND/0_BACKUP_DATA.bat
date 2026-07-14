@@ -6,7 +6,7 @@ echo.
 
 :: 1. SETTINGS (Match your server.js defaults)
 set PGUSER=postgres
-set PGPASSWORD=Sanjay@541##
+if "%PGPASSWORD%"=="" set /p PGPASSWORD=Enter Postgres password:
 set PGHOST=localhost
 set PGDATABASE=jpsms
 set OUTPUT_FILE=jpsms_full_backup.sql

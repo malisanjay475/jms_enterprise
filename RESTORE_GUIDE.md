@@ -17,7 +17,7 @@ Follow these steps to restore your JPSMS server on a new machine.
    ```bash
    psql -U postgres -d jpsms -f jpsms_dump.sql
    ```
-   *(Enter your password when prompted: `Sanjay@541##`)*
+   *(Enter your password when prompted: `<your-db-password>`)*
 
 ## 3. Configure the Application
 1. Navigate to the `BACKEND` folder within the extracted directory.
