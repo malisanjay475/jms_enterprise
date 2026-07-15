@@ -452,6 +452,9 @@
                         <option value="AbovePlan">🔴 Above Plan Qty</option>
                         <option value="Pending">⚠️ Pending Entries</option>
                         <option value="LowEff">Low EFF</option>
+                        <option value="LowOee">Low OEE</option>
+                        <option value="MouldChange">Mould Change</option>
+                        <option value="PlanChangeOver">Plan Change Over (≤20% left)</option>
                         <option value="ManPowerShortage">MP Shortage</option>
                         <option value="MouldMaintenance">Mould Maintenance</option>
                         <option value="PowerCut">Power Cut</option>
@@ -1280,6 +1283,7 @@
                                 const machineEntryTypes = new Set(); // track special entry_types for View Filter
                                 let machineMissingSlots = 0; // count of past unfilled slots (for Pending filter)
                                 let machineBalComplete = false; // true when any mould's plan is met/exceeded (bal <= 0) → blink
+                                let machinePlanNearDone = false; // true when any mould has <= 20% qty left to produce (Plan Change Over filter)
                                 // Determine Shifts for this Machine Row(s)
                                 const shiftsToRender = (shiftMode === 'Both') ? ['Day', 'Night'] : [shiftMode];
 
@@ -1500,6 +1504,8 @@
                                         const _balQ  = Number(d.balance_qty ?? _planQ);
                                         const _balDone = (!m.is_dummy && _planQ > 0 && _balQ <= 0);
                                         if (_balDone) machineBalComplete = true;
+                                        // Plan Change Over: <= 20% of plan qty still left to produce (and not yet complete)
+                                        if (!m.is_dummy && _planQ > 0 && _balQ > 0 && (_balQ / _planQ) <= 0.20) machinePlanNearDone = true;
                                         const planBalHtml = (!m.is_dummy && _planQ > 0)
                                             ? `<div style="font-size:0.72rem; font-weight:700; margin-top:2px">
                                                    <span style="color:#0f172a">Plan: ${_planQ.toLocaleString('en-IN')}</span>
@@ -2127,13 +2133,14 @@
 
                                 // Push to Buffer
                                 let mEff = (machineEstNet > 0) ? (machineGood / machineEstNet) * 100 : 0;
+                                let mOee = (machineEst > 0) ? (machineGood / machineEst) * 100 : 0;
 
                                 // Blink is now applied per-mould on the summary cell (see _summaryBlink above)
                                 // Plan-complete blink is applied to ONLY the Bal Qty value (class "bal-blink"),
                                 // not the whole machine row — see planBalHtml above.
 
                                 if (flatMode) {
-                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, balComplete: machineBalComplete });
+                                    globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
                                 } else {
                                     machineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine });
                                 }
@@ -2195,7 +2202,13 @@
                             } else if (filterMode === 'Pending') {
                                 filteredMachineBuffer = globalMachineBuffer.filter(m => m.missingSlots > 0);
                             } else if (filterMode === 'LowEff') {
-                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.eff > 0 && m.eff < 75);
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.hasEntries && m.eff < 75);
+                            } else if (filterMode === 'LowOee') {
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.hasEntries && m.oee < 75);
+                            } else if (filterMode === 'MouldChange') {
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.entryTypes.has('MouldChange') || m.entryTypes.has('MouldChangeover'));
+                            } else if (filterMode === 'PlanChangeOver') {
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.planNearDone === true);
                             } else if (filterMode === 'ManPowerShortage') {
                                 filteredMachineBuffer = globalMachineBuffer.filter(m => m.entryTypes.has('ManPowerShortage'));
                             } else if (filterMode === 'MouldMaintenance') {
@@ -2212,11 +2225,13 @@
                             // Sort: Pending → most missing slots first; all others → lowest EFF first
                             if (filterMode === 'Pending') {
                                 filteredMachineBuffer.sort((a, b) => b.missingSlots - a.missingSlots);
+                            } else if (filterMode === 'LowOee') {
+                                filteredMachineBuffer.sort((a, b) => a.oee - b.oee);
                             } else {
                                 filteredMachineBuffer.sort((a, b) => a.eff - b.eff);
                             }
                             // Filter result count banner
-                            const _filterLabels = { ShowAll: 'Show All (by EFF)', AbovePlan: '🔴 Above Plan Qty', Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', ManPowerShortage: 'MP Shortage', MouldMaintenance: 'Mould Maintenance', PowerCut: 'Power Cut', NoPlan: 'No Plan', MachineMaintenance: 'Machine Maintenance', MouldTrial: 'Mould Trial' };
+                            const _filterLabels = { ShowAll: 'Show All (by EFF)', AbovePlan: '🔴 Above Plan Qty', Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', LowOee: 'Low OEE', MouldChange: 'Mould Change', PlanChangeOver: 'Plan Change Over (≤20% left)', ManPowerShortage: 'MP Shortage', MouldMaintenance: 'Mould Maintenance', PowerCut: 'Power Cut', NoPlan: 'No Plan', MachineMaintenance: 'Machine Maintenance', MouldTrial: 'Mould Trial' };
                             const _fCount = filteredMachineBuffer.length;
                             masterHtml += `
                                 <div style="display:flex; align-items:center; gap:8px; padding:8px 14px; background:#0f172a; color:#fff; border-radius:12px 12px 0 0; font-size:0.8rem; font-weight:700; letter-spacing:.3px">
