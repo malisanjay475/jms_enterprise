@@ -448,6 +448,7 @@
                       <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">View Filter</label>
                       <select id="s-eff-filter" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:160px">
                         <option value="">All</option>
+                        <option value="ShowAll">Show All (by EFF)</option>
                         <option value="AbovePlan">🔴 Above Plan Qty</option>
                         <option value="Pending">⚠️ Pending Entries</option>
                         <option value="LowEff">Low EFF</option>
@@ -2214,7 +2215,7 @@
                                 filteredMachineBuffer.sort((a, b) => a.eff - b.eff);
                             }
                             // Filter result count banner
-                            const _filterLabels = { AbovePlan: '🔴 Above Plan Qty', Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', ManPowerShortage: 'MP Shortage', MouldMaintenance: 'Mould Maintenance', PowerCut: 'Power Cut', NoPlan: 'No Plan', MachineMaintenance: 'Machine Maintenance', MouldTrial: 'Mould Trial' };
+                            const _filterLabels = { ShowAll: 'Show All (by EFF)', AbovePlan: '🔴 Above Plan Qty', Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', ManPowerShortage: 'MP Shortage', MouldMaintenance: 'Mould Maintenance', PowerCut: 'Power Cut', NoPlan: 'No Plan', MachineMaintenance: 'Machine Maintenance', MouldTrial: 'Mould Trial' };
                             const _fCount = filteredMachineBuffer.length;
                             masterHtml += `
                                 <div style="display:flex; align-items:center; gap:8px; padding:8px 14px; background:#0f172a; color:#fff; border-radius:12px 12px 0 0; font-size:0.8rem; font-weight:700; letter-spacing:.3px">
