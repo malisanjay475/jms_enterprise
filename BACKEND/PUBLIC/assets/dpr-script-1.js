@@ -1275,7 +1275,7 @@
                             const machineBuffer = [];
                             lines[lineName].forEach(machine => {
                                 let machineRowHtml = ''; // Shadow inner HTML for buffering
-                                let machineGood = 0, machineEst = 0;
+                                let machineGood = 0, machineEst = 0, machineEstNet = 0;
                                 const machineEntryTypes = new Set(); // track special entry_types for View Filter
                                 let machineMissingSlots = 0; // count of past unfilled slots (for Pending filter)
                                 let machineBalComplete = false; // true when any mould's plan is met/exceeded (bal <= 0) → blink
@@ -2109,6 +2109,7 @@
                                         lineTotalAutoDt += sumAutoDt; // Accumulate Auto DT
                                         machineGood += sumGood;
                                         machineEst += estPcs;
+                                        machineEstNet += estPcsNet;
 
                                         const _summaryBlink = (rowEff > 0 && rowEff < 85 && !m.is_dummy) ? ' blink-alert' : '';
                                         machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${summaryH}</td></tr>`;
@@ -2124,7 +2125,7 @@
                                 }); // End shiftsToRender loop
 
                                 // Push to Buffer
-                                let mEff = (machineEst > 0) ? (machineGood / machineEst) * 100 : 0;
+                                let mEff = (machineEstNet > 0) ? (machineGood / machineEstNet) * 100 : 0;
 
                                 // Blink is now applied per-mould on the summary cell (see _summaryBlink above)
                                 // Plan-complete blink is applied to ONLY the Bal Qty value (class "bal-blink"),
