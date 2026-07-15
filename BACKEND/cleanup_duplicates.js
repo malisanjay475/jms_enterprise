@@ -2,7 +2,7 @@
 const { Pool } = require('pg');
 const pool = new Pool({
   user: 'postgres', host: 'localhost', database: 'jpsms',
-  password: 'Sanjay@541##', port: 5432,
+  password: process.env.PGPASSWORD || '', port: 5432,
 });
 
 async function cleanup() {

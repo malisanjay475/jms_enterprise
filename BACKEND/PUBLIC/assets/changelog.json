@@ -11,8 +11,140 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.1.0",
+  "latest": "1.3.0",
   "versions": [
+    {
+      "version": "1.3.0",
+      "date": "2026-07-14",
+      "title": "Correct a plan after it's created",
+      "summary": "Superadmins can now fix the quantity and colour breakdown of a plan that was already created, without deleting and re-making it.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-pencil-square",
+          "changes": [
+            { "type": "feat", "text": "Superadmins get an Edit Plan button on each plan to correct the quantity and per-colour breakdown after the plan was created; every change is logged." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.6",
+      "date": "2026-07-14",
+      "title": "Smoother, lighter interface",
+      "summary": "Removed heavy background effects so pages feel snappier, especially when scrolling large tables.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "System",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "perf", "text": "Stopped a constantly-animating page background that was quietly slowing down every screen." },
+            { "type": "perf", "text": "Made scrolling through big tables smoother by simplifying row hover and scrollbar styling." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.5",
+      "date": "2026-07-14",
+      "title": "Reliable menu on phones & tablets",
+      "summary": "The side menu now slides in from a hamburger button on phones, tablets, and zoomed-in screens instead of disappearing.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "System",
+          "icon": "bi-list",
+          "changes": [
+            { "type": "fix", "text": "The side menu no longer vanishes on small screens or when the page is zoomed in — tap the menu button at the top-left to slide it open." },
+            { "type": "improvement", "text": "Tap the dimmed area or press Escape to close the menu; pages now scroll normally with the bottom bar in place." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.4",
+      "date": "2026-07-14",
+      "title": "Security hardening",
+      "summary": "Removed credentials that were accidentally stored in the app's code and tightened protections so it can't happen again.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "System",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Removed database and service passwords that were accidentally saved inside the application files." },
+            { "type": "security", "text": "Backup and maintenance tools now ask for the database password instead of storing it." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.3",
+      "date": "2026-07-14",
+      "title": "Faster page loads (fix)",
+      "summary": "Fixed the faster app scripts not building on the live server.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "System",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "fix", "text": "Fixed the smaller app script not being generated during the live build, so pages now load correctly and faster." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.2",
+      "date": "2026-07-14",
+      "title": "Faster page loads (part 2)",
+      "summary": "Pages now serve the smaller, faster app scripts everywhere — including on the live server.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "System",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "perf", "text": "Pages now load the minified app script, so every screen loads faster on all servers." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.1",
+      "date": "2026-07-14",
+      "title": "Faster page loads",
+      "summary": "Pages now load quicker and work fully offline on the factory server.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "System",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "perf", "text": "Made the app scripts smaller so pages load faster, especially on slower connections." },
+            { "type": "perf", "text": "Fonts and the logo now load from our own server — no outside downloads, so the app is faster and works offline." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-07-12",
+      "title": "ORJR Wise Summary row delete",
+      "summary": "You can now remove individual rows from the ORJR Wise Summary, just like the ORJR Wise Detail view.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-sliders",
+          "changes": [
+            { "type": "feat", "text": "Added a delete button on each ORJR Wise Summary row so you can remove a single row you no longer need." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.1.0",
       "date": "2026-07-05",

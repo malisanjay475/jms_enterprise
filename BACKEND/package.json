@@ -1,12 +1,13 @@
 {
   "name": "backend",
-  "version": "1.1.0",
+  "version": "1.3.0",
   "description": "",
   "main": "index.js",
   "scripts": {
     "setup:local:v1": "node scripts/create-local-v1-env.js",
     "check:config": "node scripts/print-runtime-config.js",
-    "precompress": "node scripts/precompress-assets.js",
+    "minify": "node scripts/minify-assets.js",
+    "precompress": "node scripts/minify-assets.js && node scripts/precompress-assets.js",
     "mcp:stitch": "node scripts/stitch-mcp-server.js",
     "stitch:push:qc": "node scripts/push-qc-design-to-stitch.js",
     "test": "jest",
@@ -25,6 +26,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "esbuild": "^0.28.1",
     "@sentry/node": "^10.51.0",
     "adm-zip": "^0.5.16",
     "bcryptjs": "^3.0.3",

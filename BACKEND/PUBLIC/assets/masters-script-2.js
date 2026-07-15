@@ -44,7 +44,7 @@
     let currentWriteScope = { id: null, name: '', isAll: false };
     let currentMachineIconBase64 = null;
     const templateSupportedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
-    const reportOnlyTypes = ['labour-parties', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails'];
+    const reportOnlyTypes = ['labour-parties', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'];
     const clientPreviewSchemas = {
       boplanningdetail: {
         label: 'BO Planning Detail',
@@ -254,7 +254,9 @@
         users: 'User Master',
         erpjrstatus: 'JR Status ERP',
         erpjrsummary: 'JR Summary ERP',
-        erpjrdetails: 'OR JR Details ERP'
+        erpjrdetails: 'OR JR Details ERP',
+        erpbom: 'BOM ERP',
+        erpmoulditem: 'Mould Item Master ERP'
       };
       return labels[currentType] || 'Master Data';
     }
@@ -558,7 +560,7 @@
       if (uploadSection && reportOnlyTypes.includes(currentType)) {
         // ERP reports keep the upload bar for superadmins so the
         // "Fetch Latest Data" button stays visible (setReportUI shows it).
-        const erpTypes = ['erpjrstatus', 'erpjrsummary', 'erpjrdetails'];
+        const erpTypes = ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'];
         if (erpTypes.includes(currentType) && JPSMS.auth.isSuperadmin()) {
           uploadSection.style.display = 'flex';
           if (allFactoryUploadLock) allFactoryUploadLock.style.display = 'none';
@@ -662,7 +664,7 @@
       JPSMS.auth.requireAuth();
 
       const params = new URLSearchParams(window.location.search);
-      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users', 'labour-parties', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails'];
+      const allowedTypes = ['orders', 'moulds', 'machines', 'orjr', 'orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock', 'users', 'labour-parties', 'erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'];
       const requestedType = params.get('type') || 'orders';
         const optionalDateTypes = ['orjrwise', 'orjrwisedetail', 'jcdetails', 'boplanningdetail', 'wipstock'];
       const manualDateTypes = ['orjr'];
@@ -755,7 +757,9 @@
         'labour-parties': { title: 'Labour Job Parties', hint: 'N/A', hasDates: false },
         'erpjrstatus': { title: 'JR Status ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' },
         'erpjrsummary': { title: 'JR Summary ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' },
-        'erpjrdetails': { title: 'OR JR Details ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' }
+        'erpjrdetails': { title: 'OR JR Details ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' },
+        'erpbom': { title: 'BOM ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' },
+        'erpmoulditem': { title: 'Mould Item Master ERP', hint: 'Saved in database', hasDates: false, icon: 'bi-cloud-arrow-down' }
       };
 
       const cfg = configs[type] || { title: 'Master Data', hint: 'Upload file', hasDates: false };
@@ -828,7 +832,7 @@
       }
 
       // ERP reports: show a slim bar with a superadmin-only "Fetch Latest Data" button.
-      const erpTypes = ['erpjrstatus', 'erpjrsummary', 'erpjrdetails'];
+      const erpTypes = ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'];
       const erpFetchBtn = document.getElementById('erpFetchBtn');
       const erpLastSync = document.getElementById('erpLastSync');
       if (erpTypes.includes(type) && JPSMS.auth.isSuperadmin()) {
@@ -948,7 +952,9 @@
       const syncMap = {
         erpjrstatus: '/reports/erp-jr-status/sync',
         erpjrsummary: '/reports/erp-jr-summary/sync',
-        erpjrdetails: '/reports/erp-jr-details/sync'
+        erpjrdetails: '/reports/erp-jr-details/sync',
+        erpbom: '/reports/erp-bom/sync',
+        erpmoulditem: '/reports/erp-mould-item/sync'
       };
       const endpoint = syncMap[currentType];
       if (!endpoint) return;
@@ -1019,6 +1025,10 @@
           endpoint = `/reports/erp-jr-summary`;
         } else if (currentType === 'erpjrdetails') {
           endpoint = `/reports/erp-jr-details`;
+        } else if (currentType === 'erpbom') {
+          endpoint = `/reports/erp-bom`;
+        } else if (currentType === 'erpmoulditem') {
+          endpoint = `/reports/erp-mould-item`;
         }
 
         console.log('[Masters] Loading data for type:', currentType);
@@ -1028,7 +1038,7 @@
         let rows = res.data || [];
 
         // ERP reports: reflect when the store was last refreshed.
-        if (['erpjrstatus', 'erpjrsummary', 'erpjrdetails'].includes(currentType)) {
+        if (['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'].includes(currentType)) {
           const el = document.getElementById('erpLastSync');
           if (el) el.textContent = res.synced_at ? `Last fetched: ${res.synced_at}` : 'Not fetched yet';
         }
@@ -1114,7 +1124,7 @@
             cols = ['actions', ...cols];
           }
         } else if (currentType === 'orjrwise') {
-          cols = ['factory_name', ...orjrWiseSummaryColumns].filter(c => cols.includes(c));
+          cols = ['actions', 'factory_name', ...orjrWiseSummaryColumns].filter(c => c === 'actions' || cols.includes(c));
         } else if (currentType === 'orjrwisedetail') {
           cols = ['actions', 'factory_name', ...orjrWiseDetailColumns].filter(c => c === 'actions' || cols.includes(c));
         } else if (currentType === 'jcdetails') {
@@ -1170,6 +1180,24 @@
             "item_name", "jr_qty", "uom", "c_item_code", "c_item_name",
             "mould_no", "mould", "mould_item_qty", "tonnage", "machine",
             "cycle_time", "cavity", "status", "erp_action"
+          ];
+        } else if (currentType === 'erpbom') {
+          // Read-only live ERP feed — every column GetBOM returns.
+          cols = [
+            "item_id", "bom_item_type", "bom_item_code", "bom_item_name",
+            "bom_item_weight_kgs", "bom_uom", "bom_type", "bom_quantity",
+            "rm_item_type", "rm_item_code", "rm_item_name", "rm_sr_no",
+            "rm_item_weight_kgs", "rm_item_uom", "rm_item_quantity",
+            "has_bom", "grinding_item_code", "grinding_item_name", "grinding_percentage",
+            "alt_items", "bom_status", "erp_action"
+          ];
+        } else if (currentType === 'erpmoulditem') {
+          // Read-only live ERP feed — every column GetMouldItemMaster returns.
+          cols = [
+            "mould_id", "mould_code", "mould_name", "factory",
+            "our_code", "our_name", "linked_item_code", "linked_variant_code",
+            "cavity_count", "tonnage", "mould_loading_time", "mould_unloading_time",
+            "mould_type", "location", "status", "erp_action"
           ];
         } else if (currentType === 'orders') {
           // STRICT User Request: "Get All data Same in Or-JR status Dont Change Or dont ADD"
@@ -1303,6 +1331,11 @@
                             <button onclick="openMachineModal('edit', JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon"><i class="bi bi-pencil-square text-blue-600"></i></button>
                             <button onclick="viewMachineHistory('${machineId}')" class="btn-action-icon" title="History"><i class="bi bi-clock-history text-gray-600"></i></button>
                         </div>`;
+              } else if (currentType === 'orjrwise') {
+                if (!canWriteCurrentFactoryScope()) {
+                  return `<span style="color:#94a3b8; font-size:0.74rem; white-space:nowrap;">${getWriteLockShortHint()}</span>`;
+                }
+                return `<button onclick="deleteOrJrSummary('${row.id}')" class="btn-action-icon" style="color:#dc2626" title="Delete this row"><i class="bi bi-trash"></i></button>`;
               } else if (currentType === 'orjrwisedetail') {
                 if (!canWriteCurrentFactoryScope()) {
                   return `<span style="color:#94a3b8; font-size:0.74rem; white-space:nowrap;">${getWriteLockShortHint()}</span>`;
@@ -2021,6 +2054,39 @@
           'meeting_conclusion': 'Meeting Conclusion',
           'wh_received_date': 'Warehouse Received Date',
           'shift_remarks': 'Shift Remarks',
+          'item_id': 'Item ID',
+          'bom_item_type': 'BOM Item Type',
+          'bom_item_code': 'BOM Item Code',
+          'bom_item_name': 'BOM Item Name',
+          'bom_item_weight_kgs': 'BOM Item Weight (Kgs)',
+          'bom_uom': 'BOM UOM',
+          'bom_type': 'BOM Type',
+          'bom_quantity': 'BOM Quantity',
+          'rm_item_type': 'RM Item Type',
+          'rm_item_code': 'RM Item Code',
+          'rm_item_name': 'RM Item Name',
+          'rm_sr_no': 'RM Sr No',
+          'rm_item_weight_kgs': 'RM Item Weight (Kgs)',
+          'rm_item_uom': 'RM Item UOM',
+          'rm_item_quantity': 'RM Item Quantity',
+          'has_bom': 'Has BOM',
+          'grinding_item_code': 'Grinding Item Code',
+          'grinding_item_name': 'Grinding Item Name',
+          'grinding_percentage': 'Grinding %',
+          'alt_items': 'Alt Items',
+          'bom_status': 'BOM Status',
+          'mould_id': 'Mould ID',
+          'mould_code': 'Mould Code',
+          'mould_name': 'Mould Name',
+          'our_code': 'Our Code',
+          'our_name': 'Our Name',
+          'linked_item_code': 'Linked Item Code',
+          'linked_variant_code': 'Linked Variant Code',
+          'cavity_count': 'Cavity Count',
+          'mould_loading_time': 'Mould Loading Time',
+          'mould_unloading_time': 'Mould Unloading Time',
+          'mould_type': 'Mould Type',
+          'location': 'Location',
           'erp_action': 'Action'
         };
 
@@ -2418,6 +2484,22 @@
         const res = await JPSMS.api.post('/masters/orjrwisedetail/delete-by-orjr', { or_jr_no: orJrNo });
         if (res.ok) {
           alert(`Deleted ${res.deleted || 0} row(s) for OR/JR No: ${orJrNo}`);
+          loadMasterData();
+        } else {
+          alert('Error: ' + (res.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function deleteOrJrSummary(id) {
+      if (!ensureSingleFactoryScope('delete OR/JR Wise Summary records')) return;
+      if (!confirm('Delete this OR/JR Wise Summary row?\n\nThis cannot be undone.')) return;
+      try {
+        const res = await JPSMS.api.post('/masters/orjrwise/delete-row', { id });
+        if (res.ok) {
+          JPSMS.toast('Row deleted', 'success');
           loadMasterData();
         } else {
           alert('Error: ' + (res.error || 'Unknown error'));

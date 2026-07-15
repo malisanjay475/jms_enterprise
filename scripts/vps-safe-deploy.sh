@@ -194,6 +194,12 @@ docker ps -a --filter "name=${DEPLOY_PROJECT}" --format "{{.ID}}" | xargs -r doc
 $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" up -d --remove-orphans db
 $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" up -d --remove-orphans app
 
+# Web pgAdmin — bring it up alongside the app so Traefik has a backend for the
+# pgadmin.jmsocean.cloud router. Non-fatal (|| true): a pgAdmin failure must
+# never abort or roll back the core app deploy. Skipped implicitly on stacks
+# where the service carries traefik.enable=false (e.g. staging).
+$DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" up -d pgadmin || true
+
 if wait_for_app_health "$DC" "$DEPLOY_COMPOSE_FILE" "$DEPLOY_PROJECT"; then
   printf '%s\n' "$APP_IMAGE" > "$DEPLOY_META_DIR/last_successful_app_image"
   printf '%s\n' "${DEPLOY_GIT_SHA:-unknown}" > "$DEPLOY_META_DIR/last_successful_git_sha"

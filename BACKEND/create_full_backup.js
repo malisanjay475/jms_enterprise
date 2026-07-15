@@ -25,11 +25,11 @@ try {
     // Try to find pg_dump if hardcoded path fails? 
     // For now, assume standard path or in PATH.
     try {
-        execSync(`${pgPath} -U ${DB_USER} ${DB_NAME} > "${DB_FILE}"`, { env: { ...process.env, PGPASSWORD: "Sanjay@541##" } });
+        execSync(`${pgPath} -U ${DB_USER} ${DB_NAME} > "${DB_FILE}"`, { env: { ...process.env, PGPASSWORD: process.env.PGPASSWORD || '' } });
     } catch (e) {
         // Fallback to expecting it in PATH
         console.log('      (Hardcoded path failed, trying global PATH...)');
-        execSync(`pg_dump -U ${DB_USER} ${DB_NAME} > "${DB_FILE}"`, { env: { ...process.env, PGPASSWORD: "Sanjay@541##" } });
+        execSync(`pg_dump -U ${DB_USER} ${DB_NAME} > "${DB_FILE}"`, { env: { ...process.env, PGPASSWORD: process.env.PGPASSWORD || '' } });
     }
     console.log('      Database dump successful.');
 

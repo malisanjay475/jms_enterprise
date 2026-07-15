@@ -7,6 +7,11 @@ jspm_packages/
 BACKEND/PUBLIC/**/*.br
 BACKEND/PUBLIC/**/*.gz
 
+# Minified assets (generated at boot/build by scripts/minify-assets.js).
+# Vendored *.min.js (e.g. html5-qrcode.min.js) are committed and unaffected.
+BACKEND/PUBLIC/assets/*.min.js
+!BACKEND/PUBLIC/assets/html5-qrcode.min.js
+
 # Logs
 logs
 *.log
@@ -48,14 +53,22 @@ restore/
 seed/*.dump
 seed/*.backup
 
-# Environment Variables
+# Environment Variables & Secrets (never commit real values)
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-*.env.example
-! .env.example
+.env.*
+*.env
+*.env.backup*
+.env.backup*
+*.env.bak
+# Local credential / secret files
+secrets.*
+*credentials*.json
+*.pem
+*.key
+# Allow committed example templates only
+!*.example
+!.env.example
+!.env.*.example
 !BACKEND/.env.local-v1.example
 !scripts/github-actions.secrets.env.example
 
