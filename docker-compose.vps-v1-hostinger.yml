@@ -62,6 +62,9 @@ services:
       AUTO_IMPORT_DB_PATH: ${AUTO_IMPORT_DB_PATH:-}
       AUTO_IMPORT_DB_FORCE: ${AUTO_IMPORT_DB_FORCE:-0}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # ERP (Joyo) API auth username used to mint the Bearer JWT. Set in the
+      # VPS .env so it is not hardcoded in source; falls back to Sanjay.
+      ERP_API_USERNAME: ${ERP_API_USERNAME:-Sanjay}
       APP_GIT_SHA: ${APP_GIT_SHA:-}
       SERVER_TYPE: ${SERVER_TYPE:-MAIN}
       MAIN_SERVER_URL: ${MAIN_SERVER_URL:-}
