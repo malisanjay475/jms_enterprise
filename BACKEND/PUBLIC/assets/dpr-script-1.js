@@ -2202,9 +2202,9 @@
                             } else if (filterMode === 'Pending') {
                                 filteredMachineBuffer = globalMachineBuffer.filter(m => m.missingSlots > 0);
                             } else if (filterMode === 'LowEff') {
-                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.eff > 0 && m.eff < 75);
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.hasEntries && m.eff < 75);
                             } else if (filterMode === 'LowOee') {
-                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.oee > 0 && m.oee < 75);
+                                filteredMachineBuffer = globalMachineBuffer.filter(m => m.hasEntries && m.oee < 75);
                             } else if (filterMode === 'MouldChange') {
                                 filteredMachineBuffer = globalMachineBuffer.filter(m => m.entryTypes.has('MouldChange') || m.entryTypes.has('MouldChangeover'));
                             } else if (filterMode === 'PlanChangeOver') {
