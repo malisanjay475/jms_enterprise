@@ -3182,6 +3182,11 @@
                 <label style="display:flex; align-items:center; gap:6px; font-size:0.78rem; color:#334155; font-weight:700; margin:8px 0 12px">
                   <input type="checkbox" id="spe-autosum" ${colours.length ? 'checked' : ''}> Auto-sum Plan/Job Qty from colour rows
                 </label>
+                ${colours.length > 1 && hasCap ? `
+                <div style="display:flex; align-items:center; gap:8px; margin:0 0 12px; flex-wrap:wrap">
+                  <span style="font-size:0.72rem; color:#475569; font-weight:700">Set every colour to Mould Item Qty (${formatCpQty(maxForThisPlan)}):</span>
+                  <button type="button" class="btn" id="spe-fillmax-btn" style="padding:4px 10px; font-size:0.76rem">Fill Job Qty to Max</button>
+                </div>` : ''}
                 ${hasCap ? `
                 <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-bottom:12px">
                   <div style="background:#f1f5f9; border-radius:8px; padding:6px 8px">
@@ -3222,15 +3227,34 @@
           const autoSum = host.querySelector('#spe-autosum');
           const warnEl = host.querySelector('#spe-warn');
           const saveBtn = host.querySelector('#spe-save');
-          // Hard-block Save whenever Plan or Job Qty exceeds the Mould Item Qty ceiling.
+          // Each colour produces up to its OWN Mould Item Qty ceiling — a colour is
+          // never allowed to exceed it, but the SUM across colours is not capped
+          // (a 2-piece set legitimately needs the full qty of each colour). So both
+          // Job Qty and Plan Qty are validated PER colour row. With no colour
+          // breakup, fall back to the single Plan/Job Qty values.
           const validate = () => {
             const pv = Number(planInput.value) || 0;
             const jv = Number(jobInput.value) || 0;
-            const over = hasCap && (pv > maxForThisPlan || jv > maxForThisPlan);
+            let jobOver = false;
+            let planOver = false;
+            if (hasCap) {
+              if (colours.length) {
+                jobOver = Array.from(host.querySelectorAll('.spe-col-batch'))
+                  .some((el) => (Number(el.value) || 0) > maxForThisPlan);
+                planOver = Array.from(host.querySelectorAll('.spe-col-plan'))
+                  .some((el) => (Number(el.value) || 0) > maxForThisPlan);
+              } else {
+                jobOver = jv > maxForThisPlan;
+                planOver = pv > maxForThisPlan;
+              }
+            }
+            const over = jobOver || planOver;
             if (warnEl) {
               warnEl.style.display = over ? 'block' : 'none';
-              warnEl.textContent = over
-                ? `Qty exceeds the limit. Max for this plan is ${formatCpQty(maxForThisPlan)} (Mould Item Qty ${formatCpQty(orQty)} − already planned ${formatCpQty(plannedOthers)}).`
+              warnEl.textContent = jobOver
+                ? `A colour's Job Qty exceeds ${formatCpQty(maxForThisPlan)} (Mould Item Qty per colour).`
+                : planOver
+                ? `A colour's Plan Qty exceeds ${formatCpQty(maxForThisPlan)} (Mould Item Qty per colour).`
                 : '';
             }
             saveBtn.disabled = over;
@@ -3247,6 +3271,18 @@
             validate();
           };
           host.querySelectorAll('.spe-col-plan, .spe-col-batch').forEach((el) => el.addEventListener('input', recompute));
+          // Fill every colour's Job Qty up to the Mould Item Qty ceiling. Fixes the
+          // common case where a user planned only one colour and needs the other
+          // colour(s) produced at the full qty too (2-piece set). Plan Qty is left
+          // as-is (already per-colour raw material).
+          const fillBtn = host.querySelector('#spe-fillmax-btn');
+          if (fillBtn) {
+            fillBtn.addEventListener('click', () => {
+              host.querySelectorAll('.spe-col-batch').forEach((el) => { el.value = String(maxForThisPlan); });
+              if (!autoSum.checked) { autoSum.checked = true; toggleManual(); }
+              recompute();
+            });
+          }
           planInput.addEventListener('input', validate);
           jobInput.addEventListener('input', validate);
           autoSum.addEventListener('change', recompute);

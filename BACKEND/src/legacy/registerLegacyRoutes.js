@@ -10918,12 +10918,28 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
           const plannedOthers = toNum(otherRows[0]?.planned_others) ?? 0;
           const currentJobQty = toNum(before.job_qty ?? before.batch_qty) ?? 0;
           const maxForThisPlan = Math.max(orQty - plannedOthers, currentJobQty);
-          const checkJob = jobQty != null ? jobQty : currentJobQty;
-          const checkPlan = planQty != null ? planQty : (toNum(before.plan_qty) ?? 0);
-          if (checkJob > maxForThisPlan || checkPlan > maxForThisPlan) {
+          // Each colour produces up to its OWN Mould Item Qty ceiling; the SUM is
+          // not capped (a 2-piece set needs the full qty of each colour). So both
+          // Job Qty and Plan Qty are checked PER colour row. With no colour breakup,
+          // fall back to the single Plan/Job Qty totals.
+          let over = false;
+          let overLabel = '';
+          let overVal = 0;
+          if (colourDetails && colourDetails.length) {
+            const jc = colourDetails.find((r) => (r.batchQty || 0) > maxForThisPlan);
+            const pc = colourDetails.find((r) => (r.planQty || 0) > maxForThisPlan);
+            if (jc) { over = true; overLabel = 'Job Qty'; overVal = jc.batchQty; }
+            else if (pc) { over = true; overLabel = 'Plan Qty'; overVal = pc.planQty; }
+          } else {
+            const checkJob = jobQty != null ? jobQty : currentJobQty;
+            const checkPlan = planQty != null ? planQty : (toNum(before.plan_qty) ?? 0);
+            if (checkJob > maxForThisPlan) { over = true; overLabel = 'Job Qty'; overVal = checkJob; }
+            else if (checkPlan > maxForThisPlan) { over = true; overLabel = 'Plan Qty'; overVal = checkPlan; }
+          }
+          if (over) {
             return res.json({
               ok: false,
-              error: `Qty exceeds the limit. Max for this plan is ${maxForThisPlan} (Mould Item Qty ${orQty} − already planned ${plannedOthers}).`
+              error: `A colour's ${overLabel} (${overVal}) exceeds the per-colour limit of ${maxForThisPlan} (Mould Item Qty ${orQty}).`
             });
           }
         }
