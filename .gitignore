@@ -6,6 +6,7 @@ jspm_packages/
 # Pre-compressed static assets (generated at boot/build by scripts/precompress-assets.js)
 BACKEND/PUBLIC/**/*.br
 BACKEND/PUBLIC/**/*.gz
+BACKEND/PUBLIC/**/.precompress-manifest.json
 
 # Minified assets (generated at boot/build by scripts/minify-assets.js).
 # Vendored *.min.js (e.g. html5-qrcode.min.js) are committed and unaffected.
@@ -139,3 +140,4 @@ BACKEND/job_card_api_snippet.js
 
 # Local GitHub Actions secret values (never commit)
 scripts/github-actions.secrets.env
+.gstack/
