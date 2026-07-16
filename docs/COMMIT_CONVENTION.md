@@ -51,9 +51,47 @@ feat(api)!: change job-card payload shape
 BREAKING CHANGE: `qty` is now nested under `colours[]`. Mobile app < 2.3 must upgrade.
 ```
 
-### Linking work
+### Linking work — Jira ticket key is required
 
-Reference the Jira key in the body or footer: `Refs: JMS-1234`.
+Every branch, commit, and PR **must** carry its Jira ticket key (e.g. `KAN-12`) so GitHub's
+Jira integration auto-links the work to its ticket. Once the GitHub for Jira app is connected,
+any branch/commit/PR containing the key shows up automatically on that ticket's **Development**
+panel — no manual updates needed.
+
+**Branch name** — start with the key:
+
+```
+KAN-12-fill-to-max-helper
+feat/KAN-45-dpr-summary-service
+```
+
+**Commit message** — put the key in the summary or footer:
+
+```
+feat(planning): add Fill-to-Max helper for per-colour plan editing
+
+Refs: KAN-12
+```
+
+**Smart commits** — drive Jira straight from the commit message. Put commands after the key:
+
+| Command | Effect on the ticket |
+|---------|----------------------|
+| `KAN-12 #comment <text>` | Adds a comment |
+| `KAN-12 #time 2h 30m <text>` | Logs work |
+| `KAN-12 #in-progress` | Transitions to In Progress |
+| `KAN-12 #done` | Transitions to Done |
+
+Example:
+
+```
+fix(sync): stop deleted plans resurrecting via LOCAL upsert path
+
+KAN-12 #time 1h 30m #comment guarded upsert against tombstones #done
+```
+
+> Transition names (`#in-progress`, `#done`) must match the board's workflow — see
+> [JIRA_WORKFLOW.md](JIRA_WORKFLOW.md).
 
 ## Why this matters here
 
