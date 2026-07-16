@@ -1,0 +1,106 @@
+# =============================================================================
+# PRODUCTION DEPLOYMENT TEMPLATE  —  EXAMPLE ONLY, DOES NOT RUN
+# =============================================================================
+# This file has a `.example` extension so GitHub Actions IGNORES it. It is a
+# secure, manual-only reference pattern. The project's REAL production deploy is
+# `publish-v1-app.yml` (auto on push to main) with `deploy-vps-docker-isolated.yml`
+# as the manual rollback path — see DEPLOYMENT.md.
+#
+# Principles demonstrated here:
+#   * Manual trigger only (workflow_dispatch) with an explicit typed confirmation.
+#   * Least-privilege permissions.
+#   * ALL secrets come from GitHub Actions secrets — never hardcoded.
+#   * A GitHub Environment ("production") to require a human approval gate.
+#   * A safety DB dump before swapping, and a health check with rollback.
+#
+# To adopt: copy to `deploy-production.yml`, wire the secrets, and configure a
+# protected "production" Environment with required reviewers.
+# =============================================================================
+
+name: Deploy Production (TEMPLATE — manual only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (e.g. sha-<commit> or a release tag)"
+        required: true
+        default: "latest"
+      confirm:
+        description: 'Type "DEPLOY" to confirm production release'
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false # never cancel a deploy mid-flight
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "DEPLOY" ]; then
+            echo "::error::Confirmation text did not match. Aborting."
+            exit 1
+          fi
+
+  deploy:
+    needs: guard
+    runs-on: ubuntu-latest
+    # Requires a protected Environment named "production" with required reviewers,
+    # so a human must approve before the job proceeds.
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PULL_TOKEN }} # secret, not hardcoded
+
+      - name: Deploy over SSH (safety dump -> swap -> health check -> rollback)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            IMAGE="ghcr.io/${{ github.repository_owner }}/jms-v1-app:${{ github.event.inputs.image_tag }}"
+
+            # 1. Safety database dump BEFORE any change.
+            timestamp=$(date +%Y%m%d-%H%M%S)
+            docker exec jms-postgres pg_dump -U "$DB_USER" "$DB_NAME" \
+              > "/backups/pre-deploy-${timestamp}.sql"
+
+            # 2. Pull the new image and record the current one for rollback.
+            PREV_IMAGE=$(docker inspect --format='{{.Config.Image}}' jms-app || echo "")
+            docker pull "$IMAGE"
+
+            # 3. Swap containers.
+            docker compose -f docker-compose.vps-v1-hostinger.yml up -d
+
+            # 4. Health check; roll back if unhealthy.
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:3000/health >/dev/null; then
+                echo "Healthy."; exit 0
+              fi
+              sleep 5
+            done
+
+            echo "::error::Health check failed — rolling back to ${PREV_IMAGE}"
+            if [ -n "$PREV_IMAGE" ]; then
+              docker tag "$PREV_IMAGE" "ghcr.io/${{ github.repository_owner }}/jms-v1-app:rollback"
+              docker compose -f docker-compose.vps-v1-hostinger.yml up -d
+            fi
+            exit 1
+        env:
+          DB_USER: ${{ secrets.PROD_DB_USER }}
+          DB_NAME: ${{ secrets.PROD_DB_NAME }}

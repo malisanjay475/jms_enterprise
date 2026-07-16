@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability (do NOT open a public issue)
+    url: https://github.com/malisanjay475/jms_enterprise/security/advisories/new
+    about: Report security issues privately. See SECURITY.md for the disclosure policy.
+  - name: Operations / deployment help
+    url: https://github.com/malisanjay475/jms_enterprise/blob/main/DEPLOYMENT.md
+    about: Deployment, rollback, and VPS/LOCAL server operations.
