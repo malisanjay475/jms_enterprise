@@ -49,7 +49,12 @@ function precompressAssets(publicDir) {
 
   for (const file of files) {
     const srcStat = fs.statSync(file);
-    if (srcStat.size < MIN_BYTES) continue;
+    if (srcStat.size < MIN_BYTES) {
+      // Drop stale siblings so a shrunk file isn't served as old compressed bytes.
+      fs.rmSync(file + '.gz', { force: true });
+      fs.rmSync(file + '.br', { force: true });
+      continue;
+    }
     const data = fs.readFileSync(file);
     const rel = path.relative(root, file);
     const hash = crypto.createHash('sha256').update(data).digest('hex');
