@@ -838,6 +838,8 @@
               p._rippledStartRaw=new Date(start);
               p._rippledEndRaw=new Date(endFixed);   // End Date — constant
               p._rippledExpRaw=new Date(endExp);     // Exp Date — changes with production
+              p._stdTotalMs=durFull;                  // Total Plan Time as per STD (full qty)
+              p._stdBalMs=durBal;                     // Plan Time as per Balance, STD rate
               cursor=endFixed;                        // ripple next plan from End Date
             });
           });
@@ -1662,6 +1664,12 @@
           if (Number.isFinite(en) && en > _maxEnd) _maxEnd = en;
         });
         const totalMs = _maxEnd > _nowTs ? (_maxEnd - _nowTs) : 0;
+        let _stdBalTotalMs = 0, _stdFullTotalMs = 0;
+        allMachinePlans.forEach(p => {
+          if (Number.isFinite(p._stdBalMs)) _stdBalTotalMs += p._stdBalMs;
+          if (Number.isFinite(p._stdTotalMs)) _stdFullTotalMs += p._stdTotalMs;
+        });
+        const stdBalLabel = fmt(_stdBalTotalMs);
         const loadLabel = fmt(totalMs);
         const loadDays = totalMs / 86400000;
         const isOverloaded = loadDays > 30;
@@ -1679,6 +1687,7 @@
                 : `${esc(m._finalBuilding||'?')} · Line ${esc(m._finalLine||'?')}`}</div>
               ${plans.length > 0 ? `<div class="etv-mach-plans">${plans.length} plan${plans.length>1?'s':''} queued</div>` : `<div class="etv-mach-plans" style="color:#2d3f55">No plans</div>`}
               ${loadLabel ? `<div class="etv-mach-load${isOverloaded ? ' etv-mach-load-over' : ''}" title="Total queued run-time${isOverloaded ? ' — over 30 days of load' : ''}"><i class="bi bi-clock" style="font-size:.5rem"></i> Load: ${esc(loadLabel)}</div>` : ''}
+              ${stdBalLabel ? `<div style="margin-top:2px;font-size:.56rem;font-weight:800;color:#6d28d9;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:999px;padding:1px 7px;display:inline-block" title="Remaining plan time at STD rate (balance qty ÷ std) — full-qty STD total: ${esc(fmt(_stdFullTotalMs))}"><i class="bi bi-speedometer2" style="font-size:.5rem"></i> Plan (STD): ${esc(stdBalLabel)}</div>` : ''}
               ${isOverloaded ? `<div class="etv-load-badge" title="This machine has more than 30 days of planned load"><i class="bi bi-exclamation-triangle-fill"></i> 30+ days load</div>` : ''}
             </div>
           </td>`;
@@ -1751,6 +1760,9 @@
           const dateBadge = `<div style="font-size:.58rem;color:#64748b;line-height:1.4;margin-top:2px;border-top:1px dashed #e2e8f0;padding-top:2px;">
             <span style="color:#94a3b8">End:</span> <span style="font-weight:700;color:#334155">${endDateStr}</span>${showExpRow ? `<br><span style="color:#2563eb">Exp:</span> <span style="font-weight:700;color:#2563eb">${expDateStr}</span>` : ''}
           </div>`;
+          const stdBadge = `<div title="STD Total (purple) | STD Balance (green) — qty ÷ (3600/cycle × cavity)" style="display:flex;align-items:center;justify-content:center;gap:5px;font-size:.66rem;font-weight:800;line-height:1.4;margin-top:1px;">
+            <span style="color:#7c3aed">${fmt(p._stdTotalMs)}</span><span style="color:#cbd5e1">|</span><span style="color:#16a34a">${fmt(p._stdBalMs)}</span>
+          </div>`;
 
           /* ── Cycle-time estimate badge: realistic output learned from history vs standard ── */
           let estBadge = '';
@@ -1818,8 +1830,8 @@
                 ${estBadge}
                 ${(p.jcNo || p.jc_no || p.job_card_no) ? `<div onclick="if(window.openJcDrilldown)window.openJcDrilldown('${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.jcNo||p.jc_no||p.job_card_no||'')}','${esc(p.planId||p.plan_id||'')}','${esc(p.orderNo||'')}'); event.stopPropagation();" style="font-size:.62rem;font-family:monospace;color:#2563eb;font-weight:700;text-decoration:underline;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px" title="Click: Colour/Shift/Hourly drill-down">JC: ${esc(p.jcNo||p.jc_no||p.job_card_no||'')} ↗</div>` : ''}
                 ${dateBadge}
+                ${stdBadge}
                 <div style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;">
-                  ${timeBadge}
                   <div onclick="window.etvToggleJcGiven(event,'${esc(String(p.id||p.planId||p.plan_id||''))}',${p.job_card_given?'true':'false'})" style="cursor:pointer;display:inline-flex;align-items:center;gap:2px;font-size:.58rem;font-weight:700;padding:1px 5px;border-radius:4px;border:1px solid ${p.job_card_given?'#bbf7d0':'#e2e8f0'};background:${p.job_card_given?'#dcfce7':'#f8fafc'};color:${p.job_card_given?'#15803d':'#94a3b8'};white-space:nowrap;transition:all .15s;" title="${p.job_card_given?'JC Given — Click to remove':'Click to mark Job Card as Given'}"><i class="bi bi-file-earmark-check${p.job_card_given?'-fill':''}"></i>&nbsp;${p.job_card_given?'JC✓':'JC?'}</div>
                 </div>
                 <!-- P1-P4 MACHINE PRIORITY BUTTONS -->
