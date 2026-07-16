@@ -1118,6 +1118,15 @@
                             });
                         }
 
+                        // Normalized lookup: strip spaces/dashes/underscores + lowercase
+                        // so saved keys like "FL1" match master line values like "F -L1".
+                        const normLineKey = (s) => String(s || '').toLowerCase().replace(/[\s\-_]/g, '');
+                        const teamMapNorm = {};
+                        Object.keys(teamMap).forEach(k => {
+                            const nk = normLineKey(k);
+                            if (nk && !teamMapNorm[nk]) teamMapNorm[nk] = teamMap[k];
+                        });
+
                         // Helper to determine Slot End Time
                         const getSlotEnd = (slotKey, dateStr, rowShift) => {
                             let rawSlot = slotKey;
@@ -1209,9 +1218,15 @@
                             // Shift Team Display
                             let team = teamMap[lineName];
                             if (!team) {
-                                // Fallback: Try matching prefix (e.g. "B -L1" -> "B")
+                                // Fallback 1: Try matching prefix (e.g. "B -L1" -> "B")
                                 const prefix = lineName.split(' -')[0].trim();
-                                team = teamMap[prefix] || {};
+                                team = teamMap[prefix];
+                            }
+                            if (!team) {
+                                // Fallback 2: Normalized match (ignore spaces/dashes/case)
+                                team = teamMapNorm[normLineKey(lineName)]
+                                    || teamMapNorm[normLineKey(lineName.split(' -')[0])]
+                                    || {};
                             }
 
                             // Auto-Calc Manager
