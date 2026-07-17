@@ -1,0 +1,50 @@
+name: "✨ Feature Request"
+description: Propose a new capability or enhancement.
+title: "feat: <short description>"
+labels: ["enhancement", "triage"]
+body:
+  - type: input
+    id: jira
+    attributes:
+      label: Jira Issue
+      placeholder: JMS-1234
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / user need
+      description: What problem does this solve? Who is affected (planner, supervisor, QC, HR, ops)?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: Primary subsystem
+      options:
+        - Backend / API
+        - Frontend (HTML pages)
+        - Scanner Bridge
+        - Mobile (Flutter)
+        - Desktop App
+        - Sync
+        - Ops / CI-CD
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true

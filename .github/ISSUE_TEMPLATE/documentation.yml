@@ -1,0 +1,25 @@
+name: "📚 Documentation"
+description: Add or fix documentation.
+title: "docs: <short description>"
+labels: ["documentation", "triage"]
+body:
+  - type: input
+    id: jira
+    attributes:
+      label: Jira Issue
+      placeholder: JMS-1234
+  - type: textarea
+    id: what
+    attributes:
+      label: What is missing, wrong, or unclear?
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: Affected doc / path
+      placeholder: docs/ENGINEERING_GUIDE.md, README.md, ...
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
