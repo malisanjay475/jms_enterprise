@@ -1311,16 +1311,59 @@
 
         try {
           const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
-          const res = await api.get(`/planning/plan/${encodeURIComponent(rowId)}`);
+          const [res, mouldRes] = await Promise.all([
+            api.get(`/planning/plan/${encodeURIComponent(rowId)}`),
+            api.get('/masters/moulds').catch(() => null)
+          ]);
           if (!res || !res.ok || !res.plan) {
             document.getElementById('editPlanBody').innerHTML = `<div style="text-align:center;padding:40px;color:#ef4444">Could not load plan.</div>`;
             return;
           }
           _epState.plan = res.plan;
+          _epState.moulds = (mouldRes && Array.isArray(mouldRes.data)) ? mouldRes.data : [];
           renderEditPlanForm(res.plan);
         } catch (e) {
           document.getElementById('editPlanBody').innerHTML = `<div style="text-align:center;padding:40px;color:#ef4444">Error loading plan: ${e.message || e}</div>`;
         }
+      };
+
+      // Build the Mould Name picker from the mould master. Falls back to a plain
+      // text input if the master list didn't load, and always keeps the plan's
+      // current mould selectable even when it isn't in the master.
+      function _mouldSelectHtml(plan, fieldS, escH) {
+        const moulds = Array.isArray(_epState.moulds) ? _epState.moulds : [];
+        const cur = String(plan.mouldName || '').trim();
+        if (!moulds.length) {
+          return `<input id="epMouldName" type="text" value="${escH(plan.mouldName)}" style="${fieldS}">`;
+        }
+        const norm = (s) => String(s || '').trim().toUpperCase();
+        const seen = new Set();
+        let opts = '';
+        let curInList = false;
+        moulds
+          .slice()
+          .sort((a, b) => String(a.mould_name || '').localeCompare(String(b.mould_name || '')))
+          .forEach((md) => {
+            const name = String(md.mould_name || '').trim();
+            if (!name || seen.has(norm(name))) return;
+            seen.add(norm(name));
+            const code = String(md.mould_number || md.mould_code || '').trim();
+            const sel = norm(name) === norm(cur) ? ' selected' : '';
+            if (sel) curInList = true;
+            opts += `<option value="${escH(name)}" data-code="${escH(code)}"${sel}>${escH(name)}${code ? ' (' + escH(code) + ')' : ''}</option>`;
+          });
+        if (cur && !curInList) {
+          opts = `<option value="${escH(cur)}" data-code="${escH(plan.mouldCode || '')}" selected>${escH(cur)} (current)</option>` + opts;
+        }
+        return `<select id="epMouldName" onchange="window._epMouldPick(this)" style="${fieldS}">${opts}</select>`;
+      }
+
+      // When a mould is picked from the dropdown, auto-fill its code.
+      window._epMouldPick = function (sel) {
+        const opt = sel.options[sel.selectedIndex];
+        const code = opt ? (opt.getAttribute('data-code') || '') : '';
+        const codeEl = document.getElementById('epMouldCode');
+        if (codeEl) codeEl.value = code;
       };
 
       function renderEditPlanForm(plan) {
@@ -1336,7 +1379,7 @@
             <div><label style="${labS}">Batch Qty</label><input id="epBatchQty" type="number" min="0" value="${Number(plan.batchQty || 0)}" style="${fieldS}"></div>
             <div><label style="${labS}">Item Code</label><input id="epItemCode" type="text" value="${escH(plan.itemCode)}" style="${fieldS}"></div>
             <div style="grid-column:span 2;"><label style="${labS}">Item Name</label><input id="epItemName" type="text" value="${escH(plan.itemName)}" style="${fieldS}"></div>
-            <div><label style="${labS}">Mould Name</label><input id="epMouldName" type="text" value="${escH(plan.mouldName)}" style="${fieldS}"></div>
+            <div><label style="${labS}">Mould Name</label>${_mouldSelectHtml(plan, fieldS, escH)}</div>
             <div><label style="${labS}">Mould Code</label><input id="epMouldCode" type="text" value="${escH(plan.mouldCode)}" style="${fieldS}"></div>
             <div style="align-self:end; font-size:0.72rem; color:#92400e; line-height:1.3;"><i class="bi bi-info-circle"></i> Changing the mould moves this plan, its summary/report rows and all logged DPR entries to the new mould.</div>
             <div><label style="${labS}">Start Date</label><input id="epStartDate" type="date" value="${toDateInput(plan.startDate)}" style="${fieldS}"></div>
