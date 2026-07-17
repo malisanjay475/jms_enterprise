@@ -1,0 +1,31 @@
+name: "📋 Task"
+description: A scoped unit of engineering work (not a bug or a large feature).
+title: "task: <short description>"
+labels: ["task", "triage"]
+body:
+  - type: input
+    id: jira
+    attributes:
+      label: Jira Issue
+      placeholder: JMS-1234
+  - type: textarea
+    id: description
+    attributes:
+      label: What needs to be done
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope / out of scope
+      description: Keep one subsystem per task where possible.
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of done
+      value: |
+        - [ ] Code merged
+        - [ ] Tests updated
+        - [ ] Docs updated
+    validations:
+      required: true

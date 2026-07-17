@@ -1,0 +1,36 @@
+name: JMS Quality (advisory)
+
+# Advisory code-quality checks: Prettier formatting + ESLint on the modular backend.
+# Intentionally NON-BLOCKING (continue-on-error) so it never blocks a merge while the
+# team adopts the tooling. Promote to a required check once the codebase is clean.
+# See docs/FOLDER_STRUCTURE.md and docs/CODE_REVIEW_GUIDELINES.md.
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: format-and-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Prettier (check only)
+        continue-on-error: true
+        run: npx --yes prettier@3 --check "**/*.{js,json,md,yml,yaml}"
+
+      - name: ESLint (advisory, scoped to BACKEND/src + tests)
+        continue-on-error: true
+        run: npx --yes eslint@9 .
