@@ -1576,7 +1576,11 @@
                     p._rippledExpRaw   = new Date(endExp);   // Exp Date — changes with production
                     p._stdTotalMs = durFull;                 // Total Plan Time as per STD (full qty)
                     p._stdBalMs   = durBal;                  // Plan Time as per Balance, STD rate
-                    cursor = endFixed;                       // ripple next plan from End Date
+                    // Ripple the next plan from the Exp Date (balance-based, live), not the
+                    // fixed STD End Date. A slow-running plan pushes its whole queue out to
+                    // realistic times; the fixed End Date would chain queued plans from a
+                    // standard-speed finish that may already be in the past (KAN-25).
+                    cursor = endExp;
                 });
             });
             window.allMasterPlans = plans; window.timelineGroups = byMach;
