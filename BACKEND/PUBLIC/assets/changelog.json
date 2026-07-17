@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.3.1",
+  "latest": "1.4.0",
   "versions": [
+    {
+      "version": "1.4.0",
+      "date": "2026-07-17",
+      "title": "Better Daily Mould Change Report",
+      "summary": "The Mould Change Report is now a complete, print-ready sheet with accurate times, serial numbers, signatures and an Excel download.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "fix", "text": "The Mould Change Report now shows correct realistic times even when opened directly, without visiting the Machine Timeline first." },
+            { "type": "feat", "text": "The report is a proper daily sheet: company header, serial numbers, and a signature section for PPC, the mould change team, and the production head." },
+            { "type": "improvement", "text": "Printing now repeats the column headings on every page and never splits a row across two pages." },
+            { "type": "feat", "text": "New Excel button downloads the loaded report as a spreadsheet." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.3.1",
       "date": "2026-07-17",
