@@ -2159,9 +2159,31 @@
       return String(raw || '').trim();
     }
 
+    // [KAN-84] Inline refresh indicator — replaces the full-screen "Processing…" overlay
+    // for queue loads so the screen stays usable while jobs are fetched on slow WiFi.
+    function _setQueueRefreshing(on) {
+      const jobsDiv = el('jobs');
+      if (!jobsDiv) return;
+      jobsDiv.style.opacity = on ? '0.55' : '';
+      let chip = el('queue-refreshing-chip');
+      if (on) {
+        if (!chip) {
+          chip = document.createElement('div');
+          chip.id = 'queue-refreshing-chip';
+          chip.className = 'muted';
+          chip.style.cssText = 'text-align:center;font-size:12px;padding:6px;font-weight:700';
+          chip.textContent = '⏳ Refreshing jobs…';
+          jobsDiv.parentNode.insertBefore(chip, jobsDiv);
+        }
+      } else if (chip) {
+        chip.remove();
+      }
+    }
+
     function loadQueue() {
       const jobsDiv = el('jobs');
-      jobsDiv.innerHTML = '';
+      // [KAN-84] Keep the previously rendered job cards visible (dimmed) while the fresh
+      // list loads in the background, instead of blanking the screen behind an overlay.
       el('no-jobs').classList.add('hidden');
 
       // Reset DPR area — clear any stale over-production alerts from the previous job
@@ -2173,7 +2195,7 @@
       el('active-job').innerHTML = 'Open Queue → <b>Fill DPR</b> on the first job.';
       el('job-summary').innerHTML = '';
 
-      showLoading();
+      _setQueueRefreshing(true);
 
       const line = session.line || '';
       const machine = session.machine || el('dd-machine').value || '';
@@ -2183,9 +2205,10 @@
         .then(r => {
           if (!r || !r.ok) {
             console.warn('Queue load failed:', r);
+            jobsDiv.innerHTML = '';
             el('no-jobs').classList.remove('hidden');
             el('no-jobs').textContent = (r && r.error) || 'Failed to load jobs.';
-            hideLoading();
+            _setQueueRefreshing(false);
             return;
           }
 
@@ -2193,9 +2216,10 @@
           console.log('Queue loaded:', rows.length, 'jobs', rows);
 
           if (!rows.length) {
+            jobsDiv.innerHTML = '';
             el('no-jobs').classList.remove('hidden');
             el('no-jobs').textContent = 'No jobs found for this machine.';
-            hideLoading();
+            _setQueueRefreshing(false);
             return;
           }
 
@@ -2219,8 +2243,9 @@
 
 
           if (!mapped.length) {
+            jobsDiv.innerHTML = '';
             el('no-jobs').classList.remove('hidden');
-            hideLoading();
+            _setQueueRefreshing(false);
             return;
           }
 
@@ -2338,12 +2363,12 @@
           });
 
           jobsDiv.appendChild(frag);
-          hideLoading();
+          _setQueueRefreshing(false);
         })
         .catch(err => {
           console.error(err);
           jobsDiv.innerHTML = '<span class="err">Failed to load queue.</span>';
-          hideLoading();
+          _setQueueRefreshing(false);
         });
     }
 
@@ -2422,10 +2447,11 @@
         loadUsedSlots();
         show('dpr-form');
         showPage('sec-dpr', el('tab-dpr'));
-        // Scroll to the DPR entry form so operator immediately sees the slot/colour/shots inputs
+        // [KAN-83] Scroll to the Colour Breakdown (colour picker) so the writer picks a
+        // colour first, instead of jumping straight to the entry inputs.
         setTimeout(() => {
-          const _entryForm = el('dpr-form') || el('d-slot') || el('sec-dpr');
-          if (_entryForm) _entryForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          const _colourBlock = el('color-picker-btn') || el('dpr-form') || el('d-slot') || el('sec-dpr');
+          if (_colourBlock) _colourBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }, 80);
       } catch (e) { alert('Error opening DPR Form: ' + e.message); console.error(e); }
     }
@@ -2993,20 +3019,46 @@
     }
 
     /* >>>>>>>>>>>>>>> OPTIMIZED SUBMIT <<<<<<<<<<<<<<< */
+    // [KAN-82] Submit click-lock: disable the button the instant Submit is tapped so a
+    // fast double/triple tap cannot create duplicate DPR entries. Minimum lock ~3s;
+    // always re-enabled after the server responds so a failed save can be retried.
+    let _submitLockedAt = 0;
+    function lockSubmitBtn() {
+      const b = el('btn-submit');
+      if (b) {
+        b.disabled = true;
+        b.setAttribute('aria-disabled', 'true');
+        _submitLockedAt = Date.now();
+      }
+    }
+    function unlockSubmitBtn() {
+      const b = el('btn-submit');
+      if (!b) return;
+      const wait = Math.max(0, 3000 - (Date.now() - _submitLockedAt));
+      setTimeout(() => {
+        b.disabled = false;
+        b.setAttribute('aria-disabled', 'false');
+      }, wait);
+    }
+
     function submitDPR(e) {
       if (e) e.preventDefault();
       // 1. Validation & Preparation
-      el('submit-errors').textContent = '';
       const btn = el('btn-submit');
+      if (btn && btn.disabled) return; // [KAN-82] second tap does nothing
+      lockSubmitBtn();                 // [KAN-82] lock immediately on first tap
+      el('submit-errors').textContent = '';
 
       if (!session.activeJob) {
         el('dpr-msg').textContent = 'Select a job first.';
+        unlockSubmitBtn();
         return;
       }
 
       if (appSettings.geofence_enabled === 'true') {
         if (!lastGeo || !insideGeofence(lastGeo.lat, lastGeo.lng, lastGeo.acc)) {
           el('submit-errors').textContent = 'Blocked: device is outside geofence. Recalibrate and try again.';
+          unlockSubmitBtn();
           return;
         }
       }
@@ -3017,8 +3069,6 @@
       // Validation Removed as per user request (Was checking 2x limit)
       // The logic below is commented out / removed.
       /* ------------------------------ */
-
-      if (btn && btn.disabled) return;
 
       // 2. CHECK FOR PREVIOUS SHIFT
       const selDate = el('d-date').value;
@@ -3154,10 +3204,7 @@
       };
 
       el('dpr-msg').textContent = 'Saving…';
-      if (btn) {
-        btn.disabled = true;
-        btn.setAttribute('aria-disabled', 'true');
-      }
+      lockSubmitBtn(); // [KAN-82] idempotent — covers direct calls that skipped submitDPR
 
       showLoading();
       apiFetch('/api/dpr/submit', {
@@ -3208,20 +3255,17 @@
           } else {
             el('submit-errors').textContent =
               (r && r.error) ? String(r.error) : 'Save failed due to an unknown error.';
-            if (btn) {
-              btn.disabled = false;
-              btn.setAttribute('aria-disabled', 'false');
-            }
           }
         })
         .catch(err => {
           el('submit-errors').textContent = String(err);
-          if (btn) {
-            btn.disabled = false;
-            btn.setAttribute('aria-disabled', 'false');
-          }
         })
-        .finally(() => hideLoading());
+        .finally(() => {
+          hideLoading();
+          // [KAN-82] Always re-enable (min 3s after tap) — success, error, or network
+          // failure — so the writer can retry and the button never stays stuck disabled.
+          unlockSubmitBtn();
+        });
     }
 
     /* ==================== PENDING ENTRIES ALERT ==================== */

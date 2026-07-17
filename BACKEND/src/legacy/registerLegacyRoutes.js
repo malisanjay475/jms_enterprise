@@ -6511,6 +6511,39 @@ app.post('/api/dpr/submit', async (req, res) => {
       }
     }
 
+    // [KAN-82] SERVER-SIDE DUPLICATE GUARD — the client button-lock stops UI double-taps,
+    // but a network glitch (browser retry, or a retry after timeout when the first request
+    // actually saved) can still deliver the same entry twice. If an identical entry for the
+    // same machine/date/shift/hour-slot/plan/type/colour with the same quantities was saved
+    // in the last 2 minutes, treat this request as the SAME submit: return the existing id
+    // (ok:true) instead of inserting a second row, so the writer just sees "Saved."
+    try {
+      const dupRows = await q(
+        `SELECT id FROM dpr_hourly
+         WHERE machine = $1 AND dpr_date = $2 AND shift = $3 AND hour_slot = $4
+           AND COALESCE(CAST(plan_id AS TEXT), '') = $5
+           AND COALESCE(entry_type, 'MAIN') = $6
+           AND COALESCE(colour, '') = $7
+           AND shots = $8 AND good_qty = $9 AND reject_qty = $10 AND downtime_min = $11
+           AND is_deleted = false
+           AND created_at > NOW() - INTERVAL '2 minutes'
+           AND ($12::int IS NULL OR factory_id = $12 OR factory_id IS NULL)
+         ORDER BY id DESC LIMIT 1`,
+        [
+          Machine, Date, Shift, HourSlot,
+          String(PlanID || ''), EntryType || 'MAIN', String(Colour || ''),
+          toNum(Shots), toNum(GoodQty), toNum(RejectQty), toNum(DowntimeMin),
+          factoryId
+        ]
+      );
+      if (dupRows.length) {
+        return res.json({ ok: true, id: dupRows[0].id, duplicate: true });
+      }
+    } catch (err) {
+      // Guard failure must never block the factory — log and fall through to normal insert.
+      console.error('dpr/submit duplicate-guard', err.message);
+    }
+
     const rows = await q(
       `
       INSERT INTO dpr_hourly (
