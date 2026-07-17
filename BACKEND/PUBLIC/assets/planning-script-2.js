@@ -758,6 +758,11 @@
             const rA = (a.status || '').toUpperCase() === 'RUNNING';
             const rB = (b.status || '').toUpperCase() === 'RUNNING';
             if (rA !== rB) return rA ? -1 : 1;
+            // P1-P4 machine priority overrides seq — must match the timeline ripple order.
+            const priOrder = { P1: 1, P2: 2, P3: 3, P4: 4 };
+            const pA = priOrder[a.machinePriority] || 999;
+            const pB = priOrder[b.machinePriority] || 999;
+            if (pA !== pB) return pA - pB;
             const sa = (a.seq != null && a.seq !== '') ? Number(a.seq) : Infinity;
             const sb = (b.seq != null && b.seq !== '') ? Number(b.seq) : Infinity;
             if (sa !== sb) return sa - sb;
@@ -791,12 +796,20 @@
         });
       }
 
-      // 2. Sort by Machine > Seq (primary) > Start Date (secondary)
-      // [FIX] seq is the authoritative plan order on a machine — sorting only by startDate
-      // gave wrong order because startDate is often null or date-only (midnight UTC), causing
-      // false mould-change detections between non-adjacent plans.
+      // 2. Sort by Machine > Running > P1-P4 priority > Seq > Start Date.
+      // MUST be the same order the timeline ripple uses, otherwise change detection
+      // compares plans that are not actually adjacent in the schedule (KAN-25):
+      // a P2 plan runs before a no-priority lower-seq plan, and the running plan
+      // is always first regardless of seq.
       plans.sort((a, b) => {
         if (a.machine !== b.machine) return (a.machine || '').localeCompare(b.machine || '');
+        const rA = (a.status || '').toUpperCase() === 'RUNNING';
+        const rB = (b.status || '').toUpperCase() === 'RUNNING';
+        if (rA !== rB) return rA ? -1 : 1;
+        const priOrder = { P1: 1, P2: 2, P3: 3, P4: 4 };
+        const pA = priOrder[a.machinePriority] || 999;
+        const pB = priOrder[b.machinePriority] || 999;
+        if (pA !== pB) return pA - pB;
         const sa = (a.seq != null && a.seq !== '') ? Number(a.seq) : Infinity;
         const sb = (b.seq != null && b.seq !== '') ? Number(b.seq) : Infinity;
         if (sa !== sb) return sa - sb;

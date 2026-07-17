@@ -808,8 +808,8 @@
           const now = Date.now();
           Object.keys(byMach).forEach(code => {
             byMach[code].sort((a,b) => {
-              if ((a.status||'').toUpperCase()==='RUNNING') return -1;
-              if ((b.status||'').toUpperCase()==='RUNNING') return 1;
+              const _ra=(a.status||'').toUpperCase()==='RUNNING', _rb=(b.status||'').toUpperCase()==='RUNNING';
+              if (_ra !== _rb) return _ra ? -1 : 1;
               const _priOrd = {P1:1,P2:2,P3:3,P4:4};
               const _pa = _priOrd[a.machinePriority]||999, _pb = _priOrd[b.machinePriority]||999;
               if (_pa !== _pb) return _pa - _pb;
@@ -841,7 +841,7 @@
               p._rippledExpRaw=new Date(endExp);     // Exp Date — changes with production
               p._stdTotalMs=durFull;                  // Total Plan Time as per STD (full qty)
               p._stdBalMs=durBal;                     // Plan Time as per Balance, STD rate
-              cursor=endFixed;                        // ripple next plan from End Date
+              cursor=endExp;                          // Exp-based ripple — same rule as Machine Timeline (KAN-86)
             });
           });
 
