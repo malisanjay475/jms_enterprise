@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.4.1",
+  "latest": "1.4.2",
   "versions": [
+    {
+      "version": "1.4.2",
+      "date": "2026-07-17",
+      "title": "Mould change day runs 8 AM to 8 AM",
+      "summary": "The Mould Change Report now follows the factory day, and timeline cards spell out Mould Change clearly.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "fix", "text": "Selecting a date in the Mould Change Report now shows every change from 8:00 AM that day to 8:00 AM the next morning, so early-morning changes are no longer missing from today's sheet." },
+            { "type": "improvement", "text": "Machine Timeline and Excel View Timeline cards now say 'Mould Change' in full instead of the short code 'CHG'." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.4.1",
       "date": "2026-07-17",
