@@ -1014,11 +1014,21 @@ function sha256File(filePath) {
   } catch { return null; }
 }
 
+// Derived build artifacts (precompressed .gz/.br, minified .min.js/.min.css and
+// source maps) are regenerated locally on every LOCAL server boot by
+// minifyAssets/precompressAssets. Their bytes never match MAIN's copies, so
+// advertising them in the manifest made runAutoUpdate treat them as perpetually
+// "changed" — causing an infinite download -> process.exit(0) -> restart loop
+// (~every 76s). Excluding them here means the LOCAL server rebuilds them from
+// source on its own and only real source changes trigger an auto-update.
+const DERIVED_ASSET_RE = /(\.gz|\.br|\.min\.js|\.min\.css|\.map)$/i;
+
 function collectManifest() {
   const root = getBackendRoot();
   const manifest = {};
 
   function addFile(relPath) {
+    if (DERIVED_ASSET_RE.test(relPath)) return;
     const absPath = path.join(root, relPath);
     const hash = sha256File(absPath);
     if (hash !== null) manifest[relPath.replace(/\\/g, '/')] = hash;
@@ -1030,6 +1040,7 @@ function collectManifest() {
     for (const entry of fs.readdirSync(absDir, { withFileTypes: true })) {
       if (['node_modules', 'uploads', 'tmp'].includes(entry.name)) continue;
       if (entry.name === '.env' || entry.name.startsWith('.env.backup') || entry.name.endsWith('.log')) continue;
+      if (!entry.isDirectory() && DERIVED_ASSET_RE.test(entry.name)) continue;
       const rel = path.join(relDir, entry.name);
       if (entry.isDirectory()) { walkDir(rel); } else { addFile(rel); }
     }
