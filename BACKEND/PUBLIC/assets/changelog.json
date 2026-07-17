@@ -11,8 +11,26 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.4.2",
+  "latest": "1.4.3",
   "versions": [
+    {
+      "version": "1.4.3",
+      "date": "2026-07-17",
+      "title": "Machine queue follows your P1-P4 priority",
+      "summary": "The plan order you set with P1-P4 priorities now drives the schedule everywhere — card order, dates, and the Mould Change Report all tell the same story.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-sort-numeric-down",
+          "changes": [
+            { "type": "fix", "text": "Machine Timeline dates now follow the P1-P4 priority order you set on plans, so the card shown second also runs second — no more dates jumping between cards." },
+            { "type": "fix", "text": "Excel View Timeline now uses the same realistic expected-finish chaining as the Machine Timeline." },
+            { "type": "fix", "text": "The Mould Change Report detects changes in the same priority order, so its times and the timeline's Mould Change badges always agree." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.4.2",
       "date": "2026-07-17",

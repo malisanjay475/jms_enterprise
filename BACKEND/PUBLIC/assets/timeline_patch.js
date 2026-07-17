@@ -1544,6 +1544,13 @@
                     const isRunB = (b.status || '').toUpperCase() === 'RUNNING';
                     if (isRunA && !isRunB) return -1;
                     if (!isRunA && isRunB) return 1;
+                    // P1-P4 machine priority overrides seq — MUST match the card display
+                    // sort (renderTimeline) and the Excel view ripple, or the dates chain
+                    // in a different order than the cards are shown (KAN-25 follow-up).
+                    const priOrder = { P1: 1, P2: 2, P3: 3, P4: 4 };
+                    const priA = priOrder[a.machinePriority] || 999;
+                    const priB = priOrder[b.machinePriority] || 999;
+                    if (priA !== priB) return priA - priB;
                     const seqDiff = Number(a.seq || 0) - Number(b.seq || 0);
                     if (seqDiff) return seqDiff;
                     const startA = a.startDate ? new Date(a.startDate).getTime() : 0;
