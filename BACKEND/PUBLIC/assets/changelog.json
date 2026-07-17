@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.4.0",
+  "latest": "1.4.1",
   "versions": [
+    {
+      "version": "1.4.1",
+      "date": "2026-07-17",
+      "title": "Faster, safer DPR entry on the supervisor screen",
+      "summary": "No more double entries from double-taps or weak WiFi, Fill DPR now lands on the colour picker first, and the job list refreshes without freezing the screen.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor / DPR Entry",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "fix", "text": "Tapping Submit twice, or a weak WiFi retry, can no longer save the same hour's entry two times." },
+            { "type": "improvement", "text": "The Submit button greys out while saving and comes back on its own, so a failed save can always be retried." },
+            { "type": "improvement", "text": "Fill DPR now scrolls to the Colour Breakdown so you pick the colour first before entering data." },
+            { "type": "perf", "text": "The job list refreshes in the background — the screen no longer freezes with a full-screen Processing message." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.4.0",
       "date": "2026-07-17",
