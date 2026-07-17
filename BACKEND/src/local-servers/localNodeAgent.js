@@ -358,7 +358,7 @@ async function runAutoUpdate(agentConfig) {
   // restart loop (~every 76s). MAIN also excludes these from the manifest now
   // (collectManifest in localServerService.js); this guard protects LOCAL
   // servers still talking to an un-patched MAIN.
-  const DERIVED_ASSET_RE = /(\.gz|\.br|\.min\.js|\.min\.css|\.map)$/i;
+  const DERIVED_ASSET_RE = /(\.gz|\.br|\.min\.js|\.min\.css|\.map|\.precompress-manifest\.json)$/i;
   const toUpdate = Object.keys(manifest).filter(relPath => {
     if (DERIVED_ASSET_RE.test(relPath)) return false;
     const localPath = path.join(BACKEND_ROOT, relPath);
