@@ -1021,7 +1021,10 @@ function sha256File(filePath) {
 // "changed" — causing an infinite download -> process.exit(0) -> restart loop
 // (~every 76s). Excluding them here means the LOCAL server rebuilds them from
 // source on its own and only real source changes trigger an auto-update.
-const DERIVED_ASSET_RE = /(\.gz|\.br|\.min\.js|\.min\.css|\.map)$/i;
+// NOTE: .precompress-manifest.json is the precompressor's own state file — it too
+// is regenerated on every LOCAL boot and must be excluded, else the loop recurs
+// on that single file (KAN-81 follow-up).
+const DERIVED_ASSET_RE = /(\.gz|\.br|\.min\.js|\.min\.css|\.map|\.precompress-manifest\.json)$/i;
 
 function collectManifest() {
   const root = getBackendRoot();
