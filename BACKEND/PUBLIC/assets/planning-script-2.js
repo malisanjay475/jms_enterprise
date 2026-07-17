@@ -1313,13 +1313,15 @@
           const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
           const [res, mouldRes] = await Promise.all([
             api.get(`/planning/plan/${encodeURIComponent(rowId)}`),
-            api.get('/masters/moulds').catch(() => null)
+            api.get(`/planning/orders/${encodeURIComponent(orderNo)}/details`).catch(() => null)
           ]);
           if (!res || !res.ok || !res.plan) {
             document.getElementById('editPlanBody').innerHTML = `<div style="text-align:center;padding:40px;color:#ef4444">Could not load plan.</div>`;
             return;
           }
           _epState.plan = res.plan;
+          // Only the moulds that belong to THIS job (from its plan summary), so the
+          // picker offers the job's own moulds, not the whole mould master.
           _epState.moulds = (mouldRes && Array.isArray(mouldRes.data)) ? mouldRes.data : [];
           renderEditPlanForm(res.plan);
         } catch (e) {
@@ -1347,7 +1349,7 @@
             const name = String(md.mould_name || '').trim();
             if (!name || seen.has(norm(name))) return;
             seen.add(norm(name));
-            const code = String(md.mould_number || md.mould_code || '').trim();
+            const code = String(md.mould_no || md.mould_number || md.mould_code || '').trim();
             const sel = norm(name) === norm(cur) ? ' selected' : '';
             if (sel) curInList = true;
             opts += `<option value="${escH(name)}" data-code="${escH(code)}"${sel}>${escH(name)}${code ? ' (' + escH(code) + ')' : ''}</option>`;
