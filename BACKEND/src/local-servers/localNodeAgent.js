@@ -351,7 +351,16 @@ async function runAutoUpdate(agentConfig) {
   if (!data.ok || !data.manifest) return;
 
   const manifest = data.manifest;
+  // Belt-and-suspenders: never treat derived build artifacts (.gz/.br/.min.js/
+  // .min.css/.map) as update triggers. They are regenerated locally on every
+  // boot by minifyAssets/precompressAssets, so their bytes never match MAIN's
+  // copies — which previously caused an infinite download -> process.exit(0) ->
+  // restart loop (~every 76s). MAIN also excludes these from the manifest now
+  // (collectManifest in localServerService.js); this guard protects LOCAL
+  // servers still talking to an un-patched MAIN.
+  const DERIVED_ASSET_RE = /(\.gz|\.br|\.min\.js|\.min\.css|\.map|\.precompress-manifest\.json)$/i;
   const toUpdate = Object.keys(manifest).filter(relPath => {
+    if (DERIVED_ASSET_RE.test(relPath)) return false;
     const localPath = path.join(BACKEND_ROOT, relPath);
     return sha256File(localPath) !== manifest[relPath];
   });

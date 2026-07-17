@@ -1,0 +1,17 @@
+# Generated / vendored / not-our-style
+node_modules/
+**/node_modules/
+BACKEND/PUBLIC/**
+BACKEND/src/legacy/**
+dist/
+build/
+out/
+*.min.js
+*.min.css
+seed/
+BACKUPS/
+CHANGELOG.md
+RELEASE_MANIFEST.json
+ios_app_demo/
+mobile-qc/
+DESKTOP_APP/

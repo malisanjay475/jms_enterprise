@@ -1,0 +1,34 @@
+name: "♻️ Refactor"
+description: Restructure code with no intended change in behavior.
+title: "refactor: <short description>"
+labels: ["refactor", "triage"]
+body:
+  - type: input
+    id: jira
+    attributes:
+      label: Jira Issue
+      placeholder: JMS-1234
+  - type: textarea
+    id: current
+    attributes:
+      label: Current state / pain
+      description: What is hard to maintain, slow, or risky today?
+    validations:
+      required: true
+  - type: textarea
+    id: target
+    attributes:
+      label: Target state
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Behavior-preservation plan
+      description: How do we prove behavior is unchanged? (tests, staging smoke, diffing outputs)
+      value: |
+        - [ ] Existing tests still pass
+        - [ ] No API/contract change
+        - [ ] Staging smoke test
+    validations:
+      required: true
