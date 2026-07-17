@@ -745,6 +745,52 @@
         return;
       }
 
+      // KAN-25: change times come from the rippled schedule (_rippledStartRaw/_rippledExpRaw),
+      // normally computed by the Machine Timeline. If the report is opened directly (timeline
+      // never loaded this session), compute the same Exp-based ripple here so the report
+      // stands alone and always matches the timeline.
+      if (!plans.some(p => p._rippledStartRaw)) {
+        const rippleGroups = {};
+        plans.forEach(p => { (rippleGroups[p.machine] = rippleGroups[p.machine] || []).push(p); });
+        Object.keys(rippleGroups).forEach(mach => {
+          const arr = rippleGroups[mach];
+          arr.sort((a, b) => {
+            const rA = (a.status || '').toUpperCase() === 'RUNNING';
+            const rB = (b.status || '').toUpperCase() === 'RUNNING';
+            if (rA !== rB) return rA ? -1 : 1;
+            const sa = (a.seq != null && a.seq !== '') ? Number(a.seq) : Infinity;
+            const sb = (b.seq != null && b.seq !== '') ? Number(b.seq) : Infinity;
+            if (sa !== sb) return sa - sb;
+            const da = a.startDate ? new Date(a.startDate).getTime() : 0;
+            const db = b.startDate ? new Date(b.startDate).getTime() : 0;
+            if (da !== db) return da - db;
+            return Number(a.id || 0) - Number(b.id || 0);
+          });
+          let cursor = Date.now();
+          arr.forEach((p, i) => {
+            const isRun = (p.status || '').toUpperCase() === 'RUNNING';
+            const ct = Number(p.cycleTime || 120), cav = Number(p.cavity || 1);
+            const pcsHr = ct > 0 ? (3600 / ct) * cav : 30;
+            const qty = Number(p.planQty || 0);
+            const bal = qty - Number(p.producedQty || 0);
+            const durFull = (qty * 3600 * 1000) / pcsHr;
+            const durBal = (Math.max(0, bal) * 3600 * 1000) / pcsHr;
+            let start, endExp;
+            if (isRun) {
+              start = p.firstDprEntry ? new Date(p.firstDprEntry).getTime() : (p.startDate ? new Date(p.startDate).getTime() : Date.now());
+              endExp = Date.now() + durBal;
+            } else {
+              start = (i === 0) ? Date.now() : cursor;
+              endExp = start + durBal;
+            }
+            p._rippledStartRaw = new Date(start);
+            p._rippledEndRaw = new Date(start + durFull);
+            p._rippledExpRaw = new Date(endExp);
+            cursor = endExp; // Exp-based ripple — same rule as the Machine Timeline (KAN-86)
+          });
+        });
+      }
+
       // 2. Sort by Machine > Seq (primary) > Start Date (secondary)
       // [FIX] seq is the authoritative plan order on a machine — sorting only by startDate
       // gave wrong order because startDate is often null or date-only (midnight UTC), causing
@@ -904,6 +950,7 @@
 
       // Column headers (label + alignment). Order matches the daily sheet.
       const cols = [
+        { t: 'S.No', a: 'center' },
         { t: 'MACHINE NAME', a: 'left' }, { t: 'Mould Change Time', a: 'center' },
         { t: 'Mould No.', a: 'left' }, { t: 'Mould Name', a: 'left' },
         { t: 'Plan Qty', a: 'right' }, { t: 'Order No', a: 'left' },
@@ -914,10 +961,12 @@
       const thCss = `border:${bd}; padding:8px 9px; background:#c9b6e3; color:#1e293b; font-weight:800; font-size:0.72rem; text-transform:uppercase; white-space:nowrap;`;
       const tdBase = `border:${bd}; padding:7px 9px; background:#fff; font-size:0.8rem; vertical-align:middle;`;
       const headRow = (firstLabel) => {
+        // Section-band rows repeat the header but replace "MACHINE NAME" (col 1;
+        // col 0 is S.No) with the UNIT/LINE label.
         let r = `<tr>`;
         cols.forEach((col, idx) => {
-          const txt = (idx === 0 && firstLabel) ? firstLabel : col.t;
-          r += `<th style="${thCss} text-align:${idx === 0 ? 'left' : col.a}">${escH(txt)}</th>`;
+          const txt = (idx === 1 && firstLabel) ? firstLabel : col.t;
+          r += `<th style="${thCss} text-align:${idx === 1 ? 'left' : col.a}">${escH(txt)}</th>`;
         });
         return r + `</tr>`;
       };
@@ -932,6 +981,7 @@
         ? `${changes.length} change${changes.length > 1 ? 's' : ''} total`
         : (isNext24 ? `${fmtTime(now)} → ${horizon.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${fmtTime(horizon)}` : '');
 
+      const generatedAt = `${now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} ${fmtTime(now)}`;
       let html = `
         <div id="mcrPrintArea" style="min-width:1150px">
           <div style="display:flex; align-items:stretch; border:2px solid #1f2937; margin-bottom:-2px; font-family:'Segoe UI',Arial,sans-serif">
@@ -939,8 +989,10 @@
               <div style="font-size:1.05rem; font-weight:800; color:#0f172a; line-height:1.15">${escH(titleDate)}</div>
               ${subDate ? `<div style="font-size:0.72rem; color:#334155; font-weight:600">${escH(subDate)}</div>` : ''}
             </div>
-            <div style="flex:1; padding:10px 14px; background:#bfe3ec; border-right:2px solid #1f2937; display:flex; align-items:center; justify-content:center">
+            <div style="flex:1; padding:8px 14px; background:#bfe3ec; border-right:2px solid #1f2937; display:flex; flex-direction:column; align-items:center; justify-content:center">
+              <div style="font-size:0.82rem; font-weight:800; letter-spacing:.14em; color:#334155">JOYO PLASTICS</div>
               <div style="font-size:1.25rem; font-weight:900; letter-spacing:.04em; color:#0f172a">DAILY MOULD CHANGE REPORT</div>
+              <div style="font-size:0.68rem; color:#475569; font-weight:600">Generated: ${escH(generatedAt)}</div>
             </div>
             <div style="flex:0 0 240px; display:flex">
               <div style="flex:1; display:flex; align-items:center; justify-content:center; gap:8px; padding:6px 10px; border-right:1px solid #1f2937">
@@ -948,16 +1000,17 @@
                 <span style="font-size:1.5rem; font-weight:900; color:#0f172a">${dayCount}</span>
               </div>
               <div style="flex:1; display:flex; align-items:center; justify-content:center; gap:8px; padding:6px 10px">
-                <span style="background:#ea580c; color:#fff; font-weight:800; font-size:0.78rem; padding:3px 10px; border-radius:4px">Night</span>
+                <span style="background:#1e3a8a; color:#fff; font-weight:800; font-size:0.78rem; padding:3px 10px; border-radius:4px">Night</span>
                 <span style="font-size:1.5rem; font-weight:900; color:#0f172a">${nightCount}</span>
               </div>
             </div>
           </div>
-          <table style="border-collapse:collapse; width:100%; font-family:'Segoe UI',Arial,sans-serif">
+          <table id="mcrTable" style="border-collapse:collapse; width:100%; font-family:'Segoe UI',Arial,sans-serif">
             <thead>${headRow(null)}</thead>
             <tbody>
       `;
 
+      let serialNo = 0;
       lineKeys.forEach((k, gi) => {
         // Section band before every group except the first (which sits under the main header).
         if (gi > 0) {
@@ -965,9 +1018,11 @@
           html += headRow(`UNIT-${escH(unit)}-LINE NO ${escH(k)}`);
         }
         byLine[k].forEach(c => {
+          serialNo += 1;
           const shiftBg = c.shift === 'Day' ? '#fff7ed' : '#eff6ff';
           html += `
             <tr>
+              <td style="${tdBase} text-align:center; font-weight:700; color:#64748b">${serialNo}</td>
               <td style="${tdBase} font-weight:700; color:#1e293b; white-space:nowrap">${escH(c.machine)}</td>
               <td style="${tdBase} text-align:center; font-weight:600; white-space:nowrap">${escH(cellTime(c.time))}</td>
               <td style="${tdBase} font-family:monospace; color:#15803d; font-weight:700">${escH(c.mouldNo)}</td>
@@ -985,7 +1040,15 @@
         });
       });
 
-      html += `</tbody></table></div>`;
+      html += `</tbody></table>
+          <div class="mcr-signatures" style="display:flex; justify-content:space-between; gap:24px; margin-top:34px; padding:0 8px; font-family:'Segoe UI',Arial,sans-serif">
+            ${['Prepared By (PPC)', 'Mould Change Team', 'Production Head'].map(role => `
+              <div style="flex:1; text-align:center">
+                <div style="border-top:1.5px solid #1f2937; margin:0 18px; padding-top:6px; font-size:0.75rem; font-weight:700; color:#334155">${role}</div>
+                <div style="font-size:0.65rem; color:#94a3b8; margin-top:2px">Name / Sign / Date</div>
+              </div>`).join('')}
+          </div>
+        </div>`;
 
       // P3-Fix3: Show idle machines (machines in Machine Master with no active plans)
       const activeMachCodes = new Set(Object.keys(byMach));
@@ -1020,11 +1083,39 @@
       const w = window.open('', '_blank');
       if (!w) return;
       w.document.write(`<!doctype html><html><head><title>Daily Mould Change Report</title>
-        <style>@page{size:A4 landscape;margin:8mm} body{margin:0;font-family:'Segoe UI',Arial,sans-serif} table{font-size:11px}</style>
+        <style>
+          @page{size:A4 landscape;margin:8mm}
+          body{margin:0;font-family:'Segoe UI',Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+          table{font-size:11px}
+          thead{display:table-header-group}   /* repeat column header on every printed page */
+          tr{page-break-inside:avoid}
+          .mcr-signatures{page-break-inside:avoid}
+          #mcrPrintArea{min-width:0 !important}
+        </style>
         </head><body>${area.outerHTML}</body></html>`);
       w.document.close();
       w.focus();
       setTimeout(() => { w.print(); }, 250);
+    };
+
+    // Export the loaded report as an Excel file (.xls via HTML — opens with full layout).
+    window.exportMouldChangeReportExcel = function () {
+      const area = document.getElementById('mcrPrintArea');
+      if (!area) { alert('Load the report first.'); return; }
+      const dateEl = document.getElementById('mcrDate');
+      const stamp = (dateEl && dateEl.value) ? dateEl.value : new Date().toISOString().slice(0, 10);
+      const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+        <head><meta charset="utf-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
+        <x:Name>Mould Changes</x:Name><x:WorksheetOptions><x:Print><x:ValidPrinterInfo/></x:Print></x:WorksheetOptions>
+        </x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head>
+        <body>${area.outerHTML}</body></html>`;
+      const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `Mould_Change_Report_${stamp}.xls`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
     };
 
 
