@@ -11,8 +11,44 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.3.0",
+  "latest": "1.4.0",
   "versions": [
+    {
+      "version": "1.4.0",
+      "date": "2026-07-17",
+      "title": "Better Daily Mould Change Report",
+      "summary": "The Mould Change Report is now a complete, print-ready sheet with accurate times, serial numbers, signatures and an Excel download.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "fix", "text": "The Mould Change Report now shows correct realistic times even when opened directly, without visiting the Machine Timeline first." },
+            { "type": "feat", "text": "The report is a proper daily sheet: company header, serial numbers, and a signature section for PPC, the mould change team, and the production head." },
+            { "type": "improvement", "text": "Printing now repeats the column headings on every page and never splits a row across two pages." },
+            { "type": "feat", "text": "New Excel button downloads the loaded report as a spreadsheet." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.3.1",
+      "date": "2026-07-17",
+      "title": "Realistic machine schedule and mould change times",
+      "summary": "The Machine Timeline and Mould Change Report now follow the machine's real production speed, so upcoming plans and mould changes show realistic dates instead of standard-speed estimates that could already be in the past.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-clock-history",
+          "changes": [
+            { "type": "fix", "text": "Queued plans on the Machine Timeline now start from the previous plan's expected finish (based on actual balance quantity), so a slow-running plan pushes the whole queue to realistic dates." },
+            { "type": "fix", "text": "The Daily Mould Change Report shows mould change times that match the Machine Timeline, so the printed sheet no longer lists changes at times that have already passed." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.3.0",
       "date": "2026-07-14",
