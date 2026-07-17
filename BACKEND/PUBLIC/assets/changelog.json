@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.3.0",
+  "latest": "1.3.1",
   "versions": [
+    {
+      "version": "1.3.1",
+      "date": "2026-07-17",
+      "title": "Realistic machine schedule and mould change times",
+      "summary": "The Machine Timeline and Mould Change Report now follow the machine's real production speed, so upcoming plans and mould changes show realistic dates instead of standard-speed estimates that could already be in the past.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-clock-history",
+          "changes": [
+            { "type": "fix", "text": "Queued plans on the Machine Timeline now start from the previous plan's expected finish (based on actual balance quantity), so a slow-running plan pushes the whole queue to realistic dates." },
+            { "type": "fix", "text": "The Daily Mould Change Report shows mould change times that match the Machine Timeline, so the printed sheet no longer lists changes at times that have already passed." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.3.0",
       "date": "2026-07-14",
