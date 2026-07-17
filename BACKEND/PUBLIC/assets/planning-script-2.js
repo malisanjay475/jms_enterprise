@@ -782,18 +782,26 @@
           if (prevMould === currMould) continue;
 
           // CHANGE DETECTED
-          // Time of change = End of Prev Plan (when previous plan finishes, new mould goes on).
+          // Time of change = when the NEW mould's plan actually starts on the machine.
           // Priority:
-          //   1. _rippledEndRaw   — dynamic schedule end (most accurate, from ripple scheduler)
-          //   2. _calculatedEndRaw — set by renderMasterTable() when Master view was loaded
-          //   3. endDate from DB   — only set on COMPLETED plans (rarely populated for active plans)
-          //   4. startDate + planQty × cycleTime — computed estimate (correct for queued plans)
-          //   5. startDate of CURRENT plan — best proxy if prev has no CT
-          //   6. prev.startDate   — last resort
+          //   1. curr._rippledStartRaw — the incoming plan's rippled start (KAN-25: the ripple
+          //      chains from the previous plan's balance-based Exp Date, so this is the
+          //      realistic change moment — matches what the Machine Timeline shows)
+          //   2. prev._rippledExpRaw  — previous plan's Exp Date (same value when adjacent)
+          //   3. prev._rippledEndRaw  — fixed STD end (legacy; only if Exp fields absent)
+          //   4. _calculatedEndRaw — set by renderMasterTable() when Master view was loaded
+          //   5. endDate from DB   — only set on COMPLETED plans (rarely populated for active plans)
+          //   6. startDate + planQty × cycleTime — computed estimate (correct for queued plans)
+          //   7. startDate of CURRENT plan — best proxy if prev has no CT
+          //   8. prev.startDate   — last resort
           // [FIX] The old code fell back directly to prev.startDate which showed the START of the
           // previous plan as the change time — always wrong when _calculatedEndRaw wasn't available.
           let changeTime = null;
-          if (prev._rippledEndRaw) {
+          if (curr._rippledStartRaw) {
+            changeTime = new Date(curr._rippledStartRaw);
+          } else if (prev._rippledExpRaw) {
+            changeTime = new Date(prev._rippledExpRaw);
+          } else if (prev._rippledEndRaw) {
             changeTime = new Date(prev._rippledEndRaw);
           } else if (prev._calculatedEndRaw) {
             changeTime = new Date(prev._calculatedEndRaw);
