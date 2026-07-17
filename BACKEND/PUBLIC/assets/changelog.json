@@ -11,8 +11,63 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.3.0",
+  "latest": "1.4.1",
   "versions": [
+    {
+      "version": "1.4.1",
+      "date": "2026-07-17",
+      "title": "Faster, safer DPR entry on the supervisor screen",
+      "summary": "No more double entries from double-taps or weak WiFi, Fill DPR now lands on the colour picker first, and the job list refreshes without freezing the screen.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor / DPR Entry",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "fix", "text": "Tapping Submit twice, or a weak WiFi retry, can no longer save the same hour's entry two times." },
+            { "type": "improvement", "text": "The Submit button greys out while saving and comes back on its own, so a failed save can always be retried." },
+            { "type": "improvement", "text": "Fill DPR now scrolls to the Colour Breakdown so you pick the colour first before entering data." },
+            { "type": "perf", "text": "The job list refreshes in the background — the screen no longer freezes with a full-screen Processing message." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.4.0",
+      "date": "2026-07-17",
+      "title": "Better Daily Mould Change Report",
+      "summary": "The Mould Change Report is now a complete, print-ready sheet with accurate times, serial numbers, signatures and an Excel download.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "fix", "text": "The Mould Change Report now shows correct realistic times even when opened directly, without visiting the Machine Timeline first." },
+            { "type": "feat", "text": "The report is a proper daily sheet: company header, serial numbers, and a signature section for PPC, the mould change team, and the production head." },
+            { "type": "improvement", "text": "Printing now repeats the column headings on every page and never splits a row across two pages." },
+            { "type": "feat", "text": "New Excel button downloads the loaded report as a spreadsheet." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.3.1",
+      "date": "2026-07-17",
+      "title": "Realistic machine schedule and mould change times",
+      "summary": "The Machine Timeline and Mould Change Report now follow the machine's real production speed, so upcoming plans and mould changes show realistic dates instead of standard-speed estimates that could already be in the past.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-clock-history",
+          "changes": [
+            { "type": "fix", "text": "Queued plans on the Machine Timeline now start from the previous plan's expected finish (based on actual balance quantity), so a slow-running plan pushes the whole queue to realistic dates." },
+            { "type": "fix", "text": "The Daily Mould Change Report shows mould change times that match the Machine Timeline, so the printed sheet no longer lists changes at times that have already passed." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.3.0",
       "date": "2026-07-14",
