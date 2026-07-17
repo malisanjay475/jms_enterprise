@@ -1338,7 +1338,7 @@
             <div style="grid-column:span 2;"><label style="${labS}">Item Name</label><input id="epItemName" type="text" value="${escH(plan.itemName)}" style="${fieldS}"></div>
             <div><label style="${labS}">Mould Name</label><input id="epMouldName" type="text" value="${escH(plan.mouldName)}" style="${fieldS}"></div>
             <div><label style="${labS}">Mould Code</label><input id="epMouldCode" type="text" value="${escH(plan.mouldCode)}" style="${fieldS}"></div>
-            <div></div>
+            <div style="align-self:end; font-size:0.72rem; color:#92400e; line-height:1.3;"><i class="bi bi-info-circle"></i> Changing the mould moves this plan, its summary/report rows and all logged DPR entries to the new mould.</div>
             <div><label style="${labS}">Start Date</label><input id="epStartDate" type="date" value="${toDateInput(plan.startDate)}" style="${fieldS}"></div>
             <div><label style="${labS}">End Date</label><input id="epEndDate" type="date" value="${toDateInput(plan.endDate)}" style="${fieldS}"></div>
           </div>`;
