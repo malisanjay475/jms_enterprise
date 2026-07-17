@@ -1193,7 +1193,7 @@
                            <div style="font-weight:700; color:#334155; font-size:0.85rem; line-height:1.2; word-wrap:break-word; white-space:normal;" title="${esc(p.mouldName)}">${esc(p.mouldName)}</div>
                            <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
                               <span style="font-family:monospace; font-size:0.8rem; color:#475569; font-weight:700;">${esc(p.mouldNo)}</span>
-                              ${isMouldChange ? `<span style="font-size:0.65rem; font-weight:800; color:#7c2d12; background:#fed7aa; padding:1px 5px; border-radius:3px;">CHG</span>` : ''}
+                              ${isMouldChange ? `<span style="font-size:0.65rem; font-weight:800; color:#7c2d12; background:#fed7aa; padding:1px 5px; border-radius:3px; white-space:nowrap;">Mould Change</span>` : ''}
                            </div>
                        </div>
 

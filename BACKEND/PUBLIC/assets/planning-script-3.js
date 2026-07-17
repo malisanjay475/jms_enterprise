@@ -724,7 +724,7 @@
                <button class="btn" onclick="window.printMouldChangeReport()" style="margin-left:6px"><i class="bi bi-printer"></i> Print</button>
                <button class="btn" onclick="window.exportMouldChangeReportExcel()" style="margin-left:6px; background:#ecfdf5; color:#047857; border-color:#6ee7b7"><i class="bi bi-file-earmark-excel"></i> Excel</button>
             </div>
-            <div class="small-muted" style="color:#15803d; margin-top:6px; font-size:0.72rem"><i class="bi bi-info-circle"></i> <strong>Next 24h ON</strong> = every mould change due in the next 24 hours (ignores Date). <strong>OFF</strong> = changes on the selected Date.</div>
+            <div class="small-muted" style="color:#15803d; margin-top:6px; font-size:0.72rem"><i class="bi bi-info-circle"></i> <strong>Next 24h ON</strong> = every mould change due in the next 24 hours (ignores Date). <strong>OFF</strong> = the selected production day: <strong>8:00 AM on the chosen date to 8:00 AM next morning</strong>.</div>
          </div>
 
          <div id="mcrBody" style="min-height:200px; overflow-x:auto">

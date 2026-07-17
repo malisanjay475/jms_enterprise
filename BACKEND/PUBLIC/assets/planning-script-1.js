@@ -586,6 +586,7 @@
         padding: 1px 3px;
         border-radius: 3px;
         letter-spacing: .04em;
+        white-space: nowrap;
       }
       .etv-card-time {
         font-size: .58rem;
@@ -1814,7 +1815,7 @@
               <div class="etv-card ${cardClass}${isUrgentChange ? ' etv-card-urgent' : ''}${prioPickedClass}" draggable="${cardDraggable}" data-pid="${esc(etvPid)}" data-machine="${esc(m.code)}" ondragstart="window.etvDragStart(event, this)" ondragend="window.etvDragEnd(event, this)" style="position:relative;${cardStyle}">
                 <span class="etv-slot-num" title="Position ${i+1} on this machine">${i+1}</span>
                 ${prioBadge}
-                ${isPrevMould ? '<span class="etv-card-chg-badge">CHG</span>' : ''}
+                ${isPrevMould ? '<span class="etv-card-chg-badge">Mould Change</span>' : ''}
                 ${changeBadge}
                 ${p.machinePriority ? `<span class="etv-mp-badge" style="background:${'P1'===p.machinePriority?'#2563eb':'P2'===p.machinePriority?'#16a34a':'P3'===p.machinePriority?'#f59e0b':'#dc2626'}">${p.machinePriority}</span>` : ''}
                 <div class="etv-card-row1">
