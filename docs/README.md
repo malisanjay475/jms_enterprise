@@ -15,6 +15,20 @@
 | [OPS-SETUP.md](OPS-SETUP.md) | Server/ops setup (already existed) |
 | [RECOVERY.md](RECOVERY.md) | Disaster recovery (already existed) |
 
+**Engineering process & workflow docs:**
+
+| Doc | Read it when you want to know… |
+|-----|-------------------------------|
+| [ENGINEERING_GUIDE.md](ENGINEERING_GUIDE.md) | Onboarding: clone → run → branch → PR → merge → deploy |
+| [GIT_WORKFLOW.md](GIT_WORKFLOW.md) | Git Flow branches, releases, hotfixes |
+| [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md) | Daily / junior / senior / PR / release / hotfix workflows |
+| [CODE_REVIEW_GUIDELINES.md](CODE_REVIEW_GUIDELINES.md) | What reviewers check before approving |
+| [COMMIT_CONVENTION.md](COMMIT_CONVENTION.md) | Conventional Commits rules |
+| [JIRA_WORKFLOW.md](JIRA_WORKFLOW.md) | Board columns and role responsibilities |
+| [GITHUB_SETTINGS.md](GITHUB_SETTINGS.md) | Repo roles + branch-protection rules |
+| [FOLDER_STRUCTURE.md](FOLDER_STRUCTURE.md) | Current vs. target layered structure + migration plan |
+| [TESTING.md](TESTING.md) | Test pyramid and what to test here |
+
 Higher-level guides live at the repo root:
 - [../CLAUDE.md](../CLAUDE.md) — operating guide & workflow
 - [../AGENTS.md](../AGENTS.md) — full agent rules

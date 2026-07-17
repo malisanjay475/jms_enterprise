@@ -1,0 +1,23 @@
+{
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "editor.rulers": [100],
+  "files.eol": "\n",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "[html]": {
+    "editor.formatOnSave": false
+  },
+  "eslint.workingDirectories": [{ "mode": "auto" }],
+  "eslint.options": { "overrideConfigFile": "eslint.config.js" },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/BACKUPS": true,
+    "**/*.min.js": true,
+    "BACKEND/PUBLIC/**/*.br": true,
+    "BACKEND/PUBLIC/**/*.gz": true
+  }
+}

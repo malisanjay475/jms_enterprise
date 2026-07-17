@@ -1,0 +1,75 @@
+name: "🐞 Bug Report"
+description: Report a defect in JMS Enterprise (backend, UI, scanner bridge, mobile, or ops).
+title: "bug: <short description>"
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Fill in as much as you can — reproducible bugs get fixed fastest.
+        **Do not paste secrets, tokens, `.env` values, or customer data.**
+  - type: input
+    id: jira
+    attributes:
+      label: Jira Issue
+      placeholder: JMS-1234
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: Subsystem
+      options:
+        - Backend / API
+        - Frontend (HTML pages)
+        - Scanner Bridge
+        - Mobile (Flutter)
+        - Desktop App
+        - Startup / DB import
+        - Deploy / Ops
+        - LOCAL↔MAIN Sync
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options: [Production (MAIN/VPS), Staging, LOCAL (factory), Local dev]
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs / screenshots
+      description: Console errors, server logs, screenshots. Redact secrets.
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - S1 — Production down / data loss
+        - S2 — Major feature broken, no workaround
+        - S3 — Feature broken, workaround exists
+        - S4 — Minor / cosmetic
+    validations:
+      required: true
