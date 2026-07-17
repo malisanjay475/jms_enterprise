@@ -883,13 +883,17 @@
 
           // All Dates ON: no date filter (show everything).
           // Next 24h ON: every change due between now and now+24h.
-          // Else: only the selected production date.
+          // Else: the selected PRODUCTION DAY = selected date 08:00 → next day 08:00.
+          // (The factory day runs 8 AM to 8 AM; a change at 03:00 on the 18th belongs
+          // to the 17th's report. Explicit window, not derived from date strings.)
           if (isAllDates) {
             // no date restriction
           } else if (isNext24) {
             if (changeTime < now || changeTime > horizon) continue;
           } else {
-            if (selectedDateStr !== productionDateStr) continue;
+            const winStart = new Date(selectedDateStr + 'T08:00:00');
+            const winEnd = new Date(winStart.getTime() + 24 * 60 * 60 * 1000);
+            if (changeTime < winStart || changeTime >= winEnd) continue;
           }
           if (selectedShift !== 'Both' && selectedShift !== shift) continue;
 
