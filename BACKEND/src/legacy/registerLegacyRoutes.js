@@ -10858,7 +10858,7 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
     if (!rowId) return res.json({ ok: false, error: 'Missing rowId' });
 
     const existingRows = await q(
-      'SELECT plan_id, order_no, plan_qty, bal_qty, job_qty, batch_qty, colour_details FROM plan_board WHERE id = $1',
+      'SELECT plan_id, order_no, plan_qty, bal_qty, job_qty, batch_qty, colour_details, mould_name, mould_code, item_code, item_name FROM plan_board WHERE id = $1',
       [rowId]
     );
     if (!existingRows.length) return res.json({ ok: false, error: 'Plan not found' });
@@ -10975,6 +10975,120 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
         actor.username || 'superadmin'
       ]
     );
+
+    // ---- Mould / item / date correction + propagation ----------------------
+    // The Edit Plan modal also lets a superadmin fix the mould (wrong mould
+    // picked at creation), the item, and the plan dates. When the MOULD changes
+    // we must move it EVERYWHERE for this plan so joins stay intact and all
+    // already-logged production keeps hanging off the corrected mould:
+    //   plan_board (join key), mould_planning_summary + mould_planning_report
+    //   (keyed by or_jr_no + mould_name), and the DPR actuals (std_actual,
+    //   dpr_hourly, jobs_queue — keyed by plan_id). All in one transaction.
+    const trim = (v) => (v == null ? '' : String(v).trim());
+    const newMouldName = req.body.mouldName != null ? trim(req.body.mouldName) : null;
+    const newMouldCode = req.body.mouldCode != null ? trim(req.body.mouldCode) : null;
+    const newItemCode  = req.body.itemCode  != null ? trim(req.body.itemCode)  : null;
+    const newItemName  = req.body.itemName  != null ? trim(req.body.itemName)  : null;
+    const newStartDate = req.body.startDate || null;
+    const newEndDate   = req.body.endDate || null;
+
+    const oldMouldName = trim(before.mould_name);
+    const mouldChanged = newMouldName != null && newMouldName !== '' && newMouldName !== oldMouldName;
+    const anyMetaChange = mouldChanged
+      || (newItemCode != null && newItemCode !== trim(before.item_code))
+      || (newItemName != null && newItemName !== trim(before.item_name))
+      || (newMouldCode != null && newMouldCode !== trim(before.mould_code))
+      || newStartDate != null || newEndDate != null;
+
+    if (anyMetaChange) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // 1. The plan row itself (item/mould/dates). COALESCE keeps unchanged
+        //    fields; dates only overwrite when a value was supplied.
+        await client.query(
+          `UPDATE plan_board
+             SET mould_name = COALESCE($2, mould_name),
+                 mould_code = COALESCE($3, mould_code),
+                 item_code  = COALESCE($4, item_code),
+                 item_name  = COALESCE($5, item_name),
+                 start_date = COALESCE($6::timestamp, start_date),
+                 end_date   = COALESCE($7::timestamp, end_date),
+                 updated_at = NOW()
+           WHERE id = $1`,
+          [rowId, newMouldName, newMouldCode, newItemCode, newItemName, newStartDate, newEndDate]
+        );
+
+        // 2. Propagate the mould rename to the planning + actuals tables.
+        if (mouldChanged) {
+          const orderNo = before.order_no;
+          const planId = before.plan_id;
+
+          // Planning summary + report are keyed by (or_jr_no, mould_name).
+          if (orderNo) {
+            await client.query(
+              `UPDATE mould_planning_summary
+                 SET mould_name = $1,
+                     mould_no   = COALESCE($2, mould_no),
+                     edited_by  = $3,
+                     edited_date = NOW()
+               WHERE TRIM(or_jr_no) = TRIM($4) AND TRIM(mould_name) = TRIM($5)`,
+              [newMouldName, newMouldCode, actor.username || 'superadmin', orderNo, oldMouldName]
+            );
+            await client.query(
+              `UPDATE mould_planning_report
+                 SET mould_name = $1,
+                     mould_no   = COALESCE($2, mould_no),
+                     edited_by  = $3,
+                     edited_date = NOW()
+               WHERE TRIM(or_jr_no) = TRIM($4) AND TRIM(mould_name) = TRIM($5)`,
+              [newMouldName, newMouldCode, actor.username || 'superadmin', orderNo, oldMouldName]
+            );
+          }
+
+          // DPR actuals are keyed by plan_id (one plan = one mould), so scope by
+          // plan_id and move every logged entry to the corrected mould.
+          if (planId) {
+            await client.query(
+              `UPDATE std_actual SET mould_name = $1, updated_at = NOW() WHERE plan_id = $2`,
+              [newMouldName, planId]
+            );
+            if (newMouldCode) {
+              await client.query(
+                `UPDATE dpr_hourly SET mould_no = $1 WHERE plan_id = $2`,
+                [newMouldCode, planId]
+              );
+              await client.query(
+                `UPDATE jobs_queue SET mould_no = $1 WHERE plan_id = $2`,
+                [newMouldCode, planId]
+              );
+            }
+          }
+        }
+
+        await client.query(
+          "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'SUPERADMIN_EDIT_MOULD', $2, $3)",
+          [
+            rowId,
+            JSON.stringify({
+              before: { mould_name: before.mould_name, mould_code: before.mould_code, item_code: before.item_code, item_name: before.item_name },
+              after: { mould_name: newMouldName, mould_code: newMouldCode, item_code: newItemCode, item_name: newItemName, start_date: newStartDate, end_date: newEndDate },
+              mouldPropagated: mouldChanged
+            }),
+            actor.username || 'superadmin'
+          ]
+        );
+
+        await client.query('COMMIT');
+      } catch (mErr) {
+        await client.query('ROLLBACK');
+        console.error('superadmin-edit mould propagation failed:', mErr);
+        return res.status(500).json({ ok: false, error: 'Mould change failed: ' + String(mErr.message || mErr) });
+      } finally {
+        client.release();
+      }
+    }
 
     res.json({ ok: true });
   } catch (e) {
