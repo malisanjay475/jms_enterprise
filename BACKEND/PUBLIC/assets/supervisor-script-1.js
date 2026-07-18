@@ -492,6 +492,8 @@
 
     function _forceHideLoading() {
       loadingCount = 0;
+      clearTimeout(_loadingWatchdog);
+      _loadingWatchdog = null;
       const o = el('loading-overlay');
       if (o) o.classList.add('hidden');
     }
@@ -501,16 +503,21 @@
       loadingCount++;
       const o = el('loading-overlay');
       if (o) o.classList.remove('hidden');
-      clearTimeout(_loadingWatchdog);
-      _loadingWatchdog = setTimeout(() => {
-        if (loadingCount > 0) _forceHideLoading();
-      }, 10000);
+      // Hard cap: force-hide 10s after the overlay first became visible. Nested
+      // showLoading() calls must NOT reset the timer — chained slow requests
+      // (submit → refresh → status check) used to extend it forever ("Processing…" stuck).
+      if (!_loadingWatchdog) {
+        _loadingWatchdog = setTimeout(() => {
+          if (loadingCount > 0) _forceHideLoading();
+        }, 10000);
+      }
     }
 
     function hideLoading() {
       loadingCount = Math.max(0, loadingCount - 1);
       if (loadingCount === 0) {
         clearTimeout(_loadingWatchdog);
+        _loadingWatchdog = null;
         const o = el('loading-overlay');
         if (o) o.classList.add('hidden');
       }
@@ -1340,7 +1347,10 @@
       ids.forEach(id => el(id).disabled = true);
       el('std-msg').textContent = 'Checking…';
 
-      showLoading();
+      // NOTE: no full-screen showLoading() here — this runs in the background after every
+      // submit (buildDateSelect → onShiftChange → checkStdStatus) and was re-showing the
+      // blocking "Processing…" overlay right after a save, making submits look stuck.
+      // The card has its own inline 'Checking…' state and disabled inputs.
 
       const url = `/api/std-actual/status?planId=${encodeURIComponent(String(job.PlanID || ''))}` +
         `&shift=${encodeURIComponent(String(shift || ''))}` +
@@ -1483,8 +1493,7 @@
           el('std-msg').innerHTML = '<span class="err">' + String(err) + '</span>';
           setupDone = false;
           validateForm();
-        })
-        .finally(() => hideLoading());
+        });
     }
 
     function buildColourOptions(job) {
@@ -1971,8 +1980,7 @@
 
         if (!list.length) {
           dd.add(new Option('No machines', ''));
-          hideLoading();
-          return;
+          return; // finally() below hides the overlay — a second hideLoading() here double-decrements
         }
 
         const sortedRaw = listRaw.slice().sort((a, b) => {
@@ -3258,7 +3266,12 @@
           }
         })
         .catch(err => {
-          el('submit-errors').textContent = String(err);
+          el('dpr-msg').textContent = '';
+          // AbortError = our 15s network timeout — tell the writer what to do, not "AbortError".
+          // Re-submitting is safe: the server duplicate-guard returns the same entry if it saved.
+          el('submit-errors').textContent = (err && err.name === 'AbortError')
+            ? 'Network slow — could not confirm the save. Tap 📋 to check this slot, then Submit again if missing.'
+            : String(err);
         })
         .finally(() => {
           hideLoading();
@@ -4321,6 +4334,7 @@
       if (!planId) {
         msgEl.innerHTML = '<span class="err">Error: Job ID (PlanID) is missing on technical object. Reload queue.</span>';
         console.error('Missing PlanID in job:', job);
+        hideLoading(); // early return must not leave "Processing…" stuck on screen
         return;
       }
 
