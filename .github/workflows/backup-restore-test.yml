@@ -39,7 +39,7 @@ jobs:
           fi
 
       - name: Verify latest backup is restorable (on VPS, throwaway container)
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         env:
           DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
         with:

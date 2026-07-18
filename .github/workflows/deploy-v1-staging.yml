@@ -162,7 +162,7 @@ jobs:
 
       - name: Deploy staging over SSH (password)
         if: steps.gate.outputs.run == 'password'
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         env:
           DEPLOY_PATH: ${{ secrets.STAGING_VPS_DEPLOY_PATH }}
           DEPLOY_BRANCH: develop
@@ -209,7 +209,7 @@ jobs:
 
       - name: Deploy staging over SSH (key)
         if: steps.gate.outputs.run == 'key'
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         env:
           DEPLOY_PATH: ${{ secrets.STAGING_VPS_DEPLOY_PATH }}
           DEPLOY_BRANCH: develop

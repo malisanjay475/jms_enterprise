@@ -55,7 +55,7 @@ jobs:
           fi
 
       - name: Run backup on VPS (dump + archive + rotate + rclone to Drive)
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         env:
           DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
         with:
