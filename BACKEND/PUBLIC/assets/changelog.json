@@ -11,8 +11,26 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.4.6",
+  "latest": "1.5.0",
   "versions": [
+    {
+      "version": "1.5.0",
+      "date": "2026-07-18",
+      "title": "See why a machine was down right on the DPR summary",
+      "summary": "The DPR Compliance Summary now shows an icon and name for every downtime reason, and hour slots that had both production and downtime show a small badge with the reason and minutes — no need to open the entry.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "Machine Maintenance, Manpower Shortage, No Plan, Mould Maintenance and Mould Trial hours now show a clear icon with the reason name in the summary grid." },
+            { "type": "feat", "text": "When an hour has production and downtime together, the slot shows a small badge with the downtime reason and minutes — point at it to see the full breakup." },
+            { "type": "improvement", "text": "The filter bar shows a legend of the new reason icons, and the View Filter list shows matching symbols." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.4.6",
       "date": "2026-07-18",
