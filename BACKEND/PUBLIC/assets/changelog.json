@@ -11,8 +11,29 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.5.3",
+  "latest": "1.6.0",
   "versions": [
+    {
+      "version": "1.6.0",
+      "date": "2026-07-18",
+      "title": "Job Detail gets a trend chart, and machines that go quiet raise an alert",
+      "summary": "The DPR Job Detail window is redesigned with a progress ring, an hourly trend chart with target line and estimated finish time, and over-produced quantities are now shown instead of a zero balance. The Compliance Summary warns when a machine has no entry for the last 3 hours.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "When a colour is produced above its plan, the Balance column now shows how many pieces OVER it went (in blue) instead of showing 0." },
+            { "type": "feat", "text": "New hourly Production Trend chart in the Job Detail window — produced, rejected and downtime per hour, with the target rate line and day/night markers." },
+            { "type": "feat", "text": "The Job Detail window now predicts when the job will finish, based on the last few hours' actual speed, and warns when the machine is running behind target." },
+            { "type": "improvement", "text": "The Job Detail window has a cleaner look: a progress ring, clear stat tiles, and pie charts for downtime and rejection reasons." },
+            { "type": "feat", "text": "The Compliance Summary shows a red alert when a machine has had NO production entry for the last 3 hours — with a banner on top, a blinking mark on the machine row, and a small popup with that machine's colour-wise production while you scroll." },
+            { "type": "feat", "text": "Every machine row now shows small badges when that machine did a Mould Change (yellow MC), Colour Change (orange CC) or Job Change (blue/red JC) — so changes are visible at a glance without opening entries." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.5.3",
       "date": "2026-07-18",

@@ -146,25 +146,51 @@
             .filter(r => r.qty > 0)
             .sort((a, b) => b.qty - a.qty);
         const total = rows.reduce((sum, r) => sum + r.qty, 0);
+
+        // Donut segments (CSS conic-gradient — no chart library, works offline)
+        const palette = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#14b8a6', '#64748b'];
+        let deg = 0;
+        const gradParts = rows.map((r, i) => {
+            const c = palette[i % palette.length];
+            const span = total > 0 ? (r.qty / total) * 360 : 0;
+            const part = `${c} ${deg.toFixed(2)}deg ${(deg + span).toFixed(2)}deg`;
+            deg += span;
+            return part;
+        });
+        const donutHtml = rows.length ? `
+            <div style="position:relative; width:110px; height:110px; flex:0 0 auto">
+                <div style="width:110px; height:110px; border-radius:50%; background:conic-gradient(${gradParts.join(', ')}); box-shadow:inset 0 0 0 1px rgba(15,23,42,0.06)"></div>
+                <div style="position:absolute; inset:22px; background:#fff; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; box-shadow:0 1px 3px rgba(15,23,42,0.12)">
+                    <b style="font-size:0.98rem; color:${accent}; line-height:1.1">${dprFmtQty(total)}</b>
+                    <span style="font-size:0.6rem; color:#94a3b8; font-weight:800; text-transform:uppercase">${unit}</span>
+                </div>
+            </div>` : '';
+
         container.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
                 <h4 style="margin:0; font-size:1rem; font-weight:900; color:#0f172a">${title}</h4>
                 <span style="background:${accent}16; color:${accent}; border:1px solid ${accent}44; padding:4px 10px; border-radius:999px; font-size:0.78rem; font-weight:900">${dprFmtQty(total)} ${unit}</span>
             </div>
-            ${rows.length ? rows.map(r => {
-                const pct = total > 0 ? Math.min(100, (r.qty / total) * 100) : 0;
-                return `
-                    <div style="margin-bottom:10px">
-                        <div style="display:flex; justify-content:space-between; gap:10px; font-size:0.84rem; font-weight:800; color:#334155">
-                            <span>${dprEsc(r.reason)}</span>
-                            <span>${dprFmtQty(r.qty)} ${unit}</span>
-                        </div>
-                        <div style="height:8px; background:#f1f5f9; border-radius:999px; overflow:hidden; margin-top:5px">
-                            <div style="height:100%; width:${pct}%; background:${accent}; border-radius:999px"></div>
-                        </div>
-                    </div>
-                `;
-            }).join('') : `<div style="color:#94a3b8; font-style:italic">No ${title.toLowerCase()} recorded.</div>`}
+            ${rows.length ? `
+            <div style="display:flex; gap:16px; align-items:flex-start">
+                ${donutHtml}
+                <div style="flex:1; min-width:0">
+                    ${rows.map((r, i) => {
+                        const c = palette[i % palette.length];
+                        const pct = total > 0 ? (r.qty / total) * 100 : 0;
+                        return `
+                        <div style="margin-bottom:9px">
+                            <div style="display:flex; justify-content:space-between; gap:10px; font-size:0.8rem; font-weight:800; color:#334155">
+                                <span style="display:inline-flex; align-items:center; gap:6px; min-width:0"><span style="width:9px; height:9px; border-radius:3px; background:${c}; flex:0 0 auto"></span><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${dprEsc(r.reason)}</span></span>
+                                <span style="flex:0 0 auto">${dprFmtQty(r.qty)} ${unit} <span style="color:#94a3b8; font-weight:700; font-size:0.72rem">(${pct.toFixed(1)}%)</span></span>
+                            </div>
+                            <div style="height:6px; background:#f1f5f9; border-radius:999px; overflow:hidden; margin-top:4px">
+                                <div style="height:100%; width:${Math.min(100, pct)}%; background:${c}; border-radius:999px"></div>
+                            </div>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>` : `<div style="color:#94a3b8; font-style:italic">No ${title.toLowerCase()} recorded.</div>`}
         `;
     }
 
@@ -296,6 +322,175 @@
         }
     }
 
+    // Real end-timestamp of an hour slot. Day shift starts 07:00; Night starts 19:00
+    // and slots after '10-11' fall on the NEXT calendar day (mirrors getSlotEnd in dpr-script-1.js).
+    function dprSlotEndTs(dateStr, shift, slot) {
+        const dayEndHour = {
+            '07-08': 8, '08-09': 9, '09-10': 10, '10-11': 11, '11-12': 12, '12-01': 13,
+            '01-02': 14, '02-03': 15, '03-04': 16, '04-05': 17, '05-06': 18, '06-07': 19
+        };
+        const nightMap = {
+            '07-08': [20, 0], '08-09': [21, 0], '09-10': [22, 0], '10-11': [23, 0],
+            '11-12': [0, 1], '12-01': [1, 1], '01-02': [2, 1], '02-03': [3, 1],
+            '03-04': [4, 1], '04-05': [5, 1], '05-06': [6, 1], '06-07': [7, 1]
+        };
+        const base = new Date(String(dateStr || '').split('T')[0] + 'T00:00:00');
+        if (Number.isNaN(base.getTime())) return 0;
+        if (String(shift) === 'Night') {
+            const [h, addDay] = nightMap[slot] || [0, 0];
+            base.setDate(base.getDate() + addDay);
+            base.setHours(h, 0, 0, 0);
+        } else {
+            base.setHours(dayEndHour[slot] || 0, 0, 0, 0);
+        }
+        return base.getTime();
+    }
+
+    function renderJobTrendChart(logs, info, planQty, produced) {
+        const container = document.getElementById('jobTrendContainer');
+        if (!container) return;
+
+        // --- 1. Bucket logs per real hour slot (chronological) ---
+        const bucketMap = {};
+        (Array.isArray(logs) ? logs : []).forEach(l => {
+            if (!l || !l.hour_slot) return;
+            const ts = dprSlotEndTs(l.date, l.shift, l.hour_slot);
+            if (!ts) return;
+            const key = `${l.date}|${l.shift}|${l.hour_slot}`;
+            if (!bucketMap[key]) bucketMap[key] = { ts, date: l.date, shift: l.shift, slot: l.hour_slot, good: 0, rej: 0, dt: 0 };
+            bucketMap[key].good += dprNumber(l.good_qty);
+            bucketMap[key].rej += dprNumber(l.reject_qty);
+            bucketMap[key].dt += dprNumber(l.downtime_min);
+        });
+        let buckets = Object.values(bucketMap).sort((a, b) => a.ts - b.ts);
+
+        if (!buckets.length) { container.style.display = 'none'; container.innerHTML = ''; return; }
+
+        const MAX_BARS = 36;
+        const clipped = buckets.length > MAX_BARS;
+        if (clipped) buckets = buckets.slice(-MAX_BARS);
+
+        // --- 2. Target pcs/hr from standards ---
+        const stdCycle = dprNumber(info.std_cycle || info.std_cycle_time);
+        const stdCav = dprNumber(info.std_cavity);
+        const actCycle = dprNumber(info.act_cycle);
+        const actCav = dprNumber(info.act_cavity);
+        let targetHr = 0;
+        if (stdCycle > 0 && stdCav > 0) targetHr = Math.round((3600 / stdCycle) * stdCav);
+        else if (actCycle > 0 && actCav > 0) targetHr = Math.round((3600 / actCycle) * actCav);
+
+        // --- 3. Prediction: remaining ÷ recent run-rate ---
+        const remaining = planQty - produced;
+        const nonEmpty = buckets.filter(b => b.good > 0);
+        const last3 = nonEmpty.slice(-3);
+        let rate = last3.length ? last3.reduce((a, b) => a + b.good, 0) / last3.length : 0;
+        if (!rate && buckets.length) rate = buckets.reduce((a, b) => a + b.good, 0) / buckets.length;
+        if (!rate) rate = targetHr;
+
+        let predHtml = '';
+        if (planQty > 0 && remaining <= 0) {
+            const lastTs = nonEmpty.length ? nonEmpty[nonEmpty.length - 1].ts : (buckets[buckets.length - 1] || {}).ts;
+            const doneStr = lastTs ? new Date(lastTs).toLocaleString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
+            predHtml = `<div style="display:flex; align-items:center; gap:8px; background:#f0fdf4; border:1px solid #bbf7d0; color:#15803d; border-radius:10px; padding:8px 12px; font-size:0.82rem; font-weight:800"><i class="bi bi-check-circle-fill"></i> Plan completed — last production logged ${doneStr}${remaining < 0 ? ` · over-produced by ${dprFmtQty(Math.abs(remaining))} pcs` : ''}</div>`;
+        } else if (planQty > 0 && rate > 0) {
+            const hoursLeft = remaining / rate;
+            const finish = new Date(Date.now() + hoursLeft * 3600000);
+            const behind = targetHr > 0 && rate < targetHr * 0.7;
+            const bg = behind ? '#fffbeb' : '#f0f9ff';
+            const bd = behind ? '#fde68a' : '#bae6fd';
+            const col = behind ? '#b45309' : '#0369a1';
+            const icon = behind ? 'bi-exclamation-triangle-fill' : 'bi-clock-history';
+            const finStr = finish.toLocaleString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+            predHtml = `<div style="display:flex; align-items:center; gap:8px; background:${bg}; border:1px solid ${bd}; color:${col}; border-radius:10px; padding:8px 12px; font-size:0.82rem; font-weight:800; flex-wrap:wrap"><i class="bi ${icon}"></i> Est. completion: <b>${finStr}</b> <span style="font-weight:700; opacity:0.85">(≈ ${hoursLeft >= 48 ? Math.round(hoursLeft / 24) + ' days' : hoursLeft.toFixed(1) + ' hrs'} left · ${dprFmtQty(remaining)} pcs @ ${dprFmtQty(Math.round(rate))} pcs/hr avg${targetHr ? ` · target ${dprFmtQty(targetHr)} pcs/hr` : ''})${behind ? ' — running behind target' : ''}</span></div>`;
+        }
+
+        // --- 4. SVG chart ---
+        const W = 960, H = 240;
+        const padL = 46, padR = 46, padT = 14, padB = 44;
+        const plotW = W - padL - padR, plotH = H - padT - padB;
+        const n = buckets.length;
+        const slotW = plotW / n;
+        const barW = Math.min(30, slotW * 0.55);
+
+        const maxQty = Math.max(targetHr, ...buckets.map(b => b.good + b.rej), 1);
+        const maxDt = 60; // downtime axis fixed at 60 min/hour
+        const yQ = v => padT + plotH - (v / maxQty) * plotH;
+        const yD = v => padT + plotH - (Math.min(v, maxDt) / maxDt) * plotH;
+        const xC = i => padL + i * slotW + slotW / 2;
+
+        let bars = '', dtPts = [], labels = '', dateMarks = '';
+        let lastDate = '';
+        buckets.forEach((b, i) => {
+            const x = xC(i) - barW / 2;
+            const gTop = yQ(b.good), rTop = yQ(b.good + b.rej);
+            const tip = `${b.date} ${b.shift} ${b.slot}\nProduced: ${b.good}\nReject: ${b.rej}\nDowntime: ${b.dt} min`;
+            bars += `<g><title>${dprEsc(tip)}</title>
+                <rect x="${x.toFixed(1)}" y="${gTop.toFixed(1)}" width="${barW.toFixed(1)}" height="${(padT + plotH - gTop).toFixed(1)}" rx="2" fill="#22c55e"></rect>
+                ${b.rej > 0 ? `<rect x="${x.toFixed(1)}" y="${rTop.toFixed(1)}" width="${barW.toFixed(1)}" height="${(gTop - rTop).toFixed(1)}" rx="2" fill="#ef4444"></rect>` : ''}
+            </g>`;
+            dtPts.push(`${xC(i).toFixed(1)},${yD(b.dt).toFixed(1)}`);
+            if (n <= 14 || i % Math.ceil(n / 14) === 0) {
+                labels += `<text x="${xC(i).toFixed(1)}" y="${H - 26}" text-anchor="middle" font-size="9" fill="#64748b" font-weight="700">${dprEsc(b.slot)}</text>`;
+            }
+            if (b.date !== lastDate) {
+                lastDate = b.date;
+                const dLabel = new Date(b.date + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+                dateMarks += `<line x1="${(padL + i * slotW).toFixed(1)}" y1="${padT}" x2="${(padL + i * slotW).toFixed(1)}" y2="${padT + plotH}" stroke="#cbd5e1" stroke-dasharray="2 3"></line>
+                    <text x="${(padL + i * slotW + 3).toFixed(1)}" y="${H - 12}" font-size="9.5" fill="#475569" font-weight="800">${dLabel}${b.shift === 'Night' ? ' 🌙' : ''}</text>`;
+            }
+        });
+
+        const gridLines = [0, 0.25, 0.5, 0.75, 1].map(f => {
+            const y = padT + plotH * (1 - f);
+            return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="#f1f5f9"></line>
+                <text x="${padL - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#94a3b8" font-weight="700">${dprFmtQty(Math.round(maxQty * f))}</text>
+                <text x="${W - padR + 6}" y="${(y + 3).toFixed(1)}" text-anchor="start" font-size="9" fill="#fdba74" font-weight="700">${Math.round(maxDt * f)}m</text>`;
+        }).join('');
+
+        const targetLine = targetHr > 0 ? `
+            <line x1="${padL}" y1="${yQ(targetHr).toFixed(1)}" x2="${W - padR}" y2="${yQ(targetHr).toFixed(1)}" stroke="#0ea5e9" stroke-width="1.6" stroke-dasharray="6 4"></line>
+            <text x="${W - padR - 4}" y="${(yQ(targetHr) - 5).toFixed(1)}" text-anchor="end" font-size="9.5" fill="#0284c7" font-weight="800">TARGET ${dprFmtQty(targetHr)}/hr</text>` : '';
+
+        const legend = `
+            <div style="display:flex; gap:14px; flex-wrap:wrap; font-size:0.72rem; font-weight:800; color:#475569">
+                <span style="display:inline-flex; align-items:center; gap:5px"><span style="width:10px; height:10px; border-radius:3px; background:#22c55e"></span>Produced</span>
+                <span style="display:inline-flex; align-items:center; gap:5px"><span style="width:10px; height:10px; border-radius:3px; background:#ef4444"></span>Reject</span>
+                <span style="display:inline-flex; align-items:center; gap:5px"><span style="width:14px; height:3px; border-radius:2px; background:#f97316"></span>Downtime (min)</span>
+                ${targetHr ? '<span style="display:inline-flex; align-items:center; gap:5px"><span style="width:14px; height:0; border-top:2px dashed #0ea5e9"></span>Target/hr</span>' : ''}
+            </div>`;
+
+        container.style.display = 'block';
+        container.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap">
+                <h4 style="margin:0; font-size:1rem; font-weight:900; color:#0f172a"><i class="bi bi-graph-up" style="color:#0ea5e9; margin-right:6px"></i>Production Trend (Hourly)</h4>
+                ${legend}
+            </div>
+            ${predHtml ? `<div style="margin-bottom:12px">${predHtml}</div>` : ''}
+            <div style="overflow-x:auto">
+                <svg viewBox="0 0 ${W} ${H}" style="width:100%; min-width:640px; display:block">
+                    ${gridLines}
+                    ${dateMarks}
+                    ${bars}
+                    ${targetLine}
+                    <polyline points="${dtPts.join(' ')}" fill="none" stroke="#f97316" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+                    ${buckets.map((b, i) => `<circle cx="${xC(i).toFixed(1)}" cy="${yD(b.dt).toFixed(1)}" r="2.6" fill="#f97316"><title>${dprEsc(`${b.slot}: ${b.dt} min downtime`)}</title></circle>`).join('')}
+                    ${labels}
+                    <line x1="${padL}" y1="${padT + plotH}" x2="${W - padR}" y2="${padT + plotH}" stroke="#cbd5e1"></line>
+                </svg>
+            </div>
+            ${clipped ? `<div style="font-size:0.72rem; color:#94a3b8; font-weight:700; margin-top:6px">Showing the most recent ${MAX_BARS} production hours.</div>` : ''}
+        `;
+    }
+
+    // Signed balance → styled HTML. Positive = pending (amber), zero = done (green),
+    // negative = over-produced (blue badge) so overruns are never hidden as "0".
+    function dprBalHtml(bal) {
+        const n = Number(bal) || 0;
+        if (n > 0) return `<span style="color:#d97706; font-weight:900">${dprFmtQty(n)}</span>`;
+        if (n === 0) return `<span style="color:#16a34a; font-weight:900">✓ Done</span>`;
+        return `<span title="Over-produced by ${dprFmtQty(Math.abs(n))}" style="display:inline-block; background:#dbeafe; color:#1d4ed8; border:1px solid #bfdbfe; border-radius:999px; padding:2px 8px; font-weight:900; font-size:0.78rem; white-space:nowrap">+${dprFmtQty(Math.abs(n))} OVER</span>`;
+    }
+
     async function fetchDetailedStats(orderNo, machine, headerDetails) {
         const tbody = document.getElementById('modalJobColours');
         tbody.innerHTML = '<tr><td colspan="5" style="padding:14px; text-align:center; color:#64748b">Loading stats...</td></tr>';
@@ -306,6 +501,8 @@
         dprSetText('modalJobProduced', '...');
         const tfoot = document.getElementById('modalJobColoursFooter');
         if (tfoot) tfoot.innerHTML = '';
+        const trendBox = document.getElementById('jobTrendContainer');
+        if (trendBox) { trendBox.style.display = 'none'; trendBox.innerHTML = ''; }
         closeColourHistory();
 
         try {
@@ -357,7 +554,8 @@
                 // 2. Update Progress (Fixing Math Bugs)
                 const planQty = Number(totals.plan || info.plan_qty || headerDetails.plan_qty || 0);
                 const produced = Number(totals.good || 0);
-                const pending = Math.max(0, planQty - produced);
+                // Signed balance: negative = over-produced (never clamp to 0)
+                const pending = planQty - produced;
 
                 // Efficiency Calculation: (Produced / Plan) * 100
                 const progressPct = planQty > 0 ? ((produced / planQty) * 100).toFixed(1) : 0;
@@ -369,7 +567,44 @@
                 // Update DOM
                 dprSetText('modalJobPlanQty', dprFmtQty(planQty));
                 dprSetText('modalJobProduced', dprFmtQty(produced));
-                dprSetText('modalJobPending', dprFmtQty(pending));
+                // Pending stat: signed — show over-production instead of clamping to 0
+                const pendingLabel = document.getElementById('modalJobPendingLabel');
+                const pendingEl = document.getElementById('modalJobPending');
+                if (pendingEl) {
+                    if (pending < 0) {
+                        if (pendingLabel) pendingLabel.textContent = 'Over-Produced';
+                        pendingEl.innerHTML = `<span style="color:#1d4ed8">+${dprFmtQty(Math.abs(pending))}</span>`;
+                    } else {
+                        if (pendingLabel) pendingLabel.textContent = 'Pending';
+                        pendingEl.textContent = dprFmtQty(pending);
+                    }
+                }
+
+                // Status chip in the modal header
+                const chip = document.getElementById('modalJobStatusChip');
+                if (chip) {
+                    let chipBg, chipBd, chipColor, chipIcon, chipText;
+                    if (planQty > 0 && pending < 0) {
+                        chipBg = '#dbeafe'; chipBd = '#bfdbfe'; chipColor = '#1d4ed8'; chipIcon = 'bi-graph-up-arrow'; chipText = 'Over-Produced';
+                    } else if (planQty > 0 && pending === 0) {
+                        chipBg = '#dcfce7'; chipBd = '#bbf7d0'; chipColor = '#15803d'; chipIcon = 'bi-check-circle-fill'; chipText = 'Completed';
+                    } else {
+                        chipBg = '#fef3c7'; chipBd = '#fde68a'; chipColor = '#b45309'; chipIcon = 'bi-lightning-charge-fill'; chipText = 'Running';
+                    }
+                    chip.style.display = 'inline-flex';
+                    chip.style.background = chipBg;
+                    chip.style.border = `1px solid ${chipBd}`;
+                    chip.style.color = chipColor;
+                    chip.innerHTML = `<i class="bi ${chipIcon}"></i> ${chipText}`;
+                }
+
+                // Progress ring (r=40 → circumference 251.3)
+                const arc = document.getElementById('modalJobProgressArc');
+                if (arc) {
+                    const circ = 251.3;
+                    const frac = Math.min(1, Number(progressPct) / 100);
+                    arc.setAttribute('stroke-dasharray', `${(circ * frac).toFixed(1)} ${circ}`);
+                }
                 dprSetText('modalJobEff', progressPct + '%');
                 dprSetText('modalJobRejRate', rejRate + '%');
                 dprSetText('modalJobRejected', dprFmtQty(totals.rej || 0));
@@ -395,7 +630,7 @@
                         const rowPlan = Number(d.plan_qty || 0);
                         const rowGood = Number(d.good_qty || 0);
                         const rowRej = Number(d.rej_qty || 0);
-                        const rowBal = Math.max(0, rowPlan - rowGood);
+                        const rowBal = rowPlan - rowGood; // signed: negative = over-produced
                         sumBal += rowBal;
                         sumPlan += rowPlan;
                         sumProd += rowGood;
@@ -405,9 +640,12 @@
                             <tr style="border-bottom:1px solid #eee">
                                 <td style="padding:10px; font-weight:800">${dprEsc(c)}</td>
                                 <td style="padding:10px; text-align:center">${dprFmtQty(rowPlan)}</td>
-                                <td style="padding:10px; text-align:center"><button type="button" onclick="openColourHistory('${encodeURIComponent(c)}')" style="border:0; background:#dcfce7; color:#047857; border-radius:999px; padding:5px 12px; font-weight:900; cursor:pointer">${dprFmtQty(rowGood)}</button></td>
+                                <td style="padding:10px; text-align:center">
+                                    <button type="button" onclick="openColourHistory('${encodeURIComponent(c)}')" title="View production history" style="border:0; background:#dcfce7; color:#047857; border-radius:999px; padding:5px 12px; font-weight:900; cursor:pointer">${dprFmtQty(rowGood)}</button>
+                                    ${rowPlan > 0 ? `<div style="height:5px; background:#f1f5f9; border-radius:999px; overflow:hidden; margin:6px auto 0; max-width:110px"><div style="height:100%; width:${Math.min(100, (rowGood / rowPlan) * 100).toFixed(1)}%; background:${rowGood >= rowPlan ? '#3b82f6' : '#22c55e'}; border-radius:999px"></div></div>` : ''}
+                                </td>
                                 <td style="padding:10px; text-align:center; color:#dc2626; font-weight:800">${dprFmtQty(rowRej)}</td>
-                                <td style="padding:10px; text-align:center; color:#d97706; font-weight:900">${dprFmtQty(rowBal)}</td>
+                                <td style="padding:10px; text-align:center">${dprBalHtml(rowBal)}</td>
                             </tr>
                         `;
                     });
@@ -428,7 +666,7 @@
                             <td style="padding:10px; text-align:center">${dprFmtQty(grandTotalPlan)}</td>
                             <td style="padding:10px; text-align:center; color:#16a34a">${dprFmtQty(grandTotalProd)}</td>
                             <td style="padding:10px; text-align:center; color:#dc2626">${dprFmtQty(grandTotalRej)}</td>
-                            <td style="padding:10px; text-align:center; color:#d97706">${dprFmtQty(grandTotalBal)}</td>
+                            <td style="padding:10px; text-align:center">${dprBalHtml(grandTotalBal)}</td>
                         </tr>
                     `;
                 }
@@ -436,6 +674,7 @@
 
                 renderReasonAnalysis('dtChartContainer', 'Downtime Analysis', dtStats, 'min', '#f97316', DPR_DOWNTIME_REASONS);
                 renderReasonAnalysis('rejChartContainer', 'Rejection Analysis', rejStats, 'qty', '#dc2626', DPR_REJECT_REASONS);
+                renderJobTrendChart(ans.data.logs, info, planQty, produced);
 
             } else {
                 tbody.innerHTML = '<tr><td colspan="5" style="padding:14px; text-align:center; color:#dc2626">Failed to load data.</td></tr>';
