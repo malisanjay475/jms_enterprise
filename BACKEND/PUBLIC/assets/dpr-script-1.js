@@ -1453,6 +1453,8 @@
                                 const shiftsToRender = (shiftMode === 'Both') ? ['Day', 'Night'] : [shiftMode];
 
                                 shiftsToRender.forEach(rowShift => {
+                                    // Per-shift-row change counters for the machine label badge strip (MC / CC / JC)
+                                    let rowShiftCC = 0, rowShiftMC = 0;
                                     // Select Data Source
                                     const source = (rowShift === 'Day') ? dayData : nightData;
                                     const rowEntries = source.entries || {};
@@ -1641,16 +1643,9 @@
                                                 label += ` <span style="color:${badgeColor}; font-size:0.7rem; background:${badgeColor}15; padding:1px 4px; border-radius:4px; margin-left:4px">${rowShift}</span>`;
                                             }
                                             
-                                            // [NEW] JC Colors (Indigo for 1, Red for 2+)
-                                            const jcColor = (machineJC >= 2) ? '#ef4444' : '#4f46e5';
-                                            const jcBadgeBg = (machineJC >= 2) ? '#fee2e2' : '#e0e7ff';
-                                            const jcBadgeBorder = (machineJC >= 2) ? '#fecaca' : '#c7d2fe';
-
-                                            if (isHighJC) {
-                                                label += ` <span style="color:${jcColor}; font-size:0.75rem; background:${jcBadgeBg}; border:1px solid ${jcBadgeBorder}; padding:1px 6px; border-radius:12px; font-weight:800; margin-left:6px; white-space:nowrap"><i class="bi bi-arrow-repeat"></i> ${machineJC} JCs</span>`;
-                                            }
-
-                                            machineHtml = `<div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:6px; color:#64748b; display:flex; align-items:center; flex-wrap:wrap">${label}</div>`;
+                                            // Change badges (MC / CC / JC) are injected after the shift row is
+                                            // fully counted — see the CHGBADGES placeholder replacement below.
+                                            machineHtml = `<div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; font-weight:700; margin-bottom:6px; color:#64748b; display:flex; align-items:center; flex-wrap:wrap">${label}</div><!--CHGBADGES-${rowShift}-->`;
                                         }
 
                                         // Mould Name Display (Condensed)
@@ -2188,8 +2183,8 @@
 
                                                         // Counters
                                                         const dtMap = entry.downtime_breakup || {};
-                                                        if (entry.entry_type === 'ColourChange' || dtMap['9'] > 0) lineTotalCC++;
-                                                        if (dtMap['2'] > 0) lineTotalMC++;
+                                                        if (entry.entry_type === 'ColourChange' || dtMap['9'] > 0) { lineTotalCC++; rowShiftCC++; }
+                                                        if (dtMap['2'] > 0) { lineTotalMC++; rowShiftMC++; }
 
                                                         let entryWeight = 0;
                                                         if (entry.plan_id) {
@@ -2328,6 +2323,27 @@
                                             : '';
                                         machineRowHtml = machineRowHtml.replace('<!--ROWCLEAR-->', _rowClearBtn);
                                     }); // End distinctMoulds loop (Rows)
+
+                                    // Machine label badge strip: show visually that this machine did a
+                                    // Mould Change / Colour Change / Job Change this shift.
+                                    {
+                                        const hadMcQuick = machineEntryTypes.has('MouldChange') || machineEntryTypes.has('MouldChangeover');
+                                        const chgBadges = [];
+                                        const _chip = (bg, bd, col, icon, text, tip) =>
+                                            `<span title="${tip}" style="display:inline-flex; align-items:center; gap:3px; background:${bg}; border:1px solid ${bd}; color:${col}; font-size:0.62rem; font-weight:800; padding:1px 7px; border-radius:10px; white-space:nowrap"><i class="bi ${icon}"></i>${text}</span>`;
+                                        if (rowShiftMC > 0 || hadMcQuick) {
+                                            chgBadges.push(_chip('#fef3c7', '#fde68a', '#b45309', 'bi-tools', `MC${rowShiftMC > 0 ? ' ×' + rowShiftMC : ''}`, 'Mould Change done on this machine'));
+                                        }
+                                        if (rowShiftCC > 0) {
+                                            chgBadges.push(_chip('#fff7ed', '#fed7aa', '#c2410c', 'bi-palette-fill', `CC ×${rowShiftCC}`, 'Colour Change done on this machine'));
+                                        }
+                                        if (machineJC >= 1) {
+                                            const hot = machineJC >= 2;
+                                            chgBadges.push(_chip(hot ? '#fee2e2' : '#e0e7ff', hot ? '#fecaca' : '#c7d2fe', hot ? '#ef4444' : '#4f46e5', 'bi-arrow-repeat', `JC ×${machineJC}`, 'Job Change: multiple jobs ran on this machine this shift'));
+                                        }
+                                        machineRowHtml = machineRowHtml.replace(`<!--CHGBADGES-${rowShift}-->`,
+                                            chgBadges.length ? `<div style="display:flex; gap:4px; flex-wrap:wrap; margin:0 0 5px">${chgBadges.join('')}</div>` : '');
+                                    }
                                 }); // End shiftsToRender loop
 
                                 // Push to Buffer
