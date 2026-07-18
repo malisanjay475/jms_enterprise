@@ -273,6 +273,16 @@
             <option value="jms-plan">JMS Plan</option>
             <option value="mould-wise-qty">Mould Wise Item QTY</option>
             <option value="extra-qty-allowed">Extra Allowed QTY By PPC</option>
+            <option value="machine-maintenance">Machine Maintenance Report</option>
+          </select>
+        </div>
+
+        <div class="control-group" id="maintPeriodGroup" style="display:none">
+          <label class="control-label">Period</label>
+          <select id="maintPeriod" class="form-input">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
           </select>
         </div>
 
@@ -398,6 +408,7 @@
       const isMould = type === 'mould-wise-qty';
       document.getElementById('mouldSearchGroup').style.display = isMould ? 'flex' : 'none';
       document.getElementById('mouldFieldStrip').style.display = isMould ? 'block' : 'none';
+      document.getElementById('maintPeriodGroup').style.display = type === 'machine-maintenance' ? 'flex' : 'none';
     }
 
     function onMouldFieldChange() {
@@ -430,6 +441,9 @@
           endpoint = `/reports/mould-wise-qty?factory_id=${factoryId}&from=${from}&to=${to}&q=${search}&fields=${encodeURIComponent(fields)}`;
         } else if (type === 'extra-qty-allowed') {
           endpoint = `/reports/extra-qty-allowed?from=${from}&to=${to}`;
+        } else if (type === 'machine-maintenance') {
+          const period = document.getElementById('maintPeriod').value;
+          endpoint = `/reports/machine-maintenance?from=${from}&to=${to}&group=${period}`;
         } else {
           endpoint = `/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`;
         }
@@ -439,6 +453,7 @@
           if (type === 'mould-wise-qty') {
             renderMouldReport(res.data, getSelectedMouldFields());
           } else {
+            window._maintGroup = res.group || 'daily';
             renderReport(res.data, type, res.summary);
           }
         } else {
@@ -561,15 +576,40 @@
         </div>`;
     }
 
+    function renderMaintSummary(summary) {
+      const strip = document.getElementById('eqaSummaryStrip');
+      if (!summary) { strip.style.display = 'none'; strip.innerHTML = ''; return; }
+      const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const hrs = m => (Number(m || 0) / 60).toFixed(1);
+      const pill = (label, val, color) =>
+        `<span style="background:${color}12;color:${color};border:1px solid ${color}44;border-radius:8px;padding:4px 12px;font-weight:800;font-size:0.78rem;white-space:nowrap">${esc(label)}: ${esc(val)}</span>`;
+      const machinePills = Object.entries(summary.by_machine || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([m, v]) => pill(m, hrs(v) + ' Hrs', '#b45309')).join(' ');
+      strip.style.display = 'block';
+      strip.innerHTML = `
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+          ${pill('Total Maintenance Downtime', hrs(summary.total_min) + ' Hrs', '#dc2626')}
+          ${pill('Machines Affected', summary.machines || 0, '#475569')}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <span class="control-label" style="align-self:center">By Machine (most affected first):</span> ${machinePills || '<span style="color:var(--text-light)">–</span>'}
+        </div>`;
+    }
+
     function renderReport(data, type, summary) {
       document.getElementById('emptyState').style.display = 'none';
       document.getElementById('mouldReportCard').style.display = 'none';
       document.getElementById('tableCard').style.display = 'block';
-      renderEqaSummary(type === 'extra-qty-allowed' ? summary : null);
+      if (type === 'extra-qty-allowed') renderEqaSummary(summary);
+      else if (type === 'machine-maintenance') renderMaintSummary(summary);
+      else renderEqaSummary(null);
 
       const badge = document.getElementById('reportStatusBadge');
       badge.textContent = type === 'jms-plan' ? 'JMS Plan'
         : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC'
+        : type === 'machine-maintenance' ? `Machine Maintenance (${(window._maintGroup || 'daily')})`
         : (type === 'summary' ? 'Summary View' : 'Detailed View');
       badge.className = 'status-badge ' + (type === 'summary' ? 'badge-summary' : 'badge-detail');
 
@@ -618,6 +658,20 @@
           { title: "Extra Qty", data: "extra_qty" },
           { title: "Why (Remarks)", data: "remarks" }
         ];
+      } else if (type === 'machine-maintenance') {
+        const group = window._maintGroup || 'daily';
+        const periodTitle = group === 'monthly' ? 'Month' : group === 'weekly' ? 'Week Starting' : 'Date';
+        columns = [
+          { title: periodTitle, data: "period_start", render: v => {
+              if (!v) return '';
+              if (group === 'monthly') return String(v).slice(0, 7);
+              return fmtDate(v);
+            } },
+          { title: "Machine", data: "machine" },
+          { title: "Maintenance Downtime (Hrs)", data: "maint_min", render: v => (Number(v || 0) / 60).toFixed(1) },
+          { title: "Maintenance Downtime (Min)", data: "maint_min" },
+          { title: "Entries", data: "entry_count" }
+        ];
       } else if (type === 'summary') {
         columns = [
           { title: "Unit", data: "factory_unit" },
@@ -652,12 +706,12 @@
         buttons: [
           {
             extend: 'excelHtml5',
-            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : 'WIP Report') + ' - ' + new Date().toLocaleDateString(),
+            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : type === 'machine-maintenance' ? 'Machine Maintenance Report' : 'WIP Report') + ' - ' + new Date().toLocaleDateString(),
             className: 'btn-dt'
           },
           {
             extend: 'csvHtml5',
-            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : 'WIP Report') + ' - ' + new Date().toLocaleDateString(),
+            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : type === 'machine-maintenance' ? 'Machine Maintenance Report' : 'WIP Report') + ' - ' + new Date().toLocaleDateString(),
              className: 'btn-dt'
           }
         ],
