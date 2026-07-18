@@ -6544,11 +6544,14 @@ app.post('/api/dpr/submit', async (req, res) => {
             const total = produced + toNum(GoodQty);
             if (total > cap) {
               const remaining = Math.max(0, cap - produced);
+              const advice = remaining > 0
+                ? `Enter ${remaining} or less.`
+                : `This colour has reached its limit — no further entry allowed.`;
               return res.json({
                 ok: false,
                 error: `Blocked — over production. ${Colour}: Plan ${planQty}, already produced ${produced}. ` +
                        `This entry of ${toNum(GoodQty)} would total ${total}, over the 10% cap of ${cap}. ` +
-                       `Enter ${remaining} or less.`
+                       advice
               });
             }
           }

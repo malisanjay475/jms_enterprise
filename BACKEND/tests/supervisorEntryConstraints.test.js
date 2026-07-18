@@ -280,6 +280,19 @@ describe('Supervisor colour over-production cap', () => {
     expect(res.body.error).toMatch(/over production/i);
   });
 
+  it('still blocks when the browser could not enforce the cap itself', async () => {
+    // When /api/job/colors returns nothing the page falls back to the plan's saved
+    // colour_details, which carry no production data — the client cap stands down
+    // there, so the server guard is the only thing standing. Verified on staging
+    // with a seeded plan that had no JC linkage.
+    const { app, pool } = createApp();
+    mockPlan(pool, { produced: 550 });
+    const res = await submit(app, { goodQty: 1 });
+    expect(res.body.ok).toBe(false);
+    expect(res.body.error).toMatch(/reached its limit/);
+    expect(inserted(pool)).toBe(false);
+  });
+
   it('leaves zero-qty downtime entries alone', async () => {
     const { app, pool } = createApp();
     mockPlan(pool, { produced: 550 }); // already at cap

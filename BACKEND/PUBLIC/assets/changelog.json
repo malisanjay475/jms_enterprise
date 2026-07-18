@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.5.0",
+  "latest": "1.5.1",
   "versions": [
+    {
+      "version": "1.5.1",
+      "date": "2026-07-18",
+      "title": "Supervisor entry checks stop over-count and wrong setup values",
+      "summary": "The Supervisor app now guards production entry: cavity can't exceed the mould's standard, article weight must stay within ±5% of standard, and colour-wise entry is capped at 10% over the planned quantity so a colour can't be over-produced.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-person-workspace",
+          "changes": [
+            { "type": "improvement", "text": "Actual Cavity can no longer be saved higher than the mould's Standard Cavity." },
+            { "type": "improvement", "text": "Actual article weight must be within ±5% of the standard weight — the allowed range is shown if an entry is outside it." },
+            { "type": "feat", "text": "Colour-wise production is capped at 10% over that colour's planned quantity: a colour planned for 500 can take at most 550 across all entries, and the colour picker shows how many more pieces are allowed." },
+            { "type": "improvement", "text": "When a colour reaches its limit the app explains it clearly instead of showing a confusing zero, and unplanned colours are left uncapped." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.5.0",
       "date": "2026-07-18",
