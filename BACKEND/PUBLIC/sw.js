@@ -13,7 +13,7 @@
  */
 'use strict';
 
-const CACHE_VERSION = 'jms-v3-2026-07-10a';
+const CACHE_VERSION = 'jms-v4-2026-07-18a';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const PAGE_CACHE = `${CACHE_VERSION}-pages`;
 
