@@ -837,7 +837,7 @@
                 const extraCell = g && g.extra > 0
                     ? `<span title="${_eqaEsc(g.grants.map(x => '+' + x.extra_qty + ' by ' + x.allowed_by + ' — ' + x.remarks).join('\n'))}"
                              style="background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:6px;padding:2px 8px;font-weight:800;font-size:0.75rem;white-space:nowrap">
-                          +${_ddN(g.extra)} <span style="font-weight:600;color:#8b5cf6">by ${_eqaEsc(g.grants[g.grants.length - 1].allowed_by)}${g.grants.length > 1 ? ' +' + (g.grants.length - 1) : ''}</span>
+                          +${_ddN(g.extra)} <span style="font-weight:600;color:#8b5cf6">by ${_eqaEsc(g.grants[0].allowed_by)}${g.grants.length > 1 ? ' +' + (g.grants.length - 1) : ''}</span>
                        </span>`
                     : '<span class="dim">–</span>';
                 const allowBtn = canAllow

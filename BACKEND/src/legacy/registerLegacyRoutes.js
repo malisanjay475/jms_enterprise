@@ -6546,7 +6546,10 @@ app.post('/api/dpr/submit', async (req, res) => {
             try {
               const gRows = await q(
                 `SELECT COALESCE(SUM(extra_qty), 0) AS extra,
-                        MAX(allowed_by) AS last_by
+                        (SELECT allowed_by FROM extra_qty_allowances
+                          WHERE (plan_id = $1 OR plan_id IN (SELECT plan_id FROM plan_board WHERE CAST(id AS TEXT) = $1))
+                            AND UPPER(TRIM(colour)) = $2 AND is_deleted = FALSE
+                          ORDER BY allowed_at DESC LIMIT 1) AS last_by
                    FROM extra_qty_allowances
                   WHERE (plan_id = $1 OR plan_id IN (SELECT plan_id FROM plan_board WHERE CAST(id AS TEXT) = $1))
                     AND UPPER(TRIM(colour)) = $2
@@ -20498,7 +20501,12 @@ ORDER BY sort_order ASC, seq ASC, updated_at ASC
 
 // ── Extra Qty Allowances ─────────────────────────────────────────────
 // PPC roles may grant extra qty beyond the 10% colour over-production cap.
-const EXTRA_QTY_ALLOWED_ROLES = ['planner', 'superadmin', 'admin', 'ppc_manager', 'ppc_ass_manager'];
+// Reuses the normalized PPC approval-role set (ppc_*/planning_* variants,
+// admin, superadmin) plus plain 'planner'.
+function canGrantExtraQty(roleCode) {
+  const role = normalizeApprovalRoleCode(roleCode);
+  return role === 'planner' || isPpcApprovalRole({ role_code: role });
+}
 
 // Returns { COLOUR_UPPER: { extra: total, grants: [{allowed_by, allowed_role, extra_qty, remarks, allowed_at}] } }
 async function fetchExtraGrantsByColour(plan_id) {
@@ -20850,7 +20858,7 @@ app.post('/api/extra-qty/allow', async (req, res) => {
     const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
     if (!u.length) return res.status(403).json({ ok: false, error: 'User not found' });
     const role = String(u[0].role_code || '').toLowerCase();
-    if (!EXTRA_QTY_ALLOWED_ROLES.includes(role)) {
+    if (!canGrantExtraQty(role)) {
       return res.status(403).json({ ok: false, error: 'PPC / Planner / Admin access required' });
     }
 
