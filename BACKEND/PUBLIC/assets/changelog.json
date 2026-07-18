@@ -24,7 +24,8 @@
           "icon": "bi-clipboard-data",
           "changes": [
             { "type": "improvement", "text": "Machine Maintenance hours in the Compliance Summary are now yellow with the maintenance tools icon — the same colour as the signboard on the machine." },
-            { "type": "improvement", "text": "Every downtime reason now shows its icon inside a small round sign, so the grid reads like the boards on the shop floor." }
+            { "type": "improvement", "text": "Every downtime reason now shows its icon inside a small round sign, so the grid reads like the boards on the shop floor." },
+            { "type": "improvement", "text": "When an hour has both production and a short downtime, the box now splits in two — quantity on top and the downtime reason with its minutes below, easy to read without opening the entry." }
           ]
         }
       ]
