@@ -41,13 +41,13 @@
         // Quick-action reasons: icon + colors per entry_type (single source of truth
         // for override cells, in-slot downtime badges and the legend)
         const QUICK_ACTION_META = {
-            Maintenance:      { label: 'Machine Maintenance', short: 'M/C Maint',   icon: 'bi-tools',                 color: '#b91c1c', bg: '#fee2e2', bd: '#fca5a5' },
-            ManPowerShortage: { label: 'Manpower Shortage',   short: 'MP Short',    icon: 'bi-person-slash',          color: '#b91c1c', bg: '#fee2e2', bd: '#fca5a5' },
-            NoPlan:           { label: 'No Plan',             short: 'No Plan',     icon: 'bi-calendar-x',            color: '#e11d48', bg: '#fff1f2', bd: '#fda4af' },
-            MouldMaintenance: { label: 'Mould Maintenance',   short: 'Mould Maint', icon: 'bi-wrench-adjustable',     color: '#a16207', bg: '#fefce8', bd: '#fde047' },
-            MouldTrial:       { label: 'Mould Trial',         short: 'Trial',       icon: 'bi-clipboard2-pulse',      color: '#7c3aed', bg: '#f5f3ff', bd: '#ddd6fe' },
-            PowerCut:         { label: 'Power Cut',           short: 'Power Cut',   icon: 'bi-lightning-charge-fill', color: '#1e40af', bg: '#eff6ff', bd: '#bfdbfe' },
-            MouldChangeover:  { label: 'Mould Changeover',    short: 'Mould C/O',   icon: 'bi-arrow-repeat',          color: '#b91c1c', bg: '#fee2e2', bd: '#fca5a5' }
+            Maintenance:      { label: 'Machine Maintenance', short: 'M/C Maint',   code: 'M/C',     icon: 'bi-tools',                 color: '#713f12', bg: '#fde047', bd: '#eab308' },
+            ManPowerShortage: { label: 'Manpower Shortage',   short: 'MP Short',    code: 'MP',      icon: 'bi-person-slash',          color: '#b91c1c', bg: '#fee2e2', bd: '#fca5a5' },
+            NoPlan:           { label: 'No Plan',             short: 'No Plan',     code: 'No Plan', icon: 'bi-calendar-x',            color: '#e11d48', bg: '#fff1f2', bd: '#fda4af' },
+            MouldMaintenance: { label: 'Mould Maintenance',   short: 'Mould Maint', code: 'Mould',   icon: 'bi-wrench-adjustable',     color: '#a16207', bg: '#fefce8', bd: '#fde047' },
+            MouldTrial:       { label: 'Mould Trial',         short: 'Trial',       code: 'Trial',   icon: 'bi-clipboard2-pulse',      color: '#7c3aed', bg: '#f5f3ff', bd: '#ddd6fe' },
+            PowerCut:         { label: 'Power Cut',           short: 'Power Cut',   code: 'Power',   icon: 'bi-lightning-charge-fill', color: '#1e40af', bg: '#eff6ff', bd: '#bfdbfe' },
+            MouldChangeover:  { label: 'Mould Changeover',    short: 'Mould C/O',   code: 'C/O',     icon: 'bi-arrow-repeat',          color: '#b91c1c', bg: '#fee2e2', bd: '#fca5a5' }
         };
         // downtime_breakup reason code → QUICK_ACTION_META key
         const QUICK_ACTION_BY_CODE = { '1': 'ManPowerShortage', '2': 'MouldChangeover', '5': 'Maintenance', '7': 'MouldMaintenance', '8': 'PowerCut', '11': 'MouldTrial', '13': 'NoPlan' };
@@ -1736,7 +1736,7 @@
                                                  const ovMeta = QUICK_ACTION_META[QUICK_ACTION_BY_STATUS[activeOverrideStatus]];
                                                  if (ovMeta) {
                                                      bg = ovMeta.bg; border = `1px solid ${ovMeta.bd}`;
-                                                     content = `<div style="color:${ovMeta.color}; font-weight:800; font-size:0.68rem; line-height:1.15; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; height:100%; text-align:center"><i class="bi ${ovMeta.icon}" style="font-size:1.05rem; line-height:1"></i><span>${ovMeta.label}</span></div>`;
+                                                     content = `<div style="color:${ovMeta.color}; font-weight:800; font-size:0.66rem; line-height:1.15; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; height:100%; text-align:center; letter-spacing:0.2px"><span style="width:22px; height:22px; border-radius:50%; background:#fff; border:2px solid ${ovMeta.color}; display:inline-flex; align-items:center; justify-content:center; box-shadow:0 1px 2px rgba(0,0,0,0.15)"><i class="bi ${ovMeta.icon}" style="font-size:0.78rem; line-height:1; color:${ovMeta.color}"></i></span><span style="text-transform:uppercase">${ovMeta.label}</span></div>`;
                                                  }
                                                  else { bg = '#fee2e2'; border = '1px solid #fca5a5'; content = `<div style="color:#b91c1c; font-weight:700; font-size:0.75rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
 
@@ -1800,7 +1800,7 @@
                                                         const dtTip = _esc(Object.entries(dtBrk).map(([code, v]) => `${DOWNTIME_CODES[code] || code}: ${v}m`).join(', '));
                                                         const dtMeta = domCode && QUICK_ACTION_BY_CODE[domCode] ? QUICK_ACTION_META[QUICK_ACTION_BY_CODE[domCode]] : null;
                                                         if (dtMeta) {
-                                                            manualDtHtml = `<div title="${dtTip || dtMeta.label}" style="display:inline-flex;align-items:center;gap:3px;align-self:flex-start;max-width:100%;background:${dtMeta.bg};border:1px solid ${dtMeta.bd};color:${dtMeta.color};font-size:0.6rem;font-weight:800;padding:1px 4px;border-radius:8px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><i class="bi ${dtMeta.icon}"></i>${Math.round(dtMins)}m ${dtMeta.short}</div>`;
+                                                            manualDtHtml = `<div title="${dtTip || dtMeta.label}" style="display:inline-flex;align-items:center;gap:3px;align-self:flex-start;max-width:100%;background:${dtMeta.bg};border:1px solid ${dtMeta.bd};color:${dtMeta.color};font-size:0.6rem;font-weight:800;padding:1px 4px;border-radius:8px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><i class="bi ${dtMeta.icon}"></i>${Math.round(dtMins)}m ${dtMeta.code}</div>`;
                                                         } else {
                                                             manualDtHtml = `<div title="${dtTip}" style="font-size:0.7rem;color:#db2777;font-weight:700;line-height:1">${(dtMins / 60).toFixed(1)}h</div>`;
                                                         }
@@ -1841,18 +1841,23 @@
                                                         </div>
                                                     `;
                                                 });
-                                                content += '</div>';
 
                                                 // A quick action logged in the SAME hour as production doesn't paint the
-                                                // cell (production wins) — surface it as a corner badge so it's still visible
+                                                // cell (production wins) — split the cell: production on top, a bottom
+                                                // half-strip with the reason icon + minutes so it reads at a glance
                                                 if (spEntry) {
                                                     const spKey = spEntry.entry_type.includes('MouldChange') ? 'MouldChangeover' : spEntry.entry_type;
                                                     const spMeta = QUICK_ACTION_META[spKey];
                                                     if (spMeta) {
                                                         const spDt = Math.round(Number(spEntry.downtime_min) || 0);
-                                                        content += `<span title="${spMeta.label}${spDt > 0 ? ` — ${spDt} min downtime this hour` : ''}" style="position:absolute; bottom:1px; left:1px; display:inline-flex; align-items:center; gap:2px; background:${spMeta.color}; color:#fff; font-size:0.55rem; font-weight:800; padding:0 4px; border-radius:6px; line-height:1.5; z-index:5; pointer-events:none; max-width:calc(100% - 4px); overflow:hidden; white-space:nowrap"><i class="bi ${spMeta.icon}"></i>${spDt > 0 ? spDt + 'm ' : ''}${spMeta.short}</span>`;
+                                                        content += `
+                                                            <div title="${spMeta.label}${spDt > 0 ? ` — ${spDt} min downtime this hour` : ''}" style="flex:0 0 auto; display:flex; align-items:center; justify-content:center; gap:3px; background:${spMeta.bg}; border-top:1px solid ${spMeta.bd}; color:${spMeta.color}; font-weight:800; font-size:0.62rem; line-height:1.15; padding:2px 2px; text-align:center; min-height:17px">
+                                                                <span style="width:14px; height:14px; border-radius:50%; background:#fff; border:1.5px solid ${spMeta.color}; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto"><i class="bi ${spMeta.icon}" style="font-size:0.55rem; line-height:1; color:${spMeta.color}"></i></span>
+                                                                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${spDt > 0 ? spDt + 'm ' : ''}${spMeta.code}</span>
+                                                            </div>`;
                                                     }
                                                 }
+                                                content += '</div>';
 
                                             } else {
                                                 // 3. EMPTY SLOT LOGIC

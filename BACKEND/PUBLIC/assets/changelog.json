@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.5.1",
+  "latest": "1.5.2",
   "versions": [
+    {
+      "version": "1.5.2",
+      "date": "2026-07-18",
+      "title": "Maintenance hours are now yellow, like the factory signboard",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "Machine Maintenance hours in the Compliance Summary are now yellow with the maintenance tools icon — the same colour as the signboard on the machine." },
+            { "type": "improvement", "text": "Every downtime reason now shows its icon inside a small round sign, so the grid reads like the boards on the shop floor." },
+            { "type": "improvement", "text": "When an hour has both production and a short downtime, the box now splits in two — quantity on top and the downtime reason with its minutes below, easy to read without opening the entry." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.5.1",
       "date": "2026-07-18",
