@@ -11,8 +11,26 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.4.3",
+  "latest": "1.4.4",
   "versions": [
+    {
+      "version": "1.4.4",
+      "date": "2026-07-18",
+      "title": "Supervisor submit no longer gets stuck on Processing",
+      "summary": "Submitting a DPR entry on the Supervisor app no longer leaves the Processing popup stuck on screen — you see Saved right away and can move to the next hour.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor App",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "fix", "text": "After tapping Submit DPR, the Processing popup used to stay stuck for 15–30 seconds on slow Wi-Fi. It now closes as soon as the entry is saved." },
+            { "type": "fix", "text": "Background checks after a save no longer freeze the whole screen — the setup card shows its own small Checking message instead." },
+            { "type": "improvement", "text": "If the network is too slow to confirm a save, the app now tells you clearly to check the slot list before submitting again, instead of showing a technical error." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.4.3",
       "date": "2026-07-17",
