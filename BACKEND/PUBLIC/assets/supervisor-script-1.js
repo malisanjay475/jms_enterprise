@@ -490,10 +490,16 @@
     let loadingCount = 0;
     let _loadingWatchdog = null;
 
+    let _overlaySuppressedUntil = 0;
+
     function _forceHideLoading() {
       loadingCount = 0;
       clearTimeout(_loadingWatchdog);
       _loadingWatchdog = null;
+      // Sticky dismiss: after a tap-dismiss (or the watchdog firing) keep the overlay
+      // suppressed briefly so a chained request can't re-block the screen the instant
+      // the writer dismissed it — that made taps look like they "did nothing".
+      _overlaySuppressedUntil = Date.now() + 4000;
       const o = el('loading-overlay');
       if (o) o.classList.add('hidden');
     }
@@ -501,6 +507,7 @@
 
     function showLoading() {
       loadingCount++;
+      if (Date.now() < _overlaySuppressedUntil) return; // recently dismissed by hand — stay hidden
       const o = el('loading-overlay');
       if (o) o.classList.remove('hidden');
       // Hard cap: force-hide 10s after the overlay first became visible. Nested
@@ -524,6 +531,37 @@
     }
     const show = id => el(id).classList.remove('hidden');
     const hide = id => el(id).classList.add('hidden');
+
+    /* ---- AUTO-UPDATE: reload when the server ships a new version ----
+       Factory phones keep this PWA open for days, so a deployed fix never reaches
+       them until someone manually reloads. Poll /api/version every 5 min and when
+       the app returns to the foreground; if the server version changed, reload —
+       but only when it can't destroy work in progress. */
+    let _bootAppVersion = null;
+    function _safeToReload() {
+      if (loadingCount > 0) return false;                                   // request in flight
+      const shots = el('d-shots');
+      if (shots && String(shots.value || '').trim() !== '') return false;   // mid-entry
+      const conf = el('modal-confirm');
+      if (conf && !conf.classList.contains('hidden')) return false;         // awaiting a choice
+      return true;
+    }
+    function _checkAppVersion() {
+      apiFetch('/api/version')
+        .then(r => r.json())
+        .then(v => {
+          if (!v || !v.version) return;
+          if (_bootAppVersion === null) { _bootAppVersion = v.version; return; }
+          if (v.version !== _bootAppVersion && _safeToReload()) {
+            console.log('[AutoUpdate] server is', v.version, '— reloading (booted with', _bootAppVersion + ')');
+            location.reload();
+          }
+        })
+        .catch(() => { /* offline — try again next tick */ });
+    }
+    setInterval(_checkAppVersion, 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) _checkAppVersion(); });
+    _checkAppVersion(); // records the booted version
 
     // ======== RECENT SLOT ENTRIES ========
     async function openRecentSlots() {
