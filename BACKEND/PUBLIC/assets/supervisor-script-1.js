@@ -1736,7 +1736,9 @@
             const b = Math.round(Number(r.bal));           // can be negative
             const p = Math.round(Number(r.produced || 0));
             const isOver = b < 0;
-            window.jobColorsData[r.name] = { plan: q, bal: b };
+            // balIsLive: this row came from /api/job/colors, so bal already has real
+            // production subtracted and (plan - bal) is a trustworthy produced figure.
+            window.jobColorsData[r.name] = { plan: q, bal: b, balIsLive: true };
             sumPlan += q; sumBal += b; sumProduced += p;
             if (isOver) overProducedList.push({ name: r.name, qty: q, produced: p, excess: Math.abs(b) });
 
@@ -1815,7 +1817,11 @@
             const q = Math.round(Number(r.qty || 0));
             const b = Math.round(Number(r.bal || 0));
 
-            window.jobColorsData[r.name] = { plan: q, bal: b };
+            // No balIsLive flag: this fallback reads the plan's saved colour_details,
+            // which carry no production data (bal == qty). (plan - bal) would compute
+            // produced as 0, so the client cap must not enforce off this — the server
+            // guard in /api/dpr/submit stays authoritative.
+            window.jobColorsData[r.name] = { plan: q, bal: b, balIsLive: false };
             sumPlan += q;
             sumBal += b;
 
@@ -2851,7 +2857,7 @@
       // Colour is NOT persisted — user must always select it fresh each entry
 
       const dat = jobColorsData[val];
-      if (dat && Number(dat.plan) > 0) {
+      if (dat && Number(dat.plan) > 0 && dat.balIsLive) {
         const plan = Number(dat.plan);
         const produced = plan - Number(dat.bal);
         const cap = Math.floor(plan * COLOUR_OVERPROD_FACTOR);
@@ -2925,15 +2931,21 @@
       const dat = (window.jobColorsData || {})[colourName];
       // Unplanned colours ("Other") and jobs with no colour plan are not capped.
       if (!dat || !(Number(dat.plan) > 0)) return '';
+      // Without live balance data, produced would compute as 0 and we'd wrongly
+      // offer the full cap on a colour that is already maxed. Defer to the server.
+      if (!dat.balIsLive) return '';
       const plan = Number(dat.plan);
       const produced = plan - Number(dat.bal);
       const cap = Math.floor(plan * COLOUR_OVERPROD_FACTOR);
       const total = produced + Number(goodQty || 0);
       if (total <= cap) return '';
       const remaining = Math.max(0, cap - produced);
+      const advice = remaining > 0
+        ? `Enter ${remaining} or less.`
+        : `This colour has reached its limit — no further entry allowed.`;
       return `${colourName}: Plan ${plan}, already produced ${produced}. ` +
              `This entry of ${goodQty} would total ${total}, over the 10% cap of ${cap}. ` +
-             `Enter ${remaining} or less.`;
+             advice;
     }
 
     function validateForm() {
