@@ -1,6 +1,6 @@
 {
-  "version": "1.4.5",
-  "commit": "kan91-sync-alert-detail",
-  "releaseId": "1.4.5+kan91-sync-al",
-  "builtAt": "2026-07-18T00:00:00.000Z"
+  "version": "1.4.6",
+  "commit": "supervisor-stale-pwa-hardening",
+  "releaseId": "1.4.6+supervisor-sta",
+  "builtAt": "2026-07-18T06:30:00.000Z"
 }
