@@ -41,7 +41,7 @@
         // Quick-action reasons: icon + colors per entry_type (single source of truth
         // for override cells, in-slot downtime badges and the legend)
         const QUICK_ACTION_META = {
-            Maintenance:      { label: 'Machine Maintenance', short: 'M/C Maint',   icon: 'bi-tools',                 color: '#b91c1c', bg: '#fee2e2', bd: '#fca5a5' },
+            Maintenance:      { label: 'Machine Maintenance', short: 'M/C Maint',   icon: 'bi-tools',                 color: '#713f12', bg: '#fde047', bd: '#eab308' },
             ManPowerShortage: { label: 'Manpower Shortage',   short: 'MP Short',    icon: 'bi-person-slash',          color: '#b91c1c', bg: '#fee2e2', bd: '#fca5a5' },
             NoPlan:           { label: 'No Plan',             short: 'No Plan',     icon: 'bi-calendar-x',            color: '#e11d48', bg: '#fff1f2', bd: '#fda4af' },
             MouldMaintenance: { label: 'Mould Maintenance',   short: 'Mould Maint', icon: 'bi-wrench-adjustable',     color: '#a16207', bg: '#fefce8', bd: '#fde047' },
@@ -1736,7 +1736,7 @@
                                                  const ovMeta = QUICK_ACTION_META[QUICK_ACTION_BY_STATUS[activeOverrideStatus]];
                                                  if (ovMeta) {
                                                      bg = ovMeta.bg; border = `1px solid ${ovMeta.bd}`;
-                                                     content = `<div style="color:${ovMeta.color}; font-weight:800; font-size:0.68rem; line-height:1.15; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; height:100%; text-align:center"><i class="bi ${ovMeta.icon}" style="font-size:1.05rem; line-height:1"></i><span>${ovMeta.label}</span></div>`;
+                                                     content = `<div style="color:${ovMeta.color}; font-weight:800; font-size:0.66rem; line-height:1.15; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; height:100%; text-align:center; letter-spacing:0.2px"><span style="width:22px; height:22px; border-radius:50%; background:#fff; border:2px solid ${ovMeta.color}; display:inline-flex; align-items:center; justify-content:center; box-shadow:0 1px 2px rgba(0,0,0,0.15)"><i class="bi ${ovMeta.icon}" style="font-size:0.78rem; line-height:1; color:${ovMeta.color}"></i></span><span style="text-transform:uppercase">${ovMeta.label}</span></div>`;
                                                  }
                                                  else { bg = '#fee2e2'; border = '1px solid #fca5a5'; content = `<div style="color:#b91c1c; font-weight:700; font-size:0.75rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
 
