@@ -38,6 +38,30 @@
             '11': 'Mould Trial',
             '12': 'Crane / Loading'
         };
+        // Quick-action reasons: icon + colors per entry_type (single source of truth
+        // for override cells, in-slot downtime badges and the legend)
+        const QUICK_ACTION_META = {
+            Maintenance:      { label: 'Machine Maintenance', short: 'M/C Maint',   icon: 'bi-tools',                 color: '#b91c1c', bg: '#fee2e2', bd: '#fca5a5' },
+            ManPowerShortage: { label: 'Manpower Shortage',   short: 'MP Short',    icon: 'bi-person-slash',          color: '#b91c1c', bg: '#fee2e2', bd: '#fca5a5' },
+            NoPlan:           { label: 'No Plan',             short: 'No Plan',     icon: 'bi-calendar-x',            color: '#e11d48', bg: '#fff1f2', bd: '#fda4af' },
+            MouldMaintenance: { label: 'Mould Maintenance',   short: 'Mould Maint', icon: 'bi-wrench-adjustable',     color: '#a16207', bg: '#fefce8', bd: '#fde047' },
+            MouldTrial:       { label: 'Mould Trial',         short: 'Trial',       icon: 'bi-clipboard2-pulse',      color: '#7c3aed', bg: '#f5f3ff', bd: '#ddd6fe' },
+            PowerCut:         { label: 'Power Cut',           short: 'Power Cut',   icon: 'bi-lightning-charge-fill', color: '#1e40af', bg: '#eff6ff', bd: '#bfdbfe' },
+            MouldChangeover:  { label: 'Mould Changeover',    short: 'Mould C/O',   icon: 'bi-arrow-repeat',          color: '#b91c1c', bg: '#fee2e2', bd: '#fca5a5' }
+        };
+        // downtime_breakup reason code → QUICK_ACTION_META key
+        const QUICK_ACTION_BY_CODE = { '1': 'ManPowerShortage', '2': 'MouldChangeover', '5': 'Maintenance', '7': 'MouldMaintenance', '8': 'PowerCut', '11': 'MouldTrial', '13': 'NoPlan' };
+        // activeOverrideStatus display string → QUICK_ACTION_META key (status strings drive
+        // the carry-forward logic and must stay unchanged; this maps them to visuals)
+        const QUICK_ACTION_BY_STATUS = {
+            '🏭 Machine Maintenance': 'Maintenance',
+            'Man Power Shortage':     'ManPowerShortage',
+            'NO PLAN':                'NoPlan',
+            'MOULD MAINT':            'MouldMaintenance',
+            'MOULD TRIAL':            'MouldTrial',
+            '⚡ POWER CUT':           'PowerCut',
+            'Mould Changeover':       'MouldChangeover'
+        };
 
         // --- DETAIL MODAL LOGIC ---
         window.showEntryDetails = (entry) => {
@@ -455,12 +479,12 @@
                         <option value="LowOee">Low OEE</option>
                         <option value="MouldChange">Mould Change</option>
                         <option value="PlanChangeOver">Plan Change Over (≤20% left)</option>
-                        <option value="ManPowerShortage">MP Shortage</option>
-                        <option value="MouldMaintenance">Mould Maintenance</option>
-                        <option value="PowerCut">Power Cut</option>
-                        <option value="NoPlan">No Plan</option>
-                        <option value="MachineMaintenance">Machine Maintenance</option>
-                        <option value="MouldTrial">Mould Trial</option>
+                        <option value="ManPowerShortage">🚷 MP Shortage</option>
+                        <option value="MouldMaintenance">🔧 Mould Maintenance</option>
+                        <option value="PowerCut">⚡ Power Cut</option>
+                        <option value="NoPlan">📅 No Plan</option>
+                        <option value="MachineMaintenance">🛠️ Machine Maintenance</option>
+                        <option value="MouldTrial">🧪 Mould Trial</option>
                       </select>
                     </div>
                     <div style="display:flex; gap:10px">
@@ -471,6 +495,7 @@
                         <span style="display:inline-block; width:12px; height:12px; background:#facc15; margin-left:10px; margin-right:4px; vertical-align:middle; border-radius:3px"></span>Late (>45m)
                         <span style="display:inline-block; width:12px; height:12px; background:#ef4444; margin-left:10px; margin-right:4px; vertical-align:middle; border-radius:3px"></span>Missing
                         <span style="display:inline-block; width:12px; height:12px; background:#e2e8f0; margin-left:10px; margin-right:4px; vertical-align:middle; border-radius:3px"></span>Future
+                        <div style="margin-top:5px; font-size:0.75rem">${['Maintenance', 'ManPowerShortage', 'NoPlan', 'MouldMaintenance', 'MouldTrial'].map(k => { const qm = QUICK_ACTION_META[k]; return `<span style="margin-left:10px; white-space:nowrap"><i class="bi ${qm.icon}" style="color:${qm.color}; margin-right:3px"></i>${qm.label}</span>`; }).join('')}</div>
                     </div>
                   </div>
                   <div id="summary-container">
@@ -1708,10 +1733,11 @@
                                             if (mIdx === 0 && activeOverrideStatus && (!hasMachineProduction) && (!isFuture || overrideTriggeredThisSlot)) {
                                                 // If an override is active, NO real production on machine blocking it, and it's NOT a future slot, draw Box
 
-                                                 if (activeOverrideStatus === 'NO PLAN') { bg = '#fff1f2'; border = '1px solid #fda4af'; content = `<div style="color:#e11d48; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
-                                                 else if (activeOverrideStatus === 'MOULD MAINT') { bg = '#fefce8'; border = '1px solid #fde047'; content = `<div style="color:#a16207; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
-                                                 else if (activeOverrideStatus === 'MOULD TRIAL') { bg = '#f5f3ff'; border = '1px solid #ddd6fe'; content = `<div style="color:#7c3aed; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
-                                                 else if (activeOverrideStatus === '⚡ POWER CUT') { bg = '#eff6ff'; border = '1px solid #bfdbfe'; content = `<div style="color:#1e40af; font-weight:800; font-size:0.85rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
+                                                 const ovMeta = QUICK_ACTION_META[QUICK_ACTION_BY_STATUS[activeOverrideStatus]];
+                                                 if (ovMeta) {
+                                                     bg = ovMeta.bg; border = `1px solid ${ovMeta.bd}`;
+                                                     content = `<div style="color:${ovMeta.color}; font-weight:800; font-size:0.68rem; line-height:1.15; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; height:100%; text-align:center"><i class="bi ${ovMeta.icon}" style="font-size:1.05rem; line-height:1"></i><span>${ovMeta.label}</span></div>`;
+                                                 }
                                                  else { bg = '#fee2e2'; border = '1px solid #fca5a5'; content = `<div style="color:#b91c1c; font-weight:700; font-size:0.75rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
 
                                                  // Superadmin-only per-cell delete (×) for this quick-action entry
@@ -1758,10 +1784,27 @@
 
                                                     const isAuto = (entry.remarks || '').includes('[Auto-Filled]');
 
-                                                    // DT display: auto-filled entries show "Auto DT: Xm", manual show "X.Xh"
+                                                    // DT display: auto-filled entries show "Auto DT: Xm"; manual entries show a
+                                                    // reason badge (icon + minutes + short name) when the dominant breakup reason
+                                                    // is a quick-action one, else the plain "X.Xh" fallback
                                                     const dtMins = Number(entry.downtime_min || 0);
-                                                    const manualDtStr = (!isAuto && dtMins > 0) ? `${(dtMins / 60).toFixed(1)}h` : '';
                                                     const autoDtStr  = (isAuto  && dtMins > 0) ? `Auto DT: ${Math.round(dtMins)}m` : '';
+                                                    let manualDtHtml = '';
+                                                    if (!isAuto && dtMins > 0) {
+                                                        const dtBrk = (entry.downtime_breakup && typeof entry.downtime_breakup === 'object') ? entry.downtime_breakup : {};
+                                                        let domCode = null, domVal = 0;
+                                                        Object.entries(dtBrk).forEach(([code, v]) => {
+                                                            const mins = Number(v) || 0;
+                                                            if (mins > domVal) { domVal = mins; domCode = code; }
+                                                        });
+                                                        const dtTip = _esc(Object.entries(dtBrk).map(([code, v]) => `${DOWNTIME_CODES[code] || code}: ${v}m`).join(', '));
+                                                        const dtMeta = domCode && QUICK_ACTION_BY_CODE[domCode] ? QUICK_ACTION_META[QUICK_ACTION_BY_CODE[domCode]] : null;
+                                                        if (dtMeta) {
+                                                            manualDtHtml = `<div title="${dtTip || dtMeta.label}" style="display:inline-flex;align-items:center;gap:3px;align-self:flex-start;max-width:100%;background:${dtMeta.bg};border:1px solid ${dtMeta.bd};color:${dtMeta.color};font-size:0.6rem;font-weight:800;padding:1px 4px;border-radius:8px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><i class="bi ${dtMeta.icon}"></i>${Math.round(dtMins)}m ${dtMeta.short}</div>`;
+                                                        } else {
+                                                            manualDtHtml = `<div title="${dtTip}" style="font-size:0.7rem;color:#db2777;font-weight:700;line-height:1">${(dtMins / 60).toFixed(1)}h</div>`;
+                                                        }
+                                                    }
 
                                                     const ppcBadge  = isAllAccess ? `<span style="font-size:0.58rem;color:#fff;background:#6366f1;padding:1px 3px;border-radius:2px;font-weight:700">PPC</span>` : '';
                                                     const autoBadge = isAuto      ? `<span style="font-size:0.58rem;color:#fff;background:#94a3b8;padding:1px 3px;border-radius:2px;font-weight:700" title="Auto-Filled">AUTO</span>` : '';
@@ -1783,8 +1826,8 @@
                                                             <!-- Row 2: Time -->
                                                             ${timeStr ? `<div style="font-size:0.62rem;color:#64748b;font-weight:600;line-height:1">${timeStr}</div>` : ''}
 
-                                                            <!-- Row 3: Supervisor DT (manual) -->
-                                                            ${manualDtStr ? `<div style="font-size:0.7rem;color:#db2777;font-weight:700;line-height:1">${manualDtStr}</div>` : ''}
+                                                            <!-- Row 3: Supervisor DT (manual) — reason badge or plain hours -->
+                                                            ${manualDtHtml}
 
                                                             <!-- Row 4: Auto DT -->
                                                             ${autoDtStr ? `<div style="font-size:0.68rem;color:#be185d;font-weight:600;line-height:1">${autoDtStr}</div>` : ''}
@@ -1799,6 +1842,17 @@
                                                     `;
                                                 });
                                                 content += '</div>';
+
+                                                // A quick action logged in the SAME hour as production doesn't paint the
+                                                // cell (production wins) — surface it as a corner badge so it's still visible
+                                                if (spEntry) {
+                                                    const spKey = spEntry.entry_type.includes('MouldChange') ? 'MouldChangeover' : spEntry.entry_type;
+                                                    const spMeta = QUICK_ACTION_META[spKey];
+                                                    if (spMeta) {
+                                                        const spDt = Math.round(Number(spEntry.downtime_min) || 0);
+                                                        content += `<span title="${spMeta.label}${spDt > 0 ? ` — ${spDt} min downtime this hour` : ''}" style="position:absolute; bottom:1px; left:1px; display:inline-flex; align-items:center; gap:2px; background:${spMeta.color}; color:#fff; font-size:0.55rem; font-weight:800; padding:0 4px; border-radius:6px; line-height:1.5; z-index:5; pointer-events:none; max-width:calc(100% - 4px); overflow:hidden; white-space:nowrap"><i class="bi ${spMeta.icon}"></i>${spDt > 0 ? spDt + 'm ' : ''}${spMeta.short}</span>`;
+                                                    }
+                                                }
 
                                             } else {
                                                 // 3. EMPTY SLOT LOGIC
@@ -2246,7 +2300,7 @@
                                 filteredMachineBuffer.sort((a, b) => a.eff - b.eff);
                             }
                             // Filter result count banner
-                            const _filterLabels = { ShowAll: 'Show All (by EFF)', AbovePlan: '🔴 Above Plan Qty', Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', LowOee: 'Low OEE', MouldChange: 'Mould Change', PlanChangeOver: 'Plan Change Over (≤20% left)', ManPowerShortage: 'MP Shortage', MouldMaintenance: 'Mould Maintenance', PowerCut: 'Power Cut', NoPlan: 'No Plan', MachineMaintenance: 'Machine Maintenance', MouldTrial: 'Mould Trial' };
+                            const _filterLabels = { ShowAll: 'Show All (by EFF)', AbovePlan: '🔴 Above Plan Qty', Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', LowOee: 'Low OEE', MouldChange: 'Mould Change', PlanChangeOver: 'Plan Change Over (≤20% left)', ManPowerShortage: '🚷 MP Shortage', MouldMaintenance: '🔧 Mould Maintenance', PowerCut: '⚡ Power Cut', NoPlan: '📅 No Plan', MachineMaintenance: '🛠️ Machine Maintenance', MouldTrial: '🧪 Mould Trial' };
                             const _fCount = filteredMachineBuffer.length;
                             masterHtml += `
                                 <div style="display:flex; align-items:center; gap:8px; padding:8px 14px; background:#0f172a; color:#fff; border-radius:12px 12px 0 0; font-size:0.8rem; font-weight:700; letter-spacing:.3px">
