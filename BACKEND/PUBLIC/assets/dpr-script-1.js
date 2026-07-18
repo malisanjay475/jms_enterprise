@@ -1904,9 +1904,10 @@
 
                                                     const isAuto = (entry.remarks || '').includes('[Auto-Filled]');
 
-                                                    // DT display: auto-filled entries show "Auto DT: Xm"; manual entries show a
-                                                    // reason badge (icon + minutes + short name) when the dominant breakup reason
-                                                    // is a quick-action one, else the plain "X.Xh" fallback
+                                                    // DT display: auto-filled entries show "Auto DT: Xm"; manual entries get a
+                                                    // half-split cell — production info on top, a full-width bottom strip in the
+                                                    // dominant reason's colours (same sign-style strip as mixed quick-action
+                                                    // slots). Non-quick-action reasons get a neutral slate strip.
                                                     const dtMins = Number(entry.downtime_min || 0);
                                                     const autoDtStr  = (isAuto  && dtMins > 0) ? `Auto DT: ${Math.round(dtMins)}m` : '';
                                                     let manualDtHtml = '';
@@ -1919,11 +1920,14 @@
                                                         });
                                                         const dtTip = _esc(Object.entries(dtBrk).map(([code, v]) => `${DOWNTIME_CODES[code] || code}: ${v}m`).join(', '));
                                                         const dtMeta = domCode && QUICK_ACTION_BY_CODE[domCode] ? QUICK_ACTION_META[QUICK_ACTION_BY_CODE[domCode]] : null;
-                                                        if (dtMeta) {
-                                                            manualDtHtml = `<div title="${dtTip || dtMeta.label}" style="display:inline-flex;align-items:center;gap:3px;align-self:flex-start;max-width:100%;background:${dtMeta.bg};border:1px solid ${dtMeta.bd};color:${dtMeta.color};font-size:0.6rem;font-weight:800;padding:1px 4px;border-radius:8px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><i class="bi ${dtMeta.icon}"></i>${Math.round(dtMins)}m ${dtMeta.code}</div>`;
-                                                        } else {
-                                                            manualDtHtml = `<div title="${dtTip}" style="font-size:0.7rem;color:#db2777;font-weight:700;line-height:1">${(dtMins / 60).toFixed(1)}h</div>`;
-                                                        }
+                                                        const sBg   = dtMeta ? dtMeta.bg    : '#f1f5f9';
+                                                        const sBd   = dtMeta ? dtMeta.bd    : '#cbd5e1';
+                                                        const sFg   = dtMeta ? dtMeta.color : '#475569';
+                                                        const sIcon = dtMeta ? dtMeta.icon  : 'bi-clock-history';
+                                                        const sTxt  = `${Math.round(dtMins)}m ${dtMeta ? dtMeta.code : 'DT'}`;
+                                                        // Negative margins cancel the entry's 3px/4px padding so the strip runs
+                                                        // edge-to-edge; margin-top:auto pins it to the bottom of the entry block
+                                                        manualDtHtml = `<div title="${dtTip || (dtMeta ? dtMeta.label : 'Downtime')}" style="flex:0 0 auto; margin:auto -4px -3px -4px; display:flex; align-items:center; justify-content:center; gap:3px; background:${sBg}; border-top:1px solid ${sBd}; color:${sFg}; font-weight:800; font-size:0.62rem; line-height:1.15; padding:2px 2px; text-align:center; min-height:17px"><span style="width:14px; height:14px; border-radius:50%; background:#fff; border:1.5px solid ${sFg}; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto"><i class="bi ${sIcon}" style="font-size:0.55rem; line-height:1; color:${sFg}"></i></span><span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${sTxt}</span></div>`;
                                                     }
 
                                                     const ppcBadge  = isAllAccess ? `<span style="font-size:0.58rem;color:#fff;background:#6366f1;padding:1px 3px;border-radius:2px;font-weight:700">PPC</span>` : '';
@@ -1946,17 +1950,17 @@
                                                             <!-- Row 2: Time -->
                                                             ${timeStr ? `<div style="font-size:0.62rem;color:#64748b;font-weight:600;line-height:1">${timeStr}</div>` : ''}
 
-                                                            <!-- Row 3: Supervisor DT (manual) — reason badge or plain hours -->
-                                                            ${manualDtHtml}
-
-                                                            <!-- Row 4: Auto DT -->
+                                                            <!-- Row 3: Auto DT -->
                                                             ${autoDtStr ? `<div style="font-size:0.68rem;color:#be185d;font-weight:600;line-height:1">${autoDtStr}</div>` : ''}
 
-                                                            <!-- Row 5: Colour name — plain block, wraps at word boundaries, max 3 lines -->
+                                                            <!-- Row 4: Colour name — plain block, wraps at word boundaries, max 3 lines -->
                                                             ${colName ? `<div style="font-size:0.68rem;color:#334155;font-weight:600;line-height:1.3;overflow:hidden;max-height:3.9em;width:100%;word-break:normal;overflow-wrap:anywhere;white-space:normal" title="${colName}">${colName}</div>` : ''}
 
-                                                            <!-- Row 6: Badges only if present (CC / PPC / AUTO) -->
+                                                            <!-- Row 5: Badges only if present (CC / PPC / AUTO) -->
                                                             ${(ccBadge || ppcBadge || autoBadge) ? `<div style="display:flex;gap:2px;flex-wrap:wrap">${ccBadge}${ppcBadge}${autoBadge}</div>` : ''}
+
+                                                            <!-- Bottom half: supervisor DT reason strip (half-split card) -->
+                                                            ${manualDtHtml}
 
                                                         </div>
                                                     `;
