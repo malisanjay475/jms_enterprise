@@ -1,6 +1,6 @@
 {
-  "version": "1.4.3",
-  "commit": "kan25-priority-order-schedule",
-  "releaseId": "1.4.3+kan25-priori",
-  "builtAt": "2026-07-17T00:00:00.000Z"
+  "version": "1.4.6",
+  "commit": "supervisor-stale-pwa-hardening",
+  "releaseId": "1.4.6+supervisor-sta",
+  "builtAt": "2026-07-18T06:30:00.000Z"
 }
