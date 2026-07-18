@@ -62,6 +62,7 @@ const SYNC_ALL = [
     'erp_jr_details',
     'erp_jr_status',
     'erp_jr_summary',
+    'extra_qty_allowances',
     'factories',
     'grinding_logs',
     'grn_entries',
@@ -165,6 +166,8 @@ const CONFLICT_KEYS = {
     qc_training_sheets: 'id',
     shifting_records: 'id',
     std_actual: 'plan_id, shift, dpr_date, machine',
+    // Natural key matches uq_eqa_natural — serial id diverges LOCAL↔MAIN
+    extra_qty_allowances: 'plan_id, colour, allowed_by, allowed_at',
     vendor_dispatch: 'id',
     vendor_payments: 'id',
     vendor_users: 'id',

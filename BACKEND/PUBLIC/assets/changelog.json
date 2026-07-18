@@ -35,6 +35,22 @@
       ]
     },
     {
+      "version": "1.5.3",
+      "date": "2026-07-18",
+      "title": "Downtime on production hours now shows as a split box",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "When a production hour also has supervisor downtime, the box now splits in two — quantity and colour on top, the downtime reason with its minutes in a coloured strip below, instead of the small badge that was hard to read." },
+            { "type": "improvement", "text": "Downtime reasons that don't have their own signboard colour now show in a neutral grey strip with the minutes, instead of plain pink hours." }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.5.2",
       "date": "2026-07-18",
       "title": "Maintenance hours are now yellow, like the factory signboard",

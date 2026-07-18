@@ -1738,7 +1738,10 @@
             const isOver = b < 0;
             // balIsLive: this row came from /api/job/colors, so bal already has real
             // production subtracted and (plan - bal) is a trustworthy produced figure.
-            window.jobColorsData[r.name] = { plan: q, bal: b, balIsLive: true };
+            // extra/grants: PPC-allowed extra qty beyond the 10% cap (with who/why).
+            const extraAllowed = Math.round(Number(r.extra_allowed || 0));
+            const extraGrants = Array.isArray(r.extra_grants) ? r.extra_grants : [];
+            window.jobColorsData[r.name] = { plan: q, bal: b, balIsLive: true, extra: extraAllowed, grants: extraGrants };
             sumPlan += q; sumBal += b; sumProduced += p;
             if (isOver) overProducedList.push({ name: r.name, qty: q, produced: p, excess: Math.abs(b) });
 
@@ -1767,7 +1770,11 @@
             tr.className = isOver ? 'color-row over-produced-row' : 'color-row';
             if (isOver) tr.style.cssText = 'background:#fff5f5';
             tr.dataset.colorName = r.name;
-            tr.innerHTML = `<td><span class="${badgeClass}">${r.name}${isOver ? ' <span style="font-size:10px;color:#dc2626;font-weight:700">⚠ OVER</span>' : ''}</span></td><td><span class="qty-pill">${q}</span></td><td>${balHtml}</td>`;
+            const lastGrant = extraGrants.length ? extraGrants[extraGrants.length - 1] : null;
+            const extraBadge = extraAllowed > 0
+              ? ` <span title="${extraGrants.map(g => '+' + g.extra_qty + ' by ' + g.allowed_by + ' (' + g.allowed_role + ') — ' + g.remarks).join('\n').replace(/"/g, '&quot;')}" style="font-size:10px;background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:5px;padding:1px 5px;font-weight:800;white-space:nowrap">+${extraAllowed} by ${lastGrant ? lastGrant.allowed_by : 'PPC'}</span>`
+              : '';
+            tr.innerHTML = `<td><span class="${badgeClass}">${r.name}${isOver ? ' <span style="font-size:10px;color:#dc2626;font-weight:700">⚠ OVER</span>' : ''}</span>${extraBadge}</td><td><span class="qty-pill">${q}</span></td><td>${balHtml}</td>`;
             tr.onclick = () => { const sel = el('d-color'); if (sel) { sel.value = r.name; sel.dispatchEvent(new Event('change')); } };
             if (tbody) tbody.appendChild(tr);
           });
@@ -2936,15 +2943,21 @@
       if (!dat.balIsLive) return '';
       const plan = Number(dat.plan);
       const produced = plan - Number(dat.bal);
-      const cap = Math.floor(plan * COLOUR_OVERPROD_FACTOR);
+      // PPC-granted extra allowance lifts the 110% cap for this colour
+      const extra = Number(dat.extra || 0);
+      const cap = Math.floor(plan * COLOUR_OVERPROD_FACTOR) + extra;
       const total = produced + Number(goodQty || 0);
       if (total <= cap) return '';
       const remaining = Math.max(0, cap - produced);
+      const lastGrant = (dat.grants || []).length ? dat.grants[dat.grants.length - 1] : null;
+      const extraNote = extra > 0 && lastGrant
+        ? ` (incl. ${extra} extra allowed by ${lastGrant.allowed_by})`
+        : '';
       const advice = remaining > 0
         ? `Enter ${remaining} or less.`
-        : `This colour has reached its limit — no further entry allowed.`;
+        : `This colour has reached its limit — ask PPC to allow extra qty from the Machine Timeline.`;
       return `${colourName}: Plan ${plan}, already produced ${produced}. ` +
-             `This entry of ${goodQty} would total ${total}, over the 10% cap of ${cap}. ` +
+             `This entry of ${goodQty} would total ${total}, over the cap of ${cap}${extraNote}. ` +
              advice;
     }
 
