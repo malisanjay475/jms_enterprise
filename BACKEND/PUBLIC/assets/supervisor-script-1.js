@@ -1274,7 +1274,11 @@
         const actG = toGrams(actWt);
         const lo = stdG * 0.95;
         const hi = stdG * 1.05;
-        if (actG < lo || actG > hi) {
+        // Epsilon: binary floating point puts an exact-boundary entry a hair
+        // outside the band (25 * 1.05 -> 26.250000000000004), which would reject
+        // a value the operator was told is allowed.
+        const eps = stdG * 1e-9;
+        if (actG < lo - eps || actG > hi + eps) {
           el('std-msg').innerHTML = `<span class="err">Weight Validation Failed: Actual (${actWt}) is outside ±5% of Std (${stdWt}). Allowed range: ${lo.toFixed(3)} – ${hi.toFixed(3)} g.</span>`;
           return;
         }
