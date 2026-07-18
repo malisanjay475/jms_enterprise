@@ -1770,11 +1770,18 @@
             tr.className = isOver ? 'color-row over-produced-row' : 'color-row';
             if (isOver) tr.style.cssText = 'background:#fff5f5';
             tr.dataset.colorName = r.name;
+            // extra_grants come from /api/job/colors ordered oldest-first, so the last
+            // element is the newest grant. Built with DOM text APIs — allowed_by and
+            // remarks are user-stored strings and must never hit innerHTML raw.
             const lastGrant = extraGrants.length ? extraGrants[extraGrants.length - 1] : null;
-            const extraBadge = extraAllowed > 0
-              ? ` <span title="${extraGrants.map(g => '+' + g.extra_qty + ' by ' + g.allowed_by + ' (' + g.allowed_role + ') — ' + g.remarks).join('\n').replace(/"/g, '&quot;')}" style="font-size:10px;background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:5px;padding:1px 5px;font-weight:800;white-space:nowrap">+${extraAllowed} by ${lastGrant ? lastGrant.allowed_by : 'PPC'}</span>`
-              : '';
-            tr.innerHTML = `<td><span class="${badgeClass}">${r.name}${isOver ? ' <span style="font-size:10px;color:#dc2626;font-weight:700">⚠ OVER</span>' : ''}</span>${extraBadge}</td><td><span class="qty-pill">${q}</span></td><td>${balHtml}</td>`;
+            tr.innerHTML = `<td><span class="${badgeClass}">${r.name}${isOver ? ' <span style="font-size:10px;color:#dc2626;font-weight:700">⚠ OVER</span>' : ''}</span></td><td><span class="qty-pill">${q}</span></td><td>${balHtml}</td>`;
+            if (extraAllowed > 0) {
+              const badge = document.createElement('span');
+              badge.style.cssText = 'font-size:10px;background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:5px;padding:1px 5px;font-weight:800;white-space:nowrap;margin-left:4px';
+              badge.textContent = `+${extraAllowed} by ${lastGrant ? lastGrant.allowed_by : 'PPC'}`;
+              badge.title = extraGrants.map(g => `+${g.extra_qty} by ${g.allowed_by} (${g.allowed_role}) — ${g.remarks}`).join('\n');
+              tr.cells[0].appendChild(badge);
+            }
             tr.onclick = () => { const sel = el('d-color'); if (sel) { sel.value = r.name; sel.dispatchEvent(new Event('change')); } };
             if (tbody) tbody.appendChild(tr);
           });

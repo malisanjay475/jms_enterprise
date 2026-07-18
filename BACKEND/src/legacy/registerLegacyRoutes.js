@@ -6546,7 +6546,10 @@ app.post('/api/dpr/submit', async (req, res) => {
             try {
               const gRows = await q(
                 `SELECT COALESCE(SUM(extra_qty), 0) AS extra,
-                        MAX(allowed_by) AS last_by
+                        (SELECT allowed_by FROM extra_qty_allowances
+                          WHERE (plan_id = $1 OR plan_id IN (SELECT plan_id FROM plan_board WHERE CAST(id AS TEXT) = $1))
+                            AND UPPER(TRIM(colour)) = $2 AND is_deleted = FALSE
+                          ORDER BY allowed_at DESC LIMIT 1) AS last_by
                    FROM extra_qty_allowances
                   WHERE (plan_id = $1 OR plan_id IN (SELECT plan_id FROM plan_board WHERE CAST(id AS TEXT) = $1))
                     AND UPPER(TRIM(colour)) = $2
@@ -20498,7 +20501,12 @@ ORDER BY sort_order ASC, seq ASC, updated_at ASC
 
 // ── Extra Qty Allowances ─────────────────────────────────────────────
 // PPC roles may grant extra qty beyond the 10% colour over-production cap.
-const EXTRA_QTY_ALLOWED_ROLES = ['planner', 'superadmin', 'admin', 'ppc_manager', 'ppc_ass_manager'];
+// Reuses the normalized PPC approval-role set (ppc_*/planning_* variants,
+// admin, superadmin) plus plain 'planner'.
+function canGrantExtraQty(roleCode) {
+  const role = normalizeApprovalRoleCode(roleCode);
+  return role === 'planner' || isPpcApprovalRole({ role_code: role });
+}
 
 // Returns { COLOUR_UPPER: { extra: total, grants: [{allowed_by, allowed_role, extra_qty, remarks, allowed_at}] } }
 async function fetchExtraGrantsByColour(plan_id) {
@@ -20850,7 +20858,7 @@ app.post('/api/extra-qty/allow', async (req, res) => {
     const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
     if (!u.length) return res.status(403).json({ ok: false, error: 'User not found' });
     const role = String(u[0].role_code || '').toLowerCase();
-    if (!EXTRA_QTY_ALLOWED_ROLES.includes(role)) {
+    if (!canGrantExtraQty(role)) {
       return res.status(403).json({ ok: false, error: 'PPC / Planner / Admin access required' });
     }
 
@@ -20910,6 +20918,75 @@ app.get('/api/extra-qty', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('api/extra-qty', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/reports/machine-maintenance — machine-wise maintenance downtime,
+// grouped daily / weekly / monthly. Maintenance minutes come from:
+//  - quick-action entries (entry_type='Maintenance'): their downtime_min (default 60/slot)
+//  - normal entries: downtime_breakup minutes for DOWNTIME reasons named machine maintenance
+app.get('/api/reports/machine-maintenance', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.json({ ok: false, error: 'from and to dates required' });
+    const group = ['daily', 'weekly', 'monthly'].includes(String(req.query.group)) ? String(req.query.group) : 'daily';
+    const truncUnit = { daily: 'day', weekly: 'week', monthly: 'month' }[group];
+    const factoryId = getFactoryId(req);
+
+    const params = [from, to];
+    let factoryCond = '';
+    if (factoryId) { params.push(factoryId); factoryCond = ` AND (h.factory_id = $3 OR h.factory_id IS NULL)`; }
+
+    const rows = await q(
+      `WITH maint_codes AS (
+         SELECT DISTINCT code FROM dpr_reasons
+          WHERE type = 'DOWNTIME' AND code IS NOT NULL AND is_active = true
+            AND (reason ILIKE '%machine%maint%' OR TRIM(LOWER(reason)) = 'maintenance')
+       ),
+       per_entry AS (
+         SELECT h.machine, h.dpr_date, h.shift,
+           CASE
+             WHEN h.entry_type = 'Maintenance' THEN COALESCE(h.downtime_min, 60)
+             ELSE COALESCE((
+               SELECT SUM(COALESCE(NULLIF(h.downtime_breakup->>mc.code, '')::numeric, 0))
+                 FROM maint_codes mc
+                WHERE h.downtime_breakup IS NOT NULL
+             ), 0)
+           END AS maint_min
+         FROM dpr_hourly h
+         WHERE h.is_deleted = false
+           AND h.dpr_date BETWEEN $1::date AND $2::date${factoryCond}
+       )
+       SELECT machine,
+              to_char(date_trunc('${truncUnit}', dpr_date), 'YYYY-MM-DD') AS period_start,
+              SUM(maint_min)::int AS maint_min,
+              COUNT(*) AS entry_count
+         FROM per_entry
+        WHERE maint_min > 0 AND machine IS NOT NULL AND TRIM(machine) <> ''
+        GROUP BY machine, period_start
+        ORDER BY period_start DESC, machine ASC`,
+      params
+    );
+
+    // Per-machine totals for the summary strip
+    const byMachine = {};
+    rows.forEach(r => {
+      byMachine[r.machine] = (byMachine[r.machine] || 0) + Number(r.maint_min || 0);
+    });
+
+    res.json({
+      ok: true,
+      group,
+      data: rows,
+      summary: {
+        total_min: rows.reduce((s, r) => s + Number(r.maint_min || 0), 0),
+        machines: Object.keys(byMachine).length,
+        by_machine: byMachine
+      }
+    });
+  } catch (e) {
+    console.error('api/reports/machine-maintenance', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
