@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.4.5",
+  "latest": "1.4.6",
   "versions": [
+    {
+      "version": "1.4.6",
+      "date": "2026-07-18",
+      "title": "Supervisor app updates itself and never blocks your taps",
+      "summary": "The Supervisor app now picks up new fixes on its own, and the Processing popup can always be dismissed with one tap.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor App",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "improvement", "text": "The app now checks for updates on its own and refreshes itself when a fix is released — no need to close and reopen it. It never refreshes while you are typing an entry." },
+            { "type": "fix", "text": "Tapping the Processing popup now always dismisses it — it can no longer jump straight back onto the screen." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.4.5",
       "date": "2026-07-18",
