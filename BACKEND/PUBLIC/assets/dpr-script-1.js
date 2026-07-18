@@ -1124,6 +1124,13 @@
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="Predicted tonnage by end of the selected shift — current pace (or STD rate) × remaining hours, summed machine-wise">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#0891b2; text-transform:uppercase">Pred. Tonnage</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#0891b2">
+                                            <span id="grand-total-pred">0.00</span> <span style="font-size:0.9rem">Kg</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
                                     <div style="text-align:right">
                                         <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Rejection</div>
                                         <div style="font-size:1.4rem; font-weight:800; color:#dc2626">
@@ -1363,6 +1370,7 @@
                             const acc = lineAccumulators[lineName];
                             
                             let lineTotalTonnage = 0, lineTotalRejTonnage = 0, lineTotalGoodPcs = 0, lineTotalEstPcs = 0, lineTotalEstPcsNet = 0;
+                            let lineTotalPredKg = 0, lineTotalPredQty = 0;
                             let lineTotalDt = 0, lineTotalAutoDt = 0, lineTotalCC = 0, lineTotalMC = 0, lineTotalJC = 0;
 
                             // Shift Team Display
@@ -1403,6 +1411,9 @@
                                                 </div>
                                                 <div style="font-weight:700; color:#0f172a; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
                                                     Total: <span id="line-total-tonnage-${lineName.replace(/\s/g, '')}">0.00</span> Kg
+                                                </div>
+                                                <div style="font-weight:700; color:#0891b2; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px" title="Predicted tonnage by end of this shift — current pace (or STD rate) × remaining hours, machine-wise sum">
+                                                    Pred: <span id="line-total-pred-${lineName.replace(/\s/g, '')}">0.00</span> Kg
                                                 </div>
                                                 <div style="font-weight:700; color:#dc2626; font-size:0.9rem; border-left:1px solid #cbd5e1; padding-left:12px">
                                                     Rej: <span id="line-total-rej-${lineName.replace(/\s/g, '')}">0.00</span> Kg
@@ -2057,6 +2068,7 @@
 
                                         // D. Summary Column
                                         let sumStd = 0, sumGood = 0, sumRej = 0, sumDt = 0, sumAutoDt = 0;
+                                        let rowElapsedActive = 0, rowFutureActive = 0; // active slot counts for shift-end prediction
                                         let sumTonnage = 0, sumRejTonnage = 0;
                                         let rowAggRej = {};
                                         let rowAggDt = {};
@@ -2261,6 +2273,9 @@
 
                                                     if (!isFuture && !isCompleted && !hasMaint) {
                                                         sumStd += parseFloat(m.std || 0);
+                                                        rowElapsedActive++;
+                                                    } else if (isFuture && !isCompleted && !hasMaint) {
+                                                        rowFutureActive++; // remaining runnable hours in this shift
                                                     }
                                                 }
 
@@ -2298,15 +2313,35 @@
                                         const wtActKgPerPcs = (sumGood > 0 && sumTonnage > 0) ? (sumTonnage / sumGood) : (rowSetupWeight > 0 ? rowSetupWeight : 0);
                                         const wtActGrams   = wtActKgPerPcs > 0 ? Math.round(wtActKgPerPcs * 1000) : 0;
                                         const totKg        = sumTonnage + sumRejTonnage;
+
+                                        // ── Shift-end prediction (qty + tonnage) ──
+                                        // Rate: actual pace so far (good/elapsed active hour) when we have data,
+                                        // else the mould's STD pcs/hr. Predicted qty = produced so far + rate ×
+                                        // remaining runnable hours (future slots minus maintenance/completed).
+                                        // Predicted kg uses the actual per-piece weight, falling back to STD weight.
+                                        // Only meaningful while the shift still has runnable hours —
+                                        // for finished shifts prediction would just repeat the actuals.
+                                        let predQty = 0, predKg = 0;
+                                        if (!m.is_dummy && rowFutureActive > 0) {
+                                            const stdRate  = parseFloat(m.std) || 0;
+                                            const paceRate = rowElapsedActive > 0 ? (sumGood / rowElapsedActive) : 0;
+                                            const rate     = paceRate > 0 ? paceRate : stdRate;
+                                            predQty = Math.round(sumGood + rate * rowFutureActive);
+                                            const predWt = wtActKgPerPcs > 0 ? wtActKgPerPcs : stdWeightKg;
+                                            if (predWt > 0) predKg = predQty * predWt;
+                                        }
+
                                         const effColor     = rowEffNet >= 80 ? '#166534' : rowEffNet >= 60 ? '#b45309' : '#dc2626';
                                         const oeeColor     = rowEff    >= 80 ? '#166534' : rowEff    >= 60 ? '#b45309' : '#dc2626';
 
                                         const summaryClickScript = `showSummaryDetails('${stripMachPfx(machine)}', '${rowShift}', '${lineName}', ${sumGood}, ${sumRej}, ${sumDt}, ${sumAutoDt}, ${Math.round(sumStd)}, '${encodeURIComponent(JSON.stringify(rowAggRej))}', '${encodeURIComponent(JSON.stringify(rowAggDt))}')`;
 
-                                        let summaryH = !m.is_dummy ? `<div style="text-align:left;cursor:pointer;font-size:0.72rem;line-height:1.32;padding:1px 0" onclick="${summaryClickScript}"><div style="font-weight:700;color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-weight:800;color:#166534;font-size:0.8rem">${totalPcs}<span style="font-weight:500;color:#64748b;font-size:0.68rem"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="color:#db2777;font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="color:#be185d;font-weight:600">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${(wtStdGrams > 0 || wtActGrams > 0) ? `<div style="color:#64748b;font-weight:600">Wt: ${wtStdGrams > 0 ? wtStdGrams + 'g' : '-'} → ${wtActGrams > 0 ? wtActGrams + 'g' : '-'}</div>` : ''}<div style="font-weight:700;color:#7c3aed">Tot Kg: ${totKg.toFixed(1)}</div>${rowEffNet > 0 ? `<div style="font-weight:700;color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-weight:700;color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
+                                        let summaryH = !m.is_dummy ? `<div style="text-align:left;cursor:pointer;font-size:0.72rem;line-height:1.32;padding:1px 0" onclick="${summaryClickScript}"><div style="font-weight:700;color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-weight:800;color:#166534;font-size:0.8rem">${totalPcs}<span style="font-weight:500;color:#64748b;font-size:0.68rem"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="color:#db2777;font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="color:#be185d;font-weight:600">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${(wtStdGrams > 0 || wtActGrams > 0) ? `<div style="color:#64748b;font-weight:600">Wt: ${wtStdGrams > 0 ? wtStdGrams + 'g' : '-'} → ${wtActGrams > 0 ? wtActGrams + 'g' : '-'}</div>` : ''}<div style="font-weight:700;color:#7c3aed">Tot Kg: ${totKg.toFixed(1)}</div>${predQty > 0 ? `<div style="font-weight:700;color:#0891b2" title="Predicted by shift end — produced so far + current pace (or STD rate) × remaining runnable hours">Pred: ${predQty} pcs${predKg > 0 ? ` | ${predKg.toFixed(1)} Kg` : ''}</div>` : ''}${rowEffNet > 0 ? `<div style="font-weight:700;color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-weight:700;color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
 
                                         lineTotalTonnage += sumTonnage;
                                         lineTotalRejTonnage += sumRejTonnage;
+                                        lineTotalPredKg += predKg;
+                                        lineTotalPredQty += predQty;
                                         lineTotalGoodPcs += sumGood;
                                         lineTotalEstPcs += estPcs;
                                         lineTotalEstPcsNet += estPcsNet;
@@ -2376,6 +2411,8 @@
                             const t = window.lineTheTonnages[lineName];
                             t.good += lineTotalTonnage;
                             t.rej += lineTotalRejTonnage;
+                            t.predKg  = (t.predKg  || 0) + lineTotalPredKg;
+                            t.predQty = (t.predQty || 0) + lineTotalPredQty;
                             t.effGood += lineTotalGoodPcs;
                             t.effEst += lineTotalEstPcs;
                             t.netEst  = (t.netEst || 0) + lineTotalEstPcsNet;
@@ -2393,6 +2430,7 @@
                             };
                             updateEl('overall', t.good + t.rej);
                             updateEl('tonnage', t.good);
+                            updateEl('pred', t.predKg || 0);
                             updateEl('rej', t.rej);
                             updateEl('eff',    t.effEst > 0        ? (t.effGood / t.effEst        * 100) : 0, 1); // OEE
                             updateEl('effnet', (t.netEst || 0) > 0 ? (t.effGood / (t.netEst || 0) * 100) : 0, 1); // EFF
@@ -2703,6 +2741,7 @@
                             let grandTotalGoodPcs = 0;
                             let grandTotalEstPcs = 0;
                             let grandTotalNetPcs  = 0;
+                            let grandTotalPredKg  = 0;
 
                             Object.entries(window.lineTheTonnages).forEach(([name, data]) => {
                                 const goodVal = (typeof data === 'number') ? data : (data.good || 0);
@@ -2754,10 +2793,15 @@
                                 const elJC = document.getElementById(`line-total-jc-${name.replace(/\s/g, '')}`);
                                 if (elJC) elJC.textContent = data.jc || 0;
 
+                                // Predicted tonnage (shift-end) per line
+                                const elPred = document.getElementById(`line-total-pred-${name.replace(/\s/g, '')}`);
+                                if (elPred) elPred.textContent = (data.predKg || 0).toFixed(2);
+
                                 grandTotal += goodVal;
                                 grandTotalRej += rejVal;
                                 grandTotalGoodPcs += eGood;
                                 grandTotalEstPcs += eEst;
+                                grandTotalPredKg += (data.predKg || 0);
                             });
 
                             const gtOverallEl = document.getElementById('grand-total-overall');
@@ -2768,6 +2812,9 @@
 
                             const gtRejEl = document.getElementById('grand-total-rej');
                             if (gtRejEl) gtRejEl.textContent = grandTotalRej.toFixed(2);
+
+                            const gtPredEl = document.getElementById('grand-total-pred');
+                            if (gtPredEl) gtPredEl.textContent = grandTotalPredKg.toFixed(2);
 
                             // Counters Update
                             let gCC = 0, gMC = 0, gJC = 0;
