@@ -272,6 +272,7 @@
             <option value="detail">Detailed View</option>
             <option value="jms-plan">JMS Plan</option>
             <option value="mould-wise-qty">Mould Wise Item QTY</option>
+            <option value="extra-qty-allowed">Extra Allowed QTY By PPC</option>
           </select>
         </div>
 
@@ -318,6 +319,7 @@
         <h3 style="margin:0; font-size:1.1rem; font-weight:700">WIP Report Results</h3>
         <span id="reportStatusBadge" class="status-badge"></span>
       </div>
+      <div id="eqaSummaryStrip" style="display:none; margin-bottom:15px;"></div>
       <div style="width:100%; overflow-x:auto;">
         <table id="reportTable" class="display nowrap compact" style="width:100%">
           <thead>
@@ -426,6 +428,8 @@
           const search = encodeURIComponent(document.getElementById('mouldSearch').value.trim());
           const fields = getSelectedMouldFields().join(',');
           endpoint = `/reports/mould-wise-qty?factory_id=${factoryId}&from=${from}&to=${to}&q=${search}&fields=${encodeURIComponent(fields)}`;
+        } else if (type === 'extra-qty-allowed') {
+          endpoint = `/reports/extra-qty-allowed?from=${from}&to=${to}`;
         } else {
           endpoint = `/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`;
         }
@@ -435,7 +439,7 @@
           if (type === 'mould-wise-qty') {
             renderMouldReport(res.data, getSelectedMouldFields());
           } else {
-            renderReport(res.data, type);
+            renderReport(res.data, type, res.summary);
           }
         } else {
           JPSMS.toast(res.error || 'Failed to fetch report', 'error');
@@ -530,13 +534,43 @@
       }).join('');
     }
 
-    function renderReport(data, type) {
+    function renderEqaSummary(summary) {
+      const strip = document.getElementById('eqaSummaryStrip');
+      if (!summary) { strip.style.display = 'none'; strip.innerHTML = ''; return; }
+      const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const pill = (label, val, color) =>
+        `<span style="background:${color}12;color:${color};border:1px solid ${color}44;border-radius:8px;padding:4px 12px;font-weight:800;font-size:0.78rem;white-space:nowrap">${esc(label)}: ${esc(val)}</span>`;
+      const userPills = Object.entries(summary.by_user || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([u, v]) => pill(u, '+' + Number(v).toLocaleString(), '#7c3aed')).join(' ');
+      const colourPills = Object.entries(summary.by_colour || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([c, v]) => pill(c, '+' + Number(v).toLocaleString(), '#0369a1')).join(' ');
+      strip.style.display = 'block';
+      strip.innerHTML = `
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+          ${pill('Total Extra Allowed', Number(summary.total || 0).toLocaleString() + ' pcs', '#16a34a')}
+          ${pill('Grants', summary.count || 0, '#475569')}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+          <span class="control-label" style="align-self:center">By User:</span> ${userPills || '<span style="color:var(--text-light)">–</span>'}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <span class="control-label" style="align-self:center">By Colour:</span> ${colourPills || '<span style="color:var(--text-light)">–</span>'}
+        </div>`;
+    }
+
+    function renderReport(data, type, summary) {
       document.getElementById('emptyState').style.display = 'none';
       document.getElementById('mouldReportCard').style.display = 'none';
       document.getElementById('tableCard').style.display = 'block';
+      renderEqaSummary(type === 'extra-qty-allowed' ? summary : null);
 
       const badge = document.getElementById('reportStatusBadge');
-      badge.textContent = type === 'jms-plan' ? 'JMS Plan' : (type === 'summary' ? 'Summary View' : 'Detailed View');
+      badge.textContent = type === 'jms-plan' ? 'JMS Plan'
+        : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC'
+        : (type === 'summary' ? 'Summary View' : 'Detailed View');
       badge.className = 'status-badge ' + (type === 'summary' ? 'badge-summary' : 'badge-detail');
 
       if (reportTable) {
@@ -569,6 +603,20 @@
           { title: "Consumption Ratio Qty", data: "consumptionRatioQty" },
           { title: "Who Create User Name", data: "createdBy" },
           { title: "Timestamp", data: "timestamp", render: v => v ? new Date(v).toLocaleString('en-IN') : '' }
+        ];
+      } else if (type === 'extra-qty-allowed') {
+        columns = [
+          { title: "Allowed At", data: "allowed_at", render: v => v ? new Date(v).toLocaleString('en-IN') : '' },
+          { title: "Allowed By", data: "allowed_by" },
+          { title: "Role", data: "allowed_role" },
+          { title: "OR/JR No", data: "order_no" },
+          { title: "JC No", data: "jc_no" },
+          { title: "Plan ID", data: "plan_id" },
+          { title: "Machine", data: "machine" },
+          { title: "Mould", data: "mould_name" },
+          { title: "Colour", data: "colour" },
+          { title: "Extra Qty", data: "extra_qty" },
+          { title: "Why (Remarks)", data: "remarks" }
         ];
       } else if (type === 'summary') {
         columns = [
@@ -604,12 +652,12 @@
         buttons: [
           {
             extend: 'excelHtml5',
-            title: (type === 'jms-plan' ? 'JMS Plan Report' : 'WIP Report') + ' - ' + new Date().toLocaleDateString(),
+            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : 'WIP Report') + ' - ' + new Date().toLocaleDateString(),
             className: 'btn-dt'
           },
           {
             extend: 'csvHtml5',
-            title: (type === 'jms-plan' ? 'JMS Plan Report' : 'WIP Report') + ' - ' + new Date().toLocaleDateString(),
+            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : 'WIP Report') + ' - ' + new Date().toLocaleDateString(),
              className: 'btn-dt'
           }
         ],

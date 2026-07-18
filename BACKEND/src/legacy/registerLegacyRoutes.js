@@ -6540,17 +6540,38 @@ app.post('/api/dpr/submit', async (req, res) => {
               [String(PlanID), wanted, factoryId]
             );
             const produced = Number(prodRows[0]?.produced || 0);
-            const cap = Math.floor(planQty * 1.10);
+            // PPC-granted extra allowance lifts the cap for this plan+colour
+            let extraAllowed = 0;
+            let lastGrantBy = '';
+            try {
+              const gRows = await q(
+                `SELECT COALESCE(SUM(extra_qty), 0) AS extra,
+                        (SELECT allowed_by FROM extra_qty_allowances
+                          WHERE (plan_id = $1 OR plan_id IN (SELECT plan_id FROM plan_board WHERE CAST(id AS TEXT) = $1))
+                            AND UPPER(TRIM(colour)) = $2 AND is_deleted = FALSE
+                          ORDER BY allowed_at DESC LIMIT 1) AS last_by
+                   FROM extra_qty_allowances
+                  WHERE (plan_id = $1 OR plan_id IN (SELECT plan_id FROM plan_board WHERE CAST(id AS TEXT) = $1))
+                    AND UPPER(TRIM(colour)) = $2
+                    AND is_deleted = FALSE`,
+                [String(PlanID), wanted]
+              );
+              extraAllowed = Number(gRows[0]?.extra || 0);
+              lastGrantBy = gRows[0]?.last_by || '';
+            } catch (gErr) { console.error('dpr/submit extra-qty lookup', gErr.message); }
+
+            const cap = Math.floor(planQty * 1.10) + extraAllowed;
             const total = produced + toNum(GoodQty);
             if (total > cap) {
               const remaining = Math.max(0, cap - produced);
               const advice = remaining > 0
                 ? `Enter ${remaining} or less.`
-                : `This colour has reached its limit — no further entry allowed.`;
+                : `This colour has reached its limit — ask PPC to allow extra qty from the Machine Timeline.`;
+              const extraNote = extraAllowed > 0 ? ` (incl. ${extraAllowed} extra allowed by ${lastGrantBy})` : '';
               return res.json({
                 ok: false,
                 error: `Blocked — over production. ${Colour}: Plan ${planQty}, already produced ${produced}. ` +
-                       `This entry of ${toNum(GoodQty)} would total ${total}, over the 10% cap of ${cap}. ` +
+                       `This entry of ${toNum(GoodQty)} would total ${total}, over the cap of ${cap}${extraNote}. ` +
                        advice
               });
             }
@@ -20478,6 +20499,53 @@ ORDER BY sort_order ASC, seq ASC, updated_at ASC
   }
 });
 
+// ── Extra Qty Allowances ─────────────────────────────────────────────
+// PPC roles may grant extra qty beyond the 10% colour over-production cap.
+// Reuses the normalized PPC approval-role set (ppc_*/planning_* variants,
+// admin, superadmin) plus plain 'planner'.
+function canGrantExtraQty(roleCode) {
+  const role = normalizeApprovalRoleCode(roleCode);
+  return role === 'planner' || isPpcApprovalRole({ role_code: role });
+}
+
+// Returns { COLOUR_UPPER: { extra: total, grants: [{allowed_by, allowed_role, extra_qty, remarks, allowed_at}] } }
+async function fetchExtraGrantsByColour(plan_id) {
+  const map = {};
+  if (!plan_id) return map;
+  try {
+    const rows = await q(
+      `SELECT colour, extra_qty, remarks, allowed_by, allowed_role, allowed_at
+         FROM extra_qty_allowances
+        WHERE plan_id = $1 AND is_deleted = FALSE
+        ORDER BY allowed_at ASC`,
+      [String(plan_id)]
+    );
+    rows.forEach(r => {
+      const k = String(r.colour || '').trim().toUpperCase();
+      if (!k) return;
+      if (!map[k]) map[k] = { extra: 0, grants: [] };
+      map[k].extra += Number(r.extra_qty || 0);
+      map[k].grants.push({
+        extra_qty: Number(r.extra_qty || 0),
+        remarks: r.remarks,
+        allowed_by: r.allowed_by,
+        allowed_role: r.allowed_role,
+        allowed_at: r.allowed_at
+      });
+    });
+  } catch (e) { console.error('fetchExtraGrantsByColour', e); }
+  return map;
+}
+
+function applyExtraGrants(result, grantMap) {
+  result.forEach(row => {
+    const g = grantMap[String(row.name || '').trim().toUpperCase()];
+    row.extra_allowed = g ? g.extra : 0;
+    row.extra_grants = g ? g.grants : [];
+  });
+  return result;
+}
+
 // GET /api/job/colors - Fetch Colors based on OR/JC/Mould (User Req)
 app.get('/api/job/colors', async (req, res) => {
   try {
@@ -20535,6 +20603,7 @@ app.get('/api/job/colors', async (req, res) => {
             }));
 
           console.log(`[JOB COLORS] plan_id=${plan_id} → ${result.length} colours, prodMap keys: ${Object.keys(prodMap).join(',') || 'none'}`);
+          applyExtraGrants(result, await fetchExtraGrantsByColour(plan_id));
           return res.json({ ok: true, data: result });
         }
       }
@@ -20760,9 +20829,145 @@ AND
       });
     }
 
+    applyExtraGrants(result, await fetchExtraGrantsByColour(plan_id));
     res.json({ ok: true, data: result });
   } catch (e) {
     console.error('api/job/colors', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/* ============================================================
+   EXTRA QTY ALLOWANCES (PPC override of 10% colour cap)
+============================================================ */
+
+// POST /api/extra-qty/allow — grant extra qty for a plan+colour (role-gated)
+app.post('/api/extra-qty/allow', async (req, res) => {
+  try {
+    const { plan_id, colour, extra_qty, remarks, session } = req.body || {};
+    if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    if (!plan_id || !String(plan_id).trim()) return res.json({ ok: false, error: 'plan_id required' });
+    const colourName = String(colour || '').trim();
+    if (!colourName) return res.json({ ok: false, error: 'colour required' });
+    const qty = Math.floor(Number(extra_qty));
+    if (!Number.isFinite(qty) || qty <= 0) return res.json({ ok: false, error: 'extra_qty must be a positive number' });
+    const remarksText = String(remarks || '').trim();
+    if (!remarksText) return res.json({ ok: false, error: 'Remarks are required — state why extra qty is allowed' });
+
+    // Role check against DB (never trust client-sent role)
+    const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
+    if (!u.length) return res.status(403).json({ ok: false, error: 'User not found' });
+    const role = String(u[0].role_code || '').toLowerCase();
+    if (!canGrantExtraQty(role)) {
+      return res.status(403).json({ ok: false, error: 'PPC / Planner / Admin access required' });
+    }
+
+    // Resolve job context from plan_board (denormalized for the report)
+    const pRows = await q(
+      `SELECT order_no, machine, mould_name, factory_id
+         FROM plan_board WHERE plan_id = $1 LIMIT 1`,
+      [String(plan_id)]
+    );
+    if (!pRows.length) return res.json({ ok: false, error: 'Plan not found: ' + plan_id });
+    const p = pRows[0];
+
+    // JC no isn't on plan_board — resolve via label print log / OR-JR report
+    let jcNo = '';
+    try {
+      const jcRows = await q(
+        `SELECT COALESCE(
+                  (SELECT jl.jc_no FROM job_card_label_print_log jl WHERE TRIM(COALESCE(jl.plan_id, '')) = TRIM($1::text) ORDER BY jl.printed_at DESC, jl.id DESC LIMIT 1),
+                  (SELECT oj.job_card_no FROM or_jr_report oj WHERE TRIM(COALESCE(oj.or_jr_no, '')) = TRIM($2::text) ORDER BY oj.job_card_date DESC NULLS LAST, oj.id DESC LIMIT 1),
+                  ''
+                ) AS jc_no`,
+        [String(plan_id), p.order_no || '']
+      );
+      jcNo = jcRows[0]?.jc_no || '';
+    } catch (_) {}
+
+    const ins = await q(
+      `INSERT INTO extra_qty_allowances
+         (plan_id, order_no, jc_no, machine, mould_name, colour, extra_qty, remarks,
+          allowed_by, allowed_role, factory_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING id, allowed_at`,
+      [String(plan_id), p.order_no || '', jcNo, p.machine || '', p.mould_name || '',
+       colourName, qty, remarksText, session.username, role, p.factory_id || getFactoryId(req) || null]
+    );
+
+    console.log(`[EXTRA QTY] ${session.username} (${role}) allowed +${qty} for plan ${plan_id} colour ${colourName}`);
+    res.json({ ok: true, id: ins[0].id, allowed_at: ins[0].allowed_at });
+  } catch (e) {
+    console.error('api/extra-qty/allow', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/extra-qty?plan_id= — grants for one plan (grouped per colour)
+app.get('/api/extra-qty', async (req, res) => {
+  try {
+    const { plan_id } = req.query;
+    if (!plan_id) return res.json({ ok: false, error: 'plan_id required' });
+    const rows = await q(
+      `SELECT id, colour, extra_qty, remarks, allowed_by, allowed_role, allowed_at
+         FROM extra_qty_allowances
+        WHERE plan_id = $1 AND is_deleted = FALSE
+        ORDER BY allowed_at DESC`,
+      [String(plan_id)]
+    );
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('api/extra-qty', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/reports/extra-qty-allowed — audit report of all grants
+app.get('/api/reports/extra-qty-allowed', async (req, res) => {
+  try {
+    const { from, to, user, colour, order_no } = req.query;
+    const conds = ['is_deleted = FALSE'];
+    const params = [];
+    const add = (sqlFrag, val) => { params.push(val); conds.push(sqlFrag.replace('?', '$' + params.length)); };
+
+    if (from)     add(`allowed_at >= ?::date`, from);
+    if (to)       add(`allowed_at < (?::date + INTERVAL '1 day')`, to);
+    if (user)     add(`LOWER(allowed_by) = LOWER(?)`, user);
+    if (colour)   add(`UPPER(TRIM(colour)) = UPPER(TRIM(?))`, colour);
+    if (order_no) add(`UPPER(TRIM(order_no)) = UPPER(TRIM(?))`, order_no);
+    const factoryId = getFactoryId(req);
+    if (factoryId) add(`(factory_id IS NULL OR factory_id = ?)`, factoryId);
+
+    const rows = await q(
+      `SELECT id, plan_id, order_no, jc_no, machine, mould_name, colour,
+              extra_qty, remarks, allowed_by, allowed_role, allowed_at
+         FROM extra_qty_allowances
+        WHERE ${conds.join(' AND ')}
+        ORDER BY allowed_at DESC
+        LIMIT 2000`,
+      params
+    );
+
+    // Summaries: per user and per colour
+    const byUser = {}, byColour = {};
+    rows.forEach(r => {
+      byUser[r.allowed_by] = (byUser[r.allowed_by] || 0) + Number(r.extra_qty || 0);
+      const c = String(r.colour || '').trim();
+      byColour[c] = (byColour[c] || 0) + Number(r.extra_qty || 0);
+    });
+
+    res.json({
+      ok: true,
+      data: rows,
+      summary: {
+        total: rows.reduce((s, r) => s + Number(r.extra_qty || 0), 0),
+        count: rows.length,
+        by_user: byUser,
+        by_colour: byColour
+      }
+    });
+  } catch (e) {
+    console.error('api/reports/extra-qty-allowed', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
