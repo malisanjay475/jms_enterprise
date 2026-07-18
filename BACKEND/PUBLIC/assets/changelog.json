@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.4.4",
+  "latest": "1.4.5",
   "versions": [
+    {
+      "version": "1.4.5",
+      "date": "2026-07-18",
+      "title": "Sync alerts now name the factory that stopped syncing",
+      "summary": "Behind the scenes: when a factory's local server stops sending data to the main server, the automatic alert email now says exactly which factory it is and for how long — so the problem gets fixed faster.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "System",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "improvement", "text": "Sync health alert emails now name the exact factory server that stopped syncing and how long ago its last update was, instead of a generic warning." },
+            { "type": "improvement", "text": "The alert also tells apart a stopped factory server from the main server being down, so the right thing gets checked first." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.4.4",
       "date": "2026-07-18",

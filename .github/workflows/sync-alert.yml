@@ -4,10 +4,16 @@ name: Hourly Sync Health Check
 # to MAIN within the staleness threshold (2h). Emails joyo44064@gmail.com when
 # sync is stale — so a silently-stuck sync is caught in hours, not days.
 #
-# HOW: MAIN's app port (9091) is firewalled from the public internet, so we do
-# NOT call it over a public URL. Instead we SSH into the VPS (same secrets the
-# backup/deploy use) and curl http://127.0.0.1:9091/api/sync-alert from inside
-# the box. This is firewall-proof and never depends on DNS / other sites.
+# HOW: MAIN's app port is firewalled from the public internet, so we do NOT
+# call it over a public URL. Instead we SSH into the VPS (same secrets the
+# backup/deploy use) and query /api/sync-alert from inside the app container.
+# This is firewall-proof and never depends on DNS / other sites.
+#
+# The SSH step always exits 0 and prints machine-readable STATUS/RESP lines;
+# a local "Evaluate" step parses them (capture_stdout), fails the job when
+# sync is stale or MAIN is down, and builds a per-server detail block that
+# goes into the alert email subject + body — so the email names the exact
+# factory servers that are stale and for how long, without opening the logs.
 #
 # /api/sync-alert reads the local_servers heartbeat recorded on MAIN — the
 # correct "has the factory LOCAL server stopped pushing?" signal.
@@ -42,7 +48,7 @@ jobs:
       - name: Query sync health on the VPS (SSH + docker exec)
         id: query
         if: env.HAS_KEY == 'true'
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         env:
           SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
         with:
@@ -53,17 +59,20 @@ jobs:
           port: 22
           command_timeout: 5m
           envs: SYNC_API_KEY
-          # Step exits non-zero if the app is unreachable or sync is stale,
-          # which marks this step "failure" -> the email step below fires.
+          capture_stdout: true
+          # This step ALWAYS exits 0 — otherwise capture_stdout would be lost
+          # and the email could not include details. It prints STATUS= and
+          # RESP= lines; the Evaluate step below decides pass/fail locally.
           # We run the request INSIDE the app container using node's http (the
           # image is node:20-alpine — it has node but NOT curl). This is exactly
-          # how the Docker healthcheck reaches the app, so it works regardless of
-          # host firewall or published-port mapping.
+          # how the Docker healthcheck reaches the app, so it works regardless
+          # of host firewall or published-port mapping.
           script: |
             APP="$(docker ps --format '{{.Names}}' | grep -E 'jms-enterprise-v1-app' | head -1)"
             if [ -z "$APP" ]; then
-              echo "::error::App container (jms-enterprise-v1-app*) is not running — MAIN is DOWN."
-              exit 1
+              echo "STATUS=DOWN"
+              echo "DETAIL=App container (jms-enterprise-v1-app*) is not running on the VPS."
+              exit 0
             fi
             RESP="$(docker exec -e SYNC_API_KEY="${SYNC_API_KEY}" "$APP" node -e '
               const http = require("http");
@@ -74,40 +83,91 @@ jobs:
                 r.on("end", () => { process.stdout.write(b); });
               }).on("error", () => { process.exit(2); });
             ' 2>/dev/null || true)"
-            echo "sync-alert response: $RESP"
             if [ -z "$RESP" ]; then
-              echo "::error::App did not respond on port 3000 inside the container — MAIN may be DOWN."
-              exit 1
+              echo "STATUS=DOWN"
+              echo "DETAIL=App did not respond on port 3000 inside the container."
+              exit 0
             fi
-            OK="$(printf '%s' "$RESP" | grep -o '"ok":[a-z]*' | head -1 | cut -d: -f2)"
-            if [ "$OK" != "true" ]; then
-              echo "::error::Sync is STALE or key invalid: $RESP"
-              exit 1
-            fi
-            echo "Sync healthy."
+            echo "STATUS=RESPONDED"
+            echo "RESP=$RESP"
+
+      - name: Evaluate sync health
+        id: eval
+        if: env.HAS_KEY == 'true'
+        env:
+          QUERY_STDOUT: ${{ steps.query.outputs.stdout }}
+        run: |
+          node <<'EOF'
+          const fs = require('fs');
+          const lines = (process.env.QUERY_STDOUT || '').split('\n');
+          const val = (k) => {
+            const l = lines.find(l => l.startsWith(k + '='));
+            return l ? l.slice(k.length + 1).trim() : '';
+          };
+          const out = (k, v) => fs.appendFileSync(process.env.GITHUB_OUTPUT,
+            `${k}<<__EOF__\n${v}\n__EOF__\n`);
+          const fail = (subject, detail) => {
+            out('subject', subject);
+            out('detail', detail);
+            console.error(`::error::${subject}\n${detail}`);
+            process.exit(1);
+          };
+          const age = (min) => {
+            if (min == null) return 'never';
+            const d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60);
+            return d > 0 ? `${d}d ${h}h ago` : h > 0 ? `${h}h ${min % 60}m ago` : `${min}m ago`;
+          };
+
+          const status = val('STATUS');
+          if (status !== 'RESPONDED') {
+            fail('MAIN app is DOWN or unreachable',
+                 val('DETAIL') || 'SSH step produced no STATUS line — check the run logs.');
+          }
+          let resp;
+          try { resp = JSON.parse(val('RESP')); }
+          catch { fail('sync-alert returned invalid JSON', val('RESP').slice(0, 500)); }
+          if (resp.error) {
+            fail('sync-alert returned an error (bad SYNC_API_KEY or DB issue)', resp.error);
+          }
+          const fmt = (s) =>
+            `  - ${s.node_name} (factory ${s.factory_id}): ` +
+            `last push ${age(s.push_age_minutes)}, last heartbeat ${age(s.heartbeat_age_minutes)}`;
+          if (!resp.ok) {
+            const names = resp.stale.map(s => s.node_name).join(', ');
+            fail(`sync STALE: ${names}`,
+                 `Stale LOCAL servers (threshold ${resp.threshold_minutes} min):\n` +
+                 resp.stale.map(fmt).join('\n') +
+                 `\n\nAll servers checked (${resp.checked}):\n` +
+                 resp.servers.map(fmt).join('\n'));
+          }
+          console.log(`Sync healthy — ${resp.checked} server(s) checked:`);
+          console.log(resp.servers.map(fmt).join('\n'));
+          EOF
 
       - name: Send alert email
         if: failure() && env.HAS_KEY == 'true' && env.HAS_MAIL == 'true'
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v18
         with:
           server_address: smtp.gmail.com
           server_port: 465
           secure: true
           username: ${{ secrets.ALERT_EMAIL_USER }}
           password: ${{ secrets.ALERT_EMAIL_PASSWORD }}
-          subject: "🟠 JMS SYNC ALERT — sync stale or MAIN unreachable"
+          subject: "🟠 JMS SYNC ALERT — ${{ steps.eval.outputs.subject || 'sync stale or MAIN unreachable' }}"
           to: joyo44064@gmail.com
           from: JMS System Health Monitor <${{ secrets.ALERT_EMAIL_USER }}>
           body: |
             The 2-hourly JMS sync health check FAILED.
 
-            This means either:
-              - a LOCAL factory server stopped pushing to MAIN (sync stale), OR
-              - the MAIN app did not respond on the VPS (app may be DOWN).
+            ${{ steps.eval.outputs.subject || 'No summary available — see run logs.' }}
+
+            ${{ steps.eval.outputs.detail || '' }}
 
             Run (full logs): ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
             ACTION:
-            - Stale sync  -> check the factory LOCAL server is online; run
+            - Stale sync  -> check that factory's LOCAL server is online and its
+                            sync agent is running (LOCAL_SERVER_AGENT_ENABLED
+                            must not be 0 in BACKEND/.env); then run
                             force-full-push from the LOCAL app.
             - App down    -> check the VPS / Docker container is running.
