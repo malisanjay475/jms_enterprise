@@ -8,6 +8,131 @@
             return t.includes('>') ? t.split('>').pop().trim() : t;
         }
 
+        // --- STALE MACHINE ALERT UI (3h no production) ---
+        // Banner at the top of the summary + pulsing row highlight + a floating toast that
+        // follows the user while stale rows scroll through the viewport, showing the
+        // machine's colour-wise production so far.
+        let dprStaleObserver = null;
+
+        function dprStaleColourTable(colours) {
+            const rows = Object.entries(colours || {});
+            if (!rows.length) return '<div style="color:#94a3b8; font-style:italic; font-size:0.75rem">No colour-wise production logged yet this shift.</div>';
+            return `
+                <table style="width:100%; border-collapse:collapse; font-size:0.74rem; margin-top:6px">
+                    <thead>
+                        <tr style="color:#64748b; text-transform:uppercase; font-size:0.62rem; font-weight:800">
+                            <th style="text-align:left; padding:3px 4px; border-bottom:1px solid #f1f5f9">Colour</th>
+                            <th style="text-align:right; padding:3px 4px; border-bottom:1px solid #f1f5f9">Produced</th>
+                            <th style="text-align:right; padding:3px 4px; border-bottom:1px solid #f1f5f9">Reject</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map(([c, v]) => `
+                        <tr>
+                            <td style="padding:3px 4px; font-weight:800; color:#334155">${dprEscHtml(c)}</td>
+                            <td style="padding:3px 4px; text-align:right; font-weight:900; color:#15803d">${Number(v.good || 0).toLocaleString('en-IN')}</td>
+                            <td style="padding:3px 4px; text-align:right; font-weight:800; color:#dc2626">${Number(v.rej || 0).toLocaleString('en-IN')}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        }
+
+        function dprStaleToastEl() {
+            let toast = document.getElementById('dprStaleToast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'dprStaleToast';
+                document.body.appendChild(toast);
+            }
+            return toast;
+        }
+
+        function dprShowStaleToast(info) {
+            if (sessionStorage.getItem('dprStaleToastHidden') === '1') return;
+            const toast = dprStaleToastEl();
+            toast.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px">
+                    <div style="min-width:0">
+                        <div style="font-weight:900; color:#b91c1c; font-size:0.82rem"><i class="bi bi-exclamation-triangle-fill"></i> ${dprEscHtml(stripMachPfx(info.machine))}</div>
+                        <div style="color:#7f1d1d; font-weight:700; font-size:0.72rem; margin-top:1px">No production entry for the last ${info.silentHrs >= 3 ? info.silentHrs : 3} hrs (${info.shift} shift)</div>
+                    </div>
+                    <button onclick="this.closest('#dprStaleToast').style.display='none'; sessionStorage.setItem('dprStaleToastHidden','1')" title="Hide for this session" style="border:0; background:#fee2e2; color:#b91c1c; border-radius:8px; font-weight:900; cursor:pointer; padding:2px 8px; flex:0 0 auto">×</button>
+                </div>
+                <div style="font-size:0.62rem; color:#94a3b8; font-weight:800; text-transform:uppercase; margin-top:8px">Colour-wise (this shift)</div>
+                ${dprStaleColourTable(info.colours)}
+            `;
+            toast.style.display = 'block';
+        }
+
+        function renderStaleMachineAlerts(container, staleMachines) {
+            // Cleanup previous render
+            if (dprStaleObserver) { dprStaleObserver.disconnect(); dprStaleObserver = null; }
+            const oldToast = document.getElementById('dprStaleToast');
+            if (oldToast) oldToast.style.display = 'none';
+            const oldBanner = document.getElementById('dprStaleBanner');
+            if (oldBanner) oldBanner.remove();
+            if (!container || !Array.isArray(staleMachines) || !staleMachines.length) return;
+
+            const byMachine = {};
+            staleMachines.forEach(s => { byMachine[s.machine] = s; });
+
+            // 1. Row highlight + badge on each stale machine's sticky cell
+            const staleCells = [];
+            staleMachines.forEach(s => {
+                const cell = container.querySelector(`td[data-dpr-machine="${(window.CSS && CSS.escape) ? CSS.escape(s.machine) : s.machine}"][data-dpr-shift="${s.shift}"][data-dpr-date="${s.date}"]`);
+                if (!cell) return;
+                cell.classList.add('stale-3h-cell');
+                const labelDiv = cell.querySelector('div');
+                if (labelDiv && !labelDiv.querySelector('.stale-3h-badge')) {
+                    labelDiv.insertAdjacentHTML('beforeend', `<span class="stale-3h-badge" title="Missing slots: ${dprEscHtml(s.missing.join(', '))}"><i class="bi bi-hourglass-split"></i> 3h NO ENTRY</span>`);
+                }
+                staleCells.push({ cell, info: s });
+            });
+
+            // 2. Alert banner at the very top of the summary
+            const chips = staleMachines.map((s, i) => `<button data-stale-idx="${i}" style="border:1px solid #fecaca; background:#fff; color:#b91c1c; border-radius:999px; padding:3px 12px; font-weight:900; font-size:0.75rem; cursor:pointer; white-space:nowrap">${dprEscHtml(stripMachPfx(s.machine))} · ${s.silentHrs}h</button>`).join('');
+            const banner = document.createElement('div');
+            banner.id = 'dprStaleBanner';
+            banner.style.cssText = 'background:#fef2f2; border:1px solid #fecaca; border-left:6px solid #dc2626; border-radius:12px; padding:12px 16px; margin-bottom:16px; box-shadow:0 4px 10px rgba(220,38,38,0.08)';
+            banner.innerHTML = `
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+                    <span style="font-weight:900; color:#b91c1c; font-size:0.9rem"><i class="bi bi-exclamation-triangle-fill"></i> ${staleMachines.length} machine${staleMachines.length === 1 ? ' has' : 's have'} NO production entry for the last 3+ hours</span>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap">${chips}</div>
+                </div>`;
+            container.prepend(banner);
+            banner.querySelectorAll('[data-stale-idx]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const s = staleMachines[Number(btn.dataset.staleIdx)];
+                    const target = staleCells.find(c => c.info === s);
+                    if (target) {
+                        target.cell.closest('tr')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        dprShowStaleToast(s);
+                    }
+                });
+            });
+
+            // 3. Scroll-follow toast: while a stale row is visible in the viewport, show its
+            //    colour-wise info; hide when none are visible.
+            if ('IntersectionObserver' in window && staleCells.length) {
+                const visible = new Map();
+                dprStaleObserver = new IntersectionObserver((entriesList) => {
+                    entriesList.forEach(en => {
+                        const match = staleCells.find(c => c.cell === en.target);
+                        if (!match) return;
+                        if (en.isIntersecting) visible.set(match.info.machine, match.info);
+                        else visible.delete(match.info.machine);
+                    });
+                    if (visible.size) {
+                        dprShowStaleToast(visible.values().next().value);
+                    } else {
+                        const toast = document.getElementById('dprStaleToast');
+                        if (toast) toast.style.display = 'none';
+                    }
+                }, { threshold: 0.3 });
+                staleCells.forEach(c => dprStaleObserver.observe(c.cell));
+            }
+        }
+
         // --- CODE MAPPINGS ---
         const REJECTION_CODES = {
             'A': 'Short Shot',
@@ -1590,7 +1715,7 @@
                                         const borderLeft = isHighJC && isFirstMouldInMachine ? `border-left:8px solid ${jcColor};` : '';
 
                                         machineRowHtml += `<tr style="${isFirstMouldInMachine ? 'border-top:2px solid #cbd5e1' : ''}">
-                                                                <td style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:${cellBg}; ${borderLeft} position:sticky; left:0; z-index:5; vertical-align:top; min-width:220px">${machineHtml}${mouldDisplay}<!--ROWCLEAR--></td>
+                                                                <td ${isFirstMouldInMachine ? `data-dpr-machine="${dprEscHtml(machine)}" data-dpr-shift="${rowShift}" data-dpr-date="${date}"` : ''} style="padding:6px 8px; text-align:left; border-right:1px solid #f1f5f9; border-bottom:1px solid #e2e8f0; background:${cellBg}; ${borderLeft} position:sticky; left:0; z-index:5; vertical-align:top; min-width:220px">${machineHtml}${mouldDisplay}<!--ROWCLEAR--></td>
                                                                 <td style="padding:6px 4px; text-align:center; border-right:2px solid #e2e8f0; border-bottom:1px solid #e2e8f0; background:#fff; position:sticky; left:220px; z-index:5; vertical-align:middle; min-width:70px">${stdDisplay}</td>`;
                                         // C. Slots Iteration
                                         let activeOverrideStatus = '';
@@ -2416,6 +2541,110 @@
                         }
 
                         container.innerHTML = masterHtml;
+
+                        // ---- STALE MACHINE ALERT: no production entry in the last 3 elapsed hours ----
+                        // Standalone pass over the raw data maps (mirrors the entries-count walk above),
+                        // evaluated ONLY for the current DPR date + currently running shift — historical
+                        // views render normally without alerts.
+                        try {
+                            const _now2 = new Date();
+                            const _h = _now2.getHours();
+                            const curShift = (_h >= 7 && _h < 19) ? 'Day' : 'Night';
+                            const _dprDay = new Date(_now2);
+                            if (curShift === 'Night' && _h < 7) _dprDay.setDate(_dprDay.getDate() - 1); // after midnight → night shift belongs to yesterday's DPR date
+                            const curDateStr = `${_dprDay.getFullYear()}-${String(_dprDay.getMonth() + 1).padStart(2, '0')}-${String(_dprDay.getDate()).padStart(2, '0')}`;
+
+                            const shiftVisible = (shiftMode === 'Both') || (shiftMode === curShift);
+                            const staleMachines = [];
+
+                            if (shiftVisible && allDates.includes(curDateStr)) {
+                                const _slots2 = ['07-08','08-09','09-10','10-11','11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07'];
+                                const _dayEnd2  = {'07-08':8,'08-09':9,'09-10':10,'10-11':11,'11-12':12,'12-01':13,'01-02':14,'02-03':15,'03-04':16,'04-05':17,'05-06':18,'06-07':19};
+                                const _nightEnd2 = {'07-08':20,'08-09':21,'09-10':22,'10-11':23,'11-12':0,'12-01':1,'01-02':2,'02-03':3,'03-04':4,'04-05':5,'05-06':6,'06-07':7};
+                                const _nightNext2 = new Set(['11-12','12-01','01-02','02-03','03-04','04-05','05-06','06-07']);
+                                const _QUICK_TYPES2 = ['Maintenance','MouldChange','MouldChangeover','ManPowerShortage','MouldMaintenance','NoPlan','MouldTrial','PowerCut'];
+                                const _QUICK_CODES2 = ['1','2','5','7','8','11','13'];
+                                const _hasQuick2 = (e) => {
+                                    const brk = (e && e.downtime_breakup && typeof e.downtime_breakup === 'object') ? e.downtime_breakup : {};
+                                    return _QUICK_CODES2.some(c => brk[c]);
+                                };
+
+                                const _dmap = (curShift === 'Day') ? dayDatesMap : nightDatesMap;
+                                const _entriesByMachine = ((_dmap[curDateStr] || {}).entries) || {};
+                                const _closedRecs = ((curShift === 'Day') ? dayClosed : nightClosed)
+                                    .filter(c => (c.dpr_date_str || c.dpr_date || '').startsWith(curDateStr));
+
+                                (machines || []).filter(m => allowedMachines.has(m.machine)).forEach(mObj => {
+                                    const machine = mObj.machine;
+                                    const plant = mObj.building || mObj.machine_process || '';
+                                    const mLine = mObj.line || mObj.building || mObj.machine_process || '';
+                                    if (_closedRecs.some(c => c.plant === 'All' || c.plant === plant || c.plant === mLine)) return; // plant closed → not stale
+
+                                    const _raw = _entriesByMachine[machine] || {};
+                                    const _clean = {};
+                                    Object.keys(_raw).forEach(k => {
+                                        const ck = k.includes('|') ? k.split('|').pop() : k;
+                                        if (!_clean[ck]) _clean[ck] = [];
+                                        const v = _raw[k];
+                                        _clean[ck] = _clean[ck].concat(Array.isArray(v) ? v : (v ? [v] : []));
+                                    });
+
+                                    let _override = false;
+                                    let anyEntryEver = false;
+                                    let lastCoveredEnd = 0;
+                                    const pastSlotCovered = []; // {slot, covered, end} for fully elapsed slots
+                                    const colourAgg = {};       // colour → { good, rej }
+
+                                    _slots2.forEach(_slot => {
+                                        const _list = (_clean[_slot] || []).filter(Boolean);
+                                        const _sp = _list.find(e => _QUICK_TYPES2.includes(e.entry_type));
+                                        const _dn = _list.find(e => e.entry_type === 'Main' && Number(e.downtime_min) >= 45 && Number(e.good_qty || 0) === 0 && _hasQuick2(e));
+                                        const _hasProd = _list.some(e => Number(e.good_qty || 0) > 0 || Number(e.shots || 0) > 0 || (e.entry_type === 'Main' && Number(e.downtime_min || 0) < 45) || e.entry_type === 'ColourChange');
+                                        if (_sp || _dn) _override = true;
+                                        else if (_hasProd || _list.length > 0) _override = false;
+
+                                        _list.forEach(e => {
+                                            const col = String(e.colour || '').trim();
+                                            if (!col) return;
+                                            if (!colourAgg[col]) colourAgg[col] = { good: 0, rej: 0 };
+                                            colourAgg[col].good += Number(e.good_qty || 0);
+                                            colourAgg[col].rej += Number(e.reject_qty || 0);
+                                        });
+
+                                        const endH = (curShift === 'Day') ? _dayEnd2[_slot] : _nightEnd2[_slot];
+                                        const addDay = (curShift === 'Night' && _nightNext2.has(_slot)) ? 1 : 0;
+                                        const _d = new Date(curDateStr + 'T00:00:00');
+                                        _d.setHours(endH, 0, 0, 0);
+                                        if (addDay) _d.setDate(_d.getDate() + addDay);
+                                        const sEnd = _d.getTime();
+
+                                        if (sEnd <= _now2.getTime()) { // fully elapsed slot
+                                            const covered = _list.length > 0 || _override;
+                                            pastSlotCovered.push({ slot: _slot, covered, end: sEnd });
+                                            if (covered) lastCoveredEnd = sEnd;
+                                        }
+                                        if (_list.length > 0) anyEntryEver = true;
+                                    });
+
+                                    // Stale = at least 3 elapsed slots AND the last 3 are all uncovered.
+                                    // Machines with no entries at ALL this shift are skipped only if they also
+                                    // had no earlier activity (idle/no-plan machines would spam the alert).
+                                    if (pastSlotCovered.length >= 3) {
+                                        const last3 = pastSlotCovered.slice(-3);
+                                        if (last3.every(p => !p.covered) && anyEntryEver) {
+                                            const silentSince = lastCoveredEnd || pastSlotCovered[0].end - 3600000;
+                                            const silentHrs = Math.max(1, Math.round((_now2.getTime() - silentSince) / 3600000));
+                                            staleMachines.push({ machine, shift: curShift, date: curDateStr, silentHrs, colours: colourAgg, missing: last3.map(p => p.slot) });
+                                        }
+                                    }
+                                });
+                            }
+
+                            window.__dprStaleMachines = staleMachines;
+                            renderStaleMachineAlerts(container, staleMachines);
+                        } catch (staleErr) {
+                            console.warn('Stale-machine alert failed (non-fatal):', staleErr);
+                        }
 
                         // --- DYNAMIC STICKY HEADER CALCULATION ---
                         // "Make It Perfect": Ensure elements stack precisely based on their real rendered height.
