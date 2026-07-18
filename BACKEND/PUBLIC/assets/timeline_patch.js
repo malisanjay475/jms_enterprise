@@ -691,10 +691,121 @@
             const res = await api.get('/dpr/plan-drilldown?' + qs.toString());
             if (!res || !res.ok) throw new Error(res?.error || 'Failed');
             window._ddState.data = res.data;
+            window._ddState.grants = await _eqaFetchGrants(planId || res.data?.planId);
             _ddRenderColours(res.data);
         } catch (e) {
             body.innerHTML = `<div class="dd-empty">Error: ${e.message}</div>`;
         }
+    };
+
+    /* ── Extra Qty Allowances (PPC override of 10% colour cap) ────────── */
+    const EQA_ROLES = ['planner', 'superadmin', 'admin', 'ppc_manager', 'ppc_ass_manager'];
+    function _eqaUser() {
+        try { return (window.JPSMS && window.JPSMS.auth.getUser()) || {}; } catch (_) { return {}; }
+    }
+    function _eqaCanAllow() {
+        return EQA_ROLES.includes(String(_eqaUser().role_code || '').toLowerCase());
+    }
+    // Returns { COLOUR_UPPER: { extra, grants:[...] } }
+    async function _eqaFetchGrants(planId) {
+        if (!planId) return {};
+        try {
+            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+            const res = await api.get('/extra-qty?plan_id=' + encodeURIComponent(planId));
+            const map = {};
+            (res && res.ok ? res.data : []).forEach(g => {
+                const k = String(g.colour || '').trim().toUpperCase();
+                if (!map[k]) map[k] = { extra: 0, grants: [] };
+                map[k].extra += Number(g.extra_qty || 0);
+                map[k].grants.push(g);
+            });
+            return map;
+        } catch (_) { return {}; }
+    }
+    function _eqaEsc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g,
+            c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    }
+
+    window.openExtraQtyModal = function (colourIdx) {
+        const colour = (window._ddColourLookup || [])[colourIdx];
+        if (colour === undefined) return;
+        const planId = window._ddState.data?.planId || window._ddState.planId;
+        const cData = (window._ddState.data?.colours || []).find(c => c.colour === colour) || {};
+        const g = (window._ddState.grants || {})[String(colour).trim().toUpperCase()] || { extra: 0, grants: [] };
+        const cap = Math.floor(Number(cData.planQty || 0) * 1.10) + g.extra;
+
+        let m = document.getElementById('eqa-modal');
+        if (m) m.remove();
+        m = document.createElement('div');
+        m.id = 'eqa-modal';
+        m.className = 'om-backdrop active';
+        m.style.cssText = 'display:flex;z-index:100001';
+        const histRows = g.grants.map(x =>
+            `<tr><td>+${Number(x.extra_qty).toLocaleString()}</td>
+                 <td>${_eqaEsc(x.allowed_by)} <span style="color:#94a3b8">(${_eqaEsc(x.allowed_role)})</span></td>
+                 <td>${x.allowed_at ? new Date(x.allowed_at).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '–'}</td>
+                 <td style="max-width:180px;word-wrap:break-word">${_eqaEsc(x.remarks)}</td></tr>`).join('');
+        m.innerHTML = `
+          <div style="background:#fff;border-radius:14px;max-width:520px;width:94%;max-height:88vh;overflow:auto;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+              <div style="font-weight:800;font-size:1rem;color:#1e293b">
+                <i class="bi bi-unlock-fill" style="color:#7c3aed"></i> Allow Extra Qty — ${_eqaEsc(colour)}
+              </div>
+              <button onclick="document.getElementById('eqa-modal').remove()" style="border:none;background:none;font-size:1.4rem;cursor:pointer;color:#64748b">&times;</button>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:0.78rem">
+              <span style="background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:6px;padding:3px 10px;font-weight:700;font-family:monospace">Plan: ${_eqaEsc(planId || '–')}</span>
+              <span style="background:#f1f5f9;border-radius:6px;padding:3px 10px;font-weight:700">Plan Qty: ${Number(cData.planQty || 0).toLocaleString()}</span>
+              <span style="background:#f0fdf4;color:#16a34a;border-radius:6px;padding:3px 10px;font-weight:700">Produced: ${Number(cData.producedQty || 0).toLocaleString()}</span>
+              <span style="background:#fff7ed;color:#c2410c;border-radius:6px;padding:3px 10px;font-weight:700">Current Cap (110% + extra): ${cap.toLocaleString()}</span>
+            </div>
+            <label style="font-size:0.78rem;font-weight:700;color:#475569">Extra Qty to allow *</label>
+            <input id="eqa-qty" type="number" min="1" inputmode="numeric" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;margin:4px 0 10px;font-size:0.95rem" placeholder="e.g. 500">
+            <label style="font-size:0.78rem;font-weight:700;color:#475569">Remarks — why is extra allowed? *</label>
+            <textarea id="eqa-remarks" rows="3" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;margin:4px 0 4px;font-size:0.88rem;resize:vertical" placeholder="e.g. Client approved 5% overrun on this order"></textarea>
+            <div id="eqa-err" style="color:#dc2626;font-size:0.78rem;font-weight:700;min-height:18px"></div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px">
+              <button onclick="document.getElementById('eqa-modal').remove()" style="padding:8px 16px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;font-weight:700;cursor:pointer">Cancel</button>
+              <button id="eqa-save" style="padding:8px 18px;border-radius:8px;border:none;background:#7c3aed;color:#fff;font-weight:800;cursor:pointer">
+                <i class="bi bi-check-lg"></i> Allow Extra
+              </button>
+            </div>
+            ${g.grants.length ? `
+            <div style="margin-top:14px;border-top:1px solid #e2e8f0;padding-top:10px">
+              <div style="font-size:0.78rem;font-weight:800;color:#64748b;margin-bottom:6px">Previous allowances for this colour</div>
+              <table class="dd-table" style="font-size:0.8rem"><thead><tr><th>Qty</th><th>Allowed By</th><th>When</th><th>Why</th></tr></thead>
+              <tbody>${histRows}</tbody></table>
+            </div>` : ''}
+          </div>`;
+        document.body.appendChild(m);
+        m.addEventListener('click', e => { if (e.target === m) m.remove(); });
+
+        document.getElementById('eqa-save').addEventListener('click', async () => {
+            const qty = Math.floor(Number(document.getElementById('eqa-qty').value));
+            const remarks = document.getElementById('eqa-remarks').value.trim();
+            const err = document.getElementById('eqa-err');
+            err.textContent = '';
+            if (!Number.isFinite(qty) || qty <= 0) { err.textContent = 'Enter a positive extra qty.'; return; }
+            if (!remarks) { err.textContent = 'Remarks are required — state why extra is allowed.'; return; }
+            const btn = document.getElementById('eqa-save');
+            btn.disabled = true; btn.textContent = 'Saving…';
+            try {
+                const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+                const res = await api.post('/extra-qty/allow', {
+                    plan_id: planId, colour, extra_qty: qty, remarks,
+                    session: { username: _eqaUser().username }
+                });
+                if (!res || !res.ok) throw new Error(res?.error || 'Failed');
+                m.remove();
+                // Refresh grants + re-render colour table so the new grant shows immediately
+                window._ddState.grants = await _eqaFetchGrants(planId);
+                _ddRenderColours(window._ddState.data);
+            } catch (e2) {
+                err.textContent = e2.message || 'Save failed';
+                btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg"></i> Allow Extra';
+            }
+        });
     };
 
     function _ddRenderColours(data) {
@@ -708,9 +819,11 @@
             { label: `JC: ${jcLabel}`, fn: '' }
         ]);
 
+        const canAllow = _eqaCanAllow();
+        const grants = window._ddState.grants || {};
         let colourRows = '';
         if (colours.length === 0) {
-            colourRows = `<tr><td colspan="5" class="dd-empty">No colour plan or production entries found for this plan.</td></tr>`;
+            colourRows = `<tr><td colspan="${canAllow ? 7 : 6}" class="dd-empty">No colour plan or production entries found for this plan.</td></tr>`;
         } else {
             // Store colour names in a lookup so onclick uses an index — no string escaping needed
             window._ddColourLookup = colours.map(c => c.colour);
@@ -719,6 +832,18 @@
                 const pct = c.planQty > 0 ? Math.round((c.producedQty / c.planQty) * 100) : (c.producedQty > 0 ? 100 : 0);
                 const bar = c.planQty > 0
                     ? `<div style="background:#e2e8f0;border-radius:3px;height:4px;margin-top:4px;overflow:hidden"><div style="width:${Math.min(pct,100)}%;height:4px;background:${dotColor};border-radius:3px"></div></div>`
+                    : '';
+                const g = grants[String(c.colour).trim().toUpperCase()];
+                const extraCell = g && g.extra > 0
+                    ? `<span title="${_eqaEsc(g.grants.map(x => '+' + x.extra_qty + ' by ' + x.allowed_by + ' — ' + x.remarks).join('\n'))}"
+                             style="background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:6px;padding:2px 8px;font-weight:800;font-size:0.75rem;white-space:nowrap">
+                          +${_ddN(g.extra)} <span style="font-weight:600;color:#8b5cf6">by ${_eqaEsc(g.grants[g.grants.length - 1].allowed_by)}${g.grants.length > 1 ? ' +' + (g.grants.length - 1) : ''}</span>
+                       </span>`
+                    : '<span class="dim">–</span>';
+                const allowBtn = canAllow
+                    ? `<td class="num"><button data-eqa="${i}" title="Allow extra qty beyond the 10% cap"
+                           style="border:1px solid #c4b5fd;background:#faf5ff;color:#7c3aed;border-radius:6px;padding:3px 8px;font-size:0.72rem;font-weight:800;cursor:pointer;white-space:nowrap">
+                           <i class="bi bi-unlock"></i> Allow</button></td>`
                     : '';
                 return `<tr class="clickable" data-cidx="${i}">
                     <td>
@@ -729,6 +854,8 @@
                     <td class="num" style="color:#16a34a">${_ddN(c.producedQty)}${bar}</td>
                     <td class="num" style="color:${c.balQty > 0 ? '#f59e0b' : '#10b981'}">${_ddN(c.balQty)}</td>
                     <td class="num dim">${pct}%</td>
+                    <td class="num">${extraCell}</td>
+                    ${allowBtn}
                 </tr>`;
             }).join('');
         }
@@ -755,6 +882,7 @@
                         <thead><tr>
                             <th>Colour</th><th class="num">Plan Qty</th>
                             <th class="num">Produced</th><th class="num">Balance</th><th class="num">%</th>
+                            <th class="num">Extra Allowed</th>${canAllow ? '<th class="num">PPC</th>' : ''}
                         </tr></thead>
                         <tbody>${colourRows}</tbody>
                     </table>
@@ -767,6 +895,13 @@
                 const idx = Number(tr.dataset.cidx);
                 const col = (window._ddColourLookup || [])[idx];
                 if (col !== undefined) window._ddOpenShifts(col);
+            });
+        });
+        // Allow Extra buttons — stopPropagation so the row's shift drill-down doesn't open
+        body.querySelectorAll('button[data-eqa]').forEach(btn => {
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                window.openExtraQtyModal(Number(btn.dataset.eqa));
             });
         });
     }
