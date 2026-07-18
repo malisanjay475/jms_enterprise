@@ -6104,6 +6104,47 @@ app.post('/api/std-actual/save', async (req, res) => {
     } = payload || {};
     const factoryId = getFactoryId(req) || 1;
 
+    /* --- SERVER-SIDE GUARD: cavity <= STD, article weight within ±5% of STD ---
+       The browser enforces these too, but a stale cached PWA bundle can miss them,
+       so re-check against the mould master here. If the mould can't be resolved
+       (name granularity differences), we skip rather than block a legitimate save. */
+    try {
+      if (MouldName) {
+        let mRows = await q(`SELECT std_wt_kg, no_of_cav FROM moulds WHERE mould_name = $1 LIMIT 1`, [MouldName]);
+        if (!mRows.length) {
+          mRows = await q(`SELECT std_wt_kg, no_of_cav FROM moulds WHERE mould_name ILIKE $1 || '%' LIMIT 1`, [MouldName]);
+        }
+        if (mRows.length) {
+          const stdCav = Number(mRows[0].no_of_cav || 0);
+          const actCav = Number(toNum(CavityActual) || 0);
+          if (stdCav > 0 && actCav > stdCav) {
+            return res.status(400).json({
+              ok: false,
+              error: `Cavity Validation Failed: Actual (${actCav}) cannot be more than Std (${stdCav}).`
+            });
+          }
+
+          // Normalise both sides to grams (<10 is treated as kg) — the client sends
+          // article weight in kg, while some masters store grams.
+          const toGrams = (v) => (v > 0 && v < 10) ? v * 1000 : v;
+          const stdWt = Number(mRows[0].std_wt_kg || 0);
+          const actWt = Number(toNum(ArticleActual) || 0);
+          if (stdWt > 0 && actWt > 0) {
+            const stdG = toGrams(stdWt);
+            const actG = toGrams(actWt);
+            if (actG < stdG * 0.95 || actG > stdG * 1.05) {
+              return res.status(400).json({
+                ok: false,
+                error: `Weight Validation Failed: Actual is outside ±5% of Std. Allowed range: ${(stdG * 0.95).toFixed(3)} – ${(stdG * 1.05).toFixed(3)} g.`
+              });
+            }
+          }
+        }
+      }
+    } catch (guardErr) {
+      console.warn('[std-actual/save] validation guard skipped:', guardErr.message);
+    }
+
     await q(
       `
       WITH updated AS (
@@ -6449,6 +6490,68 @@ app.post('/api/dpr/submit', async (req, res) => {
         // Guard-query failure must not silently allow colourless production entries, but it also
         // should not hard-block the factory on a transient DB hiccup — log and continue.
         console.error('dpr/submit colour-guard', err.message);
+      }
+    }
+
+    // [NEW] COLOUR OVER-PRODUCTION CAP — cumulative good qty for a colour may not
+    // exceed 110% of that colour's planned qty. Mirrors the browser-side check so a
+    // stale cached PWA bundle can't bypass it. Produced is recomputed from the DB
+    // rather than trusting anything the client sent.
+    // Skipped when the colour isn't in the plan (unplanned / "Other") or the plan has
+    // no colour qty configured.
+    if (PlanID && String(Colour || '').trim() && toNum(GoodQty) > 0) {
+      try {
+        const capRows = await q(
+          'SELECT colour_details FROM plan_board WHERE CAST(id AS TEXT)=$1 OR CAST(plan_id AS TEXT)=$1 LIMIT 1',
+          [String(PlanID)]
+        );
+        let cd = capRows.length ? capRows[0].colour_details : null;
+        if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = null; } }
+
+        if (Array.isArray(cd) && cd.length) {
+          const wanted = String(Colour).trim().toUpperCase();
+          // Plan rows may be named "A-B-COLOUR"; compare on the trailing segment,
+          // matching how /api/job/colors derives the colour name.
+          const lastSeg = (s) => {
+            const t = String(s || '').trim();
+            return (t.includes('-') ? t.split('-').pop() : t).trim().toUpperCase();
+          };
+
+          let planQty = 0;
+          cd.forEach(c => {
+            const nm = c.colourName || c.itemColour || c.colour || c.color || c.name || '';
+            if (lastSeg(nm) === wanted) {
+              planQty += Number(c.planQty ?? c.useQty ?? c.batchQty ?? c.qty ?? 0) || 0;
+            }
+          });
+
+          if (planQty > 0) {
+            const prodRows = await q(
+              `SELECT COALESCE(SUM(good_qty), 0) AS produced
+                 FROM dpr_hourly
+                WHERE plan_id = $1
+                  AND is_deleted = false
+                  AND UPPER(TRIM(colour)) = $2
+                  AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`,
+              [String(PlanID), wanted, factoryId]
+            );
+            const produced = Number(prodRows[0]?.produced || 0);
+            const cap = Math.floor(planQty * 1.10);
+            const total = produced + toNum(GoodQty);
+            if (total > cap) {
+              const remaining = Math.max(0, cap - produced);
+              return res.json({
+                ok: false,
+                error: `Blocked — over production. ${Colour}: Plan ${planQty}, already produced ${produced}. ` +
+                       `This entry of ${toNum(GoodQty)} would total ${total}, over the 10% cap of ${cap}. ` +
+                       `Enter ${remaining} or less.`
+              });
+            }
+          }
+        }
+      } catch (err) {
+        // Same posture as the colour guard above: log, don't hard-block on a DB hiccup.
+        console.error('dpr/submit colour-cap', err.message);
       }
     }
 
