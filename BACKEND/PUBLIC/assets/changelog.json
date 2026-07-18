@@ -11,8 +11,57 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.6.0",
+  "latest": "1.7.0",
   "versions": [
+    {
+      "version": "1.7.0",
+      "date": "2026-07-18",
+      "title": "PPC can now allow extra production beyond the 10% limit — with a full record of who allowed what and why",
+      "summary": "When a colour hits its 10% over-production block, PPC/Planner/Admin can allow extra quantity for that colour from the Machine Timeline, with a written reason. Supervisors see who allowed the extra, and a new report lists every allowance.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "In the Machine Timeline colour view, PPC managers, planners and admins get a new Allow button to permit extra quantity for a colour beyond the 10% cap — a reason is compulsory."
+            },
+            {
+              "type": "feat",
+              "text": "The colour table shows how much extra was allowed and by whom, with the reason on hover, plus the full history of earlier allowances."
+            }
+          ]
+        },
+        {
+          "app": "supervisor_app",
+          "label": "Moulding Supervisor App",
+          "icon": "bi-person-badge",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "When PPC allows extra quantity for a colour, the entry limit increases automatically and the colour table shows a badge with the allowed extra and the name of who allowed it."
+            },
+            {
+              "type": "improvement",
+              "text": "The over-production block message now tells the supervisor to ask PPC for extra allowance from the Machine Timeline, instead of a dead end."
+            }
+          ]
+        },
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New report: Extra Allowed QTY By PPC — every allowance with who allowed it, against which order/job/plan, which colour, how much, and the written reason, with totals per person and per colour. Exports to Excel/CSV."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.6.0",
       "date": "2026-07-18",
@@ -24,12 +73,30 @@
           "label": "DPR",
           "icon": "bi-clipboard-data",
           "changes": [
-            { "type": "fix", "text": "When a colour is produced above its plan, the Balance column now shows how many pieces OVER it went (in blue) instead of showing 0." },
-            { "type": "feat", "text": "New hourly Production Trend chart in the Job Detail window — produced, rejected and downtime per hour, with the target rate line and day/night markers." },
-            { "type": "feat", "text": "The Job Detail window now predicts when the job will finish, based on the last few hours' actual speed, and warns when the machine is running behind target." },
-            { "type": "improvement", "text": "The Job Detail window has a cleaner look: a progress ring, clear stat tiles, and pie charts for downtime and rejection reasons." },
-            { "type": "feat", "text": "The Compliance Summary shows a red alert when a machine has had NO production entry for the last 3 hours — with a banner on top, a blinking mark on the machine row, and a small popup with that machine's colour-wise production while you scroll." },
-            { "type": "feat", "text": "Every machine row now shows small badges when that machine did a Mould Change (yellow MC), Colour Change (orange CC) or Job Change (blue/red JC) — so changes are visible at a glance without opening entries." }
+            {
+              "type": "fix",
+              "text": "When a colour is produced above its plan, the Balance column now shows how many pieces OVER it went (in blue) instead of showing 0."
+            },
+            {
+              "type": "feat",
+              "text": "New hourly Production Trend chart in the Job Detail window — produced, rejected and downtime per hour, with the target rate line and day/night markers."
+            },
+            {
+              "type": "feat",
+              "text": "The Job Detail window now predicts when the job will finish, based on the last few hours' actual speed, and warns when the machine is running behind target."
+            },
+            {
+              "type": "improvement",
+              "text": "The Job Detail window has a cleaner look: a progress ring, clear stat tiles, and pie charts for downtime and rejection reasons."
+            },
+            {
+              "type": "feat",
+              "text": "The Compliance Summary shows a red alert when a machine has had NO production entry for the last 3 hours — with a banner on top, a blinking mark on the machine row, and a small popup with that machine's colour-wise production while you scroll."
+            },
+            {
+              "type": "feat",
+              "text": "Every machine row now shows small badges when that machine did a Mould Change (yellow MC), Colour Change (orange CC) or Job Change (blue/red JC) — so changes are visible at a glance without opening entries."
+            }
           ]
         }
       ]
@@ -44,8 +111,14 @@
           "label": "DPR",
           "icon": "bi-clipboard-data",
           "changes": [
-            { "type": "improvement", "text": "When a production hour also has supervisor downtime, the box now splits in two — quantity and colour on top, the downtime reason with its minutes in a coloured strip below, instead of the small badge that was hard to read." },
-            { "type": "improvement", "text": "Downtime reasons that don't have their own signboard colour now show in a neutral grey strip with the minutes, instead of plain pink hours." }
+            {
+              "type": "improvement",
+              "text": "When a production hour also has supervisor downtime, the box now splits in two — quantity and colour on top, the downtime reason with its minutes in a coloured strip below, instead of the small badge that was hard to read."
+            },
+            {
+              "type": "improvement",
+              "text": "Downtime reasons that don't have their own signboard colour now show in a neutral grey strip with the minutes, instead of plain pink hours."
+            }
           ]
         }
       ]
@@ -60,9 +133,18 @@
           "label": "DPR",
           "icon": "bi-clipboard-data",
           "changes": [
-            { "type": "improvement", "text": "Machine Maintenance hours in the Compliance Summary are now yellow with the maintenance tools icon — the same colour as the signboard on the machine." },
-            { "type": "improvement", "text": "Every downtime reason now shows its icon inside a small round sign, so the grid reads like the boards on the shop floor." },
-            { "type": "improvement", "text": "When an hour has both production and a short downtime, the box now splits in two — quantity on top and the downtime reason with its minutes below, easy to read without opening the entry." }
+            {
+              "type": "improvement",
+              "text": "Machine Maintenance hours in the Compliance Summary are now yellow with the maintenance tools icon — the same colour as the signboard on the machine."
+            },
+            {
+              "type": "improvement",
+              "text": "Every downtime reason now shows its icon inside a small round sign, so the grid reads like the boards on the shop floor."
+            },
+            {
+              "type": "improvement",
+              "text": "When an hour has both production and a short downtime, the box now splits in two — quantity on top and the downtime reason with its minutes below, easy to read without opening the entry."
+            }
           ]
         }
       ]
@@ -78,10 +160,22 @@
           "label": "Supervisor",
           "icon": "bi-person-workspace",
           "changes": [
-            { "type": "improvement", "text": "Actual Cavity can no longer be saved higher than the mould's Standard Cavity." },
-            { "type": "improvement", "text": "Actual article weight must be within ±5% of the standard weight — the allowed range is shown if an entry is outside it." },
-            { "type": "feat", "text": "Colour-wise production is capped at 10% over that colour's planned quantity: a colour planned for 500 can take at most 550 across all entries, and the colour picker shows how many more pieces are allowed." },
-            { "type": "improvement", "text": "When a colour reaches its limit the app explains it clearly instead of showing a confusing zero, and unplanned colours are left uncapped." }
+            {
+              "type": "improvement",
+              "text": "Actual Cavity can no longer be saved higher than the mould's Standard Cavity."
+            },
+            {
+              "type": "improvement",
+              "text": "Actual article weight must be within ±5% of the standard weight — the allowed range is shown if an entry is outside it."
+            },
+            {
+              "type": "feat",
+              "text": "Colour-wise production is capped at 10% over that colour's planned quantity: a colour planned for 500 can take at most 550 across all entries, and the colour picker shows how many more pieces are allowed."
+            },
+            {
+              "type": "improvement",
+              "text": "When a colour reaches its limit the app explains it clearly instead of showing a confusing zero, and unplanned colours are left uncapped."
+            }
           ]
         }
       ]
@@ -97,9 +191,18 @@
           "label": "DPR",
           "icon": "bi-clipboard-data",
           "changes": [
-            { "type": "feat", "text": "Machine Maintenance, Manpower Shortage, No Plan, Mould Maintenance and Mould Trial hours now show a clear icon with the reason name in the summary grid." },
-            { "type": "feat", "text": "When an hour has production and downtime together, the slot shows a small badge with the downtime reason and minutes — point at it to see the full breakup." },
-            { "type": "improvement", "text": "The filter bar shows a legend of the new reason icons, and the View Filter list shows matching symbols." }
+            {
+              "type": "feat",
+              "text": "Machine Maintenance, Manpower Shortage, No Plan, Mould Maintenance and Mould Trial hours now show a clear icon with the reason name in the summary grid."
+            },
+            {
+              "type": "feat",
+              "text": "When an hour has production and downtime together, the slot shows a small badge with the downtime reason and minutes — point at it to see the full breakup."
+            },
+            {
+              "type": "improvement",
+              "text": "The filter bar shows a legend of the new reason icons, and the View Filter list shows matching symbols."
+            }
           ]
         }
       ]
@@ -115,8 +218,14 @@
           "label": "Supervisor App",
           "icon": "bi-phone",
           "changes": [
-            { "type": "improvement", "text": "The app now checks for updates on its own and refreshes itself when a fix is released — no need to close and reopen it. It never refreshes while you are typing an entry." },
-            { "type": "fix", "text": "Tapping the Processing popup now always dismisses it — it can no longer jump straight back onto the screen." }
+            {
+              "type": "improvement",
+              "text": "The app now checks for updates on its own and refreshes itself when a fix is released — no need to close and reopen it. It never refreshes while you are typing an entry."
+            },
+            {
+              "type": "fix",
+              "text": "Tapping the Processing popup now always dismisses it — it can no longer jump straight back onto the screen."
+            }
           ]
         }
       ]
@@ -132,8 +241,14 @@
           "label": "System",
           "icon": "bi-arrow-repeat",
           "changes": [
-            { "type": "improvement", "text": "Sync health alert emails now name the exact factory server that stopped syncing and how long ago its last update was, instead of a generic warning." },
-            { "type": "improvement", "text": "The alert also tells apart a stopped factory server from the main server being down, so the right thing gets checked first." }
+            {
+              "type": "improvement",
+              "text": "Sync health alert emails now name the exact factory server that stopped syncing and how long ago its last update was, instead of a generic warning."
+            },
+            {
+              "type": "improvement",
+              "text": "The alert also tells apart a stopped factory server from the main server being down, so the right thing gets checked first."
+            }
           ]
         }
       ]
@@ -149,9 +264,18 @@
           "label": "Supervisor App",
           "icon": "bi-phone",
           "changes": [
-            { "type": "fix", "text": "After tapping Submit DPR, the Processing popup used to stay stuck for 15–30 seconds on slow Wi-Fi. It now closes as soon as the entry is saved." },
-            { "type": "fix", "text": "Background checks after a save no longer freeze the whole screen — the setup card shows its own small Checking message instead." },
-            { "type": "improvement", "text": "If the network is too slow to confirm a save, the app now tells you clearly to check the slot list before submitting again, instead of showing a technical error." }
+            {
+              "type": "fix",
+              "text": "After tapping Submit DPR, the Processing popup used to stay stuck for 15–30 seconds on slow Wi-Fi. It now closes as soon as the entry is saved."
+            },
+            {
+              "type": "fix",
+              "text": "Background checks after a save no longer freeze the whole screen — the setup card shows its own small Checking message instead."
+            },
+            {
+              "type": "improvement",
+              "text": "If the network is too slow to confirm a save, the app now tells you clearly to check the slot list before submitting again, instead of showing a technical error."
+            }
           ]
         }
       ]
@@ -167,9 +291,18 @@
           "label": "Planning Board",
           "icon": "bi-sort-numeric-down",
           "changes": [
-            { "type": "fix", "text": "Machine Timeline dates now follow the P1-P4 priority order you set on plans, so the card shown second also runs second — no more dates jumping between cards." },
-            { "type": "fix", "text": "Excel View Timeline now uses the same realistic expected-finish chaining as the Machine Timeline." },
-            { "type": "fix", "text": "The Mould Change Report detects changes in the same priority order, so its times and the timeline's Mould Change badges always agree." }
+            {
+              "type": "fix",
+              "text": "Machine Timeline dates now follow the P1-P4 priority order you set on plans, so the card shown second also runs second — no more dates jumping between cards."
+            },
+            {
+              "type": "fix",
+              "text": "Excel View Timeline now uses the same realistic expected-finish chaining as the Machine Timeline."
+            },
+            {
+              "type": "fix",
+              "text": "The Mould Change Report detects changes in the same priority order, so its times and the timeline's Mould Change badges always agree."
+            }
           ]
         }
       ]
@@ -185,8 +318,14 @@
           "label": "Planning Board",
           "icon": "bi-arrow-repeat",
           "changes": [
-            { "type": "fix", "text": "Selecting a date in the Mould Change Report now shows every change from 8:00 AM that day to 8:00 AM the next morning, so early-morning changes are no longer missing from today's sheet." },
-            { "type": "improvement", "text": "Machine Timeline and Excel View Timeline cards now say 'Mould Change' in full instead of the short code 'CHG'." }
+            {
+              "type": "fix",
+              "text": "Selecting a date in the Mould Change Report now shows every change from 8:00 AM that day to 8:00 AM the next morning, so early-morning changes are no longer missing from today's sheet."
+            },
+            {
+              "type": "improvement",
+              "text": "Machine Timeline and Excel View Timeline cards now say 'Mould Change' in full instead of the short code 'CHG'."
+            }
           ]
         }
       ]
@@ -202,10 +341,22 @@
           "label": "Supervisor / DPR Entry",
           "icon": "bi-phone",
           "changes": [
-            { "type": "fix", "text": "Tapping Submit twice, or a weak WiFi retry, can no longer save the same hour's entry two times." },
-            { "type": "improvement", "text": "The Submit button greys out while saving and comes back on its own, so a failed save can always be retried." },
-            { "type": "improvement", "text": "Fill DPR now scrolls to the Colour Breakdown so you pick the colour first before entering data." },
-            { "type": "perf", "text": "The job list refreshes in the background — the screen no longer freezes with a full-screen Processing message." }
+            {
+              "type": "fix",
+              "text": "Tapping Submit twice, or a weak WiFi retry, can no longer save the same hour's entry two times."
+            },
+            {
+              "type": "improvement",
+              "text": "The Submit button greys out while saving and comes back on its own, so a failed save can always be retried."
+            },
+            {
+              "type": "improvement",
+              "text": "Fill DPR now scrolls to the Colour Breakdown so you pick the colour first before entering data."
+            },
+            {
+              "type": "perf",
+              "text": "The job list refreshes in the background — the screen no longer freezes with a full-screen Processing message."
+            }
           ]
         }
       ]
@@ -221,10 +372,22 @@
           "label": "Planning Board",
           "icon": "bi-arrow-repeat",
           "changes": [
-            { "type": "fix", "text": "The Mould Change Report now shows correct realistic times even when opened directly, without visiting the Machine Timeline first." },
-            { "type": "feat", "text": "The report is a proper daily sheet: company header, serial numbers, and a signature section for PPC, the mould change team, and the production head." },
-            { "type": "improvement", "text": "Printing now repeats the column headings on every page and never splits a row across two pages." },
-            { "type": "feat", "text": "New Excel button downloads the loaded report as a spreadsheet." }
+            {
+              "type": "fix",
+              "text": "The Mould Change Report now shows correct realistic times even when opened directly, without visiting the Machine Timeline first."
+            },
+            {
+              "type": "feat",
+              "text": "The report is a proper daily sheet: company header, serial numbers, and a signature section for PPC, the mould change team, and the production head."
+            },
+            {
+              "type": "improvement",
+              "text": "Printing now repeats the column headings on every page and never splits a row across two pages."
+            },
+            {
+              "type": "feat",
+              "text": "New Excel button downloads the loaded report as a spreadsheet."
+            }
           ]
         }
       ]
@@ -240,8 +403,14 @@
           "label": "Planning Board",
           "icon": "bi-clock-history",
           "changes": [
-            { "type": "fix", "text": "Queued plans on the Machine Timeline now start from the previous plan's expected finish (based on actual balance quantity), so a slow-running plan pushes the whole queue to realistic dates." },
-            { "type": "fix", "text": "The Daily Mould Change Report shows mould change times that match the Machine Timeline, so the printed sheet no longer lists changes at times that have already passed." }
+            {
+              "type": "fix",
+              "text": "Queued plans on the Machine Timeline now start from the previous plan's expected finish (based on actual balance quantity), so a slow-running plan pushes the whole queue to realistic dates."
+            },
+            {
+              "type": "fix",
+              "text": "The Daily Mould Change Report shows mould change times that match the Machine Timeline, so the printed sheet no longer lists changes at times that have already passed."
+            }
           ]
         }
       ]
@@ -257,7 +426,10 @@
           "label": "Planning Board",
           "icon": "bi-pencil-square",
           "changes": [
-            { "type": "feat", "text": "Superadmins get an Edit Plan button on each plan to correct the quantity and per-colour breakdown after the plan was created; every change is logged." }
+            {
+              "type": "feat",
+              "text": "Superadmins get an Edit Plan button on each plan to correct the quantity and per-colour breakdown after the plan was created; every change is logged."
+            }
           ]
         }
       ]
@@ -273,8 +445,14 @@
           "label": "System",
           "icon": "bi-speedometer2",
           "changes": [
-            { "type": "perf", "text": "Stopped a constantly-animating page background that was quietly slowing down every screen." },
-            { "type": "perf", "text": "Made scrolling through big tables smoother by simplifying row hover and scrollbar styling." }
+            {
+              "type": "perf",
+              "text": "Stopped a constantly-animating page background that was quietly slowing down every screen."
+            },
+            {
+              "type": "perf",
+              "text": "Made scrolling through big tables smoother by simplifying row hover and scrollbar styling."
+            }
           ]
         }
       ]
@@ -290,8 +468,14 @@
           "label": "System",
           "icon": "bi-list",
           "changes": [
-            { "type": "fix", "text": "The side menu no longer vanishes on small screens or when the page is zoomed in — tap the menu button at the top-left to slide it open." },
-            { "type": "improvement", "text": "Tap the dimmed area or press Escape to close the menu; pages now scroll normally with the bottom bar in place." }
+            {
+              "type": "fix",
+              "text": "The side menu no longer vanishes on small screens or when the page is zoomed in — tap the menu button at the top-left to slide it open."
+            },
+            {
+              "type": "improvement",
+              "text": "Tap the dimmed area or press Escape to close the menu; pages now scroll normally with the bottom bar in place."
+            }
           ]
         }
       ]
@@ -307,8 +491,14 @@
           "label": "System",
           "icon": "bi-shield-lock",
           "changes": [
-            { "type": "security", "text": "Removed database and service passwords that were accidentally saved inside the application files." },
-            { "type": "security", "text": "Backup and maintenance tools now ask for the database password instead of storing it." }
+            {
+              "type": "security",
+              "text": "Removed database and service passwords that were accidentally saved inside the application files."
+            },
+            {
+              "type": "security",
+              "text": "Backup and maintenance tools now ask for the database password instead of storing it."
+            }
           ]
         }
       ]
@@ -324,7 +514,10 @@
           "label": "System",
           "icon": "bi-speedometer2",
           "changes": [
-            { "type": "fix", "text": "Fixed the smaller app script not being generated during the live build, so pages now load correctly and faster." }
+            {
+              "type": "fix",
+              "text": "Fixed the smaller app script not being generated during the live build, so pages now load correctly and faster."
+            }
           ]
         }
       ]
@@ -340,7 +533,10 @@
           "label": "System",
           "icon": "bi-speedometer2",
           "changes": [
-            { "type": "perf", "text": "Pages now load the minified app script, so every screen loads faster on all servers." }
+            {
+              "type": "perf",
+              "text": "Pages now load the minified app script, so every screen loads faster on all servers."
+            }
           ]
         }
       ]
@@ -356,8 +552,14 @@
           "label": "System",
           "icon": "bi-speedometer2",
           "changes": [
-            { "type": "perf", "text": "Made the app scripts smaller so pages load faster, especially on slower connections." },
-            { "type": "perf", "text": "Fonts and the logo now load from our own server — no outside downloads, so the app is faster and works offline." }
+            {
+              "type": "perf",
+              "text": "Made the app scripts smaller so pages load faster, especially on slower connections."
+            },
+            {
+              "type": "perf",
+              "text": "Fonts and the logo now load from our own server — no outside downloads, so the app is faster and works offline."
+            }
           ]
         }
       ]
@@ -373,7 +575,10 @@
           "label": "Masters",
           "icon": "bi-sliders",
           "changes": [
-            { "type": "feat", "text": "Added a delete button on each ORJR Wise Summary row so you can remove a single row you no longer need." }
+            {
+              "type": "feat",
+              "text": "Added a delete button on each ORJR Wise Summary row so you can remove a single row you no longer need."
+            }
           ]
         }
       ]
@@ -389,8 +594,14 @@
           "label": "System",
           "icon": "bi-stars",
           "changes": [
-            { "type": "feat", "text": "After every update, a 'What's New' popup shows the changes for the modules you have access to." },
-            { "type": "feat", "text": "Click the version number at the bottom of the sidebar any time to re-read the latest release notes." }
+            {
+              "type": "feat",
+              "text": "After every update, a 'What's New' popup shows the changes for the modules you have access to."
+            },
+            {
+              "type": "feat",
+              "text": "Click the version number at the bottom of the sidebar any time to re-read the latest release notes."
+            }
           ]
         }
       ]
@@ -406,9 +617,18 @@
           "label": "DPR",
           "icon": "bi-file-earmark-bar-graph",
           "changes": [
-            { "type": "fix", "text": "Fixed the Daily Production Report crashing and showing a blank page." },
-            { "type": "fix", "text": "Corrected reports that were showing zero target and zero efficiency." },
-            { "type": "fix", "text": "Compliance View filter now correctly includes machines stopped for MP Shortage, Maintenance and other downtime reasons." }
+            {
+              "type": "fix",
+              "text": "Fixed the Daily Production Report crashing and showing a blank page."
+            },
+            {
+              "type": "fix",
+              "text": "Corrected reports that were showing zero target and zero efficiency."
+            },
+            {
+              "type": "fix",
+              "text": "Compliance View filter now correctly includes machines stopped for MP Shortage, Maintenance and other downtime reasons."
+            }
           ]
         },
         {
@@ -416,9 +636,18 @@
           "label": "Quality",
           "icon": "bi-check-circle-fill",
           "changes": [
-            { "type": "fix", "text": "Fixed First Piece Approval (FPA) images not displaying." },
-            { "type": "feat", "text": "Added new panels to the Quality Dashboard for a clearer at-a-glance view." },
-            { "type": "improvement", "text": "Cleaned up unused screens for a faster, tidier module." }
+            {
+              "type": "fix",
+              "text": "Fixed First Piece Approval (FPA) images not displaying."
+            },
+            {
+              "type": "feat",
+              "text": "Added new panels to the Quality Dashboard for a clearer at-a-glance view."
+            },
+            {
+              "type": "improvement",
+              "text": "Cleaned up unused screens for a faster, tidier module."
+            }
           ]
         },
         {
@@ -426,7 +655,10 @@
           "label": "Moulding Supervisor App",
           "icon": "bi-phone",
           "changes": [
-            { "type": "fix", "text": "Stopped the quick-action auto-fill from carrying forward after you make a manual Main entry." }
+            {
+              "type": "fix",
+              "text": "Stopped the quick-action auto-fill from carrying forward after you make a manual Main entry."
+            }
           ]
         }
       ]
@@ -442,7 +674,10 @@
           "label": "Planning Board",
           "icon": "bi-calendar-week",
           "changes": [
-            { "type": "feat", "text": "Added a High Priority Job Sheet to the Planning Board." }
+            {
+              "type": "feat",
+              "text": "Added a High Priority Job Sheet to the Planning Board."
+            }
           ]
         },
         {
@@ -450,9 +685,18 @@
           "label": "Moulding Supervisor App",
           "icon": "bi-phone",
           "changes": [
-            { "type": "feat", "text": "New Recent Slots panel to quickly reopen your recent entries." },
-            { "type": "improvement", "text": "Redesigned entry cards with clearer type badges and better layout on mobile." },
-            { "type": "fix", "text": "Fixed reject/downtime chips and the header Line chip overflowing on small screens." }
+            {
+              "type": "feat",
+              "text": "New Recent Slots panel to quickly reopen your recent entries."
+            },
+            {
+              "type": "improvement",
+              "text": "Redesigned entry cards with clearer type badges and better layout on mobile."
+            },
+            {
+              "type": "fix",
+              "text": "Fixed reject/downtime chips and the header Line chip overflowing on small screens."
+            }
           ]
         },
         {
@@ -460,8 +704,14 @@
           "label": "System",
           "icon": "bi-cloud-arrow-down",
           "changes": [
-            { "type": "feat", "text": "Factory local servers now update themselves automatically from the main server." },
-            { "type": "feat", "text": "New Activity Monitor shows real-time user activity across all JMS Ocean apps." }
+            {
+              "type": "feat",
+              "text": "Factory local servers now update themselves automatically from the main server."
+            },
+            {
+              "type": "feat",
+              "text": "New Activity Monitor shows real-time user activity across all JMS Ocean apps."
+            }
           ]
         }
       ]
@@ -477,8 +727,14 @@
           "label": "System",
           "icon": "bi-speedometer2",
           "changes": [
-            { "type": "perf", "text": "Made pages load noticeably faster by fixing slow database queries and adding indexes on hot paths." },
-            { "type": "security", "text": "Hardened session handling with secure random session IDs." }
+            {
+              "type": "perf",
+              "text": "Made pages load noticeably faster by fixing slow database queries and adding indexes on hot paths."
+            },
+            {
+              "type": "security",
+              "text": "Hardened session handling with secure random session IDs."
+            }
           ]
         },
         {
@@ -486,8 +742,14 @@
           "label": "Quality",
           "icon": "bi-check-circle-fill",
           "changes": [
-            { "type": "feat", "text": "Redesigned QC with compact cards, a machine-sorted queue, and a mandatory FPA -> Setup -> QC flow." },
-            { "type": "improvement", "text": "Added an image gallery and verify-from-queue for faster inspections." }
+            {
+              "type": "feat",
+              "text": "Redesigned QC with compact cards, a machine-sorted queue, and a mandatory FPA -> Setup -> QC flow."
+            },
+            {
+              "type": "improvement",
+              "text": "Added an image gallery and verify-from-queue for faster inspections."
+            }
           ]
         }
       ]
