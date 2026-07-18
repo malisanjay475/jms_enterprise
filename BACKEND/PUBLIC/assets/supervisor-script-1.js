@@ -1264,16 +1264,31 @@
       const stdRun = parseFloat(el('std-runner').value || 0);
       const actRun = parseFloat(el('act-runner').value || 0);
 
-      // 1. Weight Tolerance: ±5% REMOVED
-      // if (stdWt > 0 && actWt > 0) { ... }
+      // 1. Weight Tolerance: Article ACT must be within ±5% of STD.
+      //    STD and ACT can arrive in different units (masters store kg on some
+      //    moulds, the operator types grams), so normalise both to grams using the
+      //    same <10 => kg heuristic the payload builder below uses.
+      const toGrams = (v) => (v > 0 && v < 10) ? v * 1000 : v;
+      if (stdWt > 0 && actWt > 0) {
+        const stdG = toGrams(stdWt);
+        const actG = toGrams(actWt);
+        const lo = stdG * 0.95;
+        const hi = stdG * 1.05;
+        // Epsilon: binary floating point puts an exact-boundary entry a hair
+        // outside the band (25 * 1.05 -> 26.250000000000004), which would reject
+        // a value the operator was told is allowed.
+        const eps = stdG * 1e-9;
+        if (actG < lo - eps || actG > hi + eps) {
+          el('std-msg').innerHTML = `<span class="err">Weight Validation Failed: Actual (${actWt}) is outside ±5% of Std (${stdWt}). Allowed range: ${lo.toFixed(3)} – ${hi.toFixed(3)} g.</span>`;
+          return;
+        }
+      }
 
-      // 2. Cavity: Act <= Std REMOVED
-      /*
+      // 2. Cavity: Act <= Std
       if (stdCav > 0 && actCav > stdCav) {
         el('std-msg').innerHTML = `<span class="err">Cavity Validation Failed: Actual (${actCav}) cannot be more than Std (${stdCav}).</span>`;
         return;
       }
-      */
 
       // 3. Runner: Act <= 1.5 * Std
       if (stdRun > 0 && actRun > 0) {
@@ -2836,9 +2851,16 @@
       // Colour is NOT persisted — user must always select it fresh each entry
 
       const dat = jobColorsData[val];
-      el('color-bal-display').textContent = dat
-        ? `Bal: ${dat.bal} / Plan: ${dat.plan}`
-        : '';
+      if (dat && Number(dat.plan) > 0) {
+        const plan = Number(dat.plan);
+        const produced = plan - Number(dat.bal);
+        const cap = Math.floor(plan * COLOUR_OVERPROD_FACTOR);
+        const remaining = Math.max(0, cap - produced);
+        el('color-bal-display').textContent =
+          `Bal: ${dat.bal} / Plan: ${plan} · Max ${remaining} more (cap ${cap})`;
+      } else {
+        el('color-bal-display').textContent = dat ? `Bal: ${dat.bal} / Plan: ${dat.plan}` : '';
+      }
 
       // Update the visual picker button
       const lbl = el('color-picker-label');
@@ -2894,6 +2916,26 @@
       validateForm();
     }
 
+    // Colour over-production cap: cumulative produced for a colour may not exceed
+    // 110% of that colour's plan qty. produced is derived as (plan - bal), where
+    // bal already has all existing DPR entries subtracted by /api/job/colors.
+    // Returns an error string, or '' when within the cap / not applicable.
+    const COLOUR_OVERPROD_FACTOR = 1.10;
+    function colourCapError(colourName, goodQty) {
+      const dat = (window.jobColorsData || {})[colourName];
+      // Unplanned colours ("Other") and jobs with no colour plan are not capped.
+      if (!dat || !(Number(dat.plan) > 0)) return '';
+      const plan = Number(dat.plan);
+      const produced = plan - Number(dat.bal);
+      const cap = Math.floor(plan * COLOUR_OVERPROD_FACTOR);
+      const total = produced + Number(goodQty || 0);
+      if (total <= cap) return '';
+      const remaining = Math.max(0, cap - produced);
+      return `${colourName}: Plan ${plan}, already produced ${produced}. ` +
+             `This entry of ${goodQty} would total ${total}, over the 10% cap of ${cap}. ` +
+             `Enter ${remaining} or less.`;
+    }
+
     function validateForm() {
       const errs = [];
       el('submit-errors').textContent = '';
@@ -2914,6 +2956,10 @@
       const colourOptCount2 = el('d-color')?.options?.length || 0;
       if (colourOptCount2 > 1 && !colourVal) errs.push('Select a Colour before submitting.');
       if (rej > shots) errs.push('Rejection Qty exceeds Shots.');
+      {
+        const capErr = colourCapError(colourVal, Math.max(0, shots - rej));
+        if (capErr) errs.push(capErr);
+      }
       if (dt > 60) errs.push('Downtime exceeds 60 minutes.');
 
       if (appSettings.geofence_enabled === 'true') {
@@ -3115,6 +3161,18 @@
       // Validation Removed as per user request (Was checking 2x limit)
       // The logic below is commented out / removed.
       /* ------------------------------ */
+
+      /* --- COLOUR 110% CAP (hard block) --- */
+      {
+        const _rej = rejItems.reduce((s, i) => s + Number(i.qty || 0), 0);
+        const capErr = colourCapError((el('d-color').value || '').trim(), Math.max(0, inputShots - _rej));
+        if (capErr) {
+          el('submit-errors').textContent = 'Blocked — over production: ' + capErr;
+          unlockSubmitBtn();
+          return;
+        }
+      }
+      /* ----------------------------------- */
 
       // 2. CHECK FOR PREVIOUS SHIFT
       const selDate = el('d-date').value;
