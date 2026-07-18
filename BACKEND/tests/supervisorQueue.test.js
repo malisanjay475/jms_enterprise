@@ -84,7 +84,11 @@ describe('Supervisor queue', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
 
-    const [sql, params] = pool.query.mock.calls[0];
+    // The cavity/weight validation guard queries the mould master first, so the
+    // upsert is not necessarily call 0 — find it by shape instead of by index.
+    const upsertCall = pool.query.mock.calls.find(([sql]) => sql.includes('WITH updated AS'));
+    expect(upsertCall).toBeDefined();
+    const [sql, params] = upsertCall;
     expect(sql).toContain('WITH updated AS');
     expect(sql).toContain('factory_id');
     expect(sql).toContain('factory_id          = COALESCE($20, factory_id)');
