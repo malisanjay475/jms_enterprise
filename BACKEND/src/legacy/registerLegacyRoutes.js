@@ -11217,7 +11217,7 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
                        AND TRIM(t.or_jr_no) = TRIM(s.or_jr_no)
                        AND TRIM(COALESCE(t.mould_no, '')) = TRIM(COALESCE($3, s.mould_no, ''))
                        AND TRIM(COALESCE(t.mould_item_code, '')) = TRIM(COALESCE(s.mould_item_code, ''))
-                       AND COALESCE(t.plan_date, '1900-01-01'::date) = COALESCE(s.plan_date, '1900-01-01'::date)
+                       AND TRIM(COALESCE(t.plan_date, '')) = TRIM(COALESCE(s.plan_date, ''))
                   )`,
               [orderNo, oldMouldName, newMouldCode]
             );
