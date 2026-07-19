@@ -11190,7 +11190,37 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
           const planId = before.plan_id;
 
           // Planning summary + report are keyed by (or_jr_no, mould_name).
+          // Both tables have a unique natural key that includes mould_no
+          // (summary: or_jr_no+mould_no; report: +mould_item_code+plan_date).
+          // If the CORRECT mould already has its own row for this OR, renaming
+          // the wrong-mould row into it violates that key ("duplicate key ...
+          // composite_key"). The target row is the authoritative one, so drop
+          // the wrong-mould row when a target row exists and rename otherwise.
           if (orderNo) {
+            await client.query(
+              `DELETE FROM mould_planning_summary s
+                WHERE TRIM(s.or_jr_no) = TRIM($1) AND TRIM(s.mould_name) = TRIM($2)
+                  AND EXISTS (
+                    SELECT 1 FROM mould_planning_summary t
+                     WHERE t.id <> s.id
+                       AND TRIM(t.or_jr_no) = TRIM(s.or_jr_no)
+                       AND TRIM(COALESCE(t.mould_no, '')) = TRIM(COALESCE($3, s.mould_no, ''))
+                  )`,
+              [orderNo, oldMouldName, newMouldCode]
+            );
+            await client.query(
+              `DELETE FROM mould_planning_report s
+                WHERE TRIM(s.or_jr_no) = TRIM($1) AND TRIM(s.mould_name) = TRIM($2)
+                  AND EXISTS (
+                    SELECT 1 FROM mould_planning_report t
+                     WHERE t.id <> s.id
+                       AND TRIM(t.or_jr_no) = TRIM(s.or_jr_no)
+                       AND TRIM(COALESCE(t.mould_no, '')) = TRIM(COALESCE($3, s.mould_no, ''))
+                       AND TRIM(COALESCE(t.mould_item_code, '')) = TRIM(COALESCE(s.mould_item_code, ''))
+                       AND TRIM(COALESCE(t.plan_date, '')) = TRIM(COALESCE(s.plan_date, ''))
+                  )`,
+              [orderNo, oldMouldName, newMouldCode]
+            );
             await client.query(
               `UPDATE mould_planning_summary
                  SET mould_name = $1,
