@@ -11,8 +11,35 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.7.0",
+  "latest": "1.8.0",
   "versions": [
+    {
+      "version": "1.8.0",
+      "date": "2026-07-19",
+      "title": "DPR now predicts each shift's final tonnage — per machine, per line, and plant-wide",
+      "summary": "While a shift is running, the Compliance Summary shows how many pieces and how many kg each machine is expected to finish with by shift end, based on its actual speed so far. Line headers and the Plant Total card show the same prediction added up.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Each machine's summary box now shows a Pred line — the pieces and kg that machine is expected to reach by the end of the selected shift, based on its actual speed so far (or the standard rate if the shift just started)."
+            },
+            {
+              "type": "feat",
+              "text": "Every line header shows the predicted total kg for that line, and the Plant Total card at the top gets a new Pred. Tonnage figure for the whole plant."
+            },
+            {
+              "type": "improvement",
+              "text": "The prediction respects maintenance windows and completed moulds — those hours are not counted — and it only appears while the shift still has hours left."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.7.0",
       "date": "2026-07-18",
