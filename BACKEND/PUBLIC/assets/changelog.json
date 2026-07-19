@@ -11,8 +11,62 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.7.0",
+  "latest": "1.9.0",
   "versions": [
+    {
+      "version": "1.9.0",
+      "date": "2026-07-19",
+      "title": "New Machine Maintenance Report — see which machines lose the most hours to maintenance",
+      "summary": "Reports gets a Machine Maintenance Report: pick Daily, Weekly or Monthly and a date range, and see machine-wise maintenance downtime in hours, with the most-affected machines highlighted on top. Exports to Excel/CSV.",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New Machine Maintenance Report: choose Daily, Weekly or Monthly and a date range to see maintenance downtime machine-wise, in hours and minutes."
+            },
+            {
+              "type": "feat",
+              "text": "A summary on top shows total maintenance downtime, how many machines were affected, and each machine's total — most-affected machines first."
+            },
+            {
+              "type": "improvement",
+              "text": "Counts maintenance from both supervisor quick actions and downtime reasons logged inside production entries, so nothing is missed."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.8.0",
+      "date": "2026-07-19",
+      "title": "DPR now predicts each shift's final tonnage — per machine, per line, and plant-wide",
+      "summary": "While a shift is running, the Compliance Summary shows how many pieces and how many kg each machine is expected to finish with by shift end, based on its actual speed so far. Line headers and the Plant Total card show the same prediction added up.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Each machine's summary box now shows a Pred line — the pieces and kg that machine is expected to reach by the end of the selected shift, based on its actual speed so far (or the standard rate if the shift just started)."
+            },
+            {
+              "type": "feat",
+              "text": "Every line header shows the predicted total kg for that line, and the Plant Total card at the top gets a new Pred. Tonnage figure for the whole plant."
+            },
+            {
+              "type": "improvement",
+              "text": "The prediction respects maintenance windows and completed moulds — those hours are not counted — and it only appears while the shift still has hours left."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.7.0",
       "date": "2026-07-18",
