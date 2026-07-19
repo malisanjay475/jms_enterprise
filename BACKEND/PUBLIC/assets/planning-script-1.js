@@ -1862,6 +1862,26 @@
       const key = String(planId) + '|' + machineCode;
       if (window._etvMpInFlight[key]) return; // Fix 3: block double-click
 
+      // JC GATE — setting a priority requires linked JC + full PPC/Moulding approval
+      // (clearing an existing priority is always allowed). Server enforces this too.
+      if (!isActive) {
+        const gQueue = (typeof etvGroups !== 'undefined' ? etvGroups : window.etvGroups || {})[machineCode] || [];
+        const gPlan = gQueue.find(p => String(p.id || p.planId || p.plan_id || '') === String(planId))
+                   || (window.allMasterPlans || []).find(p => String(p.id || p.planId || p.plan_id || '') === String(planId));
+        if (gPlan) {
+          const jcLinked = gPlan.jcNo || gPlan.jc_no || gPlan.job_card_no || '';
+          const jcApproval = String(gPlan.jcApprovalStatus || gPlan.jc_approval_status || 'PENDING').toUpperCase();
+          if (!jcLinked || jcApproval !== 'APPROVED') {
+            const why = !jcLinked ? 'No Job Card number is linked to this plan.'
+              : jcApproval === 'PPC_APPROVED' ? 'Moulding approval is pending.'
+              : jcApproval === 'REJECTED' ? 'This plan was REJECTED.'
+              : 'PPC and Moulding approvals are pending.';
+            alert(`Cannot set priority ${priority} — ${why}\n\nComplete Job Card approval (PPC + Moulding) first.`);
+            return;
+          }
+        }
+      }
+
       /* Fix 8: visual save feedback — dim the button row while saving */
       const cardEl = document.querySelector(`.etv-plan-cell[data-slot-pid="${CSS.escape(String(planId))}"] .etv-mp-btns`);
       if (cardEl) { cardEl.style.opacity = '0.4'; cardEl.style.pointerEvents = 'none'; }
@@ -1970,6 +1990,25 @@
       if (window._etvJcInFlight[planId]) return;
 
       const isGiven = (currentStatus === true || currentStatus === 'true');
+
+      // JC GATE — marking "JC Given" requires linked JC + full PPC/Moulding approval
+      // (unchecking is always allowed). Server enforces this too.
+      if (!isGiven) {
+        const gPlan = (window.allMasterPlans || []).find(p => String(p.id || p.planId || p.plan_id || '') === String(planId));
+        if (gPlan) {
+          const jcLinked = gPlan.jcNo || gPlan.jc_no || gPlan.job_card_no || '';
+          const jcApproval = String(gPlan.jcApprovalStatus || gPlan.jc_approval_status || 'PENDING').toUpperCase();
+          if (!jcLinked || jcApproval !== 'APPROVED') {
+            const why = !jcLinked ? 'No Job Card number is linked to this plan.'
+              : jcApproval === 'PPC_APPROVED' ? 'Moulding approval is pending.'
+              : jcApproval === 'REJECTED' ? 'This plan was REJECTED.'
+              : 'PPC and Moulding approvals are pending.';
+            alert(`Cannot mark JC Given — ${why}\n\nComplete Job Card approval (PPC + Moulding) first.`);
+            return;
+          }
+        }
+      }
+
       const msg = isGiven
         ? 'Remove "JC Given" for this plan?\nThis will mark Job Card as NOT given.'
         : 'Mark Job Card as Given for this plan?';

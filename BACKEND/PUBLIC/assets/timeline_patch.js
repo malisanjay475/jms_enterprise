@@ -1089,10 +1089,15 @@
         if (plan) {
             const jcLinked = plan.jcNo || plan.jc_no || plan.job_card_no || '';
             const jcGiven  = plan.job_card_given;
-            if (!jcLinked || !jcGiven) {
+            const jcApproval = String(plan.jcApprovalStatus || plan.jc_approval_status || 'PENDING').toUpperCase();
+            if (!jcLinked || !jcGiven || jcApproval !== 'APPROVED') {
                 const missing = !jcLinked ? 'Job Card number is not linked to this plan.'
-                                          : 'Job Card has not been marked as "JC Given".';
-                alert(`Cannot start plan — ${missing}\n\nPlease link a Job Card and mark JC Given before starting.`);
+                              : jcApproval !== 'APPROVED'
+                                ? (jcApproval === 'PPC_APPROVED' ? 'Moulding approval is pending.'
+                                   : jcApproval === 'REJECTED' ? 'this plan was REJECTED.'
+                                   : 'PPC and Moulding approvals are pending.')
+                              : 'Job Card has not been marked as "JC Given".';
+                alert(`Cannot start plan — ${missing}\n\nLink a Job Card, complete PPC + Moulding approval, and mark JC Given before starting.`);
                 return;
             }
         }
@@ -1357,12 +1362,18 @@
 
                        <!-- ACTIONS FOOTER -->
                        <div style="margin-top:auto; padding-top:6px; border-top:1px dashed #e2e8f0; display:flex; justify-content:space-between; align-items:center">
-                           <label style="font-size:0.75rem; color:#64748b; display:flex; align-items:center; gap:4px; cursor:pointer;" onclick="event.stopPropagation()">
-                               <input type="checkbox" ${p.job_card_given ? 'checked' : ''} 
-                                   onclick="window.updateJCStatus('${p.id}', this.checked); event.stopPropagation();"
-                                   style="cursor:pointer; width:14px; height:14px;">
+                           ${(() => {
+                               // JC GATE — checkbox stays disabled until a JC is linked AND
+                               // both PPC + Moulding have approved. Unchecking is always allowed.
+                               const jcEligible = !!jcNo && String(p.jcApprovalStatus || p.jc_approval_status || 'PENDING').toUpperCase() === 'APPROVED';
+                               const jcLocked = !p.job_card_given && !jcEligible;
+                               return `<label style="font-size:0.75rem; color:${jcLocked ? '#cbd5e1' : '#64748b'}; display:flex; align-items:center; gap:4px; cursor:${jcLocked ? 'not-allowed' : 'pointer'};" onclick="event.stopPropagation()" title="${jcLocked ? 'Link a Job Card and complete PPC + Moulding approval first' : 'Mark Job Card as Given'}">
+                               <input type="checkbox" ${p.job_card_given ? 'checked' : ''} ${jcLocked ? 'disabled' : ''}
+                                   onclick="window.updateJCStatus('${p.id}', this.checked, this); event.stopPropagation();"
+                                   style="cursor:${jcLocked ? 'not-allowed' : 'pointer'}; width:14px; height:14px;">
                                JC Given
-                           </label>
+                           </label>`;
+                           })()}
                            
                            <div style="display:flex; gap:6px;">
                                ${_tlIsSuperAdmin ? `
