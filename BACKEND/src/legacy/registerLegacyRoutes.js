@@ -9030,6 +9030,7 @@ app.get('/api/planning/board', async (req, res) => {
         mps.cavity       AS "cavity",
         ojr.job_card_no  AS "jcNo",
         pb.job_card_given,
+        COALESCE(pb.jc_approval_status, 'PENDING') AS "jcApprovalStatus",
         pb.plan_qty     AS "planQty",
             pb.bal_qty      AS "balQty",
               pb.start_date   AS "startDate",
@@ -9130,6 +9131,42 @@ app.get('/api/planning/board', async (req, res) => {
 });
 
 /* ============================================================
+   JC GATE — a plan may only be marked "JC Given", given a
+   machine priority, or started when (1) a Job Card number is
+   linked in the OR-JR Report AND (2) BOTH PPC and Moulding
+   have approved it (jc_approval_status = 'APPROVED').
+   Returns an error string, or null when the plan passes.
+============================================================ */
+async function getPlanJcGateError(planId) {
+  const rows = await q(
+    `SELECT id, order_no, jc_approval_status FROM plan_board WHERE id = $1`,
+    [planId]
+  );
+  const plan = rows[0];
+  if (!plan) return 'Plan not found';
+
+  const jcRows = await q(
+    `SELECT job_card_no FROM or_jr_report
+      WHERE TRIM(or_jr_no) = TRIM($1)
+        AND job_card_no IS NOT NULL AND TRIM(job_card_no) <> ''
+      LIMIT 1`,
+    [plan.order_no]
+  );
+  if (!jcRows.length) {
+    return `No Job Card number is linked for Order ${plan.order_no}. Link a Job Card before this action.`;
+  }
+
+  const st = String(plan.jc_approval_status || 'PENDING').toUpperCase();
+  if (st !== 'APPROVED') {
+    const stageMsg = st === 'PPC_APPROVED' ? 'Moulding approval is pending'
+      : st === 'REJECTED' ? 'this plan was REJECTED'
+      : 'PPC and Moulding approvals are pending';
+    return `Job Card approval incomplete for Order ${plan.order_no} — ${stageMsg}. Complete approval in Planning Board > Pending Plan Approval first.`;
+  }
+  return null;
+}
+
+/* ============================================================
    MACHINE PRIORITY (P1–P4) API
    Each machine can have at most one plan per label.
    Assigning a label clears any previous holder of that label
@@ -9153,6 +9190,13 @@ app.post('/api/planning/machine-priority', async (req, res) => {
       machine = (planRow[0] && planRow[0].machine) ? String(planRow[0].machine).trim() : '';
     }
     if (!machine) return res.status(400).json({ ok: false, error: 'machine not found for plan' });
+
+    // JC GATE — setting a priority requires linked JC + full PPC/Moulding approval.
+    // Clearing (priority === null) is always allowed.
+    if (priority !== null) {
+      const gateErr = await getPlanJcGateError(planId);
+      if (gateErr) return res.status(403).json({ ok: false, error: gateErr });
+    }
 
     await q('BEGIN');
     try {
@@ -9304,6 +9348,12 @@ app.post('/api/planning/set-jc', async (req, res) => {
   console.log('API HIT: /api/planning/set-jc', req.body);
   try {
     const { planId, status } = req.body;
+    // JC GATE — marking "JC Given" requires linked JC + full PPC/Moulding approval.
+    // Unchecking is always allowed.
+    if (status) {
+      const gateErr = await getPlanJcGateError(planId);
+      if (gateErr) return res.status(403).json({ ok: false, error: gateErr });
+    }
     await q('UPDATE plan_board SET job_card_given = $1 WHERE id = $2', [!!status, planId]);
     res.json({ ok: true });
   } catch (e) {
@@ -11362,6 +11412,15 @@ app.post('/api/planning/run', async (req, res) => {
     const jcNo = jcCheck[0].job_card_no;
     if (!jcNo || String(jcNo).trim() === '') {
       return res.json({ ok: false, error: `Job Card No is missing for Order ${plan.order_no}. Cannot start plan.` });
+    }
+
+    // JC GATE — starting a plan requires BOTH PPC and Moulding approval.
+    const runApproval = String(plan.jc_approval_status || 'PENDING').toUpperCase();
+    if (runApproval !== 'APPROVED') {
+      const stageMsg = runApproval === 'PPC_APPROVED' ? 'Moulding approval is pending'
+        : runApproval === 'REJECTED' ? 'this plan was REJECTED'
+        : 'PPC and Moulding approvals are pending';
+      return res.json({ ok: false, error: `Cannot start plan for Order ${plan.order_no} — ${stageMsg}. Complete Job Card approval first.` });
     }
 
     // 2. Check for EXISTING Running Plan on this machine

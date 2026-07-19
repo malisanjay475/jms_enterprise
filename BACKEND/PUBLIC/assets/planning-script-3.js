@@ -217,6 +217,14 @@
           alert(`Cannot activate plan — Job Card is not linked to Order ${orderNo}.\n\nPlease link a Job Card before activating.`);
           return;
         }
+        const jcApproval = String(planForJc.jcApprovalStatus || planForJc.jc_approval_status || 'PENDING').toUpperCase();
+        if (jcApproval !== 'APPROVED') {
+          const stageMsg = jcApproval === 'PPC_APPROVED' ? 'Moulding approval is pending'
+            : jcApproval === 'REJECTED' ? 'this plan was REJECTED'
+            : 'PPC and Moulding approvals are pending';
+          alert(`Cannot activate plan — ${stageMsg} for Order ${orderNo}.\n\nComplete Job Card approval (PPC + Moulding) before activating.`);
+          return;
+        }
         if (!jcGiven) {
           alert(`Cannot activate plan — "JC Given" is not marked for Order ${orderNo}.\n\nPlease mark JC Given before activating.`);
           return;
@@ -7514,10 +7522,16 @@
 
             row.innerHTML = `
                <div style="display:flex; justify-content:center; align-items:center;">
-                  <input type="checkbox" style="width:18px; height:18px; cursor:pointer;" 
-                     ${p.job_card_given ? 'checked' : ''} 
-                     onclick="window.updateJCStatus('${p.id}', this.checked); event.stopPropagation();"
-                     title="Mark Job Card as Given">
+                  ${(() => {
+                     // JC GATE — disabled until JC linked + PPC & Moulding approved
+                     const jcEligible = !!(p.jcNo || p.jc_no || p.job_card_no) &&
+                       String(p.jcApprovalStatus || p.jc_approval_status || 'PENDING').toUpperCase() === 'APPROVED';
+                     const jcLocked = !p.job_card_given && !jcEligible;
+                     return `<input type="checkbox" style="width:18px; height:18px; cursor:${jcLocked ? 'not-allowed' : 'pointer'};"
+                     ${p.job_card_given ? 'checked' : ''} ${jcLocked ? 'disabled' : ''}
+                     onclick="window.updateJCStatus('${p.id}', this.checked, this); event.stopPropagation();"
+                     title="${jcLocked ? 'Link a Job Card and complete PPC + Moulding approval first' : 'Mark Job Card as Given'}">`;
+                  })()}
                </div>
                <div class="master-cell-stack">
                   <div class="master-cell-title is-wrap">${esc(p.machine)}</div>
@@ -7706,16 +7720,37 @@
          ADVANCED MOULD PLANNING FEATURES (Alternatives & Batch)
          ========================================================================================== */
 
-      window.updateJCStatus = async function (id, checked) {
+      window.updateJCStatus = async function (id, checked, el) {
         console.log('[JC Update] Sending:', { id, checked });
+        // JC GATE — marking "JC Given" requires linked JC + full PPC/Moulding approval
+        // (unchecking is always allowed). Server enforces this too.
+        if (checked) {
+          const plan = (window.allMasterPlans || []).find(p => String(p.id) === String(id))
+                    || (window._tlMap && window._tlMap[id]);
+          if (plan) {
+            const jcLinked = plan.jcNo || plan.jc_no || plan.job_card_no || '';
+            const jcApproval = String(plan.jcApprovalStatus || plan.jc_approval_status || 'PENDING').toUpperCase();
+            if (!jcLinked || jcApproval !== 'APPROVED') {
+              const why = !jcLinked ? 'No Job Card number is linked to this plan.'
+                : jcApproval === 'PPC_APPROVED' ? 'Moulding approval is pending.'
+                : jcApproval === 'REJECTED' ? 'This plan was REJECTED.'
+                : 'PPC and Moulding approvals are pending.';
+              alert(`Cannot mark JC Given — ${why}\n\nComplete Job Card approval (PPC + Moulding) first.`);
+              if (el) el.checked = false;
+              return;
+            }
+          }
+        }
         try {
           // Use global JPSMS.api to avoid scope issues
           const client = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : api;
-          await client.post('/planning/set-jc', { planId: id, status: checked });
+          const res = await client.post('/planning/set-jc', { planId: id, status: checked });
+          if (res && res.ok === false) throw new Error(res.error || 'Failed to update JC status');
           toast('JC Status Updated');
         } catch (e) {
           console.error('[JC Update Error]', e);
           toast('Failed: ' + e.message, 'error');
+          if (el) el.checked = !checked; // revert the checkbox on rejection
         }
       };
 

@@ -11,8 +11,35 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.9.1",
+  "latest": "1.9.2",
   "versions": [
+    {
+      "version": "1.9.2",
+      "date": "2026-07-19",
+      "title": "Job Card approval can no longer be skipped from the Machine Timeline",
+      "summary": "Marking 'JC Given', setting a P1-P4 priority, or starting a plan now always requires a linked Job Card that has been approved by both PPC and Moulding. Removing JC Given or clearing a priority still works as before.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            {
+              "type": "security",
+              "text": "'JC Given' can only be ticked after a Job Card is linked and both PPC and Moulding have approved the plan — the box stays greyed out until then."
+            },
+            {
+              "type": "security",
+              "text": "Setting a machine priority (P1-P4) or starting a plan is blocked until the Job Card approval is complete, with a message telling you which approval is still pending."
+            },
+            {
+              "type": "improvement",
+              "text": "Priorities that were already set earlier keep working; only new assignments need the completed approval."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.9.1",
       "date": "2026-07-19",
