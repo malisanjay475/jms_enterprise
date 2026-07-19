@@ -16,8 +16,8 @@
     {
       "version": "1.9.1",
       "date": "2026-07-19",
-      "title": "Fix: changing a plan's mould no longer fails when the correct mould is already planned",
-      "summary": "In the superadmin Edit Plan window, correcting a plan to a mould that already had its own planning row for the same OR used to fail with a duplicate-entry error. This now applies cleanly.",
+      "title": "Fix: changing a plan's mould now works even when the correct mould is already planned",
+      "summary": "In the superadmin Edit Plan window, correcting a plan to a mould that is already planned for the same OR used to show an error. It now applies cleanly.",
       "modules": [
         {
           "app": "planning",
@@ -26,7 +26,7 @@
           "changes": [
             {
               "type": "fix",
-              "text": "Edit Plan: changing the mould now works even when the correct mould already has its own planning summary row for the same OR — the wrong-mould row is removed instead of causing a duplicate-entry error."
+              "text": "Edit Plan: you can now correct a plan to a mould that is already planned for the same OR without getting an error."
             }
           ]
         }
