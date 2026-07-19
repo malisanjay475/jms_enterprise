@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.9.0",
+  "latest": "1.9.1",
   "versions": [
+    {
+      "version": "1.9.1",
+      "date": "2026-07-19",
+      "title": "Fix: changing a plan's mould no longer fails when the correct mould is already planned",
+      "summary": "In the superadmin Edit Plan window, correcting a plan to a mould that already had its own planning row for the same OR used to fail with a duplicate-entry error. This now applies cleanly.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Edit Plan: changing the mould now works even when the correct mould already has its own planning summary row for the same OR — the wrong-mould row is removed instead of causing a duplicate-entry error."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.9.0",
       "date": "2026-07-19",
