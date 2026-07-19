@@ -20922,6 +20922,75 @@ app.get('/api/extra-qty', async (req, res) => {
   }
 });
 
+// GET /api/reports/machine-maintenance — machine-wise maintenance downtime,
+// grouped daily / weekly / monthly. Maintenance minutes come from:
+//  - quick-action entries (entry_type='Maintenance'): their downtime_min (default 60/slot)
+//  - normal entries: downtime_breakup minutes for DOWNTIME reasons named machine maintenance
+app.get('/api/reports/machine-maintenance', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.json({ ok: false, error: 'from and to dates required' });
+    const group = ['daily', 'weekly', 'monthly'].includes(String(req.query.group)) ? String(req.query.group) : 'daily';
+    const truncUnit = { daily: 'day', weekly: 'week', monthly: 'month' }[group];
+    const factoryId = getFactoryId(req);
+
+    const params = [from, to];
+    let factoryCond = '';
+    if (factoryId) { params.push(factoryId); factoryCond = ` AND (h.factory_id = $3 OR h.factory_id IS NULL)`; }
+
+    const rows = await q(
+      `WITH maint_codes AS (
+         SELECT DISTINCT code FROM dpr_reasons
+          WHERE type = 'DOWNTIME' AND code IS NOT NULL AND is_active = true
+            AND (reason ILIKE '%machine%maint%' OR TRIM(LOWER(reason)) = 'maintenance')
+       ),
+       per_entry AS (
+         SELECT h.machine, h.dpr_date, h.shift,
+           CASE
+             WHEN h.entry_type = 'Maintenance' THEN COALESCE(h.downtime_min, 60)
+             ELSE COALESCE((
+               SELECT SUM(COALESCE(NULLIF(h.downtime_breakup->>mc.code, '')::numeric, 0))
+                 FROM maint_codes mc
+                WHERE h.downtime_breakup IS NOT NULL
+             ), 0)
+           END AS maint_min
+         FROM dpr_hourly h
+         WHERE h.is_deleted = false
+           AND h.dpr_date BETWEEN $1::date AND $2::date${factoryCond}
+       )
+       SELECT machine,
+              to_char(date_trunc('${truncUnit}', dpr_date), 'YYYY-MM-DD') AS period_start,
+              SUM(maint_min)::int AS maint_min,
+              COUNT(*) AS entry_count
+         FROM per_entry
+        WHERE maint_min > 0 AND machine IS NOT NULL AND TRIM(machine) <> ''
+        GROUP BY machine, period_start
+        ORDER BY period_start DESC, machine ASC`,
+      params
+    );
+
+    // Per-machine totals for the summary strip
+    const byMachine = {};
+    rows.forEach(r => {
+      byMachine[r.machine] = (byMachine[r.machine] || 0) + Number(r.maint_min || 0);
+    });
+
+    res.json({
+      ok: true,
+      group,
+      data: rows,
+      summary: {
+        total_min: rows.reduce((s, r) => s + Number(r.maint_min || 0), 0),
+        machines: Object.keys(byMachine).length,
+        by_machine: byMachine
+      }
+    });
+  } catch (e) {
+    console.error('api/reports/machine-maintenance', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // GET /api/reports/extra-qty-allowed — audit report of all grants
 app.get('/api/reports/extra-qty-allowed', async (req, res) => {
   try {

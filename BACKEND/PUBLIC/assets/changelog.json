@@ -11,8 +11,35 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.8.0",
+  "latest": "1.9.0",
   "versions": [
+    {
+      "version": "1.9.0",
+      "date": "2026-07-19",
+      "title": "New Machine Maintenance Report — see which machines lose the most hours to maintenance",
+      "summary": "Reports gets a Machine Maintenance Report: pick Daily, Weekly or Monthly and a date range, and see machine-wise maintenance downtime in hours, with the most-affected machines highlighted on top. Exports to Excel/CSV.",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New Machine Maintenance Report: choose Daily, Weekly or Monthly and a date range to see maintenance downtime machine-wise, in hours and minutes."
+            },
+            {
+              "type": "feat",
+              "text": "A summary on top shows total maintenance downtime, how many machines were affected, and each machine's total — most-affected machines first."
+            },
+            {
+              "type": "improvement",
+              "text": "Counts maintenance from both supervisor quick actions and downtime reasons logged inside production entries, so nothing is missed."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.8.0",
       "date": "2026-07-19",
