@@ -1512,19 +1512,47 @@ async function tryResolveLegacyNotificationConflict(client, row, keys, vals) {
 // into plan_job_card_approval_history is inside the approval transaction, so the
 // whole approve rolled back and the plan stayed stuck in Pending.
 //
-// Runs after COMMIT and is fully error-guarded: a failure here must never
-// invalidate data that already landed. Tables with no serial-backed sequence
-// (pg_get_serial_sequence returns NULL) are a no-op.
-async function resyncSerialSequence(table, column = 'id') {
+// Fully error-guarded: a failure here must never cost us data that would
+// otherwise land. Tables with no serial-backed sequence (pg_get_serial_sequence
+// returns NULL) are a no-op.
+//
+// Pass `client` to run inside an open transaction — the call is then wrapped in a
+// savepoint so a failure rolls back only the setval, leaving the batch intact.
+// Without a client it runs standalone on the pool.
+async function resyncSerialSequence(table, column = 'id', client = null) {
+    const sql = `SELECT setval(seq, COALESCE((SELECT MAX(${column}) FROM ${table}), 0) + 1, false)
+                   FROM pg_get_serial_sequence($1, $2) AS seq
+                  WHERE seq IS NOT NULL`;
+    const params = [table, column];
+
+    if (!client) {
+        try {
+            await pool.query(sql, params);
+        } catch (seqErr) {
+            console.warn(`[Sync] Sequence resync failed for ${table}.${column} (non-fatal):`, seqErr.message);
+        }
+        return;
+    }
+
+    let savepointActive = false;
     try {
-        await pool.query(
-            `SELECT setval(seq, COALESCE((SELECT MAX(${column}) FROM ${table}), 0) + 1, false)
-               FROM pg_get_serial_sequence($1, $2) AS seq
-              WHERE seq IS NOT NULL`,
-            [table, column]
-        );
+        await client.query('SAVEPOINT sync_seq_resync');
+        savepointActive = true;
+        await client.query(sql, params);
+        await client.query('RELEASE SAVEPOINT sync_seq_resync');
     } catch (seqErr) {
         console.warn(`[Sync] Sequence resync failed for ${table}.${column} (non-fatal):`, seqErr.message);
+        if (savepointActive) {
+            try {
+                await client.query('ROLLBACK TO SAVEPOINT sync_seq_resync');
+                await client.query('RELEASE SAVEPOINT sync_seq_resync');
+            } catch (cleanupErr) {
+                // Re-throw: the transaction is now in an aborted state and the
+                // caller's COMMIT would silently fail otherwise.
+                console.error(`[Sync] Sequence savepoint cleanup failed for ${table}:`, cleanupErr.message);
+                throw cleanupErr;
+            }
+        }
     }
 }
 
@@ -1805,14 +1833,26 @@ async function upsertData(table, data) {
                     }
             }
 
-            await client.query('COMMIT');
-
-            // Explicit-id rows just landed, so this server's serial sequence is now
-            // behind the data. Re-align it before the app allocates its next id.
-            // Outside the batch transaction: never roll back committed rows for this.
+            // Explicit-id rows in this batch bypassed nextval, leaving the sequence
+            // behind the data. Re-align it BEFORE COMMIT, not after: between COMMIT
+            // and a post-commit setval there is a window where the new rows are
+            // visible but the sequence is still stale, and an app INSERT landing in
+            // that window draws an id that is already taken — the exact duplicate-key
+            // failure this fix exists to prevent.
+            //
+            // Running inside the transaction is safe because sequence operations are
+            // non-transactional in Postgres: setval takes effect immediately and is
+            // NOT rolled back if this transaction later aborts. So the sequence can
+            // only ever end up too high (harmless — ids are opaque), never too low.
+            // MAX(id) here sees this transaction's own uncommitted rows, which is
+            // precisely the value we need.
+            //
+            // Savepoint-guarded so a setval failure cannot abort the whole batch.
             if (sawExplicitId) {
-                await resyncSerialSequence(table);
+                await resyncSerialSequence(table, 'id', client);
             }
+
+            await client.query('COMMIT');
 
             // After committing plan_board upserts, enforce the invariant that only
             // ONE plan per machine can be RUNNING at a time.  A LOCAL server may
