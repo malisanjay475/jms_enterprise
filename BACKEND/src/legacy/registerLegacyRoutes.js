@@ -10952,8 +10952,46 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
         pb.job_card_date,
         pb.jc_linked_at,
         COALESCE(pb.created_by, 'System') AS created_by,
-        pb.created_at
+        pb.created_at,
+        -- Per-mould piece target (Mould Item Qty). This is the ceiling for Plan Qty;
+        -- the OR-level or_qty is the ceiling for Job Qty. They differ whenever one
+        -- OR set contains several pieces of the same mould (a 7-pc set is 1800 sets
+        -- but 10800 pieces per 6-up mould), so the edit modal must not cap Plan Qty
+        -- at or_qty.
+        COALESCE(ms.mould_qty, 0)::numeric AS mould_item_qty,
+        -- What OTHER plans on the SAME mould already booked. Scoped to the mould so
+        -- sibling moulds of one set are not treated as competing claims.
+        COALESCE(oth.planned_others, 0)::numeric AS mould_planned_others,
+        COALESCE(oth.jobbed_others, 0)::numeric  AS mould_jobbed_others
       FROM plan_board pb
+      LEFT JOIN LATERAL (
+        SELECT MAX(s.mould_item_qty)::numeric AS mould_qty
+        FROM mould_planning_summary s
+        WHERE TRIM(COALESCE(s.or_jr_no, '')) = TRIM(COALESCE(pb.order_no, ''))
+          AND (
+            (TRIM(COALESCE(pb.mould_code, '')) <> '' AND TRIM(COALESCE(s.mould_no, ''))   = TRIM(COALESCE(pb.mould_code, '')))
+            OR (TRIM(COALESCE(pb.mould_name, '')) <> '' AND TRIM(COALESCE(s.mould_name, '')) = TRIM(COALESCE(pb.mould_name, '')))
+          )
+      ) ms ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(SUM(pq), 0)::numeric AS planned_others,
+          COALESCE(SUM(jq), 0)::numeric AS jobbed_others
+        FROM (
+          SELECT DISTINCT ON (COALESCE(pb2.job_no, pb2.batch_no), pb2.our_code)
+            COALESCE(pb2.plan_qty, 0)::numeric              AS pq,
+            COALESCE(pb2.job_qty, pb2.batch_qty, 0)::numeric AS jq
+          FROM plan_board pb2
+          WHERE TRIM(COALESCE(pb2.order_no, '')) = TRIM(COALESCE(pb.order_no, ''))
+            AND COALESCE(pb2.job_no, pb2.batch_no, 0) > 0
+            AND pb2.id <> pb.id
+            AND (
+              (TRIM(COALESCE(pb.mould_code, '')) <> '' AND TRIM(COALESCE(pb2.mould_code, '')) = TRIM(COALESCE(pb.mould_code, '')))
+              OR (TRIM(COALESCE(pb.mould_name, '')) <> '' AND TRIM(COALESCE(pb2.mould_name, '')) = TRIM(COALESCE(pb.mould_name, '')))
+            )
+          ORDER BY COALESCE(pb2.job_no, pb2.batch_no), pb2.our_code, pb2.id ASC
+        ) t
+      ) oth ON true
       WHERE TRIM(COALESCE(pb.order_no, '')) = TRIM($1)
         AND COALESCE(pb.job_no, pb.batch_no, 0) > 0
         AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
@@ -10983,7 +11021,12 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
       jobCardDate: p.job_card_date || null,
       jcLinkedAt: p.jc_linked_at || null,
       createdBy: p.created_by || 'System',
-      createdAt: p.created_at || null
+      createdAt: p.created_at || null,
+      // Ceiling context for the superadmin edit modal: Plan Qty is capped by this
+      // mould's own piece target, Job Qty by the OR's set qty (see orQty below).
+      mouldItemQty: toNum(p.mould_item_qty) ?? 0,
+      mouldPlannedOthers: toNum(p.mould_planned_others) ?? 0,
+      mouldJobbedOthers: toNum(p.mould_jobbed_others) ?? 0
     }));
 
     const representative = jcRows[0] || {};
@@ -11102,58 +11145,111 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
     if (planQty != null && planQty < 0) return res.json({ ok: false, error: 'Plan Qty cannot be negative.' });
     if (jobQty != null && jobQty < 0) return res.json({ ok: false, error: 'Job Qty cannot be negative.' });
 
-    // Ceiling: total planned for the OR must not exceed the Order (Mould Item) Qty.
-    // Max this plan can take = OR Qty − qty already planned by OTHER plans, but never
-    // below this plan's current qty (so an unchanged value is never rejected). Skipped
-    // when OR Qty is unknown, and treated as non-fatal so a data glitch can't lock out
-    // a legitimate superadmin correction.
+    // Ceiling: Plan Qty and Job Qty are measured in DIFFERENT units, so they get
+    // DIFFERENT ceilings. Checking both against or_jr_report.or_qty (the old
+    // behaviour) made any multi-piece set uneditable: a 7-pc set with OR Qty 1800
+    // sets has a Mould Item Qty of 10800 pieces per 6-up mould, and every attempt to
+    // set the correct 10800 was rejected as "exceeds 1800".
+    //   Plan Qty (pieces) → mould_planning_summary.mould_item_qty for THIS plan's mould
+    //   Job Qty  (sets)   → or_jr_report.or_qty for the OR
+    // "Already planned by others" is likewise scoped to the SAME mould. Summing every
+    // plan on the OR double-counted sibling moulds (body/lid/basket are separate
+    // moulds of one set, not competing claims on one quantity).
+    // Never drops below this plan's current qty, so an unchanged value is never
+    // rejected. Skipped when both ceilings are unknown, and non-fatal so a data
+    // glitch can't lock out a legitimate superadmin correction.
     try {
       const orderNo = before.order_no;
       if (orderNo) {
-        const orRows = await q(
-          `SELECT COALESCE(MAX(or_qty), 0)::numeric AS or_qty
-             FROM or_jr_report WHERE TRIM(or_jr_no) = TRIM($1)`,
-          [orderNo]
-        );
+        const mouldCodeForCap = String(req.body.mouldCode || before.mould_code || '').trim();
+        const mouldNameForCap = String(req.body.mouldName || before.mould_name || '').trim();
+
+        const [orRows, mouldRows] = await Promise.all([
+          q(
+            `SELECT COALESCE(MAX(or_qty), 0)::numeric AS or_qty
+               FROM or_jr_report WHERE TRIM(or_jr_no) = TRIM($1)`,
+            [orderNo]
+          ),
+          q(
+            `SELECT COALESCE(MAX(mould_item_qty), 0)::numeric AS mould_qty
+               FROM mould_planning_summary
+              WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM($1)
+                AND (
+                  ($2 <> '' AND TRIM(COALESCE(mould_no, ''))   = TRIM($2))
+                  OR ($3 <> '' AND TRIM(COALESCE(mould_name, '')) = TRIM($3))
+                )`,
+            [orderNo, mouldCodeForCap, mouldNameForCap]
+          )
+        ]);
+
         const orQty = toNum(orRows[0]?.or_qty) ?? 0;
-        if (orQty > 0) {
+        const mouldQty = toNum(mouldRows[0]?.mould_qty) ?? 0;
+        // Fall back to whichever ceiling we do know, so a missing summary row or a
+        // missing OR row degrades to the old single-ceiling behaviour instead of
+        // skipping the check entirely.
+        const planCeiling = mouldQty > 0 ? mouldQty : orQty;
+        const jobCeiling = orQty > 0 ? orQty : mouldQty;
+
+        if (planCeiling > 0 || jobCeiling > 0) {
+          // Other plans on the SAME mould. Plan side sums plan_qty; job side dedups on
+          // (job_no, our_code) because one job spans several plan rows.
           const otherRows = await q(
-            `SELECT COALESCE(SUM(jq), 0)::numeric AS planned_others FROM (
+            `SELECT
+               COALESCE(SUM(pq), 0)::numeric AS planned_others,
+               COALESCE(SUM(jq), 0)::numeric AS jobbed_others
+             FROM (
                SELECT DISTINCT ON (COALESCE(pb.job_no, pb.batch_no), pb.our_code)
-                 COALESCE(pb.job_qty, pb.batch_qty, 0)::numeric AS jq
+                 COALESCE(pb.plan_qty, 0)::numeric                AS pq,
+                 COALESCE(pb.job_qty, pb.batch_qty, 0)::numeric   AS jq
                FROM plan_board pb
                WHERE TRIM(COALESCE(pb.order_no, '')) = TRIM($1)
                  AND COALESCE(pb.job_no, pb.batch_no, 0) > 0
                  AND pb.id <> $2
+                 AND (
+                   ($3 <> '' AND TRIM(COALESCE(pb.mould_code, '')) = TRIM($3))
+                   OR ($4 <> '' AND TRIM(COALESCE(pb.mould_name, '')) = TRIM($4))
+                 )
                ORDER BY COALESCE(pb.job_no, pb.batch_no), pb.our_code, pb.id ASC
              ) t`,
-            [orderNo, rowId]
+            [orderNo, rowId, mouldCodeForCap, mouldNameForCap]
           );
           const plannedOthers = toNum(otherRows[0]?.planned_others) ?? 0;
+          const jobbedOthers = toNum(otherRows[0]?.jobbed_others) ?? 0;
+
+          const currentPlanQty = toNum(before.plan_qty) ?? 0;
           const currentJobQty = toNum(before.job_qty ?? before.batch_qty) ?? 0;
-          const maxForThisPlan = Math.max(orQty - plannedOthers, currentJobQty);
-          // Each colour produces up to its OWN Mould Item Qty ceiling; the SUM is
-          // not capped (a 2-piece set needs the full qty of each colour). So both
-          // Job Qty and Plan Qty are checked PER colour row. With no colour breakup,
-          // fall back to the single Plan/Job Qty totals.
+          const maxPlanForThisPlan = planCeiling > 0
+            ? Math.max(planCeiling - plannedOthers, currentPlanQty)
+            : Infinity;
+          const maxJobForThisPlan = jobCeiling > 0
+            ? Math.max(jobCeiling - jobbedOthers, currentJobQty)
+            : Infinity;
+
+          // Each colour produces up to its OWN ceiling; the SUM is not capped (a
+          // 2-piece set needs the full qty of each colour). So Plan Qty and Job Qty
+          // are checked PER colour row. With no colour breakup, fall back to the
+          // single Plan/Job Qty totals.
           let over = false;
           let overLabel = '';
           let overVal = 0;
+          let overCap = 0;
+          let overSrc = 0;
           if (colourDetails && colourDetails.length) {
-            const jc = colourDetails.find((r) => (r.batchQty || 0) > maxForThisPlan);
-            const pc = colourDetails.find((r) => (r.planQty || 0) > maxForThisPlan);
-            if (jc) { over = true; overLabel = 'Job Qty'; overVal = jc.batchQty; }
-            else if (pc) { over = true; overLabel = 'Plan Qty'; overVal = pc.planQty; }
+            const jc = colourDetails.find((r) => (r.batchQty || 0) > maxJobForThisPlan);
+            const pc = colourDetails.find((r) => (r.planQty || 0) > maxPlanForThisPlan);
+            if (jc) { over = true; overLabel = 'Job Qty'; overVal = jc.batchQty; overCap = maxJobForThisPlan; overSrc = jobCeiling; }
+            else if (pc) { over = true; overLabel = 'Plan Qty'; overVal = pc.planQty; overCap = maxPlanForThisPlan; overSrc = planCeiling; }
           } else {
             const checkJob = jobQty != null ? jobQty : currentJobQty;
-            const checkPlan = planQty != null ? planQty : (toNum(before.plan_qty) ?? 0);
-            if (checkJob > maxForThisPlan) { over = true; overLabel = 'Job Qty'; overVal = checkJob; }
-            else if (checkPlan > maxForThisPlan) { over = true; overLabel = 'Plan Qty'; overVal = checkPlan; }
+            const checkPlan = planQty != null ? planQty : currentPlanQty;
+            if (checkJob > maxJobForThisPlan) { over = true; overLabel = 'Job Qty'; overVal = checkJob; overCap = maxJobForThisPlan; overSrc = jobCeiling; }
+            else if (checkPlan > maxPlanForThisPlan) { over = true; overLabel = 'Plan Qty'; overVal = checkPlan; overCap = maxPlanForThisPlan; overSrc = planCeiling; }
           }
           if (over) {
+            const srcLabel = overLabel === 'Job Qty' ? 'OR Qty' : 'Mould Item Qty';
             return res.json({
               ok: false,
-              error: `A colour's ${overLabel} (${overVal}) exceeds the per-colour limit of ${maxForThisPlan} (Mould Item Qty ${orQty}).`
+              error: `A colour's ${overLabel} (${overVal}) exceeds the per-colour limit of ${overCap} (${srcLabel} ${overSrc}).`
             });
           }
         }
