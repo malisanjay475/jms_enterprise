@@ -4000,6 +4000,27 @@ async function bootstrapFreshCoreTables() {
     );
   `);
 
+  // ERP linkage for the OR-JR Status import (see docs/OR_JR_ERP_AUTO_SYNC_PLAN.md).
+  // erp_factory_id is the Joyo ERP's own factory id — a DIFFERENT number space from
+  // factories.id. ERP 1 = Kachigam while JMS 1 = Dungra Plant 1, so the two must never
+  // be used interchangeably; the import always resolves ERP id -> factories.id via this
+  // column. plant_codes is the fallback for ERP rows synced before the ERP started
+  // returning factoryID: it matches the 2nd segment of the OR/JR no (JR/JG/2526/1 -> JG).
+  await q(`ALTER TABLE factories ADD COLUMN IF NOT EXISTS erp_factory_id INTEGER`);
+  await q(`ALTER TABLE factories ADD COLUMN IF NOT EXISTS plant_codes TEXT`);
+  // Seed the known mapping once, only where it has not been set yet (never overwrite
+  // a value an admin has since corrected).
+  await q(`
+    UPDATE factories SET erp_factory_id = v.erp_id, plant_codes = v.codes
+    FROM (VALUES
+      ('DUNGRA',   41, 'JG,JGUI'),
+      ('SHIVANI',  44, 'JS'),
+      ('KACHIGAM',  1, 'JP')
+    ) AS v(name_match, erp_id, codes)
+    WHERE factories.erp_factory_id IS NULL
+      AND UPPER(COALESCE(factories.name, '') || ' ' || COALESCE(factories.code, '')) LIKE '%' || v.name_match || '%'
+  `).catch(err => console.warn('[DB] factories ERP mapping seed skipped:', err.message));
+
   await q(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -14883,6 +14904,11 @@ function mapErpJrStatusRow(r) {
     printing: r.printing,
     packing: r.packing,
     mld_prt_pack: r.mouldingPrintingPacking,
+    // Same ERP value, second home: OR-JR Status calls this column remarks_all and the
+    // plan -> Job Card auto-link scans it (see autoLinkPlansFromOrJrRemarks). The ERP has
+    // no field literally named remarks_all; mouldingPrintingPacking carries the exact
+    // "(JC)... (M)... (ST)... (PR)... (PK)... (PD)... (W)" text the Excel export used.
+    remarks_all: r.mouldingPrintingPacking,
     meeting_conclusion: r.meetingConclusion,
     wh_received_date: r.warehousereceiveddate,
     shift_remarks: r.shiftingRemarks,
@@ -15231,6 +15257,139 @@ app.post('/api/reports/erp-jr-details/sync', (req, res) => handleErpSync('detail
 app.post('/api/reports/erp-bom/sync',        (req, res) => handleErpSync('bom', req, res));
 app.post('/api/reports/erp-mould-item/sync', (req, res) => handleErpSync('mouldItem', req, res));
 
+/* ============================================================
+   OR-JR STATUS <- ERP IMPORT (stage 2)
+   ------------------------------------------------------------
+   Stage 1 (superadmin "Fetch Latest Data") pulls the ERP into
+   erp_jr_status. Stage 2 below projects that stored snapshot into
+   or_jr_report for ONE factory. It performs no network I/O — the
+   ERP is never contacted here.
+   See docs/OR_JR_ERP_AUTO_SYNC_PLAN.md.
+   ============================================================ */
+
+// The ERP sends no ISO dates. Two shapes are in the feed:
+//   business dates  'dd-MMM-yy'    e.g. 09-Oct-24
+//   audit dates     'dd/MMM/yyyy'  e.g. 09/Oct/2024
+// Returns a Date at LOCAL midnight — deliberately matching how node-pg parses a
+// Postgres DATE column, so an ERP value and a DB value compare byte-identically
+// through toIsoDateText(). Returning a UTC-midnight Date instead would drift a day.
+const ERP_MONTHS = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+};
+
+function parseErpDate(val) {
+  if (val === null || val === undefined) return null;
+  if (val instanceof Date) return Number.isNaN(val.getTime()) ? null : val;
+  const s = String(val).trim();
+  if (!s) return null;
+
+  // dd-MMM-yy | dd-MMM-yyyy | dd/MMM/yyyy | dd/MMM/yy
+  const m = s.match(/^(\d{1,2})[-/]([A-Za-z]{3})[-/](\d{2}|\d{4})$/);
+  if (m) {
+    const day = Number(m[1]);
+    const mon = ERP_MONTHS[m[2].toLowerCase()];
+    if (mon === undefined) return null;
+    let year = Number(m[3]);
+    // 2-digit years in this feed span 24..27; treat <70 as 2000s (matches Excel/Postgres).
+    if (m[3].length === 2) year += year < 70 ? 2000 : 1900;
+    const d = new Date(year, mon, day);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  // Already ISO (yyyy-mm-dd) — build from parts to stay at local midnight.
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const d = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  return null; // unrecognised — better null than a silently wrong date
+}
+
+// The ONLY columns the import writes. Everything else the ERP sends is ignored, and
+// every other or_jr_report column (plan_qty, plan_date, is_closed, manual_closed_*,
+// sync_*, global_id, ...) is JMS-owned and never touched by this path.
+const OR_JR_ERP_DATE_COLUMNS = new Set([
+  'or_jr_date', 'job_card_date', 'planned_comp_date', 'mld_start_date', 'mld_end_date',
+  'actual_mld_start_date', 'prt_tuf_end_date', 'pack_end_date', 'rev_mld_end_date',
+  'shift_comp_date', 'rev_ptd_tuf_end_date', 'rev_pak_end_date', 'wh_rec_date',
+  'created_date', 'edited_date'
+]);
+const OR_JR_ERP_NUM_COLUMNS = new Set(['or_qty', 'jr_qty', 'prod_plan_qty', 'std_pack']);
+const OR_JR_ERP_IMPORT_COLUMNS = [
+  'or_jr_no', 'or_jr_date', 'or_qty', 'jr_qty', 'job_card_no', 'job_card_date',
+  'item_code', 'product_name', 'client_name', 'prod_plan_qty', 'std_pack', 'uom',
+  'planned_comp_date', 'mld_start_date', 'mld_end_date', 'actual_mld_start_date',
+  'prt_tuf_end_date', 'pack_end_date',
+  'mld_status', 'shift_status', 'prt_tuf_status', 'pack_status', 'wh_status',
+  'rev_mld_end_date', 'shift_comp_date', 'rev_ptd_tuf_end_date', 'rev_pak_end_date',
+  'wh_rec_date', 'remarks_all', 'jr_close', 'or_remarks', 'jr_remarks',
+  'created_by', 'created_date', 'edited_by', 'edited_date'
+];
+
+// Plant code = 2nd segment of the OR/JR no: 'JR/JG/2526/1' -> 'JG'.
+function erpPlantCodeFromOrJrNo(orJrNo) {
+  const parts = String(orJrNo || '').split('/');
+  return parts.length > 1 ? parts[1].trim().toUpperCase() : '';
+}
+
+// Load every factory's ERP linkage so a row can be classified as ours / another
+// factory's / unknown — we never fall back to "assume it's mine".
+async function loadErpFactoryMap() {
+  const rows = await q(
+    `SELECT id, name, code, erp_factory_id, plant_codes FROM factories`
+  );
+  const byErpId = new Map();
+  const byPlantCode = new Map();
+  for (const r of rows) {
+    if (r.erp_factory_id !== null && r.erp_factory_id !== undefined) {
+      byErpId.set(Number(r.erp_factory_id), r);
+    }
+    for (const code of String(r.plant_codes || '').split(',')) {
+      const c = code.trim().toUpperCase();
+      if (c) byPlantCode.set(c, r);
+    }
+  }
+  return { rows, byErpId, byPlantCode };
+}
+
+// Decide which JMS factory an ERP row belongs to.
+//   'match'      -> belongs to the logged-in factory, import it
+//   'other'      -> belongs to a different factory, skip
+//   'unresolved' -> cannot be determined, skip and report
+function classifyErpRowFactory(erpRow, factoryId, map) {
+  const rawErpFactory = erpRow.factory_id;
+  if (rawErpFactory !== null && rawErpFactory !== undefined && String(rawErpFactory).trim() !== '') {
+    const owner = map.byErpId.get(Number(rawErpFactory));
+    if (!owner) return 'unresolved';
+    return Number(owner.id) === Number(factoryId) ? 'match' : 'other';
+  }
+  // Legacy rows synced before the ERP started returning factoryID — fall back to
+  // the plant code embedded in the OR/JR number.
+  const owner = map.byPlantCode.get(erpPlantCodeFromOrJrNo(erpRow.or_jr_no));
+  if (!owner) return 'unresolved';
+  return Number(owner.id) === Number(factoryId) ? 'match' : 'other';
+}
+
+// Project an erp_jr_status row (all TEXT) onto the or_jr_report shape.
+function erpStatusRowToOrJrReportRow(erpRow, factoryId) {
+  const out = {};
+  for (const col of OR_JR_ERP_IMPORT_COLUMNS) {
+    const raw = erpRow[col];
+    if (OR_JR_ERP_DATE_COLUMNS.has(col)) out[col] = parseErpDate(raw);
+    else if (OR_JR_ERP_NUM_COLUMNS.has(col)) out[col] = toNum(raw);
+    else {
+      const s = raw === null || raw === undefined ? '' : String(raw).trim();
+      out[col] = s === '' ? null : s;
+    }
+  }
+  out.or_jr_no = String(erpRow.or_jr_no || '').trim();
+  out.job_card_no = String(erpRow.job_card_no || '').trim();
+  out.factory_id = factoryId; // JMS id — never the ERP's own factory number
+  return out;
+}
+
 // POST /api/upload/excel (Mock - requires 'xlsx' library for real parsing)
 app.post('/api/upload/excel', async (req, res) => {
   // In a real app, use 'multer' to handle file upload and 'xlsx' to parse
@@ -15542,6 +15701,79 @@ function toIsoDateText(val) {
   return clean || null;
 }
 
+/* ------------------------------------------------------------------
+   OR-JR upload preview — shared by the Excel upload and the ERP import.
+   Key is (or_jr_no + job_card_no), matching idx_or_jr_jc_unique:
+     • no match            → NEW    (insert a brand-new row)
+     • match + any change  → UPDATE (overwrite the existing row)
+     • match + no change   → SKIP   (identical row, nothing to write)
+   Full column set is read so we can diff details, not just the keys.
+   ------------------------------------------------------------------ */
+const OR_JR_COMPARE_DATE_FIELDS = [
+  'or_jr_date', 'job_card_date', 'planned_comp_date',
+  'mld_start_date', 'mld_end_date', 'actual_mld_start_date', 'prt_tuf_end_date',
+  'pack_end_date', 'rev_mld_end_date', 'shift_comp_date', 'rev_ptd_tuf_end_date',
+  'rev_pak_end_date', 'wh_rec_date'
+];
+const OR_JR_COMPARE_NUM_FIELDS = ['or_qty', 'jr_qty', 'prod_plan_qty', 'std_pack'];
+const OR_JR_COMPARE_STR_FIELDS = [
+  'item_code', 'product_name', 'client_name', 'uom',
+  'mld_status', 'shift_status', 'prt_tuf_status', 'pack_status', 'wh_status',
+  'remarks_all', 'jr_close', 'or_remarks', 'jr_remarks'
+];
+// Audit fields (created_by/date, edited_by/date, factory_id) are intentionally
+// NOT compared — they are re-stamped on every upload and would mask real changes.
+
+async function buildOrJrUploadPreview(mapped, requestFactoryId) {
+  const normStr = v => String(v ?? '').trim().toUpperCase();
+
+  const rowsDiffer = (incomingRow, dbRow) => {
+    const changed = [];
+    for (const f of OR_JR_COMPARE_DATE_FIELDS) {
+      if ((toIsoDateText(incomingRow[f]) || '') !== (toIsoDateText(dbRow[f]) || '')) changed.push(f);
+    }
+    for (const f of OR_JR_COMPARE_NUM_FIELDS) {
+      // toNum already returns null or a valid number (never NaN)
+      if (toNum(incomingRow[f]) !== toNum(dbRow[f])) changed.push(f);
+    }
+    for (const f of OR_JR_COMPARE_STR_FIELDS) {
+      if (normStr(incomingRow[f]) !== normStr(dbRow[f])) changed.push(f);
+    }
+    return changed;
+  };
+
+  const selectCols = [
+    'or_jr_no', 'job_card_no',
+    ...OR_JR_COMPARE_DATE_FIELDS, ...OR_JR_COMPARE_NUM_FIELDS, ...OR_JR_COMPARE_STR_FIELDS
+  ].join(', ');
+  const existingRows = requestFactoryId
+    ? await q(`SELECT ${selectCols} FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
+    : await q(`SELECT ${selectCols} FROM or_jr_report`);
+  const dbMap = new Map();
+
+  existingRows.forEach(row => {
+    const o = (row.or_jr_no || '').trim();
+    const j = (row.job_card_no || '').trim();
+    // Key: OR No + JC No
+    dbMap.set(`${o}|${j}`, row);
+  });
+
+  return mapped.map(row => {
+    const ro = (row.or_jr_no || '').trim();
+    const rj = (row.job_card_no || '').trim();
+    const key = `${ro}|${rj}`;
+    const existing = dbMap.get(key);
+
+    // No match → brand-new row
+    if (!existing) return { ...row, _status: 'NEW' };
+
+    // Match → only UPDATE when some detail actually changed; otherwise SKIP
+    const changedFields = rowsDiffer(row, existing);
+    if (changedFields.length === 0) return { ...row, _status: 'SKIP' };
+    return { ...row, _status: 'UPDATE', _changedFields: changedFields };
+  });
+}
+
 // 1. PREVIEW (Compare Excel vs DB)
 app.post('/api/upload/or-jr-preview', (req, res, next) => { upload.single('file')(req, res, (err) => { if (err) return res.status(400).json({ ok: false, error: err.message || 'File upload error' }); next(); }); }, async (req, res) => {
   try {
@@ -15603,74 +15835,8 @@ app.post('/api/upload/or-jr-preview', (req, res, next) => { upload.single('file'
     console.log(`[OR - JR Upload] Extracted ${mapped.length} valid records.`);
 
 
-    // 3. Compare with DB — key is (or_jr_no + job_card_no).
-    //    Smart upload:
-    //      • no match            → NEW    (insert a brand-new row)
-    //      • match + any change  → UPDATE (overwrite the existing row)
-    //      • match + no change   → SKIP   (identical row, nothing to write — hidden in UI)
-    //    Full column set is read so we can diff details, not just the keys.
-    const COMPARE_DATE_FIELDS = [
-      'or_jr_date', 'job_card_date', 'planned_comp_date',
-      'mld_start_date', 'mld_end_date', 'actual_mld_start_date', 'prt_tuf_end_date',
-      'pack_end_date', 'rev_mld_end_date', 'shift_comp_date', 'rev_ptd_tuf_end_date',
-      'rev_pak_end_date', 'wh_rec_date'
-    ];
-    const COMPARE_NUM_FIELDS = ['or_qty', 'jr_qty', 'prod_plan_qty', 'std_pack'];
-    const COMPARE_STR_FIELDS = [
-      'item_code', 'product_name', 'client_name', 'uom',
-      'mld_status', 'shift_status', 'prt_tuf_status', 'pack_status', 'wh_status',
-      'remarks_all', 'jr_close', 'or_remarks', 'jr_remarks'
-    ];
-    // Audit fields (created_by/date, edited_by/date, factory_id) are intentionally
-    // NOT compared — they are re-stamped on every upload and would mask real changes.
-
-    const normStr = v => String(v ?? '').trim().toUpperCase();
-
-    const rowsDiffer = (excelRow, dbRow) => {
-      const changed = [];
-      for (const f of COMPARE_DATE_FIELDS) {
-        if ((toIsoDateText(excelRow[f]) || '') !== (toIsoDateText(dbRow[f]) || '')) changed.push(f);
-      }
-      for (const f of COMPARE_NUM_FIELDS) {
-        // toNum already returns null or a valid number (never NaN)
-        if (toNum(excelRow[f]) !== toNum(dbRow[f])) changed.push(f);
-      }
-      for (const f of COMPARE_STR_FIELDS) {
-        if (normStr(excelRow[f]) !== normStr(dbRow[f])) changed.push(f);
-      }
-      return changed;
-    };
-
-    const selectCols = [
-      'or_jr_no', 'job_card_no',
-      ...COMPARE_DATE_FIELDS, ...COMPARE_NUM_FIELDS, ...COMPARE_STR_FIELDS
-    ].join(', ');
-    const existingRows = requestFactoryId
-      ? await q(`SELECT ${selectCols} FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
-      : await q(`SELECT ${selectCols} FROM or_jr_report`);
-    const dbMap = new Map();
-
-    existingRows.forEach(row => {
-      const o = (row.or_jr_no || '').trim();
-      const j = (row.job_card_no || '').trim();
-      // Key: OR No + JC No
-      dbMap.set(`${o}|${j}`, row);
-    });
-
-    const preview = mapped.map(row => {
-      const ro = (row.or_jr_no || '').trim();
-      const rj = (row.job_card_no || '').trim();
-      const key = `${ro}|${rj}`;
-      const existing = dbMap.get(key);
-
-      // No match → brand-new row
-      if (!existing) return { ...row, _status: 'NEW' };
-
-      // Match → only UPDATE when some detail actually changed; otherwise SKIP
-      const changedFields = rowsDiffer(row, existing);
-      if (changedFields.length === 0) return { ...row, _status: 'SKIP' };
-      return { ...row, _status: 'UPDATE', _changedFields: changedFields };
-    });
+    // 3. Compare with DB — see buildOrJrUploadPreview().
+    const preview = await buildOrJrUploadPreview(mapped, requestFactoryId);
 
     res.json({ ok: true, data: preview });
 
@@ -15754,7 +15920,12 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
               rev_mld_end_date = EXCLUDED.rev_mld_end_date, shift_comp_date = EXCLUDED.shift_comp_date,
               rev_ptd_tuf_end_date = EXCLUDED.rev_ptd_tuf_end_date,
               rev_pak_end_date = EXCLUDED.rev_pak_end_date, wh_rec_date = EXCLUDED.wh_rec_date,
-              remarks_all = EXCLUDED.remarks_all, jr_close = EXCLUDED.jr_close,
+              -- Never let a blank overwrite existing Remarks. The ERP import and some
+              -- Excel exports leave this empty, and plan -> Job Card auto-linking reads
+              -- it (autoLinkPlansFromOrJrRemarks), so blanking it silently breaks linking.
+              -- A non-empty value still overwrites as before.
+              remarks_all = COALESCE(NULLIF(TRIM(EXCLUDED.remarks_all), ''), or_jr_report.remarks_all),
+              jr_close = EXCLUDED.jr_close,
               or_remarks = EXCLUDED.or_remarks, jr_remarks = EXCLUDED.jr_remarks,
               created_by = EXCLUDED.created_by, created_date = EXCLUDED.created_date,
               edited_by = EXCLUDED.edited_by, edited_date = EXCLUDED.edited_date,
@@ -15820,6 +15991,124 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
   } catch (e) {
     console.error('upload/or-jr-confirm', e);
     res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/* ------------------------------------------------------------------
+   2b. IMPORT FROM ERP DATA (stage 2 preview)
+   Projects the stored erp_jr_status snapshot onto or_jr_report for the
+   logged-in factory and returns the same NEW/UPDATE/SKIP preview shape
+   as the Excel upload, so the client reuses the identical review modal
+   and the identical /api/upload/or-jr-confirm save path.
+   Makes NO call to the ERP — that is stage 1 (superadmin only).
+   ------------------------------------------------------------------ */
+
+// Server-side port of JPSMS.auth.can('masters','edit') in PUBLIC/assets/app.js.
+// Keep the two in step: flat "masters_edit" key, then nested { masters: { edit } },
+// then the legacy role fallback.
+function userCanEditMasters(user) {
+  if (!user) return false;
+  if (isAdminLikeRole(user)) return true;
+  const p = (user.permissions && typeof user.permissions === 'object') ? user.permissions : {};
+  if (p.masters_edit !== undefined) return p.masters_edit === true;
+  if (p.masters && typeof p.masters === 'object' && p.masters.edit !== undefined) {
+    return p.masters.edit === true;
+  }
+  return ['supervisor', 'manager', 'planner'].includes(String(user.role_code || '').toLowerCase());
+}
+
+app.post('/api/upload/or-jr-erp-preview', async (req, res) => {
+  try {
+    const writeContext = await getWritableFactoryContext(req, 'import OR-JR Status from ERP data');
+    if (!writeContext.ok) {
+      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
+    }
+    const requestFactoryId = writeContext.factoryId;
+
+    // Permission gate — the Excel upload relies on the client hiding the control;
+    // this path enforces it server-side as well.
+    const username = (req.body && req.body.username) || getRequestUsername(req);
+    if (!username) {
+      return res.status(401).json({ ok: false, error: 'Authorization required (missing username).' });
+    }
+    const actor = (await q(
+      'SELECT username, role_code, permissions FROM users WHERE username = $1 LIMIT 1',
+      [username]
+    ))[0];
+    if (!actor) return res.status(401).json({ ok: false, error: 'Invalid user.' });
+    if (!userCanEditMasters(actor)) {
+      return res.status(403).json({ ok: false, error: 'Masters edit permission is required to import ERP data.' });
+    }
+
+    // Factory linkage must be configured or we cannot tell which rows are ours.
+    const factoryMap = await loadErpFactoryMap();
+    const myFactory = factoryMap.rows.find(f => Number(f.id) === Number(requestFactoryId));
+    const hasLinkage = myFactory
+      && (myFactory.erp_factory_id !== null && myFactory.erp_factory_id !== undefined
+        || String(myFactory.plant_codes || '').trim() !== '');
+    if (!hasLinkage) {
+      return res.status(409).json({
+        ok: false,
+        error: `ERP factory ID is not configured for ${writeContext.factoryName || 'this factory'}. Set it in the Factory master before importing.`
+      });
+    }
+
+    const snapshot = await q(`SELECT * FROM erp_jr_status`);
+    if (!snapshot.length) {
+      return res.status(409).json({
+        ok: false,
+        error: "No ERP data has been fetched yet. Ask a superadmin to press 'Fetch Latest Data' on Masters -> JR Status ERP first."
+      });
+    }
+
+    // Factory split — classify every row, never assume an unknown row is ours.
+    let otherFactory = 0;
+    let unresolved = 0;
+    const scoped = [];
+    for (const row of snapshot) {
+      const verdict = classifyErpRowFactory(row, requestFactoryId, factoryMap);
+      if (verdict === 'match') scoped.push(row);
+      else if (verdict === 'other') otherFactory++;
+      else unresolved++;
+    }
+
+    const mapped = scoped
+      .map(row => erpStatusRowToOrJrReportRow(row, requestFactoryId))
+      .filter(row => row.or_jr_no);
+
+    // Defence in depth: the same guard the Excel upload uses.
+    assertUploadRowsMatchFactory(mapped, requestFactoryId, 'OR-JR Status ERP import');
+
+    const preview = await buildOrJrUploadPreview(mapped, requestFactoryId);
+
+    const meta = (await q(
+      `SELECT to_char(max(synced_at), 'YYYY-MM-DD HH24:MI') AS last_sync,
+              EXTRACT(EPOCH FROM (now() - max(synced_at))) / 3600 AS age_hours
+         FROM erp_jr_status`
+    ))[0] || {};
+
+    console.log(`[OR-JR ERP Import] factory=${requestFactoryId} source=${snapshot.length} scoped=${mapped.length} other=${otherFactory} unresolved=${unresolved}`);
+
+    res.json({
+      ok: true,
+      data: preview,
+      meta: {
+        factory_id: requestFactoryId,
+        factory_name: writeContext.factoryName || '',
+        snapshot_synced_at: meta.last_sync || null,
+        snapshot_age_hours: meta.age_hours === null || meta.age_hours === undefined
+          ? null
+          : Math.round(Number(meta.age_hours)),
+        source_rows: snapshot.length,
+        scoped_rows: mapped.length,
+        other_factory: otherFactory,
+        unresolved
+      }
+    });
+  } catch (e) {
+    console.error('upload/or-jr-erp-preview', e);
+    const status = e?.statusCode || 500;
+    res.status(status).json({ ok: false, error: e?.message || String(e), details: e?.details });
   }
 });
 
