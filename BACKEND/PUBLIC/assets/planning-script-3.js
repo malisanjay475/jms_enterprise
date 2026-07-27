@@ -3103,15 +3103,33 @@
             consumptionRatioQty: c.consumptionRatioQty
           })) : [];
 
-          // Ceiling context: Mould Item (Order) Qty is the hard cap. This plan can
-          // take up to OR Qty minus what OTHER plans already booked, but never below
-          // its own current qty (so an unchanged value never reads as "over limit").
+          // Ceiling context. Plan Qty and Job Qty are in DIFFERENT units and get
+          // DIFFERENT caps — capping both at the OR Qty made every multi-piece set
+          // uneditable (a 7-pc set is 1800 sets but 10800 pieces per 6-up mould, and
+          // 10800 was rejected as "exceeds 1800"):
+          //   Plan Qty (pieces) → this mould's Mould Item Qty, minus what OTHER plans
+          //                       on the SAME mould already booked
+          //   Job Qty  (sets)   → the OR Qty, minus other plans' job qty on this mould
+          // Neither cap drops below this plan's own current qty, so an unchanged value
+          // never reads as "over limit". Falls back to the OR Qty when the mould has no
+          // summary row, so a data gap degrades instead of blocking.
           const orQty = Number(p.__orQty) || 0;
-          const plannedTotal = Number(p.__plannedQty) || 0;
+          const mouldItemQty = Number(p.mouldItemQty) || 0;
           const thisJobQty = Number(p.jobQty) || 0;
-          const plannedOthers = Math.max(0, plannedTotal - thisJobQty);
-          const hasCap = orQty > 0;
-          const maxForThisPlan = hasCap ? Math.max(orQty - plannedOthers, thisJobQty) : Infinity;
+          const thisPlanQty = Number(p.planQty) || 0;
+          const plannedOthers = Number(p.mouldPlannedOthers)
+            || Math.max(0, (Number(p.__plannedQty) || 0) - thisJobQty);
+          const jobbedOthers = Number(p.mouldJobbedOthers)
+            || Math.max(0, (Number(p.__plannedQty) || 0) - thisJobQty);
+          const planCeiling = mouldItemQty > 0 ? mouldItemQty : orQty;
+          const jobCeiling = orQty > 0 ? orQty : mouldItemQty;
+          const hasCap = planCeiling > 0 || jobCeiling > 0;
+          const maxPlanForThisPlan = planCeiling > 0
+            ? Math.max(planCeiling - plannedOthers, thisPlanQty)
+            : Infinity;
+          const maxJobForThisPlan = jobCeiling > 0
+            ? Math.max(jobCeiling - jobbedOthers, thisJobQty)
+            : Infinity;
           // Plan Qty defaults to Job Qty when the stored value is 0/blank.
           const planQtyDefault = Number(p.planQty) || Number(p.jobQty) || 0;
 
@@ -3166,7 +3184,7 @@
                 <div style="font-size:0.66rem; color:#475569; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px">Plan Details</div>
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:14px">
                   ${detailItem('OR Number', orderNo, true)}
-                  ${detailItem('Mould Item Qty', hasCap ? formatCpQty(orQty) : '-')}
+                  ${detailItem('Mould Item Qty', planCeiling > 0 ? formatCpQty(planCeiling) : '-')}
                   ${detailItem('Product', productName)}
                   ${detailItem('Client', clientName)}
                   ${detailItem('Moulding Sqn', mouldingSqn)}
@@ -3193,22 +3211,28 @@
                 </label>
                 ${colours.length > 1 && hasCap ? `
                 <div style="display:flex; align-items:center; gap:8px; margin:0 0 12px; flex-wrap:wrap">
-                  <span style="font-size:0.72rem; color:#475569; font-weight:700">Set every colour to Mould Item Qty (${formatCpQty(maxForThisPlan)}):</span>
+                  <span style="font-size:0.72rem; color:#475569; font-weight:700">Set every colour's Job Qty to the max (${formatCpQty(maxJobForThisPlan)}):</span>
                   <button type="button" class="btn" id="spe-fillmax-btn" style="padding:4px 10px; font-size:0.76rem">Fill Job Qty to Max</button>
                 </div>` : ''}
                 ${hasCap ? `
-                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-bottom:12px">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:12px">
                   <div style="background:#f1f5f9; border-radius:8px; padding:6px 8px">
-                    <div style="font-size:0.6rem; color:#64748b; text-transform:uppercase; font-weight:800">Mould Item Qty</div>
-                    <div style="font-size:0.9rem; font-weight:900; color:#0f172a">${formatCpQty(orQty)}</div>
+                    <div style="font-size:0.6rem; color:#64748b; text-transform:uppercase; font-weight:800">Mould Item Qty (pcs)</div>
+                    <div style="font-size:0.9rem; font-weight:900; color:#0f172a">${formatCpQty(planCeiling)}</div>
+                    <div style="font-size:0.58rem; color:#94a3b8; font-weight:700">already planned ${formatCpQty(plannedOthers)}</div>
                   </div>
                   <div style="background:#f1f5f9; border-radius:8px; padding:6px 8px">
-                    <div style="font-size:0.6rem; color:#64748b; text-transform:uppercase; font-weight:800">Already Planned</div>
-                    <div style="font-size:0.9rem; font-weight:900; color:#0f172a">${formatCpQty(plannedOthers)}</div>
+                    <div style="font-size:0.6rem; color:#64748b; text-transform:uppercase; font-weight:800">OR Qty (sets)</div>
+                    <div style="font-size:0.9rem; font-weight:900; color:#0f172a">${formatCpQty(jobCeiling)}</div>
+                    <div style="font-size:0.58rem; color:#94a3b8; font-weight:700">already jobbed ${formatCpQty(jobbedOthers)}</div>
                   </div>
                   <div style="background:#ecfdf5; border-radius:8px; padding:6px 8px">
-                    <div style="font-size:0.6rem; color:#047857; text-transform:uppercase; font-weight:800">Max for this Plan</div>
-                    <div style="font-size:0.9rem; font-weight:900; color:#047857">${formatCpQty(maxForThisPlan)}</div>
+                    <div style="font-size:0.6rem; color:#047857; text-transform:uppercase; font-weight:800">Max Plan Qty / colour</div>
+                    <div style="font-size:0.9rem; font-weight:900; color:#047857">${formatCpQty(maxPlanForThisPlan)}</div>
+                  </div>
+                  <div style="background:#ecfdf5; border-radius:8px; padding:6px 8px">
+                    <div style="font-size:0.6rem; color:#047857; text-transform:uppercase; font-weight:800">Max Job Qty / colour</div>
+                    <div style="font-size:0.9rem; font-weight:900; color:#047857">${formatCpQty(maxJobForThisPlan)}</div>
                   </div>
                 </div>` : ''}
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
@@ -3236,11 +3260,11 @@
           const autoSum = host.querySelector('#spe-autosum');
           const warnEl = host.querySelector('#spe-warn');
           const saveBtn = host.querySelector('#spe-save');
-          // Each colour produces up to its OWN Mould Item Qty ceiling — a colour is
-          // never allowed to exceed it, but the SUM across colours is not capped
-          // (a 2-piece set legitimately needs the full qty of each colour). So both
-          // Job Qty and Plan Qty are validated PER colour row. With no colour
-          // breakup, fall back to the single Plan/Job Qty values.
+          // Each colour produces up to its OWN ceiling — a colour is never allowed to
+          // exceed it, but the SUM across colours is not capped (a 2-piece set
+          // legitimately needs the full qty of each colour). Plan Qty is checked
+          // against the mould's piece ceiling and Job Qty against the OR's set
+          // ceiling. With no colour breakup, fall back to the single Plan/Job values.
           const validate = () => {
             const pv = Number(planInput.value) || 0;
             const jv = Number(jobInput.value) || 0;
@@ -3249,21 +3273,21 @@
             if (hasCap) {
               if (colours.length) {
                 jobOver = Array.from(host.querySelectorAll('.spe-col-batch'))
-                  .some((el) => (Number(el.value) || 0) > maxForThisPlan);
+                  .some((el) => (Number(el.value) || 0) > maxJobForThisPlan);
                 planOver = Array.from(host.querySelectorAll('.spe-col-plan'))
-                  .some((el) => (Number(el.value) || 0) > maxForThisPlan);
+                  .some((el) => (Number(el.value) || 0) > maxPlanForThisPlan);
               } else {
-                jobOver = jv > maxForThisPlan;
-                planOver = pv > maxForThisPlan;
+                jobOver = jv > maxJobForThisPlan;
+                planOver = pv > maxPlanForThisPlan;
               }
             }
             const over = jobOver || planOver;
             if (warnEl) {
               warnEl.style.display = over ? 'block' : 'none';
               warnEl.textContent = jobOver
-                ? `A colour's Job Qty exceeds ${formatCpQty(maxForThisPlan)} (Mould Item Qty per colour).`
+                ? `A colour's Job Qty exceeds ${formatCpQty(maxJobForThisPlan)} (OR Qty per colour).`
                 : planOver
-                ? `A colour's Plan Qty exceeds ${formatCpQty(maxForThisPlan)} (Mould Item Qty per colour).`
+                ? `A colour's Plan Qty exceeds ${formatCpQty(maxPlanForThisPlan)} (Mould Item Qty per colour).`
                 : '';
             }
             saveBtn.disabled = over;
@@ -3280,14 +3304,14 @@
             validate();
           };
           host.querySelectorAll('.spe-col-plan, .spe-col-batch').forEach((el) => el.addEventListener('input', recompute));
-          // Fill every colour's Job Qty up to the Mould Item Qty ceiling. Fixes the
+          // Fill every colour's Job Qty up to the OR Qty ceiling. Fixes the
           // common case where a user planned only one colour and needs the other
           // colour(s) produced at the full qty too (2-piece set). Plan Qty is left
           // as-is (already per-colour raw material).
           const fillBtn = host.querySelector('#spe-fillmax-btn');
           if (fillBtn) {
             fillBtn.addEventListener('click', () => {
-              host.querySelectorAll('.spe-col-batch').forEach((el) => { el.value = String(maxForThisPlan); });
+              host.querySelectorAll('.spe-col-batch').forEach((el) => { el.value = String(maxJobForThisPlan); });
               if (!autoSum.checked) { autoSum.checked = true; toggleManual(); }
               recompute();
             });

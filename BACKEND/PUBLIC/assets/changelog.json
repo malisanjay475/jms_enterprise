@@ -11,8 +11,38 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.9.2",
+  "latest": "1.9.3",
   "versions": [
+    {
+      "version": "1.9.3",
+      "date": "2026-07-27",
+      "title": "Plan approvals no longer fail on the factory server",
+      "summary": "Approving a plan on a factory (LOCAL) server could fail with a database duplicate-key error, leaving the plan stuck in Pending Plan Approval. The server now keeps its internal record numbering in step with records received from the main server.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Approving a plan from Pending Plan Approval no longer fails with a duplicate-key error on factory servers — the approval saves and the plan moves on as expected."
+            }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Factory servers now re-align their internal record numbering after receiving data from the main server, preventing duplicate-record errors when saving new entries."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.9.2",
       "date": "2026-07-19",
