@@ -857,7 +857,26 @@ function shouldForceSyncSchemaEnsure() {
     return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
+// Heal servers that already absorbed explicit-id rows before resyncSerialSequence
+// existed and are sitting on a stale sequence right now (symptom: every insert the
+// app attempts fails with duplicate key on <table>_pkey). Cheap and idempotent, so
+// it runs on every boot — deliberately placed ahead of the schema-version early
+// return, which would otherwise skip it on already-provisioned servers.
+async function resyncIdKeyedSequences() {
+    const idKeyedTables = Object.entries(CONFLICT_KEYS)
+        .filter(([, key]) => key.split(',').map((c) => c.trim()).includes('id'))
+        .map(([table]) => table);
+    for (const table of idKeyedTables) {
+        await resyncSerialSequence(table);
+    }
+    if (idKeyedTables.length) {
+        console.log(`[Sync] Sequence resync checked ${idKeyedTables.length} id-keyed table(s).`);
+    }
+}
+
 async function ensureSyncRuntimeSchema(config = {}) {
+    await resyncIdKeyedSequences();
+
     if (!shouldForceSyncSchemaEnsure() && config[SYNC_SCHEMA_READY_KEY] === SYNC_SCHEMA_READY_VERSION) {
         console.log('[Sync] Schema already verified; skipping startup schema sweep.');
         return;
@@ -1480,6 +1499,35 @@ async function tryResolveLegacyNotificationConflict(client, row, keys, vals) {
     return result.rowCount > 0;
 }
 
+// Re-align a table's serial sequence with the highest id actually present.
+//
+// WHY: for tables whose sync conflict key IS 'id' (see CONFLICT_KEYS —
+// plan_job_card_approval_history, jobs_queue, planning_drops, ...), the upsert
+// keeps the incoming 'id' in the INSERT so MAIN's ids are reproduced verbatim on
+// LOCAL. An INSERT that supplies the serial column explicitly does NOT advance
+// the sequence, so LOCAL's nextval stays far behind the ids it just absorbed.
+// The next row the app itself creates then draws an id that is already taken:
+//   duplicate key value violates unique constraint "<table>_pkey"
+// That surfaced as approvals failing on the factory LOCAL server — the INSERT
+// into plan_job_card_approval_history is inside the approval transaction, so the
+// whole approve rolled back and the plan stayed stuck in Pending.
+//
+// Runs after COMMIT and is fully error-guarded: a failure here must never
+// invalidate data that already landed. Tables with no serial-backed sequence
+// (pg_get_serial_sequence returns NULL) are a no-op.
+async function resyncSerialSequence(table, column = 'id') {
+    try {
+        await pool.query(
+            `SELECT setval(seq, COALESCE((SELECT MAX(${column}) FROM ${table}), 0) + 1, false)
+               FROM pg_get_serial_sequence($1, $2) AS seq
+              WHERE seq IS NOT NULL`,
+            [table, column]
+        );
+    } catch (seqErr) {
+        console.warn(`[Sync] Sequence resync failed for ${table}.${column} (non-fatal):`, seqErr.message);
+    }
+}
+
 async function upsertData(table, data) {
     if (!data.length) return { created: 0, updated: 0, failed: 0 };
 
@@ -1498,6 +1546,10 @@ async function upsertData(table, data) {
         try {
             if (attempt > 0) console.log(`[Sync] Upsert retry ${attempt + 1} for ${table} (${data.length} rows)`);
             await client.query('BEGIN');
+
+            // Set when at least one row in this batch carried an explicit 'id'
+            // into the INSERT — those bypass nextval and leave the sequence stale.
+            let sawExplicitId = false;
 
             for (let row of data) {
                 if (table === 'plan_board' && (row.plan_id == null || String(row.plan_id).trim() === '')) {
@@ -1547,6 +1599,10 @@ async function upsertData(table, data) {
                 // (ON CONFLICT id) or violate the serial uniqueness on the target server.
                 if (row && Object.prototype.hasOwnProperty.call(row, 'id') && !conflictColumns.includes('id')) {
                     delete row.id;
+                }
+
+                if (row && row.id != null && conflictColumns.includes('id')) {
+                    sawExplicitId = true;
                 }
 
                 const keys = Object.keys(row);
@@ -1750,6 +1806,13 @@ async function upsertData(table, data) {
             }
 
             await client.query('COMMIT');
+
+            // Explicit-id rows just landed, so this server's serial sequence is now
+            // behind the data. Re-align it before the app allocates its next id.
+            // Outside the batch transaction: never roll back committed rows for this.
+            if (sawExplicitId) {
+                await resyncSerialSequence(table);
+            }
 
             // After committing plan_board upserts, enforce the invariant that only
             // ONE plan per machine can be RUNNING at a time.  A LOCAL server may
