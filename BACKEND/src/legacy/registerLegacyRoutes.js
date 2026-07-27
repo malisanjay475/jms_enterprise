@@ -13552,6 +13552,12 @@ app.get('/api/planning/job-card-approvals/:id', async (req, res) => {
 });
 
 app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
+  // The plan_board status change and its audit row MUST commit together.
+  // Previously both ran as separate autocommit statements: when the history
+  // INSERT failed, the status change had already committed, so the plan silently
+  // advanced a stage while the user was shown a 500. On a REJECT that is worse —
+  // the plan was marked REJECTED while the screen reported the action had failed.
+  let client = null;
   try {
     const factoryId = getFactoryId(req);
     const id = Number(req.params.id);
@@ -13601,10 +13607,30 @@ app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
     let historyAction = action;
     let nextStatus = action === 'REJECTED' ? 'REJECTED' : 'APPROVED';
 
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // Re-read the stage under a row lock. `plan` was read before the transaction
+    // opened, so a concurrent action (or an impatient double-click) could have
+    // advanced the plan in between — without this, both requests would apply
+    // their own stage transition and the plan would jump two stages.
+    const lockedRows = await client.query(
+      'SELECT jc_approval_status FROM plan_board WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+    const lockedStatus = lockedRows.rows[0]?.jc_approval_status || null;
+    if ((lockedStatus || 'PENDING') !== (plan.jc_approval_status || 'PENDING')) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        ok: false,
+        error: 'This plan was just updated by someone else. Refresh and try again.'
+      });
+    }
+
     if (action === 'APPROVED' && currentStage.code === 'PPC') {
       historyAction = 'PPC_CHECKED';
       nextStatus = 'PPC_APPROVED';
-      await q(
+      await client.query(
         `
         UPDATE plan_board
         SET jc_approval_status = 'PPC_APPROVED',
@@ -13616,11 +13642,10 @@ app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
         `,
         [id, actor, ppcRemarks]
       );
-      await sendApprovalNotificationToStage('MOULDING', plan, resolved, factoryId, actor, 'Plan pending Moulding approval');
     } else if (action === 'APPROVED' && currentStage.code === 'MOULDING') {
       historyAction = 'APPROVED';
       nextStatus = 'APPROVED';
-      await q(
+      await client.query(
         `
         UPDATE plan_board
         SET jc_approval_status = 'APPROVED',
@@ -13635,7 +13660,7 @@ app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
     } else {
       historyAction = `${currentStage.code}_REJECTED`;
       nextStatus = 'REJECTED';
-      await q(
+      await client.query(
         `
         UPDATE plan_board
         SET jc_approval_status = 'REJECTED',
@@ -13652,7 +13677,7 @@ app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
       );
     }
 
-    await q(
+    await client.query(
       `
       INSERT INTO plan_job_card_approval_history
       (plan_board_id, plan_id, order_no, our_code, batch_no, action, approval_stage, job_card_no, job_card_date,
@@ -13682,10 +13707,29 @@ app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
       ]
     );
 
+    await client.query('COMMIT');
+
+    // Notify only after the transaction is durable — sending on a change that
+    // later rolled back would tell Moulding a plan is waiting for them when it
+    // is still sitting at PPC. Non-fatal: the approval itself is already saved,
+    // so a notification failure must not turn a successful approve into a 500.
+    if (historyAction === 'PPC_CHECKED') {
+      try {
+        await sendApprovalNotificationToStage('MOULDING', plan, resolved, factoryId, actor, 'Plan pending Moulding approval');
+      } catch (notifyErr) {
+        console.error('/api/planning/job-card-approvals notify (non-fatal)', notifyErr);
+      }
+    }
+
     res.json({ ok: true, action: historyAction, status: nextStatus });
   } catch (e) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
     console.error('/api/planning/job-card-approvals/:id/action', e);
     res.status(500).json({ ok: false, error: String(e) });
+  } finally {
+    if (client) client.release();
   }
 });
 
