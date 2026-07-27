@@ -15366,9 +15366,10 @@ app.post('/api/reports/erp-mould-item/sync', (req, res) => handleErpSync('mouldI
 // The ERP sends no ISO dates. Two shapes are in the feed:
 //   business dates  'dd-MMM-yy'    e.g. 09-Oct-24
 //   audit dates     'dd/MMM/yyyy'  e.g. 09/Oct/2024
-// Returns a Date at LOCAL midnight — deliberately matching how node-pg parses a
-// Postgres DATE column, so an ERP value and a DB value compare byte-identically
-// through toIsoDateText(). Returning a UTC-midnight Date instead would drift a day.
+// Returns a plain 'YYYY-MM-DD' STRING, never a Date. A Date would be serialised with
+// the Node process's timezone offset and then re-interpreted in Postgres's session
+// timezone — and those two are not necessarily the same here — which silently shifts a
+// date-only value by a day. A bare date string has no timezone to misread.
 const ERP_MONTHS = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
   jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
@@ -15376,9 +15377,13 @@ const ERP_MONTHS = {
 
 function parseErpDate(val) {
   if (val === null || val === undefined) return null;
-  if (val instanceof Date) return Number.isNaN(val.getTime()) ? null : val;
+  if (val instanceof Date) {
+    return Number.isNaN(val.getTime()) ? null : formatLocalIsoDate(val);
+  }
   const s = String(val).trim();
   if (!s) return null;
+
+  const pad = n => String(n).padStart(2, '0');
 
   // dd-MMM-yy | dd-MMM-yyyy | dd/MMM/yyyy | dd/MMM/yy
   const m = s.match(/^(\d{1,2})[-/]([A-Za-z]{3})[-/](\d{2}|\d{4})$/);
@@ -15389,16 +15394,13 @@ function parseErpDate(val) {
     let year = Number(m[3]);
     // 2-digit years in this feed span 24..27; treat <70 as 2000s (matches Excel/Postgres).
     if (m[3].length === 2) year += year < 70 ? 2000 : 1900;
-    const d = new Date(year, mon, day);
-    return Number.isNaN(d.getTime()) ? null : d;
+    if (day < 1 || day > 31) return null;
+    return `${year}-${pad(mon + 1)}-${pad(day)}`;
   }
 
-  // Already ISO (yyyy-mm-dd) — build from parts to stay at local midnight.
+  // Already ISO (yyyy-mm-dd, possibly with a time part) — keep just the date.
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) {
-    const d = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
 
   return null; // unrecognised — better null than a silently wrong date
 }
@@ -15787,13 +15789,26 @@ function toDate(val) {
   return val; // Assume ISO string or similar
 }
 
+// Calendar date of a Date as the LOCAL clock sees it. node-pg parses a Postgres DATE
+// into local midnight, so local parts give back the stored day; toISOString() would
+// convert to UTC first and report the previous day for any timezone ahead of UTC.
+function formatLocalIsoDate(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function toIsoDateText(val) {
   const parsed = toDate(val);
   if (!parsed) return null;
   if (parsed instanceof Date) {
-    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0];
+    return Number.isNaN(parsed.getTime()) ? null : formatLocalIsoDate(parsed);
   }
   const clean = String(parsed || '').trim();
+  // Normalise 'YYYY-MM-DD...' (incl. ERP-parsed strings) down to the date part.
+  const iso = clean.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
   return clean || null;
 }
 
@@ -15820,6 +15835,12 @@ const OR_JR_COMPARE_STR_FIELDS = [
 // Audit fields (created_by/date, edited_by/date, factory_id) are intentionally
 // NOT compared — they are re-stamped on every upload and would mask real changes.
 
+// Fields the confirm UPSERT refuses to blank (COALESCE/NULLIF guard). A blank incoming
+// value for these is a no-op on save, so it must not count as a change here either —
+// otherwise the preview promises an edit that will never happen. Keep this in step with
+// the DO UPDATE clause in /api/upload/or-jr-confirm.
+const OR_JR_BLANK_PRESERVING_FIELDS = new Set(['remarks_all']);
+
 async function buildOrJrUploadPreview(mapped, requestFactoryId) {
   const normStr = v => String(v ?? '').trim().toUpperCase();
 
@@ -15833,6 +15854,8 @@ async function buildOrJrUploadPreview(mapped, requestFactoryId) {
       if (toNum(incomingRow[f]) !== toNum(dbRow[f])) changed.push(f);
     }
     for (const f of OR_JR_COMPARE_STR_FIELDS) {
+      // A blank that cannot overwrite is not a change.
+      if (OR_JR_BLANK_PRESERVING_FIELDS.has(f) && normStr(incomingRow[f]) === '') continue;
       if (normStr(incomingRow[f]) !== normStr(dbRow[f])) changed.push(f);
     }
     return changed;
