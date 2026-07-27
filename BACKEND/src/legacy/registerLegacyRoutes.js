@@ -4020,6 +4020,19 @@ async function bootstrapFreshCoreTables() {
     WHERE factories.erp_factory_id IS NULL
       AND UPPER(COALESCE(factories.name, '') || ' ' || COALESCE(factories.code, '')) LIKE '%' || v.name_match || '%'
   `).catch(err => console.warn('[DB] factories ERP mapping seed skipped:', err.message));
+  // Same mapping by factory code, because production names them F1/F2/F3 rather than
+  // by plant — "Factory 2" is Shivani and would otherwise never match on name alone,
+  // leaving its ERP rows permanently unresolved.
+  await q(`
+    UPDATE factories SET erp_factory_id = v.erp_id, plant_codes = v.codes
+    FROM (VALUES
+      ('F1', 41, 'JG,JGUI'),
+      ('F2', 44, 'JS'),
+      ('F3',  1, 'JP')
+    ) AS v(code_match, erp_id, codes)
+    WHERE factories.erp_factory_id IS NULL
+      AND UPPER(TRIM(COALESCE(factories.code, ''))) = v.code_match
+  `).catch(err => console.warn('[DB] factories ERP mapping seed skipped:', err.message));
 
   await q(`
     CREATE TABLE IF NOT EXISTS users (
