@@ -857,7 +857,26 @@ function shouldForceSyncSchemaEnsure() {
     return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
+// Heal servers that already absorbed explicit-id rows before resyncSerialSequence
+// existed and are sitting on a stale sequence right now (symptom: every insert the
+// app attempts fails with duplicate key on <table>_pkey). Cheap and idempotent, so
+// it runs on every boot — deliberately placed ahead of the schema-version early
+// return, which would otherwise skip it on already-provisioned servers.
+async function resyncIdKeyedSequences() {
+    const idKeyedTables = Object.entries(CONFLICT_KEYS)
+        .filter(([, key]) => key.split(',').map((c) => c.trim()).includes('id'))
+        .map(([table]) => table);
+    for (const table of idKeyedTables) {
+        await resyncSerialSequence(table);
+    }
+    if (idKeyedTables.length) {
+        console.log(`[Sync] Sequence resync checked ${idKeyedTables.length} id-keyed table(s).`);
+    }
+}
+
 async function ensureSyncRuntimeSchema(config = {}) {
+    await resyncIdKeyedSequences();
+
     if (!shouldForceSyncSchemaEnsure() && config[SYNC_SCHEMA_READY_KEY] === SYNC_SCHEMA_READY_VERSION) {
         console.log('[Sync] Schema already verified; skipping startup schema sweep.');
         return;
@@ -1480,6 +1499,63 @@ async function tryResolveLegacyNotificationConflict(client, row, keys, vals) {
     return result.rowCount > 0;
 }
 
+// Re-align a table's serial sequence with the highest id actually present.
+//
+// WHY: for tables whose sync conflict key IS 'id' (see CONFLICT_KEYS —
+// plan_job_card_approval_history, jobs_queue, planning_drops, ...), the upsert
+// keeps the incoming 'id' in the INSERT so MAIN's ids are reproduced verbatim on
+// LOCAL. An INSERT that supplies the serial column explicitly does NOT advance
+// the sequence, so LOCAL's nextval stays far behind the ids it just absorbed.
+// The next row the app itself creates then draws an id that is already taken:
+//   duplicate key value violates unique constraint "<table>_pkey"
+// That surfaced as approvals failing on the factory LOCAL server — the INSERT
+// into plan_job_card_approval_history is inside the approval transaction, so the
+// whole approve rolled back and the plan stayed stuck in Pending.
+//
+// Fully error-guarded: a failure here must never cost us data that would
+// otherwise land. Tables with no serial-backed sequence (pg_get_serial_sequence
+// returns NULL) are a no-op.
+//
+// Pass `client` to run inside an open transaction — the call is then wrapped in a
+// savepoint so a failure rolls back only the setval, leaving the batch intact.
+// Without a client it runs standalone on the pool.
+async function resyncSerialSequence(table, column = 'id', client = null) {
+    const sql = `SELECT setval(seq, COALESCE((SELECT MAX(${column}) FROM ${table}), 0) + 1, false)
+                   FROM pg_get_serial_sequence($1, $2) AS seq
+                  WHERE seq IS NOT NULL`;
+    const params = [table, column];
+
+    if (!client) {
+        try {
+            await pool.query(sql, params);
+        } catch (seqErr) {
+            console.warn(`[Sync] Sequence resync failed for ${table}.${column} (non-fatal):`, seqErr.message);
+        }
+        return;
+    }
+
+    let savepointActive = false;
+    try {
+        await client.query('SAVEPOINT sync_seq_resync');
+        savepointActive = true;
+        await client.query(sql, params);
+        await client.query('RELEASE SAVEPOINT sync_seq_resync');
+    } catch (seqErr) {
+        console.warn(`[Sync] Sequence resync failed for ${table}.${column} (non-fatal):`, seqErr.message);
+        if (savepointActive) {
+            try {
+                await client.query('ROLLBACK TO SAVEPOINT sync_seq_resync');
+                await client.query('RELEASE SAVEPOINT sync_seq_resync');
+            } catch (cleanupErr) {
+                // Re-throw: the transaction is now in an aborted state and the
+                // caller's COMMIT would silently fail otherwise.
+                console.error(`[Sync] Sequence savepoint cleanup failed for ${table}:`, cleanupErr.message);
+                throw cleanupErr;
+            }
+        }
+    }
+}
+
 async function upsertData(table, data) {
     if (!data.length) return { created: 0, updated: 0, failed: 0 };
 
@@ -1498,6 +1574,10 @@ async function upsertData(table, data) {
         try {
             if (attempt > 0) console.log(`[Sync] Upsert retry ${attempt + 1} for ${table} (${data.length} rows)`);
             await client.query('BEGIN');
+
+            // Set when at least one row in this batch carried an explicit 'id'
+            // into the INSERT — those bypass nextval and leave the sequence stale.
+            let sawExplicitId = false;
 
             for (let row of data) {
                 if (table === 'plan_board' && (row.plan_id == null || String(row.plan_id).trim() === '')) {
@@ -1547,6 +1627,10 @@ async function upsertData(table, data) {
                 // (ON CONFLICT id) or violate the serial uniqueness on the target server.
                 if (row && Object.prototype.hasOwnProperty.call(row, 'id') && !conflictColumns.includes('id')) {
                     delete row.id;
+                }
+
+                if (row && row.id != null && conflictColumns.includes('id')) {
+                    sawExplicitId = true;
                 }
 
                 const keys = Object.keys(row);
@@ -1747,6 +1831,25 @@ async function upsertData(table, data) {
                         console.error('Failed Row:', JSON.stringify(row));
                         stats.failed += 1;
                     }
+            }
+
+            // Explicit-id rows in this batch bypassed nextval, leaving the sequence
+            // behind the data. Re-align it BEFORE COMMIT, not after: between COMMIT
+            // and a post-commit setval there is a window where the new rows are
+            // visible but the sequence is still stale, and an app INSERT landing in
+            // that window draws an id that is already taken — the exact duplicate-key
+            // failure this fix exists to prevent.
+            //
+            // Running inside the transaction is safe because sequence operations are
+            // non-transactional in Postgres: setval takes effect immediately and is
+            // NOT rolled back if this transaction later aborts. So the sequence can
+            // only ever end up too high (harmless — ids are opaque), never too low.
+            // MAX(id) here sees this transaction's own uncommitted rows, which is
+            // precisely the value we need.
+            //
+            // Savepoint-guarded so a setval failure cannot abort the whole batch.
+            if (sawExplicitId) {
+                await resyncSerialSequence(table, 'id', client);
             }
 
             await client.query('COMMIT');
