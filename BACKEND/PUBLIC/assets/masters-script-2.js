@@ -2194,8 +2194,16 @@
           const endpoint = pendingUploadMode === 'server-machines'
             ? '/upload/machines-confirm'
             : '/upload/or-jr-confirm';
+          // Send only rows that will actually be written. /upload/or-jr-confirm already
+          // discards SKIP rows server-side, so this changes nothing except payload size —
+          // and that matters: a full ERP import posts ~8.2 MB against a 10 MB body limit,
+          // which would start failing outright as the ERP data grows. Dropping SKIP takes
+          // the same import to ~5.2 MB.
+          const rowsToSend = pendingUploadMode === 'server-orjr'
+            ? pendingUploadData.filter(r => r._status !== 'SKIP')
+            : pendingUploadData;
           res = await JPSMS.api.post(endpoint, {
-            rows: pendingUploadData,
+            rows: rowsToSend,
             user: JPSMS.auth.getUser().username
           });
         } else if (pendingUploadMode === 'server-wipstock') {
