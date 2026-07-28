@@ -1941,20 +1941,26 @@
       const confirmBtn = document.getElementById('confirmBtn');
       const mode = options.mode || 'server';
 
+      // CONFLICT rows stay visible so the user can see what was refused, but they are
+      // not counted as changes and are never sent on confirm — the OR+JC already exists
+      // under another factory and importing must not take it over.
       const toProcess = mode === 'server' ? data.filter(d => d._status !== 'SKIP') : data;
+      const conflictCount = mode === 'server' ? toProcess.filter(d => d._status === 'CONFLICT').length : 0;
+      const changeCount = toProcess.length - conflictCount;
       titleEl.textContent = options.title || (mode === 'file' ? 'Upload Preview' : 'Review Changes');
       confirmBtn.textContent = options.confirmLabel || (mode === 'file' ? 'Confirm Upload' : 'Confirm Update');
       countSpan.textContent = mode === 'file'
         ? (options.totalRows > toProcess.length
           ? `Previewing first ${toProcess.length} of ${options.totalRows} rows before upload.`
           : `Previewing ${toProcess.length} rows before upload.`)
-        : `Found ${toProcess.length} changes`;
+        : `Found ${changeCount} changes`
+        + (conflictCount ? ` • ${conflictCount} row(s) already recorded under another factory — excluded` : '');
 
       if (toProcess.length === 0) {
         tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:15px">${mode === 'file' ? 'No rows found in the selected file.' : 'No changes detected.'}</td></tr>`;
         confirmBtn.disabled = true;
       } else {
-        confirmBtn.disabled = false;
+        confirmBtn.disabled = mode === 'server' && changeCount === 0;
 
         // Dynamic Columns with Explicit Titles
         const headerMap = {
@@ -2157,8 +2163,9 @@
 
         // Render Body
         tbody.innerHTML = toProcess.map((r, idx) => {
-          const color = r._status === 'NEW' ? '#166534' : (r._status === 'DELETE' ? '#b91c1c' : '#ea580c');
-          const bg = r._status === 'NEW' ? '#dcfce7' : (r._status === 'DELETE' ? '#fee2e2' : '#ffedd5');
+          const isBlocked = r._status === 'DELETE' || r._status === 'CONFLICT';
+          const color = r._status === 'NEW' ? '#166534' : (isBlocked ? '#b91c1c' : '#ea580c');
+          const bg = r._status === 'NEW' ? '#dcfce7' : (isBlocked ? '#fee2e2' : '#ffedd5');
           const statusCell = mode === 'file'
             ? `<td style="padding:8px; color:#0f172a; font-weight:700">${idx + 1}</td>`
             : `<td style="padding:8px"><span style="background:${bg}; color:${color}; padding:2px 6px; border-radius:4px; font-weight:700; font-size:0.7rem; white-space:nowrap">${r._status}</span></td>`;
@@ -2199,8 +2206,10 @@
           // and that matters: a full ERP import posts ~8.2 MB against a 10 MB body limit,
           // which would start failing outright as the ERP data grows. Dropping SKIP takes
           // the same import to ~5.2 MB.
+          // CONFLICT is dropped for a different reason: those rows belong to another
+          // factory and must not be re-homed here. The server refuses them anyway.
           const rowsToSend = pendingUploadMode === 'server-orjr'
-            ? pendingUploadData.filter(r => r._status !== 'SKIP')
+            ? pendingUploadData.filter(r => r._status === 'NEW' || r._status === 'UPDATE')
             : pendingUploadData;
           res = await JPSMS.api.post(endpoint, {
             rows: rowsToSend,
@@ -2511,9 +2520,9 @@
         // Surface scope + freshness so nobody imports a stale snapshot unknowingly.
         const countSpan = document.getElementById('reviewCount');
         if (countSpan) {
-          // The server now returns only actionable rows (SKIPs are counted, not sent),
-          // and caps how many it returns. Say plainly when we are showing a subset —
-          // the rows on screen are still exactly the rows Confirm will write.
+          // The server returns only actionable (NEW/UPDATE) rows — SKIP and CONFLICT are
+          // counted, not sent — and caps how many it returns. Say plainly when we are
+          // showing a subset: the rows on screen are exactly the rows Confirm will write.
           const shown = (res.data || []).length;
           const changes = meta.changed_rows === undefined ? shown : meta.changed_rows;
           const bits = [meta.truncated
@@ -2522,6 +2531,11 @@
           if (meta.truncated) {
             bits.push(`confirm these, then run Import from ERP Data again for the remaining ${changes - shown}`);
           }
+          // Cross-factory rows are reported as a count here rather than listed. In the
+          // Excel path CONFLICT rows are shown in red in the table; the ERP path already
+          // reports its other exclusions (other_factory, unresolved) as counts, and a
+          // CONFLICT row is never saveable, so it stays out of the capped payload.
+          if (meta.cross_factory) bits.push(`${meta.cross_factory} rows already recorded under another factory — excluded`);
           if (meta.other_factory) bits.push(`${meta.other_factory} rows from other factories excluded`);
           if (meta.unresolved) bits.push(`${meta.unresolved} rows could not be matched to a factory`);
           const age = meta.snapshot_age_hours;
