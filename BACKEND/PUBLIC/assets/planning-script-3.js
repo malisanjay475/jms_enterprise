@@ -3117,12 +3117,27 @@
           const mouldItemQty = Number(p.mouldItemQty) || 0;
           const thisJobQty = Number(p.jobQty) || 0;
           const thisPlanQty = Number(p.planQty) || 0;
-          const plannedOthers = Number(p.mouldPlannedOthers)
-            || Math.max(0, (Number(p.__plannedQty) || 0) - thisJobQty);
-          const jobbedOthers = Number(p.mouldJobbedOthers)
-            || Math.max(0, (Number(p.__plannedQty) || 0) - thisJobQty);
           const planCeiling = mouldItemQty > 0 ? mouldItemQty : orQty;
           const jobCeiling = orQty > 0 ? orQty : mouldItemQty;
+          // Whether planCeiling is a PIECE figure (this mould's own qty) or we fell
+          // back to the OR's SET qty. Drives both the arithmetic and the labels —
+          // a fallback figure must not be presented as a piece count.
+          const planCeilingIsPieces = mouldItemQty > 0;
+          // The per-mould figures come from the server. Use them whenever the fields
+          // are PRESENT — a legitimate 0 (no other plan on this mould, the normal
+          // case) must not fall through to the fallback, so this tests for
+          // null/undefined rather than truthiness.
+          const hasMouldScoped = p.mouldPlannedOthers != null && p.mouldJobbedOthers != null;
+          // Fallback for a server that predates those fields. It is derived from
+          // job/set quantities, so it is only ever subtracted from a SET ceiling —
+          // never from a piece-based Mould Item Qty, which would mix units.
+          const setBasedOthers = Math.max(0, (Number(p.__plannedQty) || 0) - thisJobQty);
+          const plannedOthers = hasMouldScoped
+            ? Number(p.mouldPlannedOthers)
+            : (planCeilingIsPieces ? 0 : setBasedOthers);
+          const jobbedOthers = hasMouldScoped
+            ? Number(p.mouldJobbedOthers)
+            : setBasedOthers;
           const hasCap = planCeiling > 0 || jobCeiling > 0;
           const maxPlanForThisPlan = planCeiling > 0
             ? Math.max(planCeiling - plannedOthers, thisPlanQty)
@@ -3217,7 +3232,7 @@
                 ${hasCap ? `
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:12px">
                   <div style="background:#f1f5f9; border-radius:8px; padding:6px 8px">
-                    <div style="font-size:0.6rem; color:#64748b; text-transform:uppercase; font-weight:800">Mould Item Qty (pcs)</div>
+                    <div style="font-size:0.6rem; color:#64748b; text-transform:uppercase; font-weight:800">${planCeilingIsPieces ? 'Mould Item Qty (pcs)' : 'OR Qty (no mould qty)'}</div>
                     <div style="font-size:0.9rem; font-weight:900; color:#0f172a">${formatCpQty(planCeiling)}</div>
                     <div style="font-size:0.58rem; color:#94a3b8; font-weight:700">already planned ${formatCpQty(plannedOthers)}</div>
                   </div>
@@ -3287,7 +3302,7 @@
               warnEl.textContent = jobOver
                 ? `A colour's Job Qty exceeds ${formatCpQty(maxJobForThisPlan)} (OR Qty per colour).`
                 : planOver
-                ? `A colour's Plan Qty exceeds ${formatCpQty(maxPlanForThisPlan)} (Mould Item Qty per colour).`
+                ? `A colour's Plan Qty exceeds ${formatCpQty(maxPlanForThisPlan)} (${planCeilingIsPieces ? 'Mould Item Qty' : 'OR Qty'} per colour).`
                 : '';
             }
             saveBtn.disabled = over;
