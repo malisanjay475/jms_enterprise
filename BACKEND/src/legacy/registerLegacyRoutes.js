@@ -4000,6 +4000,40 @@ async function bootstrapFreshCoreTables() {
     );
   `);
 
+  // ERP linkage for the OR-JR Status import (see docs/OR_JR_ERP_AUTO_SYNC_PLAN.md).
+  // erp_factory_id is the Joyo ERP's own factory id — a DIFFERENT number space from
+  // factories.id. ERP 1 = Kachigam while JMS 1 = Dungra Plant 1, so the two must never
+  // be used interchangeably; the import always resolves ERP id -> factories.id via this
+  // column. plant_codes is the fallback for ERP rows synced before the ERP started
+  // returning factoryID: it matches the 2nd segment of the OR/JR no (JR/JG/2526/1 -> JG).
+  await q(`ALTER TABLE factories ADD COLUMN IF NOT EXISTS erp_factory_id INTEGER`);
+  await q(`ALTER TABLE factories ADD COLUMN IF NOT EXISTS plant_codes TEXT`);
+  // Seed the known mapping once, only where it has not been set yet (never overwrite
+  // a value an admin has since corrected).
+  await q(`
+    UPDATE factories SET erp_factory_id = v.erp_id, plant_codes = v.codes
+    FROM (VALUES
+      ('DUNGRA',   41, 'JG,JGUI'),
+      ('SHIVANI',  44, 'JS'),
+      ('KACHIGAM',  1, 'JP')
+    ) AS v(name_match, erp_id, codes)
+    WHERE factories.erp_factory_id IS NULL
+      AND UPPER(COALESCE(factories.name, '') || ' ' || COALESCE(factories.code, '')) LIKE '%' || v.name_match || '%'
+  `).catch(err => console.warn('[DB] factories ERP mapping seed skipped:', err.message));
+  // Same mapping by factory code, because production names them F1/F2/F3 rather than
+  // by plant — "Factory 2" is Shivani and would otherwise never match on name alone,
+  // leaving its ERP rows permanently unresolved.
+  await q(`
+    UPDATE factories SET erp_factory_id = v.erp_id, plant_codes = v.codes
+    FROM (VALUES
+      ('F1', 41, 'JG,JGUI'),
+      ('F2', 44, 'JS'),
+      ('F3',  1, 'JP')
+    ) AS v(code_match, erp_id, codes)
+    WHERE factories.erp_factory_id IS NULL
+      AND UPPER(TRIM(COALESCE(factories.code, ''))) = v.code_match
+  `).catch(err => console.warn('[DB] factories ERP mapping seed skipped:', err.message));
+
   await q(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -10952,8 +10986,46 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
         pb.job_card_date,
         pb.jc_linked_at,
         COALESCE(pb.created_by, 'System') AS created_by,
-        pb.created_at
+        pb.created_at,
+        -- Per-mould piece target (Mould Item Qty). This is the ceiling for Plan Qty;
+        -- the OR-level or_qty is the ceiling for Job Qty. They differ whenever one
+        -- OR set contains several pieces of the same mould (a 7-pc set is 1800 sets
+        -- but 10800 pieces per 6-up mould), so the edit modal must not cap Plan Qty
+        -- at or_qty.
+        COALESCE(ms.mould_qty, 0)::numeric AS mould_item_qty,
+        -- What OTHER plans on the SAME mould already booked. Scoped to the mould so
+        -- sibling moulds of one set are not treated as competing claims.
+        COALESCE(oth.planned_others, 0)::numeric AS mould_planned_others,
+        COALESCE(oth.jobbed_others, 0)::numeric  AS mould_jobbed_others
       FROM plan_board pb
+      LEFT JOIN LATERAL (
+        SELECT MAX(s.mould_item_qty)::numeric AS mould_qty
+        FROM mould_planning_summary s
+        WHERE TRIM(COALESCE(s.or_jr_no, '')) = TRIM(COALESCE(pb.order_no, ''))
+          AND (
+            (TRIM(COALESCE(pb.mould_code, '')) <> '' AND TRIM(COALESCE(s.mould_no, ''))   = TRIM(COALESCE(pb.mould_code, '')))
+            OR (TRIM(COALESCE(pb.mould_name, '')) <> '' AND TRIM(COALESCE(s.mould_name, '')) = TRIM(COALESCE(pb.mould_name, '')))
+          )
+      ) ms ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(SUM(pq), 0)::numeric AS planned_others,
+          COALESCE(SUM(jq), 0)::numeric AS jobbed_others
+        FROM (
+          SELECT DISTINCT ON (COALESCE(pb2.job_no, pb2.batch_no), pb2.our_code)
+            COALESCE(pb2.plan_qty, 0)::numeric              AS pq,
+            COALESCE(pb2.job_qty, pb2.batch_qty, 0)::numeric AS jq
+          FROM plan_board pb2
+          WHERE TRIM(COALESCE(pb2.order_no, '')) = TRIM(COALESCE(pb.order_no, ''))
+            AND COALESCE(pb2.job_no, pb2.batch_no, 0) > 0
+            AND pb2.id <> pb.id
+            AND (
+              (TRIM(COALESCE(pb.mould_code, '')) <> '' AND TRIM(COALESCE(pb2.mould_code, '')) = TRIM(COALESCE(pb.mould_code, '')))
+              OR (TRIM(COALESCE(pb.mould_name, '')) <> '' AND TRIM(COALESCE(pb2.mould_name, '')) = TRIM(COALESCE(pb.mould_name, '')))
+            )
+          ORDER BY COALESCE(pb2.job_no, pb2.batch_no), pb2.our_code, pb2.id ASC
+        ) t
+      ) oth ON true
       WHERE TRIM(COALESCE(pb.order_no, '')) = TRIM($1)
         AND COALESCE(pb.job_no, pb.batch_no, 0) > 0
         AND ($2::int IS NULL OR pb.factory_id = $2 OR pb.factory_id IS NULL)
@@ -10983,7 +11055,12 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
       jobCardDate: p.job_card_date || null,
       jcLinkedAt: p.jc_linked_at || null,
       createdBy: p.created_by || 'System',
-      createdAt: p.created_at || null
+      createdAt: p.created_at || null,
+      // Ceiling context for the superadmin edit modal: Plan Qty is capped by this
+      // mould's own piece target, Job Qty by the OR's set qty (see orQty below).
+      mouldItemQty: toNum(p.mould_item_qty) ?? 0,
+      mouldPlannedOthers: toNum(p.mould_planned_others) ?? 0,
+      mouldJobbedOthers: toNum(p.mould_jobbed_others) ?? 0
     }));
 
     const representative = jcRows[0] || {};
@@ -11102,58 +11179,111 @@ app.post('/api/planning/superadmin-edit', async (req, res) => {
     if (planQty != null && planQty < 0) return res.json({ ok: false, error: 'Plan Qty cannot be negative.' });
     if (jobQty != null && jobQty < 0) return res.json({ ok: false, error: 'Job Qty cannot be negative.' });
 
-    // Ceiling: total planned for the OR must not exceed the Order (Mould Item) Qty.
-    // Max this plan can take = OR Qty − qty already planned by OTHER plans, but never
-    // below this plan's current qty (so an unchanged value is never rejected). Skipped
-    // when OR Qty is unknown, and treated as non-fatal so a data glitch can't lock out
-    // a legitimate superadmin correction.
+    // Ceiling: Plan Qty and Job Qty are measured in DIFFERENT units, so they get
+    // DIFFERENT ceilings. Checking both against or_jr_report.or_qty (the old
+    // behaviour) made any multi-piece set uneditable: a 7-pc set with OR Qty 1800
+    // sets has a Mould Item Qty of 10800 pieces per 6-up mould, and every attempt to
+    // set the correct 10800 was rejected as "exceeds 1800".
+    //   Plan Qty (pieces) → mould_planning_summary.mould_item_qty for THIS plan's mould
+    //   Job Qty  (sets)   → or_jr_report.or_qty for the OR
+    // "Already planned by others" is likewise scoped to the SAME mould. Summing every
+    // plan on the OR double-counted sibling moulds (body/lid/basket are separate
+    // moulds of one set, not competing claims on one quantity).
+    // Never drops below this plan's current qty, so an unchanged value is never
+    // rejected. Skipped when both ceilings are unknown, and non-fatal so a data
+    // glitch can't lock out a legitimate superadmin correction.
     try {
       const orderNo = before.order_no;
       if (orderNo) {
-        const orRows = await q(
-          `SELECT COALESCE(MAX(or_qty), 0)::numeric AS or_qty
-             FROM or_jr_report WHERE TRIM(or_jr_no) = TRIM($1)`,
-          [orderNo]
-        );
+        const mouldCodeForCap = String(req.body.mouldCode || before.mould_code || '').trim();
+        const mouldNameForCap = String(req.body.mouldName || before.mould_name || '').trim();
+
+        const [orRows, mouldRows] = await Promise.all([
+          q(
+            `SELECT COALESCE(MAX(or_qty), 0)::numeric AS or_qty
+               FROM or_jr_report WHERE TRIM(or_jr_no) = TRIM($1)`,
+            [orderNo]
+          ),
+          q(
+            `SELECT COALESCE(MAX(mould_item_qty), 0)::numeric AS mould_qty
+               FROM mould_planning_summary
+              WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM($1)
+                AND (
+                  ($2 <> '' AND TRIM(COALESCE(mould_no, ''))   = TRIM($2))
+                  OR ($3 <> '' AND TRIM(COALESCE(mould_name, '')) = TRIM($3))
+                )`,
+            [orderNo, mouldCodeForCap, mouldNameForCap]
+          )
+        ]);
+
         const orQty = toNum(orRows[0]?.or_qty) ?? 0;
-        if (orQty > 0) {
+        const mouldQty = toNum(mouldRows[0]?.mould_qty) ?? 0;
+        // Fall back to whichever ceiling we do know, so a missing summary row or a
+        // missing OR row degrades to the old single-ceiling behaviour instead of
+        // skipping the check entirely.
+        const planCeiling = mouldQty > 0 ? mouldQty : orQty;
+        const jobCeiling = orQty > 0 ? orQty : mouldQty;
+
+        if (planCeiling > 0 || jobCeiling > 0) {
+          // Other plans on the SAME mould. Plan side sums plan_qty; job side dedups on
+          // (job_no, our_code) because one job spans several plan rows.
           const otherRows = await q(
-            `SELECT COALESCE(SUM(jq), 0)::numeric AS planned_others FROM (
+            `SELECT
+               COALESCE(SUM(pq), 0)::numeric AS planned_others,
+               COALESCE(SUM(jq), 0)::numeric AS jobbed_others
+             FROM (
                SELECT DISTINCT ON (COALESCE(pb.job_no, pb.batch_no), pb.our_code)
-                 COALESCE(pb.job_qty, pb.batch_qty, 0)::numeric AS jq
+                 COALESCE(pb.plan_qty, 0)::numeric                AS pq,
+                 COALESCE(pb.job_qty, pb.batch_qty, 0)::numeric   AS jq
                FROM plan_board pb
                WHERE TRIM(COALESCE(pb.order_no, '')) = TRIM($1)
                  AND COALESCE(pb.job_no, pb.batch_no, 0) > 0
                  AND pb.id <> $2
+                 AND (
+                   ($3 <> '' AND TRIM(COALESCE(pb.mould_code, '')) = TRIM($3))
+                   OR ($4 <> '' AND TRIM(COALESCE(pb.mould_name, '')) = TRIM($4))
+                 )
                ORDER BY COALESCE(pb.job_no, pb.batch_no), pb.our_code, pb.id ASC
              ) t`,
-            [orderNo, rowId]
+            [orderNo, rowId, mouldCodeForCap, mouldNameForCap]
           );
           const plannedOthers = toNum(otherRows[0]?.planned_others) ?? 0;
+          const jobbedOthers = toNum(otherRows[0]?.jobbed_others) ?? 0;
+
+          const currentPlanQty = toNum(before.plan_qty) ?? 0;
           const currentJobQty = toNum(before.job_qty ?? before.batch_qty) ?? 0;
-          const maxForThisPlan = Math.max(orQty - plannedOthers, currentJobQty);
-          // Each colour produces up to its OWN Mould Item Qty ceiling; the SUM is
-          // not capped (a 2-piece set needs the full qty of each colour). So both
-          // Job Qty and Plan Qty are checked PER colour row. With no colour breakup,
-          // fall back to the single Plan/Job Qty totals.
+          const maxPlanForThisPlan = planCeiling > 0
+            ? Math.max(planCeiling - plannedOthers, currentPlanQty)
+            : Infinity;
+          const maxJobForThisPlan = jobCeiling > 0
+            ? Math.max(jobCeiling - jobbedOthers, currentJobQty)
+            : Infinity;
+
+          // Each colour produces up to its OWN ceiling; the SUM is not capped (a
+          // 2-piece set needs the full qty of each colour). So Plan Qty and Job Qty
+          // are checked PER colour row. With no colour breakup, fall back to the
+          // single Plan/Job Qty totals.
           let over = false;
           let overLabel = '';
           let overVal = 0;
+          let overCap = 0;
+          let overSrc = 0;
           if (colourDetails && colourDetails.length) {
-            const jc = colourDetails.find((r) => (r.batchQty || 0) > maxForThisPlan);
-            const pc = colourDetails.find((r) => (r.planQty || 0) > maxForThisPlan);
-            if (jc) { over = true; overLabel = 'Job Qty'; overVal = jc.batchQty; }
-            else if (pc) { over = true; overLabel = 'Plan Qty'; overVal = pc.planQty; }
+            const jc = colourDetails.find((r) => (r.batchQty || 0) > maxJobForThisPlan);
+            const pc = colourDetails.find((r) => (r.planQty || 0) > maxPlanForThisPlan);
+            if (jc) { over = true; overLabel = 'Job Qty'; overVal = jc.batchQty; overCap = maxJobForThisPlan; overSrc = jobCeiling; }
+            else if (pc) { over = true; overLabel = 'Plan Qty'; overVal = pc.planQty; overCap = maxPlanForThisPlan; overSrc = planCeiling; }
           } else {
             const checkJob = jobQty != null ? jobQty : currentJobQty;
-            const checkPlan = planQty != null ? planQty : (toNum(before.plan_qty) ?? 0);
-            if (checkJob > maxForThisPlan) { over = true; overLabel = 'Job Qty'; overVal = checkJob; }
-            else if (checkPlan > maxForThisPlan) { over = true; overLabel = 'Plan Qty'; overVal = checkPlan; }
+            const checkPlan = planQty != null ? planQty : currentPlanQty;
+            if (checkJob > maxJobForThisPlan) { over = true; overLabel = 'Job Qty'; overVal = checkJob; overCap = maxJobForThisPlan; overSrc = jobCeiling; }
+            else if (checkPlan > maxPlanForThisPlan) { over = true; overLabel = 'Plan Qty'; overVal = checkPlan; overCap = maxPlanForThisPlan; overSrc = planCeiling; }
           }
           if (over) {
+            const srcLabel = overLabel === 'Job Qty' ? 'OR Qty' : 'Mould Item Qty';
             return res.json({
               ok: false,
-              error: `A colour's ${overLabel} (${overVal}) exceeds the per-colour limit of ${maxForThisPlan} (Mould Item Qty ${orQty}).`
+              error: `A colour's ${overLabel} (${overVal}) exceeds the per-colour limit of ${overCap} (${srcLabel} ${overSrc}).`
             });
           }
         }
@@ -13552,6 +13682,12 @@ app.get('/api/planning/job-card-approvals/:id', async (req, res) => {
 });
 
 app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
+  // The plan_board status change and its audit row MUST commit together.
+  // Previously both ran as separate autocommit statements: when the history
+  // INSERT failed, the status change had already committed, so the plan silently
+  // advanced a stage while the user was shown a 500. On a REJECT that is worse —
+  // the plan was marked REJECTED while the screen reported the action had failed.
+  let client = null;
   try {
     const factoryId = getFactoryId(req);
     const id = Number(req.params.id);
@@ -13601,10 +13737,30 @@ app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
     let historyAction = action;
     let nextStatus = action === 'REJECTED' ? 'REJECTED' : 'APPROVED';
 
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    // Re-read the stage under a row lock. `plan` was read before the transaction
+    // opened, so a concurrent action (or an impatient double-click) could have
+    // advanced the plan in between — without this, both requests would apply
+    // their own stage transition and the plan would jump two stages.
+    const lockedRows = await client.query(
+      'SELECT jc_approval_status FROM plan_board WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+    const lockedStatus = lockedRows.rows[0]?.jc_approval_status || null;
+    if ((lockedStatus || 'PENDING') !== (plan.jc_approval_status || 'PENDING')) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        ok: false,
+        error: 'This plan was just updated by someone else. Refresh and try again.'
+      });
+    }
+
     if (action === 'APPROVED' && currentStage.code === 'PPC') {
       historyAction = 'PPC_CHECKED';
       nextStatus = 'PPC_APPROVED';
-      await q(
+      await client.query(
         `
         UPDATE plan_board
         SET jc_approval_status = 'PPC_APPROVED',
@@ -13616,11 +13772,10 @@ app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
         `,
         [id, actor, ppcRemarks]
       );
-      await sendApprovalNotificationToStage('MOULDING', plan, resolved, factoryId, actor, 'Plan pending Moulding approval');
     } else if (action === 'APPROVED' && currentStage.code === 'MOULDING') {
       historyAction = 'APPROVED';
       nextStatus = 'APPROVED';
-      await q(
+      await client.query(
         `
         UPDATE plan_board
         SET jc_approval_status = 'APPROVED',
@@ -13635,7 +13790,7 @@ app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
     } else {
       historyAction = `${currentStage.code}_REJECTED`;
       nextStatus = 'REJECTED';
-      await q(
+      await client.query(
         `
         UPDATE plan_board
         SET jc_approval_status = 'REJECTED',
@@ -13652,7 +13807,7 @@ app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
       );
     }
 
-    await q(
+    await client.query(
       `
       INSERT INTO plan_job_card_approval_history
       (plan_board_id, plan_id, order_no, our_code, batch_no, action, approval_stage, job_card_no, job_card_date,
@@ -13682,10 +13837,29 @@ app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
       ]
     );
 
+    await client.query('COMMIT');
+
+    // Notify only after the transaction is durable — sending on a change that
+    // later rolled back would tell Moulding a plan is waiting for them when it
+    // is still sitting at PPC. Non-fatal: the approval itself is already saved,
+    // so a notification failure must not turn a successful approve into a 500.
+    if (historyAction === 'PPC_CHECKED') {
+      try {
+        await sendApprovalNotificationToStage('MOULDING', plan, resolved, factoryId, actor, 'Plan pending Moulding approval');
+      } catch (notifyErr) {
+        console.error('/api/planning/job-card-approvals notify (non-fatal)', notifyErr);
+      }
+    }
+
     res.json({ ok: true, action: historyAction, status: nextStatus });
   } catch (e) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
     console.error('/api/planning/job-card-approvals/:id/action', e);
     res.status(500).json({ ok: false, error: String(e) });
+  } finally {
+    if (client) client.release();
   }
 });
 
@@ -14839,6 +15013,11 @@ function mapErpJrStatusRow(r) {
     printing: r.printing,
     packing: r.packing,
     mld_prt_pack: r.mouldingPrintingPacking,
+    // Same ERP value, second home: OR-JR Status calls this column remarks_all and the
+    // plan -> Job Card auto-link scans it (see autoLinkPlansFromOrJrRemarks). The ERP has
+    // no field literally named remarks_all; mouldingPrintingPacking carries the exact
+    // "(JC)... (M)... (ST)... (PR)... (PK)... (PD)... (W)" text the Excel export used.
+    remarks_all: r.mouldingPrintingPacking,
     meeting_conclusion: r.meetingConclusion,
     wh_received_date: r.warehousereceiveddate,
     shift_remarks: r.shiftingRemarks,
@@ -15187,6 +15366,141 @@ app.post('/api/reports/erp-jr-details/sync', (req, res) => handleErpSync('detail
 app.post('/api/reports/erp-bom/sync',        (req, res) => handleErpSync('bom', req, res));
 app.post('/api/reports/erp-mould-item/sync', (req, res) => handleErpSync('mouldItem', req, res));
 
+/* ============================================================
+   OR-JR STATUS <- ERP IMPORT (stage 2)
+   ------------------------------------------------------------
+   Stage 1 (superadmin "Fetch Latest Data") pulls the ERP into
+   erp_jr_status. Stage 2 below projects that stored snapshot into
+   or_jr_report for ONE factory. It performs no network I/O — the
+   ERP is never contacted here.
+   See docs/OR_JR_ERP_AUTO_SYNC_PLAN.md.
+   ============================================================ */
+
+// The ERP sends no ISO dates. Two shapes are in the feed:
+//   business dates  'dd-MMM-yy'    e.g. 09-Oct-24
+//   audit dates     'dd/MMM/yyyy'  e.g. 09/Oct/2024
+// Returns a plain 'YYYY-MM-DD' STRING, never a Date. A Date would be serialised with
+// the Node process's timezone offset and then re-interpreted in Postgres's session
+// timezone — and those two are not necessarily the same here — which silently shifts a
+// date-only value by a day. A bare date string has no timezone to misread.
+const ERP_MONTHS = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+};
+
+function parseErpDate(val) {
+  if (val === null || val === undefined) return null;
+  if (val instanceof Date) {
+    return Number.isNaN(val.getTime()) ? null : formatLocalIsoDate(val);
+  }
+  const s = String(val).trim();
+  if (!s) return null;
+
+  const pad = n => String(n).padStart(2, '0');
+
+  // dd-MMM-yy | dd-MMM-yyyy | dd/MMM/yyyy | dd/MMM/yy
+  const m = s.match(/^(\d{1,2})[-/]([A-Za-z]{3})[-/](\d{2}|\d{4})$/);
+  if (m) {
+    const day = Number(m[1]);
+    const mon = ERP_MONTHS[m[2].toLowerCase()];
+    if (mon === undefined) return null;
+    let year = Number(m[3]);
+    // 2-digit years in this feed span 24..27; treat <70 as 2000s (matches Excel/Postgres).
+    if (m[3].length === 2) year += year < 70 ? 2000 : 1900;
+    if (day < 1 || day > 31) return null;
+    return `${year}-${pad(mon + 1)}-${pad(day)}`;
+  }
+
+  // Already ISO (yyyy-mm-dd, possibly with a time part) — keep just the date.
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+  return null; // unrecognised — better null than a silently wrong date
+}
+
+// The ONLY columns the import writes. Everything else the ERP sends is ignored, and
+// every other or_jr_report column (plan_qty, plan_date, is_closed, manual_closed_*,
+// sync_*, global_id, ...) is JMS-owned and never touched by this path.
+const OR_JR_ERP_DATE_COLUMNS = new Set([
+  'or_jr_date', 'job_card_date', 'planned_comp_date', 'mld_start_date', 'mld_end_date',
+  'actual_mld_start_date', 'prt_tuf_end_date', 'pack_end_date', 'rev_mld_end_date',
+  'shift_comp_date', 'rev_ptd_tuf_end_date', 'rev_pak_end_date', 'wh_rec_date',
+  'created_date', 'edited_date'
+]);
+const OR_JR_ERP_NUM_COLUMNS = new Set(['or_qty', 'jr_qty', 'prod_plan_qty', 'std_pack']);
+const OR_JR_ERP_IMPORT_COLUMNS = [
+  'or_jr_no', 'or_jr_date', 'or_qty', 'jr_qty', 'job_card_no', 'job_card_date',
+  'item_code', 'product_name', 'client_name', 'prod_plan_qty', 'std_pack', 'uom',
+  'planned_comp_date', 'mld_start_date', 'mld_end_date', 'actual_mld_start_date',
+  'prt_tuf_end_date', 'pack_end_date',
+  'mld_status', 'shift_status', 'prt_tuf_status', 'pack_status', 'wh_status',
+  'rev_mld_end_date', 'shift_comp_date', 'rev_ptd_tuf_end_date', 'rev_pak_end_date',
+  'wh_rec_date', 'remarks_all', 'jr_close', 'or_remarks', 'jr_remarks',
+  'created_by', 'created_date', 'edited_by', 'edited_date'
+];
+
+// Plant code = 2nd segment of the OR/JR no: 'JR/JG/2526/1' -> 'JG'.
+function erpPlantCodeFromOrJrNo(orJrNo) {
+  const parts = String(orJrNo || '').split('/');
+  return parts.length > 1 ? parts[1].trim().toUpperCase() : '';
+}
+
+// Load every factory's ERP linkage so a row can be classified as ours / another
+// factory's / unknown — we never fall back to "assume it's mine".
+async function loadErpFactoryMap() {
+  const rows = await q(
+    `SELECT id, name, code, erp_factory_id, plant_codes FROM factories`
+  );
+  const byErpId = new Map();
+  const byPlantCode = new Map();
+  for (const r of rows) {
+    if (r.erp_factory_id !== null && r.erp_factory_id !== undefined) {
+      byErpId.set(Number(r.erp_factory_id), r);
+    }
+    for (const code of String(r.plant_codes || '').split(',')) {
+      const c = code.trim().toUpperCase();
+      if (c) byPlantCode.set(c, r);
+    }
+  }
+  return { rows, byErpId, byPlantCode };
+}
+
+// Decide which JMS factory an ERP row belongs to.
+//   'match'      -> belongs to the logged-in factory, import it
+//   'other'      -> belongs to a different factory, skip
+//   'unresolved' -> cannot be determined, skip and report
+function classifyErpRowFactory(erpRow, factoryId, map) {
+  const rawErpFactory = erpRow.factory_id;
+  if (rawErpFactory !== null && rawErpFactory !== undefined && String(rawErpFactory).trim() !== '') {
+    const owner = map.byErpId.get(Number(rawErpFactory));
+    if (!owner) return 'unresolved';
+    return Number(owner.id) === Number(factoryId) ? 'match' : 'other';
+  }
+  // Legacy rows synced before the ERP started returning factoryID — fall back to
+  // the plant code embedded in the OR/JR number.
+  const owner = map.byPlantCode.get(erpPlantCodeFromOrJrNo(erpRow.or_jr_no));
+  if (!owner) return 'unresolved';
+  return Number(owner.id) === Number(factoryId) ? 'match' : 'other';
+}
+
+// Project an erp_jr_status row (all TEXT) onto the or_jr_report shape.
+function erpStatusRowToOrJrReportRow(erpRow, factoryId) {
+  const out = {};
+  for (const col of OR_JR_ERP_IMPORT_COLUMNS) {
+    const raw = erpRow[col];
+    if (OR_JR_ERP_DATE_COLUMNS.has(col)) out[col] = parseErpDate(raw);
+    else if (OR_JR_ERP_NUM_COLUMNS.has(col)) out[col] = toNum(raw);
+    else {
+      const s = raw === null || raw === undefined ? '' : String(raw).trim();
+      out[col] = s === '' ? null : s;
+    }
+  }
+  out.or_jr_no = String(erpRow.or_jr_no || '').trim();
+  out.job_card_no = String(erpRow.job_card_no || '').trim();
+  out.factory_id = factoryId; // JMS id — never the ERP's own factory number
+  return out;
+}
+
 // POST /api/upload/excel (Mock - requires 'xlsx' library for real parsing)
 app.post('/api/upload/excel', async (req, res) => {
   // In a real app, use 'multer' to handle file upload and 'xlsx' to parse
@@ -15488,14 +15802,108 @@ function toDate(val) {
   return val; // Assume ISO string or similar
 }
 
+// Calendar date of a Date as the LOCAL clock sees it. node-pg parses a Postgres DATE
+// into local midnight, so local parts give back the stored day; toISOString() would
+// convert to UTC first and report the previous day for any timezone ahead of UTC.
+function formatLocalIsoDate(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function toIsoDateText(val) {
   const parsed = toDate(val);
   if (!parsed) return null;
   if (parsed instanceof Date) {
-    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().split('T')[0];
+    return Number.isNaN(parsed.getTime()) ? null : formatLocalIsoDate(parsed);
   }
   const clean = String(parsed || '').trim();
+  // Normalise 'YYYY-MM-DD...' (incl. ERP-parsed strings) down to the date part.
+  const iso = clean.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
   return clean || null;
+}
+
+/* ------------------------------------------------------------------
+   OR-JR upload preview — shared by the Excel upload and the ERP import.
+   Key is (or_jr_no + job_card_no), matching idx_or_jr_jc_unique:
+     • no match            → NEW    (insert a brand-new row)
+     • match + any change  → UPDATE (overwrite the existing row)
+     • match + no change   → SKIP   (identical row, nothing to write)
+   Full column set is read so we can diff details, not just the keys.
+   ------------------------------------------------------------------ */
+const OR_JR_COMPARE_DATE_FIELDS = [
+  'or_jr_date', 'job_card_date', 'planned_comp_date',
+  'mld_start_date', 'mld_end_date', 'actual_mld_start_date', 'prt_tuf_end_date',
+  'pack_end_date', 'rev_mld_end_date', 'shift_comp_date', 'rev_ptd_tuf_end_date',
+  'rev_pak_end_date', 'wh_rec_date'
+];
+const OR_JR_COMPARE_NUM_FIELDS = ['or_qty', 'jr_qty', 'prod_plan_qty', 'std_pack'];
+const OR_JR_COMPARE_STR_FIELDS = [
+  'item_code', 'product_name', 'client_name', 'uom',
+  'mld_status', 'shift_status', 'prt_tuf_status', 'pack_status', 'wh_status',
+  'remarks_all', 'jr_close', 'or_remarks', 'jr_remarks'
+];
+// Audit fields (created_by/date, edited_by/date, factory_id) are intentionally
+// NOT compared — they are re-stamped on every upload and would mask real changes.
+
+// Fields the confirm UPSERT refuses to blank (COALESCE/NULLIF guard). A blank incoming
+// value for these is a no-op on save, so it must not count as a change here either —
+// otherwise the preview promises an edit that will never happen. Keep this in step with
+// the DO UPDATE clause in /api/upload/or-jr-confirm.
+const OR_JR_BLANK_PRESERVING_FIELDS = new Set(['remarks_all']);
+
+async function buildOrJrUploadPreview(mapped, requestFactoryId) {
+  const normStr = v => String(v ?? '').trim().toUpperCase();
+
+  const rowsDiffer = (incomingRow, dbRow) => {
+    const changed = [];
+    for (const f of OR_JR_COMPARE_DATE_FIELDS) {
+      if ((toIsoDateText(incomingRow[f]) || '') !== (toIsoDateText(dbRow[f]) || '')) changed.push(f);
+    }
+    for (const f of OR_JR_COMPARE_NUM_FIELDS) {
+      // toNum already returns null or a valid number (never NaN)
+      if (toNum(incomingRow[f]) !== toNum(dbRow[f])) changed.push(f);
+    }
+    for (const f of OR_JR_COMPARE_STR_FIELDS) {
+      // A blank that cannot overwrite is not a change.
+      if (OR_JR_BLANK_PRESERVING_FIELDS.has(f) && normStr(incomingRow[f]) === '') continue;
+      if (normStr(incomingRow[f]) !== normStr(dbRow[f])) changed.push(f);
+    }
+    return changed;
+  };
+
+  const selectCols = [
+    'or_jr_no', 'job_card_no',
+    ...OR_JR_COMPARE_DATE_FIELDS, ...OR_JR_COMPARE_NUM_FIELDS, ...OR_JR_COMPARE_STR_FIELDS
+  ].join(', ');
+  const existingRows = requestFactoryId
+    ? await q(`SELECT ${selectCols} FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
+    : await q(`SELECT ${selectCols} FROM or_jr_report`);
+  const dbMap = new Map();
+
+  existingRows.forEach(row => {
+    const o = (row.or_jr_no || '').trim();
+    const j = (row.job_card_no || '').trim();
+    // Key: OR No + JC No
+    dbMap.set(`${o}|${j}`, row);
+  });
+
+  return mapped.map(row => {
+    const ro = (row.or_jr_no || '').trim();
+    const rj = (row.job_card_no || '').trim();
+    const key = `${ro}|${rj}`;
+    const existing = dbMap.get(key);
+
+    // No match → brand-new row
+    if (!existing) return { ...row, _status: 'NEW' };
+
+    // Match → only UPDATE when some detail actually changed; otherwise SKIP
+    const changedFields = rowsDiffer(row, existing);
+    if (changedFields.length === 0) return { ...row, _status: 'SKIP' };
+    return { ...row, _status: 'UPDATE', _changedFields: changedFields };
+  });
 }
 
 // 1. PREVIEW (Compare Excel vs DB)
@@ -15559,74 +15967,8 @@ app.post('/api/upload/or-jr-preview', (req, res, next) => { upload.single('file'
     console.log(`[OR - JR Upload] Extracted ${mapped.length} valid records.`);
 
 
-    // 3. Compare with DB — key is (or_jr_no + job_card_no).
-    //    Smart upload:
-    //      • no match            → NEW    (insert a brand-new row)
-    //      • match + any change  → UPDATE (overwrite the existing row)
-    //      • match + no change   → SKIP   (identical row, nothing to write — hidden in UI)
-    //    Full column set is read so we can diff details, not just the keys.
-    const COMPARE_DATE_FIELDS = [
-      'or_jr_date', 'job_card_date', 'planned_comp_date',
-      'mld_start_date', 'mld_end_date', 'actual_mld_start_date', 'prt_tuf_end_date',
-      'pack_end_date', 'rev_mld_end_date', 'shift_comp_date', 'rev_ptd_tuf_end_date',
-      'rev_pak_end_date', 'wh_rec_date'
-    ];
-    const COMPARE_NUM_FIELDS = ['or_qty', 'jr_qty', 'prod_plan_qty', 'std_pack'];
-    const COMPARE_STR_FIELDS = [
-      'item_code', 'product_name', 'client_name', 'uom',
-      'mld_status', 'shift_status', 'prt_tuf_status', 'pack_status', 'wh_status',
-      'remarks_all', 'jr_close', 'or_remarks', 'jr_remarks'
-    ];
-    // Audit fields (created_by/date, edited_by/date, factory_id) are intentionally
-    // NOT compared — they are re-stamped on every upload and would mask real changes.
-
-    const normStr = v => String(v ?? '').trim().toUpperCase();
-
-    const rowsDiffer = (excelRow, dbRow) => {
-      const changed = [];
-      for (const f of COMPARE_DATE_FIELDS) {
-        if ((toIsoDateText(excelRow[f]) || '') !== (toIsoDateText(dbRow[f]) || '')) changed.push(f);
-      }
-      for (const f of COMPARE_NUM_FIELDS) {
-        // toNum already returns null or a valid number (never NaN)
-        if (toNum(excelRow[f]) !== toNum(dbRow[f])) changed.push(f);
-      }
-      for (const f of COMPARE_STR_FIELDS) {
-        if (normStr(excelRow[f]) !== normStr(dbRow[f])) changed.push(f);
-      }
-      return changed;
-    };
-
-    const selectCols = [
-      'or_jr_no', 'job_card_no',
-      ...COMPARE_DATE_FIELDS, ...COMPARE_NUM_FIELDS, ...COMPARE_STR_FIELDS
-    ].join(', ');
-    const existingRows = requestFactoryId
-      ? await q(`SELECT ${selectCols} FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
-      : await q(`SELECT ${selectCols} FROM or_jr_report`);
-    const dbMap = new Map();
-
-    existingRows.forEach(row => {
-      const o = (row.or_jr_no || '').trim();
-      const j = (row.job_card_no || '').trim();
-      // Key: OR No + JC No
-      dbMap.set(`${o}|${j}`, row);
-    });
-
-    const preview = mapped.map(row => {
-      const ro = (row.or_jr_no || '').trim();
-      const rj = (row.job_card_no || '').trim();
-      const key = `${ro}|${rj}`;
-      const existing = dbMap.get(key);
-
-      // No match → brand-new row
-      if (!existing) return { ...row, _status: 'NEW' };
-
-      // Match → only UPDATE when some detail actually changed; otherwise SKIP
-      const changedFields = rowsDiffer(row, existing);
-      if (changedFields.length === 0) return { ...row, _status: 'SKIP' };
-      return { ...row, _status: 'UPDATE', _changedFields: changedFields };
-    });
+    // 3. Compare with DB — see buildOrJrUploadPreview().
+    const preview = await buildOrJrUploadPreview(mapped, requestFactoryId);
 
     res.json({ ok: true, data: preview });
 
@@ -15710,7 +16052,12 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
               rev_mld_end_date = EXCLUDED.rev_mld_end_date, shift_comp_date = EXCLUDED.shift_comp_date,
               rev_ptd_tuf_end_date = EXCLUDED.rev_ptd_tuf_end_date,
               rev_pak_end_date = EXCLUDED.rev_pak_end_date, wh_rec_date = EXCLUDED.wh_rec_date,
-              remarks_all = EXCLUDED.remarks_all, jr_close = EXCLUDED.jr_close,
+              -- Never let a blank overwrite existing Remarks. The ERP import and some
+              -- Excel exports leave this empty, and plan -> Job Card auto-linking reads
+              -- it (autoLinkPlansFromOrJrRemarks), so blanking it silently breaks linking.
+              -- A non-empty value still overwrites as before.
+              remarks_all = COALESCE(NULLIF(TRIM(EXCLUDED.remarks_all), ''), or_jr_report.remarks_all),
+              jr_close = EXCLUDED.jr_close,
               or_remarks = EXCLUDED.or_remarks, jr_remarks = EXCLUDED.jr_remarks,
               created_by = EXCLUDED.created_by, created_date = EXCLUDED.created_date,
               edited_by = EXCLUDED.edited_by, edited_date = EXCLUDED.edited_date,
@@ -15776,6 +16123,124 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
   } catch (e) {
     console.error('upload/or-jr-confirm', e);
     res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+/* ------------------------------------------------------------------
+   2b. IMPORT FROM ERP DATA (stage 2 preview)
+   Projects the stored erp_jr_status snapshot onto or_jr_report for the
+   logged-in factory and returns the same NEW/UPDATE/SKIP preview shape
+   as the Excel upload, so the client reuses the identical review modal
+   and the identical /api/upload/or-jr-confirm save path.
+   Makes NO call to the ERP — that is stage 1 (superadmin only).
+   ------------------------------------------------------------------ */
+
+// Server-side port of JPSMS.auth.can('masters','edit') in PUBLIC/assets/app.js.
+// Keep the two in step: flat "masters_edit" key, then nested { masters: { edit } },
+// then the legacy role fallback.
+function userCanEditMasters(user) {
+  if (!user) return false;
+  if (isAdminLikeRole(user)) return true;
+  const p = (user.permissions && typeof user.permissions === 'object') ? user.permissions : {};
+  if (p.masters_edit !== undefined) return p.masters_edit === true;
+  if (p.masters && typeof p.masters === 'object' && p.masters.edit !== undefined) {
+    return p.masters.edit === true;
+  }
+  return ['supervisor', 'manager', 'planner'].includes(String(user.role_code || '').toLowerCase());
+}
+
+app.post('/api/upload/or-jr-erp-preview', async (req, res) => {
+  try {
+    const writeContext = await getWritableFactoryContext(req, 'import OR-JR Status from ERP data');
+    if (!writeContext.ok) {
+      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
+    }
+    const requestFactoryId = writeContext.factoryId;
+
+    // Permission gate — the Excel upload relies on the client hiding the control;
+    // this path enforces it server-side as well.
+    const username = (req.body && req.body.username) || getRequestUsername(req);
+    if (!username) {
+      return res.status(401).json({ ok: false, error: 'Authorization required (missing username).' });
+    }
+    const actor = (await q(
+      'SELECT username, role_code, permissions FROM users WHERE username = $1 LIMIT 1',
+      [username]
+    ))[0];
+    if (!actor) return res.status(401).json({ ok: false, error: 'Invalid user.' });
+    if (!userCanEditMasters(actor)) {
+      return res.status(403).json({ ok: false, error: 'Masters edit permission is required to import ERP data.' });
+    }
+
+    // Factory linkage must be configured or we cannot tell which rows are ours.
+    const factoryMap = await loadErpFactoryMap();
+    const myFactory = factoryMap.rows.find(f => Number(f.id) === Number(requestFactoryId));
+    const hasLinkage = myFactory
+      && (myFactory.erp_factory_id !== null && myFactory.erp_factory_id !== undefined
+        || String(myFactory.plant_codes || '').trim() !== '');
+    if (!hasLinkage) {
+      return res.status(409).json({
+        ok: false,
+        error: `ERP factory ID is not configured for ${writeContext.factoryName || 'this factory'}. Set it in the Factory master before importing.`
+      });
+    }
+
+    const snapshot = await q(`SELECT * FROM erp_jr_status`);
+    if (!snapshot.length) {
+      return res.status(409).json({
+        ok: false,
+        error: "No ERP data has been fetched yet. Ask a superadmin to press 'Fetch Latest Data' on Masters -> JR Status ERP first."
+      });
+    }
+
+    // Factory split — classify every row, never assume an unknown row is ours.
+    let otherFactory = 0;
+    let unresolved = 0;
+    const scoped = [];
+    for (const row of snapshot) {
+      const verdict = classifyErpRowFactory(row, requestFactoryId, factoryMap);
+      if (verdict === 'match') scoped.push(row);
+      else if (verdict === 'other') otherFactory++;
+      else unresolved++;
+    }
+
+    const mapped = scoped
+      .map(row => erpStatusRowToOrJrReportRow(row, requestFactoryId))
+      .filter(row => row.or_jr_no);
+
+    // Defence in depth: the same guard the Excel upload uses.
+    assertUploadRowsMatchFactory(mapped, requestFactoryId, 'OR-JR Status ERP import');
+
+    const preview = await buildOrJrUploadPreview(mapped, requestFactoryId);
+
+    const meta = (await q(
+      `SELECT to_char(max(synced_at), 'YYYY-MM-DD HH24:MI') AS last_sync,
+              EXTRACT(EPOCH FROM (now() - max(synced_at))) / 3600 AS age_hours
+         FROM erp_jr_status`
+    ))[0] || {};
+
+    console.log(`[OR-JR ERP Import] factory=${requestFactoryId} source=${snapshot.length} scoped=${mapped.length} other=${otherFactory} unresolved=${unresolved}`);
+
+    res.json({
+      ok: true,
+      data: preview,
+      meta: {
+        factory_id: requestFactoryId,
+        factory_name: writeContext.factoryName || '',
+        snapshot_synced_at: meta.last_sync || null,
+        snapshot_age_hours: meta.age_hours === null || meta.age_hours === undefined
+          ? null
+          : Math.round(Number(meta.age_hours)),
+        source_rows: snapshot.length,
+        scoped_rows: mapped.length,
+        other_factory: otherFactory,
+        unresolved
+      }
+    });
+  } catch (e) {
+    console.error('upload/or-jr-erp-preview', e);
+    const status = e?.statusCode || 500;
+    res.status(status).json({ ok: false, error: e?.message || String(e), details: e?.details });
   }
 });
 

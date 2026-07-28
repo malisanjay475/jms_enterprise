@@ -851,6 +851,17 @@
         if (erpLastSync) erpLastSync.style.display = 'none';
       }
 
+      // OR-JR Status: offer the ERP import alongside the existing Excel upload.
+      // The Excel path stays as-is so it can still be used when the ERP snapshot is stale.
+      const orjrErpImportBtn = document.getElementById('orjrErpImportBtn');
+      const orjrErpSnapshotAge = document.getElementById('orjrErpSnapshotAge');
+      if (type === 'orjr' && JPSMS.auth.can('masters', 'edit')) {
+        if (orjrErpImportBtn) orjrErpImportBtn.style.display = 'inline-flex';
+      } else {
+        if (orjrErpImportBtn) orjrErpImportBtn.style.display = 'none';
+        if (orjrErpSnapshotAge) orjrErpSnapshotAge.style.display = 'none';
+      }
+
       // Hide Upload Section for Orders (Auto-fetch)
       if (type === 'orders') {
         document.getElementById('uploadSection').style.display = 'flex'; // Keep flex to show fetch button
@@ -2183,8 +2194,16 @@
           const endpoint = pendingUploadMode === 'server-machines'
             ? '/upload/machines-confirm'
             : '/upload/or-jr-confirm';
+          // Send only rows that will actually be written. /upload/or-jr-confirm already
+          // discards SKIP rows server-side, so this changes nothing except payload size —
+          // and that matters: a full ERP import posts ~8.2 MB against a 10 MB body limit,
+          // which would start failing outright as the ERP data grows. Dropping SKIP takes
+          // the same import to ~5.2 MB.
+          const rowsToSend = pendingUploadMode === 'server-orjr'
+            ? pendingUploadData.filter(r => r._status !== 'SKIP')
+            : pendingUploadData;
           res = await JPSMS.api.post(endpoint, {
-            rows: pendingUploadData,
+            rows: rowsToSend,
             user: JPSMS.auth.getUser().username
           });
         } else if (pendingUploadMode === 'server-wipstock') {
@@ -2465,6 +2484,60 @@
         btn.innerHTML = '<i class="bi bi-cloud-arrow-down"></i> Auto-Fetch Orders';
       }
     }
+
+    // Pull the stored ERP snapshot into this factory's OR-JR Status.
+    // Reuses the Excel review modal and the identical /upload/or-jr-confirm save path —
+    // the only difference is where the rows came from.
+    async function importOrJrFromErpData() {
+      if (!ensureSingleFactoryScope('import OR-JR Status from ERP data')) return;
+      const btn = document.getElementById('orjrErpImportBtn');
+      const ageLabel = document.getElementById('orjrErpSnapshotAge');
+      const original = btn ? btn.innerHTML : '';
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Reading ERP data...'; }
+
+      try {
+        const user = JPSMS.auth.getUser() || {};
+        const res = await JPSMS.api.post('/upload/or-jr-erp-preview', { username: user.username });
+        if (!res || !res.ok) throw new Error((res && res.error) || 'Import preview failed');
+
+        const meta = res.meta || {};
+        pendingUploadMode = 'server-orjr';
+        showReviewModal(res.data, {
+          mode: 'server',
+          title: `Review OR-JR Changes from ERP Data${meta.factory_name ? ' - ' + meta.factory_name : ''}`,
+          confirmLabel: 'Confirm Update'
+        });
+
+        // Surface scope + freshness so nobody imports a stale snapshot unknowingly.
+        const countSpan = document.getElementById('reviewCount');
+        if (countSpan) {
+          const changes = (res.data || []).filter(r => r._status !== 'SKIP').length;
+          const bits = [`Found ${changes} changes from ${meta.scoped_rows || 0} ERP rows for this factory`];
+          if (meta.other_factory) bits.push(`${meta.other_factory} rows from other factories excluded`);
+          if (meta.unresolved) bits.push(`${meta.unresolved} rows could not be matched to a factory`);
+          const age = meta.snapshot_age_hours;
+          if (meta.snapshot_synced_at) {
+            const stale = age !== null && age !== undefined && age >= 24;
+            bits.push(`ERP data last fetched ${meta.snapshot_synced_at}${age === null || age === undefined ? '' : ` (${age}h ago)`}`);
+            countSpan.style.color = stale ? '#b45309' : '';
+            if (stale) bits.push("ask a superadmin to press 'Fetch Latest Data' for newer data");
+          } else {
+            countSpan.style.color = '';
+          }
+          countSpan.textContent = bits.join(' • ');
+        }
+
+        if (ageLabel && meta.snapshot_synced_at) {
+          ageLabel.style.display = 'inline-block';
+          ageLabel.textContent = 'ERP data: ' + meta.snapshot_synced_at;
+        }
+      } catch (e) {
+        alert('Import failed: ' + (e.message || e));
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = original; }
+      }
+    }
+    window.importOrJrFromErpData = importOrJrFromErpData;
 
     // --- OR-JR Actions ---
     function toggleOrJrView() {

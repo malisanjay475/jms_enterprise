@@ -11,8 +11,43 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.9.3",
+  "latest": "1.10.0",
   "versions": [
+    {
+      "version": "1.10.0",
+      "date": "2026-07-28",
+      "title": "OR-JR Status can now be filled from the ERP instead of an Excel upload",
+      "summary": "Masters -> OR-JR Status has a new \"Import from ERP Data\" button. It brings in JR Status data already fetched from the ERP, showing you exactly what is new and what changed before anything is saved. Only your own factory's orders are brought in. The Excel upload still works if you need it.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-database",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New \"Import from ERP Data\" button on OR-JR Status fills the report from ERP data — no more downloading an Excel from the ERP and uploading it by hand."
+            },
+            {
+              "type": "feat",
+              "text": "The import only brings in orders belonging to the factory you are logged into; orders from the other plants are counted and left out."
+            },
+            {
+              "type": "improvement",
+              "text": "Before saving, you see the same review screen as the Excel upload, listing every new and changed row so nothing is written without you approving it."
+            },
+            {
+              "type": "improvement",
+              "text": "The screen shows when the ERP data was last fetched, and warns you if it is more than a day old so you can ask a superadmin to refresh it."
+            },
+            {
+              "type": "fix",
+              "text": "A blank Remarks value can no longer wipe the Remarks already saved against an order — this applies to the Excel upload as well."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.9.3",
       "date": "2026-07-27",
