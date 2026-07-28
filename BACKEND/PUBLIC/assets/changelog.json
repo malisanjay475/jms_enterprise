@@ -11,8 +11,62 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.9.3",
+  "latest": "1.10.0",
   "versions": [
+    {
+      "version": "1.10.0",
+      "date": "2026-07-28",
+      "title": "OR-JR Status imports straight from ERP, and set quantities can be corrected again",
+      "summary": "OR-JR Status no longer needs an Excel download and upload — it can be imported directly from stored ERP data, factory by factory. Separately, correcting the Plan Qty on a plan for a multi-piece set no longer fails with an 'exceeds the limit' error, and Job Card approvals can no longer half-save.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-sliders",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "OR-JR Status has an 'Import from ERP Data' button, so you no longer download an Excel file from the ERP and upload it by hand. A superadmin fetches the latest ERP data, then anyone with Masters access can import it."
+            },
+            {
+              "type": "fix",
+              "text": "Imported OR and Job Card dates can no longer land a day early or late."
+            },
+            {
+              "type": "fix",
+              "text": "The import preview now lists only the rows the save will really change, instead of reporting changes to remarks that were never applied."
+            },
+            {
+              "type": "fix",
+              "text": "Factory 2 (Shivani) rows now import correctly — they were previously left out because the factory could not be matched by name."
+            }
+          ]
+        },
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Correcting a plan's quantity on a multi-piece set now works. Plan Qty is checked against that mould's own Mould Item Qty and Job Qty against the order's set quantity, so a 7-piece set with an order of 1800 sets correctly allows 10800 pieces per 6-up mould instead of rejecting it as over the limit."
+            },
+            {
+              "type": "improvement",
+              "text": "The Edit Plan window now shows both limits side by side — Mould Item Qty in pieces and OR Qty in sets — along with the maximum allowed per colour for each."
+            },
+            {
+              "type": "fix",
+              "text": "Quantity already planned is now counted per mould, so the body, lid and basket of one set no longer eat into each other's allowance."
+            },
+            {
+              "type": "fix",
+              "text": "A Job Card approval that fails now leaves the plan exactly where it was. Previously the plan could quietly advance a stage while the screen reported an error, and double-clicking could apply two approvals."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.9.3",
       "date": "2026-07-27",
