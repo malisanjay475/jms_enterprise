@@ -5,8 +5,28 @@ data already stored in JMS gets pushed into the OR-JR Status master (`or_jr_repo
 one button — **filtered to the logged-in factory**, and writing **only the columns
 OR-JR Status already has**.
 
-**Status:** implemented 2026-07-27 on `claude/or-jr-status-erp-auto-8844a3`, verified against
-live ERP + staging data. Pending staging test + release (§8).
+**Status:** implemented and **verified end-to-end on staging 2026-07-28**. Released as v1.10.0.
+
+Shipped in PRs #1072 (feature), #1074 (date/timezone + preview parity), #1075 (factory-code
+seed), #1077 (confirm payload size).
+
+### Staging verification results
+
+| Check | Result |
+|---|---|
+| Factory partition (3 factories) | 8,474 + 388 + 3,983 = **12,845 = exactly the source row count**, 0 unresolved |
+| Real import saved | 5,323 rows in 86s |
+| **Idempotency** — re-run after save | 0 NEW, 0 UPDATE, **all 8,474 SKIP** |
+| **Date accuracy** vs ERP text | **36,338 values, 100.00% exact match, 0 mismatches** |
+| Factory isolation in `or_jr_report` | 9,777 rows, all `factory_id = 1`; plant codes JG + JGUI only |
+| `remarks_all` | never blanked; existing values preserved |
+
+Two bugs were caught only by running against real data, both fixed before release:
+`Date` objects drifting a day across the Node/Postgres timezone boundary, and the preview
+reporting `remarks_all` changes the save would never make.
+
+**Still untested:** the Excel upload regression (needs a real file uploaded through the UI)
+and how imported rows replicate to a LOCAL factory server.
 
 ---
 
