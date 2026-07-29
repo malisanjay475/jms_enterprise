@@ -6167,13 +6167,13 @@ app.post('/api/std-actual/save', async (req, res) => {
             const stdG = toGrams(stdWt);
             const actG = toGrams(actWt);
             // Epsilon: binary floating point puts an exact-boundary entry a hair
-            // outside the band (25 * 1.05 -> 26.250000000000004), which would
+            // outside the band (25 * 1.1 -> 27.500000000000004), which would
             // reject a value the operator was told is allowed.
             const eps = stdG * 1e-9;
-            if (actG < stdG * 0.95 - eps || actG > stdG * 1.05 + eps) {
+            if (actG < stdG * 0.90 - eps || actG > stdG * 1.10 + eps) {
               return res.status(400).json({
                 ok: false,
-                error: `Weight Validation Failed: Actual is outside ±5% of Std. Allowed range: ${(stdG * 0.95).toFixed(3)} – ${(stdG * 1.05).toFixed(3)} g.`
+                error: `Weight Validation Failed: Actual is outside ±10% of Std. Allowed range: ${(stdG * 0.90).toFixed(3)} – ${(stdG * 1.10).toFixed(3)} g.`
               });
             }
           }
