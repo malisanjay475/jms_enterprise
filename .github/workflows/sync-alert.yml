@@ -63,6 +63,11 @@ jobs:
       - name: Check out the repo (needed for the SSH script)
         if: env.HAS_KEY == 'true'
         uses: actions/checkout@v6
+        with:
+          # This job only needs the script file on disk — it never runs an
+          # authenticated git command afterwards, so don't leave the workflow
+          # token configured for the SSH steps that follow.
+          persist-credentials: false
 
       # The remote script lives in .github/scripts/sync-health-query.sh so the
       # attempt and the retry below share one copy and cannot drift apart.
