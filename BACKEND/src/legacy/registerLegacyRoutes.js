@@ -16330,7 +16330,7 @@ app.get('/api/reports/or-jr-full', async (req, res) => {
 
     // Global Search override (If searching, ignore dates to ensure we find the record)
     if (search) {
-      params.push(`% ${search}% `);
+      params.push(`%${String(search).trim()}%`);
       const i = params.length;
       conditions.push(`(
       or_jr_no ILIKE $${i} OR 
@@ -20120,7 +20120,7 @@ app.get('/api/planning/job-cards', async (req, res) => {
 
     // Search
     if (search) {
-      params.push(`% ${search}% `);
+      params.push(`%${String(search).trim()}%`);
       const i = params.length;
       conditions.push(`(
     COALESCE(data ->> 'jc_no', data ->> 'job_card_no', '') ILIKE $${i} OR
