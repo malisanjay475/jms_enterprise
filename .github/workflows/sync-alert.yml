@@ -9,11 +9,22 @@ name: Hourly Sync Health Check
 # backup/deploy use) and query /api/sync-alert from inside the app container.
 # This is firewall-proof and never depends on DNS / other sites.
 #
-# The SSH step always exits 0 and prints machine-readable STATUS/RESP lines;
+# The remote script always exits 0 and prints machine-readable STATUS/RESP lines;
 # a local "Evaluate" step parses them (capture_stdout), fails the job when
 # sync is stale or MAIN is down, and builds a per-server detail block that
 # goes into the alert email subject + body — so the email names the exact
 # factory servers that are stale and for how long, without opening the logs.
+#
+# That contract only holds once SSH has CONNECTED. If the runner cannot open
+# port 22 the action exits non-zero before the script runs, so both SSH steps
+# are continue-on-error and Evaluate checks their outcome first: a connection
+# failure is reported as "sync NOT checked", never as a stale factory sync.
+# It matters — this monitor spent 11+ days red on dial timeouts while telling
+# the owner to go restart a factory server that was never the problem.
+#
+# NOTE: v1.2.5 is required for capture_stdout / outputs.stdout — v1.0.3 (used by
+# the other SSH workflows here) has no outputs section at all, so downgrading to
+# match them would silently break the Evaluate step.
 #
 # /api/sync-alert reads the local_servers heartbeat recorded on MAIN — the
 # correct "has the factory LOCAL server stopped pushing?" signal.
@@ -45,9 +56,21 @@ jobs:
         if: env.HAS_KEY != 'true'
         run: echo "::warning::SYNC_API_KEY not set — skipping sync health check."
 
+      # The remote script lives in .github/scripts/sync-health-query.sh so the
+      # attempt and the retry below share one copy and cannot drift apart.
+      #
+      # continue-on-error is essential: if SSH cannot CONNECT, the action exits
+      # non-zero before the script runs, so the "always exit 0" contract inside
+      # the script cannot help. Without this the job aborted here and the email
+      # went out with no detail at all, blaming a stale factory sync for what
+      # was really a connectivity fault.
+      #
+      # timeout is the TCP dial timeout (default 30s). Every observed failure was
+      # "dial tcp ...:22: i/o timeout" at exactly 30s, so give the handshake room.
       - name: Query sync health on the VPS (SSH + docker exec)
         id: query
         if: env.HAS_KEY == 'true'
+        continue-on-error: true
         uses: appleboy/ssh-action@v1.2.5
         env:
           SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
@@ -57,45 +80,41 @@ jobs:
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
           passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
           port: 22
+          timeout: 60s
           command_timeout: 5m
           envs: SYNC_API_KEY
           capture_stdout: true
-          # This step ALWAYS exits 0 — otherwise capture_stdout would be lost
-          # and the email could not include details. It prints STATUS= and
-          # RESP= lines; the Evaluate step below decides pass/fail locally.
-          # We run the request INSIDE the app container using node's http (the
-          # image is node:20-alpine — it has node but NOT curl). This is exactly
-          # how the Docker healthcheck reaches the app, so it works regardless
-          # of host firewall or published-port mapping.
-          script: |
-            APP="$(docker ps --format '{{.Names}}' | grep -E 'jms-enterprise-v1-app' | head -1)"
-            if [ -z "$APP" ]; then
-              echo "STATUS=DOWN"
-              echo "DETAIL=App container (jms-enterprise-v1-app*) is not running on the VPS."
-              exit 0
-            fi
-            RESP="$(docker exec -e SYNC_API_KEY="${SYNC_API_KEY}" "$APP" node -e '
-              const http = require("http");
-              const key = process.env.SYNC_API_KEY || "";
-              http.get("http://127.0.0.1:3000/api/sync-alert?key=" + encodeURIComponent(key), (r) => {
-                let b = "";
-                r.on("data", d => b += d);
-                r.on("end", () => { process.stdout.write(b); });
-              }).on("error", () => { process.exit(2); });
-            ' 2>/dev/null || true)"
-            if [ -z "$RESP" ]; then
-              echo "STATUS=DOWN"
-              echo "DETAIL=App did not respond on port 3000 inside the container."
-              exit 0
-            fi
-            echo "STATUS=RESPONDED"
-            echo "RESP=$RESP"
+          script_path: .github/scripts/sync-health-query.sh
+
+      # One retry, because the VPS intermittently refuses the runner's dial —
+      # production deploys have needed a second attempt for the same reason.
+      # A single retry keeps a blip from paging someone at 2am.
+      - name: Retry query if the first SSH attempt could not connect
+        id: query_retry
+        if: env.HAS_KEY == 'true' && steps.query.outcome != 'success'
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          SYNC_API_KEY: ${{ secrets.SYNC_API_KEY }}
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          passphrase: ${{ secrets.HOSTINGER_SSH_KEY_PASSPHRASE }}
+          port: 22
+          timeout: 60s
+          command_timeout: 5m
+          envs: SYNC_API_KEY
+          capture_stdout: true
+          script_path: .github/scripts/sync-health-query.sh
 
       - name: Evaluate sync health
         id: eval
         if: env.HAS_KEY == 'true'
         env:
-          QUERY_STDOUT: ${{ steps.query.outputs.stdout }}
+          QUERY_STDOUT: ${{ steps.query.outputs.stdout || steps.query_retry.outputs.stdout }}
+          QUERY_OUTCOME: ${{ steps.query.outcome }}
+          RETRY_OUTCOME: ${{ steps.query_retry.outcome }}
         run: |
           node <<'EOF'
           const fs = require('fs');
@@ -118,10 +137,25 @@ jobs:
             return d > 0 ? `${d}d ${h}h ago` : h > 0 ? `${h}h ${min % 60}m ago` : `${min}m ago`;
           };
 
+          // Could we even reach the VPS? If not, sync was never checked — say so
+          // plainly rather than reporting it as a sync problem. Getting this wrong
+          // sent people to the factory server to fix a connectivity fault.
+          const reached = process.env.QUERY_OUTCOME === 'success'
+                       || process.env.RETRY_OUTCOME === 'success';
+          if (!reached) {
+            fail('cannot reach the VPS over SSH — sync NOT checked',
+                 'Both SSH attempts failed to connect to the VPS, so the sync status was\n' +
+                 'never read. This does NOT mean a factory server stopped syncing — it means\n' +
+                 'the monitor could not run. Sync may be perfectly healthy.\n\n' +
+                 'Usually "dial tcp <host>:22: i/o timeout" — the GitHub runner could not\n' +
+                 'open port 22 on the VPS. Check the VPS is up and reachable on SSH, and\n' +
+                 'that no firewall / fail2ban rule is blocking GitHub Actions IP ranges.');
+          }
+
           const status = val('STATUS');
           if (status !== 'RESPONDED') {
             fail('MAIN app is DOWN or unreachable',
-                 val('DETAIL') || 'SSH step produced no STATUS line — check the run logs.');
+                 val('DETAIL') || 'SSH connected but produced no STATUS line — check the run logs.');
           }
           let resp;
           try { resp = JSON.parse(val('RESP')); }
@@ -166,8 +200,13 @@ jobs:
             Run (full logs): ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
             ACTION:
-            - Stale sync  -> check that factory's LOCAL server is online and its
-                            sync agent is running (LOCAL_SERVER_AGENT_ENABLED
-                            must not be 0 in BACKEND/.env); then run
-                            force-full-push from the LOCAL app.
-            - App down    -> check the VPS / Docker container is running.
+            - Stale sync    -> check that factory's LOCAL server is online and its
+                              sync agent is running (LOCAL_SERVER_AGENT_ENABLED
+                              must not be 0 in BACKEND/.env); then run
+                              force-full-push from the LOCAL app.
+            - App down      -> check the VPS / Docker container is running.
+            - Cannot reach  -> the monitor never ran, so sync status is UNKNOWN and
+              the VPS         may well be fine. Check the VPS is up and accepting
+                              SSH on port 22, and that no firewall / fail2ban rule
+                              is blocking GitHub Actions IP ranges. Do NOT go
+                              looking at the factory LOCAL server for this one.
