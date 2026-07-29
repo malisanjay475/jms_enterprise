@@ -1254,43 +1254,25 @@
         return;
       }
 
-      /* --- VALIDATION --- */
-      const stdWt = parseFloat(el('std-article').value || 0);
-      const actWt = parseFloat(el('act-article').value || 0);
-
+      /* --- VALIDATION ---
+         Article weight is deliberately NOT validated against STD (owner's decision).
+         Whatever the operator enters is recorded as-is, at any deviation. The
+         matching server-side guard was removed with it — leaving that in place
+         would have rejected the save anyway and just moved the error later.
+         Cavity and runner checks are unchanged. */
       const stdCav = parseFloat(el('std-cavity').value || 0);
       const actCav = parseFloat(el('act-cavity').value || 0);
 
       const stdRun = parseFloat(el('std-runner').value || 0);
       const actRun = parseFloat(el('act-runner').value || 0);
 
-      // 1. Weight Tolerance: Article ACT must be within ±10% of STD.
-      //    STD and ACT can arrive in different units (masters store kg on some
-      //    moulds, the operator types grams), so normalise both to grams using the
-      //    same <10 => kg heuristic the payload builder below uses.
-      const toGrams = (v) => (v > 0 && v < 10) ? v * 1000 : v;
-      if (stdWt > 0 && actWt > 0) {
-        const stdG = toGrams(stdWt);
-        const actG = toGrams(actWt);
-        const lo = stdG * 0.90;
-        const hi = stdG * 1.10;
-        // Epsilon: binary floating point puts an exact-boundary entry a hair
-        // outside the band (25 * 1.1 -> 27.500000000000004), which would reject
-        // a value the operator was told is allowed.
-        const eps = stdG * 1e-9;
-        if (actG < lo - eps || actG > hi + eps) {
-          el('std-msg').innerHTML = `<span class="err">Weight Validation Failed: Actual (${actWt}) is outside ±10% of Std (${stdWt}). Allowed range: ${lo.toFixed(3)} – ${hi.toFixed(3)} g.</span>`;
-          return;
-        }
-      }
-
-      // 2. Cavity: Act <= Std
+      // 1. Cavity: Act <= Std
       if (stdCav > 0 && actCav > stdCav) {
         el('std-msg').innerHTML = `<span class="err">Cavity Validation Failed: Actual (${actCav}) cannot be more than Std (${stdCav}).</span>`;
         return;
       }
 
-      // 3. Runner: Act <= 1.5 * Std
+      // 2. Runner: Act <= 1.5 * Std
       if (stdRun > 0 && actRun > 0) {
         const maxRun = stdRun * 1.5;
         if (actRun > maxRun) {

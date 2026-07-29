@@ -3,8 +3,11 @@
 /**
  * Server-side guards for the Supervisor entry constraints:
  *   - Cavity ACT may not exceed Cavity STD
- *   - Article weight ACT must be within +/-10% of STD
  *   - Cumulative colour production capped at 110% of the colour's plan qty
+ *
+ * Article weight is intentionally NOT guarded — the +/-10% band was removed on
+ * the owner's decision, browser and server together. The weight cases below pin
+ * that absence so the check cannot quietly return.
  *
  * These mirror browser-side checks; they exist so a stale cached PWA bundle
  * cannot bypass them, so the boundary behaviour is worth pinning down here.
@@ -109,33 +112,28 @@ describe('Supervisor setup constraints (cavity + weight)', () => {
     expect(upsertRan(pool)).toBe(false);
   });
 
-  it('accepts article weight at the +10% and -10% bounds', async () => {
-    for (const factor of [1.10, 0.90]) {
+  // Article weight is no longer validated against STD — removed on the owner's
+  // decision, in the browser and on the server together. These cases previously
+  // asserted a +/-10% band; they now pin the opposite, so the guard cannot creep
+  // back in unnoticed.
+  it('accepts article weight at any deviation from STD', async () => {
+    // Well outside the band that used to be enforced, in both directions.
+    for (const factor of [1.11, 0.89, 3, 0.2]) {
       const { app, pool } = createApp();
       mockMould(pool);
       const res = await save(app, { ArticleActual: STD_WT_KG * factor });
       expect(res.status).toBe(200);
       expect(res.body.ok).toBe(true);
+      expect(upsertRan(pool)).toBe(true);
     }
   });
 
-  it('rejects article weight outside +/-10%', async () => {
-    for (const factor of [1.11, 0.89]) {
-      const { app, pool } = createApp();
-      mockMould(pool);
-      const res = await save(app, { ArticleActual: STD_WT_KG * factor });
-      expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/Weight Validation Failed/);
-      expect(upsertRan(pool)).toBe(false);
-    }
-  });
-
-  it('compares weight in a common unit when the master stores grams, not kg', async () => {
-    // Same 25 g standard, but held as grams in the master. An in-tolerance
-    // actual must still pass rather than looking 1000x off.
+  it('does not reject on weight even when the master stores grams, not kg', async () => {
+    // The old guard normalised units before comparing; with no comparison left,
+    // a mixed-unit master must simply not block the save.
     const { app, pool } = createApp();
     mockMould(pool, { std_wt_kg: 25, no_of_cav: STD_CAV });
-    const res = await save(app, { ArticleActual: 0.0255 }); // 25.5 g => +2%
+    const res = await save(app, { ArticleActual: 0.0255 });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
   });
