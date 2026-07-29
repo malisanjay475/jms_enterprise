@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.12.1",
+  "latest": "1.12.2",
   "versions": [
+    {
+      "version": "1.12.2",
+      "date": "2026-07-29",
+      "title": "Machine data popup now shows shots produced per hour",
+      "summary": "Clicking the machine counter on a DPR hour cell now shows how many shots the machine produced in that hour (the counter's rise over the hour), plus the total counter and the real cycle time. Fields that this controller does not report accurately (cavity, shot weight) have been removed so only trustworthy numbers are shown.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-journal-text",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "The machine-counter popup now leads with shots produced in that hour, and no longer shows fields the machine does not report correctly."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.12.1",
       "date": "2026-07-29",

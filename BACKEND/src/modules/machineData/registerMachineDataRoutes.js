@@ -350,37 +350,43 @@ function registerMachineDataRoutes(app, pool) {
       const win = slotWindows(date, shift).find(s => s.slot === slot);
       if (!win) return res.status(400).json({ ok: false, error: 'unknown slot' });
 
+      // Pull first + last reading in the hour so we can report production =
+      // (counter at end) - (counter at start), plus the current cycle.
       const { rows } = await pool.query(`
-        SELECT recorded_at, good_shots, raw_json,
-               (SELECT COUNT(*) FROM machine_readings
-                 WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3) AS samples,
-               (SELECT MIN(recorded_at) FROM machine_readings
-                 WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3) AS first_at
-          FROM machine_readings
-         WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
-         ORDER BY recorded_at DESC
-         LIMIT 1
+        WITH win AS (
+          SELECT recorded_at, good_shots, cycle_time_s
+            FROM machine_readings
+           WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
+        )
+        SELECT
+          (SELECT good_shots  FROM win ORDER BY recorded_at DESC LIMIT 1) AS good_last,
+          (SELECT good_shots  FROM win ORDER BY recorded_at ASC  LIMIT 1) AS good_first,
+          (SELECT cycle_time_s FROM win ORDER BY recorded_at DESC LIMIT 1) AS cycle_last,
+          (SELECT MAX(recorded_at) FROM win) AS last_at,
+          (SELECT MIN(recorded_at) FROM win) AS first_at,
+          (SELECT COUNT(*) FROM win) AS samples
       `, [machineId, win.startIso, win.endIso]);
 
-      if (!rows.length) {
+      const r = rows[0] || {};
+      if (!r.samples || Number(r.samples) === 0) {
         return res.json({ ok: true, machine, slot, found: false });
       }
-      const r = rows[0];
-      const raw = r.raw_json || {};
-      // The six requested registers (values already decoded into raw_json).
+      const produced = (r.good_last != null && r.good_first != null)
+        ? Math.max(0, Number(r.good_last) - Number(r.good_first)) : null;
+
+      // Only fields we've verified accurate on this controller. The vendor
+      // sheet's cavity/weight/cycle-set registers do not match this gateway, so
+      // they are intentionally omitted rather than shown as wrong numbers.
       const fields = [
-        { key: 'total_cavity',     label: 'Total cavity (40004)' },
-        { key: 'running_cavity',   label: 'Running cavity (40006)' },
-        { key: 'shot_weight',      label: 'Shot weight (40008)', unit: 'g' },
-        { key: 'cycle_time_set',   label: 'Cycle time set (40012)', unit: 's' },
-        { key: 'cycle_time_act',   label: 'Cycle time act (40014)', unit: 's' },
-        { key: 'shot_counter_set', label: 'Shot counter set (40016)' },
-        { key: 'good_shots',       label: 'Good shots (40018)' },
-      ].map(f => ({ ...f, value: raw[f.key] != null ? raw[f.key] : null }));
+        { key: 'produced',    label: 'Shots produced this hour', value: produced, primary: true },
+        { key: 'counter_now', label: 'Counter now (total)',      value: r.good_last != null ? Number(r.good_last) : null },
+        { key: 'cycle',       label: 'Cycle time',               value: r.cycle_last != null ? Number(r.cycle_last) : null, unit: 's' },
+      ];
 
       res.json({
         ok: true, machine, slot, found: true,
-        last_at: r.recorded_at, first_at: r.first_at, samples: Number(r.samples || 0),
+        produced,
+        last_at: r.last_at, first_at: r.first_at, samples: Number(r.samples || 0),
         fields,
       });
     } catch (e) {
