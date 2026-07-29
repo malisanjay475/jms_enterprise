@@ -56,6 +56,14 @@ jobs:
         if: env.HAS_KEY != 'true'
         run: echo "::warning::SYNC_API_KEY not set — skipping sync health check."
 
+      # Required for script_path below. This job historically ran without a
+      # checkout because the SSH script was inlined in the workflow; the script
+      # now lives in .github/scripts/ so it must actually be on disk, or the SSH
+      # step dies with "stat .github/scripts/...: no such file or directory".
+      - name: Check out the repo (needed for the SSH script)
+        if: env.HAS_KEY == 'true'
+        uses: actions/checkout@v6
+
       # The remote script lives in .github/scripts/sync-health-query.sh so the
       # attempt and the retry below share one copy and cannot drift apart.
       #
