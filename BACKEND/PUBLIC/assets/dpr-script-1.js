@@ -2331,12 +2331,25 @@
                                             if (predWt > 0) predKg = predQty * predWt;
                                         }
 
+                                        // Act weight vs Std weight: lighter than STD is a material saving
+                                        // (green, down arrow), heavier is overweight (red, up arrow). Both
+                                        // sides are already rounded to whole grams, so "same" is an exact
+                                        // integer match and sub-gram noise can't flicker the arrow.
+                                        let wtActHtml = wtActGrams > 0 ? wtActGrams + 'g' : '-';
+                                        if (wtStdGrams > 0 && wtActGrams > 0) {
+                                            if (wtActGrams < wtStdGrams) {
+                                                wtActHtml = `<span style="color:#166534;font-weight:800" title="Under STD by ${wtStdGrams - wtActGrams}g">${wtActGrams}g &#8595;</span>`;
+                                            } else if (wtActGrams > wtStdGrams) {
+                                                wtActHtml = `<span style="color:#dc2626;font-weight:800" title="Over STD by ${wtActGrams - wtStdGrams}g">${wtActGrams}g &#8593;</span>`;
+                                            }
+                                        }
+
                                         const effColor     = rowEffNet >= 80 ? '#166534' : rowEffNet >= 60 ? '#b45309' : '#dc2626';
                                         const oeeColor     = rowEff    >= 80 ? '#166534' : rowEff    >= 60 ? '#b45309' : '#dc2626';
 
                                         const summaryClickScript = `showSummaryDetails('${stripMachPfx(machine)}', '${rowShift}', '${lineName}', ${sumGood}, ${sumRej}, ${sumDt}, ${sumAutoDt}, ${Math.round(sumStd)}, '${encodeURIComponent(JSON.stringify(rowAggRej))}', '${encodeURIComponent(JSON.stringify(rowAggDt))}')`;
 
-                                        let summaryH = !m.is_dummy ? `<div style="text-align:left;cursor:pointer;font-size:0.72rem;line-height:1.32;padding:1px 0" onclick="${summaryClickScript}"><div style="font-weight:700;color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-weight:800;color:#166534;font-size:0.8rem">${totalPcs}<span style="font-weight:500;color:#64748b;font-size:0.68rem"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="color:#db2777;font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="color:#be185d;font-weight:600">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${(wtStdGrams > 0 || wtActGrams > 0) ? `<div style="color:#64748b;font-weight:600">Wt: ${wtStdGrams > 0 ? wtStdGrams + 'g' : '-'} → ${wtActGrams > 0 ? wtActGrams + 'g' : '-'}</div>` : ''}<div style="font-weight:700;color:#7c3aed">Tot Kg: ${totKg.toFixed(1)}</div>${predQty > 0 ? `<div style="font-weight:700;color:#0891b2" title="Predicted by shift end — produced so far + current pace (or STD rate) × remaining runnable hours">Pred: ${predQty} pcs${predKg > 0 ? ` | ${predKg.toFixed(1)} Kg` : ''}</div>` : ''}${rowEffNet > 0 ? `<div style="font-weight:700;color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-weight:700;color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
+                                        let summaryH = !m.is_dummy ? `<div style="text-align:left;cursor:pointer;font-size:0.72rem;line-height:1.32;padding:1px 0" onclick="${summaryClickScript}"><div style="font-weight:700;color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-weight:800;color:#166534;font-size:0.8rem">${totalPcs}<span style="font-weight:500;color:#64748b;font-size:0.68rem"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="color:#db2777;font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="color:#be185d;font-weight:600">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${(wtStdGrams > 0 || wtActGrams > 0) ? `<div style="color:#64748b;font-weight:600">Wt: ${wtStdGrams > 0 ? wtStdGrams + 'g' : '-'} → ${wtActHtml}</div>` : ''}<div style="font-weight:700;color:#7c3aed">Tot Kg: ${totKg.toFixed(1)}</div>${predQty > 0 ? `<div style="font-weight:700;color:#0891b2" title="Predicted by shift end — produced so far + current pace (or STD rate) × remaining runnable hours">Pred: ${predQty} pcs${predKg > 0 ? ` | ${predKg.toFixed(1)} Kg` : ''}</div>` : ''}${rowEffNet > 0 ? `<div style="font-weight:700;color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-weight:700;color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
 
                                         lineTotalTonnage += sumTonnage;
                                         lineTotalRejTonnage += sumRejTonnage;

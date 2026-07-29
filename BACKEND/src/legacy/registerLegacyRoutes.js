@@ -6167,13 +6167,13 @@ app.post('/api/std-actual/save', async (req, res) => {
             const stdG = toGrams(stdWt);
             const actG = toGrams(actWt);
             // Epsilon: binary floating point puts an exact-boundary entry a hair
-            // outside the band (25 * 1.05 -> 26.250000000000004), which would
+            // outside the band (25 * 1.1 -> 27.500000000000004), which would
             // reject a value the operator was told is allowed.
             const eps = stdG * 1e-9;
-            if (actG < stdG * 0.95 - eps || actG > stdG * 1.05 + eps) {
+            if (actG < stdG * 0.90 - eps || actG > stdG * 1.10 + eps) {
               return res.status(400).json({
                 ok: false,
-                error: `Weight Validation Failed: Actual is outside ±5% of Std. Allowed range: ${(stdG * 0.95).toFixed(3)} – ${(stdG * 1.05).toFixed(3)} g.`
+                error: `Weight Validation Failed: Actual is outside ±10% of Std. Allowed range: ${(stdG * 0.90).toFixed(3)} – ${(stdG * 1.10).toFixed(3)} g.`
               });
             }
           }
@@ -15439,6 +15439,26 @@ const OR_JR_ERP_IMPORT_COLUMNS = [
   'created_by', 'created_date', 'edited_by', 'edited_date'
 ];
 
+// Bounds for the stage-2 preview scan (see /api/upload/or-jr-erp-preview).
+// BATCH_SIZE  — rows pulled from erp_jr_status per round trip; only one batch is
+//               ever resident, so snapshot growth costs time, not memory.
+// ROW_CAP     — hardest bound: the most NEW/UPDATE rows one preview will return.
+//               A capped run is still complete-by-repetition — saving the returned
+//               rows turns them into SKIPs, so re-running the import picks up the
+//               next cap-worth until nothing is left. The UI says so explicitly.
+const OR_JR_ERP_PREVIEW_BATCH_SIZE = Math.max(
+  100, Number(process.env.OR_JR_ERP_PREVIEW_BATCH_SIZE) || 1000
+);
+// 5000 is deliberately close to the ceiling: the confirm POST carries these rows back
+// at roughly 1.6 KB each (~8 MB), against express.json's 10mb limit in
+// registerCoreMiddleware.js and nginx's client_max_body_size 12m. Raising it further
+// needs those two raised first, or the save starts failing outright.
+const OR_JR_ERP_PREVIEW_ROW_CAP = Math.max(
+  100, Number(process.env.OR_JR_ERP_PREVIEW_ROW_CAP) || 5000
+);
+// Only the columns the projection reads — 'factory_id' and 'id' are selected separately.
+const ERP_PREVIEW_SELECT_COLUMNS = OR_JR_ERP_IMPORT_COLUMNS.map(c => `"${c}"`).join(', ');
+
 // Plant code = 2nd segment of the OR/JR no: 'JR/JG/2526/1' -> 'JG'.
 function erpPlantCodeFromOrJrNo(orJrNo) {
   const parts = String(orJrNo || '').split('/');
@@ -15854,7 +15874,32 @@ const OR_JR_COMPARE_STR_FIELDS = [
 // the DO UPDATE clause in /api/upload/or-jr-confirm.
 const OR_JR_BLANK_PRESERVING_FIELDS = new Set(['remarks_all']);
 
-async function buildOrJrUploadPreview(mapped, requestFactoryId) {
+// Load the factory's existing or_jr_report rows once, keyed (or_jr_no|job_card_no).
+// Split out of buildOrJrUploadPreview so the ERP import can build the map once and
+// then diff the snapshot in batches against it instead of holding both sides in memory.
+async function loadOrJrExistingMap(requestFactoryId) {
+  const selectCols = [
+    'or_jr_no', 'job_card_no',
+    ...OR_JR_COMPARE_DATE_FIELDS, ...OR_JR_COMPARE_NUM_FIELDS, ...OR_JR_COMPARE_STR_FIELDS
+  ].join(', ');
+  const existingRows = requestFactoryId
+    ? await q(`SELECT ${selectCols} FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
+    : await q(`SELECT ${selectCols} FROM or_jr_report`);
+
+  const dbMap = new Map();
+  existingRows.forEach(row => {
+    const o = (row.or_jr_no || '').trim();
+    const j = (row.job_card_no || '').trim();
+    // Key: OR No + JC No
+    dbMap.set(`${o}|${j}`, row);
+  });
+  return dbMap;
+}
+
+// Annotate ONE mapped row with _status (and _changedFields for UPDATE) against dbMap.
+// This is the single place that decides NEW/UPDATE/SKIP — both the Excel upload and the
+// ERP import go through it, so the two previews can never drift apart.
+function classifyOrJrPreviewRow(row, dbMap) {
   const normStr = v => String(v ?? '').trim().toUpperCase();
 
   const rowsDiffer = (incomingRow, dbRow) => {
@@ -15874,36 +15919,22 @@ async function buildOrJrUploadPreview(mapped, requestFactoryId) {
     return changed;
   };
 
-  const selectCols = [
-    'or_jr_no', 'job_card_no',
-    ...OR_JR_COMPARE_DATE_FIELDS, ...OR_JR_COMPARE_NUM_FIELDS, ...OR_JR_COMPARE_STR_FIELDS
-  ].join(', ');
-  const existingRows = requestFactoryId
-    ? await q(`SELECT ${selectCols} FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
-    : await q(`SELECT ${selectCols} FROM or_jr_report`);
-  const dbMap = new Map();
+  const ro = (row.or_jr_no || '').trim();
+  const rj = (row.job_card_no || '').trim();
+  const existing = dbMap.get(`${ro}|${rj}`);
 
-  existingRows.forEach(row => {
-    const o = (row.or_jr_no || '').trim();
-    const j = (row.job_card_no || '').trim();
-    // Key: OR No + JC No
-    dbMap.set(`${o}|${j}`, row);
-  });
+  // No match → brand-new row
+  if (!existing) return { ...row, _status: 'NEW' };
 
-  return mapped.map(row => {
-    const ro = (row.or_jr_no || '').trim();
-    const rj = (row.job_card_no || '').trim();
-    const key = `${ro}|${rj}`;
-    const existing = dbMap.get(key);
+  // Match → only UPDATE when some detail actually changed; otherwise SKIP
+  const changedFields = rowsDiffer(row, existing);
+  if (changedFields.length === 0) return { ...row, _status: 'SKIP' };
+  return { ...row, _status: 'UPDATE', _changedFields: changedFields };
+}
 
-    // No match → brand-new row
-    if (!existing) return { ...row, _status: 'NEW' };
-
-    // Match → only UPDATE when some detail actually changed; otherwise SKIP
-    const changedFields = rowsDiffer(row, existing);
-    if (changedFields.length === 0) return { ...row, _status: 'SKIP' };
-    return { ...row, _status: 'UPDATE', _changedFields: changedFields };
-  });
+async function buildOrJrUploadPreview(mapped, requestFactoryId) {
+  const dbMap = await loadOrJrExistingMap(requestFactoryId);
+  return mapped.map(row => classifyOrJrPreviewRow(row, dbMap));
 }
 
 // 1. PREVIEW (Compare Excel vs DB)
@@ -16185,33 +16216,67 @@ app.post('/api/upload/or-jr-erp-preview', async (req, res) => {
       });
     }
 
-    const snapshot = await q(`SELECT * FROM erp_jr_status`);
-    if (!snapshot.length) {
+    // The snapshot grows with every ERP fetch (5.8k rows on staging already), so it is
+    // never loaded whole. It is walked in keyset-paginated batches, projected to the
+    // columns the import actually writes, and diffed batch-by-batch against a single
+    // in-memory map of this factory's existing rows. Only actionable (NEW/UPDATE) rows
+    // are kept — SKIP rows are counted and dropped, since neither the modal nor
+    // /api/upload/or-jr-confirm does anything with them.
+    const dbMap = await loadOrJrExistingMap(requestFactoryId);
+
+    let sourceRows = 0;
+    let otherFactory = 0;
+    let unresolved = 0;
+    let scopedRows = 0;
+    let skipped = 0;
+    let changedRows = 0;   // total actionable rows found, INCLUDING any beyond the cap
+    const preview = [];    // capped at OR_JR_ERP_PREVIEW_ROW_CAP
+    let lastId = 0;
+
+    for (;;) {
+      // Keyset pagination on the SERIAL pk: stable order, no OFFSET re-scan.
+      const batch = await q(
+        `SELECT id, factory_id, ${ERP_PREVIEW_SELECT_COLUMNS}
+           FROM erp_jr_status
+          WHERE id > $1
+          ORDER BY id
+          LIMIT $2`,
+        [lastId, OR_JR_ERP_PREVIEW_BATCH_SIZE]
+      );
+      if (!batch.length) break;
+      lastId = batch[batch.length - 1].id;
+      sourceRows += batch.length;
+
+      for (const row of batch) {
+        // Factory split — classify every row, never assume an unknown row is ours.
+        const verdict = classifyErpRowFactory(row, requestFactoryId, factoryMap);
+        if (verdict === 'other') { otherFactory++; continue; }
+        if (verdict !== 'match') { unresolved++; continue; }
+
+        const mappedRow = erpStatusRowToOrJrReportRow(row, requestFactoryId);
+        if (!mappedRow.or_jr_no) continue;
+        scopedRows++;
+
+        // Defence in depth: the same guard the Excel upload uses.
+        assertUploadRowsMatchFactory([mappedRow], requestFactoryId, 'OR-JR Status ERP import');
+
+        const classified = classifyOrJrPreviewRow(mappedRow, dbMap);
+        if (classified._status === 'SKIP') { skipped++; continue; }
+
+        changedRows++;
+        // Past the cap we keep counting but stop materialising, so the response size is
+        // bounded. The rows we DO return are exactly the rows the save will write — the
+        // truncation happens before the payload, never between preview and save.
+        if (preview.length < OR_JR_ERP_PREVIEW_ROW_CAP) preview.push(classified);
+      }
+    }
+
+    if (!sourceRows) {
       return res.status(409).json({
         ok: false,
         error: "No ERP data has been fetched yet. Ask a superadmin to press 'Fetch Latest Data' on Masters -> JR Status ERP first."
       });
     }
-
-    // Factory split — classify every row, never assume an unknown row is ours.
-    let otherFactory = 0;
-    let unresolved = 0;
-    const scoped = [];
-    for (const row of snapshot) {
-      const verdict = classifyErpRowFactory(row, requestFactoryId, factoryMap);
-      if (verdict === 'match') scoped.push(row);
-      else if (verdict === 'other') otherFactory++;
-      else unresolved++;
-    }
-
-    const mapped = scoped
-      .map(row => erpStatusRowToOrJrReportRow(row, requestFactoryId))
-      .filter(row => row.or_jr_no);
-
-    // Defence in depth: the same guard the Excel upload uses.
-    assertUploadRowsMatchFactory(mapped, requestFactoryId, 'OR-JR Status ERP import');
-
-    const preview = await buildOrJrUploadPreview(mapped, requestFactoryId);
 
     const meta = (await q(
       `SELECT to_char(max(synced_at), 'YYYY-MM-DD HH24:MI') AS last_sync,
@@ -16219,7 +16284,7 @@ app.post('/api/upload/or-jr-erp-preview', async (req, res) => {
          FROM erp_jr_status`
     ))[0] || {};
 
-    console.log(`[OR-JR ERP Import] factory=${requestFactoryId} source=${snapshot.length} scoped=${mapped.length} other=${otherFactory} unresolved=${unresolved}`);
+    console.log(`[OR-JR ERP Import] factory=${requestFactoryId} source=${sourceRows} scoped=${scopedRows} changed=${changedRows} returned=${preview.length} skipped=${skipped} other=${otherFactory} unresolved=${unresolved}`);
 
     res.json({
       ok: true,
@@ -16231,10 +16296,17 @@ app.post('/api/upload/or-jr-erp-preview', async (req, res) => {
         snapshot_age_hours: meta.age_hours === null || meta.age_hours === undefined
           ? null
           : Math.round(Number(meta.age_hours)),
-        source_rows: snapshot.length,
-        scoped_rows: mapped.length,
+        source_rows: sourceRows,
+        scoped_rows: scopedRows,
         other_factory: otherFactory,
-        unresolved
+        unresolved,
+        // Change accounting. changed_rows is every NEW/UPDATE in the snapshot;
+        // returned_rows is how many of those fit under the cap and are in `data`.
+        skipped_rows: skipped,
+        changed_rows: changedRows,
+        returned_rows: preview.length,
+        row_cap: OR_JR_ERP_PREVIEW_ROW_CAP,
+        truncated: changedRows > preview.length
       }
     });
   } catch (e) {
@@ -16258,7 +16330,7 @@ app.get('/api/reports/or-jr-full', async (req, res) => {
 
     // Global Search override (If searching, ignore dates to ensure we find the record)
     if (search) {
-      params.push(`% ${search}% `);
+      params.push(`%${String(search).trim()}%`);
       const i = params.length;
       conditions.push(`(
       or_jr_no ILIKE $${i} OR 
@@ -20048,7 +20120,7 @@ app.get('/api/planning/job-cards', async (req, res) => {
 
     // Search
     if (search) {
-      params.push(`% ${search}% `);
+      params.push(`%${String(search).trim()}%`);
       const i = params.length;
       conditions.push(`(
     COALESCE(data ->> 'jc_no', data ->> 'job_card_no', '') ILIKE $${i} OR
