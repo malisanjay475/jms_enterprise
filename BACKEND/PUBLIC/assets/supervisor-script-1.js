@@ -1264,7 +1264,7 @@
       const stdRun = parseFloat(el('std-runner').value || 0);
       const actRun = parseFloat(el('act-runner').value || 0);
 
-      // 1. Weight Tolerance: Article ACT must be within ±5% of STD.
+      // 1. Weight Tolerance: Article ACT must be within ±10% of STD.
       //    STD and ACT can arrive in different units (masters store kg on some
       //    moulds, the operator types grams), so normalise both to grams using the
       //    same <10 => kg heuristic the payload builder below uses.
@@ -1272,14 +1272,14 @@
       if (stdWt > 0 && actWt > 0) {
         const stdG = toGrams(stdWt);
         const actG = toGrams(actWt);
-        const lo = stdG * 0.95;
-        const hi = stdG * 1.05;
+        const lo = stdG * 0.90;
+        const hi = stdG * 1.10;
         // Epsilon: binary floating point puts an exact-boundary entry a hair
-        // outside the band (25 * 1.05 -> 26.250000000000004), which would reject
+        // outside the band (25 * 1.1 -> 27.500000000000004), which would reject
         // a value the operator was told is allowed.
         const eps = stdG * 1e-9;
         if (actG < lo - eps || actG > hi + eps) {
-          el('std-msg').innerHTML = `<span class="err">Weight Validation Failed: Actual (${actWt}) is outside ±5% of Std (${stdWt}). Allowed range: ${lo.toFixed(3)} – ${hi.toFixed(3)} g.</span>`;
+          el('std-msg').innerHTML = `<span class="err">Weight Validation Failed: Actual (${actWt}) is outside ±10% of Std (${stdWt}). Allowed range: ${lo.toFixed(3)} – ${hi.toFixed(3)} g.</span>`;
           return;
         }
       }

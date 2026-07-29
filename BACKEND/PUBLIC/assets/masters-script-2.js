@@ -2147,11 +2147,17 @@
           return 0;
         });
 
+        // Every value below is external data — ERP rows or an uploaded spreadsheet —
+        // interpolated into innerHTML, so it must be escaped. Column keys come from
+        // the same source as the values, so headers are escaped too.
+        const escReviewCell = (s) => String(s == null ? '' : s)
+          .replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+
         // Render Header
         thead.innerHTML = `
             <tr>
                 <th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0; font-size:0.75rem; background:#f1f5f9; position:sticky; top:0">${mode === 'file' ? 'ROW' : 'STATUS'}</th>
-                ${keys.map(k => `<th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0; font-size:0.75rem; background:#f1f5f9; position:sticky; top:0; white-space:nowrap">${headerMap[k] || k.toUpperCase().replace(/_/g, ' ')}</th>`).join('')}
+                ${keys.map(k => `<th style="padding:8px; text-align:left; border-bottom:1px solid #e2e8f0; font-size:0.75rem; background:#f1f5f9; position:sticky; top:0; white-space:nowrap">${escReviewCell(headerMap[k] || k.toUpperCase().replace(/_/g, ' '))}</th>`).join('')}
             </tr>
         `;
 
@@ -2167,7 +2173,7 @@
                 ${statusCell}
                 ${keys.map(k => {
             let val = r[k] ?? '';
-            return `<td style="padding:8px; color:#334155; white-space:nowrap">${String(val)}</td>`;
+            return `<td style="padding:8px; color:#334155; white-space:nowrap">${escReviewCell(val)}</td>`;
           }).join('')}
             </tr>
          `;

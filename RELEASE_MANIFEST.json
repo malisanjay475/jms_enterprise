@@ -1,6 +1,6 @@
 {
-  "version": "1.9.0",
-  "commit": "machine-maintenance-report",
-  "releaseId": "1.9.0+machine-maintenance-report",
-  "builtAt": "2026-07-19T03:30:22.254Z"
+  "version": "1.10.1",
+  "commit": "plan-qty-ceiling-and-erp-hardening",
+  "releaseId": "1.10.1+plan-qty-ceiling-and-erp-hardening",
+  "builtAt": "2026-07-28T00:00:00.000Z"
 }

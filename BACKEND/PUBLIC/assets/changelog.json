@@ -11,8 +11,97 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.9.3",
+  "latest": "1.10.1",
   "versions": [
+    {
+      "version": "1.10.1",
+      "date": "2026-07-28",
+      "title": "Set quantities can be corrected again, and the ERP import now covers every factory",
+      "summary": "Correcting the Plan Qty on a plan for a multi-piece set no longer fails with an 'exceeds the limit' error. The ERP import now brings in Factory 2's orders, which were being left out, and gets dates right. Job Card approvals can no longer half-save.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-kanban",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Correcting a plan's quantity on a multi-piece set now works. Plan Qty is checked against that mould's own Mould Item Qty and Job Qty against the order's set quantity, so a 7-piece set ordered as 1800 sets correctly allows 10800 pieces on a 6-up mould instead of refusing it."
+            },
+            {
+              "type": "fix",
+              "text": "Quantity already planned is now counted per mould, so the body, lid and basket of one set no longer eat into each other's allowance."
+            },
+            {
+              "type": "improvement",
+              "text": "The Edit Plan window shows both limits side by side — Mould Item Qty in pieces and OR Qty in sets — with the maximum allowed per colour for each."
+            },
+            {
+              "type": "fix",
+              "text": "A Job Card approval that fails now leaves the plan exactly where it was. Previously the plan could quietly move to the next stage while the screen reported an error, and a double-click could apply two approvals."
+            }
+          ]
+        },
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-database",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Factory 2 (Shivani) orders now come through the ERP import. They were being left out because the factory could not be matched by name."
+            },
+            {
+              "type": "fix",
+              "text": "Imported OR and Job Card dates can no longer land a day early or late."
+            },
+            {
+              "type": "fix",
+              "text": "The import preview now lists only the rows the save will really change, instead of reporting changes to remarks that were never applied."
+            },
+            {
+              "type": "security",
+              "text": "Text arriving from the ERP is now displayed safely in the import review screen."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.10.0",
+      "date": "2026-07-28",
+      "title": "OR-JR Status can now be filled from the ERP instead of an Excel upload",
+      "summary": "Masters -> OR-JR Status has a new \"Import from ERP Data\" button. It brings in JR Status data already fetched from the ERP, showing you exactly what is new and what changed before anything is saved. Only your own factory's orders are brought in. The Excel upload still works if you need it.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-database",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New \"Import from ERP Data\" button on OR-JR Status fills the report from ERP data — no more downloading an Excel from the ERP and uploading it by hand."
+            },
+            {
+              "type": "feat",
+              "text": "The import only brings in orders belonging to the factory you are logged into; orders from the other plants are counted and left out."
+            },
+            {
+              "type": "improvement",
+              "text": "Before saving, you see the same review screen as the Excel upload, listing every new and changed row so nothing is written without you approving it."
+            },
+            {
+              "type": "improvement",
+              "text": "The screen shows when the ERP data was last fetched, and warns you if it is more than a day old so you can ask a superadmin to refresh it."
+            },
+            {
+              "type": "fix",
+              "text": "A blank Remarks value can no longer wipe the Remarks already saved against an order — this applies to the Excel upload as well."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.9.3",
       "date": "2026-07-27",
