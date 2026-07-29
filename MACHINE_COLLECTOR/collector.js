@@ -29,7 +29,8 @@ const PROFILES = { [keba.PROFILE_ID]: keba };
 const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:3001').replace(/\/$/, '');
 const INGEST_KEY = process.env.MACHINE_INGEST_KEY || '';
 const REFRESH_MS = parseInt(process.env.REFRESH_MS || '30000', 10);
-const MAX_READ = 120; // registers per Modbus read (< 125 limit)
+const MAX_READ = 60; // registers per Modbus read (< 125 limit; smaller = more
+                     // resilient when a controller only maps part of the range)
 
 if (!INGEST_KEY) {
   console.error('MACHINE_INGEST_KEY is required (must match the backend env).');
@@ -55,11 +56,23 @@ async function readSpan(client, unitId, profile, wordOrder) {
   const { startOffset, count } = profile.span();
   const words = new Array(count).fill(0);
   client.setID(unitId);
+  let anyOk = false;
+  // Some controllers only map part of the documented range and reject a read
+  // that runs past their last register. Read in chunks and keep the ones that
+  // succeed rather than failing the whole poll.
   for (let i = 0; i < count; i += MAX_READ) {
     const len = Math.min(MAX_READ, count - i);
-    const { data } = await client.readHoldingRegisters(startOffset + i, len);
-    for (let j = 0; j < data.length; j++) words[i + j] = data[j];
+    try {
+      const { data } = await client.readHoldingRegisters(startOffset + i, len);
+      for (let j = 0; j < data.length; j++) words[i + j] = data[j];
+      anyOk = true;
+    } catch (e) {
+      // Illegal-address/value on an unmapped tail is expected — skip this chunk.
+      const msg = String(e && e.message || e);
+      if (!/Illegal data (address|value)/i.test(msg)) throw e; // real fault: bubble up
+    }
   }
+  if (!anyOk) throw new Error('no readable registers');
   return profile.decodeBlock(words, startOffset, wordOrder);
 }
 

@@ -28,17 +28,22 @@ const PROFILE_ID = 'KEBA_SAM_4_0';
 // key: stable machine-readable id used in raw_json and API payloads.
 // address: 4xxxx Modbus address. type: decode type. label: human description.
 const REGISTERS = [
-  { key: 'ideal_cycle_time',   address: 40002, type: 'TIME', label: 'Ideal cycle time' },
-  { key: 'total_cavity',       address: 40004, type: 'DINT', label: 'Total cavity' },
-  { key: 'running_cavity',     address: 40006, type: 'DINT', label: 'Running cavity' },
+  // NOTE: On the live KEBA/AXISGATE gateway, all these values are served as
+  // IEEE-754 floats (REAL), not the INT/TIME types the vendor sheet lists.
+  // Verified on E-L2-WIND-250-6: 40002 decodes to 33.95 (machine cycle 33.9s),
+  // and 40018 steps 200.0 -> 201.0 -> 202.0, +1.0 per shot. Cavity counts read
+  // as small integers in the high word (INT).
+  { key: 'ideal_cycle_time',   address: 40002, type: 'REAL', label: 'Ideal cycle time' },
+  { key: 'total_cavity',       address: 40004, type: 'INT',  label: 'Total cavity' },
+  { key: 'running_cavity',     address: 40006, type: 'INT',  label: 'Running cavity' },
   { key: 'shot_weight',        address: 40008, type: 'REAL', label: 'Product shot weight' },
   { key: 'product_code',       address: 40010, type: 'INT',  label: 'Product code' },
-  { key: 'cycle_time_set',     address: 40012, type: 'TIME', label: 'Cycle time set' },
-  { key: 'cycle_time_act',     address: 40014, type: 'TIME', label: 'Cycle time act' },
-  { key: 'shot_counter_set',   address: 40016, type: 'DINT', label: 'Shot counter set' },
-  { key: 'good_shots',         address: 40018, type: 'DINT', label: 'Good shot act' },
-  { key: 'bad_shots_set',      address: 40020, type: 'DINT', label: 'Bad shot set' },
-  { key: 'bad_shots',          address: 40022, type: 'DINT', label: 'Bad shot act' },
+  { key: 'cycle_time_set',     address: 40012, type: 'REAL', label: 'Cycle time set' },
+  { key: 'cycle_time_act',     address: 40014, type: 'REAL', label: 'Cycle time act' },
+  { key: 'shot_counter_set',   address: 40016, type: 'REAL', label: 'Shot counter set' },
+  { key: 'good_shots',         address: 40018, type: 'REAL', label: 'Good shot act' },
+  { key: 'bad_shots_set',      address: 40020, type: 'REAL', label: 'Bad shot set' },
+  { key: 'bad_shots',          address: 40022, type: 'REAL', label: 'Bad shot act' },
   { key: 'set_temp_zone_1',    address: 40024, type: 'REAL', label: 'Set Temp zone 1' },
   { key: 'set_temp_zone_2',    address: 40026, type: 'REAL', label: 'Set Temp zone 2' },
   { key: 'set_temp_zone_3',    address: 40028, type: 'REAL', label: 'Set Temp zone 3' },
