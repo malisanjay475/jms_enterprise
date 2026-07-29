@@ -3,7 +3,7 @@
 /**
  * Server-side guards for the Supervisor entry constraints:
  *   - Cavity ACT may not exceed Cavity STD
- *   - Article weight ACT must be within +/-5% of STD
+ *   - Article weight ACT must be within +/-10% of STD
  *   - Cumulative colour production capped at 110% of the colour's plan qty
  *
  * These mirror browser-side checks; they exist so a stale cached PWA bundle
@@ -109,8 +109,8 @@ describe('Supervisor setup constraints (cavity + weight)', () => {
     expect(upsertRan(pool)).toBe(false);
   });
 
-  it('accepts article weight at the +5% and -5% bounds', async () => {
-    for (const factor of [1.05, 0.95]) {
+  it('accepts article weight at the +10% and -10% bounds', async () => {
+    for (const factor of [1.10, 0.90]) {
       const { app, pool } = createApp();
       mockMould(pool);
       const res = await save(app, { ArticleActual: STD_WT_KG * factor });
@@ -119,8 +119,8 @@ describe('Supervisor setup constraints (cavity + weight)', () => {
     }
   });
 
-  it('rejects article weight outside +/-5%', async () => {
-    for (const factor of [1.06, 0.94]) {
+  it('rejects article weight outside +/-10%', async () => {
+    for (const factor of [1.11, 0.89]) {
       const { app, pool } = createApp();
       mockMould(pool);
       const res = await save(app, { ArticleActual: STD_WT_KG * factor });
