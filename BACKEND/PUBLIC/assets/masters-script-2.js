@@ -2511,19 +2511,30 @@
         // Surface scope + freshness so nobody imports a stale snapshot unknowingly.
         const countSpan = document.getElementById('reviewCount');
         if (countSpan) {
-          const changes = (res.data || []).filter(r => r._status !== 'SKIP').length;
-          const bits = [`Found ${changes} changes from ${meta.scoped_rows || 0} ERP rows for this factory`];
+          // The server now returns only actionable rows (SKIPs are counted, not sent),
+          // and caps how many it returns. Say plainly when we are showing a subset —
+          // the rows on screen are still exactly the rows Confirm will write.
+          const shown = (res.data || []).length;
+          const changes = meta.changed_rows === undefined ? shown : meta.changed_rows;
+          const bits = [meta.truncated
+            ? `Showing first ${shown} of ${changes} changes from ${meta.scoped_rows || 0} ERP rows for this factory`
+            : `Found ${changes} changes from ${meta.scoped_rows || 0} ERP rows for this factory`];
+          if (meta.truncated) {
+            bits.push(`confirm these, then run Import from ERP Data again for the remaining ${changes - shown}`);
+          }
           if (meta.other_factory) bits.push(`${meta.other_factory} rows from other factories excluded`);
           if (meta.unresolved) bits.push(`${meta.unresolved} rows could not be matched to a factory`);
           const age = meta.snapshot_age_hours;
+          let warn = !!meta.truncated;
           if (meta.snapshot_synced_at) {
             const stale = age !== null && age !== undefined && age >= 24;
             bits.push(`ERP data last fetched ${meta.snapshot_synced_at}${age === null || age === undefined ? '' : ` (${age}h ago)`}`);
-            countSpan.style.color = stale ? '#b45309' : '';
-            if (stale) bits.push("ask a superadmin to press 'Fetch Latest Data' for newer data");
-          } else {
-            countSpan.style.color = '';
+            if (stale) {
+              warn = true;
+              bits.push("ask a superadmin to press 'Fetch Latest Data' for newer data");
+            }
           }
+          countSpan.style.color = warn ? '#b45309' : '';
           countSpan.textContent = bits.join(' • ');
         }
 
