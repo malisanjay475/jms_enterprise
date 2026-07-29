@@ -13,6 +13,12 @@
 
   var panel, body;
 
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   function build() {
     panel = document.createElement('div');
     panel.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:9999;max-width:320px;' +
@@ -45,9 +51,9 @@
       var dot = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' +
         (run ? '#22c55e' : '#64748b') + ';margin-right:6px"></span>';
       return '<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid #1e293b">' +
-        '<span>' + dot + (r.machine_name || '') + '</span>' +
-        '<span style="color:#94a3b8">good <b style="color:#e2e8f0">' + (r.good_shots == null ? '—' : r.good_shots) +
-        '</b> · cyc <b style="color:#e2e8f0">' + (r.cycle_time_s == null ? '—' : r.cycle_time_s) + 's</b></span>' +
+        '<span>' + dot + esc(r.machine_name || '') + '</span>' +
+        '<span style="color:#94a3b8">good <b style="color:#e2e8f0">' + (r.good_shots == null ? '—' : esc(r.good_shots)) +
+        '</b> · cyc <b style="color:#e2e8f0">' + (r.cycle_time_s == null ? '—' : esc(r.cycle_time_s)) + 's</b></span>' +
         '</div>';
     }).join('');
   }

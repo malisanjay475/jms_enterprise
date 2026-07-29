@@ -15,7 +15,12 @@
   'use strict';
   var BADGE_CLASS = 'md-auto-badge';
 
-  function esc(s) { return String(s == null ? '' : s); }
+  // HTML-escape: values (machine name, slot) end up inside innerHTML.
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
 
   function currentContext() {
     // The sticky machine-label cell carries the date + shift currently rendered.
