@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Machine Data (Modbus) — JMS</title>
+  <style>
+    :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --ok:#22c55e; --bad:#ef4444; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--txt); }
+    header { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    h1 { font-size:18px; margin:0; }
+    .sub { color:var(--muted); font-size:13px; }
+    main { padding:20px; max-width:1200px; margin:0 auto; }
+    section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:20px; }
+    h2 { font-size:15px; margin:0 0 12px; color:var(--accent); }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
+    th { color:var(--muted); font-weight:600; }
+    input, select { background:#0b1220; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px 7px; font-size:13px; }
+    input[type=text]{ width:120px; } input.narrow{ width:64px; }
+    button { background:var(--accent); color:#04263a; border:0; border-radius:6px; padding:6px 12px; font-weight:600; cursor:pointer; }
+    button.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+    .pill { padding:2px 8px; border-radius:999px; font-size:12px; }
+    .run { background:rgba(34,197,94,.15); color:var(--ok); }
+    .stop{ background:rgba(148,163,184,.15); color:var(--muted); }
+    .overflow { overflow-x:auto; }
+    .muted { color:var(--muted); }
+    .row-actions { display:flex; gap:6px; }
+    .toast { position:fixed; bottom:20px; right:20px; background:var(--card); border:1px solid var(--line); padding:10px 14px; border-radius:8px; display:none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Machine Data — Modbus TCP</h1>
+    <span class="sub">Link each machine to its controller IP, then view live readings collected by the machine-data service.</span>
+  </header>
+  <main>
+    <section>
+      <h2>Machine → Modbus source</h2>
+      <div class="overflow">
+        <table id="cfgTable">
+          <thead>
+            <tr>
+              <th>Machine</th><th>Enabled</th><th>IP Address</th><th>Port</th>
+              <th>Unit ID</th><th>Profile</th><th>Word order</th><th>Poll (ms)</th><th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:10px;">
+        Word order: try <b>ABCD</b> first. If floats/counters look wrong at commissioning, switch to <b>CDAB</b>.
+      </p>
+    </section>
+
+    <section>
+      <h2>Accuracy check — Auto (machine) vs Manual (DPR)</h2>
+      <div style="display:flex; gap:10px; align-items:end; flex-wrap:wrap; margin-bottom:12px;">
+        <label>Machine<br><select id="cmpMachine"></select></label>
+        <label>Date<br><input type="date" id="cmpDate"></label>
+        <label>Shift<br><select id="cmpShift"><option>Day</option><option>Night</option></select></label>
+        <button onclick="loadCompare()">Compare</button>
+      </div>
+      <div class="overflow">
+        <table id="cmpTable">
+          <thead>
+            <tr>
+              <th>Hour</th>
+              <th>Auto good</th><th>Manual good</th><th>Δ good</th>
+              <th>Auto reject</th><th>Manual reject</th>
+              <th>Auto cycle (s)</th><th>Samples</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:10px;">
+        Nothing here is written into DPR — manual entry stays the record. This just compares the machine counter
+        against what was keyed in, so you can judge accuracy before switching over. To stop entirely, untick
+        <b>Enabled</b> above.
+      </p>
+    </section>
+
+    <section>
+      <h2>Live readings <button class="ghost" onclick="loadLatest()" style="float:right">Refresh</button></h2>
+      <div class="overflow">
+        <table id="liveTable">
+          <thead>
+            <tr>
+              <th>Machine</th><th>Status</th><th>Good shots</th><th>Bad shots</th>
+              <th>Cycle (s)</th><th>Mode</th><th>Oil °C</th><th>Down reason</th><th>Last update</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const PROFILES = ['KEBA_SAM_4_0'];
+    const WORD_ORDERS = ['ABCD', 'CDAB', 'BADC', 'DCBA'];
+    const $ = (s, r=document) => r.querySelector(s);
+
+    function toast(msg) {
+      const t = $('#toast'); t.textContent = msg; t.style.display = 'block';
+      setTimeout(() => t.style.display = 'none', 2200);
+    }
+
+    async function api(path, opts) {
+      const res = await fetch(path, { credentials: 'same-origin', headers: { 'content-type': 'application/json' }, ...opts });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.ok === false) throw new Error(body.error || res.status);
+      return body;
+    }
+
+    function opt(list, sel) { return list.map(v => `<option${v===sel?' selected':''}>${v}</option>`).join(''); }
+
+    async function loadConfig() {
+      const { config } = await api('/api/machine-data/config');
+      CONFIG_ROWS = config;
+      const tb = $('#cfgTable tbody');
+      tb.innerHTML = config.map(c => `
+        <tr data-id="${c.machine_id}">
+          <td>${c.machine_name}</td>
+          <td><input type="checkbox" class="f-enabled" ${c.enabled ? 'checked' : ''}></td>
+          <td><input type="text" class="f-ip" value="${c.ip || ''}" placeholder="192.168.1.91"></td>
+          <td><input type="text" class="f-port narrow" value="${c.port || 502}"></td>
+          <td><input type="text" class="f-unit narrow" value="${c.unit_id || 1}"></td>
+          <td><select class="f-profile">${opt(PROFILES, c.profile_id || 'KEBA_SAM_4_0')}</select></td>
+          <td><select class="f-word">${opt(WORD_ORDERS, c.word_order || 'ABCD')}</select></td>
+          <td><input type="text" class="f-poll narrow" value="${c.poll_ms || 5000}"></td>
+          <td class="row-actions"><button onclick="saveRow(${c.machine_id})">Save</button></td>
+        </tr>`).join('');
+    }
+
+    async function saveRow(id) {
+      const tr = $(`tr[data-id="${id}"]`);
+      const payload = {
+        enabled: $('.f-enabled', tr).checked,
+        ip: $('.f-ip', tr).value.trim(),
+        port: parseInt($('.f-port', tr).value, 10) || 502,
+        unit_id: parseInt($('.f-unit', tr).value, 10) || 1,
+        profile_id: $('.f-profile', tr).value,
+        word_order: $('.f-word', tr).value,
+        poll_ms: parseInt($('.f-poll', tr).value, 10) || 5000,
+      };
+      try { await api('/api/machine-data/config/' + id, { method: 'PUT', body: JSON.stringify(payload) }); toast('Saved'); }
+      catch (e) { toast('Error: ' + e.message); }
+    }
+
+    async function loadLatest() {
+      const { readings } = await api('/api/machine-data/latest');
+      const tb = $('#liveTable tbody');
+      if (!readings.length) { tb.innerHTML = `<tr><td colspan="9" class="muted">No readings yet. Enable a machine above and start the collector.</td></tr>`; return; }
+      tb.innerHTML = readings.map(r => `
+        <tr>
+          <td>${r.machine_name}</td>
+          <td><span class="pill ${r.machine_running ? 'run' : 'stop'}">${r.machine_running ? 'RUNNING' : 'STOPPED'}</span></td>
+          <td>${r.good_shots ?? '—'}</td>
+          <td>${r.bad_shots ?? '—'}</td>
+          <td>${r.cycle_time_s ?? '—'}</td>
+          <td>${r.machine_mode ?? '—'}</td>
+          <td>${r.oil_temp ?? '—'}</td>
+          <td>${r.down_time_reason ?? '—'}</td>
+          <td class="muted">${r.recorded_at ? new Date(r.recorded_at).toLocaleString() : '—'}</td>
+        </tr>`).join('');
+    }
+
+    let CONFIG_ROWS = [];
+    function fillCompareMachines() {
+      const sel = $('#cmpMachine');
+      sel.innerHTML = CONFIG_ROWS.map(c => `<option value="${c.machine_name}">${c.machine_name}</option>`).join('');
+      if (!$('#cmpDate').value) $('#cmpDate').value = new Date().toISOString().slice(0, 10);
+    }
+
+    async function loadCompare() {
+      const machine = $('#cmpMachine').value;
+      const date = $('#cmpDate').value;
+      const shift = $('#cmpShift').value;
+      if (!machine || !date) { toast('Pick machine and date'); return; }
+      const tb = $('#cmpTable tbody');
+      try {
+        const { slots } = await api(`/api/machine-data/dpr-auto?machine=${encodeURIComponent(machine)}&date=${date}&shift=${shift}`);
+        tb.innerHTML = slots.map(s => {
+          const d = (s.auto_good != null) ? (s.auto_good - s.manual_good) : null;
+          const dColor = d === null ? '' : (d === 0 ? 'color:var(--ok)' : 'color:var(--bad)');
+          return `<tr>
+            <td>${s.slot}</td>
+            <td>${s.auto_good ?? '—'}</td>
+            <td>${s.manual_good}</td>
+            <td style="${dColor}">${d === null ? '—' : (d > 0 ? '+' + d : d)}</td>
+            <td>${s.auto_reject ?? '—'}</td>
+            <td>${s.manual_reject}</td>
+            <td>${s.auto_cycle_s ?? '—'}</td>
+            <td class="muted">${s.samples}</td>
+          </tr>`;
+        }).join('');
+      } catch (e) { toast('Compare error: ' + e.message); }
+    }
+
+    (async function init() {
+      try {
+        await loadConfig(); await loadLatest();
+        fillCompareMachines();
+      }
+      catch (e) { toast('Load error: ' + e.message); }
+      setInterval(loadLatest, 10000); // live refresh
+    })();
+  </script>
+</body>
+</html>

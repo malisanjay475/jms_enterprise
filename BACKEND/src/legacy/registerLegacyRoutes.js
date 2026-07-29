@@ -6138,10 +6138,15 @@ app.post('/api/std-actual/save', async (req, res) => {
     } = payload || {};
     const factoryId = getFactoryId(req) || 1;
 
-    /* --- SERVER-SIDE GUARD: cavity <= STD, article weight within ±5% of STD ---
-       The browser enforces these too, but a stale cached PWA bundle can miss them,
+    /* --- SERVER-SIDE GUARD: cavity <= STD ---
+       The browser enforces this too, but a stale cached PWA bundle can miss it,
        so re-check against the mould master here. If the mould can't be resolved
-       (name granularity differences), we skip rather than block a legitimate save. */
+       (name granularity differences), we skip rather than block a legitimate save.
+
+       Article weight is deliberately NOT validated — removed on the owner's
+       decision, in the browser and here together. Any entered weight is accepted
+       at any deviation from STD. Keeping this half would have rejected saves the
+       browser now allows, turning a client-side check into a confusing 400. */
     try {
       if (MouldName) {
         let mRows = await q(`SELECT std_wt_kg, no_of_cav FROM moulds WHERE mould_name = $1 LIMIT 1`, [MouldName]);
@@ -6156,26 +6161,6 @@ app.post('/api/std-actual/save', async (req, res) => {
               ok: false,
               error: `Cavity Validation Failed: Actual (${actCav}) cannot be more than Std (${stdCav}).`
             });
-          }
-
-          // Normalise both sides to grams (<10 is treated as kg) — the client sends
-          // article weight in kg, while some masters store grams.
-          const toGrams = (v) => (v > 0 && v < 10) ? v * 1000 : v;
-          const stdWt = Number(mRows[0].std_wt_kg || 0);
-          const actWt = Number(toNum(ArticleActual) || 0);
-          if (stdWt > 0 && actWt > 0) {
-            const stdG = toGrams(stdWt);
-            const actG = toGrams(actWt);
-            // Epsilon: binary floating point puts an exact-boundary entry a hair
-            // outside the band (25 * 1.1 -> 27.500000000000004), which would
-            // reject a value the operator was told is allowed.
-            const eps = stdG * 1e-9;
-            if (actG < stdG * 0.90 - eps || actG > stdG * 1.10 + eps) {
-              return res.status(400).json({
-                ok: false,
-                error: `Weight Validation Failed: Actual is outside ±10% of Std. Allowed range: ${(stdG * 0.90).toFixed(3)} – ${(stdG * 1.10).toFixed(3)} g.`
-              });
-            }
           }
         }
       }
