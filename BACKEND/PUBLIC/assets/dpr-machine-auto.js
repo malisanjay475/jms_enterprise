@@ -87,8 +87,12 @@
     if (d.found) {
       rows = (d.fields || []).map(function (f) {
         var v = (f.value == null) ? '—' : (f.value + (f.unit ? ' ' + f.unit : ''));
-        return '<tr><td style="padding:6px 10px;color:#475569">' + f.label + '</td>' +
-               '<td style="padding:6px 10px;font-weight:700;text-align:right">' + v + '</td></tr>';
+        var lblStyle = 'padding:6px 10px;color:#475569' + (f.primary ? ';font-weight:700;color:#0369a1' : '');
+        var valStyle = 'padding:6px 10px;text-align:right;font-weight:700' +
+                       (f.primary ? ';font-size:20px;color:#0369a1' : '');
+        return '<tr' + (f.primary ? ' style="background:#f0f9ff"' : '') + '>' +
+               '<td style="' + lblStyle + '">' + f.label + '</td>' +
+               '<td style="' + valStyle + '">' + v + '</td></tr>';
       }).join('');
     }
 
