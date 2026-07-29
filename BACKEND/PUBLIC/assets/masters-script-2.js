@@ -2408,6 +2408,48 @@
       }
       modal.setAttribute('data-mode', mode);
       modal.style.display = 'flex';
+      loadMachineModbusConfig(data.machine || '');
+    }
+
+    // --- Machine Data (Modbus) config in the machine modal ------------------
+    async function loadMachineModbusConfig(machineName) {
+      // Reset to defaults first
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+      const enabledEl = document.getElementById('m_md_enabled');
+      if (enabledEl) enabledEl.checked = false;
+      set('m_md_ip', ''); set('m_md_port', 502); set('m_md_unit', 1);
+      set('m_md_profile', 'KEBA_SAM_4_0'); set('m_md_word', 'ABCD');
+      if (!machineName) return;
+      try {
+        const res = await JPSMS.api.request('/machine-data/config').catch(() => null);
+        const list = (res && res.config) || [];
+        const row = list.find(c => (c.machine_name || '').toLowerCase() === machineName.toLowerCase());
+        if (!row) return;
+        if (enabledEl) enabledEl.checked = !!row.enabled;
+        set('m_md_ip', row.ip || ''); set('m_md_port', row.port || 502);
+        set('m_md_unit', row.unit_id || 1); set('m_md_profile', row.profile_id || 'KEBA_SAM_4_0');
+        set('m_md_word', row.word_order || 'ABCD');
+      } catch (e) { /* non-fatal: modbus config is optional */ }
+    }
+
+    async function saveMachineModbusConfig(machineName) {
+      try {
+        const res = await JPSMS.api.request('/machine-data/config').catch(() => null);
+        const list = (res && res.config) || [];
+        const row = list.find(c => (c.machine_name || '').toLowerCase() === (machineName || '').toLowerCase());
+        if (!row) return; // machine id not found yet — skip silently
+        const payload = {
+          enabled: !!document.getElementById('m_md_enabled')?.checked,
+          ip: (document.getElementById('m_md_ip')?.value || '').trim(),
+          port: parseInt(document.getElementById('m_md_port')?.value, 10) || 502,
+          unit_id: parseInt(document.getElementById('m_md_unit')?.value, 10) || 1,
+          profile_id: document.getElementById('m_md_profile')?.value || 'KEBA_SAM_4_0',
+          word_order: document.getElementById('m_md_word')?.value || 'ABCD',
+        };
+        await JPSMS.api.request('/machine-data/config/' + row.machine_id, {
+          method: 'PUT', body: JSON.stringify(payload)
+        });
+      } catch (e) { console.warn('Modbus config save skipped:', e.message); }
     }
 
     function closeMachineModal() {
@@ -2447,6 +2489,8 @@
         } else {
           await JPSMS.api.request(`/machines/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) });
         }
+        // Save the Modbus config against the (possibly new) machine name.
+        await saveMachineModbusConfig(body.machine);
         alert('Saved');
         closeMachineModal();
         loadMasterData();

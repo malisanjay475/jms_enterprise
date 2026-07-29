@@ -238,6 +238,10 @@ function registerRoutes(app, deps) {
   app.use('/api/update', services.updaterService.router);
   registerJmsPlanReportRoute(app, pool);
 
+  // Machine data (Modbus TCP ingestion + per-machine config)
+  const { registerMachineDataRoutes } = require('../modules/machineData/registerMachineDataRoutes');
+  registerMachineDataRoutes(app, pool);
+
   return registerLegacyRoutes({ app, pool, config, services });
 }
 
