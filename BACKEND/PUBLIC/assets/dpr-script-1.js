@@ -2056,7 +2056,7 @@
                                                 return; // Skip rendering remaining slot tds
                                             }
 
-                                            machineRowHtml += `<td style="position:relative; padding:3px; background:${bg}; border:${border}; border-bottom:1px solid #e2e8f0; vertical-align:top; height:44px; min-width:65px">${content}</td>`;
+                                            machineRowHtml += `<td data-mdmachine="${dprEscHtml(machine)}" data-mdslot="${dprEscHtml(s)}" style="position:relative; padding:3px; background:${bg}; border:${border}; border-bottom:1px solid #e2e8f0; vertical-align:top; height:44px; min-width:65px">${content}</td>`;
 
                                             // END-OF-SLOT: a manual-entry downtime (dEntry) shows in THIS slot only.
                                             // Clear the carry so it does NOT paint the remaining empty slots — only a

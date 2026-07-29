@@ -1,0 +1,14 @@
+{
+  "name": "jms-machine-collector",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Modbus TCP collector + probe for JMS machine data ingestion",
+  "scripts": {
+    "start": "node collector.js",
+    "probe": "node probe.js --host 192.168.1.91 --port 502 --start 0 --count 50 --fn 3",
+    "watch": "node probe.js --host 192.168.1.91 --watch"
+  },
+  "dependencies": {
+    "modbus-serial": "^8.0.17"
+  }
+}
