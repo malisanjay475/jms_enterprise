@@ -11,8 +11,68 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.10.1",
+  "latest": "1.11.0",
   "versions": [
+    {
+      "version": "1.11.0",
+      "date": "2026-07-29",
+      "title": "Weight checks widened to 10%, and the sync health alert now tells the truth",
+      "summary": "Supervisor weight tolerance moves from 5% to 10% and the DPR Compliance Summary flags parts that fall outside it. Behind the scenes, the hourly sync health check has been repaired — it had been failing on a connection fault for weeks while reporting it as a stale factory server.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Part weight is now accepted within 10% of standard instead of 5%, so normal shot-to-shot variation stops being flagged as a problem."
+            }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-journal-text",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "DPR Compliance Summary now marks entries whose weight is over or under the allowed band, so out-of-spec parts stand out at a glance."
+            }
+          ]
+        },
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-database",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Import from ERP Data now shows the first 5,000 changes at a time — confirm those, then press it again for the rest. Very large first-time imports no longer risk failing part-way."
+            },
+            {
+              "type": "fix",
+              "text": "Searching OR/JR Status and Job Card reports now matches what you typed — the search was previously adding stray spaces and missing rows."
+            }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-hdd-network",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The automatic sync health alert works again. It had been failing to reach the server and reporting that as a stale factory server, which sent people to check the wrong machine."
+            },
+            {
+              "type": "improvement",
+              "text": "When the health check cannot reach the server it now says so plainly, instead of blaming a factory sync it never managed to check."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.10.1",
       "date": "2026-07-28",
