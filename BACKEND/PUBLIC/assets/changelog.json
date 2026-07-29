@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.12.0",
+  "latest": "1.12.1",
   "versions": [
+    {
+      "version": "1.12.1",
+      "date": "2026-07-29",
+      "title": "Machine data now reads the live KEBA controllers correctly",
+      "summary": "First on-machine commissioning of the machine-data feature. The KEBA controllers send their values as decimals rather than the whole-number format the manual described, so counter and cycle time were decoded wrongly. This corrects the decoding (verified against the machine showing 205 shots at 33.9s), and makes the collector tolerant of controllers that only expose part of the register range.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-journal-text",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The machine counter and cycle time now show correct values instead of very large numbers, matching what the machine's own screen shows."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.12.0",
       "date": "2026-07-29",

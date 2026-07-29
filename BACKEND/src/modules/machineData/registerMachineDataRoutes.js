@@ -78,6 +78,13 @@ function pickNum(v) {
   return (v === undefined || v === null || v === '') ? null : Number(v);
 }
 
+// Counters are stored in BIGINT columns; the KEBA gateway serves them as floats
+// (e.g. 205.0), so round to a whole number before insert.
+function pickInt(v) {
+  const n = pickNum(v);
+  return n === null || !Number.isFinite(n) ? null : Math.round(n);
+}
+
 function registerMachineDataRoutes(app, pool) {
   const router = require('express').Router();
 
@@ -200,10 +207,13 @@ function registerMachineDataRoutes(app, pool) {
       `, [
         machineId,
         b.recorded_at || null,
-        pickNum(v.good_shots),
-        pickNum(v.bad_shots),
-        pickNum(v.shot_counter_set),
-        pickNum(v.cycle_time_act),
+        pickInt(v.good_shots),
+        pickInt(v.bad_shots),
+        pickInt(v.shot_counter_set),
+        // On the live KEBA gateway the running cycle reads at 40002
+        // (ideal_cycle_time); 40014 holds a different value. Prefer 40002 as the
+        // shown cycle, falling back to 40014 if 40002 is absent.
+        pickNum(v.ideal_cycle_time != null ? v.ideal_cycle_time : v.cycle_time_act),
         pickNum(v.ideal_cycle_time),
         pickNum(v.product_code),
         (v.machine_running === true || v.machine_running === 'true'),
