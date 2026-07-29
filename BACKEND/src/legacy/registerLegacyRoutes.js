@@ -15449,8 +15449,12 @@ const OR_JR_ERP_IMPORT_COLUMNS = [
 const OR_JR_ERP_PREVIEW_BATCH_SIZE = Math.max(
   100, Number(process.env.OR_JR_ERP_PREVIEW_BATCH_SIZE) || 1000
 );
+// 5000 is deliberately close to the ceiling: the confirm POST carries these rows back
+// at roughly 1.6 KB each (~8 MB), against express.json's 10mb limit in
+// registerCoreMiddleware.js and nginx's client_max_body_size 12m. Raising it further
+// needs those two raised first, or the save starts failing outright.
 const OR_JR_ERP_PREVIEW_ROW_CAP = Math.max(
-  100, Number(process.env.OR_JR_ERP_PREVIEW_ROW_CAP) || 2000
+  100, Number(process.env.OR_JR_ERP_PREVIEW_ROW_CAP) || 5000
 );
 // Only the columns the projection reads — 'factory_id' and 'id' are selected separately.
 const ERP_PREVIEW_SELECT_COLUMNS = OR_JR_ERP_IMPORT_COLUMNS.map(c => `"${c}"`).join(', ');
