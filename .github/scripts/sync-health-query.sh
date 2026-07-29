@@ -20,14 +20,21 @@ if [ -z "$APP" ]; then
   exit 0
 fi
 
+# The 60s abort deadline matters: without it a connected-but-stalled request sits
+# until the workflow's 5m command_timeout, twice over with the retry, so a hung app
+# would delay the alert by up to 10 minutes. An abort surfaces as an "error", which
+# leaves RESP empty and is reported as DOWN — the same as any other network failure.
 RESP="$(docker exec -e SYNC_API_KEY="${SYNC_API_KEY}" "$APP" node -e '
   const http = require("http");
   const key = process.env.SYNC_API_KEY || "";
-  http.get("http://127.0.0.1:3000/api/sync-alert?key=" + encodeURIComponent(key), (r) => {
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), 60000);
+  http.get("http://127.0.0.1:3000/api/sync-alert?key=" + encodeURIComponent(key),
+    { signal: controller.signal }, (r) => {
     let b = "";
     r.on("data", d => b += d);
-    r.on("end", () => { process.stdout.write(b); });
-  }).on("error", () => { process.exit(2); });
+    r.on("end", () => { clearTimeout(deadline); process.stdout.write(b); });
+  }).on("error", () => { clearTimeout(deadline); process.exit(2); });
 ' 2>/dev/null || true)"
 
 if [ -z "$RESP" ]; then
