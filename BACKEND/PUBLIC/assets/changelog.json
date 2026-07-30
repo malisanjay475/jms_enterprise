@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.12.3",
+  "latest": "1.12.4",
   "versions": [
+    {
+      "version": "1.12.4",
+      "date": "2026-07-30",
+      "title": "Removed the live-machines panel from the supervisor screen",
+      "summary": "The floating live-machines panel has been removed from the supervisor screen at the user's request.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-speedometer2",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Removed the floating live-machines panel from the supervisor screen."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.12.3",
       "date": "2026-07-30",
