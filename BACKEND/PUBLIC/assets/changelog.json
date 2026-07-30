@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.12.2",
+  "latest": "1.12.3",
   "versions": [
+    {
+      "version": "1.12.3",
+      "date": "2026-07-30",
+      "title": "Machine popup now shows produced, weight and average cycle — cleanly",
+      "summary": "The machine-counter popup on a DPR hour now shows pcs produced that hour, actual and average part weight, and current and average cycle time. Failed sensor reads are no longer stored as zero, so averages and counts stay accurate.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-journal-text",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Clicking the machine counter now shows pcs produced this hour, actual + average weight, and current + average cycle time."
+            },
+            {
+              "type": "fix",
+              "text": "A failed machine read no longer records a zero, which had made counts and averages look wrong."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.12.2",
       "date": "2026-07-29",

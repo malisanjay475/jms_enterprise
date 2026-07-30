@@ -172,6 +172,10 @@ function decodeBlock(words, startOffset, wordOrder = 'ABCD') {
   for (const reg of REGISTERS) {
     const off = reg.address - OFFSET_BASE - startOffset;
     if (off < 0 || off + 1 >= words.length) continue;
+    // Words the collector could not read are null (a chunk the controller
+    // rejected). Skip them so a failed read yields no value rather than a
+    // spurious 0 that would corrupt counters and averages.
+    if (words[off] == null || words[off + 1] == null) continue;
     out[reg.key] = decodeSlot(reg.type, words[off], words[off + 1], wordOrder);
   }
   return out;
