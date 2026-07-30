@@ -11,8 +11,129 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.11.0",
+  "latest": "1.12.4",
   "versions": [
+    {
+      "version": "1.12.4",
+      "date": "2026-07-30",
+      "title": "Removed the live-machines panel from the supervisor screen",
+      "summary": "The floating live-machines panel has been removed from the supervisor screen at the user's request.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-speedometer2",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Removed the floating live-machines panel from the supervisor screen."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.12.3",
+      "date": "2026-07-30",
+      "title": "Machine popup now shows produced, weight and average cycle — cleanly",
+      "summary": "The machine-counter popup on a DPR hour now shows pcs produced that hour, actual and average part weight, and current and average cycle time. Failed sensor reads are no longer stored as zero, so averages and counts stay accurate.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-journal-text",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Clicking the machine counter now shows pcs produced this hour, actual + average weight, and current + average cycle time."
+            },
+            {
+              "type": "fix",
+              "text": "A failed machine read no longer records a zero, which had made counts and averages look wrong."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.12.2",
+      "date": "2026-07-29",
+      "title": "Machine data popup now shows shots produced per hour",
+      "summary": "Clicking the machine counter on a DPR hour cell now shows how many shots the machine produced in that hour (the counter's rise over the hour), plus the total counter and the real cycle time. Fields that this controller does not report accurately (cavity, shot weight) have been removed so only trustworthy numbers are shown.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-journal-text",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "The machine-counter popup now leads with shots produced in that hour, and no longer shows fields the machine does not report correctly."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.12.1",
+      "date": "2026-07-29",
+      "title": "Machine data now reads the live KEBA controllers correctly",
+      "summary": "First on-machine commissioning of the machine-data feature. The KEBA controllers send their values as decimals rather than the whole-number format the manual described, so counter and cycle time were decoded wrongly. This corrects the decoding (verified against the machine showing 205 shots at 33.9s), and makes the collector tolerant of controllers that only expose part of the register range.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-journal-text",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The machine counter and cycle time now show correct values instead of very large numbers, matching what the machine's own screen shows."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.12.0",
+      "date": "2026-07-29",
+      "title": "Machines can now report their counter and cycle time to JMS automatically",
+      "summary": "Moulding machines with a KEBA controller can be connected to JMS over the factory network. Once a machine's IP is set in Masters, its shot counter and cycle time are collected automatically and shown next to the manually entered figures — so you can check accuracy before relying on it. Nothing is written into DPR automatically, so manual entry stays the record.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-hdd-network",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "A machine can now be linked to its controller by entering its IP address in the machine's settings, so JMS can collect live data from it."
+            }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-journal-text",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Each hour cell shows the machine's own counter beside the entered figure; click it to see cavity, shot weight, cycle time and when the last reading was taken."
+            }
+          ]
+        },
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-speedometer2",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "A live panel shows connected machines with their current counter, cycle time and running/stopped status."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.11.0",
       "date": "2026-07-29",

@@ -78,6 +78,13 @@ function pickNum(v) {
   return (v === undefined || v === null || v === '') ? null : Number(v);
 }
 
+// Counters are stored in BIGINT columns; the KEBA gateway serves them as floats
+// (e.g. 205.0), so round to a whole number before insert.
+function pickInt(v) {
+  const n = pickNum(v);
+  return n === null || !Number.isFinite(n) ? null : Math.round(n);
+}
+
 function registerMachineDataRoutes(app, pool) {
   const router = require('express').Router();
 
@@ -200,13 +207,18 @@ function registerMachineDataRoutes(app, pool) {
       `, [
         machineId,
         b.recorded_at || null,
-        pickNum(v.good_shots),
-        pickNum(v.bad_shots),
-        pickNum(v.shot_counter_set),
-        pickNum(v.cycle_time_act),
+        pickInt(v.good_shots),
+        pickInt(v.bad_shots),
+        pickInt(v.shot_counter_set),
+        // On the live KEBA gateway the running cycle reads at 40002
+        // (ideal_cycle_time); 40014 holds a different value. Prefer 40002 as the
+        // shown cycle, falling back to 40014 if 40002 is absent.
+        pickNum(v.ideal_cycle_time != null ? v.ideal_cycle_time : v.cycle_time_act),
         pickNum(v.ideal_cycle_time),
         pickNum(v.product_code),
-        (v.machine_running === true || v.machine_running === 'true'),
+        // null when the controller didn't expose 40122 (unread) — so the UI can
+        // show "unknown" instead of a misleading "stopped".
+        (v.machine_running == null ? null : (v.machine_running === true || v.machine_running === 'true')),
         pickNum(v.machine_mode),
         pickNum(v.oil_temp),
         pickNum(v.down_time_reason),
@@ -232,6 +244,34 @@ function registerMachineDataRoutes(app, pool) {
          ORDER BY r.machine_id, r.recorded_at DESC
       `);
       res.json({ ok: true, readings: rows });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  // Full latest snapshot (all decoded registers) per enabled machine — powers
+  // the live "All Machine Data" page.
+  router.get('/all-latest', async (req, res) => {
+    try {
+      const { rows } = await pool.query(`
+        SELECT DISTINCT ON (r.machine_id)
+               r.machine_id, m.machine AS machine_name, r.recorded_at, r.raw_json
+          FROM machine_readings r
+          JOIN machines m ON m.id = r.machine_id
+          JOIN machine_modbus_config c ON c.machine_id = r.machine_id AND c.enabled = true
+         ORDER BY r.machine_id, r.recorded_at DESC
+      `);
+      const registers = keba.REGISTERS.map(x => ({ address: x.address, key: x.key, label: x.label }));
+      res.json({
+        ok: true,
+        registers,
+        machines: rows.map(r => ({
+          machine_id: r.machine_id,
+          machine_name: r.machine_name,
+          recorded_at: r.recorded_at,
+          values: r.raw_json || {},
+        })),
+      });
     } catch (e) {
       res.status(500).json({ ok: false, error: String(e.message || e) });
     }
@@ -340,37 +380,52 @@ function registerMachineDataRoutes(app, pool) {
       const win = slotWindows(date, shift).find(s => s.slot === slot);
       if (!win) return res.status(400).json({ ok: false, error: 'unknown slot' });
 
+      // Compute clean per-hour stats. Glitch reads (a failed Modbus chunk)
+      // store NULL now, so filtering IS NOT NULL / > 0 keeps averages honest.
+      // Production = (counter at end) - (counter at start). Weight = 40008,
+      // cycle = 40002 (the registers verified accurate on this controller).
       const { rows } = await pool.query(`
-        SELECT recorded_at, good_shots, raw_json,
-               (SELECT COUNT(*) FROM machine_readings
-                 WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3) AS samples,
-               (SELECT MIN(recorded_at) FROM machine_readings
-                 WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3) AS first_at
-          FROM machine_readings
-         WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
-         ORDER BY recorded_at DESC
-         LIMIT 1
+        WITH win AS (
+          SELECT recorded_at, good_shots, cycle_time_s,
+                 NULLIF(raw_json->>'shot_weight','')::numeric AS shot_weight
+            FROM machine_readings
+           WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
+        )
+        SELECT
+          (SELECT good_shots  FROM win WHERE good_shots > 0 ORDER BY recorded_at DESC LIMIT 1) AS good_last,
+          (SELECT good_shots  FROM win WHERE good_shots > 0 ORDER BY recorded_at ASC  LIMIT 1) AS good_first,
+          (SELECT cycle_time_s FROM win WHERE cycle_time_s > 0 ORDER BY recorded_at DESC LIMIT 1) AS cycle_last,
+          (SELECT ROUND(AVG(cycle_time_s)::numeric, 2) FROM win WHERE cycle_time_s > 0) AS cycle_avg,
+          (SELECT shot_weight  FROM win WHERE shot_weight > 0 ORDER BY recorded_at DESC LIMIT 1) AS weight_last,
+          (SELECT ROUND(AVG(shot_weight)::numeric, 1) FROM win WHERE shot_weight > 0) AS weight_avg,
+          (SELECT MAX(recorded_at) FROM win) AS last_at,
+          (SELECT MIN(recorded_at) FROM win WHERE good_shots > 0) AS first_at,
+          (SELECT COUNT(*) FROM win) AS samples
       `, [machineId, win.startIso, win.endIso]);
 
-      if (!rows.length) {
+      const r = rows[0] || {};
+      if (!r.samples || Number(r.samples) === 0) {
         return res.json({ ok: true, machine, slot, found: false });
       }
-      const r = rows[0];
-      const raw = r.raw_json || {};
-      // The six requested registers (values already decoded into raw_json).
+      const num = (x) => (x == null ? null : Number(x));
+      const produced = (r.good_last != null && r.good_first != null)
+        ? Math.max(0, Number(r.good_last) - Number(r.good_first)) : null;
+
+      // Verified-accurate fields only. cavity + cycle-set (40004/40012/40014)
+      // are intentionally omitted — those registers don't match this gateway.
       const fields = [
-        { key: 'total_cavity',     label: 'Total cavity (40004)' },
-        { key: 'running_cavity',   label: 'Running cavity (40006)' },
-        { key: 'shot_weight',      label: 'Shot weight (40008)', unit: 'g' },
-        { key: 'cycle_time_set',   label: 'Cycle time set (40012)', unit: 's' },
-        { key: 'cycle_time_act',   label: 'Cycle time act (40014)', unit: 's' },
-        { key: 'shot_counter_set', label: 'Shot counter set (40016)' },
-        { key: 'good_shots',       label: 'Good shots (40018)' },
-      ].map(f => ({ ...f, value: raw[f.key] != null ? raw[f.key] : null }));
+        { key: 'produced',     label: 'Pcs produced this hour', value: produced,               primary: true },
+        { key: 'counter_now',  label: 'Counter now',            value: num(r.good_last) },
+        { key: 'weight_now',   label: 'Actual weight',          value: num(r.weight_last), unit: 'g' },
+        { key: 'weight_avg',   label: 'Average weight',         value: num(r.weight_avg),  unit: 'g' },
+        { key: 'cycle_now',    label: 'Cycle time (now)',       value: num(r.cycle_last),  unit: 's' },
+        { key: 'cycle_avg',    label: 'Average cycle time',     value: num(r.cycle_avg),   unit: 's' },
+      ];
 
       res.json({
         ok: true, machine, slot, found: true,
-        last_at: r.recorded_at, first_at: r.first_at, samples: Number(r.samples || 0),
+        produced,
+        last_at: r.last_at, first_at: r.first_at, samples: Number(r.samples || 0),
         fields,
       });
     } catch (e) {
@@ -399,8 +454,8 @@ function registerMachineDataRoutes(app, pool) {
             WITH win AS (
               SELECT good_shots, cycle_time_s, recorded_at FROM machine_readings
                WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3 ORDER BY recorded_at)
-            SELECT (SELECT good_shots FROM win ORDER BY recorded_at DESC LIMIT 1) AS glast,
-                   (SELECT good_shots FROM win ORDER BY recorded_at ASC  LIMIT 1) AS gfirst,
+            SELECT (SELECT good_shots FROM win WHERE good_shots > 0 ORDER BY recorded_at DESC LIMIT 1) AS glast,
+                   (SELECT good_shots FROM win WHERE good_shots > 0 ORDER BY recorded_at ASC  LIMIT 1) AS gfirst,
                    (SELECT ROUND(AVG(cycle_time_s)::numeric,2) FROM win WHERE cycle_time_s>0) AS cyc
           `, [row.machine_id, s.startIso, s.endIso]);
           const r = rows[0] || {};

@@ -20173,10 +20173,13 @@ app.post('/api/masters/orjrwisedetail/delete-by-orjr', async (req, res) => {
     const { or_jr_no } = req.body;
     if (!or_jr_no || !or_jr_no.trim()) return res.status(400).json({ ok: false, error: 'or_jr_no is required' });
 
+    // Match the caller's factory plus any unassigned (NULL factory_id) rows
+    // that share this OR/JR No — those legacy/ERP-synced rows appear in the
+    // factory view but were skipped by the old strict `factory_id = $2` filter.
     const result = await q(
       `DELETE FROM mould_planning_report
        WHERE TRIM(COALESCE(or_jr_no, '')) ILIKE TRIM($1)
-         AND ($2::int IS NULL OR factory_id = $2)`,
+         AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`,
       [or_jr_no.trim(), factoryId]
     );
     const deleted = result.rowCount ?? (Array.isArray(result) ? result.length : 0);
@@ -20195,14 +20198,29 @@ app.post('/api/masters/orjrwise/delete-row', async (req, res) => {
     const id = parseInt(req.body.id, 10);
     if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: 'id is required' });
 
-    const result = await q(
-      `DELETE FROM mould_planning_summary
-       WHERE id = $1
-         AND ($2::int IS NULL OR factory_id = $2)`,
-      [id, factoryId]
-    );
+    // Look the row up first so we can distinguish "row truly does not exist"
+    // from "row is in another factory". This also lets us delete rows that were
+    // surfaced in the caller's factory view but carry a NULL factory_id
+    // (legacy/ERP-synced rows never got one) — those failed the old strict
+    // `factory_id = $2` filter and produced a misleading "Row not found" error.
+    const existing = (await q('SELECT factory_id FROM mould_planning_summary WHERE id = $1', [id]))[0];
+    if (!existing) return res.status(404).json({ ok: false, error: 'Row not found' });
+
+    const rowFactoryId = normalizeFactoryId(existing.factory_id);
+    const scope = writeContext.currentScope;
+    const inScope =
+      factoryId === null ||
+      rowFactoryId === null ||
+      rowFactoryId === factoryId ||
+      (scope && scope.canSelectAllFactories) ||
+      (scope && Array.isArray(scope.allowedFactoryIds) && scope.allowedFactoryIds.includes(rowFactoryId));
+    if (!inScope) {
+      return res.status(403).json({ ok: false, error: 'This row belongs to another factory.' });
+    }
+
+    const result = await q('DELETE FROM mould_planning_summary WHERE id = $1', [id]);
     const deleted = result.rowCount ?? (Array.isArray(result) ? result.length : 0);
-    if (!deleted) return res.status(404).json({ ok: false, error: 'Row not found (or outside your factory scope)' });
+    if (!deleted) return res.status(404).json({ ok: false, error: 'Row not found' });
     res.json({ ok: true, deleted, message: `Deleted row id ${id}` });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
