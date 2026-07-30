@@ -216,7 +216,9 @@ function registerMachineDataRoutes(app, pool) {
         pickNum(v.ideal_cycle_time != null ? v.ideal_cycle_time : v.cycle_time_act),
         pickNum(v.ideal_cycle_time),
         pickNum(v.product_code),
-        (v.machine_running === true || v.machine_running === 'true'),
+        // null when the controller didn't expose 40122 (unread) — so the UI can
+        // show "unknown" instead of a misleading "stopped".
+        (v.machine_running == null ? null : (v.machine_running === true || v.machine_running === 'true')),
         pickNum(v.machine_mode),
         pickNum(v.oil_temp),
         pickNum(v.down_time_reason),

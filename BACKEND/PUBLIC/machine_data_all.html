@@ -36,7 +36,7 @@
   <header>
     <h1>All Machine Data</h1>
     <span class="dot"></span><span class="sub" id="status">connecting…</span>
-    <div class="search"><input id="filter" placeholder="filter by name/register…" oninput="render()"></div>
+    <div class="search"><input id="filter" aria-label="Filter machine data by name or register" placeholder="filter by name/register…" oninput="render()"></div>
   </header>
   <main>
     <div class="grid" id="grid"></div>
@@ -88,7 +88,10 @@
       }).join('') || '<div class="sub">No enabled machines / no data yet.</div>';
     }
 
+    var inflight = false;
     function refresh() {
+      if (inflight) return;              // avoid overlapping/out-of-order responses
+      inflight = true;
       fetch('/api/machine-data/all-latest', { credentials: 'same-origin' })
         .then(function (r) { return r.json(); })
         .then(function (b) {
@@ -100,11 +103,11 @@
           document.getElementById('status').textContent = 'live · ' + (b.machines || []).length + ' machine(s)';
           render();
         })
-        .catch(function () { document.getElementById('status').textContent = 'offline'; });
+        .catch(function () { document.getElementById('status').textContent = 'offline'; })
+        .finally(function () { inflight = false; setTimeout(refresh, 3000); }); // schedule next only after this completes
     }
 
     refresh();
-    setInterval(refresh, 3000);
   </script>
 </body>
 </html>
