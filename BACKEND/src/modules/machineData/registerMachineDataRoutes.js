@@ -247,6 +247,34 @@ function registerMachineDataRoutes(app, pool) {
     }
   });
 
+  // Full latest snapshot (all decoded registers) per enabled machine — powers
+  // the live "All Machine Data" page.
+  router.get('/all-latest', async (req, res) => {
+    try {
+      const { rows } = await pool.query(`
+        SELECT DISTINCT ON (r.machine_id)
+               r.machine_id, m.machine AS machine_name, r.recorded_at, r.raw_json
+          FROM machine_readings r
+          JOIN machines m ON m.id = r.machine_id
+          JOIN machine_modbus_config c ON c.machine_id = r.machine_id AND c.enabled = true
+         ORDER BY r.machine_id, r.recorded_at DESC
+      `);
+      const registers = keba.REGISTERS.map(x => ({ address: x.address, key: x.key, label: x.label }));
+      res.json({
+        ok: true,
+        registers,
+        machines: rows.map(r => ({
+          machine_id: r.machine_id,
+          machine_name: r.machine_name,
+          recorded_at: r.recorded_at,
+          values: r.raw_json || {},
+        })),
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
   router.get('/:machineId/history', async (req, res) => {
     const machineId = parseInt(req.params.machineId, 10);
     if (!Number.isInteger(machineId)) {

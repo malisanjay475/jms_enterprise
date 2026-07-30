@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>All Machine Data — Live</title>
+  <style>
+    :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --hot:#f59e0b; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--txt); font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+    header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+    h1 { font-size:17px; margin:0; }
+    .sub { color:var(--muted); font-size:13px; }
+    .dot { width:8px; height:8px; border-radius:50%; background:#22c55e; display:inline-block; animation:pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    main { padding:16px 20px; }
+    .grid { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+    .machine { background:var(--card); border:1px solid var(--line); border-radius:12px; min-width:340px; flex:1; max-width:520px; overflow:hidden; }
+    .mhead { padding:10px 14px; background:#0b1220; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+    .mname { font-weight:800; font-size:15px; }
+    .mtime { color:var(--muted); font-size:11px; }
+    table { width:100%; border-collapse:collapse; font-size:12.5px; }
+    td { padding:5px 12px; border-bottom:1px solid #16202e; white-space:nowrap; }
+    td.addr { color:var(--muted); width:56px; font-variant-numeric:tabular-nums; }
+    td.label { color:#cbd5e1; }
+    td.val { text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }
+    tr.zero td.val { color:#475569; font-weight:400; }
+    tr.changed td.val { color:var(--hot); }
+    .sectionhdr td { background:#0b1220; color:var(--accent); font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+    .legend { color:var(--muted); font-size:11.5px; margin-top:12px; }
+    .search { margin-left:auto; }
+    input { background:#0b1220; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>All Machine Data</h1>
+    <span class="dot"></span><span class="sub" id="status">connecting…</span>
+    <div class="search"><input id="filter" placeholder="filter by name/register…" oninput="render()"></div>
+  </header>
+  <main>
+    <div class="grid" id="grid"></div>
+    <div class="legend">Live from the machine controllers, refreshing every 3s. <span style="color:var(--hot)">Orange</span> = changed since last refresh · grey = zero/no value. Registers past 40069 are not exposed by the gateway.</div>
+  </main>
+
+  <script>
+    var REGISTERS = [];
+    var prev = {};   // machine_id -> { key: value } from last refresh
+
+    function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    function sectionOf(addr) {
+      if (addr <= 40022) return 'Production / cycle / weight';
+      if (addr <= 40034) return 'Set temperatures';
+      if (addr <= 40058) return 'Actual temps / servos';
+      if (addr <= 40098) return 'Cycle phase times';
+      if (addr <= 40118) return 'Rejection reasons';
+      return 'Status / totals';
+    }
+
+    var LATEST = { machines: [] };
+
+    function render() {
+      var filter = (document.getElementById('filter').value || '').toLowerCase();
+      var grid = document.getElementById('grid');
+      grid.innerHTML = (LATEST.machines || []).map(function (m) {
+        var last = prev[m.machine_id] || {};
+        var section = '';
+        var rows = REGISTERS.map(function (reg) {
+          if (filter && !(reg.label.toLowerCase().indexOf(filter) >= 0 || String(reg.address).indexOf(filter) >= 0 || (m.machine_name||'').toLowerCase().indexOf(filter) >= 0)) return '';
+          var v = m.values[reg.key];
+          var has = v != null;
+          var isZero = !has || v === 0;
+          var changed = has && last[reg.key] != null && last[reg.key] !== v;
+          var sec = sectionOf(reg.address);
+          var secRow = '';
+          if (sec !== section) { section = sec; secRow = '<tr class="sectionhdr"><td colspan="3">' + sec + '</td></tr>'; }
+          return secRow +
+            '<tr class="' + (isZero ? 'zero' : '') + (changed ? ' changed' : '') + '">' +
+            '<td class="addr">' + reg.address + '</td>' +
+            '<td class="label">' + esc(reg.label) + '</td>' +
+            '<td class="val">' + (has ? esc(v) : '—') + '</td></tr>';
+        }).join('');
+        return '<div class="machine">' +
+          '<div class="mhead"><span class="mname">' + esc(m.machine_name) + '</span>' +
+          '<span class="mtime">' + (m.recorded_at ? new Date(m.recorded_at).toLocaleTimeString() : '—') + '</span></div>' +
+          '<table>' + rows + '</table></div>';
+      }).join('') || '<div class="sub">No enabled machines / no data yet.</div>';
+    }
+
+    function refresh() {
+      fetch('/api/machine-data/all-latest', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (b) {
+          if (!b || !b.ok) { document.getElementById('status').textContent = 'error'; return; }
+          REGISTERS = b.registers || REGISTERS;
+          // stash current as prev BEFORE replacing, keyed per machine
+          (LATEST.machines || []).forEach(function (m) { prev[m.machine_id] = m.values; });
+          LATEST = b;
+          document.getElementById('status').textContent = 'live · ' + (b.machines || []).length + ' machine(s)';
+          render();
+        })
+        .catch(function () { document.getElementById('status').textContent = 'offline'; });
+    }
+
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>
