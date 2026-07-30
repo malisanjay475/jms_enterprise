@@ -54,7 +54,7 @@ async function fetchJson(path, opts = {}) {
 
 async function readSpan(client, unitId, profile, wordOrder) {
   const { startOffset, count } = profile.span();
-  const words = new Array(count).fill(0);
+  const words = new Array(count).fill(null); // null = not read (chunk failed)
   client.setID(unitId);
   let anyOk = false;
   // Some controllers only map part of the documented range and reject a read
