@@ -20176,13 +20176,16 @@ app.post('/api/masters/orjrwisedetail/delete-by-orjr', async (req, res) => {
     // Match the caller's factory plus any unassigned (NULL factory_id) rows
     // that share this OR/JR No — those legacy/ERP-synced rows appear in the
     // factory view but were skipped by the old strict `factory_id = $2` filter.
+    // RETURNING id is required: q() returns only rows (no rowCount), so a DELETE
+    // without RETURNING would always report 0 rows deleted.
     const result = await q(
       `DELETE FROM mould_planning_report
        WHERE TRIM(COALESCE(or_jr_no, '')) ILIKE TRIM($1)
-         AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)`,
+         AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+       RETURNING id`,
       [or_jr_no.trim(), factoryId]
     );
-    const deleted = result.rowCount ?? (Array.isArray(result) ? result.length : 0);
+    const deleted = result.length;
     res.json({ ok: true, deleted, message: `Deleted ${deleted} row(s) for OR/JR No: ${or_jr_no}` });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -20198,29 +20201,36 @@ app.post('/api/masters/orjrwise/delete-row', async (req, res) => {
     const id = parseInt(req.body.id, 10);
     if (!Number.isInteger(id)) return res.status(400).json({ ok: false, error: 'id is required' });
 
-    // Look the row up first so we can distinguish "row truly does not exist"
-    // from "row is in another factory". This also lets us delete rows that were
-    // surfaced in the caller's factory view but carry a NULL factory_id
-    // (legacy/ERP-synced rows never got one) — those failed the old strict
-    // `factory_id = $2` filter and produced a misleading "Row not found" error.
-    const existing = (await q('SELECT factory_id FROM mould_planning_summary WHERE id = $1', [id]))[0];
-    if (!existing) return res.status(404).json({ ok: false, error: 'Row not found' });
-
-    const rowFactoryId = normalizeFactoryId(existing.factory_id);
     const scope = writeContext.currentScope;
-    const inScope =
-      factoryId === null ||
-      rowFactoryId === null ||
-      rowFactoryId === factoryId ||
-      (scope && scope.canSelectAllFactories) ||
-      (scope && Array.isArray(scope.allowedFactoryIds) && scope.allowedFactoryIds.includes(rowFactoryId));
-    if (!inScope) {
-      return res.status(403).json({ ok: false, error: 'This row belongs to another factory.' });
-    }
+    const canAllFactories = !!(scope && scope.canSelectAllFactories);
+    const allowedFactoryIds = (scope && Array.isArray(scope.allowedFactoryIds)) ? scope.allowedFactoryIds : [];
 
-    const result = await q('DELETE FROM mould_planning_summary WHERE id = $1', [id]);
-    const deleted = result.rowCount ?? (Array.isArray(result) ? result.length : 0);
-    if (!deleted) return res.status(404).json({ ok: false, error: 'Row not found' });
+    // Delete with the factory scope re-asserted inside the WHERE clause so the
+    // authorization check and the mutation are atomic — the bulk-upload upsert
+    // (ON CONFLICT ... SET factory_id = EXCLUDED.factory_id) can reassign this
+    // row's factory_id, so a JS-only check against a prior SELECT would be a
+    // TOCTOU hole. A row is deletable when it matches the selected factory, is
+    // unassigned (NULL factory_id — legacy/ERP-synced rows shown in the factory
+    // view), or the caller has all-factory / multi-factory access.
+    // RETURNING id is required: q() returns only rows (no rowCount), so a DELETE
+    // without RETURNING would always yield 0 and 404 even on success.
+    const result = await q(
+      `DELETE FROM mould_planning_summary
+       WHERE id = $1
+         AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL
+              OR $3::bool OR factory_id = ANY($4::int[]))
+       RETURNING id`,
+      [id, factoryId, canAllFactories, allowedFactoryIds]
+    );
+    const deleted = result.length;
+    if (!deleted) {
+      // Distinguish "row truly gone" from "exists but outside your scope" for a
+      // clear message.
+      const existing = (await q('SELECT 1 FROM mould_planning_summary WHERE id = $1', [id]))[0];
+      return existing
+        ? res.status(403).json({ ok: false, error: 'This row belongs to another factory.' })
+        : res.status(404).json({ ok: false, error: 'Row not found' });
+    }
     res.json({ ok: true, deleted, message: `Deleted row id ${id}` });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
