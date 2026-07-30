@@ -15506,6 +15506,440 @@ function erpStatusRowToOrJrReportRow(erpRow, factoryId) {
   return out;
 }
 
+/* ============================================================
+   ORJR WISE SUMMARY / DETAIL <- ERP IMPORT (stage 2)
+   ------------------------------------------------------------
+   Same two-stage shape as the OR-JR Status import above: a superadmin
+   fetches the ERP into erp_jr_summary / erp_jr_details, and this projects
+   that stored snapshot into the planning tables for ONE factory. No
+   network I/O here.
+
+   These write the tables Create Plan reads (planned qty), so the rules
+   below deliberately mirror the existing Excel uploads for the same two
+   masters rather than inventing new ones:
+     • plan_date  <- ERP has none; falls back to the JR date, exactly as
+                     `toIsoDateText(row.plan_date) || jrDate` does today.
+                     This also keeps plan_date NON-NULL, which matters:
+                     mould_report_date_uniq_idx includes plan_date, and on
+                     Postgres 14 NULLs are distinct, so a null there would
+                     insert fresh duplicates on every single import.
+     • plan_qty   <- ERP has none; defaults to mould_item_qty (`?? mouldItemQty`).
+     • rows with no mould_no are dropped (the Excel path filters them the
+       same way) — 18% of summary and 22% of detail rows, so the count is
+       reported back rather than silently swallowed.
+     • duplicates: summary lets the last row win (ON CONFLICT on its key);
+       detail pre-aggregates by (or_jr_no, mould_no, mould_item_code) and
+       SUMS the quantities, matching the Excel importer. Owner confirmed
+       summing is intended.
+   ============================================================ */
+const ERP_PLANNING_IMPORTS = {
+  summary: {
+    label: 'ORJR Wise Summary',
+    erpTable: 'erp_jr_summary',
+    destTable: 'mould_planning_summary',
+    keyCols: ['or_jr_no', 'mould_no'],
+    aggregate: false,
+    // Columns compared for NEW/UPDATE/SKIP, and refreshed by the confirm upsert.
+    compareCols: [
+      'or_jr_date', 'item_code', 'bom_type', 'product_name', 'jr_qty', 'uom',
+      'plan_date', 'plan_qty', 'mould_name', 'mould_item_qty', 'tonnage',
+      'machine_name', 'cycle_time', 'cavity'
+    ],
+    dateCols: ['or_jr_date', 'plan_date'],
+    numCols: ['jr_qty', 'plan_qty', 'mould_item_qty', 'tonnage', 'cycle_time', 'cavity']
+  },
+  detail: {
+    label: 'ORJR Wise Detail',
+    erpTable: 'erp_jr_details',
+    destTable: 'mould_planning_report',
+    keyCols: ['or_jr_no', 'mould_no', 'mould_item_code'],
+    aggregate: true,
+    aggregateSumCols: ['mould_item_qty', 'plan_qty'],
+    compareCols: [
+      'or_jr_date', 'item_code', 'bom_type', 'product_name', 'jr_qty', 'uom',
+      'plan_date', 'plan_qty', 'mould_item_name', 'mould_name', 'mould_item_qty',
+      'tonnage', 'machine_name', 'cycle_time', 'cavity'
+    ],
+    dateCols: ['or_jr_date', 'plan_date'],
+    numCols: ['jr_qty', 'plan_qty', 'mould_item_qty', 'tonnage', 'cycle_time', 'cavity']
+  }
+};
+
+// erp_jr_summary / erp_jr_details rows (all TEXT) -> planning-table shape.
+function erpPlanningRowFromSnapshot(erpRow, cfgKey, factoryId) {
+  const txt = (v) => {
+    const s = v === null || v === undefined ? '' : String(v).trim();
+    return s === '' ? null : s;
+  };
+  const jrDate = parseErpDate(erpRow.or_jr_date);
+  const mouldItemQty = toNum(erpRow.mould_item_qty);
+
+  const row = {
+    or_jr_no: String(erpRow.or_jr_no || '').trim(),
+    or_jr_date: jrDate,
+    item_code: txt(erpRow.our_code),
+    bom_type: txt(erpRow.bom_type),
+    product_name: txt(erpRow.item_name),
+    jr_qty: toNum(erpRow.jr_qty),
+    uom: txt(erpRow.uom),
+    // No plan_date/plan_qty in the ERP feed — same fallbacks as the Excel path.
+    plan_date: jrDate,
+    plan_qty: mouldItemQty,
+    mould_no: String(erpRow.mould_no || '').trim(),
+    mould_name: txt(erpRow.mould),
+    mould_item_qty: mouldItemQty,
+    tonnage: toNum(erpRow.tonnage),
+    machine_name: txt(erpRow.machine),
+    cycle_time: toNum(erpRow.cycle_time),
+    cavity: toNum(erpRow.cavity),
+    factory_id: factoryId // JMS id — never the ERP's own factory number
+  };
+  if (cfgKey === 'detail') {
+    row.mould_item_code = String(erpRow.c_item_code || '').trim();
+    row.mould_item_name = txt(erpRow.c_item_name);
+  }
+  return row;
+}
+
+// Read the stored ERP snapshot, scope it to one factory, map and (for detail)
+// aggregate it. Returns the rows that would be written plus the counts needed
+// to explain everything that was left out.
+async function buildErpPlanningRows(cfgKey, requestFactoryId) {
+  const cfg = ERP_PLANNING_IMPORTS[cfgKey];
+  const factoryMap = await loadErpFactoryMap();
+  const snapshot = await q(`SELECT * FROM ${cfg.erpTable}`);
+
+  let otherFactory = 0;
+  let unresolved = 0;
+  let missingMould = 0;
+  const mapped = [];
+
+  for (const erpRow of snapshot) {
+    const verdict = classifyErpRowFactory(erpRow, requestFactoryId, factoryMap);
+    if (verdict === 'other') { otherFactory++; continue; }
+    if (verdict === 'unresolved') { unresolved++; continue; }
+
+    const row = erpPlanningRowFromSnapshot(erpRow, cfgKey, requestFactoryId);
+    // Same filter the Excel uploads apply — a row with no mould (or, for detail,
+    // no colour code) has nowhere to land in the planning tables.
+    const usable = cfgKey === 'detail'
+      ? (row.or_jr_no && row.mould_no && row.mould_item_code)
+      : (row.or_jr_no && row.mould_no);
+    if (!usable) { missingMould++; continue; }
+    mapped.push(row);
+  }
+
+  let rows = mapped;
+  let collapsed = 0;
+  if (cfg.aggregate) {
+    const aggMap = new Map();
+    for (const row of mapped) {
+      const key = cfg.keyCols.map((c) => String(row[c] ?? '').trim()).join('|');
+      if (!aggMap.has(key)) {
+        aggMap.set(key, { ...row });
+      } else {
+        const ex = aggMap.get(key);
+        for (const c of cfg.aggregateSumCols) {
+          ex[c] = (Number(ex[c]) || 0) + (Number(row[c]) || 0);
+        }
+        collapsed++;
+      }
+    }
+    rows = Array.from(aggMap.values());
+  } else {
+    // Summary keeps last-row-wins, matching its ON CONFLICT upsert.
+    const seen = new Map();
+    for (const row of mapped) {
+      const key = cfg.keyCols.map((c) => String(row[c] ?? '').trim()).join('|');
+      if (seen.has(key)) collapsed++;
+      seen.set(key, row);
+    }
+    rows = Array.from(seen.values());
+  }
+
+  return { rows, snapshotRows: snapshot.length, otherFactory, unresolved, missingMould, collapsed };
+}
+
+// Diff against the planning table, returning ONLY actionable rows and no more
+// than ROW_CAP of them. Unchanged rows are counted, never materialised: a first
+// import here is ~27k (summary) / ~52k (detail) rows for one factory, so
+// returning everything would blow both the JSON response and the write window.
+// Capping is safe because it is complete-by-repetition — saving the returned rows
+// turns them into SKIPs, so running the import again picks up the next cap-worth.
+async function buildErpPlanningPreview(cfgKey, rows, requestFactoryId) {
+  const cfg = ERP_PLANNING_IMPORTS[cfgKey];
+  const selectCols = [...cfg.keyCols, ...cfg.compareCols].map((c) => `"${c}"`).join(', ');
+  const existing = requestFactoryId
+    ? await q(`SELECT ${selectCols} FROM ${cfg.destTable} WHERE factory_id = $1`, [requestFactoryId])
+    : await q(`SELECT ${selectCols} FROM ${cfg.destTable}`);
+
+  const keyOf = (r) => cfg.keyCols.map((c) => String(r[c] ?? '').trim().toLowerCase()).join('|');
+  const dbMap = new Map();
+  for (const r of existing) dbMap.set(keyOf(r), r);
+
+  const dateSet = new Set(cfg.dateCols);
+  const numSet = new Set(cfg.numCols);
+  const normStr = (v) => String(v ?? '').trim().toUpperCase();
+
+  const preview = [];
+  let changedRows = 0;
+  let skipped = 0;
+
+  for (const row of rows) {
+    const hit = dbMap.get(keyOf(row));
+    let classified;
+    if (!hit) {
+      classified = { ...row, _status: 'NEW' };
+    } else {
+      const changed = [];
+      for (const c of cfg.compareCols) {
+        if (dateSet.has(c)) {
+          if ((toIsoDateText(row[c]) || '') !== (toIsoDateText(hit[c]) || '')) changed.push(c);
+        } else if (numSet.has(c)) {
+          if (toNum(row[c]) !== toNum(hit[c])) changed.push(c);
+        } else if (normStr(row[c]) !== normStr(hit[c])) {
+          changed.push(c);
+        }
+      }
+      if (!changed.length) { skipped++; continue; }
+      classified = { ...row, _status: 'UPDATE', _changedFields: changed };
+    }
+    changedRows++;
+    if (preview.length < OR_JR_ERP_PREVIEW_ROW_CAP) preview.push(classified);
+  }
+
+  return { preview, changedRows, skipped };
+}
+
+// The confirm writes the same capped set the preview showed. Rows go in chunks so
+// one statement covers many rows — per-row round trips would take ~7 minutes for a
+// first summary import and far longer for detail, well past nginx's 120s read
+// timeout, and the operator would see a dead request while the transaction ran on.
+const ERP_PLANNING_WRITE_CHUNK = 500;
+
+function chunkRows(rows, size) {
+  const out = [];
+  for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
+  return out;
+}
+
+async function writeErpPlanningSummary(client, rows, factoryId) {
+  for (const chunk of chunkRows(rows, ERP_PLANNING_WRITE_CHUNK)) {
+    const params = [];
+    const tuples = chunk.map((r) => {
+      const b = params.length;
+      params.push(
+        r.or_jr_no, r.or_jr_date, r.item_code, r.bom_type, r.product_name, r.jr_qty, r.uom,
+        r.plan_date, r.plan_qty, r.mould_no, r.mould_name, r.mould_item_qty, r.tonnage,
+        r.machine_name, r.cycle_time, r.cavity, factoryId
+      );
+      const p = (n) => `$${b + n}`;
+      return `(${p(1)},${p(2)},${p(3)},${p(4)},${p(5)},${p(6)},${p(7)},${p(8)},${p(9)},${p(10)},`
+        + `${p(11)},${p(12)},${p(13)},${p(14)},${p(15)},${p(16)},`
+        + `'ErpImport',NOW(),'ErpImport',NOW(),${p(17)},NOW())`;
+    });
+    await client.query(`
+      INSERT INTO mould_planning_summary(
+        or_jr_no, or_jr_date, item_code, bom_type, product_name, jr_qty, uom,
+        plan_date, plan_qty, mould_no, mould_name, mould_item_qty, tonnage, machine_name,
+        cycle_time, cavity, created_by, created_date, edited_by, edited_date, factory_id, updated_at
+      ) VALUES ${tuples.join(',')}
+      ON CONFLICT (or_jr_no, mould_no)
+      DO UPDATE SET
+        or_jr_date = EXCLUDED.or_jr_date, item_code = EXCLUDED.item_code,
+        bom_type = EXCLUDED.bom_type, product_name = EXCLUDED.product_name,
+        jr_qty = EXCLUDED.jr_qty, uom = EXCLUDED.uom,
+        plan_date = EXCLUDED.plan_date, plan_qty = EXCLUDED.plan_qty,
+        mould_name = EXCLUDED.mould_name, mould_item_qty = EXCLUDED.mould_item_qty,
+        tonnage = EXCLUDED.tonnage, machine_name = EXCLUDED.machine_name,
+        cycle_time = EXCLUDED.cycle_time, cavity = EXCLUDED.cavity,
+        edited_by = 'ErpImport', edited_date = NOW(),
+        factory_id = EXCLUDED.factory_id, updated_at = NOW()
+    `, params);
+  }
+}
+
+async function writeErpPlanningDetail(client, rows, factoryId) {
+  for (const chunk of chunkRows(rows, ERP_PLANNING_WRITE_CHUNK)) {
+    // Clear every existing row for these colour+mould keys regardless of plan_date,
+    // matching the Excel importer — mould_report_date_uniq_idx carries plan_date, so
+    // ON CONFLICT cannot express "one row per colour+mould".
+    const delParams = [];
+    const delTuples = chunk.map((r) => {
+      const b = delParams.length;
+      delParams.push(r.or_jr_no, r.mould_no, r.mould_item_code);
+      return `($${b + 1}::text,$${b + 2}::text,$${b + 3}::text)`;
+    });
+    delParams.push(factoryId);
+    await client.query(`
+      DELETE FROM mould_planning_report t
+      USING (VALUES ${delTuples.join(',')}) AS v(or_jr_no, mould_no, mould_item_code)
+      WHERE TRIM(COALESCE(t.or_jr_no, ''))       = TRIM(v.or_jr_no)
+        AND TRIM(COALESCE(t.mould_no, ''))        = TRIM(v.mould_no)
+        AND TRIM(COALESCE(t.mould_item_code, '')) = TRIM(v.mould_item_code)
+        AND ($${delParams.length}::int IS NULL OR t.factory_id = $${delParams.length} OR t.factory_id IS NULL)
+    `, delParams);
+
+    const params = [];
+    const tuples = chunk.map((r) => {
+      const b = params.length;
+      params.push(
+        r.or_jr_no, r.or_jr_date, r.item_code, r.bom_type, r.product_name, r.jr_qty, r.uom,
+        r.plan_date, r.plan_qty, r.mould_item_code, r.mould_item_name, r.mould_no, r.mould_name,
+        r.mould_item_qty, r.tonnage, r.machine_name, r.cycle_time, r.cavity, factoryId
+      );
+      const p = (n) => `$${b + n}`;
+      return `(${p(1)},${p(2)},${p(3)},${p(4)},${p(5)},${p(6)},${p(7)},${p(8)},${p(9)},${p(10)},`
+        + `${p(11)},${p(12)},${p(13)},${p(14)},${p(15)},${p(16)},${p(17)},${p(18)},`
+        + `NULL,'ErpImport',NOW(),'ErpImport',NOW(),${p(19)},NOW())`;
+    });
+    await client.query(`
+      INSERT INTO mould_planning_report(
+        or_jr_no, or_jr_date, item_code, bom_type, product_name, jr_qty, uom,
+        plan_date, plan_qty, mould_item_code, mould_item_name, mould_no, mould_name,
+        mould_item_qty, tonnage, machine_name, cycle_time, cavity,
+        _status, created_by, created_date, edited_by, edited_date, factory_id, updated_at
+      ) VALUES ${tuples.join(',')}
+    `, params);
+  }
+}
+
+// Shared guard for the four routes below.
+async function requireErpPlanningAccess(req, actionLabel) {
+  const writeContext = await getWritableFactoryContext(req, actionLabel);
+  if (!writeContext.ok) return { ok: false, status: writeContext.status || 403, error: writeContext.error };
+
+  const username = (req.body && req.body.username) || getRequestUsername(req);
+  if (!username) return { ok: false, status: 401, error: 'Authorization required (missing username).' };
+  const actor = (await q(
+    'SELECT username, role_code, permissions FROM users WHERE username = $1 LIMIT 1',
+    [username]
+  ))[0];
+  if (!actor) return { ok: false, status: 401, error: 'Invalid user.' };
+  if (!userCanEditMasters(actor)) {
+    return { ok: false, status: 403, error: 'Masters edit permission is required to import ERP data.' };
+  }
+  return { ok: true, writeContext };
+}
+
+function registerErpPlanningPreview(cfgKey, routePath) {
+  const cfg = ERP_PLANNING_IMPORTS[cfgKey];
+  app.post(routePath, async (req, res) => {
+    try {
+      const gate = await requireErpPlanningAccess(req, `import ${cfg.label} from ERP data`);
+      if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error });
+      const requestFactoryId = gate.writeContext.factoryId;
+
+      const built = await buildErpPlanningRows(cfgKey, requestFactoryId);
+      if (!built.snapshotRows) {
+        return res.status(409).json({
+          ok: false,
+          error: `No ERP data has been fetched yet. Ask a superadmin to press 'Fetch Latest Data' on Masters -> ${cfgKey === 'detail' ? 'OR JR Details ERP' : 'JR Summary ERP'} first.`
+        });
+      }
+
+      const { preview, changedRows, skipped } = await buildErpPlanningPreview(cfgKey, built.rows, requestFactoryId);
+      const meta = (await q(
+        `SELECT to_char(max(synced_at), 'YYYY-MM-DD HH24:MI') AS last_sync,
+                EXTRACT(EPOCH FROM (now() - max(synced_at))) / 3600 AS age_hours
+           FROM ${cfg.erpTable}`
+      ))[0] || {};
+
+      console.log(`[ERP ${cfg.label} Import] factory=${requestFactoryId} source=${built.snapshotRows} scoped=${built.rows.length} changed=${changedRows} returned=${preview.length} skipped=${skipped} other=${built.otherFactory} unresolved=${built.unresolved} noMould=${built.missingMould} merged=${built.collapsed}`);
+
+      res.json({
+        ok: true,
+        data: preview,
+        meta: {
+          factory_id: requestFactoryId,
+          factory_name: gate.writeContext.factoryName || '',
+          snapshot_synced_at: meta.last_sync || null,
+          snapshot_age_hours: meta.age_hours === null || meta.age_hours === undefined
+            ? null : Math.round(Number(meta.age_hours)),
+          source_rows: built.snapshotRows,
+          scoped_rows: built.rows.length,
+          other_factory: built.otherFactory,
+          unresolved: built.unresolved,
+          missing_mould: built.missingMould,
+          collapsed: built.collapsed,
+          skipped_rows: skipped,
+          changed_rows: changedRows,
+          returned_rows: preview.length,
+          row_cap: OR_JR_ERP_PREVIEW_ROW_CAP,
+          truncated: changedRows > preview.length
+        }
+      });
+    } catch (e) {
+      console.error(routePath, e);
+      res.status(e?.statusCode || 500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+}
+
+registerErpPlanningPreview('summary', '/api/upload/orjr-wise-summary-erp-preview');
+registerErpPlanningPreview('detail', '/api/upload/orjr-wise-detail-erp-preview');
+
+/* Confirm: re-derives the rows server-side from the same stored snapshot rather
+   than trusting a client payload. That keeps a large import off the request body
+   (the OR-JR Status import already runs close to the 10 MB express limit) and
+   means what gets written is exactly what the preview computed, as long as the
+   snapshot has not been re-fetched in between — which is what synced_at guards. */
+function registerErpPlanningConfirm(cfgKey, routePath) {
+  const cfg = ERP_PLANNING_IMPORTS[cfgKey];
+  app.post(routePath, async (req, res) => {
+    const client = await pool.connect();
+    try {
+      const gate = await requireErpPlanningAccess(req, `import ${cfg.label} from ERP data`);
+      if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error });
+      const requestFactoryId = gate.writeContext.factoryId;
+
+      const expected = String((req.body && req.body.snapshot_synced_at) || '').trim();
+      const current = (await q(
+        `SELECT to_char(max(synced_at), 'YYYY-MM-DD HH24:MI') AS last_sync FROM ${cfg.erpTable}`
+      ))[0]?.last_sync || null;
+      if (expected && current && expected !== current) {
+        return res.status(409).json({
+          ok: false,
+          error: `The ERP data was refreshed while you were reviewing (was ${expected}, now ${current}). Press Import again to review the newer data.`
+        });
+      }
+
+      const built = await buildErpPlanningRows(cfgKey, requestFactoryId);
+      // Write exactly the set the preview showed: actionable rows only, same cap,
+      // same order. Unchanged rows are left alone so a repeat run is cheap.
+      const { preview, changedRows } = await buildErpPlanningPreview(cfgKey, built.rows, requestFactoryId);
+      if (!preview.length) return res.json({ ok: true, count: 0, message: 'Nothing to save — already up to date.' });
+
+      assertUploadRowsMatchFactory(preview, requestFactoryId, `${cfg.label} ERP import`);
+
+      await client.query('BEGIN');
+      if (cfgKey === 'summary') await writeErpPlanningSummary(client, preview, requestFactoryId);
+      else await writeErpPlanningDetail(client, preview, requestFactoryId);
+      await client.query('COMMIT');
+
+      const remaining = Math.max(0, changedRows - preview.length);
+      console.log(`[ERP ${cfg.label} Confirm] factory=${requestFactoryId} wrote=${preview.length} remaining=${remaining}`);
+      res.json({
+        ok: true,
+        count: preview.length,
+        remaining,
+        message: remaining
+          ? `Saved ${preview.length} ${cfg.label} row(s) from ERP data. ${remaining} more still to import — press Import from ERP Data again.`
+          : `Saved ${preview.length} ${cfg.label} row(s) from ERP data.`
+      });
+    } catch (e) {
+      try { await client.query('ROLLBACK'); } catch (_) { }
+      console.error(routePath, e);
+      res.status(e?.statusCode || 500).json({ ok: false, error: e?.message || String(e) });
+    } finally {
+      client.release();
+    }
+  });
+}
+
+registerErpPlanningConfirm('summary', '/api/upload/orjr-wise-summary-erp-confirm');
+registerErpPlanningConfirm('detail', '/api/upload/orjr-wise-detail-erp-confirm');
+
 // POST /api/upload/excel (Mock - requires 'xlsx' library for real parsing)
 app.post('/api/upload/excel', async (req, res) => {
   // In a real app, use 'multer' to handle file upload and 'xlsx' to parse

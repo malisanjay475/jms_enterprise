@@ -37,6 +37,33 @@
     let pendingUploadMode = null;
     let pendingUploadFile = null;
     let pendingUploadPreviewMeta = {};
+    // Set when an ERP planning import is awaiting confirmation; carries the confirm
+    // route and the snapshot stamp the server re-checks before writing.
+    let pendingErpImport = null;
+
+    // Masters views that can be filled from the stored ERP snapshot. OR-JR Status
+    // posts its reviewed rows back to /upload/or-jr-confirm; the two planning views
+    // re-derive server-side on confirm instead (their payloads would be large and
+    // the rows are computed, not edited), so they carry their own confirm route.
+    const ERP_IMPORT_TYPES = {
+      orjr: {
+        label: 'OR-JR Status',
+        preview: '/upload/or-jr-erp-preview',
+        mode: 'server-orjr'
+      },
+      orjrwise: {
+        label: 'ORJR Wise Summary',
+        preview: '/upload/orjr-wise-summary-erp-preview',
+        confirm: '/upload/orjr-wise-summary-erp-confirm',
+        mode: 'server-erp-planning'
+      },
+      orjrwisedetail: {
+        label: 'ORJR Wise Detail',
+        preview: '/upload/orjr-wise-detail-erp-preview',
+        confirm: '/upload/orjr-wise-detail-erp-confirm',
+        mode: 'server-erp-planning'
+      }
+    };
     let currentType = 'orders';
     let currentView = 'active'; // 'active' or 'closed'
     let allowedFactories = [];
@@ -266,6 +293,7 @@
       pendingUploadMode = null;
       pendingUploadFile = null;
       pendingUploadPreviewMeta = {};
+      pendingErpImport = null;
     }
 
     function normalizePreviewHeaderKey(value) {
@@ -851,11 +879,12 @@
         if (erpLastSync) erpLastSync.style.display = 'none';
       }
 
-      // OR-JR Status: offer the ERP import alongside the existing Excel upload.
-      // The Excel path stays as-is so it can still be used when the ERP snapshot is stale.
+      // OR-JR Status / ORJR Wise Summary / ORJR Wise Detail: offer the ERP import
+      // alongside the existing Excel upload. The Excel path stays as-is so it can
+      // still be used when the ERP snapshot is stale.
       const orjrErpImportBtn = document.getElementById('orjrErpImportBtn');
       const orjrErpSnapshotAge = document.getElementById('orjrErpSnapshotAge');
-      if (type === 'orjr' && JPSMS.auth.can('masters', 'edit')) {
+      if (ERP_IMPORT_TYPES[type] && JPSMS.auth.can('masters', 'edit')) {
         if (orjrErpImportBtn) orjrErpImportBtn.style.display = 'inline-flex';
       } else {
         if (orjrErpImportBtn) orjrErpImportBtn.style.display = 'none';
@@ -2195,7 +2224,16 @@
       btn.textContent = '...'; btn.disabled = true;
       try {
         let res;
-        if (pendingUploadMode === 'server-orjr' || pendingUploadMode === 'server-machines') {
+        if (pendingUploadMode === 'server-erp-planning') {
+          // The rows are derived from the stored ERP snapshot, not edited here, so
+          // the server recomputes them rather than trusting a payload back. It
+          // rejects if the snapshot was re-fetched while this preview was open.
+          if (!pendingErpImport) throw new Error('No ERP import is waiting for confirmation.');
+          res = await JPSMS.api.post(pendingErpImport.confirm, {
+            username: JPSMS.auth.getUser().username,
+            snapshot_synced_at: pendingErpImport.snapshot_synced_at || ''
+          });
+        } else if (pendingUploadMode === 'server-orjr' || pendingUploadMode === 'server-machines') {
           if (!pendingUploadData || !pendingUploadData.length) throw new Error('No preview data found.');
           const endpoint = pendingUploadMode === 'server-machines'
             ? '/upload/machines-confirm'
@@ -2535,11 +2573,15 @@
       }
     }
 
-    // Pull the stored ERP snapshot into this factory's OR-JR Status.
-    // Reuses the Excel review modal and the identical /upload/or-jr-confirm save path —
-    // the only difference is where the rows came from.
+
+
+    // Pull the stored ERP snapshot into this factory's copy of the current master.
+    // Reuses the Excel review modal so the operator sees the same NEW/UPDATE/SKIP
+    // screen either way — only the source of the rows differs.
     async function importOrJrFromErpData() {
-      if (!ensureSingleFactoryScope('import OR-JR Status from ERP data')) return;
+      const cfg = ERP_IMPORT_TYPES[currentType];
+      if (!cfg) return;
+      if (!ensureSingleFactoryScope(`import ${cfg.label} from ERP data`)) return;
       const btn = document.getElementById('orjrErpImportBtn');
       const ageLabel = document.getElementById('orjrErpSnapshotAge');
       const original = btn ? btn.innerHTML : '';
@@ -2547,14 +2589,17 @@
 
       try {
         const user = JPSMS.auth.getUser() || {};
-        const res = await JPSMS.api.post('/upload/or-jr-erp-preview', { username: user.username });
+        const res = await JPSMS.api.post(cfg.preview, { username: user.username });
         if (!res || !res.ok) throw new Error((res && res.error) || 'Import preview failed');
 
         const meta = res.meta || {};
-        pendingUploadMode = 'server-orjr';
+        pendingUploadMode = cfg.mode;
+        pendingErpImport = cfg.confirm
+          ? { confirm: cfg.confirm, label: cfg.label, snapshot_synced_at: meta.snapshot_synced_at || '' }
+          : null;
         showReviewModal(res.data, {
           mode: 'server',
-          title: `Review OR-JR Changes from ERP Data${meta.factory_name ? ' - ' + meta.factory_name : ''}`,
+          title: `Review ${cfg.label} Changes from ERP Data${meta.factory_name ? ' - ' + meta.factory_name : ''}`,
           confirmLabel: 'Confirm Update'
         });
 
@@ -2574,6 +2619,10 @@
           }
           if (meta.other_factory) bits.push(`${meta.other_factory} rows from other factories excluded`);
           if (meta.unresolved) bits.push(`${meta.unresolved} rows could not be matched to a factory`);
+          // Planning imports drop rows the ERP left without a mould, and merge rows
+          // that share a mould — say so rather than letting the totals look wrong.
+          if (meta.missing_mould) bits.push(`${meta.missing_mould} rows skipped for having no mould number`);
+          if (meta.collapsed) bits.push(`${meta.collapsed} duplicate rows merged`);
           const age = meta.snapshot_age_hours;
           let warn = !!meta.truncated;
           if (meta.snapshot_synced_at) {
