@@ -1206,7 +1206,7 @@
                             const dateDayClosed = dayClosed.filter(c => (c.dpr_date_str || c.dpr_date || '').startsWith(date));
                             const dateNightClosed = nightClosed.filter(c => (c.dpr_date_str || c.dpr_date || '').startsWith(date));
 
-                            masterHtml += `<div style="background:#0f172a; color:white; padding:12px 20px; font-weight:800; border-radius:12px; margin:40px 0 20px 0; font-size:1.2rem; display:flex; justify-content:space-between; align-items:center; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1)">
+                            masterHtml += `<div class="dpr-date-banner" style="position:sticky; z-index:46; background:#0f172a; color:white; padding:12px 20px; font-weight:800; border-radius:12px; margin:40px 0 20px 0; font-size:1.2rem; display:flex; justify-content:space-between; align-items:center; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1)">
                                 <span><i class="bi bi-calendar3" style="margin-right:10px"></i>Compliance Summary for ${new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                                 <span style="font-size:0.9rem; opacity:0.8">${dprEscHtml(dprProcess)} • ${dprEscHtml(shiftMode)} Shift</span>
                             </div>`;
@@ -2622,11 +2622,15 @@
                         const adjustDprStickyOffsets = () => {
                             const filterEl = document.getElementById('sticky-dpr-filter');
                             const plantEl  = document.getElementById('sticky-plant-total');
+                            const banners  = container.querySelectorAll('.dpr-date-banner');
                             const headers  = container.querySelectorAll('.date-section-header');
                             const filterH  = filterEl ? filterEl.offsetHeight : 0;
                             if (plantEl) plantEl.style.top = filterH + 'px';
                             const plantH   = plantEl ? plantEl.offsetHeight : 0;
-                            const headerTop = filterH + plantH;
+                            const bannerTop = filterH + plantH;
+                            banners.forEach(b => { b.style.top = bannerTop + 'px'; });
+                            const bannerH  = banners.length ? banners[0].offsetHeight : 0;
+                            const headerTop = bannerTop + bannerH;
                             headers.forEach(h => { h.style.top = headerTop + 'px'; });
                         };
                         adjustDprStickyOffsets();
