@@ -21537,10 +21537,15 @@ WITH RankedPlans AS (
   LEFT JOIN orders o ON pb.order_no = o.order_no
   LEFT JOIN mould_planning_summary mps ON(mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
   LEFT JOIN LATERAL (
+    -- Resolve mould master by EXACT mould_number. Prefer the planning summary's
+    -- mould_no (the specific mould, e.g. "1595-TOP RING") over pb.mould_code,
+    -- which can hold a coarser base code (e.g. "1595-TOP") and would otherwise
+    -- resolve to a different mould's standards. This matches the code shown on
+    -- the card (COALESCE(mps.mould_no, m.mould_number)).
     SELECT mm.*
     FROM moulds mm
-    WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')))
-      AND TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')) <> ''
+    WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')))
+      AND TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')) <> ''
     ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
     LIMIT 1
   ) m ON TRUE
@@ -24566,12 +24571,12 @@ app.get('/api/std-actual/status', async (req, res) => {
   m.cycle_time as cycle_std, m.pcs_per_hour as pcshr_std, m.manpower as man_std,
   m.sfg_std_packing as sfgqty_std
       FROM plan_board pb
-      LEFT JOIN mould_planning_summary mps ON mps.mould_name = pb.mould_name
+      LEFT JOIN mould_planning_summary mps ON mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name
       LEFT JOIN LATERAL (
         SELECT mm.*
         FROM moulds mm
-        WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')))
-          AND TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')) <> ''
+        WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')))
+          AND TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')) <> ''
         ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
         LIMIT 1
       ) m ON TRUE
@@ -24588,12 +24593,12 @@ app.get('/api/std-actual/status', async (req, res) => {
   m.cycle_time as cycle_std, m.pcs_per_hour as pcshr_std, m.manpower as man_std,
   m.sfg_std_packing as sfgqty_std
       FROM plan_board pb
-      LEFT JOIN mould_planning_summary mps ON mps.mould_name = pb.mould_name
+      LEFT JOIN mould_planning_summary mps ON mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name
       LEFT JOIN LATERAL (
         SELECT mm.*
         FROM moulds mm
-        WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')))
-          AND TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')) <> ''
+        WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')))
+          AND TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')) <> ''
         ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
         LIMIT 1
       ) m ON TRUE

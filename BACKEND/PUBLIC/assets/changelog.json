@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.13.3",
+  "latest": "1.13.4",
   "versions": [
+    {
+      "version": "1.13.4",
+      "date": "2026-07-31",
+      "title": "Standard weight now matches the exact mould on the job",
+      "summary": "On the Supervisor and setup screens, the Article STD Weight (and other mould standards) is now taken from the exact mould on the job — for example '1595-TOP RING' — instead of a similarly-named base mould like '1595-TOP'. The weight you see now matches the Mould Master.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-person-badge",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The Article STD Weight now comes from the exact mould on the job, so a base mould with a similar code no longer shows the wrong weight."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.13.3",
       "date": "2026-07-31",
