@@ -407,7 +407,8 @@ function registerMachineDataRoutes(app, pool) {
         return res.json({ ok: true, date, hasData: false });
       }
       // production, reject, cycle stats (robust)
-      let good = 0, bad = 0, cycSum = 0, cycN = 0, cycMin = Infinity;
+      let good = 0, bad = 0, cycSum = 0;
+      const cycles = [];
       for (let i = 1; i < rows.length; i++) {
         const gd = Number(rows[i].good_shots) - Number(rows[i - 1].good_shots);
         if (gd > 0 && gd <= MAX_SHOT_DELTA) good += gd;
@@ -416,10 +417,17 @@ function registerMachineDataRoutes(app, pool) {
       }
       for (const r of rows) {
         const c = Number(r.cycle_time_s);
-        if (c > 0 && c < MAX_CYCLE_S) { cycSum += c; cycN++; if (c < cycMin) cycMin = c; }
+        if (c > 0 && c < MAX_CYCLE_S) { cycSum += c; cycles.push(c); }
       }
-      const avgCycle = cycN ? cycSum / cycN : null;
-      const idealCycle = (cycMin !== Infinity) ? cycMin : (avgCycle || null);
+      const avgCycle = cycles.length ? cycSum / cycles.length : null;
+      // Ideal cycle = 10th-percentile cycle (a sustainable best), floored to 60%
+      // of average so a single glitchy-fast reading can't tank Performance.
+      let idealCycle = avgCycle;
+      if (cycles.length) {
+        const sorted = cycles.slice().sort((a, b) => a - b);
+        const p10 = sorted[Math.floor(sorted.length * 0.1)];
+        idealCycle = Math.max(p10, (avgCycle || p10) * 0.6);
+      }
 
       // Downtime: flat-counter stretches longer than the idle threshold.
       const spanS = Number(rows[rows.length - 1].t) - Number(rows[0].t);
