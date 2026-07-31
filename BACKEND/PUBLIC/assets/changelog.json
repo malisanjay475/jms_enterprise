@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.14.0",
+  "latest": "1.14.1",
   "versions": [
+    {
+      "version": "1.14.1",
+      "date": "2026-07-31",
+      "title": "Fixed inflated hourly production after a counter reset",
+      "summary": "Hourly production is now summed from real per-reading increments and ignores counter resets/jumps, so a machine counter resetting no longer shows a huge false spike for that hour.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-bar-chart",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Hourly production no longer shows a false spike when the machine counter resets; it counts only real production."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.14.0",
       "date": "2026-07-31",
