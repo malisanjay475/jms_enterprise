@@ -333,18 +333,34 @@ function registerMachineDataRoutes(app, pool) {
              WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
                AND good_shots IS NOT NULL AND good_shots > 0)
           SELECT COALESCE(SUM(delta) FILTER (WHERE delta > 0 AND delta <= ${MAX_SHOT_DELTA}), 0) AS produced,
-                 ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s > 0)::numeric, 1) AS avgcyc
+                 ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s > 0)::numeric, 1) AS avgcyc,
+                 ROUND(MAX(cycle_time_s) FILTER (WHERE cycle_time_s > 0)::numeric, 1) AS maxcyc,
+                 ROUND(MIN(cycle_time_s) FILTER (WHERE cycle_time_s > 0)::numeric, 1) AS mincyc
             FROM win
         `, [machineId, start.toISOString(), end.toISOString()]);
         const r = rows[0] || {};
         const produced = Number(r.produced || 0);
-        hours.push({ hour: h, produced, avg_cycle: r.avgcyc != null ? Number(r.avgcyc) : null });
+        hours.push({
+          hour: h, produced,
+          avg_cycle: r.avgcyc != null ? Number(r.avgcyc) : null,
+          max_cycle: r.maxcyc != null ? Number(r.maxcyc) : null,
+          min_cycle: r.mincyc != null ? Number(r.mincyc) : null,
+        });
       }
       const total = hours.reduce((a, b) => a + b.produced, 0);
       const active = hours.filter(x => x.produced > 0);
       const avgPerHour = active.length ? Math.round(total / active.length) : 0;
       const peak = hours.reduce((m, x) => x.produced > m.produced ? x : m, { produced: 0, hour: null });
-      res.json({ ok: true, date, hours, total, avgPerHour, peakHour: peak.hour, peakQty: peak.produced });
+      // Cycle-time analysis across the day
+      const cyHours = hours.filter(x => x.avg_cycle != null);
+      const avgCycle = cyHours.length ? Math.round((cyHours.reduce((a, b) => a + b.avg_cycle, 0) / cyHours.length) * 10) / 10 : null;
+      const peakCycleHour = hours.reduce((m, x) => (x.max_cycle != null && x.max_cycle > (m.max_cycle || 0)) ? x : m, { max_cycle: null, hour: null });
+      const minCycle = cyHours.length ? Math.min.apply(null, cyHours.map(x => x.min_cycle).filter(v => v != null)) : null;
+      res.json({
+        ok: true, date, hours, total, avgPerHour,
+        peakHour: peak.hour, peakQty: peak.produced,
+        avgCycle, peakCycle: peakCycleHour.max_cycle, peakCycleHour: peakCycleHour.hour, minCycle,
+      });
     } catch (e) {
       res.status(500).json({ ok: false, error: String(e.message || e) });
     }

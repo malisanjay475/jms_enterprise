@@ -44,6 +44,19 @@
     .hbar-cyc { font-size:8px; color:#64748b; }
     .avgline { position:absolute; left:0; right:0; border-top:1px dashed #ef4444; pointer-events:none; }
     .avgline span { position:absolute; right:0; top:-14px; font-size:9px; color:#ef4444; background:var(--panel); padding:0 4px; }
+    /* beautify */
+    body { background:radial-gradient(1200px 600px at 20% -10%, rgba(56,189,248,.06), transparent 60%), var(--bg); }
+    header { background:linear-gradient(180deg, #14213b, #0f1a30); box-shadow:0 1px 0 rgba(255,255,255,.03); }
+    h1 { letter-spacing:.2px; }
+    .hourly-panel { box-shadow:0 6px 20px rgba(0,0,0,.25); }
+    .tile { background:linear-gradient(180deg, #1e2c48, #17233c); box-shadow:0 4px 12px rgba(0,0,0,.2); }
+    .hkpi.peak b { color:#f59e0b; } .hkpi small { font-size:10px; }
+    .hkpi.trend { padding:2px 10px; border-radius:999px; font-weight:700; font-size:11px; }
+    .trend.up { background:rgba(239,68,68,.15); color:#fca5a5; } .trend.down { background:rgba(34,197,94,.15); color:#86efac; } .trend.flat { background:rgba(148,163,184,.15); color:#cbd5e1; }
+    .muted { color:var(--muted); }
+    /* cycle trend svg */
+    .cycle-trend { width:100%; height:170px; }
+    .cycle-trend svg { width:100%; height:170px; display:block; }
   </style>
 </head>
 <body>
@@ -66,6 +79,18 @@
         <span class="hkpi">Avg cycle <b id="k-cyc">–</b>s</span>
       </div>
       <div id="hourly-chart" class="hourly-chart"></div>
+    </div>
+
+    <!-- Cycle time analysis -->
+    <div class="hourly-panel">
+      <div class="hourly-head">
+        <b>Cycle Time Analysis</b>
+        <span class="hkpi peak">Peak <b id="c-peak">–</b>s <small id="c-peak-hr" class="muted"></small></span>
+        <span class="hkpi">Fastest <b id="c-min">–</b>s</span>
+        <span class="hkpi">Average <b id="c-avg">–</b>s</span>
+        <span class="hkpi trend" id="c-trend-label"></span>
+      </div>
+      <div id="cycle-trend" class="cycle-trend"></div>
     </div>
 
     <div class="logwrap">
@@ -177,7 +202,52 @@
           '</div>';
         }).join('');
         chart.innerHTML = bars + (avg>0 ? '<div class="avgline" style="top:'+avgTop+'px"><span>Avg '+avg+'</span></div>' : '');
+        renderCycleTrend(b);
       }).catch(function(){});
+    }
+
+    function renderCycleTrend(b) {
+      $('#c-peak').textContent = (b.peakCycle==null?'–':b.peakCycle);
+      $('#c-peak-hr').textContent = (b.peakCycleHour==null?'':('@ '+b.peakCycleHour+':00'));
+      $('#c-min').textContent = (b.minCycle==null?'–':b.minCycle);
+      $('#c-avg').textContent = (b.avgCycle==null?'–':b.avgCycle);
+      // points = avg cycle per hour where present
+      var pts = (b.hours||[]).filter(function(h){return h.avg_cycle!=null;});
+      var lbl = $('#c-trend-label');
+      if (pts.length < 2) { $('#cycle-trend').innerHTML=''; lbl.textContent=''; lbl.className='hkpi trend'; return; }
+      // trend direction: compare first third vs last third averages
+      var k = Math.max(1, Math.floor(pts.length/3));
+      var early = pts.slice(0,k).reduce(function(a,p){return a+p.avg_cycle;},0)/k;
+      var late  = pts.slice(-k).reduce(function(a,p){return a+p.avg_cycle;},0)/k;
+      var diff = late-early;
+      var dir = Math.abs(diff)<0.3?'flat':(diff>0?'up':'down');
+      lbl.className = 'hkpi trend ' + dir;
+      lbl.textContent = dir==='flat' ? 'Trend: stable' : ('Trend: '+(diff>0?'▲ rising ':'▼ falling ')+Math.abs(diff).toFixed(1)+'s');
+      // SVG line chart
+      var W=1000, H=170, padL=34, padR=12, padT=14, padB=22;
+      var vals = pts.map(function(p){return p.avg_cycle;});
+      var mx = pts.map(function(p){return p.max_cycle!=null?p.max_cycle:p.avg_cycle;});
+      var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, mx);
+      var pad = Math.max(1,(hi-lo)*0.15); lo=Math.floor(lo-pad); hi=Math.ceil(hi+pad); if(hi<=lo)hi=lo+1;
+      var xw = W-padL-padR, yh = H-padT-padB;
+      function X(i){ return padL + (pts.length===1?xw/2:(i/(pts.length-1))*xw); }
+      function Y(v){ return padT + yh - ((v-lo)/(hi-lo))*yh; }
+      var line = vals.map(function(v,i){return (i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1);}).join(' ');
+      var area = line + ' L'+X(pts.length-1).toFixed(1)+' '+(padT+yh)+' L'+X(0).toFixed(1)+' '+(padT+yh)+' Z';
+      // peak point
+      var pkI=0; mx.forEach(function(v,i){if(v>mx[pkI])pkI=i;});
+      var grid=''; for(var g=0;g<=3;g++){var gy=padT+ (yh*g/3); var gv=(hi-(hi-lo)*g/3).toFixed(0); grid+='<line x1="'+padL+'" y1="'+gy+'" x2="'+(W-padR)+'" y2="'+gy+'" stroke="#233149" stroke-width="1"/><text x="'+(padL-6)+'" y="'+(gy+3)+'" fill="#64748b" font-size="9" text-anchor="end">'+gv+'</text>';}
+      var xlabels = pts.map(function(p,i){ return (i%Math.ceil(pts.length/8||1)===0)?('<text x="'+X(i).toFixed(1)+'" y="'+(H-6)+'" fill="#64748b" font-size="9" text-anchor="middle">'+p.hour+'</text>'):''; }).join('');
+      $('#cycle-trend').innerHTML =
+        '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">' +
+        grid +
+        '<defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#38bdf8" stop-opacity=".35"/><stop offset="1" stop-color="#38bdf8" stop-opacity="0"/></linearGradient></defs>' +
+        '<path d="'+area+'" fill="url(#cg)"/>' +
+        '<path d="'+line+'" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>' +
+        vals.map(function(v,i){return '<circle cx="'+X(i).toFixed(1)+'" cy="'+Y(v).toFixed(1)+'" r="'+(i===pkI?4:2.5)+'" fill="'+(i===pkI?'#f59e0b':'#38bdf8')+'"/>';}).join('') +
+        '<text x="'+X(pkI).toFixed(1)+'" y="'+(Y(mx[pkI])-8).toFixed(1)+'" fill="#f59e0b" font-size="11" font-weight="700" text-anchor="middle">peak '+mx[pkI]+'s</text>' +
+        xlabels +
+        '</svg>';
     }
 
     function reload(){ current = parseInt($('#machine').value,10); if(!$('#hdate').value) $('#hdate').value = new Date().toISOString().slice(0,10); refresh(); loadHourly(); }
