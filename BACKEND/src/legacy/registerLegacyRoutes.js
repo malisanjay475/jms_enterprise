@@ -21541,7 +21541,7 @@ WITH RankedPlans AS (
   LEFT JOIN LATERAL (
     SELECT mm.*
     FROM moulds mm
-    WHERE TRIM(mm.mould_number) ILIKE TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), ''))
+    WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')))
       AND TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')) <> ''
     ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
     LIMIT 1
