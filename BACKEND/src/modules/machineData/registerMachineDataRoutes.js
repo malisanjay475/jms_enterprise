@@ -115,6 +115,10 @@ function pickInt(v) {
 // as the SUM of plausible per-poll increments, which is robust to resets.
 const MAX_SHOT_DELTA = 200;
 
+// A real injection cycle is well under 10 minutes; anything above is a decode
+// glitch (e.g. a bad TIME read) and is excluded from cycle-time stats.
+const MAX_CYCLE_S = 600;
+
 function registerMachineDataRoutes(app, pool) {
   const router = require('express').Router();
 
@@ -333,9 +337,9 @@ function registerMachineDataRoutes(app, pool) {
              WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
                AND good_shots IS NOT NULL AND good_shots > 0)
           SELECT COALESCE(SUM(delta) FILTER (WHERE delta > 0 AND delta <= ${MAX_SHOT_DELTA}), 0) AS produced,
-                 ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s > 0)::numeric, 1) AS avgcyc,
-                 ROUND(MAX(cycle_time_s) FILTER (WHERE cycle_time_s > 0)::numeric, 1) AS maxcyc,
-                 ROUND(MIN(cycle_time_s) FILTER (WHERE cycle_time_s > 0)::numeric, 1) AS mincyc
+                 ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S})::numeric, 1) AS avgcyc,
+                 ROUND(MAX(cycle_time_s) FILTER (WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S})::numeric, 1) AS maxcyc,
+                 ROUND(MIN(cycle_time_s) FILTER (WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S})::numeric, 1) AS mincyc
             FROM win
         `, [machineId, start.toISOString(), end.toISOString()]);
         const r = rows[0] || {};
@@ -465,7 +469,7 @@ function registerMachineDataRoutes(app, pool) {
           SELECT
             SUM(gdelta) FILTER (WHERE gdelta > 0 AND gdelta <= ${MAX_SHOT_DELTA}) AS good_delta,
             SUM(bdelta) FILTER (WHERE bdelta > 0 AND bdelta <= ${MAX_SHOT_DELTA}) AS bad_delta,
-            ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s > 0)::numeric, 2) AS cyc_avg,
+            ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S})::numeric, 2) AS cyc_avg,
             COUNT(*) AS n
           FROM win
         `, [machineId, s.startIso, s.endIso]);
@@ -531,8 +535,8 @@ function registerMachineDataRoutes(app, pool) {
         SELECT
           (SELECT good_shots  FROM win WHERE good_shots > 0 ORDER BY recorded_at DESC LIMIT 1) AS good_last,
           (SELECT COALESCE(SUM(delta) FILTER (WHERE delta > 0 AND delta <= ${MAX_SHOT_DELTA}), 0) FROM win) AS produced_delta,
-          (SELECT cycle_time_s FROM win WHERE cycle_time_s > 0 ORDER BY recorded_at DESC LIMIT 1) AS cycle_last,
-          (SELECT ROUND(AVG(cycle_time_s)::numeric, 2) FROM win WHERE cycle_time_s > 0) AS cycle_avg,
+          (SELECT cycle_time_s FROM win WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S} ORDER BY recorded_at DESC LIMIT 1) AS cycle_last,
+          (SELECT ROUND(AVG(cycle_time_s)::numeric, 2) FROM win WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S}) AS cycle_avg,
           (SELECT shot_weight  FROM win WHERE shot_weight > 0 ORDER BY recorded_at DESC LIMIT 1) AS weight_last,
           (SELECT ROUND(AVG(shot_weight)::numeric, 1) FROM win WHERE shot_weight > 0) AS weight_avg,
           (SELECT MAX(recorded_at) FROM win) AS last_at,
@@ -594,7 +598,7 @@ function registerMachineDataRoutes(app, pool) {
                WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
                  AND good_shots IS NOT NULL AND good_shots > 0)
             SELECT SUM(delta) FILTER (WHERE delta > 0 AND delta <= ${MAX_SHOT_DELTA}) AS good,
-                   ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s>0)::numeric,2) AS cyc
+                   ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s>0 AND cycle_time_s<${MAX_CYCLE_S})::numeric,2) AS cyc
               FROM win
           `, [row.machine_id, s.startIso, s.endIso]);
           const r = rows[0] || {};

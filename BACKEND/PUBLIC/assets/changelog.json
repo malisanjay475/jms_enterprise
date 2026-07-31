@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.14.2",
+  "latest": "1.14.3",
   "versions": [
+    {
+      "version": "1.14.3",
+      "date": "2026-07-31",
+      "title": "Cycle-time stats ignore bad sensor spikes",
+      "summary": "Peak and average cycle time now ignore impossible values (over 10 minutes) that came from occasional bad sensor reads, so the cycle-time analysis shows realistic numbers.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-graph-up",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Cycle-time peak/average no longer include impossible spike values from bad reads."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.14.2",
       "date": "2026-07-31",
