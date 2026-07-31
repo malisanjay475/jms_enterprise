@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Machine Monitor — Live</title>
+  <style>
+    :root { --bg:#0f172a; --panel:#111c33; --line:#31425f; --txt:#e6edf7; --muted:#93a4bd; --hdr:#1d2b45; --grn:#22c55e; --amber:#f59e0b; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--txt); font-family:"Segoe UI",system-ui,sans-serif; font-size:13px; }
+    header { padding:10px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+    h1 { font-size:16px; margin:0; }
+    select { background:#0b1220; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px 9px; }
+    .live { color:var(--grn); font-weight:700; }
+    .stale { color:var(--amber); }
+    main { padding:14px 16px; }
+    /* status header — HMI style tiles */
+    .status { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin-bottom:14px; }
+    .tile { background:var(--hdr); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+    .tile .k { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.03em; }
+    .tile .v { font-size:20px; font-weight:800; font-variant-numeric:tabular-nums; margin-top:2px; }
+    .tile.na .v { color:#475569; font-weight:400; font-size:15px; }
+    .tile.na .v::after { content:' (n/a)'; font-size:10px; }
+    /* per-shot log — like PROC 1 */
+    .logwrap { overflow:auto; border:1px solid var(--line); border-radius:8px; max-height:70vh; }
+    table { width:100%; border-collapse:collapse; font-size:12.5px; }
+    th { position:sticky; top:0; background:var(--hdr); color:var(--muted); font-weight:600; padding:7px 10px; text-align:right; white-space:nowrap; border-bottom:1px solid var(--line); }
+    th:first-child, td:first-child { text-align:left; }
+    td { padding:6px 10px; text-align:right; border-bottom:1px solid #16233b; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    tr:first-child td { background:rgba(34,197,94,.08); }
+    .cc { font-weight:800; color:#7dd3fc; }
+    .note { color:var(--muted); font-size:11.5px; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Machine Monitor</h1>
+    <select id="machine" onchange="reload()"></select>
+    <span id="status" class="stale">connecting…</span>
+  </header>
+  <main>
+    <div class="status" id="status-tiles"></div>
+    <div class="logwrap">
+      <table id="log">
+        <thead>
+          <tr>
+            <th>Date</th><th>Time</th><th>Cycle Count</th><th>Cycle Time</th>
+            <th>Fill Time</th><th>Refill Time</th><th>X'fer Pos</th><th>Cushion Pos</th>
+            <th>IU Fwd</th><th>IU Ret</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="note">One row per completed shot, newest on top — mirrors the machine's PROC-1 log. Header values marked <b>n/a</b> are not published by the machine's Modbus gateway. Refreshes every 3s.</div>
+  </main>
+
+  <script>
+    var $ = function (s) { return document.querySelector(s); };
+    function esc(s){ return String(s==null?'':s); }
+    function num(v, d){ return (v==null) ? '—' : Number(v).toFixed(d==null?2:d); }
+
+    var machines = [];
+    var current = null;
+
+    function tiles(snap) {
+      // Only values the gateway actually provides; the rest are honestly n/a.
+      var have = [
+        ['Cycle Count', snap ? snap.good_shots : null, 0],
+        ['Cycle Time', snap ? snap.cycle_time_s : null, 2],
+        ['Good Shots', snap ? snap.good_shots : null, 0],
+        ['Bad Shots', snap ? snap.bad_shots : null, 0],
+        ['Status', snap ? (snap.machine_running == null ? null : (snap.machine_running ? 'RUN' : 'STOP')) : null, null],
+      ];
+      var na = ['Clamp (CLP)','Injection (INJ)','Ejector (EJT)','Tonnage (TON)','RPM','Inj. Pressure'];
+      var html = have.map(function (t) {
+        var v = t[1]; var disp = (v==null) ? '—' : (t[2]==null ? v : Number(v).toFixed(t[2]));
+        return '<div class="tile"><div class="k">'+t[0]+'</div><div class="v">'+esc(disp)+'</div></div>';
+      }).join('');
+      html += na.map(function (k) { return '<div class="tile na"><div class="k">'+k+'</div><div class="v">—</div></div>'; }).join('');
+      $('#status-tiles').innerHTML = html;
+    }
+
+    function renderCycles(rows) {
+      var tb = $('#log tbody');
+      if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:16px">No shots recorded yet — will fill as the machine produces.</td></tr>'; return; }
+      tb.innerHTML = rows.map(function (r) {
+        var d = r.recorded_at ? new Date(r.recorded_at) : null;
+        return '<tr>' +
+          '<td>' + (d ? d.toLocaleDateString() : '—') + '</td>' +
+          '<td>' + (d ? d.toLocaleTimeString() : '—') + '</td>' +
+          '<td class="cc">' + esc(r.cycle_count) + '</td>' +
+          '<td>' + num(r.cycle_time_s) + '</td>' +
+          '<td>' + num(r.fill_time_s) + '</td>' +
+          '<td>' + num(r.refill_time_s) + '</td>' +
+          '<td>' + num(r.xfer_pos) + '</td>' +
+          '<td>' + num(r.cushion_pos) + '</td>' +
+          '<td>' + num(r.iu_fwd_s) + '</td>' +
+          '<td>' + num(r.iu_ret_s) + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    function api(p){ return fetch(p,{credentials:'same-origin'}).then(function(r){return r.json();}); }
+
+    var inflight = false;
+    function refresh() {
+      if (inflight || current == null) return; inflight = true;
+      Promise.all([
+        api('/api/machine-data/latest'),
+        api('/api/machine-data/' + current + '/cycles?limit=40')
+      ]).then(function (res) {
+        var latest = (res[0].readings || []).find(function (x) { return x.machine_id === current; });
+        tiles(latest);
+        renderCycles(res[1].cycles || []);
+        var age = latest ? (Date.now() - new Date(latest.recorded_at).getTime())/1000 : 9e9;
+        var st = $('#status');
+        if (age < 30) { st.textContent = 'live'; st.className = 'live'; }
+        else { st.textContent = latest ? ('stale ' + Math.round(age) + 's') : 'no data'; st.className = 'stale'; }
+      }).catch(function(){ $('#status').textContent='offline'; $('#status').className='stale'; })
+        .finally(function(){ inflight=false; });
+    }
+
+    function reload(){ current = parseInt($('#machine').value,10); refresh(); }
+
+    api('/api/machine-data/config').then(function (b) {
+      machines = (b.config || []).filter(function(c){ return c.enabled; });
+      if (!machines.length) machines = (b.config||[]);
+      $('#machine').innerHTML = machines.map(function (m) { return '<option value="'+m.machine_id+'">'+esc(m.machine_name)+'</option>'; }).join('');
+      if (machines.length) { current = machines[0].machine_id; refresh(); }
+      setInterval(refresh, 3000);
+    });
+  </script>
+</body>
+</html>

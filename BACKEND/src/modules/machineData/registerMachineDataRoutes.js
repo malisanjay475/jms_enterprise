@@ -65,6 +65,29 @@ async function ensureSchema(pool) {
       CREATE INDEX IF NOT EXISTS idx_machine_readings_machine_time
         ON machine_readings (machine_id, recorded_at DESC);
     `);
+    // One row per completed shot (machine PROC-1 style log). Keyed by
+    // (machine_id, cycle_count) so repeated reads of the same shot don't dup.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS machine_cycles (
+        id            BIGSERIAL PRIMARY KEY,
+        machine_id    INTEGER NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+        cycle_count   BIGINT  NOT NULL,
+        recorded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        cycle_time_s  NUMERIC,
+        fill_time_s   NUMERIC,
+        refill_time_s NUMERIC,
+        xfer_pos      NUMERIC,
+        cushion_pos   NUMERIC,
+        iu_fwd_s      NUMERIC,
+        iu_ret_s      NUMERIC,
+        raw_json      JSONB,
+        UNIQUE (machine_id, cycle_count)
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_machine_cycles_machine_count
+        ON machine_cycles (machine_id, cycle_count DESC);
+    `);
   })();
   return _schemaPromise;
 }
@@ -242,6 +265,57 @@ function registerMachineDataRoutes(app, pool) {
          ORDER BY r.machine_id, r.recorded_at DESC
       `);
       res.json({ ok: true, readings: rows });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  // --- Per-shot cycle log (machine PROC-1 style) ----------------------------
+  // Collector posts one record per completed shot (when cycle_count increments).
+  router.post('/cycle-ingest', async (req, res) => {
+    if (!ingestKey() || req.get('x-ingest-key') !== ingestKey()) {
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+    const b = req.body || {};
+    const machineId = parseInt(b.machine_id, 10);
+    const cycleCount = pickInt(b.cycle_count);
+    const v = b.values || {};
+    if (!Number.isInteger(machineId) || cycleCount == null) {
+      return res.status(400).json({ ok: false, error: 'machine_id and cycle_count required' });
+    }
+    try {
+      await pool.query(`
+        INSERT INTO machine_cycles
+          (machine_id, cycle_count, recorded_at, cycle_time_s, fill_time_s,
+           refill_time_s, xfer_pos, cushion_pos, iu_fwd_s, iu_ret_s, raw_json)
+        VALUES ($1,$2, COALESCE($3::timestamptz, NOW()), $4,$5,$6,$7,$8,$9,$10,$11)
+        ON CONFLICT (machine_id, cycle_count) DO NOTHING
+      `, [
+        machineId, cycleCount, b.recorded_at || null,
+        pickNum(v.cycle_time_act), pickNum(v.injection_time), pickNum(v.refill_time),
+        pickNum(v.vp_position), pickNum(v.cushion_position),
+        pickNum(v.unit_fwd_time), pickNum(v.unit_ret_time),
+        JSON.stringify(v),
+      ]);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  // Recent shots for the monitor table (newest first).
+  router.get('/:machineId/cycles', async (req, res) => {
+    const machineId = parseInt(req.params.machineId, 10);
+    if (!Number.isInteger(machineId)) return res.status(400).json({ ok: false, error: 'invalid machineId' });
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 40));
+    try {
+      const { rows } = await pool.query(`
+        SELECT cycle_count, recorded_at, cycle_time_s, fill_time_s, refill_time_s,
+               xfer_pos, cushion_pos, iu_fwd_s, iu_ret_s
+          FROM machine_cycles WHERE machine_id=$1
+         ORDER BY cycle_count DESC LIMIT $2
+      `, [machineId, limit]);
+      res.json({ ok: true, cycles: rows });
     } catch (e) {
       res.status(500).json({ ok: false, error: String(e.message || e) });
     }
