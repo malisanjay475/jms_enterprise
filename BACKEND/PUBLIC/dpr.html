@@ -13,6 +13,11 @@
     <link rel="stylesheet" href="/assets/app.css?v=11">
     <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
     <style>
+        /* KAN-68: the global .card sets overflow:hidden, which traps position:sticky
+           for its descendants — the DPR summary's sticky bars (filter, plant total,
+           date banner, hour-slot header) could never freeze against the scrolling
+           .main-content. Allow overflow on the DPR card so the sticky headers work. */
+        .main-content .dpr-card { overflow: visible; }
         body {
             background-color: #f8fafc;
             font-family: 'Inter', system-ui, sans-serif;
@@ -121,7 +126,7 @@
     <div class="main-content">
         <div class="page-title">Daily Production Reports</div>
 
-        <div class="card">
+        <div class="card dpr-card">
             <div style="text-align:center; padding:40px; color:#64748b">
                 <i class="bi bi-bar-chart-steps" style="font-size:2rem; margin-bottom:10px; display:block"></i>
                 Select a report from the "DPR" menu to view details.
@@ -148,7 +153,7 @@
     </div>
 
     <script src="/assets/app.min.js"></script>
-  <script src="/assets/dpr-script-1.js?v=release77"></script>
+  <script src="/assets/dpr-script-1.js?v=release78"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"
