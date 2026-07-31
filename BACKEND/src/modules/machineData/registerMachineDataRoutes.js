@@ -108,6 +108,13 @@ function pickInt(v) {
   return n === null || !Number.isFinite(n) ? null : Math.round(n);
 }
 
+// Max plausible counter increase between two consecutive polls. Poll interval is
+// a few seconds and cycles are 20s+, so a real gap is small; a jump larger than
+// this means a counter reset or re-definition (not real production) and is
+// ignored so it can't inflate an hour's total. Production per hour is computed
+// as the SUM of plausible per-poll increments, which is robust to resets.
+const MAX_SHOT_DELTA = 200;
+
 function registerMachineDataRoutes(app, pool) {
   const router = require('express').Router();
 
@@ -320,14 +327,17 @@ function registerMachineDataRoutes(app, pool) {
         const end = new Date(start.getTime() + 3600000);
         const { rows } = await pool.query(`
           WITH win AS (
-            SELECT good_shots, cycle_time_s, recorded_at FROM machine_readings
-             WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3)
-          SELECT (SELECT good_shots FROM win WHERE good_shots>0 ORDER BY recorded_at DESC LIMIT 1) AS glast,
-                 (SELECT good_shots FROM win WHERE good_shots>0 ORDER BY recorded_at ASC  LIMIT 1) AS gfirst,
-                 (SELECT ROUND(AVG(cycle_time_s)::numeric,1) FROM win WHERE cycle_time_s>0) AS avgcyc
+            SELECT cycle_time_s,
+                   good_shots - LAG(good_shots) OVER (ORDER BY recorded_at) AS delta
+              FROM machine_readings
+             WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
+               AND good_shots IS NOT NULL AND good_shots > 0)
+          SELECT COALESCE(SUM(delta) FILTER (WHERE delta > 0 AND delta <= ${MAX_SHOT_DELTA}), 0) AS produced,
+                 ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s > 0)::numeric, 1) AS avgcyc
+            FROM win
         `, [machineId, start.toISOString(), end.toISOString()]);
         const r = rows[0] || {};
-        const produced = (r.glast != null && r.gfirst != null) ? Math.max(0, Number(r.glast) - Number(r.gfirst)) : 0;
+        const produced = Number(r.produced || 0);
         hours.push({ hour: h, produced, avg_cycle: r.avgcyc != null ? Number(r.avgcyc) : null });
       }
       const total = hours.reduce((a, b) => a + b.produced, 0);
@@ -429,22 +439,23 @@ function registerMachineDataRoutes(app, pool) {
         // Counter delta = last reading in window − first reading in window (>=0).
         const { rows } = await pool.query(`
           WITH win AS (
-            SELECT good_shots, bad_shots, cycle_time_s, recorded_at
+            SELECT cycle_time_s,
+                   good_shots - LAG(good_shots) OVER (ORDER BY recorded_at) AS gdelta,
+                   bad_shots  - LAG(bad_shots)  OVER (ORDER BY recorded_at) AS bdelta
               FROM machine_readings
              WHERE machine_id = $1 AND recorded_at >= $2 AND recorded_at < $3
-             ORDER BY recorded_at
+               AND good_shots IS NOT NULL AND good_shots > 0
           )
           SELECT
-            (SELECT good_shots FROM win ORDER BY recorded_at DESC LIMIT 1) AS good_last,
-            (SELECT good_shots FROM win ORDER BY recorded_at ASC  LIMIT 1) AS good_first,
-            (SELECT bad_shots  FROM win ORDER BY recorded_at DESC LIMIT 1) AS bad_last,
-            (SELECT bad_shots  FROM win ORDER BY recorded_at ASC  LIMIT 1) AS bad_first,
-            (SELECT ROUND(AVG(cycle_time_s)::numeric, 2) FROM win WHERE cycle_time_s > 0) AS cyc_avg,
-            (SELECT COUNT(*) FROM win) AS n
+            SUM(gdelta) FILTER (WHERE gdelta > 0 AND gdelta <= ${MAX_SHOT_DELTA}) AS good_delta,
+            SUM(bdelta) FILTER (WHERE bdelta > 0 AND bdelta <= ${MAX_SHOT_DELTA}) AS bad_delta,
+            ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s > 0)::numeric, 2) AS cyc_avg,
+            COUNT(*) AS n
+          FROM win
         `, [machineId, s.startIso, s.endIso]);
         const r = rows[0] || {};
-        const autoGood = (r.good_last != null && r.good_first != null) ? Math.max(0, Number(r.good_last) - Number(r.good_first)) : null;
-        const autoRej = (r.bad_last != null && r.bad_first != null) ? Math.max(0, Number(r.bad_last) - Number(r.bad_first)) : null;
+        const autoGood = r.good_delta != null ? Number(r.good_delta) : null;
+        const autoRej = r.bad_delta != null ? Number(r.bad_delta) : null;
 
         const man = await pool.query(`
           SELECT COALESCE(SUM(good_qty),0) AS good, COALESCE(SUM(reject_qty),0) AS rej, COALESCE(SUM(shots),0) AS shots
@@ -496,13 +507,14 @@ function registerMachineDataRoutes(app, pool) {
       const { rows } = await pool.query(`
         WITH win AS (
           SELECT recorded_at, good_shots, cycle_time_s,
-                 NULLIF(raw_json->>'shot_weight','')::numeric AS shot_weight
+                 NULLIF(raw_json->>'shot_weight','')::numeric AS shot_weight,
+                 good_shots - LAG(good_shots) OVER (ORDER BY recorded_at) AS delta
             FROM machine_readings
            WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
         )
         SELECT
           (SELECT good_shots  FROM win WHERE good_shots > 0 ORDER BY recorded_at DESC LIMIT 1) AS good_last,
-          (SELECT good_shots  FROM win WHERE good_shots > 0 ORDER BY recorded_at ASC  LIMIT 1) AS good_first,
+          (SELECT COALESCE(SUM(delta) FILTER (WHERE delta > 0 AND delta <= ${MAX_SHOT_DELTA}), 0) FROM win) AS produced_delta,
           (SELECT cycle_time_s FROM win WHERE cycle_time_s > 0 ORDER BY recorded_at DESC LIMIT 1) AS cycle_last,
           (SELECT ROUND(AVG(cycle_time_s)::numeric, 2) FROM win WHERE cycle_time_s > 0) AS cycle_avg,
           (SELECT shot_weight  FROM win WHERE shot_weight > 0 ORDER BY recorded_at DESC LIMIT 1) AS weight_last,
@@ -517,8 +529,7 @@ function registerMachineDataRoutes(app, pool) {
         return res.json({ ok: true, machine, slot, found: false });
       }
       const num = (x) => (x == null ? null : Number(x));
-      const produced = (r.good_last != null && r.good_first != null)
-        ? Math.max(0, Number(r.good_last) - Number(r.good_first)) : null;
+      const produced = Number(r.produced_delta || 0);
 
       // Verified-accurate fields only. cavity + cycle-set (40004/40012/40014)
       // are intentionally omitted — those registers don't match this gateway.
@@ -561,14 +572,17 @@ function registerMachineDataRoutes(app, pool) {
         for (const s of slots) {
           const { rows } = await pool.query(`
             WITH win AS (
-              SELECT good_shots, cycle_time_s, recorded_at FROM machine_readings
-               WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3 ORDER BY recorded_at)
-            SELECT (SELECT good_shots FROM win WHERE good_shots > 0 ORDER BY recorded_at DESC LIMIT 1) AS glast,
-                   (SELECT good_shots FROM win WHERE good_shots > 0 ORDER BY recorded_at ASC  LIMIT 1) AS gfirst,
-                   (SELECT ROUND(AVG(cycle_time_s)::numeric,2) FROM win WHERE cycle_time_s>0) AS cyc
+              SELECT cycle_time_s,
+                     good_shots - LAG(good_shots) OVER (ORDER BY recorded_at) AS delta
+                FROM machine_readings
+               WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
+                 AND good_shots IS NOT NULL AND good_shots > 0)
+            SELECT SUM(delta) FILTER (WHERE delta > 0 AND delta <= ${MAX_SHOT_DELTA}) AS good,
+                   ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s>0)::numeric,2) AS cyc
+              FROM win
           `, [row.machine_id, s.startIso, s.endIso]);
           const r = rows[0] || {};
-          const good = (r.glast != null && r.gfirst != null) ? Math.max(0, Number(r.glast) - Number(r.gfirst)) : null;
+          const good = r.good != null ? Number(r.good) : null;
           if (good != null || r.cyc != null) bySlot[s.slot] = { good, cycle: r.cyc != null ? Number(r.cyc) : null };
         }
         machines[row.machine_name] = bySlot;
