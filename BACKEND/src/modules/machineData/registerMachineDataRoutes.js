@@ -303,6 +303,43 @@ function registerMachineDataRoutes(app, pool) {
     }
   });
 
+  // Hourly production for a machine on a date (machine HR-PRC style):
+  // pieces produced each clock hour (counter delta) + avg cycle. Local-time hours.
+  router.get('/:machineId/hourly', async (req, res) => {
+    const machineId = parseInt(req.params.machineId, 10);
+    const date = String(req.query.date || '').trim();
+    if (!Number.isInteger(machineId) || !date) {
+      return res.status(400).json({ ok: false, error: 'machineId and date required' });
+    }
+    try {
+      const base = new Date(date.split('T')[0] + 'T00:00:00');
+      if (Number.isNaN(base.getTime())) return res.status(400).json({ ok: false, error: 'bad date' });
+      const hours = [];
+      for (let h = 0; h < 24; h++) {
+        const start = new Date(base.getTime()); start.setHours(h, 0, 0, 0);
+        const end = new Date(start.getTime() + 3600000);
+        const { rows } = await pool.query(`
+          WITH win AS (
+            SELECT good_shots, cycle_time_s, recorded_at FROM machine_readings
+             WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3)
+          SELECT (SELECT good_shots FROM win WHERE good_shots>0 ORDER BY recorded_at DESC LIMIT 1) AS glast,
+                 (SELECT good_shots FROM win WHERE good_shots>0 ORDER BY recorded_at ASC  LIMIT 1) AS gfirst,
+                 (SELECT ROUND(AVG(cycle_time_s)::numeric,1) FROM win WHERE cycle_time_s>0) AS avgcyc
+        `, [machineId, start.toISOString(), end.toISOString()]);
+        const r = rows[0] || {};
+        const produced = (r.glast != null && r.gfirst != null) ? Math.max(0, Number(r.glast) - Number(r.gfirst)) : 0;
+        hours.push({ hour: h, produced, avg_cycle: r.avgcyc != null ? Number(r.avgcyc) : null });
+      }
+      const total = hours.reduce((a, b) => a + b.produced, 0);
+      const active = hours.filter(x => x.produced > 0);
+      const avgPerHour = active.length ? Math.round(total / active.length) : 0;
+      const peak = hours.reduce((m, x) => x.produced > m.produced ? x : m, { produced: 0, hour: null });
+      res.json({ ok: true, date, hours, total, avgPerHour, peakHour: peak.hour, peakQty: peak.produced });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
   // Recent shots for the monitor table (newest first).
   router.get('/:machineId/cycles', async (req, res) => {
     const machineId = parseInt(req.params.machineId, 10);
