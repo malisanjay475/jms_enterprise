@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.13.4",
+  "latest": "1.14.0",
   "versions": [
+    {
+      "version": "1.14.0",
+      "date": "2026-07-31",
+      "title": "Machine Monitor — live per-shot log like the machine screen",
+      "summary": "A new Machine Monitor page shows a live per-shot log for each connected machine — one row per shot with cycle count, cycle time, fill, refill and positions — mirroring the machine's own PROC-1 screen, plus a live status header.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-display",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New Machine Monitor page: a live per-shot log (cycle count, cycle time, fill, refill, positions) that mirrors the machine's own screen."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.13.4",
       "date": "2026-07-31",
