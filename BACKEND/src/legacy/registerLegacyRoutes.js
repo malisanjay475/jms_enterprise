@@ -24571,7 +24571,7 @@ app.get('/api/std-actual/status', async (req, res) => {
   m.cycle_time as cycle_std, m.pcs_per_hour as pcshr_std, m.manpower as man_std,
   m.sfg_std_packing as sfgqty_std
       FROM plan_board pb
-      LEFT JOIN mould_planning_summary mps ON mps.mould_name = pb.mould_name
+      LEFT JOIN mould_planning_summary mps ON mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name
       LEFT JOIN LATERAL (
         SELECT mm.*
         FROM moulds mm
@@ -24593,7 +24593,7 @@ app.get('/api/std-actual/status', async (req, res) => {
   m.cycle_time as cycle_std, m.pcs_per_hour as pcshr_std, m.manpower as man_std,
   m.sfg_std_packing as sfgqty_std
       FROM plan_board pb
-      LEFT JOIN mould_planning_summary mps ON mps.mould_name = pb.mould_name
+      LEFT JOIN mould_planning_summary mps ON mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name
       LEFT JOIN LATERAL (
         SELECT mm.*
         FROM moulds mm
