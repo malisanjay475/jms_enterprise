@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.14.4",
+  "latest": "1.14.5",
   "versions": [
+    {
+      "version": "1.14.5",
+      "date": "2026-07-31",
+      "title": "Machine Monitor: OEE, efficiency and downtime analysis",
+      "summary": "Machine Monitor now shows OEE (Availability x Performance x Quality) with a breakdown, plus downtime analysis — total downtime, number of stops, longest stop and a list of downtime events. Downtime is inferred from when the shot counter stops advancing.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-speedometer2",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New OEE / efficiency panel (Availability, Performance, Quality) and downtime analysis (total, stops, longest, event list)."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.14.4",
       "date": "2026-07-31",

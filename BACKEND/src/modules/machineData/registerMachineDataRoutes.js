@@ -381,6 +381,90 @@ function registerMachineDataRoutes(app, pool) {
     }
   });
 
+  // Efficiency / downtime / OEE analysis for a machine on a date.
+  // Downtime is INFERRED from counter stalls (the run/stop register isn't
+  // published by this gateway), so a stretch with no new shot for longer than
+  // the idle threshold counts as downtime.
+  router.get('/:machineId/analysis', async (req, res) => {
+    const machineId = parseInt(req.params.machineId, 10);
+    const date = String(req.query.date || '').trim();
+    if (!Number.isInteger(machineId) || !date) {
+      return res.status(400).json({ ok: false, error: 'machineId and date required' });
+    }
+    try {
+      const base = new Date(date.split('T')[0] + 'T00:00:00');
+      if (Number.isNaN(base.getTime())) return res.status(400).json({ ok: false, error: 'bad date' });
+      const dayStart = new Date(base); dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart.getTime() + 24 * 3600000);
+      const { rows } = await pool.query(`
+        SELECT EXTRACT(EPOCH FROM recorded_at) AS t, good_shots, bad_shots, cycle_time_s
+          FROM machine_readings
+         WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3 AND good_shots > 0
+         ORDER BY recorded_at
+      `, [machineId, dayStart.toISOString(), dayEnd.toISOString()]);
+
+      if (rows.length < 2) {
+        return res.json({ ok: true, date, hasData: false });
+      }
+      // production, reject, cycle stats (robust)
+      let good = 0, bad = 0, cycSum = 0, cycN = 0, cycMin = Infinity;
+      for (let i = 1; i < rows.length; i++) {
+        const gd = Number(rows[i].good_shots) - Number(rows[i - 1].good_shots);
+        if (gd > 0 && gd <= MAX_SHOT_DELTA) good += gd;
+        const bd = Number(rows[i].bad_shots) - Number(rows[i - 1].bad_shots);
+        if (bd > 0 && bd <= MAX_SHOT_DELTA) bad += bd;
+      }
+      for (const r of rows) {
+        const c = Number(r.cycle_time_s);
+        if (c > 0 && c < MAX_CYCLE_S) { cycSum += c; cycN++; if (c < cycMin) cycMin = c; }
+      }
+      const avgCycle = cycN ? cycSum / cycN : null;
+      const idealCycle = (cycMin !== Infinity) ? cycMin : (avgCycle || null);
+
+      // Downtime: flat-counter stretches longer than the idle threshold.
+      const spanS = Number(rows[rows.length - 1].t) - Number(rows[0].t);
+      const idleThresh = Math.max(120, (avgCycle || 40) * 3); // seconds
+      let downtime = 0; const stops = [];
+      let flatStart = Number(rows[0].t), prevGood = Number(rows[0].good_shots);
+      const closeStop = (endT) => {
+        const dur = endT - flatStart;
+        if (dur > idleThresh) { downtime += dur; stops.push({ start: flatStart, end: endT, dur: Math.round(dur) }); }
+      };
+      for (let i = 1; i < rows.length; i++) {
+        const g = Number(rows[i].good_shots), t = Number(rows[i].t);
+        if (g > prevGood && g - prevGood <= MAX_SHOT_DELTA) { closeStop(t); flatStart = t; prevGood = g; }
+        else if (g > prevGood) { prevGood = g; flatStart = t; } // counter jump/reset: reset baseline
+      }
+      closeStop(Number(rows[rows.length - 1].t)); // trailing stall
+      const uptime = Math.max(0, spanS - downtime);
+
+      // OEE = Availability × Performance × Quality
+      const availability = spanS > 0 ? uptime / spanS : 0;
+      const performance = (idealCycle && uptime > 0) ? Math.min(1, (idealCycle * good) / uptime) : 0;
+      const quality = (good + bad) > 0 ? good / (good + bad) : 1;
+      const oee = availability * performance * quality;
+      const pct = (x) => Math.round(x * 1000) / 10;
+      const longest = stops.reduce((m, s) => s.dur > m ? s.dur : m, 0);
+
+      res.json({
+        ok: true, date, hasData: true,
+        good, bad,
+        avgCycle: avgCycle != null ? Math.round(avgCycle * 10) / 10 : null,
+        idealCycle: idealCycle != null ? Math.round(idealCycle * 10) / 10 : null,
+        spanMin: Math.round(spanS / 60), uptimeMin: Math.round(uptime / 60), downtimeMin: Math.round(downtime / 60),
+        stops: stops.length, longestStopMin: Math.round(longest / 60),
+        availability: pct(availability), performance: pct(performance), quality: pct(quality), oee: pct(oee),
+        events: stops.slice(-12).reverse().map(s => ({
+          from: new Date(s.start * 1000).toISOString(),
+          to: new Date(s.end * 1000).toISOString(),
+          min: Math.round(s.dur / 60 * 10) / 10,
+        })),
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
   // Recent shots for the monitor table (newest first).
   router.get('/:machineId/cycles', async (req, res) => {
     const machineId = parseInt(req.params.machineId, 10);
