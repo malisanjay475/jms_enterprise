@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.12.4",
+  "latest": "1.12.5",
   "versions": [
+    {
+      "version": "1.12.5",
+      "date": "2026-07-31",
+      "title": "Machine production counter now reads correctly",
+      "summary": "Updated to the machine's corrected register map. The live production counter and cycle time now read correctly from the controllers — verified against a machine whose counter climbed as it produced.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-journal-text",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The machine's shot counter and cycle time now read correctly, so hourly production from the machine can be tracked."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.12.4",
       "date": "2026-07-30",
