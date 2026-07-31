@@ -11,8 +11,58 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.12.5",
+  "latest": "1.13.1",
   "versions": [
+    {
+      "version": "1.13.1",
+      "date": "2026-07-31",
+      "title": "Daily Production Report header now stays put while you scroll",
+      "summary": "On the DPR Compliance Summary, the date bar and the hour-slot header row (07-08, 08-09 … Summary) now stay frozen at the top as you scroll down the machine list, so you can always tell which hour column you are reading.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The date bar and the hour-slot header row now stay frozen at the top of the DPR Compliance Summary while you scroll through the machines."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.13.0",
+      "date": "2026-07-31",
+      "title": "ORJR Wise Summary and Detail can now be filled from the ERP",
+      "summary": "The Import from ERP Data button now works on ORJR Wise Summary and ORJR Wise Detail as well, not just OR-JR Status. No more downloading an Excel from the ERP and uploading it by hand. You still see every new and changed row before anything is saved, and only your own factory's orders are brought in.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-database",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "ORJR Wise Summary and ORJR Wise Detail can be filled straight from ERP data with the Import from ERP Data button — the Excel upload still works if you need it."
+            },
+            {
+              "type": "feat",
+              "text": "Only orders belonging to the factory you are logged into are brought in; orders from the other plants are counted and left out."
+            },
+            {
+              "type": "improvement",
+              "text": "The review screen tells you how many rows were left out for having no mould number, so nothing disappears without explanation."
+            },
+            {
+              "type": "improvement",
+              "text": "A large first import is brought in 5,000 rows at a time — confirm those, then press the button again for the rest."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.12.5",
       "date": "2026-07-31",
