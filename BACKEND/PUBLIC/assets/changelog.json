@@ -11,8 +11,38 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.13.1",
+  "latest": "1.13.2",
   "versions": [
+    {
+      "version": "1.13.2",
+      "date": "2026-07-31",
+      "title": "Standard weight and mould details now match the Mould Master exactly",
+      "summary": "The Supervisor and setup screens sometimes showed a standard weight (and other mould standards) that belonged to a different mould with a similar code. Mould details are now looked up by an exact mould number match, so the STD Weight you see matches the Mould Master.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-person-badge",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The Article STD Weight and other mould standards now come from the exact mould, so they match the Mould Master instead of a similarly-coded mould."
+            }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The mould name shown on the DPR is now resolved by an exact mould number match."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.13.1",
       "date": "2026-07-31",

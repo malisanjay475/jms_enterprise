@@ -6293,9 +6293,9 @@ app.get('/api/std-actual/status', async (req, res) => {
             // First try exact match
             let mRows = await q(`SELECT * FROM moulds WHERE mould_number = $1`, [mouldNo]);
 
-            // Fallback: Prefix match (Fuzzy) if exact fails
+            // Fallback: case-insensitive / trim-tolerant exact match if strict fails
             if (!mRows.length) {
-              mRows = await q(`SELECT * FROM moulds WHERE mould_number LIKE $1 || '%' LIMIT 1`, [mouldNo]);
+              mRows = await q(`SELECT * FROM moulds WHERE UPPER(TRIM(mould_number)) = UPPER(TRIM($1)) LIMIT 1`, [mouldNo]);
             }
 
             if (mRows.length) {
@@ -6971,10 +6971,8 @@ app.get('/api/dpr/recent', async (req, res) => {
           LIMIT 1) AS "ArticleACTWeight",
         -- Robust Mould Lookup
         COALESCE(
-          (SELECT COALESCE(NULLIF(mould_name, ''), mould_number) FROM moulds 
-            WHERE mould_number = dpr_hourly.mould_no 
-               OR mould_number LIKE dpr_hourly.mould_no || '%' 
-               OR dpr_hourly.mould_no LIKE mould_number || '%' LIMIT 1),
+          (SELECT COALESCE(NULLIF(mould_name, ''), mould_number) FROM moulds
+            WHERE UPPER(TRIM(mould_number)) = UPPER(TRIM(dpr_hourly.mould_no)) LIMIT 1),
           (SELECT mould_name FROM plan_board WHERE (plan_id = dpr_hourly.plan_id OR CAST(id AS TEXT) = dpr_hourly.plan_id) LIMIT 1),
           dpr_hourly.mould_no
         ) as "Mould",
@@ -21541,7 +21539,7 @@ WITH RankedPlans AS (
   LEFT JOIN LATERAL (
     SELECT mm.*
     FROM moulds mm
-    WHERE TRIM(mm.mould_number) ILIKE TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), ''))
+    WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')))
       AND TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')) <> ''
     ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
     LIMIT 1
@@ -24572,7 +24570,7 @@ app.get('/api/std-actual/status', async (req, res) => {
       LEFT JOIN LATERAL (
         SELECT mm.*
         FROM moulds mm
-        WHERE TRIM(mm.mould_number) ILIKE TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), ''))
+        WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')))
           AND TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')) <> ''
         ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
         LIMIT 1
@@ -24594,7 +24592,7 @@ app.get('/api/std-actual/status', async (req, res) => {
       LEFT JOIN LATERAL (
         SELECT mm.*
         FROM moulds mm
-        WHERE TRIM(mm.mould_number) ILIKE TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), ''))
+        WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')))
           AND TRIM(COALESCE(NULLIF(TRIM(pb.mould_code),''), NULLIF(TRIM(mps.mould_no),''), '')) <> ''
         ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
         LIMIT 1
