@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.14.5",
+  "latest": "1.14.6",
   "versions": [
+    {
+      "version": "1.14.6",
+      "date": "2026-07-31",
+      "title": "More realistic OEE performance score",
+      "summary": "The OEE Performance score now uses a sustainable best cycle time (10th percentile) instead of a single fastest reading, so a one-off fast blip no longer makes efficiency look artificially low.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-speedometer2",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "OEE Performance now uses a realistic ideal cycle time, so efficiency reads correctly."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.14.5",
       "date": "2026-07-31",
