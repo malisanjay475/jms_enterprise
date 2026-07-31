@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.14.1",
+  "latest": "1.14.2",
   "versions": [
+    {
+      "version": "1.14.2",
+      "date": "2026-07-31",
+      "title": "Machine Monitor: cycle-time analysis + a cleaner look",
+      "summary": "The Machine Monitor now includes a Cycle Time Analysis panel — peak, fastest and average cycle time, plus a trend line showing whether cycle time is rising or falling through the day. The page has also been given a cleaner, more polished look.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-graph-up",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New Cycle Time Analysis on Machine Monitor: peak / fastest / average cycle time and a trend line showing if cycle time is rising or falling."
+            },
+            {
+              "type": "improvement",
+              "text": "Refreshed, more polished Machine Monitor visuals."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.14.1",
       "date": "2026-07-31",
