@@ -2613,6 +2613,30 @@
 
                         container.innerHTML = masterHtml;
 
+                        // ---- KAN-68: Freeze the hour-slot header cleanly below the sticky bars ----
+                        // Three bars stick to the top while scrolling: filter → plant total → hour-slot
+                        // header. They previously used hardcoded offsets (top:0 / 105px / 130px) that
+                        // overlapped whenever the plant-total row grew or wrapped at narrow widths, so
+                        // the frozen hour-slot header sat ON TOP of the plant total instead of below it.
+                        // Measure the real heights and stack the bars dynamically instead.
+                        const adjustDprStickyOffsets = () => {
+                            const filterEl = document.getElementById('sticky-dpr-filter');
+                            const plantEl  = document.getElementById('sticky-plant-total');
+                            const headers  = container.querySelectorAll('.date-section-header');
+                            const filterH  = filterEl ? filterEl.offsetHeight : 0;
+                            if (plantEl) plantEl.style.top = filterH + 'px';
+                            const plantH   = plantEl ? plantEl.offsetHeight : 0;
+                            const headerTop = filterH + plantH;
+                            headers.forEach(h => { h.style.top = headerTop + 'px'; });
+                        };
+                        adjustDprStickyOffsets();
+                        // Re-measure after layout/fonts settle and whenever the viewport changes
+                        // (the plant-total flex row wraps to a taller height on narrow screens).
+                        requestAnimationFrame(adjustDprStickyOffsets);
+                        if (window._dprStickyResizeHandler) window.removeEventListener('resize', window._dprStickyResizeHandler);
+                        window._dprStickyResizeHandler = adjustDprStickyOffsets;
+                        window.addEventListener('resize', window._dprStickyResizeHandler);
+
                         // ---- STALE MACHINE ALERT: no production entry in the last 3 elapsed hours ----
                         // Standalone pass over the raw data maps (mirrors the entries-count walk above),
                         // evaluated ONLY for the current DPR date + currently running shift — historical
