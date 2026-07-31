@@ -564,7 +564,7 @@
                 let dprProcess = localStorage.getItem('jpsms_dpr_process') || 'Moulding';
 
                 card.innerHTML = `
-                  <div id="sticky-dpr-filter" style="position:sticky; top:0; z-index:50; display:flex; flex-wrap:wrap; gap:10px; margin-bottom:15px; align-items:flex-end; padding:15px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+                  <div id="sticky-dpr-filter" style="position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:10px; margin-bottom:15px; align-items:flex-end; padding:15px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
                     <div>
                       <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Date</label>
                       <input type="date" id="s-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px" value="${today}">
@@ -1104,7 +1104,7 @@
 
                         // 1. Render Global Plant Total Section (Visible once at top)
                         masterHtml += `
-                            <div id="sticky-plant-total" style="position:sticky; top:105px; z-index:40; background:white; border:1px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
+                            <div id="sticky-plant-total" style="position:relative; z-index:1; background:white; border:1px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
                                 <div style="font-size:1.1rem; font-weight:700; color:#0f172a">
                                     Plant Total (${new Date(fromDate).toLocaleDateString('en-GB')})
                                     <span style="font-size:0.8rem; font-weight:400; color:#64748b; margin-left:8px">(Combined Summary)</span>
@@ -2613,25 +2613,17 @@
 
                         container.innerHTML = masterHtml;
 
-                        // ---- KAN-68: Freeze the hour-slot header cleanly below the sticky bars ----
-                        // Three bars stick to the top while scrolling: filter → plant total → hour-slot
-                        // header. They previously used hardcoded offsets (top:0 / 105px / 130px) that
-                        // overlapped whenever the plant-total row grew or wrapped at narrow widths, so
-                        // the frozen hour-slot header sat ON TOP of the plant total instead of below it.
-                        // Measure the real heights and stack the bars dynamically instead.
+                        // ---- KAN-68: Freeze ONLY the date banner + hour-slot header ----
+                        // Per request, the filter and plant-total bars now scroll away (position
+                        // set to relative above). Only two bars stay frozen: the date banner sticks
+                        // to the very top (top:0) and the hour-slot header stacks directly below it.
+                        // Measure the banner height so the header sits flush under it at any width.
                         const adjustDprStickyOffsets = () => {
-                            const filterEl = document.getElementById('sticky-dpr-filter');
-                            const plantEl  = document.getElementById('sticky-plant-total');
                             const banners  = container.querySelectorAll('.dpr-date-banner');
                             const headers  = container.querySelectorAll('.date-section-header');
-                            const filterH  = filterEl ? filterEl.offsetHeight : 0;
-                            if (plantEl) plantEl.style.top = filterH + 'px';
-                            const plantH   = plantEl ? plantEl.offsetHeight : 0;
-                            const bannerTop = filterH + plantH;
-                            banners.forEach(b => { b.style.top = bannerTop + 'px'; });
+                            banners.forEach(b => { b.style.top = '0px'; });
                             const bannerH  = banners.length ? banners[0].offsetHeight : 0;
-                            const headerTop = bannerTop + bannerH;
-                            headers.forEach(h => { h.style.top = headerTop + 'px'; });
+                            headers.forEach(h => { h.style.top = bannerH + 'px'; });
                         };
                         adjustDprStickyOffsets();
                         // Re-measure after layout/fonts settle and whenever the viewport changes

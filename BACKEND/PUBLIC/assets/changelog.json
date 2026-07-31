@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.13.1",
+  "latest": "1.13.2",
   "versions": [
+    {
+      "version": "1.13.2",
+      "date": "2026-07-31",
+      "title": "DPR scroll now keeps only the date bar and hour row frozen",
+      "summary": "On the DPR Compliance Summary, only the date bar and the hour-slot header row (07-08, 08-09 … Summary) stay frozen while you scroll. The filter row and the Plant Total summary now scroll away with the page, giving you more room to read the machine list.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Only the date bar and hour-slot header stay frozen when you scroll the DPR Compliance Summary; the filters and Plant Total now scroll away."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.13.1",
       "date": "2026-07-31",
