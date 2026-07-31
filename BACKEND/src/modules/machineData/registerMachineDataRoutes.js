@@ -332,11 +332,13 @@ function registerMachineDataRoutes(app, pool) {
         const { rows } = await pool.query(`
           WITH win AS (
             SELECT cycle_time_s,
-                   good_shots - LAG(good_shots) OVER (ORDER BY recorded_at) AS delta
+                   good_shots - LAG(good_shots) OVER (ORDER BY recorded_at) AS delta,
+                   bad_shots  - LAG(bad_shots)  OVER (ORDER BY recorded_at) AS bdelta
               FROM machine_readings
              WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
                AND good_shots IS NOT NULL AND good_shots > 0)
           SELECT COALESCE(SUM(delta) FILTER (WHERE delta > 0 AND delta <= ${MAX_SHOT_DELTA}), 0) AS produced,
+                 COALESCE(SUM(bdelta) FILTER (WHERE bdelta > 0 AND bdelta <= ${MAX_SHOT_DELTA}), 0) AS rejected,
                  ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S})::numeric, 1) AS avgcyc,
                  ROUND(MAX(cycle_time_s) FILTER (WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S})::numeric, 1) AS maxcyc,
                  ROUND(MIN(cycle_time_s) FILTER (WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S})::numeric, 1) AS mincyc
@@ -345,16 +347,23 @@ function registerMachineDataRoutes(app, pool) {
         const r = rows[0] || {};
         const produced = Number(r.produced || 0);
         hours.push({
-          hour: h, produced,
+          hour: h, produced, rejected: Number(r.rejected || 0),
           avg_cycle: r.avgcyc != null ? Number(r.avgcyc) : null,
           max_cycle: r.maxcyc != null ? Number(r.maxcyc) : null,
           min_cycle: r.mincyc != null ? Number(r.mincyc) : null,
         });
       }
       const total = hours.reduce((a, b) => a + b.produced, 0);
+      const totalReject = hours.reduce((a, b) => a + b.rejected, 0);
       const active = hours.filter(x => x.produced > 0);
       const avgPerHour = active.length ? Math.round(total / active.length) : 0;
       const peak = hours.reduce((m, x) => x.produced > m.produced ? x : m, { produced: 0, hour: null });
+      const worst = active.length ? active.reduce((m, x) => x.produced < m.produced ? x : m, active[0]) : { produced: null, hour: null };
+      const idleHours = active.length ? (24 - active.length) : 24;
+      const rejectRate = (total + totalReject) > 0 ? Math.round((totalReject / (total + totalReject)) * 1000) / 10 : 0;
+      // consistency: % of active hours whose output is within 15% of the mean
+      const withinBand = active.filter(x => avgPerHour > 0 && Math.abs(x.produced - avgPerHour) <= avgPerHour * 0.15).length;
+      const consistency = active.length ? Math.round((withinBand / active.length) * 100) : null;
       // Cycle-time analysis across the day
       const cyHours = hours.filter(x => x.avg_cycle != null);
       const avgCycle = cyHours.length ? Math.round((cyHours.reduce((a, b) => a + b.avg_cycle, 0) / cyHours.length) * 10) / 10 : null;
@@ -363,6 +372,8 @@ function registerMachineDataRoutes(app, pool) {
       res.json({
         ok: true, date, hours, total, avgPerHour,
         peakHour: peak.hour, peakQty: peak.produced,
+        worstHour: worst.hour, worstQty: worst.produced,
+        totalReject, rejectRate, idleHours, activeHours: active.length, consistency,
         avgCycle, peakCycle: peakCycleHour.max_cycle, peakCycleHour: peakCycleHour.hour, minCycle,
       });
     } catch (e) {

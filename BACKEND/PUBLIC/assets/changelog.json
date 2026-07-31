@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.14.3",
+  "latest": "1.14.4",
   "versions": [
+    {
+      "version": "1.14.4",
+      "date": "2026-07-31",
+      "title": "Machine Monitor redesigned — clean look + more analysis",
+      "summary": "The Machine Monitor now has a clean, light dashboard with more analysis: today's production, current rate, reject rate, active vs idle hours, output consistency, plus the hourly chart and cycle-time trend.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-speedometer2",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Redesigned Machine Monitor with a clean light dashboard."
+            },
+            {
+              "type": "feat",
+              "text": "New analytics: current production rate, reject rate, active/idle hours and output consistency."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.14.3",
       "date": "2026-07-31",

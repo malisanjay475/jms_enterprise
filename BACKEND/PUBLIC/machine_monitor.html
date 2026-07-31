@@ -5,261 +5,229 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Machine Monitor — Live</title>
   <style>
-    :root { --bg:#0f172a; --panel:#111c33; --line:#31425f; --txt:#e6edf7; --muted:#93a4bd; --hdr:#1d2b45; --grn:#22c55e; --amber:#f59e0b; }
-    * { box-sizing:border-box; }
-    body { margin:0; background:var(--bg); color:var(--txt); font-family:"Segoe UI",system-ui,sans-serif; font-size:13px; }
-    header { padding:10px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
-    h1 { font-size:16px; margin:0; }
-    select { background:#0b1220; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:5px 9px; }
-    .live { color:var(--grn); font-weight:700; }
-    .stale { color:var(--amber); }
-    main { padding:14px 16px; }
-    /* status header — HMI style tiles */
-    .status { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin-bottom:14px; }
-    .tile { background:var(--hdr); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
-    .tile .k { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.03em; }
-    .tile .v { font-size:20px; font-weight:800; font-variant-numeric:tabular-nums; margin-top:2px; }
-    .tile.na .v { color:#475569; font-weight:400; font-size:15px; }
-    .tile.na .v::after { content:' (n/a)'; font-size:10px; }
-    /* per-shot log — like PROC 1 */
-    .logwrap { overflow:auto; border:1px solid var(--line); border-radius:8px; max-height:70vh; }
-    table { width:100%; border-collapse:collapse; font-size:12.5px; }
-    th { position:sticky; top:0; background:var(--hdr); color:var(--muted); font-weight:600; padding:7px 10px; text-align:right; white-space:nowrap; border-bottom:1px solid var(--line); }
-    th:first-child, td:first-child { text-align:left; }
-    td { padding:6px 10px; text-align:right; border-bottom:1px solid #16233b; font-variant-numeric:tabular-nums; white-space:nowrap; }
-    tr:first-child td { background:rgba(34,197,94,.08); }
-    .cc { font-weight:800; color:#7dd3fc; }
-    .note { color:var(--muted); font-size:11.5px; margin-top:10px; }
-    /* hourly production */
-    .hourly-panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:14px; }
-    .hourly-head { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:10px; }
-    .hourly-head input { background:#0b1220; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:4px 8px; }
-    .hkpi { color:var(--muted); font-size:12px; } .hkpi b { color:var(--txt); font-size:15px; }
-    .hourly-chart { display:flex; align-items:flex-end; gap:4px; height:220px; position:relative; padding-top:16px; }
-    .hbar-wrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; min-width:0; }
-    .hbar-val { font-size:10px; color:var(--txt); margin-bottom:2px; font-variant-numeric:tabular-nums; }
-    .hbar { width:70%; max-width:22px; background:var(--grn); border-radius:3px 3px 0 0; transition:height .3s; }
-    .hbar.low { background:var(--amber); }
-    .hbar-hr { font-size:9px; color:var(--muted); margin-top:3px; }
-    .hbar-cyc { font-size:8px; color:#64748b; }
-    .avgline { position:absolute; left:0; right:0; border-top:1px dashed #ef4444; pointer-events:none; }
-    .avgline span { position:absolute; right:0; top:-14px; font-size:9px; color:#ef4444; background:var(--panel); padding:0 4px; }
-    /* beautify */
-    body { background:radial-gradient(1200px 600px at 20% -10%, rgba(56,189,248,.06), transparent 60%), var(--bg); }
-    header { background:linear-gradient(180deg, #14213b, #0f1a30); box-shadow:0 1px 0 rgba(255,255,255,.03); }
-    h1 { letter-spacing:.2px; }
-    .hourly-panel { box-shadow:0 6px 20px rgba(0,0,0,.25); }
-    .tile { background:linear-gradient(180deg, #1e2c48, #17233c); box-shadow:0 4px 12px rgba(0,0,0,.2); }
-    .hkpi.peak b { color:#f59e0b; } .hkpi small { font-size:10px; }
-    .hkpi.trend { padding:2px 10px; border-radius:999px; font-weight:700; font-size:11px; }
-    .trend.up { background:rgba(239,68,68,.15); color:#fca5a5; } .trend.down { background:rgba(34,197,94,.15); color:#86efac; } .trend.flat { background:rgba(148,163,184,.15); color:#cbd5e1; }
-    .muted { color:var(--muted); }
-    /* cycle trend svg */
-    .cycle-trend { width:100%; height:170px; }
-    .cycle-trend svg { width:100%; height:170px; display:block; }
+    :root{
+      --bg:#eef3fb; --card:#ffffff; --ink:#0f172a; --muted:#64748b; --line:#e6edf7;
+      --blue:#2563eb; --blue-soft:#eff4ff; --green:#059669; --green-soft:#ecfdf5;
+      --amber:#d97706; --amber-soft:#fffbeb; --red:#dc2626; --red-soft:#fef2f2; --sky:#0ea5e9;
+      --shadow:0 1px 2px rgba(15,23,42,.04), 0 8px 24px rgba(15,23,42,.06);
+    }
+    *{box-sizing:border-box;}
+    body{margin:0;background:
+      radial-gradient(1000px 500px at 100% -10%, rgba(37,99,235,.06), transparent 55%),
+      var(--bg);color:var(--ink);font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:13px;}
+    header{background:var(--card);border-bottom:1px solid var(--line);padding:12px 22px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;box-shadow:var(--shadow);}
+    h1{font-size:17px;margin:0;font-weight:800;letter-spacing:-.2px;}
+    .sub{color:var(--muted);font-size:12px;}
+    select,input[type=date]{background:#fff;color:var(--ink);border:1px solid #cbd5e1;border-radius:9px;padding:7px 11px;font:inherit;font-size:13px;box-shadow:0 1px 1px rgba(15,23,42,.03);}
+    .live{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:12px;padding:4px 11px;border-radius:999px;}
+    .live.on{background:var(--green-soft);color:var(--green);} .live.off{background:#f1f5f9;color:var(--muted);}
+    .live .dot{width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 2s infinite;} @keyframes pulse{50%{opacity:.3}}
+    main{padding:20px 22px;max-width:1280px;margin:0 auto;}
+    /* KPI dashboard */
+    .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:20px;}
+    .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);position:relative;overflow:hidden;}
+    .kpi .ico{position:absolute;right:12px;top:12px;width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;}
+    .kpi .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;}
+    .kpi .v{font-size:26px;font-weight:800;margin-top:6px;letter-spacing:-.5px;line-height:1;}
+    .kpi .s{color:var(--muted);font-size:11px;margin-top:5px;}
+    .kpi.na .v{color:#cbd5e1;font-weight:500;font-size:16px;}
+    .b-blue .ico{background:var(--blue-soft);color:var(--blue);} .b-green .ico{background:var(--green-soft);color:var(--green);}
+    .b-amber .ico{background:var(--amber-soft);color:var(--amber);} .b-red .ico{background:var(--red-soft);color:var(--red);}
+    .b-sky .ico{background:#e0f2fe;color:var(--sky);}
+    /* panels */
+    .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 18px;margin-bottom:20px;box-shadow:var(--shadow);}
+    .panel-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;}
+    .panel-head h2{font-size:14px;margin:0;font-weight:800;}
+    .chip{font-size:12px;color:var(--muted);} .chip b{color:var(--ink);font-size:14px;}
+    .chip.peak b{color:var(--amber);} .chip.good b{color:var(--green);} .chip.bad b{color:var(--red);}
+    .trendbadge{margin-left:auto;padding:4px 12px;border-radius:999px;font-weight:700;font-size:11px;}
+    .trend.up{background:var(--red-soft);color:var(--red);} .trend.down{background:var(--green-soft);color:var(--green);} .trend.flat{background:#f1f5f9;color:var(--muted);}
+    /* hourly bars */
+    .hourly-chart{display:flex;align-items:flex-end;gap:5px;height:230px;position:relative;padding-top:18px;}
+    .hbar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0;}
+    .hbar-val{font-size:10px;color:var(--ink);font-weight:700;margin-bottom:3px;}
+    .hbar{width:72%;max-width:26px;background:linear-gradient(180deg,#3b82f6,#2563eb);border-radius:5px 5px 0 0;transition:height .3s;}
+    .hbar.low{background:linear-gradient(180deg,#fbbf24,#d97706);}
+    .hbar-hr{font-size:9px;color:var(--muted);margin-top:4px;font-weight:600;}
+    .hbar-cyc{font-size:8px;color:#94a3b8;}
+    .avgline{position:absolute;left:0;right:0;border-top:2px dashed #94a3b8;pointer-events:none;}
+    .avgline span{position:absolute;right:0;top:-15px;font-size:9px;color:#475569;background:var(--card);padding:0 5px;font-weight:700;}
+    /* cycle trend */
+    .cycle-trend{width:100%;height:180px;} .cycle-trend svg{width:100%;height:180px;display:block;}
+    /* log */
+    .logwrap{overflow:auto;border:1px solid var(--line);border-radius:12px;max-height:60vh;}
+    table{width:100%;border-collapse:collapse;font-size:12.5px;}
+    th{position:sticky;top:0;background:#f8fafc;color:var(--muted);font-weight:700;padding:9px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line);text-transform:uppercase;font-size:10.5px;letter-spacing:.03em;}
+    th:first-child,td:first-child{text-align:left;}
+    td{padding:8px 12px;text-align:right;border-bottom:1px solid #f1f5f9;font-variant-numeric:tabular-nums;white-space:nowrap;}
+    tbody tr:nth-child(even){background:#fbfcfe;} tbody tr:first-child{background:var(--blue-soft);}
+    .cc{font-weight:800;color:var(--blue);}
+    .note{color:var(--muted);font-size:11.5px;margin-top:10px;}
+    @media(max-width:640px){ .kpi .v{font-size:22px;} }
   </style>
 </head>
 <body>
   <header>
-    <h1>Machine Monitor</h1>
+    <h1>⚙ Machine Monitor</h1>
     <select id="machine" onchange="reload()"></select>
-    <span id="status" class="stale">connecting…</span>
+    <input type="date" id="hdate" onchange="loadHourly()">
+    <span id="live" class="live off"><span class="dot"></span><span id="live-t">connecting…</span></span>
   </header>
   <main>
-    <div class="status" id="status-tiles"></div>
+    <div class="kpis" id="kpis"></div>
 
-    <!-- Hourly production (machine HR-PRC style) -->
-    <div class="hourly-panel">
-      <div class="hourly-head">
-        <b>Hourly Production</b>
-        <input type="date" id="hdate" onchange="loadHourly()">
-        <span class="hkpi">Total <b id="k-total">–</b></span>
-        <span class="hkpi">Avg/hr <b id="k-avg">–</b></span>
-        <span class="hkpi">Peak <b id="k-peak">–</b></span>
-        <span class="hkpi">Avg cycle <b id="k-cyc">–</b>s</span>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Hourly Production</h2>
+        <span class="chip good">Total <b id="c-total">–</b></span>
+        <span class="chip">Avg/hr <b id="c-avghr">–</b></span>
+        <span class="chip peak">Peak <b id="c-peakh">–</b></span>
       </div>
       <div id="hourly-chart" class="hourly-chart"></div>
     </div>
 
-    <!-- Cycle time analysis -->
-    <div class="hourly-panel">
-      <div class="hourly-head">
-        <b>Cycle Time Analysis</b>
-        <span class="hkpi peak">Peak <b id="c-peak">–</b>s <small id="c-peak-hr" class="muted"></small></span>
-        <span class="hkpi">Fastest <b id="c-min">–</b>s</span>
-        <span class="hkpi">Average <b id="c-avg">–</b>s</span>
-        <span class="hkpi trend" id="c-trend-label"></span>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Cycle Time Analysis</h2>
+        <span class="chip peak">Peak <b id="c-peak">–</b>s <small id="c-peak-hr" class="sub"></small></span>
+        <span class="chip good">Fastest <b id="c-min">–</b>s</span>
+        <span class="chip">Average <b id="c-avg">–</b>s</span>
+        <span class="trendbadge trend flat" id="c-trend-label"></span>
       </div>
       <div id="cycle-trend" class="cycle-trend"></div>
     </div>
 
-    <div class="logwrap">
-      <table id="log">
-        <thead>
-          <tr>
+    <div class="panel">
+      <div class="panel-head"><h2>Per-Shot Log</h2><span class="sub">newest first — mirrors the machine's PROC-1 screen</span></div>
+      <div class="logwrap">
+        <table id="log">
+          <thead><tr>
             <th>Date</th><th>Time</th><th>Cycle Count</th><th>Cycle Time</th>
-            <th>Fill Time</th><th>Refill Time</th><th>X'fer Pos</th><th>Cushion Pos</th>
-            <th>IU Fwd</th><th>IU Ret</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+            <th>Fill</th><th>Refill</th><th>X'fer Pos</th><th>Cushion</th><th>IU Fwd</th><th>IU Ret</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="note">Fill/Refill/position columns need on-machine calibration; counter & cycle are verified. Header metrics not published by the gateway show as n/a.</div>
     </div>
-    <div class="note">One row per completed shot, newest on top — mirrors the machine's PROC-1 log. Header values marked <b>n/a</b> are not published by the machine's Modbus gateway. Refreshes every 3s.</div>
   </main>
 
   <script>
-    var $ = function (s) { return document.querySelector(s); };
-    function esc(s){ return String(s==null?'':s); }
-    function num(v, d){ return (v==null) ? '—' : Number(v).toFixed(d==null?2:d); }
+    var $=function(s){return document.querySelector(s);};
+    function esc(s){return String(s==null?'':s);}
+    function num(v,d){return (v==null)?'—':Number(v).toFixed(d==null?2:d);}
+    function api(p){return fetch(p,{credentials:'same-origin'}).then(function(r){return r.json();});}
+    var machines=[], current=null;
 
-    var machines = [];
-    var current = null;
+    function kpiCard(cls,ico,label,value,sub,na){
+      return '<div class="kpi '+cls+(na?' na':'')+'"><div class="ico">'+ico+'</div>'+
+        '<div class="k">'+label+'</div><div class="v">'+esc(value)+'</div>'+
+        (sub?'<div class="s">'+esc(sub)+'</div>':'')+'</div>';
+    }
 
-    function tiles(snap) {
-      // Only values the gateway actually provides; the rest are honestly n/a.
-      var have = [
-        ['Cycle Count', snap ? snap.good_shots : null, 0],
-        ['Cycle Time', snap ? snap.cycle_time_s : null, 2],
-        ['Good Shots', snap ? snap.good_shots : null, 0],
-        ['Bad Shots', snap ? snap.bad_shots : null, 0],
-        ['Status', snap ? (snap.machine_running == null ? null : (snap.machine_running ? 'RUN' : 'STOP')) : null, null],
-      ];
-      var na = ['Clamp (CLP)','Injection (INJ)','Ejector (EJT)','Tonnage (TON)','RPM','Inj. Pressure'];
-      var html = have.map(function (t) {
-        var v = t[1]; var disp = (v==null) ? '—' : (t[2]==null ? v : Number(v).toFixed(t[2]));
-        return '<div class="tile"><div class="k">'+t[0]+'</div><div class="v">'+esc(disp)+'</div></div>';
+    function renderKpis(snap, hb){
+      var running = snap ? (snap.machine_running==null?null:snap.machine_running) : null;
+      var curCyc = snap && snap.cycle_time_s!=null ? Number(snap.cycle_time_s) : null;
+      var ratePerHr = (curCyc && curCyc>0 && curCyc<600) ? Math.round(3600/curCyc) : null;
+      var el='';
+      el += kpiCard('b-blue','📦','Today Production', hb?hb.total:'–', hb?('reject '+(hb.rejectRate||0)+'%'):'');
+      el += kpiCard('b-green','⚡','Current Rate', ratePerHr==null?'—':ratePerHr, 'pcs / hour');
+      el += kpiCard('b-sky','⏱','Avg Cycle', hb&&hb.avgCycle!=null?hb.avgCycle:'—', 'seconds');
+      el += kpiCard('b-amber','⛰','Peak Cycle', hb&&hb.peakCycle!=null?hb.peakCycle:'—', hb&&hb.peakCycleHour!=null?('at '+hb.peakCycleHour+':00'):'seconds');
+      el += kpiCard('b-red','✖','Reject Rate', hb?((hb.rejectRate||0)+'%'):'—', hb?(hb.totalReject+' rejected'):'');
+      el += kpiCard('b-green','✔','Consistency', hb&&hb.consistency!=null?(hb.consistency+'%'):'—', 'hours near average');
+      el += kpiCard('b-blue','🕘','Active Hours', hb?hb.activeHours:'—', hb?(hb.idleHours+' idle'):'');
+      el += kpiCard(running?'b-green':'b-amber', running?'🟢':'⚪','Status', running==null?'n/a':(running?'RUNNING':'STOPPED'), snap&&snap.good_shots!=null?('counter '+snap.good_shots):'', running==null);
+      $('#kpis').innerHTML=el;
+    }
+
+    function renderHourly(b){
+      $('#c-total').textContent=b.total; $('#c-avghr').textContent=b.avgPerHour;
+      $('#c-peakh').textContent=(b.peakHour==null?'–':(b.peakHour+':00 · '+b.peakQty));
+      var max=Math.max(1,Math.max.apply(null,b.hours.map(function(h){return h.produced;})));
+      var avg=b.avgPerHour||0, bodyH=212, avgTop=18+bodyH-(avg/max)*bodyH;
+      $('#hourly-chart').innerHTML = b.hours.map(function(h){
+        var ht=Math.round((h.produced/max)*bodyH), low=h.produced>0&&h.produced<avg;
+        return '<div class="hbar-wrap" title="'+h.hour+':00 — '+h.produced+' pcs'+(h.avg_cycle?(' · '+h.avg_cycle+'s'):'')+'">'+
+          '<div class="hbar-val">'+(h.produced||'')+'</div>'+
+          '<div class="hbar'+(low?' low':'')+'" style="height:'+ht+'px"></div>'+
+          '<div class="hbar-hr">'+h.hour+'</div><div class="hbar-cyc">'+(h.avg_cycle||'')+'</div></div>';
+      }).join('') + (avg>0?'<div class="avgline" style="top:'+avgTop+'px"><span>Avg '+avg+'</span></div>':'');
+    }
+
+    function renderCycleTrend(b){
+      $('#c-peak').textContent=(b.peakCycle==null?'–':b.peakCycle);
+      $('#c-peak-hr').textContent=(b.peakCycleHour==null?'':('@ '+b.peakCycleHour+':00'));
+      $('#c-min').textContent=(b.minCycle==null?'–':b.minCycle);
+      $('#c-avg').textContent=(b.avgCycle==null?'–':b.avgCycle);
+      var pts=(b.hours||[]).filter(function(h){return h.avg_cycle!=null;});
+      var lbl=$('#c-trend-label');
+      if(pts.length<2){$('#cycle-trend').innerHTML='';lbl.textContent='';lbl.className='trendbadge trend flat';return;}
+      var k=Math.max(1,Math.floor(pts.length/3));
+      var early=pts.slice(0,k).reduce(function(a,p){return a+p.avg_cycle;},0)/k;
+      var late=pts.slice(-k).reduce(function(a,p){return a+p.avg_cycle;},0)/k;
+      var diff=late-early, dir=Math.abs(diff)<0.3?'flat':(diff>0?'up':'down');
+      lbl.className='trendbadge trend '+dir;
+      lbl.textContent=dir==='flat'?'Trend: stable':('Trend: '+(diff>0?'▲ rising ':'▼ falling ')+Math.abs(diff).toFixed(1)+'s');
+      var W=1000,H=180,padL=34,padR=12,padT=16,padB=22;
+      var vals=pts.map(function(p){return p.avg_cycle;});
+      var mx=pts.map(function(p){return p.max_cycle!=null?p.max_cycle:p.avg_cycle;});
+      var lo=Math.min.apply(null,vals),hi=Math.max.apply(null,mx),pad=Math.max(1,(hi-lo)*.15);
+      lo=Math.floor(lo-pad);hi=Math.ceil(hi+pad);if(hi<=lo)hi=lo+1;
+      var xw=W-padL-padR,yh=H-padT-padB;
+      function X(i){return padL+(pts.length===1?xw/2:(i/(pts.length-1))*xw);}
+      function Y(v){return padT+yh-((v-lo)/(hi-lo))*yh;}
+      var line=vals.map(function(v,i){return (i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1);}).join(' ');
+      var area=line+' L'+X(pts.length-1).toFixed(1)+' '+(padT+yh)+' L'+X(0).toFixed(1)+' '+(padT+yh)+' Z';
+      var pkI=0;mx.forEach(function(v,i){if(v>mx[pkI])pkI=i;});
+      var grid='';for(var g=0;g<=3;g++){var gy=padT+(yh*g/3),gv=(hi-(hi-lo)*g/3).toFixed(0);grid+='<line x1="'+padL+'" y1="'+gy+'" x2="'+(W-padR)+'" y2="'+gy+'" stroke="#eef2f7"/><text x="'+(padL-6)+'" y="'+(gy+3)+'" fill="#94a3b8" font-size="9" text-anchor="end">'+gv+'</text>';}
+      var xl=pts.map(function(p,i){return (i%Math.ceil(pts.length/8||1)===0)?('<text x="'+X(i).toFixed(1)+'" y="'+(H-6)+'" fill="#94a3b8" font-size="9" text-anchor="middle">'+p.hour+'</text>'):'';}).join('');
+      $('#cycle-trend').innerHTML='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">'+grid+
+        '<defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2563eb" stop-opacity=".22"/><stop offset="1" stop-color="#2563eb" stop-opacity="0"/></linearGradient></defs>'+
+        '<path d="'+area+'" fill="url(#cg)"/><path d="'+line+'" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'+
+        vals.map(function(v,i){return '<circle cx="'+X(i).toFixed(1)+'" cy="'+Y(v).toFixed(1)+'" r="'+(i===pkI?4:2.5)+'" fill="'+(i===pkI?'#d97706':'#2563eb')+'"/>';}).join('')+
+        '<text x="'+X(pkI).toFixed(1)+'" y="'+(Y(mx[pkI])-8).toFixed(1)+'" fill="#d97706" font-size="11" font-weight="700" text-anchor="middle">peak '+mx[pkI]+'s</text>'+xl+'</svg>';
+    }
+
+    function renderCycles(rows){
+      var tb=$('#log tbody');
+      if(!rows||!rows.length){tb.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:18px">No shots recorded yet — fills as the machine produces.</td></tr>';return;}
+      tb.innerHTML=rows.map(function(r){var d=r.recorded_at?new Date(r.recorded_at):null;
+        return '<tr><td>'+(d?d.toLocaleDateString():'—')+'</td><td>'+(d?d.toLocaleTimeString():'—')+'</td>'+
+          '<td class="cc">'+esc(r.cycle_count)+'</td><td>'+num(r.cycle_time_s)+'</td><td>'+num(r.fill_time_s)+'</td>'+
+          '<td>'+num(r.refill_time_s)+'</td><td>'+num(r.xfer_pos)+'</td><td>'+num(r.cushion_pos)+'</td>'+
+          '<td>'+num(r.iu_fwd_s)+'</td><td>'+num(r.iu_ret_s)+'</td></tr>';
       }).join('');
-      html += na.map(function (k) { return '<div class="tile na"><div class="k">'+k+'</div><div class="v">—</div></div>'; }).join('');
-      $('#status-tiles').innerHTML = html;
     }
 
-    function renderCycles(rows) {
-      var tb = $('#log tbody');
-      if (!rows || !rows.length) { tb.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:16px">No shots recorded yet — will fill as the machine produces.</td></tr>'; return; }
-      tb.innerHTML = rows.map(function (r) {
-        var d = r.recorded_at ? new Date(r.recorded_at) : null;
-        return '<tr>' +
-          '<td>' + (d ? d.toLocaleDateString() : '—') + '</td>' +
-          '<td>' + (d ? d.toLocaleTimeString() : '—') + '</td>' +
-          '<td class="cc">' + esc(r.cycle_count) + '</td>' +
-          '<td>' + num(r.cycle_time_s) + '</td>' +
-          '<td>' + num(r.fill_time_s) + '</td>' +
-          '<td>' + num(r.refill_time_s) + '</td>' +
-          '<td>' + num(r.xfer_pos) + '</td>' +
-          '<td>' + num(r.cushion_pos) + '</td>' +
-          '<td>' + num(r.iu_fwd_s) + '</td>' +
-          '<td>' + num(r.iu_ret_s) + '</td>' +
-          '</tr>';
-      }).join('');
+    var lastHourly=null, inflight=false;
+    function refresh(){
+      if(inflight||current==null)return; inflight=true;
+      Promise.all([api('/api/machine-data/latest'), api('/api/machine-data/'+current+'/cycles?limit=40')]).then(function(res){
+        var latest=(res[0].readings||[]).find(function(x){return x.machine_id===current;});
+        renderKpis(latest, lastHourly);
+        renderCycles(res[1].cycles||[]);
+        var age=latest?(Date.now()-new Date(latest.recorded_at).getTime())/1000:9e9;
+        var lv=$('#live'),t=$('#live-t');
+        if(age<30){lv.className='live on';t.textContent='live';}else{lv.className='live off';t.textContent=latest?('stale '+Math.round(age)+'s'):'no data';}
+      }).catch(function(){$('#live').className='live off';$('#live-t').textContent='offline';}).finally(function(){inflight=false;});
     }
 
-    function api(p){ return fetch(p,{credentials:'same-origin'}).then(function(r){return r.json();}); }
-
-    var inflight = false;
-    function refresh() {
-      if (inflight || current == null) return; inflight = true;
-      Promise.all([
-        api('/api/machine-data/latest'),
-        api('/api/machine-data/' + current + '/cycles?limit=40')
-      ]).then(function (res) {
-        var latest = (res[0].readings || []).find(function (x) { return x.machine_id === current; });
-        tiles(latest);
-        renderCycles(res[1].cycles || []);
-        var age = latest ? (Date.now() - new Date(latest.recorded_at).getTime())/1000 : 9e9;
-        var st = $('#status');
-        if (age < 30) { st.textContent = 'live'; st.className = 'live'; }
-        else { st.textContent = latest ? ('stale ' + Math.round(age) + 's') : 'no data'; st.className = 'stale'; }
-      }).catch(function(){ $('#status').textContent='offline'; $('#status').className='stale'; })
-        .finally(function(){ inflight=false; });
-    }
-
-    function loadHourly() {
-      if (current == null) return;
-      var date = $('#hdate').value;
-      if (!date) { date = new Date().toISOString().slice(0,10); $('#hdate').value = date; }
-      api('/api/machine-data/' + current + '/hourly?date=' + date).then(function (b) {
-        if (!b || !b.ok) return;
-        $('#k-total').textContent = b.total;
-        $('#k-avg').textContent = b.avgPerHour;
-        $('#k-peak').textContent = (b.peakHour==null?'–':(b.peakHour+':00 · '+b.peakQty));
-        var cycs = b.hours.map(function(h){return h.avg_cycle;}).filter(function(x){return x>0;});
-        $('#k-cyc').textContent = cycs.length ? (cycs.reduce(function(a,c){return a+c;},0)/cycs.length).toFixed(1) : '–';
-        var max = Math.max(1, Math.max.apply(null, b.hours.map(function(h){return h.produced;})));
-        var avg = b.avgPerHour || 0;
-        var chart = $('#hourly-chart');
-        // dashed average line position (chart body is 220-16px tall)
-        var bodyH = 204;
-        var avgTop = 16 + bodyH - (avg/max)*bodyH;
-        var bars = b.hours.map(function (h) {
-          var ht = Math.round((h.produced/max)*bodyH);
-          var low = h.produced>0 && h.produced<avg;
-          return '<div class="hbar-wrap" title="'+h.hour+':00 — '+h.produced+' pcs'+(h.avg_cycle?(' · '+h.avg_cycle+'s cyc'):'')+'">' +
-            '<div class="hbar-val">'+(h.produced||'')+'</div>' +
-            '<div class="hbar'+(low?' low':'')+'" style="height:'+ht+'px"></div>' +
-            '<div class="hbar-hr">'+h.hour+'</div>' +
-            '<div class="hbar-cyc">'+(h.avg_cycle||'')+'</div>' +
-          '</div>';
-        }).join('');
-        chart.innerHTML = bars + (avg>0 ? '<div class="avgline" style="top:'+avgTop+'px"><span>Avg '+avg+'</span></div>' : '');
-        renderCycleTrend(b);
+    function loadHourly(){
+      if(current==null)return; var date=$('#hdate').value||new Date().toISOString().slice(0,10); $('#hdate').value=date;
+      api('/api/machine-data/'+current+'/hourly?date='+date).then(function(b){
+        if(!b||!b.ok)return; lastHourly=b; renderHourly(b); renderCycleTrend(b); renderKpis(null,b); refresh();
       }).catch(function(){});
     }
 
-    function renderCycleTrend(b) {
-      $('#c-peak').textContent = (b.peakCycle==null?'–':b.peakCycle);
-      $('#c-peak-hr').textContent = (b.peakCycleHour==null?'':('@ '+b.peakCycleHour+':00'));
-      $('#c-min').textContent = (b.minCycle==null?'–':b.minCycle);
-      $('#c-avg').textContent = (b.avgCycle==null?'–':b.avgCycle);
-      // points = avg cycle per hour where present
-      var pts = (b.hours||[]).filter(function(h){return h.avg_cycle!=null;});
-      var lbl = $('#c-trend-label');
-      if (pts.length < 2) { $('#cycle-trend').innerHTML=''; lbl.textContent=''; lbl.className='hkpi trend'; return; }
-      // trend direction: compare first third vs last third averages
-      var k = Math.max(1, Math.floor(pts.length/3));
-      var early = pts.slice(0,k).reduce(function(a,p){return a+p.avg_cycle;},0)/k;
-      var late  = pts.slice(-k).reduce(function(a,p){return a+p.avg_cycle;},0)/k;
-      var diff = late-early;
-      var dir = Math.abs(diff)<0.3?'flat':(diff>0?'up':'down');
-      lbl.className = 'hkpi trend ' + dir;
-      lbl.textContent = dir==='flat' ? 'Trend: stable' : ('Trend: '+(diff>0?'▲ rising ':'▼ falling ')+Math.abs(diff).toFixed(1)+'s');
-      // SVG line chart
-      var W=1000, H=170, padL=34, padR=12, padT=14, padB=22;
-      var vals = pts.map(function(p){return p.avg_cycle;});
-      var mx = pts.map(function(p){return p.max_cycle!=null?p.max_cycle:p.avg_cycle;});
-      var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, mx);
-      var pad = Math.max(1,(hi-lo)*0.15); lo=Math.floor(lo-pad); hi=Math.ceil(hi+pad); if(hi<=lo)hi=lo+1;
-      var xw = W-padL-padR, yh = H-padT-padB;
-      function X(i){ return padL + (pts.length===1?xw/2:(i/(pts.length-1))*xw); }
-      function Y(v){ return padT + yh - ((v-lo)/(hi-lo))*yh; }
-      var line = vals.map(function(v,i){return (i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1);}).join(' ');
-      var area = line + ' L'+X(pts.length-1).toFixed(1)+' '+(padT+yh)+' L'+X(0).toFixed(1)+' '+(padT+yh)+' Z';
-      // peak point
-      var pkI=0; mx.forEach(function(v,i){if(v>mx[pkI])pkI=i;});
-      var grid=''; for(var g=0;g<=3;g++){var gy=padT+ (yh*g/3); var gv=(hi-(hi-lo)*g/3).toFixed(0); grid+='<line x1="'+padL+'" y1="'+gy+'" x2="'+(W-padR)+'" y2="'+gy+'" stroke="#233149" stroke-width="1"/><text x="'+(padL-6)+'" y="'+(gy+3)+'" fill="#64748b" font-size="9" text-anchor="end">'+gv+'</text>';}
-      var xlabels = pts.map(function(p,i){ return (i%Math.ceil(pts.length/8||1)===0)?('<text x="'+X(i).toFixed(1)+'" y="'+(H-6)+'" fill="#64748b" font-size="9" text-anchor="middle">'+p.hour+'</text>'):''; }).join('');
-      $('#cycle-trend').innerHTML =
-        '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">' +
-        grid +
-        '<defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#38bdf8" stop-opacity=".35"/><stop offset="1" stop-color="#38bdf8" stop-opacity="0"/></linearGradient></defs>' +
-        '<path d="'+area+'" fill="url(#cg)"/>' +
-        '<path d="'+line+'" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>' +
-        vals.map(function(v,i){return '<circle cx="'+X(i).toFixed(1)+'" cy="'+Y(v).toFixed(1)+'" r="'+(i===pkI?4:2.5)+'" fill="'+(i===pkI?'#f59e0b':'#38bdf8')+'"/>';}).join('') +
-        '<text x="'+X(pkI).toFixed(1)+'" y="'+(Y(mx[pkI])-8).toFixed(1)+'" fill="#f59e0b" font-size="11" font-weight="700" text-anchor="middle">peak '+mx[pkI]+'s</text>' +
-        xlabels +
-        '</svg>';
-    }
+    function reload(){current=parseInt($('#machine').value,10); if(!$('#hdate').value)$('#hdate').value=new Date().toISOString().slice(0,10); refresh(); loadHourly();}
 
-    function reload(){ current = parseInt($('#machine').value,10); if(!$('#hdate').value) $('#hdate').value = new Date().toISOString().slice(0,10); refresh(); loadHourly(); }
-
-    api('/api/machine-data/config').then(function (b) {
-      machines = (b.config || []).filter(function(c){ return c.enabled; });
-      if (!machines.length) machines = (b.config||[]);
-      $('#machine').innerHTML = machines.map(function (m) { return '<option value="'+m.machine_id+'">'+esc(m.machine_name)+'</option>'; }).join('');
-      $('#hdate').value = new Date().toISOString().slice(0,10);
-      if (machines.length) { current = machines[0].machine_id; refresh(); loadHourly(); }
-      setInterval(refresh, 3000);
-      setInterval(loadHourly, 60000); // hourly chart changes slowly
+    api('/api/machine-data/config').then(function(b){
+      machines=(b.config||[]).filter(function(c){return c.enabled;}); if(!machines.length)machines=(b.config||[]);
+      $('#machine').innerHTML=machines.map(function(m){return '<option value="'+m.machine_id+'">'+esc(m.machine_name)+'</option>';}).join('');
+      $('#hdate').value=new Date().toISOString().slice(0,10);
+      if(machines.length){current=machines[0].machine_id; loadHourly();}
+      setInterval(refresh,3000); setInterval(loadHourly,60000);
     });
   </script>
 </body>
