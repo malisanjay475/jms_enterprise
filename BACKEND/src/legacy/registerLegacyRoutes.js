@@ -18906,7 +18906,19 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         s.article_act,
 
         --SUMMARY STATS(Plan vs Actual)
-        COALESCE(ojr.plan_qty, pb.plan_qty, 0) as plan_qty,
+        -- Effective plan target. The scalar plan_qty is the base order/mould qty and
+        -- does NOT account for consumption-ratio plans, where one finished set needs
+        -- multiple moulded pieces split across colours (e.g. a dual dust bin = 1 Green
+        -- + 1 Blue inner bucket). For those, the real target lives in colour_details
+        -- (SUM of per-colour planQty) and exceeds the scalar. GREATEST() lifts the plan
+        -- to the colour sum only when it is larger, so this is a strict no-op for every
+        -- normal plan (where colour sum == plan_qty or no colour_details exist) and only
+        -- corrects the under-counted consumption-ratio plans. Without this the balance
+        -- goes falsely negative once total (all-colour) production passes one colour's qty.
+        GREATEST(
+          COALESCE(ojr.plan_qty, pb.plan_qty, 0),
+          COALESCE(cps.colour_plan_sum, 0)
+        ) as plan_qty,
         -- Cumulative good produced for THIS PLAN across ALL dates (factory scoped).
         -- Scope by plan_id, not order_no: one order_no spans many plans (machines/moulds),
         -- so matching by order_no over-counts production from other plans and breaks balance.
@@ -18914,7 +18926,10 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         -- correlated subquery, so a week-range summary no longer runs thousands of scans.
         COALESCE(pp.produced, 0) as produced_qty,
         -- Balance = plan - cumulative produced (allowed negative so <=0 completion trigger works)
-        (COALESCE(ojr.plan_qty, pb.plan_qty, 0) - COALESCE(pp.produced, 0)) as balance_qty,
+        (GREATEST(
+           COALESCE(ojr.plan_qty, pb.plan_qty, 0),
+           COALESCE(cps.colour_plan_sum, 0)
+         ) - COALESCE(pp.produced, 0)) as balance_qty,
         COALESCE(ojr.mld_status, pb.status) as job_status,
         COALESCE(ojr.job_card_no, '') as job_card_no,
         COALESCE(ojr.client_name, o.client_name, '') as client_name,
@@ -18923,6 +18938,15 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       FROM std_actual s
       LEFT JOIN plan_prod pp ON pp.plan_id = s.plan_id
       LEFT JOIN plan_board pb ON pb.plan_id = s.plan_id
+      -- Sum of per-colour planQty from plan_board.colour_details (see plan_qty above).
+      -- Guarded so a NULL / non-array colour_details yields NULL, not an error.
+      LEFT JOIN LATERAL (
+        SELECT SUM((cd->>'planQty')::numeric) AS colour_plan_sum
+        FROM jsonb_array_elements(
+          CASE jsonb_typeof(pb.colour_details::jsonb)
+            WHEN 'array' THEN pb.colour_details::jsonb ELSE '[]'::jsonb END
+        ) cd
+      ) cps ON true
       LEFT JOIN (
         SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no 
         FROM mould_planning_summary 
