@@ -22203,18 +22203,20 @@ app.get('/api/reports/tonnage', async (req, res) => {
           AND h.dpr_date BETWEEN $1::date AND $2::date${factoryCond}${shiftCond}
       )`;
 
-    // Detail: per period (+ shift when split), broken down per machine only when requested
+    // Detail: per period (+ shift when split), broken down per machine only when requested.
+    // Missing/blank machines are normalised to 'Unassigned' rather than excluded, so the
+    // machine-wise rows always reconcile with the period summary totals below.
+    const machineExpr = "COALESCE(NULLIF(TRIM(machine), ''), 'Unassigned')";
     const detail = await q(
       `${baseCte}
        SELECT period_start,
               ${shiftSel ? 'shift,' : ''}
-              ${machineWise ? 'machine,' : ''}
+              ${machineWise ? `${machineExpr} AS machine,` : ''}
               ROUND(SUM(good_ton)::numeric, 3)              AS good_tonnage,
               ROUND(SUM(reject_ton)::numeric, 3)            AS reject_tonnage,
               ROUND(SUM(good_ton + reject_ton)::numeric, 3) AS overall_tonnage
          FROM per_entry
-        ${machineWise ? "WHERE machine IS NOT NULL AND TRIM(machine) <> ''" : ''}
-        GROUP BY period_start${shiftGrp}${machineWise ? ', machine' : ''}
+        GROUP BY period_start${shiftGrp}${machineWise ? `, ${machineExpr}` : ''}
         ORDER BY period_start DESC${shiftOrd}${machineWise ? ', machine ASC' : ''}`,
       params
     );
