@@ -5347,8 +5347,13 @@ async function initializeLegacyRuntime() {
             SELECT 1 FROM or_jr_report k
             WHERE TRIM(k.or_jr_no) = TRIM(d.or_jr_no)
               AND COALESCE(TRIM(k.job_card_no), '') <> ''
-              AND COALESCE(TRIM(k.item_code), '') = COALESCE(TRIM(d.item_code), '')
               AND COALESCE(k.factory_id, 0) = COALESCE(d.factory_id, 0)
+              -- Placeholder matches the carded line by item, OR carries no item at
+              -- all (a pure "OR created, no JC yet" stub — common on factory 2).
+              AND (
+                COALESCE(TRIM(k.item_code), '') = COALESCE(TRIM(d.item_code), '')
+                OR COALESCE(TRIM(d.item_code), '') = ''
+              )
           )
       `).catch((e) => console.warn('[DB] OR-JR blank-JC cleanup skipped:', e.message));
 
@@ -16609,8 +16614,11 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
               SELECT 1 FROM or_jr_report k
               WHERE TRIM(k.or_jr_no) = TRIM(d.or_jr_no)
                 AND COALESCE(TRIM(k.job_card_no), '') <> ''
-                AND COALESCE(TRIM(k.item_code), '') = COALESCE(TRIM(d.item_code), '')
                 AND COALESCE(k.factory_id, 0) = COALESCE(d.factory_id, 0)
+                AND (
+                  COALESCE(TRIM(k.item_code), '') = COALESCE(TRIM(d.item_code), '')
+                  OR COALESCE(TRIM(d.item_code), '') = ''
+                )
             )
         `, [importedForDedup]);
         if (del.rowCount) console.log(`[OR - JR Confirm] Removed ${del.rowCount} orphaned blank-JC placeholder row(s)`);
