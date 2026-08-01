@@ -2,6 +2,27 @@
       return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
     }
 
+    // Server type (MAIN vs LOCAL). ERP "Fetch Latest Data" runs on MAIN only — LOCAL
+    // servers receive ERP data through the normal LOCAL<-MAIN sync — so the fetch
+    // button is hidden on LOCAL. Cached from /api/version; defaults to LOCAL until
+    // known, so we never expose the button on a LOCAL server during the brief
+    // window before the type resolves.
+    let __jmsServerType = null;
+    function jmsIsMainServer() { return __jmsServerType === 'MAIN'; }
+    fetch('/api/version')
+      .then(r => r.json())
+      .then(v => {
+        __jmsServerType = String(v && v.serverType ? v.serverType : 'MAIN').toUpperCase();
+        // Re-run the toolbar setup if an ERP report is already open, so the button
+        // appears/disappears once the real server type is known.
+        if (typeof currentType !== 'undefined'
+            && ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'].includes(currentType)
+            && typeof setupUI === 'function') {
+          try { setupUI(currentType, typeof currentView !== 'undefined' ? currentView : undefined); } catch (_) { /* non-fatal */ }
+        }
+      })
+      .catch(() => { __jmsServerType = 'MAIN'; }); // API unreachable: assume MAIN (standalone dev)
+
     // Custom "Natural" Sort: Splits strings into text/number chunks and compares them.
     // Fixes "Line>Machine-1" vs "Line>Machine-10" deterministically.
     function naturalCompare(a, b) {
@@ -872,7 +893,14 @@
         if (previewBtn) previewBtn.style.display = 'none';
         const tmplBtn = document.getElementById('templateBtn');
         if (tmplBtn) tmplBtn.style.display = 'none';
-        if (erpFetchBtn) erpFetchBtn.style.display = 'inline-flex';
+        // ERP fetch runs on MAIN only. On a LOCAL server the report is read-only —
+        // the data arrives via LOCAL<-MAIN sync — so hide the fetch button and show
+        // a hint instead of a button that the server would 403 anyway.
+        if (jmsIsMainServer()) {
+          if (erpFetchBtn) erpFetchBtn.style.display = 'inline-flex';
+        } else {
+          if (erpFetchBtn) erpFetchBtn.style.display = 'none';
+        }
         if (erpLastSync) erpLastSync.style.display = 'inline-block';
       } else {
         if (erpFetchBtn) erpFetchBtn.style.display = 'none';
