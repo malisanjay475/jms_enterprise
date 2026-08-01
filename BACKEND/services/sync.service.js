@@ -59,9 +59,11 @@ const SYNC_ALL = [
     'dispatch_items',
     'dpr_hourly',
     'dpr_reasons',
+    'erp_bom',
     'erp_jr_details',
     'erp_jr_status',
     'erp_jr_summary',
+    'erp_mould_item',
     'extra_qty_allowances',
     'factories',
     'grinding_logs',
@@ -131,7 +133,7 @@ const TABLES_TO_PULL = [...SYNC_ALL];
 // ERP report tables (erp_jr_*) are populated on MAIN by the superadmin "Fetch
 // Latest Data" button pulling from the Joyo ERP. MAIN is authoritative; LOCAL
 // only pulls them down and must never push, or empty local tables would wipe MAIN.
-const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary', 'erp_jr_details'];
+const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary', 'erp_jr_details', 'erp_bom', 'erp_mould_item'];
 
 const CONFLICT_KEYS = {
     users: 'id',
@@ -220,7 +222,9 @@ const CONFLICT_KEYS = {
     // ERP report tables — row_key is the stable natural key (unique) from the ERP source
     erp_jr_status: 'row_key',
     erp_jr_summary: 'row_key',
-    erp_jr_details: 'row_key'
+    erp_jr_details: 'row_key',
+    erp_bom: 'row_key',
+    erp_mould_item: 'row_key'
 };
 
 const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
@@ -270,7 +274,9 @@ const GLOBAL_MASTER_TABLES = new Set([
     // ERP report tables have no factory_id — they are company-wide ERP snapshots.
     'erp_jr_status',
     'erp_jr_summary',
-    'erp_jr_details'
+    'erp_jr_details',
+    'erp_bom',
+    'erp_mould_item'
 ]);
 
 const SYNC_ID_REQUIRED_TABLES = ['notifications'];

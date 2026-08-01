@@ -15380,6 +15380,17 @@ async function syncErpReport(cfgKey) {
 
 // POST sync handler (superadmin only).
 async function handleErpSync(cfgKey, req, res) {
+  // ERP fetch runs on MAIN only. MAIN is the single source that pulls from the
+  // Joyo ERP; every LOCAL factory server then receives the result through the
+  // normal LOCAL<-MAIN sync (erp_* tables are global-master, pull-only on LOCAL).
+  // A LOCAL server must never call the ERP directly, so hard-block it here
+  // regardless of who is logged in.
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() !== 'MAIN') {
+    return res.status(403).json({
+      ok: false,
+      error: 'ERP fetch runs on the MAIN server only. This server receives ERP data automatically via sync.'
+    });
+  }
   const auth = await requireErpSuperadmin(req);
   if (!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
   try {
