@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.17.0",
+  "latest": "1.18.0",
   "versions": [
+    {
+      "version": "1.18.0",
+      "date": "2026-08-01",
+      "title": "Tonnage Report — date-wise view and machine breakdown",
+      "summary": "The Tonnage Report now has a Daily (Date wise) option, and a Breakdown choice: see one total per date/period, or switch to Machine wise to break each period down by machine.",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Tonnage Report adds a Daily (Date wise) period and a Breakdown selector — Date wise only, or Machine wise for a per-machine split."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.17.0",
       "date": "2026-08-01",
