@@ -65,6 +65,29 @@ async function ensureSchema(pool) {
       CREATE INDEX IF NOT EXISTS idx_machine_readings_machine_time
         ON machine_readings (machine_id, recorded_at DESC);
     `);
+    // One row per completed shot (machine PROC-1 style log). Keyed by
+    // (machine_id, cycle_count) so repeated reads of the same shot don't dup.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS machine_cycles (
+        id            BIGSERIAL PRIMARY KEY,
+        machine_id    INTEGER NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+        cycle_count   BIGINT  NOT NULL,
+        recorded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        cycle_time_s  NUMERIC,
+        fill_time_s   NUMERIC,
+        refill_time_s NUMERIC,
+        xfer_pos      NUMERIC,
+        cushion_pos   NUMERIC,
+        iu_fwd_s      NUMERIC,
+        iu_ret_s      NUMERIC,
+        raw_json      JSONB,
+        UNIQUE (machine_id, cycle_count)
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_machine_cycles_machine_count
+        ON machine_cycles (machine_id, cycle_count DESC);
+    `);
   })();
   return _schemaPromise;
 }
@@ -83,6 +106,88 @@ function pickNum(v) {
 function pickInt(v) {
   const n = pickNum(v);
   return n === null || !Number.isFinite(n) ? null : Math.round(n);
+}
+
+// Max plausible counter increase between two consecutive polls. Poll interval is
+// a few seconds and cycles are 20s+, so a real gap is small; a jump larger than
+// this means a counter reset or re-definition (not real production) and is
+// ignored so it can't inflate an hour's total. Production per hour is computed
+// as the SUM of plausible per-poll increments, which is robust to resets.
+const MAX_SHOT_DELTA = 200;
+
+// A real injection cycle is well under 10 minutes; anything above is a decode
+// glitch (e.g. a bad TIME read) and is excluded from cycle-time stats.
+const MAX_CYCLE_S = 600;
+
+// Compute OEE / downtime / cycle stats for a machine over an arbitrary window.
+// Reused by /analysis (full day), /shift-oee (Day/Night) and /oee-trend (per day).
+async function windowAnalysis(pool, machineId, startISO, endISO) {
+  const { rows } = await pool.query(`
+    SELECT EXTRACT(EPOCH FROM recorded_at) AS t, good_shots, bad_shots, cycle_time_s
+      FROM machine_readings
+     WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3 AND good_shots > 0
+     ORDER BY recorded_at
+  `, [machineId, startISO, endISO]);
+  if (rows.length < 2) return { hasData: false };
+
+  let good = 0, bad = 0, cycSum = 0;
+  const cycles = [];
+  for (let i = 1; i < rows.length; i++) {
+    const gd = Number(rows[i].good_shots) - Number(rows[i - 1].good_shots);
+    if (gd > 0 && gd <= MAX_SHOT_DELTA) good += gd;
+    const bd = Number(rows[i].bad_shots) - Number(rows[i - 1].bad_shots);
+    if (bd > 0 && bd <= MAX_SHOT_DELTA) bad += bd;
+  }
+  for (const r of rows) {
+    const c = Number(r.cycle_time_s);
+    if (c > 0 && c < MAX_CYCLE_S) { cycSum += c; cycles.push(c); }
+  }
+  const avgCycle = cycles.length ? cycSum / cycles.length : null;
+  let idealCycle = avgCycle;
+  if (cycles.length) {
+    const sorted = cycles.slice().sort((a, b) => a - b);
+    const p10 = sorted[Math.floor(sorted.length * 0.1)];
+    idealCycle = Math.max(p10, (avgCycle || p10) * 0.6);
+  }
+  const spanS = Number(rows[rows.length - 1].t) - Number(rows[0].t);
+  const idleThresh = Math.max(120, (avgCycle || 40) * 3);
+  let downtime = 0; const stops = [];
+  let flatStart = Number(rows[0].t), prevGood = Number(rows[0].good_shots);
+  const closeStop = (endT) => {
+    const dur = endT - flatStart;
+    if (dur > idleThresh) { downtime += dur; stops.push({ start: flatStart, end: endT, dur: Math.round(dur) }); }
+  };
+  for (let i = 1; i < rows.length; i++) {
+    const g = Number(rows[i].good_shots), t = Number(rows[i].t);
+    if (g > prevGood && g - prevGood <= MAX_SHOT_DELTA) { closeStop(t); flatStart = t; prevGood = g; }
+    else if (g > prevGood) { prevGood = g; flatStart = t; }
+  }
+  closeStop(Number(rows[rows.length - 1].t));
+  const uptime = Math.max(0, spanS - downtime);
+  const availability = spanS > 0 ? uptime / spanS : 0;
+  const performance = (idealCycle && uptime > 0) ? Math.min(1, (idealCycle * good) / uptime) : 0;
+  const quality = (good + bad) > 0 ? good / (good + bad) : 1;
+  const oee = availability * performance * quality;
+  return { hasData: true, good, bad, cycles, avgCycle, idealCycle, spanS, uptime, downtime, stops, availability, performance, quality, oee };
+}
+
+const pct1 = (x) => Math.round(x * 1000) / 10;
+
+// Best-effort daily plan target for a machine from plan_board (matched by name).
+async function getMachineTarget(pool, machineId) {
+  try {
+    const m = await pool.query('SELECT machine FROM machines WHERE id=$1', [machineId]);
+    if (!m.rowCount) return null;
+    const name = m.rows[0].machine;
+    const r = await pool.query(
+      `SELECT COALESCE(SUM(plan_qty),0) AS target
+         FROM plan_board
+        WHERE REPLACE(LOWER(TRIM(machine)),' ','') = REPLACE(LOWER(TRIM($1)),' ','')`,
+      [name]
+    );
+    const t = Number(r.rows[0].target || 0);
+    return t > 0 ? t : null;
+  } catch (_) { return null; }
 }
 
 function registerMachineDataRoutes(app, pool) {
@@ -247,6 +352,247 @@ function registerMachineDataRoutes(app, pool) {
     }
   });
 
+  // --- Per-shot cycle log (machine PROC-1 style) ----------------------------
+  // Collector posts one record per completed shot (when cycle_count increments).
+  router.post('/cycle-ingest', async (req, res) => {
+    if (!ingestKey() || req.get('x-ingest-key') !== ingestKey()) {
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+    const b = req.body || {};
+    const machineId = parseInt(b.machine_id, 10);
+    const cycleCount = pickInt(b.cycle_count);
+    const v = b.values || {};
+    if (!Number.isInteger(machineId) || cycleCount == null) {
+      return res.status(400).json({ ok: false, error: 'machine_id and cycle_count required' });
+    }
+    try {
+      await pool.query(`
+        INSERT INTO machine_cycles
+          (machine_id, cycle_count, recorded_at, cycle_time_s, fill_time_s,
+           refill_time_s, xfer_pos, cushion_pos, iu_fwd_s, iu_ret_s, raw_json)
+        VALUES ($1,$2, COALESCE($3::timestamptz, NOW()), $4,$5,$6,$7,$8,$9,$10,$11)
+        ON CONFLICT (machine_id, cycle_count) DO NOTHING
+      `, [
+        machineId, cycleCount, b.recorded_at || null,
+        pickNum(v.cycle_time_act), pickNum(v.injection_time), pickNum(v.refill_time),
+        pickNum(v.vp_position), pickNum(v.cushion_position),
+        pickNum(v.unit_fwd_time), pickNum(v.unit_ret_time),
+        JSON.stringify(v),
+      ]);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  // Hourly production for a machine on a date (machine HR-PRC style):
+  // pieces produced each clock hour (counter delta) + avg cycle. Local-time hours.
+  router.get('/:machineId/hourly', async (req, res) => {
+    const machineId = parseInt(req.params.machineId, 10);
+    const date = String(req.query.date || '').trim();
+    if (!Number.isInteger(machineId) || !date) {
+      return res.status(400).json({ ok: false, error: 'machineId and date required' });
+    }
+    try {
+      const base = new Date(date.split('T')[0] + 'T00:00:00');
+      if (Number.isNaN(base.getTime())) return res.status(400).json({ ok: false, error: 'bad date' });
+      const hours = [];
+      for (let h = 0; h < 24; h++) {
+        const start = new Date(base.getTime()); start.setHours(h, 0, 0, 0);
+        const end = new Date(start.getTime() + 3600000);
+        const { rows } = await pool.query(`
+          WITH win AS (
+            SELECT cycle_time_s,
+                   good_shots - LAG(good_shots) OVER (ORDER BY recorded_at) AS delta,
+                   bad_shots  - LAG(bad_shots)  OVER (ORDER BY recorded_at) AS bdelta
+              FROM machine_readings
+             WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
+               AND good_shots IS NOT NULL AND good_shots > 0)
+          SELECT COALESCE(SUM(delta) FILTER (WHERE delta > 0 AND delta <= ${MAX_SHOT_DELTA}), 0) AS produced,
+                 COALESCE(SUM(bdelta) FILTER (WHERE bdelta > 0 AND bdelta <= ${MAX_SHOT_DELTA}), 0) AS rejected,
+                 ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S})::numeric, 1) AS avgcyc,
+                 ROUND(MAX(cycle_time_s) FILTER (WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S})::numeric, 1) AS maxcyc,
+                 ROUND(MIN(cycle_time_s) FILTER (WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S})::numeric, 1) AS mincyc
+            FROM win
+        `, [machineId, start.toISOString(), end.toISOString()]);
+        const r = rows[0] || {};
+        const produced = Number(r.produced || 0);
+        hours.push({
+          hour: h, produced, rejected: Number(r.rejected || 0),
+          avg_cycle: r.avgcyc != null ? Number(r.avgcyc) : null,
+          max_cycle: r.maxcyc != null ? Number(r.maxcyc) : null,
+          min_cycle: r.mincyc != null ? Number(r.mincyc) : null,
+        });
+      }
+      const total = hours.reduce((a, b) => a + b.produced, 0);
+      const totalReject = hours.reduce((a, b) => a + b.rejected, 0);
+      const active = hours.filter(x => x.produced > 0);
+      const avgPerHour = active.length ? Math.round(total / active.length) : 0;
+      const peak = hours.reduce((m, x) => x.produced > m.produced ? x : m, { produced: 0, hour: null });
+      const worst = active.length ? active.reduce((m, x) => x.produced < m.produced ? x : m, active[0]) : { produced: null, hour: null };
+      const idleHours = active.length ? (24 - active.length) : 24;
+      const rejectRate = (total + totalReject) > 0 ? Math.round((totalReject / (total + totalReject)) * 1000) / 10 : 0;
+      // consistency: % of active hours whose output is within 15% of the mean
+      const withinBand = active.filter(x => avgPerHour > 0 && Math.abs(x.produced - avgPerHour) <= avgPerHour * 0.15).length;
+      const consistency = active.length ? Math.round((withinBand / active.length) * 100) : null;
+      // Cycle-time analysis across the day
+      const cyHours = hours.filter(x => x.avg_cycle != null);
+      const avgCycle = cyHours.length ? Math.round((cyHours.reduce((a, b) => a + b.avg_cycle, 0) / cyHours.length) * 10) / 10 : null;
+      const peakCycleHour = hours.reduce((m, x) => (x.max_cycle != null && x.max_cycle > (m.max_cycle || 0)) ? x : m, { max_cycle: null, hour: null });
+      const minCycle = cyHours.length ? Math.min.apply(null, cyHours.map(x => x.min_cycle).filter(v => v != null)) : null;
+      res.json({
+        ok: true, date, hours, total, avgPerHour,
+        peakHour: peak.hour, peakQty: peak.produced,
+        worstHour: worst.hour, worstQty: worst.produced,
+        totalReject, rejectRate, idleHours, activeHours: active.length, consistency,
+        avgCycle, peakCycle: peakCycleHour.max_cycle, peakCycleHour: peakCycleHour.hour, minCycle,
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  // Efficiency / downtime / OEE analysis for a machine on a date.
+  // Downtime is INFERRED from counter stalls (the run/stop register isn't
+  // published by this gateway), so a stretch with no new shot for longer than
+  // the idle threshold counts as downtime.
+  router.get('/:machineId/analysis', async (req, res) => {
+    const machineId = parseInt(req.params.machineId, 10);
+    const date = String(req.query.date || '').trim();
+    if (!Number.isInteger(machineId) || !date) {
+      return res.status(400).json({ ok: false, error: 'machineId and date required' });
+    }
+    try {
+      const base = new Date(date.split('T')[0] + 'T00:00:00');
+      if (Number.isNaN(base.getTime())) return res.status(400).json({ ok: false, error: 'bad date' });
+      const dayStart = new Date(base); dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart.getTime() + 24 * 3600000);
+      const a = await windowAnalysis(pool, machineId, dayStart.toISOString(), dayEnd.toISOString());
+      if (!a.hasData) return res.json({ ok: true, date, hasData: false });
+      const target = await getMachineTarget(pool, machineId);
+      const longest = a.stops.reduce((m, s) => s.dur > m ? s.dur : m, 0);
+      res.json({
+        ok: true, date, hasData: true,
+        good: a.good, bad: a.bad,
+        avgCycle: a.avgCycle != null ? Math.round(a.avgCycle * 10) / 10 : null,
+        idealCycle: a.idealCycle != null ? Math.round(a.idealCycle * 10) / 10 : null,
+        spanMin: Math.round(a.spanS / 60), uptimeMin: Math.round(a.uptime / 60), downtimeMin: Math.round(a.downtime / 60),
+        stops: a.stops.length, longestStopMin: Math.round(longest / 60),
+        availability: pct1(a.availability), performance: pct1(a.performance), quality: pct1(a.quality), oee: pct1(a.oee),
+        target, targetPct: target ? Math.round((a.good / target) * 1000) / 10 : null,
+        events: a.stops.slice(-12).reverse().map(s => ({
+          from: new Date(s.start * 1000).toISOString(),
+          to: new Date(s.end * 1000).toISOString(),
+          min: Math.round(s.dur / 60 * 10) / 10,
+        })),
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  // Shift-wise OEE: Day (07:00–19:00) vs Night (19:00–07:00 next day).
+  router.get('/:machineId/shift-oee', async (req, res) => {
+    const machineId = parseInt(req.params.machineId, 10);
+    const date = String(req.query.date || '').trim();
+    if (!Number.isInteger(machineId) || !date) return res.status(400).json({ ok: false, error: 'machineId and date required' });
+    try {
+      const d = new Date(date.split('T')[0] + 'T00:00:00');
+      if (Number.isNaN(d.getTime())) return res.status(400).json({ ok: false, error: 'bad date' });
+      const at = (h, addDay) => { const x = new Date(d); x.setDate(x.getDate() + (addDay || 0)); x.setHours(h, 0, 0, 0); return x.toISOString(); };
+      const dayA = await windowAnalysis(pool, machineId, at(7), at(19));
+      const nightA = await windowAnalysis(pool, machineId, at(19), at(7, 1));
+      const pub = (a) => a.hasData ? {
+        hasData: true, oee: pct1(a.oee), availability: pct1(a.availability),
+        performance: pct1(a.performance), quality: pct1(a.quality),
+        good: a.good, bad: a.bad, downtimeMin: Math.round(a.downtime / 60),
+      } : { hasData: false };
+      res.json({ ok: true, date, day: pub(dayA), night: pub(nightA) });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  // Cycle-time distribution histogram + % within tolerance of the ideal cycle.
+  router.get('/:machineId/cycle-distribution', async (req, res) => {
+    const machineId = parseInt(req.params.machineId, 10);
+    const date = String(req.query.date || '').trim();
+    const tolPct = Math.min(50, Math.max(1, parseInt(req.query.tol, 10) || 10));
+    if (!Number.isInteger(machineId) || !date) return res.status(400).json({ ok: false, error: 'machineId and date required' });
+    try {
+      const d = new Date(date.split('T')[0] + 'T00:00:00');
+      if (Number.isNaN(d.getTime())) return res.status(400).json({ ok: false, error: 'bad date' });
+      const start = new Date(d); start.setHours(0, 0, 0, 0);
+      const end = new Date(start.getTime() + 24 * 3600000);
+      const a = await windowAnalysis(pool, machineId, start.toISOString(), end.toISOString());
+      if (!a.hasData || !a.cycles.length) return res.json({ ok: true, date, hasData: false });
+      const cy = a.cycles;
+      const lo = Math.min.apply(null, cy), hi = Math.max.apply(null, cy);
+      const nB = 12; const w = Math.max(0.1, (hi - lo) / nB);
+      const buckets = Array.from({ length: nB }, (_, i) => ({ from: Math.round((lo + i * w) * 10) / 10, to: Math.round((lo + (i + 1) * w) * 10) / 10, count: 0 }));
+      cy.forEach(c => { let idx = Math.floor((c - lo) / w); if (idx >= nB) idx = nB - 1; if (idx < 0) idx = 0; buckets[idx].count++; });
+      const ideal = a.idealCycle || a.avgCycle;
+      const band = ideal * tolPct / 100;
+      const within = cy.filter(c => Math.abs(c - ideal) <= band).length;
+      res.json({
+        ok: true, date, hasData: true, buckets,
+        samples: cy.length, avgCycle: Math.round(a.avgCycle * 10) / 10, idealCycle: Math.round(ideal * 10) / 10,
+        tolPct, withinTolerancePct: Math.round((within / cy.length) * 1000) / 10,
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  // Multi-day OEE trend (default last 14 days ending at `date` or today).
+  router.get('/:machineId/oee-trend', async (req, res) => {
+    const machineId = parseInt(req.params.machineId, 10);
+    const days = Math.min(60, Math.max(2, parseInt(req.query.days, 10) || 14));
+    const endDate = String(req.query.date || '').trim() || new Date().toISOString().slice(0, 10);
+    if (!Number.isInteger(machineId)) return res.status(400).json({ ok: false, error: 'invalid machineId' });
+    try {
+      const anchor = new Date(endDate.split('T')[0] + 'T00:00:00');
+      if (Number.isNaN(anchor.getTime())) return res.status(400).json({ ok: false, error: 'bad date' });
+      const out = [];
+      for (let i = days - 1; i >= 0; i--) {
+        const s = new Date(anchor); s.setDate(s.getDate() - i); s.setHours(0, 0, 0, 0);
+        const e = new Date(s.getTime() + 24 * 3600000);
+        const a = await windowAnalysis(pool, machineId, s.toISOString(), e.toISOString());
+        out.push({
+          date: s.toISOString().slice(0, 10),
+          oee: a.hasData ? pct1(a.oee) : null,
+          availability: a.hasData ? pct1(a.availability) : null,
+          performance: a.hasData ? pct1(a.performance) : null,
+          quality: a.hasData ? pct1(a.quality) : null,
+          production: a.hasData ? a.good : 0,
+        });
+      }
+      const valid = out.filter(x => x.oee != null);
+      const avgOee = valid.length ? Math.round((valid.reduce((s, x) => s + x.oee, 0) / valid.length) * 10) / 10 : null;
+      res.json({ ok: true, days, machineId, trend: out, avgOee });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  // Recent shots for the monitor table (newest first).
+  router.get('/:machineId/cycles', async (req, res) => {
+    const machineId = parseInt(req.params.machineId, 10);
+    if (!Number.isInteger(machineId)) return res.status(400).json({ ok: false, error: 'invalid machineId' });
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 40));
+    try {
+      const { rows } = await pool.query(`
+        SELECT cycle_count, recorded_at, cycle_time_s, fill_time_s, refill_time_s,
+               xfer_pos, cushion_pos, iu_fwd_s, iu_ret_s
+          FROM machine_cycles WHERE machine_id=$1
+         ORDER BY cycle_count DESC LIMIT $2
+      `, [machineId, limit]);
+      res.json({ ok: true, cycles: rows });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
   // Full latest snapshot (all decoded registers) per enabled machine — powers
   // the live "All Machine Data" page.
   router.get('/all-latest', async (req, res) => {
@@ -318,22 +664,23 @@ function registerMachineDataRoutes(app, pool) {
         // Counter delta = last reading in window − first reading in window (>=0).
         const { rows } = await pool.query(`
           WITH win AS (
-            SELECT good_shots, bad_shots, cycle_time_s, recorded_at
+            SELECT cycle_time_s,
+                   good_shots - LAG(good_shots) OVER (ORDER BY recorded_at) AS gdelta,
+                   bad_shots  - LAG(bad_shots)  OVER (ORDER BY recorded_at) AS bdelta
               FROM machine_readings
              WHERE machine_id = $1 AND recorded_at >= $2 AND recorded_at < $3
-             ORDER BY recorded_at
+               AND good_shots IS NOT NULL AND good_shots > 0
           )
           SELECT
-            (SELECT good_shots FROM win ORDER BY recorded_at DESC LIMIT 1) AS good_last,
-            (SELECT good_shots FROM win ORDER BY recorded_at ASC  LIMIT 1) AS good_first,
-            (SELECT bad_shots  FROM win ORDER BY recorded_at DESC LIMIT 1) AS bad_last,
-            (SELECT bad_shots  FROM win ORDER BY recorded_at ASC  LIMIT 1) AS bad_first,
-            (SELECT ROUND(AVG(cycle_time_s)::numeric, 2) FROM win WHERE cycle_time_s > 0) AS cyc_avg,
-            (SELECT COUNT(*) FROM win) AS n
+            SUM(gdelta) FILTER (WHERE gdelta > 0 AND gdelta <= ${MAX_SHOT_DELTA}) AS good_delta,
+            SUM(bdelta) FILTER (WHERE bdelta > 0 AND bdelta <= ${MAX_SHOT_DELTA}) AS bad_delta,
+            ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S})::numeric, 2) AS cyc_avg,
+            COUNT(*) AS n
+          FROM win
         `, [machineId, s.startIso, s.endIso]);
         const r = rows[0] || {};
-        const autoGood = (r.good_last != null && r.good_first != null) ? Math.max(0, Number(r.good_last) - Number(r.good_first)) : null;
-        const autoRej = (r.bad_last != null && r.bad_first != null) ? Math.max(0, Number(r.bad_last) - Number(r.bad_first)) : null;
+        const autoGood = r.good_delta != null ? Number(r.good_delta) : null;
+        const autoRej = r.bad_delta != null ? Number(r.bad_delta) : null;
 
         const man = await pool.query(`
           SELECT COALESCE(SUM(good_qty),0) AS good, COALESCE(SUM(reject_qty),0) AS rej, COALESCE(SUM(shots),0) AS shots
@@ -385,15 +732,16 @@ function registerMachineDataRoutes(app, pool) {
       const { rows } = await pool.query(`
         WITH win AS (
           SELECT recorded_at, good_shots, cycle_time_s,
-                 NULLIF(raw_json->>'shot_weight','')::numeric AS shot_weight
+                 NULLIF(raw_json->>'shot_weight','')::numeric AS shot_weight,
+                 good_shots - LAG(good_shots) OVER (ORDER BY recorded_at) AS delta
             FROM machine_readings
            WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
         )
         SELECT
           (SELECT good_shots  FROM win WHERE good_shots > 0 ORDER BY recorded_at DESC LIMIT 1) AS good_last,
-          (SELECT good_shots  FROM win WHERE good_shots > 0 ORDER BY recorded_at ASC  LIMIT 1) AS good_first,
-          (SELECT cycle_time_s FROM win WHERE cycle_time_s > 0 ORDER BY recorded_at DESC LIMIT 1) AS cycle_last,
-          (SELECT ROUND(AVG(cycle_time_s)::numeric, 2) FROM win WHERE cycle_time_s > 0) AS cycle_avg,
+          (SELECT COALESCE(SUM(delta) FILTER (WHERE delta > 0 AND delta <= ${MAX_SHOT_DELTA}), 0) FROM win) AS produced_delta,
+          (SELECT cycle_time_s FROM win WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S} ORDER BY recorded_at DESC LIMIT 1) AS cycle_last,
+          (SELECT ROUND(AVG(cycle_time_s)::numeric, 2) FROM win WHERE cycle_time_s > 0 AND cycle_time_s < ${MAX_CYCLE_S}) AS cycle_avg,
           (SELECT shot_weight  FROM win WHERE shot_weight > 0 ORDER BY recorded_at DESC LIMIT 1) AS weight_last,
           (SELECT ROUND(AVG(shot_weight)::numeric, 1) FROM win WHERE shot_weight > 0) AS weight_avg,
           (SELECT MAX(recorded_at) FROM win) AS last_at,
@@ -406,8 +754,7 @@ function registerMachineDataRoutes(app, pool) {
         return res.json({ ok: true, machine, slot, found: false });
       }
       const num = (x) => (x == null ? null : Number(x));
-      const produced = (r.good_last != null && r.good_first != null)
-        ? Math.max(0, Number(r.good_last) - Number(r.good_first)) : null;
+      const produced = Number(r.produced_delta || 0);
 
       // Verified-accurate fields only. cavity + cycle-set (40004/40012/40014)
       // are intentionally omitted — those registers don't match this gateway.
@@ -450,14 +797,17 @@ function registerMachineDataRoutes(app, pool) {
         for (const s of slots) {
           const { rows } = await pool.query(`
             WITH win AS (
-              SELECT good_shots, cycle_time_s, recorded_at FROM machine_readings
-               WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3 ORDER BY recorded_at)
-            SELECT (SELECT good_shots FROM win WHERE good_shots > 0 ORDER BY recorded_at DESC LIMIT 1) AS glast,
-                   (SELECT good_shots FROM win WHERE good_shots > 0 ORDER BY recorded_at ASC  LIMIT 1) AS gfirst,
-                   (SELECT ROUND(AVG(cycle_time_s)::numeric,2) FROM win WHERE cycle_time_s>0) AS cyc
+              SELECT cycle_time_s,
+                     good_shots - LAG(good_shots) OVER (ORDER BY recorded_at) AS delta
+                FROM machine_readings
+               WHERE machine_id=$1 AND recorded_at>=$2 AND recorded_at<$3
+                 AND good_shots IS NOT NULL AND good_shots > 0)
+            SELECT SUM(delta) FILTER (WHERE delta > 0 AND delta <= ${MAX_SHOT_DELTA}) AS good,
+                   ROUND(AVG(cycle_time_s) FILTER (WHERE cycle_time_s>0 AND cycle_time_s<${MAX_CYCLE_S})::numeric,2) AS cyc
+              FROM win
           `, [row.machine_id, s.startIso, s.endIso]);
           const r = rows[0] || {};
-          const good = (r.glast != null && r.gfirst != null) ? Math.max(0, Number(r.glast) - Number(r.gfirst)) : null;
+          const good = r.good != null ? Number(r.good) : null;
           if (good != null || r.cyc != null) bySlot[s.slot] = { good, cycle: r.cyc != null ? Number(r.cyc) : null };
         }
         machines[row.machine_name] = bySlot;

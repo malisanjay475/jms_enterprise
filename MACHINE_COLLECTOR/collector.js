@@ -40,6 +40,9 @@ if (!INGEST_KEY) {
 // machine_id -> { timer, cfg } so we can reconcile on each config refresh.
 const active = new Map();
 
+// machine_id -> last seen shot counter, to detect completed cycles.
+const lastCycleCount = new Map();
+
 async function fetchJson(path, opts = {}) {
   const res = await fetch(BACKEND_URL + path, {
     ...opts,
@@ -87,6 +90,22 @@ async function pollMachine(cfg) {
       method: 'POST',
       body: JSON.stringify({ machine_id: cfg.machine_id, values }),
     });
+
+    // Per-shot log: when the shot counter (good_shots) advances, record one
+    // cycle row for the completed shot (machine PROC-1 style history).
+    const count = Number(values.good_shots);
+    const prevCount = lastCycleCount.get(cfg.machine_id);
+    if (Number.isFinite(count) && count > 0) {
+      if (prevCount != null && count > prevCount) {
+        try {
+          await fetchJson('/api/machine-data/cycle-ingest', {
+            method: 'POST',
+            body: JSON.stringify({ machine_id: cfg.machine_id, cycle_count: count, values }),
+          });
+        } catch (e) { /* non-fatal: cycle log is best-effort */ }
+      }
+      lastCycleCount.set(cfg.machine_id, count);
+    }
     console.log(`[${new Date().toISOString()}] ${cfg.machine_name} (${cfg.ip}) good=${values.good_shots} bad=${values.bad_shots} cyc=${values.cycle_time_act}s run=${values.machine_running}`);
   } catch (e) {
     console.error(`[poll] ${cfg.machine_name} (${cfg.ip}): ${e.message}`);

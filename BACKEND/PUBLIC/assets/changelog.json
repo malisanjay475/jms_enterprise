@@ -11,8 +11,236 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.13.1",
+  "latest": "1.15.0",
   "versions": [
+    {
+      "version": "1.15.0",
+      "date": "2026-08-01",
+      "title": "Machine Monitor analytics: target, shift OEE, cycle spread, OEE trend",
+      "summary": "Four new analytics on Machine Monitor: Target vs Actual against the plan-board target, shift-wise OEE (Day vs Night), a cycle-time distribution histogram with % within tolerance, and a multi-day OEE trend to compare days.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-bar-chart-line",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Target vs Actual, shift-wise OEE (Day/Night), cycle-time distribution, and a multi-day OEE trend added to Machine Monitor."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.6",
+      "date": "2026-07-31",
+      "title": "More realistic OEE performance score",
+      "summary": "The OEE Performance score now uses a sustainable best cycle time (10th percentile) instead of a single fastest reading, so a one-off fast blip no longer makes efficiency look artificially low.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-speedometer2",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "OEE Performance now uses a realistic ideal cycle time, so efficiency reads correctly."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.5",
+      "date": "2026-07-31",
+      "title": "Machine Monitor: OEE, efficiency and downtime analysis",
+      "summary": "Machine Monitor now shows OEE (Availability x Performance x Quality) with a breakdown, plus downtime analysis — total downtime, number of stops, longest stop and a list of downtime events. Downtime is inferred from when the shot counter stops advancing.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-speedometer2",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New OEE / efficiency panel (Availability, Performance, Quality) and downtime analysis (total, stops, longest, event list)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.4",
+      "date": "2026-07-31",
+      "title": "Machine Monitor redesigned — clean look + more analysis",
+      "summary": "The Machine Monitor now has a clean, light dashboard with more analysis: today's production, current rate, reject rate, active vs idle hours, output consistency, plus the hourly chart and cycle-time trend.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-speedometer2",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Redesigned Machine Monitor with a clean light dashboard."
+            },
+            {
+              "type": "feat",
+              "text": "New analytics: current production rate, reject rate, active/idle hours and output consistency."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.3",
+      "date": "2026-07-31",
+      "title": "Cycle-time stats ignore bad sensor spikes",
+      "summary": "Peak and average cycle time now ignore impossible values (over 10 minutes) that came from occasional bad sensor reads, so the cycle-time analysis shows realistic numbers.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-graph-up",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Cycle-time peak/average no longer include impossible spike values from bad reads."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.2",
+      "date": "2026-07-31",
+      "title": "Machine Monitor: cycle-time analysis + a cleaner look",
+      "summary": "The Machine Monitor now includes a Cycle Time Analysis panel — peak, fastest and average cycle time, plus a trend line showing whether cycle time is rising or falling through the day. The page has also been given a cleaner, more polished look.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-graph-up",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New Cycle Time Analysis on Machine Monitor: peak / fastest / average cycle time and a trend line showing if cycle time is rising or falling."
+            },
+            {
+              "type": "improvement",
+              "text": "Refreshed, more polished Machine Monitor visuals."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.1",
+      "date": "2026-07-31",
+      "title": "Fixed inflated hourly production after a counter reset",
+      "summary": "Hourly production is now summed from real per-reading increments and ignores counter resets/jumps, so a machine counter resetting no longer shows a huge false spike for that hour.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-bar-chart",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Hourly production no longer shows a false spike when the machine counter resets; it counts only real production."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.14.0",
+      "date": "2026-07-31",
+      "title": "Machine Monitor — live per-shot log like the machine screen",
+      "summary": "A new Machine Monitor page shows a live per-shot log for each connected machine — one row per shot with cycle count, cycle time, fill, refill and positions — mirroring the machine's own PROC-1 screen, plus a live status header.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-display",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New Machine Monitor page: a live per-shot log (cycle count, cycle time, fill, refill, positions) that mirrors the machine's own screen."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.13.4",
+      "date": "2026-07-31",
+      "title": "Standard weight now matches the exact mould on the job",
+      "summary": "On the Supervisor and setup screens, the Article STD Weight (and other mould standards) is now taken from the exact mould on the job — for example '1595-TOP RING' — instead of a similarly-named base mould like '1595-TOP'. The weight you see now matches the Mould Master.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-person-badge",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The Article STD Weight now comes from the exact mould on the job, so a base mould with a similar code no longer shows the wrong weight."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.13.3",
+      "date": "2026-07-31",
+      "title": "DPR scroll now keeps only the date bar and hour row frozen",
+      "summary": "On the DPR Compliance Summary, only the date bar and the hour-slot header row (07-08, 08-09 … Summary) stay frozen while you scroll. The filter row and the Plant Total summary now scroll away with the page, giving you more room to read the machine list.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Only the date bar and hour-slot header stay frozen when you scroll the DPR Compliance Summary; the filters and Plant Total now scroll away."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.13.2",
+      "date": "2026-07-31",
+      "title": "Standard weight and mould details now match the Mould Master exactly",
+      "summary": "The Supervisor and setup screens sometimes showed a standard weight (and other mould standards) that belonged to a different mould with a similar code. Mould details are now looked up by an exact mould number match, so the STD Weight you see matches the Mould Master.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-person-badge",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The Article STD Weight and other mould standards now come from the exact mould, so they match the Mould Master instead of a similarly-coded mould."
+            }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The mould name shown on the DPR is now resolved by an exact mould number match."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.13.1",
       "date": "2026-07-31",
