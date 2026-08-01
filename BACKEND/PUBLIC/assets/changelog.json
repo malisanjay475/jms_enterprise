@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.14.6",
+  "latest": "1.15.0",
   "versions": [
+    {
+      "version": "1.15.0",
+      "date": "2026-08-01",
+      "title": "Machine Monitor analytics: target, shift OEE, cycle spread, OEE trend",
+      "summary": "Four new analytics on Machine Monitor: Target vs Actual against the plan-board target, shift-wise OEE (Day vs Night), a cycle-time distribution histogram with % within tolerance, and a multi-day OEE trend to compare days.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Machine Data",
+          "icon": "bi-bar-chart-line",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Target vs Actual, shift-wise OEE (Day/Night), cycle-time distribution, and a multi-day OEE trend added to Machine Monitor."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.14.6",
       "date": "2026-07-31",
