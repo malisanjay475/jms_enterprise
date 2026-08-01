@@ -15299,12 +15299,24 @@ async function syncErpReport(cfgKey) {
   `;
 
   let inserted = 0, updated = 0;
+  // The ERP legitimately returns several rows that share the same natural key
+  // (e.g. the same OR/JR + mould + item appearing more than once). Keying the
+  // upsert purely on that natural key made each later duplicate overwrite the
+  // earlier one, so those rows were silently dropped from the report. Keep every
+  // ERP row by disambiguating same-key rows with their occurrence order in the
+  // feed (base key for the first, "base#1", "base#2", ... for the rest). The
+  // suffix is deterministic across re-fetches, so unchanged feeds still update
+  // in place rather than piling up new rows.
+  const keySeen = new Map();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     for (const r of raw) {
       const mapped = mapRow(r);
-      const rowKey = erpRowKey(mapped, keyCols);
+      const baseKey = erpRowKey(mapped, keyCols);
+      const n = keySeen.get(baseKey) || 0;
+      keySeen.set(baseKey, n + 1);
+      const rowKey = n === 0 ? baseKey : `${baseKey}#${n}`;
       const vals = columns.map((c) => (mapped[c] == null ? null : String(mapped[c])));
       const out = await client.query(sql, [rowKey, ...vals]);
       if (out.rows[0] && out.rows[0].inserted) inserted++; else updated++;
