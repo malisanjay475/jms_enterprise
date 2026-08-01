@@ -22133,6 +22133,93 @@ app.get('/api/reports/machine-maintenance', async (req, res) => {
   }
 });
 
+// GET /api/reports/tonnage — Good / Reject / Overall tonnage produced,
+// grouped weekly / monthly / yearly. Tonnage = qty × mould STD weight (kg) ÷ 1000.
+//  - Good Tonnage    = SUM(good_qty   × std_wt_kg) / 1000
+//  - Reject Tonnage  = SUM(reject_qty × std_wt_kg) / 1000
+//  - Overall Tonnage = Good + Reject
+// STD weight resolves from the mould master by exact mould_number (falls back to
+// the planned mould via plan_board.item_code), mirroring the DPR dashboard matrix.
+app.get('/api/reports/tonnage', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.json({ ok: false, error: 'from and to dates required' });
+    const group = ['weekly', 'monthly', 'yearly'].includes(String(req.query.group)) ? String(req.query.group) : 'monthly';
+    const truncUnit = { weekly: 'week', monthly: 'month', yearly: 'year' }[group];
+    const factoryId = getFactoryId(req);
+
+    const params = [from, to];
+    let factoryCond = '';
+    if (factoryId) { params.push(factoryId); factoryCond = ` AND (h.factory_id = $3 OR h.factory_id IS NULL)`; }
+
+    // Per-entry tonnage with resolved STD weight (kg per piece).
+    const baseCte = `
+      WITH per_entry AS (
+        SELECT
+          to_char(date_trunc('${truncUnit}', h.dpr_date), 'YYYY-MM-DD') AS period_start,
+          h.machine,
+          (COALESCE(h.good_qty, 0)   * COALESCE(m.std_wt_kg, pm.std_wt_kg, 0)) / 1000.0 AS good_ton,
+          (COALESCE(h.reject_qty, 0) * COALESCE(m.std_wt_kg, pm.std_wt_kg, 0)) / 1000.0 AS reject_ton
+        FROM dpr_hourly h
+        LEFT JOIN moulds m ON m.mould_number = h.mould_no
+        LEFT JOIN plan_board pb ON pb.id::TEXT = h.plan_id OR pb.plan_id = h.plan_id
+        LEFT JOIN moulds pm ON pm.mould_number = pb.item_code
+        WHERE h.is_deleted = false
+          AND h.dpr_date BETWEEN $1::date AND $2::date${factoryCond}
+      )`;
+
+    // Detail: per period + machine
+    const detail = await q(
+      `${baseCte}
+       SELECT period_start,
+              machine,
+              ROUND(SUM(good_ton)::numeric, 3)              AS good_tonnage,
+              ROUND(SUM(reject_ton)::numeric, 3)            AS reject_tonnage,
+              ROUND(SUM(good_ton + reject_ton)::numeric, 3) AS overall_tonnage
+         FROM per_entry
+        WHERE machine IS NOT NULL AND TRIM(machine) <> ''
+        GROUP BY period_start, machine
+        ORDER BY period_start DESC, machine ASC`,
+      params
+    );
+
+    // Summary: per period rollup
+    const periods = await q(
+      `${baseCte}
+       SELECT period_start,
+              ROUND(SUM(good_ton)::numeric, 3)              AS good_tonnage,
+              ROUND(SUM(reject_ton)::numeric, 3)            AS reject_tonnage,
+              ROUND(SUM(good_ton + reject_ton)::numeric, 3) AS overall_tonnage
+         FROM per_entry
+        GROUP BY period_start
+        ORDER BY period_start DESC`,
+      params
+    );
+
+    const num = v => Number(v || 0);
+    const totalGood    = periods.reduce((s, r) => s + num(r.good_tonnage), 0);
+    const totalReject  = periods.reduce((s, r) => s + num(r.reject_tonnage), 0);
+    const totalOverall = totalGood + totalReject;
+
+    res.json({
+      ok: true,
+      group,
+      data: detail,
+      periods,
+      summary: {
+        good_tonnage: Number(totalGood.toFixed(3)),
+        reject_tonnage: Number(totalReject.toFixed(3)),
+        overall_tonnage: Number(totalOverall.toFixed(3)),
+        reject_pct: totalOverall > 0 ? Number((totalReject / totalOverall * 100).toFixed(2)) : 0,
+        periods: periods.length
+      }
+    });
+  } catch (e) {
+    console.error('api/reports/tonnage', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // GET /api/reports/extra-qty-allowed — audit report of all grants
 app.get('/api/reports/extra-qty-allowed', async (req, res) => {
   try {
