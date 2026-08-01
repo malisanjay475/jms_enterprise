@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.18.0",
+  "latest": "1.18.1",
   "versions": [
+    {
+      "version": "1.18.1",
+      "date": "2026-08-01",
+      "title": "OR-JR Status — duplicate rows fixed",
+      "summary": "The OR-JR Status list no longer shows the same OR/JR twice. Rows left over from before a Job Card was issued are now cleaned up automatically, including on Factory 2.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-sliders",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "OR-JR Status no longer double-lists an order: leftover blank Job Card rows are removed once the real Job Card arrives, and spacing differences in the OR/JR number no longer split it into two."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.18.0",
       "date": "2026-08-01",
