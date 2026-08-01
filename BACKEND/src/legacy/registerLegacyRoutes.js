@@ -5325,17 +5325,59 @@ async function initializeLegacyRuntime() {
       //    JC number fails silently — the INSERT catches the error and skips the row,
       //    so only one of the two rows for the same OR survives.
       await q(`DROP INDEX IF EXISTS idx_or_jr_report_unique_no`).catch(() => {});
-      // 4. Create 2-part unique index: OR No + JC No only
+
+      // 4. DE-DUP CLEANUP (runs before the normalized unique index is built, or the
+      //    CREATE UNIQUE would fail on the very duplicates we are fixing).
+      //    Two duplicate sources are collapsed here:
+      //
+      //    (B) or_jr_no whitespace/case variants — the old key stored or_jr_no raw,
+      //        so 'JR/x ' and 'JR/x' became two rows. Trim every stored value first.
+      await q(`UPDATE or_jr_report SET or_jr_no = TRIM(or_jr_no)
+               WHERE or_jr_no <> TRIM(or_jr_no)`).catch(() => {});
+
+      //    (A) Blank job-card placeholder rows — a line imported before its Job Card
+      //        was issued created a (or_jr_no, '') row; once the JC arrived a second
+      //        (or_jr_no, 'JC…') row was inserted and the blank one was orphaned.
+      //        Delete the blank placeholder when a real-JC sibling exists for the
+      //        same OR/JR + item (same physical line).
+      await q(`
+        DELETE FROM or_jr_report d
+        WHERE COALESCE(TRIM(d.job_card_no), '') = ''
+          AND EXISTS (
+            SELECT 1 FROM or_jr_report k
+            WHERE TRIM(k.or_jr_no) = TRIM(d.or_jr_no)
+              AND COALESCE(TRIM(k.job_card_no), '') <> ''
+              AND COALESCE(TRIM(k.item_code), '') = COALESCE(TRIM(d.item_code), '')
+              AND COALESCE(k.factory_id, 0) = COALESCE(d.factory_id, 0)
+          )
+      `).catch((e) => console.warn('[DB] OR-JR blank-JC cleanup skipped:', e.message));
+
+      //    Any exact (TRIM(or_jr_no), JC) collisions still left (from step B trimming
+      //    two variants into one key) — keep the most recently edited, drop the rest.
+      await q(`
+        DELETE FROM or_jr_report d
+        USING or_jr_report k
+        WHERE TRIM(d.or_jr_no) = TRIM(k.or_jr_no)
+          AND COALESCE(TRIM(d.job_card_no), '') = COALESCE(TRIM(k.job_card_no), '')
+          AND (
+            COALESCE(d.edited_date, d.created_date) < COALESCE(k.edited_date, k.created_date)
+            OR (COALESCE(d.edited_date, d.created_date) = COALESCE(k.edited_date, k.created_date) AND d.ctid < k.ctid)
+          )
+      `).catch((e) => console.warn('[DB] OR-JR exact-dup cleanup skipped:', e.message));
+
+      // 5. Create 2-part unique index on the NORMALIZED key: TRIM(OR No) + JC No.
       //    One row per (OR/JR No + Job Card No) combination.
       //    Same OR with different JC = separate rows (both coexist and update independently).
+      //    Using TRIM(or_jr_no) keeps whitespace/case variants from re-splitting.
+      await q(`DROP INDEX IF EXISTS idx_or_jr_jc_unique`).catch(() => {});
       await q(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_or_jr_jc_unique
         ON or_jr_report (
-            or_jr_no,
+            TRIM(or_jr_no),
             COALESCE(job_card_no, '')
         )
       `);
-      console.log('[DB] OR-JR Report Unique Index (or_jr_no + job_card_no) ensured');
+      console.log('[DB] OR-JR Report Unique Index (TRIM(or_jr_no) + job_card_no) ensured');
     } catch (e) {
       console.warn('[DB] or_jr_report composite migration skipped:', e.message);
     }
@@ -16483,7 +16525,7 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
               $26, $27, $28, $29, $30, $31, $32, $33, $34,
               COALESCE($35, $37), COALESCE($36, NOW()), COALESCE($38, $37), COALESCE($39, NOW()), $40
             )
-            ON CONFLICT(or_jr_no, COALESCE(job_card_no, ''::text))
+            ON CONFLICT(TRIM(or_jr_no), COALESCE(job_card_no, ''::text))
             DO UPDATE SET
               or_jr_date = EXCLUDED.or_jr_date, or_qty = EXCLUDED.or_qty, jr_qty = EXCLUDED.jr_qty,
               job_card_no = EXCLUDED.job_card_no, job_card_date = EXCLUDED.job_card_date,
@@ -16511,7 +16553,7 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
               edited_by = EXCLUDED.edited_by, edited_date = EXCLUDED.edited_date,
               factory_id = EXCLUDED.factory_id
           `, [
-            r.or_jr_no, r.or_jr_date, r.or_qty, r.jr_qty, r.plan_qty, r.plan_date,
+            (r.or_jr_no || '').trim(), r.or_jr_date, r.or_qty, r.jr_qty, r.plan_qty, r.plan_date,
             (r.job_card_no || '').trim(), r.job_card_date,
             r.item_code, r.product_name, r.client_name, r.prod_plan_qty, r.std_pack, r.uom,
             r.planned_comp_date, r.mld_start_date, r.mld_end_date, r.actual_mld_start_date,
@@ -16540,6 +16582,30 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
     }
 
 
+
+    // De-dup: a real Job Card just arrived for a line that was previously imported
+    // with a blank JC (placeholder). Remove the orphaned blank-JC row for the same
+    // OR/JR + item so it stops showing as a double. Scoped to the imported orders.
+    try {
+      const importedForDedup = [...new Set(toProcess.map((r) => (r.or_jr_no || '').trim()).filter(Boolean))];
+      if (importedForDedup.length) {
+        const del = await pool.query(`
+          DELETE FROM or_jr_report d
+          WHERE TRIM(d.or_jr_no) = ANY($1)
+            AND COALESCE(TRIM(d.job_card_no), '') = ''
+            AND EXISTS (
+              SELECT 1 FROM or_jr_report k
+              WHERE TRIM(k.or_jr_no) = TRIM(d.or_jr_no)
+                AND COALESCE(TRIM(k.job_card_no), '') <> ''
+                AND COALESCE(TRIM(k.item_code), '') = COALESCE(TRIM(d.item_code), '')
+                AND COALESCE(k.factory_id, 0) = COALESCE(d.factory_id, 0)
+            )
+        `, [importedForDedup]);
+        if (del.rowCount) console.log(`[OR - JR Confirm] Removed ${del.rowCount} orphaned blank-JC placeholder row(s)`);
+      }
+    } catch (dedupErr) {
+      console.error('[OR - JR Confirm] Blank-JC dedup step failed (non-fatal):', dedupErr.message);
+    }
 
     // Plan-first / JC-later auto-connect: now that the dump is in, link any
     // plans whose Plan ID / our_code appears in the freshly-imported remarks to
