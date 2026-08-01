@@ -296,6 +296,16 @@
           </select>
         </div>
 
+        <div class="control-group" id="tonnageShiftGroup" style="display:none">
+          <label class="control-label">Shift</label>
+          <select id="tonnageShift" class="form-input">
+            <option value="all" selected>Day + Night (Combined)</option>
+            <option value="split">Day &amp; Night (Split)</option>
+            <option value="Day">Day Only</option>
+            <option value="Night">Night Only</option>
+          </select>
+        </div>
+
         <div class="control-group" id="mouldSearchGroup" style="display:none">
           <label class="control-label">Mould Name / No</label>
           <input type="text" id="mouldSearch" class="form-input" placeholder="e.g. MULTI LOOP BASKET">
@@ -420,6 +430,7 @@
       document.getElementById('mouldFieldStrip').style.display = isMould ? 'block' : 'none';
       document.getElementById('maintPeriodGroup').style.display = type === 'machine-maintenance' ? 'flex' : 'none';
       document.getElementById('tonnagePeriodGroup').style.display = type === 'tonnage' ? 'flex' : 'none';
+      document.getElementById('tonnageShiftGroup').style.display = type === 'tonnage' ? 'flex' : 'none';
     }
 
     function onMouldFieldChange() {
@@ -457,7 +468,8 @@
           endpoint = `/reports/machine-maintenance?from=${from}&to=${to}&group=${period}`;
         } else if (type === 'tonnage') {
           const period = document.getElementById('tonnagePeriod').value;
-          endpoint = `/reports/tonnage?factory_id=${factoryId}&from=${from}&to=${to}&group=${period}`;
+          const shift = document.getElementById('tonnageShift').value;
+          endpoint = `/reports/tonnage?factory_id=${factoryId}&from=${from}&to=${to}&group=${period}&shift=${shift}`;
         } else {
           endpoint = `/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`;
         }
@@ -468,6 +480,7 @@
             renderMouldReport(res.data, getSelectedMouldFields());
           } else if (type === 'tonnage') {
             window._tonnageGroup = res.group || 'monthly';
+            window._tonnageShift = res.shift || 'all';
             window._tonnagePeriods = res.periods || [];
             renderReport(res.data, type, res.summary);
           } else {
@@ -627,42 +640,49 @@
       return 'Week of ' + fmtDate(v); // weekly
     }
 
-    function renderTonnageSummary(summary, periods, group) {
+    function renderTonnageSummary(summary, periods, group, shift) {
       const strip = document.getElementById('eqaSummaryStrip');
       if (!summary) { strip.style.display = 'none'; strip.innerHTML = ''; return; }
+      const split = shift === 'split';
       const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
       const t = v => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) + ' T';
       const pill = (label, val, color) =>
         `<span style="background:${color}12;color:${color};border:1px solid ${color}44;border-radius:8px;padding:4px 12px;font-weight:800;font-size:0.78rem;white-space:nowrap">${esc(label)}: ${esc(val)}</span>`;
+      const shiftLabel = shift === 'Day' ? ' (Day)' : shift === 'Night' ? ' (Night)' : '';
 
+      const colspan = split ? 5 : 4;
       const periodRows = (periods || []).map(p => `
         <tr>
           <td style="text-align:left;padding:6px 12px;border-bottom:1px solid var(--border)">${esc(tonnagePeriodLabel(p.period_start, group))}</td>
+          ${split ? `<td style="text-align:left;padding:6px 12px;border-bottom:1px solid var(--border);font-weight:700">${esc(p.shift || '')}</td>` : ''}
           <td style="text-align:right;padding:6px 12px;border-bottom:1px solid var(--border);color:#16a34a;font-weight:700">${t(p.good_tonnage)}</td>
           <td style="text-align:right;padding:6px 12px;border-bottom:1px solid var(--border);color:#dc2626;font-weight:700">${t(p.reject_tonnage)}</td>
           <td style="text-align:right;padding:6px 12px;border-bottom:1px solid var(--border);font-weight:800">${t(p.overall_tonnage)}</td>
         </tr>`).join('');
 
+      const th = (txt, align) => `<th style="text-align:${align};padding:8px 12px;border-bottom:2px solid var(--border);text-transform:uppercase;font-size:0.72rem;color:#475569">${txt}</th>`;
+
       strip.style.display = 'block';
       strip.innerHTML = `
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-          ${pill('Good Tonnage', t(summary.good_tonnage), '#16a34a')}
-          ${pill('Reject Tonnage', t(summary.reject_tonnage), '#dc2626')}
-          ${pill('Overall Tonnage', t(summary.overall_tonnage), '#2563eb')}
+          ${pill('Good Tonnage' + shiftLabel, t(summary.good_tonnage), '#16a34a')}
+          ${pill('Reject Tonnage' + shiftLabel, t(summary.reject_tonnage), '#dc2626')}
+          ${pill('Overall Tonnage' + shiftLabel, t(summary.overall_tonnage), '#2563eb')}
           ${pill('Reject %', Number(summary.reject_pct || 0).toFixed(2) + '%', '#b45309')}
         </div>
         <div style="overflow-x:auto">
           <table style="border-collapse:collapse;min-width:420px;font-size:0.8rem">
             <thead>
               <tr>
-                <th style="text-align:left;padding:8px 12px;border-bottom:2px solid var(--border);text-transform:uppercase;font-size:0.72rem;color:#475569">Period</th>
-                <th style="text-align:right;padding:8px 12px;border-bottom:2px solid var(--border);text-transform:uppercase;font-size:0.72rem;color:#475569">Good</th>
-                <th style="text-align:right;padding:8px 12px;border-bottom:2px solid var(--border);text-transform:uppercase;font-size:0.72rem;color:#475569">Reject</th>
-                <th style="text-align:right;padding:8px 12px;border-bottom:2px solid var(--border);text-transform:uppercase;font-size:0.72rem;color:#475569">Overall</th>
+                ${th('Period', 'left')}
+                ${split ? th('Shift', 'left') : ''}
+                ${th('Good', 'right')}
+                ${th('Reject', 'right')}
+                ${th('Overall', 'right')}
               </tr>
             </thead>
-            <tbody>${periodRows || '<tr><td colspan="4" style="padding:8px 12px;color:var(--text-light)">No data</td></tr>'}</tbody>
+            <tbody>${periodRows || `<tr><td colspan="${colspan}" style="padding:8px 12px;color:var(--text-light)">No data</td></tr>`}</tbody>
           </table>
         </div>`;
     }
@@ -673,14 +693,14 @@
       document.getElementById('tableCard').style.display = 'block';
       if (type === 'extra-qty-allowed') renderEqaSummary(summary);
       else if (type === 'machine-maintenance') renderMaintSummary(summary);
-      else if (type === 'tonnage') renderTonnageSummary(summary, window._tonnagePeriods, window._tonnageGroup || 'monthly');
+      else if (type === 'tonnage') renderTonnageSummary(summary, window._tonnagePeriods, window._tonnageGroup || 'monthly', window._tonnageShift || 'all');
       else renderEqaSummary(null);
 
       const badge = document.getElementById('reportStatusBadge');
       badge.textContent = type === 'jms-plan' ? 'JMS Plan'
         : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC'
         : type === 'machine-maintenance' ? `Machine Maintenance (${(window._maintGroup || 'daily')})`
-        : type === 'tonnage' ? `Tonnage (${(window._tonnageGroup || 'monthly')})`
+        : type === 'tonnage' ? `Tonnage (${(window._tonnageGroup || 'monthly')}${(window._tonnageShift && window._tonnageShift !== 'all') ? ' · ' + (window._tonnageShift === 'split' ? 'Day+Night' : window._tonnageShift) : ''})`
         : (type === 'summary' ? 'Summary View' : 'Detailed View');
       badge.className = 'status-badge ' + (type === 'summary' ? 'badge-summary' : 'badge-detail');
 
@@ -748,6 +768,7 @@
         const tCell = v => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
         columns = [
           { title: "Period", data: "period_start", render: v => tonnagePeriodLabel(v, group) },
+          ...(window._tonnageShift === 'split' ? [{ title: "Shift", data: "shift" }] : []),
           { title: "Machine", data: "machine" },
           { title: "Good Tonnage (T)", data: "good_tonnage", render: tCell },
           { title: "Reject Tonnage (T)", data: "reject_tonnage", render: tCell },
