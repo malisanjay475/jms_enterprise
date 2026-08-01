@@ -290,6 +290,7 @@
         <div class="control-group" id="tonnagePeriodGroup" style="display:none">
           <label class="control-label">Period</label>
           <select id="tonnagePeriod" class="form-input">
+            <option value="daily">Daily (Date wise)</option>
             <option value="weekly">Weekly</option>
             <option value="monthly" selected>Monthly</option>
             <option value="yearly">Yearly</option>
@@ -303,6 +304,14 @@
             <option value="split">Day &amp; Night (Split)</option>
             <option value="Day">Day Only</option>
             <option value="Night">Night Only</option>
+          </select>
+        </div>
+
+        <div class="control-group" id="tonnageMachineGroup" style="display:none">
+          <label class="control-label">Breakdown</label>
+          <select id="tonnageMachine" class="form-input">
+            <option value="0" selected>Date wise only</option>
+            <option value="1">Machine wise</option>
           </select>
         </div>
 
@@ -431,6 +440,7 @@
       document.getElementById('maintPeriodGroup').style.display = type === 'machine-maintenance' ? 'flex' : 'none';
       document.getElementById('tonnagePeriodGroup').style.display = type === 'tonnage' ? 'flex' : 'none';
       document.getElementById('tonnageShiftGroup').style.display = type === 'tonnage' ? 'flex' : 'none';
+      document.getElementById('tonnageMachineGroup').style.display = type === 'tonnage' ? 'flex' : 'none';
     }
 
     function onMouldFieldChange() {
@@ -469,7 +479,8 @@
         } else if (type === 'tonnage') {
           const period = document.getElementById('tonnagePeriod').value;
           const shift = document.getElementById('tonnageShift').value;
-          endpoint = `/reports/tonnage?factory_id=${factoryId}&from=${from}&to=${to}&group=${period}&shift=${shift}`;
+          const machine = document.getElementById('tonnageMachine').value;
+          endpoint = `/reports/tonnage?factory_id=${factoryId}&from=${from}&to=${to}&group=${period}&shift=${shift}&machine=${machine}`;
         } else {
           endpoint = `/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`;
         }
@@ -481,6 +492,7 @@
           } else if (type === 'tonnage') {
             window._tonnageGroup = res.group || 'monthly';
             window._tonnageShift = res.shift || 'all';
+            window._tonnageMachineWise = !!res.machineWise;
             window._tonnagePeriods = res.periods || [];
             renderReport(res.data, type, res.summary);
           } else {
@@ -631,6 +643,7 @@
 
     function tonnagePeriodLabel(v, group) {
       if (!v) return '';
+      if (group === 'daily') return fmtDate(v);
       if (group === 'yearly') return String(v).slice(0, 4);
       if (group === 'monthly') {
         const [y, m] = String(v).split('-');
@@ -675,7 +688,7 @@
           <table style="border-collapse:collapse;min-width:420px;font-size:0.8rem">
             <thead>
               <tr>
-                ${th('Period', 'left')}
+                ${th(group === 'daily' ? 'Date' : 'Period', 'left')}
                 ${split ? th('Shift', 'left') : ''}
                 ${th('Good', 'right')}
                 ${th('Reject', 'right')}
@@ -767,9 +780,9 @@
         const group = window._tonnageGroup || 'monthly';
         const tCell = v => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
         columns = [
-          { title: "Period", data: "period_start", render: v => tonnagePeriodLabel(v, group) },
+          { title: group === 'daily' ? "Date" : "Period", data: "period_start", render: v => tonnagePeriodLabel(v, group) },
           ...(window._tonnageShift === 'split' ? [{ title: "Shift", data: "shift" }] : []),
-          { title: "Machine", data: "machine" },
+          ...(window._tonnageMachineWise ? [{ title: "Machine", data: "machine" }] : []),
           { title: "Good Tonnage (T)", data: "good_tonnage", render: tCell },
           { title: "Reject Tonnage (T)", data: "reject_tonnage", render: tCell },
           { title: "Overall Tonnage (T)", data: "overall_tonnage", render: tCell },
