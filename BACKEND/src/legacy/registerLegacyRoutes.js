@@ -22096,8 +22096,10 @@ app.get('/api/reports/tonnage', async (req, res) => {
           (COALESCE(h.reject_qty, 0) * COALESCE(m.std_wt_kg, pm.std_wt_kg, 0)) / 1000.0 AS reject_ton
         FROM dpr_hourly h
         LEFT JOIN moulds m ON m.mould_number = h.mould_no
+          AND (m.factory_id = h.factory_id OR m.factory_id IS NULL)
         LEFT JOIN plan_board pb ON pb.id::TEXT = h.plan_id OR pb.plan_id = h.plan_id
         LEFT JOIN moulds pm ON pm.mould_number = pb.item_code
+          AND (pm.factory_id = h.factory_id OR pm.factory_id IS NULL)
         WHERE h.is_deleted = false
           AND h.dpr_date BETWEEN $1::date AND $2::date${factoryCond}
       )`;
