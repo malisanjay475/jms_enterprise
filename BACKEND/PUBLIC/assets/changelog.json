@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.16.0",
+  "latest": "1.17.0",
   "versions": [
+    {
+      "version": "1.17.0",
+      "date": "2026-08-01",
+      "title": "Tonnage Report — Day / Night shift breakdown",
+      "summary": "The Tonnage Report can now split figures by shift. Choose Day & Night (Split) to see Good, Reject, and Overall tonnage separately for each shift, or Day Only / Night Only to focus on one shift.",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Tonnage Report now has a Shift filter: Day & Night (Split) breaks each period out per shift, and Day Only / Night Only filter to a single shift."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.16.0",
       "date": "2026-08-01",

@@ -22158,17 +22158,28 @@ app.get('/api/reports/tonnage', async (req, res) => {
     if (!from || !to) return res.json({ ok: false, error: 'from and to dates required' });
     const group = ['weekly', 'monthly', 'yearly'].includes(String(req.query.group)) ? String(req.query.group) : 'monthly';
     const truncUnit = { weekly: 'week', monthly: 'month', yearly: 'year' }[group];
+    // shift: 'all' = combined, 'split' = Day & Night broken out, 'Day'/'Night' = that shift only
+    const shift = ['all', 'split', 'Day', 'Night'].includes(String(req.query.shift)) ? String(req.query.shift) : 'all';
+    const split = shift === 'split';
     const factoryId = getFactoryId(req);
 
     const params = [from, to];
     let factoryCond = '';
-    if (factoryId) { params.push(factoryId); factoryCond = ` AND (h.factory_id = $3 OR h.factory_id IS NULL)`; }
+    if (factoryId) { params.push(factoryId); factoryCond = ` AND (h.factory_id = $${params.length} OR h.factory_id IS NULL)`; }
+    let shiftCond = '';
+    if (shift === 'Day' || shift === 'Night') { params.push(shift); shiftCond = ` AND h.shift = $${params.length}`; }
+
+    // When splitting, add the shift dimension to SELECT / GROUP BY / ORDER BY.
+    const shiftSel   = split ? 'h.shift AS shift,' : '';
+    const shiftGrp   = split ? ', shift' : '';
+    const shiftOrd   = split ? ', shift ASC' : '';
 
     // Per-entry tonnage with resolved STD weight (kg per piece).
     const baseCte = `
       WITH per_entry AS (
         SELECT
           to_char(date_trunc('${truncUnit}', h.dpr_date), 'YYYY-MM-DD') AS period_start,
+          ${shiftSel}
           h.machine,
           (COALESCE(h.good_qty, 0)   * COALESCE(m.std_wt_kg, pm.std_wt_kg, 0)) / 1000.0 AS good_ton,
           (COALESCE(h.reject_qty, 0) * COALESCE(m.std_wt_kg, pm.std_wt_kg, 0)) / 1000.0 AS reject_ton
@@ -22179,34 +22190,36 @@ app.get('/api/reports/tonnage', async (req, res) => {
         LEFT JOIN moulds pm ON pm.mould_number = pb.item_code
           AND (pm.factory_id = h.factory_id OR pm.factory_id IS NULL)
         WHERE h.is_deleted = false
-          AND h.dpr_date BETWEEN $1::date AND $2::date${factoryCond}
+          AND h.dpr_date BETWEEN $1::date AND $2::date${factoryCond}${shiftCond}
       )`;
 
-    // Detail: per period + machine
+    // Detail: per period (+ shift when split) + machine
     const detail = await q(
       `${baseCte}
        SELECT period_start,
+              ${shiftSel ? 'shift,' : ''}
               machine,
               ROUND(SUM(good_ton)::numeric, 3)              AS good_tonnage,
               ROUND(SUM(reject_ton)::numeric, 3)            AS reject_tonnage,
               ROUND(SUM(good_ton + reject_ton)::numeric, 3) AS overall_tonnage
          FROM per_entry
         WHERE machine IS NOT NULL AND TRIM(machine) <> ''
-        GROUP BY period_start, machine
-        ORDER BY period_start DESC, machine ASC`,
+        GROUP BY period_start${shiftGrp}, machine
+        ORDER BY period_start DESC${shiftOrd}, machine ASC`,
       params
     );
 
-    // Summary: per period rollup
+    // Summary: per period (+ shift when split) rollup
     const periods = await q(
       `${baseCte}
        SELECT period_start,
+              ${shiftSel ? 'shift,' : ''}
               ROUND(SUM(good_ton)::numeric, 3)              AS good_tonnage,
               ROUND(SUM(reject_ton)::numeric, 3)            AS reject_tonnage,
               ROUND(SUM(good_ton + reject_ton)::numeric, 3) AS overall_tonnage
          FROM per_entry
-        GROUP BY period_start
-        ORDER BY period_start DESC`,
+        GROUP BY period_start${shiftGrp}
+        ORDER BY period_start DESC${shiftOrd}`,
       params
     );
 
@@ -22218,6 +22231,7 @@ app.get('/api/reports/tonnage', async (req, res) => {
     res.json({
       ok: true,
       group,
+      shift,
       data: detail,
       periods,
       summary: {
