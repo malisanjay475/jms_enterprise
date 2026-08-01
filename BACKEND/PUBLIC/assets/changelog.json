@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.15.0",
+  "latest": "1.16.0",
   "versions": [
+    {
+      "version": "1.16.0",
+      "date": "2026-08-01",
+      "title": "Tonnage Report in Reports",
+      "summary": "A new Tonnage Report shows how much material you produced, split into Good, Reject, and Overall tonnage. Choose Weekly, Monthly, or Yearly and see the totals on top with a machine-wise breakdown below.",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New Tonnage Report with Weekly / Monthly / Yearly periods, showing Good, Reject, and Overall tonnage as a summary with a machine-wise detail table."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.15.0",
       "date": "2026-08-01",

@@ -15341,12 +15341,24 @@ async function syncErpReport(cfgKey) {
   `;
 
   let inserted = 0, updated = 0;
+  // The ERP legitimately returns several rows that share the same natural key
+  // (e.g. the same OR/JR + mould + item appearing more than once). Keying the
+  // upsert purely on that natural key made each later duplicate overwrite the
+  // earlier one, so those rows were silently dropped from the report. Keep every
+  // ERP row by disambiguating same-key rows with their occurrence order in the
+  // feed (base key for the first, "base#1", "base#2", ... for the rest). The
+  // suffix is deterministic across re-fetches, so unchanged feeds still update
+  // in place rather than piling up new rows.
+  const keySeen = new Map();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     for (const r of raw) {
       const mapped = mapRow(r);
-      const rowKey = erpRowKey(mapped, keyCols);
+      const baseKey = erpRowKey(mapped, keyCols);
+      const n = keySeen.get(baseKey) || 0;
+      keySeen.set(baseKey, n + 1);
+      const rowKey = n === 0 ? baseKey : `${baseKey}#${n}`;
       const vals = columns.map((c) => (mapped[c] == null ? null : String(mapped[c])));
       const out = await client.query(sql, [rowKey, ...vals]);
       if (out.rows[0] && out.rows[0].inserted) inserted++; else updated++;
@@ -22162,8 +22174,10 @@ app.get('/api/reports/tonnage', async (req, res) => {
           (COALESCE(h.reject_qty, 0) * COALESCE(m.std_wt_kg, pm.std_wt_kg, 0)) / 1000.0 AS reject_ton
         FROM dpr_hourly h
         LEFT JOIN moulds m ON m.mould_number = h.mould_no
+          AND (m.factory_id = h.factory_id OR m.factory_id IS NULL)
         LEFT JOIN plan_board pb ON pb.id::TEXT = h.plan_id OR pb.plan_id = h.plan_id
         LEFT JOIN moulds pm ON pm.mould_number = pb.item_code
+          AND (pm.factory_id = h.factory_id OR pm.factory_id IS NULL)
         WHERE h.is_deleted = false
           AND h.dpr_date BETWEEN $1::date AND $2::date${factoryCond}
       )`;
