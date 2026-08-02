@@ -14922,10 +14922,13 @@ app.get('/api/reports/mould-wise-qty', async (req, res) => {
       const night = Number(r.night_qty) || 0;
       const total = day + night;
 
-      // STD production per shift = pcs_per_hour * 12, counted per shift present.
+      // STD production per shift = pcs_per_hour * 11.5, counted per shift present.
+      // 11.5 productive hours/shift = 23 productive hours/day, matching the
+      // Mould Master Target PCS/DAY = PCS/HOUR * 23 standard (KAN-112); the
+      // remaining ~1h/shift covers breaks, mould changes and startup.
       const pcsPerHour = Number(r.pcs_per_hour) || 0;
       const shiftsPresent = (day > 0 ? 1 : 0) + (night > 0 ? 1 : 0) || 1;
-      const stdProd = pcsPerHour * 12 * shiftsPresent;
+      const stdProd = pcsPerHour * 11.5 * shiftsPresent;
       const efficiency = stdProd > 0 ? (total / stdProd) * 100 : 0;
 
       const rejectQty = Number(r.reject_qty) || 0;

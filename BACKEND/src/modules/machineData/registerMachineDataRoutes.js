@@ -164,9 +164,16 @@ async function windowAnalysis(pool, machineId, startISO, endISO) {
   }
   closeStop(Number(rows[rows.length - 1].t));
   const uptime = Math.max(0, spanS - downtime);
+  const totalShots = good + bad;
+  // OEE = Availability × Performance × Quality (Nakajima / SEMI E79).
+  //  - Availability: run time / planned time.
+  //  - Performance:  ideal time to make ALL parts / actual run time. Uses the
+  //    total shot count (good + bad); quality loss is captured by Quality, not
+  //    here — counting only good parts would double-penalise rejects.
+  //  - Quality:      good parts / total parts.
   const availability = spanS > 0 ? uptime / spanS : 0;
-  const performance = (idealCycle && uptime > 0) ? Math.min(1, (idealCycle * good) / uptime) : 0;
-  const quality = (good + bad) > 0 ? good / (good + bad) : 1;
+  const performance = (idealCycle && uptime > 0) ? Math.min(1, (idealCycle * totalShots) / uptime) : 0;
+  const quality = totalShots > 0 ? good / totalShots : 1;
   const oee = availability * performance * quality;
   return { hasData: true, good, bad, cycles, avgCycle, idealCycle, spanS, uptime, downtime, stops, availability, performance, quality, oee };
 }
