@@ -2068,6 +2068,7 @@
 
                                         // D. Summary Column
                                         let sumStd = 0, sumGood = 0, sumRej = 0, sumDt = 0, sumAutoDt = 0;
+                                        let sumShots = 0; // total injection shots this row — denominator for Avg CT (KAN-65)
                                         let rowElapsedActive = 0, rowFutureActive = 0; // active slot counts for shift-end prediction
                                         let sumTonnage = 0, sumRejTonnage = 0;
                                         let rowAggRej = {};
@@ -2196,6 +2197,7 @@
 
                                                         // Slot Shots Accumulation
                                                         slotShots += (parseInt(entry.shots) || 0);
+                                                        sumShots += (parseInt(entry.shots) || 0); // row total → Avg CT (KAN-65)
 
                                                         // Counters
                                                         const dtMap = entry.downtime_breakup || {};
@@ -2289,10 +2291,11 @@
                                         // Efficiency — OEE (gross scheduled time) and EFF (net run time after DT)
                                         let rowEff = 0, estPcs = 0;
                                         let rowEffNet = 0, estPcsNet = 0;
+                                        let runTimeMins = 0; // net run time (avail − downtime); reused for Avg CT (KAN-65)
                                         if (hasEntries && maxSlotIdx >= minSlotIdx && !m.is_dummy) {
                                             const availSlots = maxSlotIdx - minSlotIdx + 1;
                                             const availMins = availSlots * 60;
-                                            const runTimeMins = Math.max(0, availMins - Math.min(sumDt, availMins));
+                                            runTimeMins = Math.max(0, availMins - Math.min(sumDt, availMins));
                                             const std = parseFloat(m.std) || 0;
                                             if (std > 0) {
                                                 // OEE = Good / (Std × Scheduled Hours)
@@ -2306,6 +2309,9 @@
 
                                         // Summary cell variables
                                         const totalPcs = sumGood + sumRej;
+                                        // Cycle Time (KAN-65): STD from mould master; Avg CT = net run time (s) ÷ total shots.
+                                        const stdCt = parseFloat(m.details?.std_cycle_time || 0);
+                                        const avgCt = (sumShots > 0 && runTimeMins > 0) ? (runTimeMins * 60) / sumShots : 0;
                                         const stdWeightRaw = parseFloat(m.details?.std_weight || 0);
                                         const stdWeightKg  = stdWeightRaw >= 10 ? stdWeightRaw / 1000 : stdWeightRaw;
                                         const wtStdGrams   = stdWeightKg > 0 ? Math.round(stdWeightKg * 1000) : 0;
@@ -2349,7 +2355,7 @@
 
                                         const summaryClickScript = `showSummaryDetails('${stripMachPfx(machine)}', '${rowShift}', '${lineName}', ${sumGood}, ${sumRej}, ${sumDt}, ${sumAutoDt}, ${Math.round(sumStd)}, '${encodeURIComponent(JSON.stringify(rowAggRej))}', '${encodeURIComponent(JSON.stringify(rowAggDt))}')`;
 
-                                        let summaryH = !m.is_dummy ? `<div style="text-align:left;cursor:pointer;font-size:0.72rem;line-height:1.32;padding:1px 0" onclick="${summaryClickScript}"><div style="font-weight:700;color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-weight:800;color:#166534;font-size:0.8rem">${totalPcs}<span style="font-weight:500;color:#64748b;font-size:0.68rem"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="color:#db2777;font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="color:#be185d;font-weight:600">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${(wtStdGrams > 0 || wtActGrams > 0) ? `<div style="color:#64748b;font-weight:600">Wt: ${wtStdGrams > 0 ? wtStdGrams + 'g' : '-'} → ${wtActHtml}</div>` : ''}<div style="font-weight:700;color:#7c3aed">Tot Kg: ${totKg.toFixed(1)}</div>${predQty > 0 ? `<div style="font-weight:700;color:#0891b2" title="Predicted by shift end — produced so far + current pace (or STD rate) × remaining runnable hours">Pred: ${predQty} pcs${predKg > 0 ? ` | ${predKg.toFixed(1)} Kg` : ''}</div>` : ''}${rowEffNet > 0 ? `<div style="font-weight:700;color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-weight:700;color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
+                                        let summaryH = !m.is_dummy ? `<div style="text-align:left;cursor:pointer;font-size:0.72rem;line-height:1.32;padding:1px 0" onclick="${summaryClickScript}"><div style="font-weight:700;color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-weight:800;color:#166534;font-size:0.8rem">${totalPcs}<span style="font-weight:500;color:#64748b;font-size:0.68rem"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="color:#db2777;font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="color:#be185d;font-weight:600">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${(wtStdGrams > 0 || wtActGrams > 0) ? `<div style="color:#64748b;font-weight:600">Wt: ${wtStdGrams > 0 ? wtStdGrams + 'g' : '-'} → ${wtActHtml}</div>` : ''}${(stdCt > 0 || avgCt > 0) ? `<div style="color:#0d9488;font-weight:600" title="Cycle Time — STD (mould master) vs Avg CT = net run time ÷ total shots">CT: ${stdCt > 0 ? stdCt + 's' : '-'} → ${avgCt > 0 ? `<span style="font-weight:800;color:${stdCt > 0 && avgCt > stdCt ? '#dc2626' : '#166534'}">${avgCt.toFixed(1)}s</span>` : '-'}</div>` : ''}<div style="font-weight:700;color:#7c3aed">Tot Kg: ${totKg.toFixed(1)}</div>${predQty > 0 ? `<div style="font-weight:700;color:#0891b2" title="Predicted by shift end — produced so far + current pace (or STD rate) × remaining runnable hours">Pred: ${predQty} pcs${predKg > 0 ? ` | ${predKg.toFixed(1)} Kg` : ''}</div>` : ''}${rowEffNet > 0 ? `<div style="font-weight:700;color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-weight:700;color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
 
                                         lineTotalTonnage += sumTonnage;
                                         lineTotalRejTonnage += sumRejTonnage;
