@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.19.0",
+  "latest": "1.20.0",
   "versions": [
+    {
+      "version": "1.20.0",
+      "date": "2026-08-02",
+      "title": "Mould Master — cycle time now fills in output automatically",
+      "summary": "When you add or edit a mould, entering the Cycle Time (and cavities) now fills in PCS/HOUR and Target PCS/DAY for you, so the numbers are always consistent.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-sliders",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "In Add/Edit Mould, PCS/HOUR and Target PCS/DAY are now worked out automatically from the Cycle Time and number of cavities — for example a 40-second cycle with 1 cavity gives 90 pcs/hour and a 2070 daily target. You can still type over the values if needed."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.19.0",
       "date": "2026-08-01",
