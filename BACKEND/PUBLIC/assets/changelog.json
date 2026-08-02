@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.20.1",
+  "latest": "1.20.2",
   "versions": [
+    {
+      "version": "1.20.2",
+      "date": "2026-08-02",
+      "title": "DPR summary now shows Cycle Time and the average achieved",
+      "summary": "Every machine row in the DPR Compliance Summary now shows a CT line: the STD cycle time from the mould master next to the Avg CT the machine actually achieved (net run time ÷ total shots). If the machine is running slower than the standard, the average shows in red so you can spot it at a glance.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Each machine row now shows Cycle Time — STD from the mould master and the Avg CT achieved (run time ÷ shots); a slower-than-standard average is highlighted red."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.20.1",
       "date": "2026-08-02",
