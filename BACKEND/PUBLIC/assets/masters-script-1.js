@@ -252,6 +252,25 @@
       loadLabourJobMachineList();
     }
 
+    // Auto-calc PCS/HOUR and Target PCS/DAY from Cycle Time and No. of Cavities.
+    // PCS/HOUR = (3600 / cycle_time) * cavity   (rounded down)
+    // Target PCS/DAY = PCS/HOUR * 23 running hours
+    function recalcMouldOutput() {
+      const cycle = parseFloat(document.getElementById('mould_cycle_time').value);
+      const cavRaw = parseFloat(document.getElementById('mould_no_of_cav').value);
+      const cav = (isNaN(cavRaw) || cavRaw <= 0) ? 1 : cavRaw;
+      const pcsEl = document.getElementById('mould_pcs_per_hour');
+      const targetEl = document.getElementById('mould_target_pcs_day');
+      if (isNaN(cycle) || cycle <= 0) {
+        pcsEl.value = '';
+        targetEl.value = '';
+        return;
+      }
+      const pcsPerHour = Math.floor((3600 / cycle) * cav);
+      pcsEl.value = pcsPerHour;
+      targetEl.value = pcsPerHour * 23;
+    }
+
     async function loadLabourJobMachineList() {
       const list = document.getElementById('labourJobMachineList');
       if (!list || list.children.length > 0) return;
