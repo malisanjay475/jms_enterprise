@@ -6142,21 +6142,18 @@ app.get('/api/machines/live-status', async (req, res) => {
 app.get('/api/masters/moulds', async (req, res) => {
   // console.log('!!! API HIT: /api/masters/moulds (Top Priority) !!!');
   try {
-    let query = 'SELECT * FROM moulds';
+    // Mould master is a COMPANY-WIDE reference, not factory-scoped: the sync layer
+    // full-pulls every factory's moulds to every LOCAL/MAIN regardless of factory_id
+    // (see services/sync.service.js COMPANY_WIDE_PULL_TABLES). A previous "factory
+    // isolation" filter here contradicted that and hid moulds whose factory_id did
+    // not match the session factory — e.g. Shivani moulds on MAIN carrying the
+    // original import's factory_id showed up blank (KAN-114). Return all moulds.
+    const query = 'SELECT * FROM moulds ORDER BY id ASC';
     const params = [];
 
-    // [FIX] Factory Isolation
-    const factoryId = getFactoryId(req);
-    if (factoryId) {
-      params.push(factoryId);
-      query += ` WHERE factory_id = $${params.length}`;
-    }
-
-    query += ' ORDER BY id ASC';
-
-    // Read-mostly: serve from short-TTL cache keyed by factory.
+    // Read-mostly: serve from a single company-wide short-TTL cache bucket.
     // Invalidated by mould write endpoints (ttlCacheClear('moulds')).
-    const cacheKey = String(factoryId || '');
+    const cacheKey = 'all';
     const cachedMoulds = ttlCacheGet('moulds', cacheKey);
     if (cachedMoulds !== undefined) {
       return res.json({ ok: true, data: cachedMoulds });
