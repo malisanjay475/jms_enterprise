@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.20.2",
+  "latest": "1.20.3",
   "versions": [
+    {
+      "version": "1.20.3",
+      "date": "2026-08-02",
+      "title": "DPR Avg Cycle Time now shows even when shots aren't entered",
+      "summary": "The Avg CT on the DPR Compliance Summary was showing a dash on machines where the shots count wasn't filled in. It now works out the number of shots from the pieces produced and the mould cavities, so the average cycle time always shows for a machine that ran.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Avg CT no longer shows a dash when the shots field is empty — it derives the shot count from produced pieces ÷ cavity."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.20.2",
       "date": "2026-08-02",
