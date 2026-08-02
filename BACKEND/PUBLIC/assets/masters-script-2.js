@@ -9,16 +9,28 @@
     // window before the type resolves.
     let __jmsServerType = null;
     function jmsIsMainServer() { return __jmsServerType === 'MAIN'; }
+    // Mould master writes are allowed on MAIN and STANDALONE, but never on LOCAL —
+    // LOCAL factory servers receive moulds via LOCAL<-MAIN sync. Unresolved server type
+    // (null, before /api/version returns) is treated as NOT allowed so we never briefly
+    // expose Add/Edit on a LOCAL server; the version callback re-runs setupUI once known
+    // (KAN-114). Matches the server guard, which blocks only SERVER_TYPE=LOCAL.
+    function jmsMouldWriteAllowed() { return __jmsServerType === 'MAIN' || __jmsServerType === 'STANDALONE'; }
     fetch('/api/version')
       .then(r => r.json())
       .then(v => {
         __jmsServerType = String(v && v.serverType ? v.serverType : 'MAIN').toUpperCase();
-        // Re-run the toolbar setup if an ERP report is already open, so the button
-        // appears/disappears once the real server type is known.
+        // Re-run the toolbar setup if an ERP report or the Mould master is already open,
+        // so MAIN-only controls appear/disappear once the real server type is known.
         if (typeof currentType !== 'undefined'
-            && ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'].includes(currentType)
+            && ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem', 'moulds'].includes(currentType)
             && typeof setupUI === 'function') {
           try { setupUI(currentType, typeof currentView !== 'undefined' ? currentView : undefined); } catch (_) { /* non-fatal */ }
+          // Moulds: the per-row Edit action is decided during the table render, not in
+          // setupUI, so reload the data too once the server type is known — otherwise the
+          // Edit column stays hidden on MAIN until a manual refresh (KAN-114).
+          if (currentType === 'moulds' && typeof loadMasterData === 'function') {
+            try { loadMasterData(); } catch (_) { /* non-fatal */ }
+          }
         }
       })
       .catch(() => { __jmsServerType = 'MAIN'; }); // API unreachable: assume MAIN (standalone dev)
@@ -880,6 +892,15 @@
         document.getElementById('uploadSection').style.display = 'none';
       }
 
+      // Mould master is mastered on the MAIN server only. On a LOCAL factory server the
+      // mould list is read-only (data arrives via LOCAL<-MAIN sync) — hide the whole
+      // upload/import/clear toolbar so nobody tries to add or bulk-import here. The
+      // server also hard-blocks these writes (KAN-114); this just avoids dead controls.
+      if (type === 'moulds' && !jmsMouldWriteAllowed()) {
+        document.getElementById('uploadSection').style.display = 'none';
+        hintEl.textContent = 'Read-only on this factory server — mould master is managed on MAIN and synced here.';
+      }
+
       // ERP reports: show a slim bar with a superadmin-only "Fetch Latest Data" button.
       const erpTypes = ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'];
       const erpFetchBtn = document.getElementById('erpFetchBtn');
@@ -961,10 +982,15 @@
         box.appendChild(toggleBtn);
       }
 
-      // MOULD Master Specific UI
-      if (type === 'moulds' && JPSMS.auth.can('masters', 'edit')) {
+      // MOULD Master Specific UI. Mould master is mastered on MAIN only — the Add Mould
+      // button is shown on MAIN (or standalone) but hidden on LOCAL servers, which
+      // receive moulds via LOCAL<-MAIN sync (KAN-114). Dedup-guarded because setupUI
+      // re-runs once /api/version resolves the real server type.
+      if (type === 'moulds' && JPSMS.auth.can('masters', 'edit') && jmsMouldWriteAllowed()
+          && !document.getElementById('addMouldBtn')) {
         const box = document.querySelector('.upload-box > div');
         const addBtn = document.createElement('button');
+        addBtn.id = 'addMouldBtn';
         addBtn.className = 'btn-action';
         addBtn.onclick = () => openMouldModal('add');
         addBtn.style.background = '#16a34a';
@@ -1285,7 +1311,8 @@
           // Action & Plan Status are UI helpers, we keep them but then follow strict data order.
           // Added confirmation workflow columns so completed OR/JR changes stay visible until confirmed.
           cols = ['action', 'priority', 'plan_status', 'status_change', 'confirmation_action', 'factory_name', 'mould_progress', ...orJrCols.filter(c => c !== 'factory_name')];
-        } else if ((currentType === 'machines' || currentType === 'moulds') && JPSMS.auth.can('masters', 'edit')) {
+        } else if ((currentType === 'machines' || (currentType === 'moulds' && jmsMouldWriteAllowed())) && JPSMS.auth.can('masters', 'edit')) {
+          // Mould master writes are MAIN/STANDALONE only — no per-row Edit action on LOCAL (KAN-114).
           if (!cols.includes('actions')) cols.unshift('actions');
         }
 

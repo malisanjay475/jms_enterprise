@@ -4970,6 +4970,71 @@
           recalcCpColourPlanModal();
         }
 
+        // Distributes a total Job Qty (sets) across the colour rows proportional to each
+        // row's Mould Item Qty, using largest-remainder rounding so the parts sum exactly
+        // to the (capped) total, and never lets a row exceed its own Job Qty capacity.
+        // Mirrors cpAutoSplitPlanQty so Job Qty and Plan Qty divide consistently — replaces
+        // the old greedy sequential fill that lumped the whole batch onto the first rows
+        // (KAN-115: "Job Qty is not divided perfectly").
+        function cpAutoSplitJobQty(totalValue) {
+          const modal = document.getElementById('cpColourPlanModal');
+          if (!modal) return;
+          const rows = Array.isArray(window.cpColourPlanRows) ? window.cpColourPlanRows : [];
+          if (!rows.length) return;
+          const useInputs = rows.map((_, i) => modal.querySelector(`.cp-colour-use-input[data-row-index="${i}"]`));
+
+          // Proportional weight = each colour's Mould Item Qty (reqQty).
+          const weights = rows.map((r) => Math.max(0, parseCpNumber(r.mouldItemQty ?? r.reqQty) ?? 0));
+          const weightSum = weights.reduce((a, b) => a + b, 0);
+          // Per-row cap = that colour's Job Qty capacity (sets). With a consumption ratio,
+          // sets = Mould Item Qty / ratio; otherwise sets == Mould Item Qty.
+          const caps = rows.map((r) => {
+            const req = Math.max(0, parseCpNumber(r.mouldItemQty ?? r.reqQty) ?? 0);
+            const ratio = parseCpNumber(r.consumptionRatioQty);
+            return ratio && ratio > 0 ? Math.floor(req / ratio) : req;
+          });
+          const capSum = caps.reduce((a, b) => a + b, 0);
+
+          // capSum is the true maximum allocatable (sum of per-row set capacities).
+          // Clamp to it — including when capSum is 0 (nothing can be allocated).
+          let target = Math.max(0, Math.floor(parseCpNumber(totalValue) ?? 0));
+          target = Math.min(target, capSum);
+
+          const shares = rows.map(() => 0);
+          if (target > 0) {
+            if (weightSum > 0) {
+              // Proportional split by Mould Item Qty, floor first, capped per row.
+              const raw = weights.map((w) => target * (w / weightSum));
+              raw.forEach((s, i) => { shares[i] = Math.min(Math.floor(s), caps[i]); });
+            }
+            // Distribute the remaining units one at a time to rows that still have
+            // capacity — largest fractional remainder first (equal weighting when there
+            // are no Mould Item Qty weights) — cycling until the target is met or no row
+            // can take more. Bounded by remaining capacity, so it always terminates and
+            // never under-allocates even with skewed weights vs caps (KAN-115).
+            const fracOf = (i) => {
+              if (weightSum <= 0) return 0;
+              const s = target * (weights[i] / weightSum);
+              return s - Math.floor(s);
+            };
+            const order = rows.map((_, i) => i).sort((a, b) => fracOf(b) - fracOf(a));
+            let leftover = target - shares.reduce((a, b) => a + b, 0);
+            let progressed = true;
+            while (leftover > 0 && progressed) {
+              progressed = false;
+              for (const i of order) {
+                if (leftover <= 0) break;
+                if (shares[i] < caps[i]) { shares[i] += 1; leftover -= 1; progressed = true; }
+              }
+            }
+          }
+
+          rows.forEach((_, i) => {
+            if (useInputs[i]) useInputs[i].value = shares[i] > 0 ? String(shares[i]) : '';
+          });
+          recalcCpColourPlanModal();
+        }
+
         function recalcCpColourPlanModal() {
           const modal = document.getElementById('cpColourPlanModal');
           if (!modal) return;
@@ -5632,6 +5697,13 @@
             // If activeBatchQty > 0, fill the total-plan input and auto-split across colour rows
             if (activeBatchQty > 0 && totalPlanInput) {
               const cappedBatch = mouldBalanceQty > 0 ? Math.min(activeBatchQty, mouldBalanceQty) : activeBatchQty;
+              // Divide Job Qty (sets) proportionally by Mould Item Qty first, then Plan Qty.
+              // Replaces the greedy fill in buildCpColourRows so multi-colour plans split
+              // Job Qty evenly instead of lumping it onto the first rows (KAN-115).
+              // Job Qty is in SETS — split the raw activeBatchQty, not mouldBalanceQty
+              // (a Plan-Qty/pieces limit); each row's own set capacity caps it inside
+              // cpAutoSplitJobQty. Plan Qty (pieces) still uses the piece-based cap.
+              cpAutoSplitJobQty(activeBatchQty);
               totalPlanInput.value = String(cappedBatch);
               cpAutoSplitPlanQty(cappedBatch);
             }
