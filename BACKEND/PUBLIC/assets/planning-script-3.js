@@ -4970,6 +4970,67 @@
           recalcCpColourPlanModal();
         }
 
+        // Distributes a total Job Qty (sets) across the colour rows proportional to each
+        // row's Mould Item Qty, using largest-remainder rounding so the parts sum exactly
+        // to the (capped) total, and never lets a row exceed its own Job Qty capacity.
+        // Mirrors cpAutoSplitPlanQty so Job Qty and Plan Qty divide consistently — replaces
+        // the old greedy sequential fill that lumped the whole batch onto the first rows
+        // (KAN-115: "Job Qty is not divided perfectly").
+        function cpAutoSplitJobQty(totalValue) {
+          const modal = document.getElementById('cpColourPlanModal');
+          if (!modal) return;
+          const rows = Array.isArray(window.cpColourPlanRows) ? window.cpColourPlanRows : [];
+          if (!rows.length) return;
+          const useInputs = rows.map((_, i) => modal.querySelector(`.cp-colour-use-input[data-row-index="${i}"]`));
+
+          // Proportional weight = each colour's Mould Item Qty (reqQty).
+          const weights = rows.map((r) => Math.max(0, parseCpNumber(r.mouldItemQty ?? r.reqQty) ?? 0));
+          const weightSum = weights.reduce((a, b) => a + b, 0);
+          // Per-row cap = that colour's Job Qty capacity (sets). With a consumption ratio,
+          // sets = Mould Item Qty / ratio; otherwise sets == Mould Item Qty.
+          const caps = rows.map((r) => {
+            const req = Math.max(0, parseCpNumber(r.mouldItemQty ?? r.reqQty) ?? 0);
+            const ratio = parseCpNumber(r.consumptionRatioQty);
+            return ratio && ratio > 0 ? Math.floor(req / ratio) : req;
+          });
+          const capSum = caps.reduce((a, b) => a + b, 0);
+
+          let target = Math.max(0, Math.floor(parseCpNumber(totalValue) ?? 0));
+          const hardMax = capSum > 0 ? capSum : target;
+          target = Math.min(target, hardMax);
+
+          const shares = rows.map(() => 0);
+          if (weightSum <= 0) {
+            // No Mould Item Qty weights — split equally, respecting caps.
+            const n = rows.length;
+            const base = Math.floor(target / n);
+            let rem = target - base * n;
+            rows.forEach((_, i) => {
+              shares[i] = Math.min(base + (i < rem ? 1 : 0), caps[i] > 0 ? caps[i] : base + (i < rem ? 1 : 0));
+            });
+          } else {
+            // Proportional split by Mould Item Qty, floor first, capped per row.
+            const raw = weights.map((w) => target * (w / weightSum));
+            raw.forEach((s, i) => { shares[i] = Math.min(Math.floor(s), caps[i]); });
+            let leftover = target - shares.reduce((a, b) => a + b, 0);
+            // Hand out remaining units to the largest fractional remainders (respecting caps).
+            const order = raw
+              .map((s, i) => ({ i, frac: s - Math.floor(s) }))
+              .sort((a, b) => b.frac - a.frac);
+            let guard = 0;
+            while (leftover > 0 && guard < order.length * 4) {
+              const idx = order[guard % order.length].i;
+              if (shares[idx] < caps[idx]) { shares[idx] += 1; leftover -= 1; }
+              guard++;
+            }
+          }
+
+          rows.forEach((_, i) => {
+            if (useInputs[i]) useInputs[i].value = shares[i] > 0 ? String(shares[i]) : '';
+          });
+          recalcCpColourPlanModal();
+        }
+
         function recalcCpColourPlanModal() {
           const modal = document.getElementById('cpColourPlanModal');
           if (!modal) return;
@@ -5632,6 +5693,10 @@
             // If activeBatchQty > 0, fill the total-plan input and auto-split across colour rows
             if (activeBatchQty > 0 && totalPlanInput) {
               const cappedBatch = mouldBalanceQty > 0 ? Math.min(activeBatchQty, mouldBalanceQty) : activeBatchQty;
+              // Divide Job Qty (sets) proportionally by Mould Item Qty first, then Plan Qty.
+              // Replaces the greedy fill in buildCpColourRows so multi-colour plans split
+              // Job Qty evenly instead of lumping it onto the first rows (KAN-115).
+              cpAutoSplitJobQty(cappedBatch);
               totalPlanInput.value = String(cappedBatch);
               cpAutoSplitPlanQty(cappedBatch);
             }
