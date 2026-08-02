@@ -19,6 +19,12 @@
             && ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem', 'moulds'].includes(currentType)
             && typeof setupUI === 'function') {
           try { setupUI(currentType, typeof currentView !== 'undefined' ? currentView : undefined); } catch (_) { /* non-fatal */ }
+          // Moulds: the per-row Edit action is decided during the table render, not in
+          // setupUI, so reload the data too once the server type is known — otherwise the
+          // Edit column stays hidden on MAIN until a manual refresh (KAN-114).
+          if (currentType === 'moulds' && typeof loadMasterData === 'function') {
+            try { loadMasterData(); } catch (_) { /* non-fatal */ }
+          }
         }
       })
       .catch(() => { __jmsServerType = 'MAIN'; }); // API unreachable: assume MAIN (standalone dev)
