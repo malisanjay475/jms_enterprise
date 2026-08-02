@@ -668,10 +668,10 @@
         <div><label class="control-label">Tonnage</label><input type="number" step="0.01" id="mould_tonnage"
             class="form-input" style="width:100%"></div>
         <div><label class="control-label">NO OF CAV</label><input type="number" step="0.01" id="mould_no_of_cav"
-            class="form-input" style="width:100%"></div>
+            class="form-input" style="width:100%" oninput="recalcMouldOutput()"></div>
 
         <div><label class="control-label">Cycle Time</label><input type="number" step="0.01" id="mould_cycle_time"
-            class="form-input" style="width:100%"></div>
+            class="form-input" style="width:100%" oninput="recalcMouldOutput()"></div>
         <div><label class="control-label">PCS/HOUR</label><input type="number" step="0.01" id="mould_pcs_per_hour"
             class="form-input" style="width:100%"></div>
         <div><label class="control-label">Target PCS/DAY</label><input type="number" step="0.01" id="mould_target_pcs_day"
@@ -821,7 +821,7 @@
   <datalist id="machineList"></datalist>
   <datalist id="labourJobMachineList"></datalist>
 
-  <script src="/assets/masters-script-1.js?v=release83"></script>
+  <script src="/assets/masters-script-1.js?v=release93"></script>
 
   <!-- Scripts -->
   <script src="/assets/app.min.js?v=release86"></script>
