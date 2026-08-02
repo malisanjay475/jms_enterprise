@@ -6142,21 +6142,18 @@ app.get('/api/machines/live-status', async (req, res) => {
 app.get('/api/masters/moulds', async (req, res) => {
   // console.log('!!! API HIT: /api/masters/moulds (Top Priority) !!!');
   try {
-    let query = 'SELECT * FROM moulds';
+    // Mould master is a COMPANY-WIDE reference, not factory-scoped: the sync layer
+    // full-pulls every factory's moulds to every LOCAL/MAIN regardless of factory_id
+    // (see services/sync.service.js COMPANY_WIDE_PULL_TABLES). A previous "factory
+    // isolation" filter here contradicted that and hid moulds whose factory_id did
+    // not match the session factory — e.g. Shivani moulds on MAIN carrying the
+    // original import's factory_id showed up blank (KAN-114). Return all moulds.
+    const query = 'SELECT * FROM moulds ORDER BY id ASC';
     const params = [];
 
-    // [FIX] Factory Isolation
-    const factoryId = getFactoryId(req);
-    if (factoryId) {
-      params.push(factoryId);
-      query += ` WHERE factory_id = $${params.length}`;
-    }
-
-    query += ' ORDER BY id ASC';
-
-    // Read-mostly: serve from short-TTL cache keyed by factory.
+    // Read-mostly: serve from a single company-wide short-TTL cache bucket.
     // Invalidated by mould write endpoints (ttlCacheClear('moulds')).
-    const cacheKey = String(factoryId || '');
+    const cacheKey = 'all';
     const cachedMoulds = ttlCacheGet('moulds', cacheKey);
     if (cachedMoulds !== undefined) {
       return res.json({ ok: true, data: cachedMoulds });
@@ -17904,6 +17901,21 @@ app.post('/api/orjr/reopen', async (req, res) => {
   }
 });
 
+// Mould master is mastered on the MAIN server only. LOCAL factory servers receive
+// moulds through LOCAL<-MAIN sync (company-wide, pull-only), so they must never add,
+// edit or bulk-import moulds locally — a local write would create rows MAIN doesn't
+// know about and let the master diverge. STANDALONE servers are unaffected (KAN-114).
+function guardMouldWriteMainOnly(res) {
+  if (String(process.env.SERVER_TYPE || '').toUpperCase() === 'LOCAL') {
+    res.status(403).json({
+      ok: false,
+      error: 'Mould Master can only be added or edited on the MAIN server. This factory server receives mould updates automatically via sync.'
+    });
+    return true;
+  }
+  return false;
+}
+
 // 6. UPLOAD (Real Excel Parsing)
 app.post('/api/upload/:type', async (req, res, next) => {
   const { type } = req.params;
@@ -17917,6 +17929,8 @@ app.post('/api/upload/:type', async (req, res, next) => {
     }
 
     try {
+      // Mould master is MAIN-only — block bulk mould import on LOCAL servers.
+      if (type === 'moulds' && guardMouldWriteMainOnly(res)) return;
       // Bulk master import can change moulds/machines — drop cached list reads.
       ttlCacheClear('moulds');
       ttlCacheClear('machines');
@@ -20446,6 +20460,7 @@ app.get('/api/machines/history/:id', async (req, res) => {
 // 1. CREATE Mould
 app.post('/api/moulds', async (req, res) => {
   try {
+    if (guardMouldWriteMainOnly(res)) return; // MAIN-only master
     ttlCacheClear('moulds'); // mould list changes — drop cached reads
     const payload = normalizeMouldMasterPayload(req.body || {});
     const actor = req.body?._user || req.body?.user || getRequestUsername(req) || 'System';
@@ -20494,6 +20509,7 @@ app.post('/api/moulds', async (req, res) => {
 // 2. UPDATE Mould (With Audit)
 app.put('/api/moulds/:id', async (req, res) => {
   try {
+    if (guardMouldWriteMainOnly(res)) return; // MAIN-only master
     ttlCacheClear('moulds'); // mould list changes — drop cached reads
     const { id } = req.params;
     const writeContext = await getWritableFactoryContext(req, 'edit moulds');
