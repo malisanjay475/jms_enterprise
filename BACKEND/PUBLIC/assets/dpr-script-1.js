@@ -1200,6 +1200,36 @@
                         allDates.forEach(date => {
                             const dayData = dayDatesMap[date] || { entries: {}, maintenance: {}, setups: [] };
                             const nightData = nightDatesMap[date] || { entries: {}, maintenance: {}, setups: [] };
+
+                            // Cross-shift STD index. A machine's setup (cycle time / cavity /
+                            // std pcs-hr) is usually entered ONCE — during the Day shift — but the
+                            // same mould keeps running into the Night shift, whose own setups list
+                            // is then empty. Without this, Night rows lose their STD (shows blank)
+                            // and OEE/EFF can't be computed. Index every setup from BOTH shifts by
+                            // machine + order / mould-code / mould-name so either shift can fall
+                            // back to the other's setup. Prefer a setup that actually carries STD.
+                            const _stdKey = (v) => (v || '').toString().toLowerCase().trim().replace(/\s+/g, ' ');
+                            const _setupHasStd = (s) => (parseFloat(s.std_pcs_hr) > 0)
+                                || (parseFloat(s.pcshr_act) > 0)
+                                || (parseFloat(s.cycle_act || s.std_cycle_time) > 0);
+                            const crossShiftSetup = {};
+                            const _registerSetup = (s) => {
+                                if (!s || !s.machine) return;
+                                const mkey = _stdKey(s.machine);
+                                const keys = [];
+                                if (s.order_no)   keys.push(mkey + '|o|' + _stdKey(s.order_no));
+                                if (s.mould_no)   keys.push(mkey + '|c|' + _stdKey(s.mould_no));
+                                if (s.mould_name) keys.push(mkey + '|n|' + _stdKey(s.mould_name));
+                                for (const k of keys) {
+                                    // Keep the first entry, but let a setup that has STD override
+                                    // one that doesn't.
+                                    if (!crossShiftSetup[k] || (!_setupHasStd(crossShiftSetup[k]) && _setupHasStd(s))) {
+                                        crossShiftSetup[k] = s;
+                                    }
+                                }
+                            };
+                            [...(dayData.setups || []), ...(nightData.setups || [])].forEach(_registerSetup);
+
                             const dayTeam = dayTeamsByDate[date] || [];
                             const nightTeam = nightTeamsByDate[date] || [];
 
@@ -1553,6 +1583,27 @@
                                         // STD & Weight Fallback Logic
                                         const d = fullDetails || {};
                                         let finalStd = parseFloat(std || 0);
+
+                                        // Cross-shift STD rescue: if this shift's source (e.g. a Night
+                                        // log entry) carries no STD, borrow the setup entered in the
+                                        // other shift for the same machine + order / code / name. Merge
+                                        // its cycle/cavity/weight so stdCavPcsHr and Wt also resolve.
+                                        if (!finalStd || !(parseFloat(d.std_cycle_time) > 0)) {
+                                            const _mk = _stdKey(machine);
+                                            const _cs = (order && crossShiftSetup[_mk + '|o|' + _stdKey(order)])
+                                                || (code && crossShiftSetup[_mk + '|c|' + _stdKey(code)])
+                                                || (name && crossShiftSetup[_mk + '|n|' + _stdKey(name)]);
+                                            if (_cs) {
+                                                if (!finalStd) finalStd = parseFloat(_cs.std_pcs_hr) || 0;
+                                                ['std_cycle_time', 'std_cavity', 'act_cavity', 'cavity_act',
+                                                 'cycle_act', 'std_weight', 'act_weight', 'pcshr_act'].forEach(f => {
+                                                    if ((d[f] === undefined || d[f] === null || d[f] === '' || parseFloat(d[f]) === 0)
+                                                        && _cs[f] !== undefined && _cs[f] !== null && _cs[f] !== '') {
+                                                        d[f] = _cs[f];
+                                                    }
+                                                });
+                                            }
+                                        }
 
                                         if (!finalStd && d.pcshr_act) finalStd = parseFloat(d.pcshr_act);
 
