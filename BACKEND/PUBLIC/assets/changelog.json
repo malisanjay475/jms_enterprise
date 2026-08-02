@@ -11,8 +11,61 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.20.2",
+  "latest": "1.21.0",
   "versions": [
+    {
+      "version": "1.21.0",
+      "date": "2026-08-02",
+      "title": "Mould Master fixes and correct Job Qty split when creating plans",
+      "summary": "The Mould Master now shows for every factory on the main server, and mould records can only be added or edited on the main server so the master stays consistent everywhere. On the factory servers the Mould Master is view-only and updates arrive automatically. When creating a plan across multiple colours, the Job Qty is now shared out correctly across the colours instead of piling onto the first ones.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Mould Master now lists all moulds on the main server — it no longer shows blank for a factory whose moulds were saved under a different factory."
+            },
+            {
+              "type": "improvement",
+              "text": "Mould Master can be added or edited on the main server only; on a factory server it is view-only and updates arrive automatically by sync."
+            }
+          ]
+        },
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Create Plan now divides the Job Qty across colour rows in proportion to each colour's quantity, instead of lumping it onto the first rows."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.20.3",
+      "date": "2026-08-02",
+      "title": "DPR Avg Cycle Time now shows even when shots aren't entered",
+      "summary": "The Avg CT on the DPR Compliance Summary was showing a dash on machines where the shots count wasn't filled in. It now works out the number of shots from the pieces produced and the mould cavities, so the average cycle time always shows for a machine that ran.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Avg CT no longer shows a dash when the shots field is empty — it derives the shot count from produced pieces ÷ cavity."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.20.2",
       "date": "2026-08-02",
