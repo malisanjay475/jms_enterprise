@@ -4995,33 +4995,37 @@
           });
           const capSum = caps.reduce((a, b) => a + b, 0);
 
+          // capSum is the true maximum allocatable (sum of per-row set capacities).
+          // Clamp to it — including when capSum is 0 (nothing can be allocated).
           let target = Math.max(0, Math.floor(parseCpNumber(totalValue) ?? 0));
-          const hardMax = capSum > 0 ? capSum : target;
-          target = Math.min(target, hardMax);
+          target = Math.min(target, capSum);
 
           const shares = rows.map(() => 0);
-          if (weightSum <= 0) {
-            // No Mould Item Qty weights — split equally, respecting caps.
-            const n = rows.length;
-            const base = Math.floor(target / n);
-            let rem = target - base * n;
-            rows.forEach((_, i) => {
-              shares[i] = Math.min(base + (i < rem ? 1 : 0), caps[i] > 0 ? caps[i] : base + (i < rem ? 1 : 0));
-            });
-          } else {
-            // Proportional split by Mould Item Qty, floor first, capped per row.
-            const raw = weights.map((w) => target * (w / weightSum));
-            raw.forEach((s, i) => { shares[i] = Math.min(Math.floor(s), caps[i]); });
+          if (target > 0) {
+            if (weightSum > 0) {
+              // Proportional split by Mould Item Qty, floor first, capped per row.
+              const raw = weights.map((w) => target * (w / weightSum));
+              raw.forEach((s, i) => { shares[i] = Math.min(Math.floor(s), caps[i]); });
+            }
+            // Distribute the remaining units one at a time to rows that still have
+            // capacity — largest fractional remainder first (equal weighting when there
+            // are no Mould Item Qty weights) — cycling until the target is met or no row
+            // can take more. Bounded by remaining capacity, so it always terminates and
+            // never under-allocates even with skewed weights vs caps (KAN-115).
+            const fracOf = (i) => {
+              if (weightSum <= 0) return 0;
+              const s = target * (weights[i] / weightSum);
+              return s - Math.floor(s);
+            };
+            const order = rows.map((_, i) => i).sort((a, b) => fracOf(b) - fracOf(a));
             let leftover = target - shares.reduce((a, b) => a + b, 0);
-            // Hand out remaining units to the largest fractional remainders (respecting caps).
-            const order = raw
-              .map((s, i) => ({ i, frac: s - Math.floor(s) }))
-              .sort((a, b) => b.frac - a.frac);
-            let guard = 0;
-            while (leftover > 0 && guard < order.length * 4) {
-              const idx = order[guard % order.length].i;
-              if (shares[idx] < caps[idx]) { shares[idx] += 1; leftover -= 1; }
-              guard++;
+            let progressed = true;
+            while (leftover > 0 && progressed) {
+              progressed = false;
+              for (const i of order) {
+                if (leftover <= 0) break;
+                if (shares[i] < caps[i]) { shares[i] += 1; leftover -= 1; progressed = true; }
+              }
             }
           }
 
@@ -5696,7 +5700,10 @@
               // Divide Job Qty (sets) proportionally by Mould Item Qty first, then Plan Qty.
               // Replaces the greedy fill in buildCpColourRows so multi-colour plans split
               // Job Qty evenly instead of lumping it onto the first rows (KAN-115).
-              cpAutoSplitJobQty(cappedBatch);
+              // Job Qty is in SETS — split the raw activeBatchQty, not mouldBalanceQty
+              // (a Plan-Qty/pieces limit); each row's own set capacity caps it inside
+              // cpAutoSplitJobQty. Plan Qty (pieces) still uses the piece-based cap.
+              cpAutoSplitJobQty(activeBatchQty);
               totalPlanInput.value = String(cappedBatch);
               cpAutoSplitPlanQty(cappedBatch);
             }

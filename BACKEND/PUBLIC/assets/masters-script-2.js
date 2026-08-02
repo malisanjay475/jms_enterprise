@@ -9,6 +9,12 @@
     // window before the type resolves.
     let __jmsServerType = null;
     function jmsIsMainServer() { return __jmsServerType === 'MAIN'; }
+    // Mould master writes are allowed on MAIN and STANDALONE, but never on LOCAL —
+    // LOCAL factory servers receive moulds via LOCAL<-MAIN sync. Unresolved server type
+    // (null, before /api/version returns) is treated as NOT allowed so we never briefly
+    // expose Add/Edit on a LOCAL server; the version callback re-runs setupUI once known
+    // (KAN-114). Matches the server guard, which blocks only SERVER_TYPE=LOCAL.
+    function jmsMouldWriteAllowed() { return __jmsServerType === 'MAIN' || __jmsServerType === 'STANDALONE'; }
     fetch('/api/version')
       .then(r => r.json())
       .then(v => {
@@ -890,7 +896,7 @@
       // mould list is read-only (data arrives via LOCAL<-MAIN sync) — hide the whole
       // upload/import/clear toolbar so nobody tries to add or bulk-import here. The
       // server also hard-blocks these writes (KAN-114); this just avoids dead controls.
-      if (type === 'moulds' && !jmsIsMainServer()) {
+      if (type === 'moulds' && !jmsMouldWriteAllowed()) {
         document.getElementById('uploadSection').style.display = 'none';
         hintEl.textContent = 'Read-only on this factory server — mould master is managed on MAIN and synced here.';
       }
@@ -980,7 +986,7 @@
       // button is shown on MAIN (or standalone) but hidden on LOCAL servers, which
       // receive moulds via LOCAL<-MAIN sync (KAN-114). Dedup-guarded because setupUI
       // re-runs once /api/version resolves the real server type.
-      if (type === 'moulds' && JPSMS.auth.can('masters', 'edit') && jmsIsMainServer()
+      if (type === 'moulds' && JPSMS.auth.can('masters', 'edit') && jmsMouldWriteAllowed()
           && !document.getElementById('addMouldBtn')) {
         const box = document.querySelector('.upload-box > div');
         const addBtn = document.createElement('button');
@@ -1305,8 +1311,8 @@
           // Action & Plan Status are UI helpers, we keep them but then follow strict data order.
           // Added confirmation workflow columns so completed OR/JR changes stay visible until confirmed.
           cols = ['action', 'priority', 'plan_status', 'status_change', 'confirmation_action', 'factory_name', 'mould_progress', ...orJrCols.filter(c => c !== 'factory_name')];
-        } else if ((currentType === 'machines' || (currentType === 'moulds' && jmsIsMainServer())) && JPSMS.auth.can('masters', 'edit')) {
-          // Mould master is MAIN-only — no per-row Edit action on LOCAL servers (KAN-114).
+        } else if ((currentType === 'machines' || (currentType === 'moulds' && jmsMouldWriteAllowed())) && JPSMS.auth.can('masters', 'edit')) {
+          // Mould master writes are MAIN/STANDALONE only — no per-row Edit action on LOCAL (KAN-114).
           if (!cols.includes('actions')) cols.unshift('actions');
         }
 

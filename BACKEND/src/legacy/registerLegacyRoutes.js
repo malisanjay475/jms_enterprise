@@ -20816,6 +20816,10 @@ app.post('/api/admin/clear-data', async (req, res) => {
       return res.json({ ok: true, message: `All ${erpTable} data cleared (${removed} row(s) deleted).` });
     }
 
+    // Mould master is mastered on MAIN only — never allow wiping moulds from a
+    // LOCAL server (they'd just resync from MAIN, or diverge). KAN-114.
+    if (type === 'moulds' && guardMouldWriteMainOnly(res)) return;
+
     // Factory-scoped master tables require a single writable factory context.
     const writeContext = await getWritableFactoryContext(req, 'clear master data');
     if (!writeContext.ok) {
