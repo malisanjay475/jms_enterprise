@@ -11,8 +11,38 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.20.0",
+  "latest": "1.20.1",
   "versions": [
+    {
+      "version": "1.20.1",
+      "date": "2026-08-02",
+      "title": "More accurate Efficiency and OEE figures",
+      "summary": "Machine OEE and mould Efficiency now use the correct formulas, so the numbers reflect real shop-floor performance.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Machine Monitor",
+          "icon": "bi-speedometer2",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "OEE is now calculated correctly — rejected parts are no longer counted against the machine twice, so OEE and its Performance figure read accurately when there are rejects."
+            }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Mould Efficiency now measures against 23 productive hours per day (11.5 per shift), matching the Target PCS/DAY standard, instead of a full 24 hours — so efficiency percentages are realistic."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.20.0",
       "date": "2026-08-02",
