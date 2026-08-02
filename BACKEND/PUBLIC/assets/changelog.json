@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.18.1",
+  "latest": "1.19.0",
   "versions": [
+    {
+      "version": "1.19.0",
+      "date": "2026-08-01",
+      "title": "ERP reports — complete data, fetched centrally",
+      "summary": "ERP reports now show every row exactly as the ERP sends it — no more collapsed colour/mould lines — and all five ERP reports (JR Status, JR Summary, OR JR Details, BOM, Mould Item) are fetched once on the main server and shared automatically to every factory. Factory servers no longer contact the ERP directly.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-sliders",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "ERP reports now list every row the ERP returns — repeated colour or mould lines are no longer merged away, so nothing is hidden after a fetch and planned quantity adds up correctly."
+            },
+            {
+              "type": "feat",
+              "text": "ERP data is now fetched only on the main server and shared to every factory automatically; all five ERP reports (JR Status, JR Summary, OR JR Details, BOM, Mould Item) come down to each factory on their own, and factory servers never call the ERP directly."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.18.1",
       "date": "2026-08-01",
