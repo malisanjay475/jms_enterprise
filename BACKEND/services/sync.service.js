@@ -284,7 +284,10 @@ const GLOBAL_MASTER_TABLES = new Set([
 
 const SYNC_ID_REQUIRED_TABLES = ['notifications'];
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
-const SYNC_SCHEMA_READY_VERSION = '2026-06-21-failed-row-outbox-v1';
+// Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
+// re-runs the full startup sweep once instead of skipping it on the cached marker.
+// 2026-08-03: drop the obsolete uq_sync_conflict_notifications index (see ensureSyncIdSchema).
+const SYNC_SCHEMA_READY_VERSION = '2026-08-03-drop-notif-conflict-idx-v1';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
