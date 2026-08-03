@@ -83,16 +83,32 @@ async function startServer() {
     httpsRuntime.httpsServer.keepAliveTimeout = 60000;
     httpsRuntime.httpsServer.headersTimeout = 61000;
     httpsRuntime.httpsServer.on('clientError', (err, socket) => {
-      console.error('[HTTPS CLIENT ERROR]', err.message, err.stack);
-      socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+      // ECONNRESET/EPIPE on a client socket = the peer dropped the connection
+      // (idle keep-alive timeout, tab close/refresh, flaky factory LAN, sync
+      // blip). These are expected background noise on any keep-alive server and
+      // do not affect other requests — don't spam the log with them.
+      if (err.code !== 'ECONNRESET' && err.code !== 'EPIPE') {
+        console.error('[HTTPS CLIENT ERROR]', err.message, err.stack);
+      }
+      if (socket.writable) {
+        socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+      }
     });
     server.httpsServer = httpsRuntime.httpsServer;
     server.httpsPort = httpsRuntime.httpsPort;
   }
 
   server.on('clientError', (err, socket) => {
-    console.error('[HTTP CLIENT ERROR]', err.message, err.stack);
-    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+    // ECONNRESET/EPIPE on a client socket = the peer dropped the connection
+    // (idle keep-alive timeout, tab close/refresh, flaky factory LAN, sync
+    // blip). These are expected background noise on any keep-alive server and
+    // do not affect other requests — don't spam the log with them.
+    if (err.code !== 'ECONNRESET' && err.code !== 'EPIPE') {
+      console.error('[HTTP CLIENT ERROR]', err.message, err.stack);
+    }
+    if (socket.writable) {
+      socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+    }
   });
 
   if (legacyHooks.startupLog) legacyHooks.startupLog(server);
