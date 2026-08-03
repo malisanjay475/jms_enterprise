@@ -284,7 +284,10 @@ const GLOBAL_MASTER_TABLES = new Set([
 
 const SYNC_ID_REQUIRED_TABLES = ['notifications'];
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
-const SYNC_SCHEMA_READY_VERSION = '2026-06-21-failed-row-outbox-v1';
+// Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
+// re-runs the full startup sweep once instead of skipping it on the cached marker.
+// 2026-08-03: drop the obsolete uq_sync_conflict_notifications index (see ensureSyncIdSchema).
+const SYNC_SCHEMA_READY_VERSION = '2026-08-03-drop-notif-conflict-idx-v1';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -2298,6 +2301,14 @@ async function ensureSyncIdSchema() {
                      WHERE n.id = r.id
                        AND r.rn > 1
                 `);
+                // Drop the obsolete natural-key unique index left by older packages.
+                // notifications identity is now sync_id (uq_sync_id_notifications, created
+                // below); the stale uq_sync_conflict_notifications on
+                // (target_user, type, title, created_at) is no longer in SYNC_CONFLICT_INDEXES
+                // and, where it lingers, rejects incoming rows that carry a fresh sync_id but
+                // repeat those four columns — failing the pull every cycle and pinning
+                // LAST_PULL. Removing it lets sync_id be the sole identity.
+                await pool.query('DROP INDEX IF EXISTS uq_sync_conflict_notifications');
             } else {
                 await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
             }
