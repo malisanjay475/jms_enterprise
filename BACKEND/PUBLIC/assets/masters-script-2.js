@@ -1131,6 +1131,25 @@
         const res = await JPSMS.api.get(endpoint);
         let rows = res.data || [];
 
+        // Mould Master: apply the ACTIVE factory scope as a CLIENT-SIDE view filter.
+        // The server returns moulds company-wide on purpose (so nothing is ever hidden
+        // on MAIN — KAN-114). Here we narrow the view to the selected factory using the
+        // existing factory switcher: a single-factory login/selection (e.g. Kachigam)
+        // shows only that factory's moulds; "All Factories" (superadmin on MAIN) shows
+        // every factory's moulds. Falls back to the login/write factory when no explicit
+        // view scope is set (the normal case on a LOCAL factory server, which is bound to
+        // one factory). Client-side only — the endpoint and KAN-114 behaviour are unchanged.
+        if (currentType === 'moulds') {
+          const scopeFactoryId = (currentFactoryScope && currentFactoryScope.isAll)
+            ? null
+            : ((currentFactoryScope && currentFactoryScope.id)
+                || (currentWriteScope && currentWriteScope.id)
+                || null);
+          if (scopeFactoryId) {
+            rows = rows.filter(r => String(r.factory_id) === String(scopeFactoryId));
+          }
+        }
+
         // ERP reports: reflect when the store was last refreshed.
         if (['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem'].includes(currentType)) {
           const el = document.getElementById('erpLastSync');
