@@ -132,14 +132,19 @@ function runBackup() {
   let fileFinished = false;
   let procCode = null; // set once pg_dump closes
 
+  const removePartial = () => {
+    try { if (fs.existsSync(gzPath)) fs.unlinkSync(gzPath); } catch (_) {}
+  };
   const fail = (msg) => {
     if (failed) return;
     failed = true;
     console.error('[Backup] pg_dump failed:', msg);
     try { child.kill(); } catch (_) {}
-    // Remove empty/partial file if it was created
-    out.destroy();
-    try { if (fs.existsSync(gzPath)) fs.unlinkSync(gzPath); } catch (_) {}
+    // out.destroy() releases the file descriptor asynchronously; unlinking before
+    // 'close' can race (EBUSY on Windows) and leave a partial backup_*.sql.gz. Wait
+    // for the stream to actually close, then remove the partial file.
+    if (out.destroyed) removePartial();
+    else { out.once('close', removePartial); out.destroy(); }
   };
 
   // Report success only when BOTH the process exited 0 AND the gzip→file pipeline
