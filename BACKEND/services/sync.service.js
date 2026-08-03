@@ -138,7 +138,15 @@ const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary
 const CONFLICT_KEYS = {
     users: 'id',
     roles: 'code',
-    orders: 'id',
+    // Natural key: order_no is UNIQUE NOT NULL at table creation (orders_order_no_key).
+    // Serial `id` diverges between LOCAL and MAIN when both mint orders independently, so
+    // keying on `id` let two servers' unrelated orders collide on order_no's unique index
+    // (23505 on orders_order_no_key — the recurring push failure). Nothing references
+    // orders.id (no FK, no order_id column anywhere; all joins use order_no), so the
+    // id divergence caused by dropping id from the sync payload is harmless. Matches the
+    // natural-key pattern used by std_actual / plan_board / or_jr_report. See
+    // [[project_sync_conflict_natural_key]].
+    orders: 'order_no',
     plan_board: 'plan_id',
     plan_audit_logs: 'id',
     plan_history: 'id',
