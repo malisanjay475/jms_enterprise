@@ -33,6 +33,25 @@
       ]
     },
     {
+      "version": "1.21.3",
+      "date": "2026-08-03",
+      "title": "Factory servers finish catching up after a sync stall",
+      "summary": "Clears a leftover notifications rule on factory servers that was stopping the sync from fully catching up, so a server that had fallen behind resumes advancing normally.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Removed an outdated notifications rule on factory servers that could block the sync from fully catching up after a stall."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.21.2",
       "date": "2026-08-03",
       "title": "Mould Master now shows only the selected factory's moulds",
