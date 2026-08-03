@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.2",
+  "latest": "1.21.4",
   "versions": [
+    {
+      "version": "1.21.4",
+      "date": "2026-08-03",
+      "title": "Order data syncs reliably between factory servers and the main server",
+      "summary": "Fixes a case where an order could repeatedly fail to sync between a factory server and the main server, leaving it out of date. Orders now match up by their order number, so they stay consistent everywhere.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Orders no longer get stuck failing to sync — they are now matched by order number between the factory and main servers, so the same order stays consistent on both."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.2",
       "date": "2026-08-03",
