@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.0",
+  "latest": "1.21.1",
   "versions": [
+    {
+      "version": "1.21.1",
+      "date": "2026-08-03",
+      "title": "Factory servers sync reliably again, and local backups keep working",
+      "summary": "A factory server that had stopped receiving updates from the main server now catches up and stays in sync. Automatic local backups also keep running even when the database has grown large.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Factory servers that had stopped pulling updates from the main server now sync again — order/JR data resumes flowing instead of freezing."
+            },
+            {
+              "type": "fix",
+              "text": "Automatic local backups on the factory server now work even for very large databases, so a safety copy is always available."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.0",
       "date": "2026-08-02",

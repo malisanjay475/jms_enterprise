@@ -241,13 +241,16 @@ const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
 
 // Tables whose ON CONFLICT target must be a raw expression rather than a plain
 // column list, because the backing unique index is built on an expression.
-// or_jr_report's unique index is idx_or_jr_jc_unique ON (or_jr_no, COALESCE(job_card_no, '')) —
+// or_jr_report's unique index is idx_or_jr_jc_unique ON (TRIM(or_jr_no), COALESCE(job_card_no, '')) —
 // the single-column unique on or_jr_no was dropped (one OR/JR can have many job cards),
 // so ON CONFLICT (or_jr_no) no longer matches any index. The target must reproduce the
-// index expression exactly. getConflictColumns still returns ['or_jr_no'] for deletion-PK
-// parsing; only the upsert conflict target is overridden here.
+// index expression EXACTLY — including TRIM(or_jr_no). Omitting TRIM made ON CONFLICT
+// infer against a non-existent index and fail every row with 42P10 ("no unique or
+// exclusion constraint matching the ON CONFLICT specification"), which froze LAST_PULL.
+// getConflictColumns still returns ['or_jr_no'] for deletion-PK parsing; only the upsert
+// conflict target is overridden here.
 const RAW_CONFLICT_TARGETS = {
-    or_jr_report: `or_jr_no, COALESCE(job_card_no, '')`
+    or_jr_report: `TRIM(or_jr_no), COALESCE(job_card_no, '')`
 };
 
 const SYNC_CONFLICT_INDEXES = {
