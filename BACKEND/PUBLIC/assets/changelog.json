@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.1",
+  "latest": "1.21.2",
   "versions": [
+    {
+      "version": "1.21.2",
+      "date": "2026-08-03",
+      "title": "Mould Master now shows only the selected factory's moulds",
+      "summary": "The Mould Master follows the factory you are logged into or have selected — it lists only that factory's moulds instead of every factory's. Superadmins on the main server can still choose 'All Factories' to see everything.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Mould Master now shows only the moulds for the factory you are logged into or have selected; choose 'All Factories' to see every factory's moulds."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.1",
       "date": "2026-08-03",
