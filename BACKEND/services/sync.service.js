@@ -2298,6 +2298,14 @@ async function ensureSyncIdSchema() {
                      WHERE n.id = r.id
                        AND r.rn > 1
                 `);
+                // Drop the obsolete natural-key unique index left by older packages.
+                // notifications identity is now sync_id (uq_sync_id_notifications, created
+                // below); the stale uq_sync_conflict_notifications on
+                // (target_user, type, title, created_at) is no longer in SYNC_CONFLICT_INDEXES
+                // and, where it lingers, rejects incoming rows that carry a fresh sync_id but
+                // repeat those four columns — failing the pull every cycle and pinning
+                // LAST_PULL. Removing it lets sync_id be the sole identity.
+                await pool.query('DROP INDEX IF EXISTS uq_sync_conflict_notifications');
             } else {
                 await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
             }
