@@ -282,6 +282,14 @@ const SYNC_CONFLICT_INDEXES = {
 // factories on MAIN (e.g. moulds imported under factory_id = 2 when LOCAL is factory 1).
 const GLOBAL_MASTER_TABLES = new Set([
     'moulds',       // Mould master — company-wide reference, not factory-scoped
+    // Users are company-wide: a person created on MAIN carries a single users.factory_id
+    // (their "home" factory), but can be granted access to OTHER factories via
+    // user_factories. Factory-scoping the users pull on users.factory_id meant a user
+    // home-tagged to factory 1 but assigned to factory 3 never reached the factory-3
+    // LOCAL box — only their user_factories row arrived, which then failed its FK to the
+    // absent users row. Pull every user to every server so factory access (checked via
+    // user_factories / global_access) always has its user record present.
+    'users',
     // ERP report tables have no factory_id — they are company-wide ERP snapshots.
     'erp_jr_status',
     'erp_jr_summary',

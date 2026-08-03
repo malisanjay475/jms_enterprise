@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.4",
+  "latest": "1.21.5",
   "versions": [
+    {
+      "version": "1.21.5",
+      "date": "2026-08-03",
+      "title": "New users now reach every factory server they're assigned to",
+      "summary": "A user created on the main server for one factory but given access to another factory now appears on that factory's server too. Previously the user only reached their home factory's server, so staff assigned to a different plant could not log in there.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-people",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Users now sync to every factory server, so a person assigned to a factory can log in at that factory even if they were created under a different one."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.4",
       "date": "2026-08-03",
