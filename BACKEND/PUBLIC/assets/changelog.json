@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.6",
+  "latest": "1.21.7",
   "versions": [
+    {
+      "version": "1.21.7",
+      "date": "2026-08-04",
+      "title": "Auto-filled downtime hours can now be corrected with real production",
+      "summary": "When a machine has an ongoing quick-action (e.g. maintenance), the later hours are still filled in automatically — but those hours now stay open so a supervisor can enter the actual production that ran. Entering real output for an hour replaces the auto-filled downtime instead of being blocked by it.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "A quick-action entry no longer blocks the following hours — auto-filled hours stay selectable so you can enter the real production, which replaces the auto-filled downtime for that hour."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.6",
       "date": "2026-08-04",

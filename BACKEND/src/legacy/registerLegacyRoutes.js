@@ -6771,6 +6771,26 @@ app.post('/api/dpr/submit', async (req, res) => {
       ]
     );
 
+    // Replace any SYSTEM-AUTOFILL carry-forward row for THIS slot. Auto-fill copies an
+    // ongoing quick-action into elapsed slots so a down machine's idle hours are recorded,
+    // but those slots stay selectable so a supervisor can enter the real production that
+    // actually ran. When they do, the genuine entry we just inserted supersedes the
+    // placeholder — soft-delete the auto-filled row so the hour isn't double-counted
+    // (real output + a phantom 60-min downtime). Only SYSTEM-AUTOFILL rows are removed;
+    // a supervisor's own manual entries for the slot are never touched here.
+    try {
+      await q(
+        `UPDATE dpr_hourly SET is_deleted = true, updated_at = NOW()
+         WHERE machine = $1 AND dpr_date = $2 AND shift = $3 AND hour_slot = $4
+           AND created_by = 'SYSTEM-AUTOFILL' AND is_deleted = false
+           AND id <> $5
+           AND ($6::int IS NULL OR factory_id = $6 OR factory_id IS NULL)`,
+        [Machine, Date, Shift, HourSlot, rows[0].id, factoryId]
+      );
+    } catch (err) {
+      console.error('dpr/submit autofill-replace', err.message);
+    }
+
     // Auto-Close Maintenance if running
     if (Machine) {
       try {
@@ -20870,7 +20890,8 @@ app.get('/api/dpr/hourly/recent', async (req, res) => {
     const factoryId = getFactoryId(req);
 
     let sql = `
-      SELECT dpr_date as plan_date, shift, hour_slot, entry_type
+      SELECT dpr_date as plan_date, shift, hour_slot, entry_type,
+             (created_by = 'SYSTEM-AUTOFILL') AS is_auto_fill
       FROM dpr_hourly
       WHERE machine = $1
       AND is_deleted = false
