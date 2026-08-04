@@ -1146,7 +1146,16 @@
                 || (currentWriteScope && currentWriteScope.id)
                 || null);
           if (scopeFactoryId) {
-            rows = rows.filter(r => String(r.factory_id) === String(scopeFactoryId));
+            const isUnstamped = (v) => v === null || v === undefined || String(v).trim() === '';
+            // Keep this factory's moulds, PLUS legacy/unstamped moulds (no factory_id):
+            // those predate per-factory stamping and are company-wide, so they must show
+            // for every factory, never be hidden.
+            const scoped = rows.filter(r => String(r.factory_id) === String(scopeFactoryId) || isUnstamped(r.factory_id));
+            // Safety net (KAN-114 class): if the server returned moulds but NONE carry this
+            // factory's id (mis-stamped data, e.g. factory 2's moulds saved under another
+            // factory), do NOT blank the Mould Master — fall back to the full company-wide
+            // list. Blank moulds is the one regression we must never reintroduce.
+            rows = scoped.length > 0 ? scoped : rows;
           }
         }
 
