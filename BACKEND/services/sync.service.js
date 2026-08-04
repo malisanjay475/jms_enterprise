@@ -154,7 +154,11 @@ const CONFLICT_KEYS = {
     purchase_orders: 'id',
     user_factories: 'user_id, factory_id',
     or_jr_report: 'or_jr_no',
-    dpr_reasons: 'id',
+    // Surrogate UUID key: dpr_reasons has no business natural key, and serial id
+    // diverges/collides across factories under replication. sync_id is UNIQUE with a
+    // gen_random_uuid() default; dpr_reasons is added to SYNC_ID_REQUIRED_TABLES so any
+    // pre-existing NULL sync_ids are backfilled. Same pattern as notifications.
+    dpr_reasons: 'sync_id',
     // Natural key matches mould_report_date_uniq_idx — serial id diverges LOCAL↔MAIN
     mould_planning_report: 'or_jr_no, mould_no, mould_item_code, plan_date',
     // Summary identity is one row per (or_jr_no, mould_no) — plan_date is NOT part
@@ -208,7 +212,12 @@ const CONFLICT_KEYS = {
     machines: 'id',
     bom_master: 'id',
     bom_components: 'id',
-    dpr_hourly: 'id',
+    // Surrogate UUID key: dpr_hourly has NO unique business composite (even
+    // factory_id+dpr_date+shift+machine+hour_slot+plan_id+entry_type+colour still has
+    // thousands of legitimate duplicate rows), and serial id collides across factories
+    // under replication. global_id is UNIQUE, NOT NULL, uuid_generate_v4() default on
+    // every row and preserved through sync — a collision-free cross-server identity.
+    dpr_hourly: 'global_id',
     grn_entries: 'id',
     dispatch_items: 'id',
     jobs_queue: 'id',
@@ -298,7 +307,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons'];
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
 // re-runs the full startup sweep once instead of skipping it on the cached marker.

@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.5",
+  "latest": "1.21.6",
   "versions": [
+    {
+      "version": "1.21.6",
+      "date": "2026-08-04",
+      "title": "Hourly production and downtime reasons sync reliably across servers",
+      "summary": "Hourly DPR entries and the downtime reason list now stay consistent between the factory servers and the main server, without rows clashing or going missing when the same record exists in more than one place.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Hourly DPR entries now match up by a stable per-record id when syncing, so entries no longer clash or overwrite each other between the factory and main servers."
+            },
+            {
+              "type": "fix",
+              "text": "The downtime reason list now syncs by a stable per-record id, keeping reasons consistent across every server."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.5",
       "date": "2026-08-03",
