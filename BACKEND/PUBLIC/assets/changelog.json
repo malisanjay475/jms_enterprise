@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.7",
+  "latest": "1.21.8",
   "versions": [
+    {
+      "version": "1.21.8",
+      "date": "2026-08-04",
+      "title": "Factory moulds now sync from the factory server up to the main server",
+      "summary": "Moulds added on a factory server now reach the main server correctly. Previously a factory's own moulds could fail to sync up and never appear on the main server for that factory, even though the factory server had them. They are now matched by mould number and factory, so each factory's moulds show on the main server.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "A factory's moulds now sync from its local server up to the main server instead of being dropped, so the Mould Master shows that factory's moulds on the main server."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.7",
       "date": "2026-08-04",
