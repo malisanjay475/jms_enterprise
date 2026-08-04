@@ -208,7 +208,14 @@ const CONFLICT_KEYS = {
     wip_stock_snapshots: 'factory_id, stock_date, source_file_name',
     wip_stock_snapshot_lines: 'factory_id, stock_date, comparison_key',
     // Master tables — explicit id conflict (previously relied on fallback)
-    moulds: 'id',
+    // moulds keys on the NATURAL identity (mould_number + factory_id), not the serial
+    // id: LOCAL and MAIN mint mould ids independently, so ON CONFLICT (id) made a LOCAL
+    // factory-2 mould collide with an unrelated MAIN mould, fail the real
+    // (mould_number, factory_id) unique index, and get dropped — so factory-2 moulds
+    // never reached MAIN (KAN-118). Natural key also drops the divergent id from the
+    // payload (see upsertData). Upsert target is the expression index — see
+    // RAW_CONFLICT_TARGETS.moulds. [[project_sync_conflict_natural_key]]
+    moulds: 'mould_number, factory_id',
     machines: 'id',
     bom_master: 'id',
     bom_components: 'id',
@@ -267,7 +274,14 @@ const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
 // getConflictColumns still returns ['or_jr_no'] for deletion-PK parsing; only the upsert
 // conflict target is overridden here.
 const RAW_CONFLICT_TARGETS = {
-    or_jr_report: `TRIM(or_jr_no), COALESCE(job_card_no, '')`
+    or_jr_report: `TRIM(or_jr_no), COALESCE(job_card_no, '')`,
+    // moulds' unique index is idx_moulds_factory_mould_number_unique ON
+    // ((LOWER(mould_number)), (COALESCE(factory_id, 0))) — an EXPRESSION index. The
+    // ON CONFLICT target must reproduce it exactly, or Postgres infers against a
+    // non-existent plain (mould_number, factory_id) index and fails every row with
+    // 42P10. getConflictColumns still returns ['mould_number','factory_id'] for the
+    // id-drop and deletion-PK parsing; only the upsert conflict target is overridden here.
+    moulds: `LOWER(mould_number), COALESCE(factory_id, 0)`
 };
 
 const SYNC_CONFLICT_INDEXES = {
