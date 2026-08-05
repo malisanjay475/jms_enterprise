@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.11",
+  "latest": "1.21.12",
   "versions": [
+    {
+      "version": "1.21.12",
+      "date": "2026-08-05",
+      "title": "Rejected plans come back for planning",
+      "summary": "When a plan was rejected at the Moulding approval stage, its job stayed marked as planned and never returned to Create Plan, so it couldn't be planned again. A rejected plan now frees its mould and the job reappears in the Create Plan pending list.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "A plan rejected at Moulding approval now returns to the Create Plan pending list with its mould freed, so the job can be planned again instead of staying stuck."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.11",
       "date": "2026-08-05",
