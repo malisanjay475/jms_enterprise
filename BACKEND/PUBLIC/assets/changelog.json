@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.10",
+  "latest": "1.21.11",
   "versions": [
+    {
+      "version": "1.21.11",
+      "date": "2026-08-05",
+      "title": "Planning board no longer goes blank when opened via a Create-Plan link",
+      "summary": "Opening the Planning board from a 'create plan' link could hit a script error that stopped the board from finishing drawing, leaving the Plan Qty and other columns blank. The board now loads fully in that case.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Fixed a load-order error that could blank out the Planning board (including Plan Qty) when it was opened via a create-plan link."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.10",
       "date": "2026-08-05",
