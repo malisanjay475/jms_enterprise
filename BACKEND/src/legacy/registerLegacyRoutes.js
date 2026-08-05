@@ -18999,7 +18999,16 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         ${factoryId ? 'AND factory_id = $4' : ''}
         ORDER BY ${DPR_HOURLY_KEY}, id DESC
       ) d
-      LEFT JOIN plan_board pb ON CAST(pb.id AS TEXT) = CAST(d.plan_id AS TEXT) OR pb.plan_id = d.plan_id
+      -- Pick exactly ONE plan_board row per entry. plan_board can have duplicate rows
+      -- for the same plan_id (sync duplication), and a plain LEFT JOIN would re-multiply
+      -- each hourly entry by the number of plan copies — the fan-out that made the
+      -- Compliance Summary still double on MAIN even after dpr_hourly was deduped (KAN-119).
+      LEFT JOIN LATERAL (
+        SELECT * FROM plan_board pb2
+        WHERE pb2.plan_id = d.plan_id OR CAST(pb2.id AS TEXT) = CAST(d.plan_id AS TEXT)
+        ORDER BY (pb2.plan_id = d.plan_id) DESC, pb2.id DESC
+        LIMIT 1
+      ) pb ON true
       LEFT JOIN (
         SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no
         FROM mould_planning_summary
@@ -19071,7 +19080,14 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
       FROM std_actual s
       LEFT JOIN plan_prod pp ON pp.plan_id = s.plan_id
-      LEFT JOIN plan_board pb ON pb.plan_id = s.plan_id
+      -- One plan_board row per setup — duplicate plan rows (sync) would otherwise
+      -- multiply std_actual rows and double-count plan_qty/STD in the summary (KAN-119).
+      LEFT JOIN LATERAL (
+        SELECT * FROM plan_board pb2
+        WHERE pb2.plan_id = s.plan_id
+        ORDER BY pb2.id DESC
+        LIMIT 1
+      ) pb ON true
       LEFT JOIN (
         SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no 
         FROM mould_planning_summary 

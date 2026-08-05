@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.9",
+  "latest": "1.21.10",
   "versions": [
+    {
+      "version": "1.21.10",
+      "date": "2026-08-05",
+      "title": "DPR Compliance Summary fully corrected for duplicated plan/hourly records",
+      "summary": "Follow-up to the previous fix. On the main server, entries could still appear multiple times when a plan record was duplicated. The Compliance Summary now uses a single plan record per entry, so each hourly reading shows once and production, OEE and efficiency are accurate regardless of duplicate plan or hourly records.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Compliance Summary now uses one plan record per entry, so duplicate plan rows no longer repeat entries or inflate the totals on the main server."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.9",
       "date": "2026-08-05",
