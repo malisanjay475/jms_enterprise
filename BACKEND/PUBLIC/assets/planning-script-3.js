@@ -1522,7 +1522,11 @@
         /* View Routing moved to end of script for hoisting safety */
 
 
-        if (action === 'create') openCreatePlanLauncher();
+        // Deep-link ?action=create: defer to the next tick so every const declared
+        // later in this DOMContentLoaded scope is initialized before the launcher runs.
+        // Calling it inline here threw "Cannot access '…' before initialization" (TDZ)
+        // on create deep links, which aborted the board/timeline render (blank Plan Qty).
+        if (action === 'create') setTimeout(openCreatePlanLauncher, 0);
 
         // Toggle map
         // Toggle map
