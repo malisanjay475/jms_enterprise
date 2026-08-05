@@ -10019,7 +10019,15 @@ async function syncOrderStatus(orderNo) {
   try {
     const res = await q(`
       WITH req AS (SELECT COUNT(*) as c FROM mould_planning_summary WHERE or_jr_no = $1),
-           act AS (SELECT COUNT(DISTINCT mould_name) as c FROM plan_board WHERE order_no = $1)
+           -- Only ACTIVE plans occupy a mould. A REJECTED/DROPPED plan (or one whose
+           -- jc_approval_status is REJECTED) has freed its mould, so it must NOT count
+           -- toward "planned" — otherwise a fully-rejected order stays 'Plan Completed'
+           -- and never returns to Create Plan's pending list. Mirrors how the
+           -- pending-orders and mould-bundle queries exclude REJECTED plans.
+           act AS (SELECT COUNT(DISTINCT mould_name) as c FROM plan_board
+                    WHERE order_no = $1
+                      AND UPPER(COALESCE(status, '')) NOT IN ('REJECTED', 'DROPPED')
+                      AND UPPER(COALESCE(jc_approval_status, '')) <> 'REJECTED')
       UPDATE orders 
       SET status = CASE 
           WHEN (SELECT c FROM act) >= (SELECT c FROM req) AND (SELECT c FROM req) > 0 THEN 'Plan Completed'
@@ -13885,6 +13893,19 @@ app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
     );
 
     await client.query('COMMIT');
+
+    // A rejection frees this plan's mould(s). Re-evaluate the order's planned/pending
+    // status so a rejected JR drops back to 'Pending' and reappears in Create Plan's
+    // pending list — mirroring what the Delete path already does. Approvals don't change
+    // how many moulds are planned, so only re-sync on reject. Non-fatal: the rejection is
+    // already committed, so a re-sync hiccup must not turn it into a 500.
+    if (action === 'REJECTED' && plan.order_no) {
+      try {
+        await syncOrderStatus(plan.order_no);
+      } catch (syncErr) {
+        console.error('/api/planning/job-card-approvals reject re-sync (non-fatal)', syncErr);
+      }
+    }
 
     // Notify only after the transaction is durable — sending on a change that
     // later rolled back would tell Moulding a plan is waiting for them when it
