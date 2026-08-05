@@ -18950,6 +18950,13 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     // [FIX] Factory Isolation
     const factoryId = getFactoryId(req);
 
+    // Guard against duplicate dpr_hourly rows. An outdated LOCAL server that syncs
+    // dpr_hourly without a global_id makes MAIN insert a fresh copy each cycle, so one
+    // hourly reading can exist N times (KAN-119). Collapse to one row per natural key
+    // wherever this endpoint reads dpr_hourly, so the summary neither renders an entry
+    // N times NOR inflates produced/OEE/EFF by summing the duplicates.
+    const DPR_HOURLY_KEY = `machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, '')`;
+
     // 1. Get All Active Machines (Application Sort)
     let sqlMachines = `SELECT machine, line, building, COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') as machine_process FROM machines WHERE is_active=true`;
     const mParams = [];
@@ -18985,7 +18992,13 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         TRIM(COALESCE(pb.mould_name, mps.mould_name)) as mould_name,
         ojr.job_card_no,
         COALESCE(ojr.client_name, o.client_name) as client_name
-      FROM dpr_hourly d
+      FROM (
+        SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
+        FROM dpr_hourly
+        WHERE dpr_date BETWEEN $1 AND $2 AND shift = $3 AND is_deleted = false
+        ${factoryId ? 'AND factory_id = $4' : ''}
+        ORDER BY ${DPR_HOURLY_KEY}, id DESC
+      ) d
       LEFT JOIN plan_board pb ON CAST(pb.id AS TEXT) = CAST(d.plan_id AS TEXT) OR pb.plan_id = d.plan_id
       LEFT JOIN (
         SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no
@@ -18994,17 +19007,15 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       ) mps ON mps.or_jr_no = d.order_no AND mps.mould_name = pb.mould_name
       LEFT JOIN users u ON u.username = d.created_by
       LEFT JOIN LATERAL(
-        SELECT * FROM or_jr_report rpt 
+        SELECT * FROM or_jr_report rpt
         WHERE TRIM(rpt.or_jr_no) = TRIM(COALESCE(d.order_no, pb.order_no))
           AND(rpt.job_card_no IS NOT NULL AND TRIM(rpt.job_card_no) != '')
         LIMIT 1
       ) ojr ON true
       LEFT JOIN orders o ON o.order_no = COALESCE(d.order_no, pb.order_no)
-      WHERE d.dpr_date BETWEEN $1 AND $2 AND d.shift = $3 AND d.is_deleted = false
     `;
     const entryParams = [fDate, tDate, shift];
     if (factoryId) {
-      sqlEntries += ` AND d.factory_id = $4`;
       entryParams.push(factoryId);
     }
     const entries = await q(sqlEntries, entryParams);
@@ -19013,11 +19024,17 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     let setupQuery = `
       WITH plan_prod AS (
         -- Cumulative good produced per plan (factory scoped), computed ONCE.
+        -- Dedupe dpr_hourly to one row per natural key first (KAN-119) so duplicate
+        -- synced rows don't multiply produced (which inflates balance / OEE / EFF).
         SELECT dh.plan_id, SUM(dh.good_qty)::int AS produced
-        FROM dpr_hourly dh
-        WHERE dh.is_deleted = false
-          AND dh.plan_id IS NOT NULL
-          AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
+        FROM (
+          SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
+          FROM dpr_hourly
+          WHERE is_deleted = false
+            AND plan_id IS NOT NULL
+            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+          ORDER BY ${DPR_HOURLY_KEY}, id DESC
+        ) dh
         GROUP BY dh.plan_id
       )
       SELECT

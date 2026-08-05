@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.8",
+  "latest": "1.21.9",
   "versions": [
+    {
+      "version": "1.21.9",
+      "date": "2026-08-05",
+      "title": "DPR Compliance Summary no longer double-counts duplicated hourly entries",
+      "summary": "When a factory server had duplicate hourly entries, the Compliance Summary was showing each reading several times and inflating the totals (production, OEE and efficiency read far too high). The report now counts each hourly entry once, so the entries, production, OEE and efficiency are correct even if duplicate records exist.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Compliance Summary now counts each hourly entry once — duplicate synced records no longer repeat entries or inflate production, OEE and efficiency."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.8",
       "date": "2026-08-04",
