@@ -11,8 +11,206 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.0",
+  "latest": "1.21.10",
   "versions": [
+    {
+      "version": "1.21.10",
+      "date": "2026-08-05",
+      "title": "DPR Compliance Summary fully corrected for duplicated plan/hourly records",
+      "summary": "Follow-up to the previous fix. On the main server, entries could still appear multiple times when a plan record was duplicated. The Compliance Summary now uses a single plan record per entry, so each hourly reading shows once and production, OEE and efficiency are accurate regardless of duplicate plan or hourly records.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Compliance Summary now uses one plan record per entry, so duplicate plan rows no longer repeat entries or inflate the totals on the main server."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.9",
+      "date": "2026-08-05",
+      "title": "DPR Compliance Summary no longer double-counts duplicated hourly entries",
+      "summary": "When a factory server had duplicate hourly entries, the Compliance Summary was showing each reading several times and inflating the totals (production, OEE and efficiency read far too high). The report now counts each hourly entry once, so the entries, production, OEE and efficiency are correct even if duplicate records exist.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Compliance Summary now counts each hourly entry once — duplicate synced records no longer repeat entries or inflate production, OEE and efficiency."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.8",
+      "date": "2026-08-04",
+      "title": "Factory moulds now sync from the factory server up to the main server",
+      "summary": "Moulds added on a factory server now reach the main server correctly. Previously a factory's own moulds could fail to sync up and never appear on the main server for that factory, even though the factory server had them. They are now matched by mould number and factory, so each factory's moulds show on the main server.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "A factory's moulds now sync from its local server up to the main server instead of being dropped, so the Mould Master shows that factory's moulds on the main server."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.7",
+      "date": "2026-08-04",
+      "title": "Auto-filled downtime hours can now be corrected with real production",
+      "summary": "When a machine has an ongoing quick-action (e.g. maintenance), the later hours are still filled in automatically — but those hours now stay open so a supervisor can enter the actual production that ran. Entering real output for an hour replaces the auto-filled downtime instead of being blocked by it.",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "A quick-action entry no longer blocks the following hours — auto-filled hours stay selectable so you can enter the real production, which replaces the auto-filled downtime for that hour."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.6",
+      "date": "2026-08-04",
+      "title": "Hourly production and downtime reasons sync reliably across servers",
+      "summary": "Hourly DPR entries and the downtime reason list now stay consistent between the factory servers and the main server, without rows clashing or going missing when the same record exists in more than one place.",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Hourly DPR entries now match up by a stable per-record id when syncing, so entries no longer clash or overwrite each other between the factory and main servers."
+            },
+            {
+              "type": "fix",
+              "text": "The downtime reason list now syncs by a stable per-record id, keeping reasons consistent across every server."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.5",
+      "date": "2026-08-03",
+      "title": "New users now reach every factory server they're assigned to",
+      "summary": "A user created on the main server for one factory but given access to another factory now appears on that factory's server too. Previously the user only reached their home factory's server, so staff assigned to a different plant could not log in there.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-people",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Users now sync to every factory server, so a person assigned to a factory can log in at that factory even if they were created under a different one."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.4",
+      "date": "2026-08-03",
+      "title": "Order data syncs reliably between factory servers and the main server",
+      "summary": "Fixes a case where an order could repeatedly fail to sync between a factory server and the main server, leaving it out of date. Orders now match up by their order number, so they stay consistent everywhere.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Orders no longer get stuck failing to sync — they are now matched by order number between the factory and main servers, so the same order stays consistent on both."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.3",
+      "date": "2026-08-03",
+      "title": "Factory servers finish catching up after a sync stall",
+      "summary": "Clears a leftover notifications rule on factory servers that was stopping the sync from fully catching up, so a server that had fallen behind resumes advancing normally.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Removed an outdated notifications rule on factory servers that could block the sync from fully catching up after a stall."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.2",
+      "date": "2026-08-03",
+      "title": "Mould Master now shows only the selected factory's moulds",
+      "summary": "The Mould Master follows the factory you are logged into or have selected — it lists only that factory's moulds instead of every factory's. Superadmins on the main server can still choose 'All Factories' to see everything.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Mould Master now shows only the moulds for the factory you are logged into or have selected; choose 'All Factories' to see every factory's moulds."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.1",
+      "date": "2026-08-03",
+      "title": "Factory servers sync reliably again, and local backups keep working",
+      "summary": "A factory server that had stopped receiving updates from the main server now catches up and stays in sync. Automatic local backups also keep running even when the database has grown large.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Factory servers that had stopped pulling updates from the main server now sync again — order/JR data resumes flowing instead of freezing."
+            },
+            {
+              "type": "fix",
+              "text": "Automatic local backups on the factory server now work even for very large databases, so a safety copy is always available."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.0",
       "date": "2026-08-02",

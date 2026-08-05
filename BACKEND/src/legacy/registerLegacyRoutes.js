@@ -6771,6 +6771,26 @@ app.post('/api/dpr/submit', async (req, res) => {
       ]
     );
 
+    // Replace any SYSTEM-AUTOFILL carry-forward row for THIS slot. Auto-fill copies an
+    // ongoing quick-action into elapsed slots so a down machine's idle hours are recorded,
+    // but those slots stay selectable so a supervisor can enter the real production that
+    // actually ran. When they do, the genuine entry we just inserted supersedes the
+    // placeholder — soft-delete the auto-filled row so the hour isn't double-counted
+    // (real output + a phantom 60-min downtime). Only SYSTEM-AUTOFILL rows are removed;
+    // a supervisor's own manual entries for the slot are never touched here.
+    try {
+      await q(
+        `UPDATE dpr_hourly SET is_deleted = true, updated_at = NOW()
+         WHERE machine = $1 AND dpr_date = $2 AND shift = $3 AND hour_slot = $4
+           AND created_by = 'SYSTEM-AUTOFILL' AND is_deleted = false
+           AND id <> $5
+           AND ($6::int IS NULL OR factory_id = $6 OR factory_id IS NULL)`,
+        [Machine, Date, Shift, HourSlot, rows[0].id, factoryId]
+      );
+    } catch (err) {
+      console.error('dpr/submit autofill-replace', err.message);
+    }
+
     // Auto-Close Maintenance if running
     if (Machine) {
       try {
@@ -9999,7 +10019,15 @@ async function syncOrderStatus(orderNo) {
   try {
     const res = await q(`
       WITH req AS (SELECT COUNT(*) as c FROM mould_planning_summary WHERE or_jr_no = $1),
-           act AS (SELECT COUNT(DISTINCT mould_name) as c FROM plan_board WHERE order_no = $1)
+           -- Only ACTIVE plans occupy a mould. A REJECTED/DROPPED plan (or one whose
+           -- jc_approval_status is REJECTED) has freed its mould, so it must NOT count
+           -- toward "planned" — otherwise a fully-rejected order stays 'Plan Completed'
+           -- and never returns to Create Plan's pending list. Mirrors how the
+           -- pending-orders and mould-bundle queries exclude REJECTED plans.
+           act AS (SELECT COUNT(DISTINCT mould_name) as c FROM plan_board
+                    WHERE order_no = $1
+                      AND UPPER(COALESCE(status, '')) NOT IN ('REJECTED', 'DROPPED')
+                      AND UPPER(COALESCE(jc_approval_status, '')) <> 'REJECTED')
       UPDATE orders 
       SET status = CASE 
           WHEN (SELECT c FROM act) >= (SELECT c FROM req) AND (SELECT c FROM req) > 0 THEN 'Plan Completed'
@@ -13865,6 +13893,19 @@ app.post('/api/planning/job-card-approvals/:id/action', async (req, res) => {
     );
 
     await client.query('COMMIT');
+
+    // A rejection frees this plan's mould(s). Re-evaluate the order's planned/pending
+    // status so a rejected JR drops back to 'Pending' and reappears in Create Plan's
+    // pending list — mirroring what the Delete path already does. Approvals don't change
+    // how many moulds are planned, so only re-sync on reject. Non-fatal: the rejection is
+    // already committed, so a re-sync hiccup must not turn it into a 500.
+    if (action === 'REJECTED' && plan.order_no) {
+      try {
+        await syncOrderStatus(plan.order_no);
+      } catch (syncErr) {
+        console.error('/api/planning/job-card-approvals reject re-sync (non-fatal)', syncErr);
+      }
+    }
 
     // Notify only after the transaction is durable — sending on a change that
     // later rolled back would tell Moulding a plan is waiting for them when it
@@ -18930,6 +18971,13 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     // [FIX] Factory Isolation
     const factoryId = getFactoryId(req);
 
+    // Guard against duplicate dpr_hourly rows. An outdated LOCAL server that syncs
+    // dpr_hourly without a global_id makes MAIN insert a fresh copy each cycle, so one
+    // hourly reading can exist N times (KAN-119). Collapse to one row per natural key
+    // wherever this endpoint reads dpr_hourly, so the summary neither renders an entry
+    // N times NOR inflates produced/OEE/EFF by summing the duplicates.
+    const DPR_HOURLY_KEY = `machine, hour_slot, plan_id, dpr_date, shift, COALESCE(colour, '')`;
+
     // 1. Get All Active Machines (Application Sort)
     let sqlMachines = `SELECT machine, line, building, COALESCE(NULLIF(TRIM(machine_process), ''), 'Moulding') as machine_process FROM machines WHERE is_active=true`;
     const mParams = [];
@@ -18965,8 +19013,23 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         TRIM(COALESCE(pb.mould_name, mps.mould_name)) as mould_name,
         ojr.job_card_no,
         COALESCE(ojr.client_name, o.client_name) as client_name
-      FROM dpr_hourly d
-      LEFT JOIN plan_board pb ON CAST(pb.id AS TEXT) = CAST(d.plan_id AS TEXT) OR pb.plan_id = d.plan_id
+      FROM (
+        SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
+        FROM dpr_hourly
+        WHERE dpr_date BETWEEN $1 AND $2 AND shift = $3 AND is_deleted = false
+        ${factoryId ? 'AND factory_id = $4' : ''}
+        ORDER BY ${DPR_HOURLY_KEY}, id DESC
+      ) d
+      -- Pick exactly ONE plan_board row per entry. plan_board can have duplicate rows
+      -- for the same plan_id (sync duplication), and a plain LEFT JOIN would re-multiply
+      -- each hourly entry by the number of plan copies — the fan-out that made the
+      -- Compliance Summary still double on MAIN even after dpr_hourly was deduped (KAN-119).
+      LEFT JOIN LATERAL (
+        SELECT * FROM plan_board pb2
+        WHERE pb2.plan_id = d.plan_id OR CAST(pb2.id AS TEXT) = CAST(d.plan_id AS TEXT)
+        ORDER BY (pb2.plan_id = d.plan_id) DESC, pb2.id DESC
+        LIMIT 1
+      ) pb ON true
       LEFT JOIN (
         SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no
         FROM mould_planning_summary
@@ -18974,17 +19037,15 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       ) mps ON mps.or_jr_no = d.order_no AND mps.mould_name = pb.mould_name
       LEFT JOIN users u ON u.username = d.created_by
       LEFT JOIN LATERAL(
-        SELECT * FROM or_jr_report rpt 
+        SELECT * FROM or_jr_report rpt
         WHERE TRIM(rpt.or_jr_no) = TRIM(COALESCE(d.order_no, pb.order_no))
           AND(rpt.job_card_no IS NOT NULL AND TRIM(rpt.job_card_no) != '')
         LIMIT 1
       ) ojr ON true
       LEFT JOIN orders o ON o.order_no = COALESCE(d.order_no, pb.order_no)
-      WHERE d.dpr_date BETWEEN $1 AND $2 AND d.shift = $3 AND d.is_deleted = false
     `;
     const entryParams = [fDate, tDate, shift];
     if (factoryId) {
-      sqlEntries += ` AND d.factory_id = $4`;
       entryParams.push(factoryId);
     }
     const entries = await q(sqlEntries, entryParams);
@@ -18993,11 +19054,17 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     let setupQuery = `
       WITH plan_prod AS (
         -- Cumulative good produced per plan (factory scoped), computed ONCE.
+        -- Dedupe dpr_hourly to one row per natural key first (KAN-119) so duplicate
+        -- synced rows don't multiply produced (which inflates balance / OEE / EFF).
         SELECT dh.plan_id, SUM(dh.good_qty)::int AS produced
-        FROM dpr_hourly dh
-        WHERE dh.is_deleted = false
-          AND dh.plan_id IS NOT NULL
-          AND ($4::int IS NULL OR dh.factory_id = $4 OR dh.factory_id IS NULL)
+        FROM (
+          SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
+          FROM dpr_hourly
+          WHERE is_deleted = false
+            AND plan_id IS NOT NULL
+            AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+          ORDER BY ${DPR_HOURLY_KEY}, id DESC
+        ) dh
         GROUP BY dh.plan_id
       )
       SELECT
@@ -19034,7 +19101,14 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
       FROM std_actual s
       LEFT JOIN plan_prod pp ON pp.plan_id = s.plan_id
-      LEFT JOIN plan_board pb ON pb.plan_id = s.plan_id
+      -- One plan_board row per setup — duplicate plan rows (sync) would otherwise
+      -- multiply std_actual rows and double-count plan_qty/STD in the summary (KAN-119).
+      LEFT JOIN LATERAL (
+        SELECT * FROM plan_board pb2
+        WHERE pb2.plan_id = s.plan_id
+        ORDER BY pb2.id DESC
+        LIMIT 1
+      ) pb ON true
       LEFT JOIN (
         SELECT or_jr_no, mould_name, MAX(NULLIF(TRIM(mould_no), '')) as mould_no 
         FROM mould_planning_summary 
@@ -20870,7 +20944,8 @@ app.get('/api/dpr/hourly/recent', async (req, res) => {
     const factoryId = getFactoryId(req);
 
     let sql = `
-      SELECT dpr_date as plan_date, shift, hour_slot, entry_type
+      SELECT dpr_date as plan_date, shift, hour_slot, entry_type,
+             (created_by = 'SYSTEM-AUTOFILL') AS is_auto_fill
       FROM dpr_hourly
       WHERE machine = $1
       AND is_deleted = false

@@ -138,7 +138,15 @@ const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary
 const CONFLICT_KEYS = {
     users: 'id',
     roles: 'code',
-    orders: 'id',
+    // Natural key: order_no is UNIQUE NOT NULL at table creation (orders_order_no_key).
+    // Serial `id` diverges between LOCAL and MAIN when both mint orders independently, so
+    // keying on `id` let two servers' unrelated orders collide on order_no's unique index
+    // (23505 on orders_order_no_key — the recurring push failure). Nothing references
+    // orders.id (no FK, no order_id column anywhere; all joins use order_no), so the
+    // id divergence caused by dropping id from the sync payload is harmless. Matches the
+    // natural-key pattern used by std_actual / plan_board / or_jr_report. See
+    // [[project_sync_conflict_natural_key]].
+    orders: 'order_no',
     plan_board: 'plan_id',
     plan_audit_logs: 'id',
     plan_history: 'id',
@@ -146,7 +154,11 @@ const CONFLICT_KEYS = {
     purchase_orders: 'id',
     user_factories: 'user_id, factory_id',
     or_jr_report: 'or_jr_no',
-    dpr_reasons: 'id',
+    // Surrogate UUID key: dpr_reasons has no business natural key, and serial id
+    // diverges/collides across factories under replication. sync_id is UNIQUE with a
+    // gen_random_uuid() default; dpr_reasons is added to SYNC_ID_REQUIRED_TABLES so any
+    // pre-existing NULL sync_ids are backfilled. Same pattern as notifications.
+    dpr_reasons: 'sync_id',
     // Natural key matches mould_report_date_uniq_idx — serial id diverges LOCAL↔MAIN
     mould_planning_report: 'or_jr_no, mould_no, mould_item_code, plan_date',
     // Summary identity is one row per (or_jr_no, mould_no) — plan_date is NOT part
@@ -196,11 +208,23 @@ const CONFLICT_KEYS = {
     wip_stock_snapshots: 'factory_id, stock_date, source_file_name',
     wip_stock_snapshot_lines: 'factory_id, stock_date, comparison_key',
     // Master tables — explicit id conflict (previously relied on fallback)
-    moulds: 'id',
+    // moulds keys on the NATURAL identity (mould_number + factory_id), not the serial
+    // id: LOCAL and MAIN mint mould ids independently, so ON CONFLICT (id) made a LOCAL
+    // factory-2 mould collide with an unrelated MAIN mould, fail the real
+    // (mould_number, factory_id) unique index, and get dropped — so factory-2 moulds
+    // never reached MAIN (KAN-118). Natural key also drops the divergent id from the
+    // payload (see upsertData). Upsert target is the expression index — see
+    // RAW_CONFLICT_TARGETS.moulds. [[project_sync_conflict_natural_key]]
+    moulds: 'mould_number, factory_id',
     machines: 'id',
     bom_master: 'id',
     bom_components: 'id',
-    dpr_hourly: 'id',
+    // Surrogate UUID key: dpr_hourly has NO unique business composite (even
+    // factory_id+dpr_date+shift+machine+hour_slot+plan_id+entry_type+colour still has
+    // thousands of legitimate duplicate rows), and serial id collides across factories
+    // under replication. global_id is UNIQUE, NOT NULL, uuid_generate_v4() default on
+    // every row and preserved through sync — a collision-free cross-server identity.
+    dpr_hourly: 'global_id',
     grn_entries: 'id',
     dispatch_items: 'id',
     jobs_queue: 'id',
@@ -241,13 +265,23 @@ const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
 
 // Tables whose ON CONFLICT target must be a raw expression rather than a plain
 // column list, because the backing unique index is built on an expression.
-// or_jr_report's unique index is idx_or_jr_jc_unique ON (or_jr_no, COALESCE(job_card_no, '')) —
+// or_jr_report's unique index is idx_or_jr_jc_unique ON (TRIM(or_jr_no), COALESCE(job_card_no, '')) —
 // the single-column unique on or_jr_no was dropped (one OR/JR can have many job cards),
 // so ON CONFLICT (or_jr_no) no longer matches any index. The target must reproduce the
-// index expression exactly. getConflictColumns still returns ['or_jr_no'] for deletion-PK
-// parsing; only the upsert conflict target is overridden here.
+// index expression EXACTLY — including TRIM(or_jr_no). Omitting TRIM made ON CONFLICT
+// infer against a non-existent index and fail every row with 42P10 ("no unique or
+// exclusion constraint matching the ON CONFLICT specification"), which froze LAST_PULL.
+// getConflictColumns still returns ['or_jr_no'] for deletion-PK parsing; only the upsert
+// conflict target is overridden here.
 const RAW_CONFLICT_TARGETS = {
-    or_jr_report: `or_jr_no, COALESCE(job_card_no, '')`
+    or_jr_report: `TRIM(or_jr_no), COALESCE(job_card_no, '')`,
+    // moulds' unique index is idx_moulds_factory_mould_number_unique ON
+    // ((LOWER(mould_number)), (COALESCE(factory_id, 0))) — an EXPRESSION index. The
+    // ON CONFLICT target must reproduce it exactly, or Postgres infers against a
+    // non-existent plain (mould_number, factory_id) index and fails every row with
+    // 42P10. getConflictColumns still returns ['mould_number','factory_id'] for the
+    // id-drop and deletion-PK parsing; only the upsert conflict target is overridden here.
+    moulds: `LOWER(mould_number), COALESCE(factory_id, 0)`
 };
 
 const SYNC_CONFLICT_INDEXES = {
@@ -271,6 +305,14 @@ const SYNC_CONFLICT_INDEXES = {
 // factories on MAIN (e.g. moulds imported under factory_id = 2 when LOCAL is factory 1).
 const GLOBAL_MASTER_TABLES = new Set([
     'moulds',       // Mould master — company-wide reference, not factory-scoped
+    // Users are company-wide: a person created on MAIN carries a single users.factory_id
+    // (their "home" factory), but can be granted access to OTHER factories via
+    // user_factories. Factory-scoping the users pull on users.factory_id meant a user
+    // home-tagged to factory 1 but assigned to factory 3 never reached the factory-3
+    // LOCAL box — only their user_factories row arrived, which then failed its FK to the
+    // absent users row. Pull every user to every server so factory access (checked via
+    // user_factories / global_access) always has its user record present.
+    'users',
     // ERP report tables have no factory_id — they are company-wide ERP snapshots.
     'erp_jr_status',
     'erp_jr_summary',
@@ -279,9 +321,12 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons'];
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
-const SYNC_SCHEMA_READY_VERSION = '2026-06-21-failed-row-outbox-v1';
+// Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
+// re-runs the full startup sweep once instead of skipping it on the cached marker.
+// 2026-08-03: drop the obsolete uq_sync_conflict_notifications index (see ensureSyncIdSchema).
+const SYNC_SCHEMA_READY_VERSION = '2026-08-03-drop-notif-conflict-idx-v1';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -2295,6 +2340,14 @@ async function ensureSyncIdSchema() {
                      WHERE n.id = r.id
                        AND r.rn > 1
                 `);
+                // Drop the obsolete natural-key unique index left by older packages.
+                // notifications identity is now sync_id (uq_sync_id_notifications, created
+                // below); the stale uq_sync_conflict_notifications on
+                // (target_user, type, title, created_at) is no longer in SYNC_CONFLICT_INDEXES
+                // and, where it lingers, rejects incoming rows that carry a fresh sync_id but
+                // repeat those four columns — failing the pull every cycle and pinning
+                // LAST_PULL. Removing it lets sync_id be the sole identity.
+                await pool.query('DROP INDEX IF EXISTS uq_sync_conflict_notifications');
             } else {
                 await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
             }

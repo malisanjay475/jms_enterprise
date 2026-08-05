@@ -94,14 +94,20 @@
               const eType = r.entry_type || 'Main';
               const QUICK_TYPES = ['Maintenance', 'ManPowerShortage', 'MouldChangeover', 'MouldTrial', 'MouldMaintenance', 'NoPlan'];
 
-              let status = SLOT_STATUS.get(k) || { hasMain: false, hasCC: false, count: 0, isQuick: false, type: eType };
+              let status = SLOT_STATUS.get(k) || { hasMain: false, hasCC: false, count: 0, isQuick: false, isAutoFill: false, type: eType };
               status.count++;
               if (eType === 'Main') status.hasMain = true;
               if (eType === 'ColourChange') status.hasCC = true;
               if (QUICK_TYPES.includes(eType)) {
                 status.isQuick = true;
                 status.type = eType;
+                // A SYSTEM-AUTOFILL carry-forward row is a placeholder, not a real entry —
+                // track it so the Main dropdown keeps the slot selectable for the actual
+                // production that ran (a genuine quick action the supervisor took is NOT
+                // auto-fill and stays hidden). A real (manual) row on the slot wins.
+                if (r.is_auto_fill && !status.hasMain) status.isAutoFill = true;
               }
+              if (eType === 'Main') status.isAutoFill = false;
 
               SLOT_STATUS.set(k, status);
             }
@@ -320,9 +326,15 @@
           if (hideFilled) {
             // Main Dropdown: Hide ONLY the slots that already have an entry —
             //  - a Main entry (don't re-enter Main), or
-            //  - a Quick Action entry (that slot is already recorded).
+            //  - a genuine (manually-taken) Quick Action entry (that slot is recorded).
             if (hasMain) return;
-            if (currentStatus && currentStatus.isQuick) return; // Quick Action already recorded
+            // SYSTEM-AUTOFILL carry-forward placeholders are NOT hidden: the hour stays
+            // selectable so the supervisor can enter the real production that ran, which
+            // replaces the placeholder server-side. Only a genuine quick action is hidden.
+            if (currentStatus && currentStatus.isQuick && !currentStatus.isAutoFill) return;
+            if (currentStatus && currentStatus.isAutoFill) {
+              suffix = ` (Auto-filled ${currentStatus.type || ''} — tap to enter actual)`;
+            }
             // A slot carried forward by a same-shift Quick Action is hidden ONLY when a
             // later real entry closes the range (Quick Action → … empty gap … → Manual entry).
             // The gap slots belong to the continuous entry, so once the range is closed they

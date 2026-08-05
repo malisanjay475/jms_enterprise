@@ -11,7 +11,7 @@
  * Start by calling backupService.start() — called automatically from createServices.
  */
 
-const { execFile } = require('child_process');
+const { spawn } = require('child_process');
 const fs   = require('fs');
 const path = require('path');
 const zlib = require('zlib');
@@ -119,34 +119,58 @@ function runBackup() {
 
   console.log(`[Backup] Starting: ${path.basename(gzPath)}`);
 
-  const child = execFile(PG_DUMP, args, { env, maxBuffer: 512 * 1024 * 1024 }, (err, stdout) => {
-    if (err) {
-      console.error('[Backup] pg_dump failed:', err.message);
-      // Remove empty/partial file if it was created
-      try { if (fs.existsSync(gzPath)) fs.unlinkSync(gzPath); } catch (_) {}
+  // Stream pg_dump stdout → gzip → file. Streaming (not execFile buffering) is
+  // required: a buffered dump loads the ENTIRE database into memory, and once the
+  // DB outgrew execFile's maxBuffer the dump aborted with "stdout maxBuffer length
+  // exceeded" and no backup was written. A pipeline has no such ceiling.
+  const child = spawn(PG_DUMP, args, { env });
+  const gzip  = zlib.createGzip({ level: 6 });
+  const out   = fs.createWriteStream(gzPath);
+
+  let stderr = '';
+  let failed = false;
+  let fileFinished = false;
+  let procCode = null; // set once pg_dump closes
+
+  const removePartial = () => {
+    try { if (fs.existsSync(gzPath)) fs.unlinkSync(gzPath); } catch (_) {}
+  };
+  const fail = (msg) => {
+    if (failed) return;
+    failed = true;
+    console.error('[Backup] pg_dump failed:', msg);
+    try { child.kill(); } catch (_) {}
+    // out.destroy() releases the file descriptor asynchronously; unlinking before
+    // 'close' can race (EBUSY on Windows) and leave a partial backup_*.sql.gz. Wait
+    // for the stream to actually close, then remove the partial file.
+    if (out.destroyed) removePartial();
+    else { out.once('close', removePartial); out.destroy(); }
+  };
+
+  // Report success only when BOTH the process exited 0 AND the gzip→file pipeline
+  // has fully flushed — otherwise a non-zero exit that arrives after the pipe
+  // finishes would be logged as a successful (but truncated) backup.
+  const finalize = () => {
+    if (failed || !fileFinished || procCode === null) return;
+    if (procCode !== 0) {
+      fail(stderr.trim() || `pg_dump exited with code ${procCode}`);
       return;
     }
-    // Compress and write
-    zlib.gzip(Buffer.from(stdout), { level: 6 }, (gzErr, compressed) => {
-      if (gzErr) {
-        console.error('[Backup] gzip failed:', gzErr.message);
-        return;
-      }
-      fs.writeFile(gzPath, compressed, (writeErr) => {
-        if (writeErr) {
-          console.error('[Backup] Write failed:', writeErr.message);
-          return;
-        }
-        const kb = Math.round(compressed.length / 1024);
-        console.log(`[Backup] Saved: ${path.basename(gzPath)} (${kb} KB)`);
-        rotateBackups();
-      });
-    });
-  });
+    let kb = 0;
+    try { kb = Math.round(fs.statSync(gzPath).size / 1024); } catch (_) {}
+    console.log(`[Backup] Saved: ${path.basename(gzPath)} (${kb} KB)`);
+    rotateBackups();
+  };
 
-  child.on('error', (err) => {
-    console.error('[Backup] Process error (pg_dump not found?):', err.message);
-  });
+  child.stderr.on('data', (d) => { stderr += d.toString(); });
+  child.on('error', (err) => fail(`spawn error (pg_dump not found?): ${err.message}`));
+  gzip.on('error', (err) => fail(`gzip failed: ${err.message}`));
+  out.on('error', (err) => fail(`write failed: ${err.message}`));
+
+  child.stdout.pipe(gzip).pipe(out);
+
+  child.on('close', (code) => { procCode = code; finalize(); });
+  out.on('finish', () => { fileFinished = true; finalize(); });
 }
 
 function rotateBackups() {
