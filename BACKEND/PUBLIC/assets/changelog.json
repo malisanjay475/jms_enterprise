@@ -11,13 +11,13 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.22.0",
+  "latest": "1.21.12",
   "versions": [
     {
-      "version": "1.22.0",
+      "version": "1.21.12",
       "date": "2026-08-05",
-      "title": "Rejected plans return for planning, plus Cycle Time & Avg CT in DPR",
-      "summary": "A plan rejected at Moulding approval now comes back for planning: the job returns to the Create Plan pending list with its mould free, so it can be planned again. The DPR summary also now shows Cycle Time and Average CT for each entry, with Average CT estimated from production when shot counts are not recorded.",
+      "title": "Rejected plans come back for planning",
+      "summary": "When a plan was rejected at the Moulding approval stage, its job stayed marked as planned and never returned to Create Plan, so it couldn't be planned again. A rejected plan now frees its mould and the job reappears in the Create Plan pending list.",
       "modules": [
         {
           "app": "planning",
@@ -27,21 +27,6 @@
             {
               "type": "fix",
               "text": "A plan rejected at Moulding approval now returns to the Create Plan pending list with its mould freed, so the job can be planned again instead of staying stuck."
-            }
-          ]
-        },
-        {
-          "app": "dpr",
-          "label": "DPR",
-          "icon": "bi-clipboard-data",
-          "changes": [
-            {
-              "type": "feat",
-              "text": "The DPR summary now shows Cycle Time and Average CT for each entry."
-            },
-            {
-              "type": "improvement",
-              "text": "Average CT is now estimated from produced quantity and cavities when shot counts are not recorded, so it no longer shows blank."
             }
           ]
         }
