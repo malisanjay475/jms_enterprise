@@ -7644,6 +7644,93 @@ app.get('/api/debug/or-status', async (req, res) => {
   }
 });
 
+// DEBUG (read-only): diagnose duplicate dpr_hourly rows that inflate the DPR
+// Compliance Summary on MAIN (KAN-127). The summary dedups by the natural key
+// (machine, hour_slot, plan_id, dpr_date, shift, colour); anything that still
+// doubles means duplicate rows differ in one of those fields (usually plan_id
+// from cross-server id divergence) or carry a fresh global_id each sync cycle.
+// This endpoint touches nothing — pure SELECTs. Usage:
+//   /api/debug/dpr-dupes?date=2026-08-06&shift=Day&machine=SPH-350-1
+app.get('/api/debug/dpr-dupes', async (req, res) => {
+  try {
+    const date = String(req.query.date || '').trim();
+    if (!date) return res.status(400).json({ ok: false, error: 'Pass ?date=YYYY-MM-DD (optional &shift= &machine=)' });
+    const shift = req.query.shift ? String(req.query.shift).trim() : null;
+    const machine = req.query.machine ? String(req.query.machine).trim() : null;
+    const factoryId = getFactoryId(req);
+
+    // Shared WHERE + params for every query below.
+    const params = [date];
+    let where = `dpr_date = $1 AND is_deleted = false`;
+    if (shift)     { params.push(shift);            where += ` AND shift = $${params.length}`; }
+    if (machine)   { params.push(`%${machine}%`);   where += ` AND machine ILIKE $${params.length}`; }
+    if (factoryId) { params.push(factoryId);        where += ` AND (factory_id = $${params.length} OR factory_id IS NULL)`; }
+
+    // 1. Strict natural-key duplicates — rows the summary's DISTINCT ON *should*
+    //    collapse. If any appear here, they are exact dupes (only global_id/id/
+    //    created_at differ) and the summary already dedups them.
+    const strict = await q(`
+      SELECT machine, hour_slot, CAST(plan_id AS TEXT) AS plan_id, COALESCE(colour,'') AS colour, shift,
+             COUNT(*) AS copies,
+             ARRAY_AGG(id ORDER BY id)         AS ids,
+             ARRAY_AGG(global_id ORDER BY id)  AS global_ids,
+             ARRAY_AGG(good_qty ORDER BY id)   AS good_qtys,
+             ARRAY_AGG(COALESCE(entry_type,'MAIN') ORDER BY id) AS entry_types
+        FROM dpr_hourly
+       WHERE ${where}
+       GROUP BY machine, hour_slot, CAST(plan_id AS TEXT), COALESCE(colour,''), shift
+      HAVING COUNT(*) > 1
+       ORDER BY COUNT(*) DESC, machine, hour_slot
+       LIMIT 200
+    `, params);
+
+    // 2. Loose grouping by (machine, hour_slot, shift) only — reveals what DIFFERS
+    //    between rows the summary keeps separate: distinct plan_ids / colours /
+    //    entry_types / global_ids and the summed good_qty (the inflation source).
+    const loose = await q(`
+      SELECT machine, hour_slot, shift,
+             COUNT(*) AS rows,
+             COUNT(DISTINCT COALESCE(CAST(plan_id AS TEXT),'')) AS distinct_plan_ids,
+             COUNT(DISTINCT COALESCE(colour,''))                AS distinct_colours,
+             COUNT(DISTINCT COALESCE(entry_type,'MAIN'))        AS distinct_entry_types,
+             COUNT(DISTINCT global_id)                          AS distinct_global_ids,
+             ARRAY_AGG(DISTINCT COALESCE(CAST(plan_id AS TEXT),'')) AS plan_ids,
+             ARRAY_AGG(DISTINCT COALESCE(colour,''))                AS colours,
+             SUM(good_qty) AS good_sum
+        FROM dpr_hourly
+       WHERE ${where}
+       GROUP BY machine, hour_slot, shift
+      HAVING COUNT(*) > 1
+       ORDER BY COUNT(*) DESC, machine, hour_slot
+       LIMIT 200
+    `, params);
+
+    // 3. Totals: how many extra (duplicate) rows exist vs the true natural-key count.
+    const totals = await q(`
+      SELECT
+        COUNT(*)::int AS total_rows,
+        COUNT(DISTINCT (machine, hour_slot, CAST(plan_id AS TEXT), COALESCE(colour,''), COALESCE(entry_type,'MAIN'), shift))::int AS distinct_natural_keys,
+        COUNT(DISTINCT global_id)::int AS distinct_global_ids
+        FROM dpr_hourly
+       WHERE ${where}
+    `, params);
+    const t = totals[0] || {};
+
+    res.json({
+      ok: true,
+      query: { date, shift, machine, factory_id: factoryId },
+      totals: {
+        ...t,
+        extra_duplicate_rows: (t.total_rows || 0) - (t.distinct_natural_keys || 0)
+      },
+      strict_natural_key_dupes: { count: strict.length, rows: strict },
+      loose_slot_groups_with_multiple_rows: { count: loose.length, rows: loose }
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // DEBUG: Inspect IDs for Shifting Mismatch
 app.get('/api/debug/ids', async (req, res) => {
   try {
