@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.13",
+  "latest": "1.21.14",
   "versions": [
+    {
+      "version": "1.21.14",
+      "date": "2026-08-06",
+      "title": "Correct Job Card number shows per plan on the board",
+      "summary": "When one order had several job cards (one per job plan), the planning board could show the wrong job card — or none — on a plan, because it picked any job card on the order instead of the one linked to that specific plan. Each plan now shows its own linked Job Card number.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The board now shows each plan's own linked Job Card number (matched via the plan's link on the order), instead of an arbitrary job card when the order has more than one."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.13",
       "date": "2026-08-06",
