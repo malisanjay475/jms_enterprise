@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.14",
+  "latest": "1.21.15",
   "versions": [
+    {
+      "version": "1.21.15",
+      "date": "2026-08-06",
+      "title": "Orders with a cancelled job card show again in Create Plan",
+      "summary": "If an order had even one cancelled job card, the whole order disappeared from Create Plan — even when other job cards were still on schedule and moulds were left to plan. Orders now stay in the Create Plan list as long as they have at least one live job card; only orders whose job cards are all cancelled or completed drop off.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "A single cancelled job card no longer hides the entire order from Create Plan; orders with remaining live job cards and unplanned moulds now appear as expected."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.14",
       "date": "2026-08-06",

@@ -19746,12 +19746,14 @@ app.get('/api/orders/pending', async (req, res) => {
       WHERE
           (r.is_closed IS FALSE OR r.is_closed IS NULL)
         AND(r.mld_status IS NULL OR(LOWER(r.mld_status) NOT IN('completed', 'cancelled')))
-        AND NOT EXISTS (
-          SELECT 1
-          FROM or_jr_report rc
-          WHERE rc.or_jr_no = o.order_no
-            AND LOWER(COALESCE(TRIM(rc.mld_status), '')) = 'cancelled'
-        )
+        -- NOTE: cancelled/completed job cards are filtered PER ROW just above. We must
+        -- NOT additionally drop the whole OR when *any* single job card is cancelled —
+        -- an OR routinely mixes cancelled/completed job cards with live, still-plannable
+        -- ones (e.g. OR JR/JP/2627/0452 had one Cancelled JC alongside two "On Schedule"
+        -- JCs and unplanned moulds). The per-row filter already excludes the dead rows,
+        -- and an OR whose job cards are ALL cancelled/completed leaves no eligible row,
+        -- so it still drops off. (Previous order-wide NOT EXISTS cancelled subquery
+        -- hid the entire OR — removed. KAN-126.)
         AND NOT (
           COALESCE(TRIM(r.job_card_no), '') = ''
           AND LOWER(COALESCE(TRIM(r.jr_close), '')) IN('close', 'closed', 'yes')
@@ -19804,11 +19806,22 @@ app.get('/api/orders', async (req, res) => { // Alias
       SELECT *
       FROM orders o
       WHERE o.status = 'Pending'
-        AND NOT EXISTS (
-          SELECT 1
-          FROM or_jr_report r
-          WHERE r.or_jr_no = o.order_no
-            AND LOWER(COALESCE(TRIM(r.mld_status), '')) = 'cancelled'
+        -- Exclude an OR only when it is GENUINELY dead: it has cancelled job card(s)
+        -- AND no live (non-cancelled) job card left. A single cancelled job card mixed
+        -- with live ones must NOT hide the order, and an order with no OR-JR rows yet
+        -- (freshly created, JC not issued) must still show. (Previous blanket
+        -- NOT EXISTS cancelled subquery hid any OR with even one cancelled JC — KAN-126.)
+        AND NOT (
+          EXISTS (
+            SELECT 1 FROM or_jr_report r
+            WHERE r.or_jr_no = o.order_no
+              AND LOWER(COALESCE(TRIM(r.mld_status), '')) = 'cancelled'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM or_jr_report r2
+            WHERE r2.or_jr_no = o.order_no
+              AND LOWER(COALESCE(TRIM(r2.mld_status), '')) <> 'cancelled'
+          )
         )
     `;
     const params = [];
