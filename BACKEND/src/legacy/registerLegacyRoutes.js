@@ -9109,7 +9109,7 @@ app.get('/api/planning/board', async (req, res) => {
         -- Fetch Mould No from Master (Strict => Fallback to Mould Master)
         COALESCE(mps.mould_no, m.mould_number, '-') AS "mouldNo",
         mps.cavity       AS "cavity",
-        ojr.job_card_no  AS "jcNo",
+        COALESCE(NULLIF(TRIM(pb.job_card_no), ''), ojr.job_card_no) AS "jcNo",
         pb.job_card_given,
         COALESCE(pb.jc_approval_status, 'PENDING') AS "jcApprovalStatus",
         pb.plan_qty     AS "planQty",
@@ -9149,13 +9149,27 @@ app.get('/api/planning/board', async (req, res) => {
       -- Fetch Master CT using Mould No from Summary
       LEFT JOIN moulds mMaster ON TRIM(mMaster.mould_number) = TRIM(mps.mould_no)
 
-      -- Fetch JC No from OR-JR Report
+      -- Fetch JC No from OR-JR Report. An OR can carry several job cards (one per
+      -- job plan), so a blind LIMIT 1 would show an arbitrary — often wrong — JC on
+      -- every plan of that OR. Prefer the row whose OR-JR Remarks reference THIS
+      -- plan's Plan ID / our_code (the plan<->JC link written in OR-JR Status), and
+      -- only fall back to an arbitrary (but deterministic, lowest-id) job card for
+      -- the OR when no row references this plan. Note: pb.job_card_no (persisted at
+      -- link time) still wins over this via the COALESCE on the jcNo column above.
       LEFT JOIN LATERAL (
-         SELECT job_card_no 
-         FROM or_jr_report rpt 
-         WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no) 
-           AND rpt.job_card_no IS NOT NULL 
-           AND rpt.job_card_no <> ''
+         SELECT rpt.job_card_no
+         FROM or_jr_report rpt
+         WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no)
+           AND NULLIF(TRIM(rpt.job_card_no), '') IS NOT NULL
+         ORDER BY
+           CASE
+             WHEN NULLIF(TRIM(pb.plan_id), '') IS NOT NULL
+                  AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.plan_id)) || '%' THEN 0
+             WHEN NULLIF(TRIM(pb.our_code), '') IS NOT NULL
+                  AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.our_code)) || '%' THEN 0
+             ELSE 1
+           END,
+           rpt.id
          LIMIT 1
       ) ojr ON true
       -- Optimized DPR Join: Only aggregate for current orders
