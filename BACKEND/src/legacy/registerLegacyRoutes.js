@@ -7716,15 +7716,73 @@ app.get('/api/debug/dpr-dupes', async (req, res) => {
     `, params);
     const t = totals[0] || {};
 
+    // 4. std_actual (setup) duplicates. The DPR summary reads std_actual WITHOUT
+    //    dedup and the frontend builds a mould/setup row per std_actual row, so a
+    //    duplicate here multiplies produced/EFF/OEE/tonnage for the machine. Natural
+    //    key = (plan_id, shift, dpr_date, machine). Group by it to find extra copies,
+    //    and loosely by (machine, shift) to see how many setup rows the frontend gets.
+    const setupWhereParams = [date];
+    let setupWhere = `dpr_date = $1 AND is_deleted = false`;
+    if (shift)     { setupWhereParams.push(shift);          setupWhere += ` AND shift = $${setupWhereParams.length}`; }
+    if (machine)   { setupWhereParams.push(`%${machine}%`); setupWhere += ` AND machine ILIKE $${setupWhereParams.length}`; }
+    if (factoryId) { setupWhereParams.push(factoryId);      setupWhere += ` AND (factory_id = $${setupWhereParams.length} OR factory_id IS NULL)`; }
+
+    const setupStrict = await q(`
+      SELECT machine, CAST(plan_id AS TEXT) AS plan_id, shift,
+             COUNT(*) AS copies,
+             ARRAY_AGG(id ORDER BY id) AS ids,
+             ARRAY_AGG(COALESCE(mould_name,'') ORDER BY id) AS mould_names,
+             ARRAY_AGG(COALESCE(order_no,'') ORDER BY id)   AS order_nos,
+             ARRAY_AGG(COALESCE(CAST(article_act AS TEXT),'') ORDER BY id) AS article_acts,
+             ARRAY_AGG(COALESCE(CAST(cavity_act AS TEXT),'') ORDER BY id)  AS cavity_acts
+        FROM std_actual
+       WHERE ${setupWhere}
+       GROUP BY machine, CAST(plan_id AS TEXT), shift
+      HAVING COUNT(*) > 1
+       ORDER BY COUNT(*) DESC, machine
+       LIMIT 200
+    `, setupWhereParams);
+
+    const setupPerMachine = await q(`
+      SELECT machine, shift,
+             COUNT(*) AS setup_rows,
+             COUNT(DISTINCT COALESCE(CAST(plan_id AS TEXT),'')) AS distinct_plan_ids,
+             COUNT(DISTINCT COALESCE(mould_name,''))            AS distinct_mould_names,
+             ARRAY_AGG(DISTINCT COALESCE(CAST(plan_id AS TEXT),'')) AS plan_ids
+        FROM std_actual
+       WHERE ${setupWhere}
+       GROUP BY machine, shift
+      HAVING COUNT(*) > COUNT(DISTINCT COALESCE(CAST(plan_id AS TEXT),''))
+       ORDER BY COUNT(*) DESC, machine
+       LIMIT 200
+    `, setupWhereParams);
+
+    const setupTotals = await q(`
+      SELECT COUNT(*)::int AS total_rows,
+             COUNT(DISTINCT (machine, CAST(plan_id AS TEXT), shift, dpr_date))::int AS distinct_natural_keys
+        FROM std_actual WHERE ${setupWhere}
+    `, setupWhereParams);
+    const st = setupTotals[0] || {};
+
     res.json({
       ok: true,
       query: { date, shift, machine, factory_id: factoryId },
-      totals: {
-        ...t,
-        extra_duplicate_rows: (t.total_rows || 0) - (t.distinct_natural_keys || 0)
+      dpr_hourly: {
+        totals: {
+          ...t,
+          extra_duplicate_rows: (t.total_rows || 0) - (t.distinct_natural_keys || 0)
+        },
+        strict_natural_key_dupes: { count: strict.length, rows: strict },
+        loose_slot_groups_with_multiple_rows: { count: loose.length, rows: loose }
       },
-      strict_natural_key_dupes: { count: strict.length, rows: strict },
-      loose_slot_groups_with_multiple_rows: { count: loose.length, rows: loose }
+      std_actual: {
+        totals: {
+          ...st,
+          extra_duplicate_rows: (st.total_rows || 0) - (st.distinct_natural_keys || 0)
+        },
+        natural_key_dupes: { count: setupStrict.length, rows: setupStrict },
+        machines_with_extra_setup_rows: { count: setupPerMachine.length, rows: setupPerMachine }
+      }
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
