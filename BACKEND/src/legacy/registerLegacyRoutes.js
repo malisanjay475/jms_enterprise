@@ -10707,38 +10707,16 @@ app.post('/api/planning/create', async (req, res) => {
         }
       }
 
-      // ── DUPLICATE GUARD ──────────────────────────────────────────────
-      // Block creation if an active (non-completed, non-deleted) plan
-      // already exists for the same order_no + mould_code/mould_name.
-      if (p.orderNo && (p.mouldCode || p.mouldName)) {
-        const dupCheck = await client.query(
-          `SELECT plan_id, status, machine
-             FROM plan_board
-            WHERE TRIM(COALESCE(order_no,'')) ILIKE TRIM($1)
-              AND (
-                    TRIM(COALESCE(mould_code,'')) ILIKE TRIM($2)
-                 OR TRIM(COALESCE(mould_name,'')) ILIKE TRIM($3)
-              )
-              AND COALESCE(is_deleted, false) = false
-              AND status NOT IN ('COMPLETED','CANCELLED')
-              AND ($4::int IS NULL OR factory_id = $4)
-            LIMIT 3`,
-          [
-            p.orderNo,
-            p.mouldCode || '',
-            p.mouldName || '',
-            requestFactoryId ?? null
-          ]
-        );
-        if (dupCheck.rows.length > 0) {
-          const existing = dupCheck.rows.map(r => `${r.plan_id} (${r.status} on ${r.machine})`).join(', ');
-          throw new Error(
-            `Duplicate plan blocked: An active plan already exists for order "${p.orderNo}" with mould "${p.mouldName || p.mouldCode}". ` +
-            `Existing: ${existing}. Complete or cancel it before creating a new one.`
-          );
-        }
-      }
-      // ─────────────────────────────────────────────────────────────────
+      // NOTE: The old "DUPLICATE GUARD" that blocked creating a second plan for
+      // the same order_no + mould while an earlier plan was still active
+      // (status NOT IN COMPLETED/CANCELLED) has been removed (KAN-124). It
+      // prevented legitimate workflows — splitting one order+mould across
+      // machines/shifts, or planning a second batch while the first is still
+      // running. Over-planning is still bounded by the family/remaining-balance
+      // guard above, and DPR isolates production by plan_id, so distinct plans
+      // for the same order+mould no longer conflate. A future refinement could
+      // block only true accidental duplicates (identical qty, zero production)
+      // if double-created plans become a problem in practice.
 
       const planType = ['Moulding', 'Printing', 'Tuffting', 'Labour Job'].includes(p.planType) ? p.planType : 'Moulding';
       const ins = await client.query(

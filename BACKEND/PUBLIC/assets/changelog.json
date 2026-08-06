@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.12",
+  "latest": "1.21.13",
   "versions": [
+    {
+      "version": "1.21.13",
+      "date": "2026-08-06",
+      "title": "Plan the same order & mould more than once",
+      "summary": "Create Plan used to block a second plan for the same order and mould while an earlier plan was still open, so you had to complete or cancel the first before splitting the work across machines or shifts. That block is removed — you can now create additional plans for the same order and mould. Over-planning is still limited by the remaining order balance.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Removed the block that stopped a second plan for the same order and mould while an earlier plan was still open, so work can be split across machines or shifts."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.12",
       "date": "2026-08-05",
