@@ -155,10 +155,33 @@ function handleBridgeMessage(msg, renderCallback) {
             }
         }
     }
+    else if (msg.type === 'status') {
+        // Bridge confirms the real connection result. Only mark a table
+        // connected when the bridge actually opened the port/socket.
+        const tid = Object.keys(TABLE_SCANNERS).find(t => TABLE_SCANNERS[t].port === msg.path);
+        if (tid) {
+            if (msg.connected) {
+                log(tid, `Connected to ${msg.path}.`, 'success');
+            } else {
+                // Bridge reports not connected -> drop the optimistic state.
+                delete TABLE_SCANNERS[tid];
+                log(tid, `Not connected to ${msg.path}.`, 'error');
+            }
+            if (window.renderCards) window.renderCards();
+        }
+    }
     else if (msg.type === 'error') {
         let errText = msg.message;
         if (errText.includes('121')) {
             errText = 'Port Busy/Timeout (Code 121). Unplug/replug scanner or close other apps using COM port.';
+        }
+        // A failed/dropped connection must revert the optimistic "connected"
+        // state so the UI shows Disconnected instead of a false green dot.
+        const tid = msg.path && Object.keys(TABLE_SCANNERS).find(t => TABLE_SCANNERS[t].port === msg.path);
+        if (tid) {
+            delete TABLE_SCANNERS[tid];
+            log(tid, `Connection failed: ${errText}`, 'error');
+            if (window.renderCards) window.renderCards();
         }
         JPSMS.toast(`Bridge Error: ${errText}`, 'error');
     }
