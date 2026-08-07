@@ -7782,7 +7782,31 @@ app.get('/api/debug/dpr-dupes', async (req, res) => {
         },
         natural_key_dupes: { count: setupStrict.length, rows: setupStrict },
         machines_with_extra_setup_rows: { count: setupPerMachine.length, rows: setupPerMachine }
-      }
+      },
+      // 5. Raw rows for this machine/date + the per-plan CUMULATIVE produced the
+      //    summary's plan_prod CTE computes (SUM good_qty by plan_id across ALL dates
+      //    and, under "All Factories", ALL factories — no date scope). If the shift's
+      //    cell sum is small but plan_cumulative is large, the inflation is cumulative/
+      //    cross-factory over-counting, not row duplication.
+      raw_rows: await q(`
+        SELECT id, hour_slot, CAST(plan_id AS TEXT) AS plan_id, COALESCE(colour,'') AS colour,
+               good_qty, reject_qty, factory_id, dpr_date::text AS dpr_date, machine
+          FROM dpr_hourly WHERE ${where}
+         ORDER BY hour_slot LIMIT 60
+      `, params),
+      plan_cumulative: await q(`
+        SELECT CAST(plan_id AS TEXT) AS plan_id, factory_id,
+               COUNT(*) AS rows, COUNT(DISTINCT dpr_date) AS distinct_dates,
+               MIN(dpr_date)::text AS first_date, MAX(dpr_date)::text AS last_date,
+               SUM(good_qty)::int AS produced_sum
+          FROM dpr_hourly
+         WHERE is_deleted = false
+           AND CAST(plan_id AS TEXT) IN (
+             SELECT DISTINCT CAST(plan_id AS TEXT) FROM dpr_hourly WHERE ${where}
+           )
+         GROUP BY CAST(plan_id AS TEXT), factory_id
+         ORDER BY produced_sum DESC LIMIT 60
+      `, params)
     });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
