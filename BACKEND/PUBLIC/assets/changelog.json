@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.16",
+  "latest": "1.21.17",
   "versions": [
+    {
+      "version": "1.21.17",
+      "date": "2026-08-04",
+      "title": "Factory servers now detect when they fall behind the main server",
+      "summary": "Each factory server now regularly checks its key order, planning and production data against the main server and flags any table where it is missing records. This catches the kind of silent gap that could make an order not appear in Create Plan on a factory server even though it exists on the main server.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Factory servers now automatically compare their order/planning/production data with the main server and flag any missing records, so a server quietly falling behind is caught early."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.16",
       "date": "2026-08-07",

@@ -29,6 +29,16 @@ const SYNC_INITIAL_DELAY_MS = readNonNegativeIntegerEnv(
     'SYNC_INITIAL_DELAY_MS',
     process.env.NODE_ENV === 'test' ? 0 : 30 * 1000
 );
+
+// Reconciliation: periodically compare a LOCAL's per-factory row counts against MAIN's
+// so a silently missing row set is detected (e.g. an order absent from Create Plan
+// because its mould_planning_summary row never arrived). Non-fatal; default ON on LOCAL.
+const RECONCILE_ENABLED = String(process.env.RECONCILE_ENABLED ?? '1') !== '0';
+const RECONCILE_INTERVAL_MS = readPositiveIntegerEnv('RECONCILE_INTERVAL_MS', 30 * 60 * 1000);
+// A LOCAL should never hold FEWER factory rows than MAIN; a positive gap beyond this
+// tolerance is flagged. Kept at 0 by default (any shortfall is worth surfacing).
+const RECONCILE_TOLERANCE = readNonNegativeIntegerEnv('RECONCILE_TOLERANCE', 0);
+let lastReconcileAt = 0;
 const SYNC_TRIGGER_DEBOUNCE_MS = readNonNegativeIntegerEnv(
     'SYNC_TRIGGER_DEBOUNCE_MS',
     process.env.NODE_ENV === 'test' ? 0 : 5000
@@ -320,6 +330,20 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_bom',
     'erp_mould_item'
 ]);
+
+// Tables the reconciliation check compares between a LOCAL and MAIN. Scoped to the
+// order/planning/production pipeline — the rows whose silent absence on a LOCAL causes
+// visible breakage (an order missing from Create Plan, missing production, etc.). Kept
+// deliberately small so the census counts stay cheap to run every cycle interval.
+const RECONCILE_TABLES = [
+    'orders',
+    'or_jr_report',
+    'mould_planning_summary',
+    'mould_planning_report',
+    'plan_board',
+    'std_actual',
+    'dpr_hourly'
+];
 
 const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons'];
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
@@ -728,6 +752,34 @@ router.get('/health', async (_req, res) => {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
+// Per-factory row census for the reconciliation pipeline tables. Served by any server
+// (MAIN or LOCAL). A LOCAL calls MAIN's census for its own factory to detect gaps.
+router.get('/census', async (req, res) => {
+    if (!pool) return res.status(503).json({ ok: false, error: 'Service initializing' });
+    try {
+        const { apiKey, factoryId } = req.query;
+        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        const parsed = (factoryId != null && factoryId !== '') ? parseInt(factoryId, 10) : null;
+        const fid = Number.isFinite(parsed) ? parsed : null;
+        const tables = await buildCensus(fid);
+        res.json({ ok: true, factoryId: fid, tables });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+// Reconciliation: compare THIS LOCAL's per-factory counts against MAIN and report any
+// table where the LOCAL is behind. `healthy` is the signal the sync monitor evaluates;
+// HTTP stays 200 when the check itself ran (a gap is data, not an endpoint error).
+router.get('/reconcile', async (req, res) => {
+    if (!pool) return res.status(503).json({ ok: false, error: 'Service initializing' });
+    try {
+        const { apiKey } = req.query;
+        if (apiKey !== API_KEY) return res.status(403).json({ error: 'Invalid Key' });
+        if (SERVER_TYPE !== 'LOCAL') return res.status(400).json({ ok: false, error: 'Only available on LOCAL servers' });
+        const result = await runReconciliation();
+        res.json(result);
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 router.post('/admin/full-pull-reset', async (req, res) => {
     if (!pool) return res.status(503).json({ error: 'Service initializing' });
     try {
@@ -983,6 +1035,73 @@ function triggerSync() {
     if (typeof triggerTimeout.unref === 'function') triggerTimeout.unref();
 }
 
+// Build a per-factory row census for RECONCILE_TABLES. Counts are factory-scoped
+// (factory_id = fid OR NULL) except GLOBAL_MASTER_TABLES, and exclude soft-deleted rows
+// where an is_deleted column exists — so a LOCAL and MAIN count the same population for
+// the same factory. Best-effort per table; a missing table/column never aborts the rest.
+async function buildCensus(factoryId) {
+    const out = {};
+    for (const table of RECONCILE_TABLES) {
+        try {
+            if (!(await tableExistsPublic(table))) { out[table] = { count: null, note: 'missing' }; continue; }
+            const hasFactory = await tableHasColumn(table, 'factory_id');
+            const hasUpdated = await tableHasColumn(table, 'updated_at');
+            const hasDeleted = await tableHasColumn(table, 'is_deleted');
+            const scoped = hasFactory && !GLOBAL_MASTER_TABLES.has(table) && factoryId != null;
+            const conds = [];
+            const params = [];
+            if (scoped) { params.push(factoryId); conds.push(`(factory_id = $${params.length} OR factory_id IS NULL)`); }
+            if (hasDeleted) conds.push('is_deleted = false');
+            const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+            const sql = `SELECT count(*)::int AS n${hasUpdated ? ', max(updated_at) AS mx' : ''} FROM ${table} ${where}`;
+            const r = await pool.query(sql, params);
+            out[table] = { count: r.rows[0].n, maxUpdatedAt: hasUpdated ? r.rows[0].mx : null };
+        } catch (e) {
+            out[table] = { count: null, error: e.message };
+        }
+    }
+    return out;
+}
+
+// Compare this LOCAL's per-factory census against MAIN's for the same factory and report
+// any table where the LOCAL holds fewer rows (a silent sync gap). Non-fatal: callers
+// swallow errors so a reconciliation failure never disrupts the sync cycle.
+async function runReconciliation() {
+    if (SERVER_TYPE !== 'LOCAL' || !MAIN_SERVER_URL || !LOCAL_FACTORY_ID) {
+        return { ok: false, error: 'Reconciliation runs on LOCAL servers only' };
+    }
+    const factoryId = LOCAL_FACTORY_ID;
+    const localCensus = await buildCensus(factoryId);
+
+    const url = `${MAIN_SERVER_URL}/api/sync/census?apiKey=${encodeURIComponent(API_KEY)}&factoryId=${encodeURIComponent(factoryId)}`;
+    const response = await fetchWithSyncRetry(url, 'Reconcile census');
+    if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        throw new Error(`census HTTP ${response.status}: ${errText.slice(0, 150)}`);
+    }
+    const mainCensus = (await response.json()).tables || {};
+
+    const tables = [];
+    const behind = [];
+    for (const table of RECONCILE_TABLES) {
+        const local = localCensus[table] ? localCensus[table].count : null;
+        const main = mainCensus[table] ? mainCensus[table].count : null;
+        const behindBy = (typeof main === 'number' && typeof local === 'number') ? (main - local) : null;
+        const row = { table, local, main, behindBy };
+        tables.push(row);
+        if (behindBy != null && behindBy > RECONCILE_TOLERANCE) behind.push(row);
+    }
+
+    const healthy = behind.length === 0;
+    if (!healthy) {
+        console.warn(`[Reconcile] Factory ${factoryId} BEHIND MAIN on ${behind.length} table(s): ` +
+            behind.map(b => `${b.table} local=${b.local} main=${b.main} (-${b.behindBy})`).join('; '));
+    } else {
+        console.log(`[Reconcile] Factory ${factoryId} in sync with MAIN across ${tables.length} table(s).`);
+    }
+    return { ok: true, healthy, factoryId, checkedAt: new Date().toISOString(), tables, behind };
+}
+
 async function runSyncCycle() {
     if (!pool || !LOCAL_FACTORY_ID || !MAIN_SERVER_URL) return;
     if (syncInFlight) {
@@ -1027,6 +1146,20 @@ async function runSyncCycle() {
             cycleStats.pending = await getCachedPendingChanges();
             await setServerConfigValue('LAST_SYNC', await getDatabaseNowIso());
             await setSyncAuditState(cycleStats);
+
+            // Periodic MAIN<->LOCAL reconciliation (throttled, non-fatal). Surfaces a
+            // silent gap where this LOCAL is missing factory rows MAIN has — the class of
+            // bug that made an order invisible in Create Plan. Never allowed to disrupt
+            // the cycle: its own try/catch swallows any failure.
+            if (RECONCILE_ENABLED && SERVER_TYPE === 'LOCAL'
+                && Date.now() - lastReconcileAt >= RECONCILE_INTERVAL_MS) {
+                lastReconcileAt = Date.now();
+                try {
+                    await runReconciliation();
+                } catch (recErr) {
+                    console.warn('[Reconcile] check skipped:', recErr.message);
+                }
+            }
         } catch (e) {
             console.error('[Sync] Cycle Failed:', e);
             cycleStats.failed += 1;
@@ -2616,8 +2749,12 @@ module.exports = {
     init,
     router,
     triggerSync,
+    buildCensus,
+    runReconciliation,
     __test: {
         fetchWithSyncRetry,
+        buildCensus,
+        runReconciliation,
         pullChanges,
         pullTableAllPages,
         pushTableAllBatches,
