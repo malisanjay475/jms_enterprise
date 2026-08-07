@@ -1029,7 +1029,10 @@ app.get('/api/dpr/dashboard-matrix', async (req, res) => {
             SUM( (h.shots * COALESCE(m.no_of_cav, pm.no_of_cav, 1) * COALESCE(m.std_wt_kg, m.std_wt_kg, pm.std_wt_kg, pm.std_wt_kg, 0)) / 1000 ) as total_tonnage_plan
         FROM dpr_hourly h
         LEFT JOIN moulds m ON m.mould_number = h.mould_no
-        LEFT JOIN plan_board pb ON pb.id::TEXT = h.plan_id OR pb.plan_id = h.plan_id
+        LEFT JOIN plan_board pb ON (pb.id::TEXT = h.plan_id OR pb.plan_id = h.plan_id)
+          -- Factory-scope: plan_id repeats across factories, so an unscoped join can
+          -- fan out (multiply) the hour's tonnage via a same-plan_id plan elsewhere (KAN-127).
+          AND (pb.factory_id = h.factory_id OR pb.factory_id IS NULL OR h.factory_id IS NULL)
         LEFT JOIN moulds pm ON pm.mould_number = pb.item_code
         WHERE h.dpr_date = $1::date AND h.shift = $2 AND (h.factory_id = $3 OR ($3 IS NULL AND h.factory_id IS NULL))
         GROUP BY h.hour_slot
@@ -7289,6 +7292,10 @@ app.get('/api/planning/machine-jobs', async (req, res) => {
             SELECT 1 FROM dpr_hourly dh
             WHERE (dh.plan_id = pb.plan_id
                 OR CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT))
+              -- plan_id is unique only WITHIN a factory (each factory mints the same
+              -- PLN-<yr>-<seq> sequence), so match production factory-scoped or another
+              -- factory's output attributes to this plan (KAN-127).
+              AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
               AND dh.dpr_date = $2::date
               AND dh.shift    = $3
               AND dh.is_deleted = false
@@ -7310,6 +7317,9 @@ app.get('/api/planning/machine-jobs', async (req, res) => {
         FROM dpr_hourly dh
         WHERE (dh.plan_id = pb.plan_id
             OR CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT))
+          -- Factory-scope: plan_id repeats across factories, so an unscoped SUM adds
+          -- other factories' production to this plan's total (KAN-127).
+          AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
           AND dh.is_deleted = false
       ) dpr_totals ON true
       LEFT JOIN LATERAL (
@@ -7323,6 +7333,8 @@ app.get('/api/planning/machine-jobs', async (req, res) => {
           FROM dpr_hourly
           WHERE (plan_id = pb.plan_id
               OR CAST(plan_id AS TEXT) = CAST(pb.id AS TEXT))
+            -- Factory-scope: plan_id repeats across factories (KAN-127).
+            AND (factory_id = pb.factory_id OR factory_id IS NULL OR pb.factory_id IS NULL)
             AND is_deleted = false
           GROUP BY 1
         ) t
@@ -8016,9 +8028,11 @@ async function getShiftingLabelContext(rawScanValue, factoryId) {
   const producedRows = await q(
     `SELECT COALESCE(SUM(good_qty), 0) AS total_produced
        FROM dpr_hourly
-      WHERE CAST(plan_id AS TEXT) = $1
-         OR ($2 <> '' AND CAST(plan_id AS TEXT) = $2)`,
-    [String(resolvedPlanPk), resolvedPlanCode]
+      WHERE (CAST(plan_id AS TEXT) = $1
+         OR ($2 <> '' AND CAST(plan_id AS TEXT) = $2))
+        -- Factory-scope: plan_id repeats across factories (KAN-127).
+        AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`,
+    [String(resolvedPlanPk), resolvedPlanCode, resolvedFactoryId || null]
   );
 
   const shiftedRows = await q(
@@ -8228,9 +8242,12 @@ app.get('/api/shifting/dashboard', async (req, res) => {
            ${shiftFilter}) as last_shifted_at
        FROM plan_board pb
        LEFT JOIN dpr_hourly dh ON (
-           CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT) 
+           CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT)
            OR CAST(dh.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT)
        )
+           -- Factory-scope: plan_id repeats across factories, so total_produced must
+           -- not sum other factories' output for the same plan_id (KAN-127).
+           AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
        ${whereClause}
        GROUP BY pb.id, pb.plan_id, pb.machine, pb.line, pb.order_no, pb.item_name, pb.mould_name, pb.plan_qty, pb.status, pb.start_date, pb.end_date, pb.seq
        ORDER BY pb.line, pb.machine, pb.seq`,
@@ -8290,8 +8307,10 @@ app.get('/api/shifting/jobs', async (req, res) => {
          COALESCE(
            (SELECT SUM(dh.good_qty)
               FROM dpr_hourly dh
-             WHERE CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT)
-                OR CAST(dh.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT)),
+             WHERE (CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT)
+                OR CAST(dh.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT))
+               -- Factory-scope: plan_id repeats across factories (KAN-127).
+               AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)),
            0
          ) AS total_produced,
          COALESCE(
@@ -8375,9 +8394,11 @@ app.get('/api/shifting/jobs/:id/details', async (req, res) => {
       q(
         `SELECT TRIM(COALESCE(colour, '')) AS colour, COALESCE(SUM(good_qty), 0) AS qty
            FROM dpr_hourly
-          WHERE CAST(plan_id AS TEXT) = $1::text OR ($2::text <> '' AND CAST(plan_id AS TEXT) = $2::text)
+          WHERE (CAST(plan_id AS TEXT) = $1::text OR ($2::text <> '' AND CAST(plan_id AS TEXT) = $2::text))
+            -- Factory-scope: plan_id repeats across factories (KAN-127).
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
           GROUP BY TRIM(COALESCE(colour, ''))`,
-        shared
+        [planPk, planCode, normalizeFactoryId(plan.factory_id) || null]
       ),
       q(
         `SELECT TRIM(COALESCE(colour, '')) AS colour, COALESCE(SUM(quantity), 0) AS qty
@@ -9346,6 +9367,8 @@ app.get('/api/planning/board', async (req, res) => {
           SELECT SUM(good_qty) as qty, MIN(created_at) as first_entry
           FROM dpr_hourly dh
           WHERE dh.plan_id = pb.plan_id
+            -- Factory-scope: plan_id repeats across factories (KAN-127).
+            AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
             AND dh.is_deleted = false
       ) dpr ON true
       WHERE ${where}
@@ -11981,6 +12004,8 @@ app.get('/api/planning/orders/:orderNo/history', async (req, res) => {
            SELECT SUM(good_qty) AS produced
            FROM dpr_hourly dh
            WHERE dh.plan_id = pb.plan_id
+             -- Factory-scope: plan_id repeats across factories (KAN-127).
+             AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
              AND dh.is_deleted = false
        ) dpr ON true
        WHERE TRIM(COALESCE(pb.order_no,'')) = TRIM($1)
@@ -12092,9 +12117,11 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
     // making this query take 7+ seconds. CTE reduces it to ~58ms.
     let statusSql = `
       WITH dpr_agg AS (
-        SELECT plan_id, SUM(good_qty) AS qty, MIN(created_at) AS first_entry
+        -- Group by (plan_id, factory_id): plan_id repeats across factories, so grouping
+        -- by plan_id alone attributes other factories' production to this plan (KAN-127).
+        SELECT plan_id, factory_id, SUM(good_qty) AS qty, MIN(created_at) AS first_entry
         FROM dpr_hourly
-        GROUP BY plan_id
+        GROUP BY plan_id, factory_id
       )
       SELECT
         pb.machine,
@@ -12118,6 +12145,7 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
        AND TRIM(COALESCE(mps.mould_name, '')) = TRIM(COALESCE(pb.mould_name, ''))
        AND ($2::int IS NULL OR mps.factory_id = $2 OR mps.factory_id IS NULL)
       LEFT JOIN dpr_agg dpr ON dpr.plan_id = pb.plan_id
+        AND (dpr.factory_id = pb.factory_id OR dpr.factory_id IS NULL OR pb.factory_id IS NULL)
       WHERE pb.machine = ANY($1::text[])
         AND UPPER(COALESCE(pb.status, '')) IN ('RUNNING', 'PLANNED')
     `;
@@ -12941,6 +12969,8 @@ app.get('/api/planning/completed', async (req, res) => {
         LEFT JOIN LATERAL (
            SELECT SUM(good_qty) as qty FROM dpr_hourly dh
            WHERE (dh.plan_id = pb.plan_id OR dh.plan_id = pb.id::TEXT)
+             -- Factory-scope: plan_id repeats across factories (KAN-127).
+             AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
              AND (dh.is_deleted IS NULL OR dh.is_deleted = false)
         ) dpr ON true
         LEFT JOIN LATERAL (
@@ -13056,8 +13086,10 @@ app.get('/api/planning/colour-wise-completion', async (req, res) => {
       `SELECT plan_id, UPPER(TRIM(colour)) AS colour_upper, SUM(good_qty) AS produced_qty
        FROM dpr_hourly
        WHERE plan_id = ANY($1) AND (is_deleted IS NOT TRUE)
+         -- Factory-scope: plan_id repeats across factories (KAN-127).
+         AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
        GROUP BY plan_id, UPPER(TRIM(colour))`,
-      [planIds]
+      [planIds, factoryId || null]
     );
 
     // Build lookup: planId -> { COLOUR_UPPER -> produced_qty }
@@ -14266,6 +14298,8 @@ app.get('/api/planning/job-card-print', async (req, res) => {
             MIN(dh.created_at) AS first_entry
           FROM dpr_hourly dh
           WHERE TRIM(COALESCE(dh.plan_id, '')) = TRIM(COALESCE(pb.plan_id, ''))
+            -- Factory-scope: plan_id repeats across factories (KAN-127).
+            AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
         ) dpr ON true
         WHERE TRIM(COALESCE(pb.machine, '')) = TRIM($1)
           AND UPPER(COALESCE(pb.status, '')) IN ('RUNNING', 'PLANNED')
@@ -15186,6 +15220,7 @@ app.get('/api/reports/or-jr', async (req, res) => {
     p.status
       FROM plan_board p
       LEFT JOIN dpr_hourly d ON p.plan_id = d.plan_id
+        AND (d.factory_id = p.factory_id OR d.factory_id IS NULL OR p.factory_id IS NULL)
       GROUP BY p.plan_id, p.order_no, p.item_name, p.mould_name, p.plan_qty, p.status
     `);
     res.json({ ok: true, data: rows });
@@ -16234,6 +16269,7 @@ app.get('/api/reports/or-jr', async (req, res) => {
         p.status
        FROM plan_board p
        LEFT JOIN dpr_hourly d ON p.plan_id = d.plan_id
+         AND (d.factory_id = p.factory_id OR d.factory_id IS NULL OR p.factory_id IS NULL)
        GROUP BY p.plan_id, p.order_no, p.item_name, p.mould_name, p.plan_qty, p.status
        ORDER BY p.status, p.plan_id`
     );
@@ -19187,7 +19223,10 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       -- Compliance Summary still double on MAIN even after dpr_hourly was deduped (KAN-119).
       LEFT JOIN LATERAL (
         SELECT * FROM plan_board pb2
-        WHERE pb2.plan_id = d.plan_id OR CAST(pb2.id AS TEXT) = CAST(d.plan_id AS TEXT)
+        WHERE (pb2.plan_id = d.plan_id OR CAST(pb2.id AS TEXT) = CAST(d.plan_id AS TEXT))
+          -- Factory-scope: plan_id repeats across factories, so pick the plan in the
+          -- SAME factory as the hourly entry, not a same-plan_id plan elsewhere (KAN-127).
+          AND (pb2.factory_id = d.factory_id OR pb2.factory_id IS NULL OR d.factory_id IS NULL)
         ORDER BY (pb2.plan_id = d.plan_id) DESC, pb2.id DESC
         LIMIT 1
       ) pb ON true
@@ -19214,10 +19253,14 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     // 3. Get Setup Data (std_actual) for Range
     let setupQuery = `
       WITH plan_prod AS (
-        -- Cumulative good produced per plan (factory scoped), computed ONCE.
+        -- Cumulative good produced per plan, computed ONCE.
         -- Dedupe dpr_hourly to one row per natural key first (KAN-119) so duplicate
         -- synced rows don't multiply produced (which inflates balance / OEE / EFF).
-        SELECT dh.plan_id, SUM(dh.good_qty)::int AS produced
+        -- Group by (plan_id, factory_id): plan_id is unique only WITHIN a factory
+        -- (each factory mints the same PLN-<yr>-<seq> sequence), so grouping by
+        -- plan_id alone sums other factories' production into this plan under the
+        -- "All Factories" view (KAN-127). The join below matches on both columns.
+        SELECT dh.plan_id, dh.factory_id, SUM(dh.good_qty)::int AS produced
         FROM (
           SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
           FROM dpr_hourly
@@ -19226,7 +19269,7 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
             AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
           ORDER BY ${DPR_HOURLY_KEY}, id DESC
         ) dh
-        GROUP BY dh.plan_id
+        GROUP BY dh.plan_id, dh.factory_id
       )
       SELECT
         s.id,
@@ -19261,12 +19304,16 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         s.machine, s.mould_name, s.order_no, s.plan_id, s.shift
 
       FROM std_actual s
+      -- Match produced on (plan_id, factory_id) — plan_id repeats across factories (KAN-127).
       LEFT JOIN plan_prod pp ON pp.plan_id = s.plan_id
+        AND (pp.factory_id = s.factory_id OR pp.factory_id IS NULL OR s.factory_id IS NULL)
       -- One plan_board row per setup — duplicate plan rows (sync) would otherwise
       -- multiply std_actual rows and double-count plan_qty/STD in the summary (KAN-119).
       LEFT JOIN LATERAL (
         SELECT * FROM plan_board pb2
         WHERE pb2.plan_id = s.plan_id
+          -- Factory-scope: plan_id repeats across factories (KAN-127).
+          AND (pb2.factory_id = s.factory_id OR pb2.factory_id IS NULL OR s.factory_id IS NULL)
         ORDER BY pb2.id DESC
         LIMIT 1
       ) pb ON true

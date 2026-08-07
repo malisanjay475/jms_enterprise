@@ -11,8 +11,38 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.15",
+  "latest": "1.21.16",
   "versions": [
+    {
+      "version": "1.21.16",
+      "date": "2026-08-07",
+      "title": "Production & balance figures corrected across the app",
+      "summary": "On the main server, Produced and Balance could be badly wrong — a plan that never ran could show tens of thousands produced and a large negative balance. The cause: each factory reuses the same plan numbers (PLN-YYYY-NNNN), and the totals were adding up production from every factory that shared the number. Produced is now counted per factory, so the Planning Board timeline, Excel view, DPR Compliance Summary, shifting and reports all show the correct figures.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Produced and Balance are now counted per factory, so a plan no longer shows other factories' production (which could make a not-started plan look massively over-produced with a negative balance)."
+            }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "DPR Compliance Summary production, OEE, efficiency and tonnage no longer inflate from other factories that reuse the same plan number."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.15",
       "date": "2026-08-06",
