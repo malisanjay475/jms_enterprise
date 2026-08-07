@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.16",
+  "latest": "1.21.17",
   "versions": [
+    {
+      "version": "1.21.17",
+      "date": "2026-08-07",
+      "title": "Factory servers always use India time now",
+      "summary": "Dates, times and Day/Night shifts are now always calculated in India Standard Time on the factory servers, even if the computer's own clock or timezone is set wrong. This keeps DPR dates, shift timing and 'last updated' times correct everywhere.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-clock-history",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The app now forces India Standard Time (Asia/Kolkata) for all date, time and shift calculations, so a factory server whose Windows clock is on the wrong timezone no longer shows wrong dates or Day/Night shifts."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.16",
       "date": "2026-08-07",

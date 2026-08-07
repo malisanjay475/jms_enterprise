@@ -33,6 +33,18 @@ function createDbPool(config) {
     console.error('[DB] Unexpected pool error:', error.message);
   });
 
+  // Pin every DB session to IST so timestamptz values read/write in India time
+  // regardless of the server's postgresql.conf timezone. MAIN sets PGTZ via Docker,
+  // but the LOCAL Windows Postgres installs default their `timezone` GUC to the
+  // machine's zone at install time — so a mis-set box returns e.g. -07 offsets.
+  // Setting it per-connection makes the app's timezone correct even when the
+  // underlying Postgres config is wrong, and is harmless where it's already IST.
+  pool.on('connect', (client) => {
+    client.query("SET TIME ZONE 'Asia/Kolkata'").catch((error) => {
+      console.error('[DB] Failed to pin session timezone to Asia/Kolkata:', error.message);
+    });
+  });
+
   return pool;
 }
 
