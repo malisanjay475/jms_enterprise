@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.17",
+  "latest": "1.21.18",
   "versions": [
+    {
+      "version": "1.21.18",
+      "date": "2026-08-04",
+      "title": "Fixed a duplicate-key error when importing planning data",
+      "summary": "Uploading a file or importing from ERP for a factory could fail with a 'duplicate key' error and import nothing, when a matching record was left under a different factory. The importer now clears the old record correctly, so the import completes and the data appears in Create Plan.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Importing planning data (file upload or ERP) no longer fails with a duplicate-key error when a matching record exists under a different factory — the import now completes and the orders show up in Create Plan."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.17",
       "date": "2026-08-07",

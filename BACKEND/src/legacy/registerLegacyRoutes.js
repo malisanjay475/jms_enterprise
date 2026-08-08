@@ -15906,14 +15906,20 @@ async function writeErpPlanningDetail(client, rows, factoryId) {
       delParams.push(r.or_jr_no, r.mould_no, r.mould_item_code);
       return `($${b + 1}::text,$${b + 2}::text,$${b + 3}::text)`;
     });
-    delParams.push(factoryId);
+    // Delete by the natural key (or_jr_no + mould_no + mould_item_code) across ALL
+    // factories — NOT factory-scoped. The unique index (mould_report_planning_uniq /
+    // mould_report_date_uniq_idx) is GLOBAL (no factory_id) and or_jr_no is globally
+    // unique by its factory prefix. A factory-scoped delete left a same-key row that was
+    // stored under a wrong/NULL factory_id in place, so the re-insert below collided
+    // (23505 mould_report_planning_uniq) and aborted the whole ERP import. Clearing the
+    // stray row by natural key first makes the re-insert idempotent and re-homes the
+    // data to the correct factory.
     await client.query(`
       DELETE FROM mould_planning_report t
       USING (VALUES ${delTuples.join(',')}) AS v(or_jr_no, mould_no, mould_item_code)
       WHERE TRIM(COALESCE(t.or_jr_no, ''))       = TRIM(v.or_jr_no)
         AND TRIM(COALESCE(t.mould_no, ''))        = TRIM(v.mould_no)
         AND TRIM(COALESCE(t.mould_item_code, '')) = TRIM(v.mould_item_code)
-        AND ($${delParams.length}::int IS NULL OR t.factory_id = $${delParams.length} OR t.factory_id IS NULL)
     `, delParams);
 
     const params = [];
@@ -18317,13 +18323,16 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
           const fid = row.factory_id ?? requestFactoryId;
           // Delete all existing rows for this colour+mould (any plan_date) so we store
           // exactly one summed row per (or_jr_no, mould_no, mould_item_code).
+          // Delete by natural key across ALL factories (not factory-scoped). The unique
+          // index is global and or_jr_no is globally unique by prefix, so a same-key row
+          // stored under a wrong/NULL factory_id must also be cleared — otherwise the
+          // re-insert collides (23505 mould_report_planning_uniq) and aborts the import.
           await client.query(`
             DELETE FROM mould_planning_report
             WHERE TRIM(COALESCE(or_jr_no, ''))       = TRIM($1)
               AND TRIM(COALESCE(mould_no, ''))        = TRIM($2)
               AND TRIM(COALESCE(mould_item_code, '')) = TRIM($3)
-              AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
-          `, [row.or_jr_no, row.mould_no, row.mould_item_code, fid]);
+          `, [row.or_jr_no, row.mould_no, row.mould_item_code]);
 
           await client.query(`
             INSERT INTO mould_planning_report(
