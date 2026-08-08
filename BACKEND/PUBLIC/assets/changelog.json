@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.17",
+  "latest": "1.21.18",
   "versions": [
+    {
+      "version": "1.21.18",
+      "date": "2026-08-08",
+      "title": "Completed plans no longer come back",
+      "summary": "When a plan was marked Complete from the Machine Timeline on a factory server, it could reappear as active a few minutes later after syncing with the main server. The completion is now recorded correctly so it syncs to the main server and stays completed. Completions are also written to the plan history now, so you can see who completed a plan and when.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "A plan marked Complete now stays completed and no longer reappears on the board after a sync with the main server."
+            },
+            {
+              "type": "improvement",
+              "text": "Completing a plan is now saved to the plan history, so you can see who completed it and when."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.17",
       "date": "2026-08-07",
