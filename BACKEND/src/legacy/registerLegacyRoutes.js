@@ -9486,20 +9486,39 @@ app.post('/api/planning/complete', async (req, res) => {
     const { id, completed_qty, remarks, user } = req.body;
     if (!id) return res.json({ ok: false, error: 'Missing ID' });
 
-    // Update status, timestamps, and details
-    // Ensure we handle completed_qty - optional to store in good_qty or just rely on remarks/logging
-    // We will update good_qty to completed_qty if provided, for record keeping.
-    // Actually plan_board doesn't have good_qty, it has dpr aggregation.
-    // We will just store the fact it is complete.
-
-    await q(`
-      UPDATE plan_board 
+    // Update status, timestamps, and details.
+    // CRITICAL: bump updated_at (and last_updated_at) so the completion is a fresh
+    // change. The sync push selects rows by `updated_at > lastPush`, and the pull
+    // upsert only overwrites a local row when the incoming row is NEWER
+    // (EXCLUDED.updated_at > plan_board.updated_at). Without stamping updated_at,
+    // the COMPLETED status (a) is never pushed to MAIN and (b) gets overwritten
+    // back to active on the next pull — the plan "auto comes back" (KAN history).
+    const upd = await q(`
+      UPDATE plan_board
       SET status = 'COMPLETED',
           remarks = $2,
           completed_by = $3,
-          completed_at = NOW()
+          completed_at = NOW(),
+          updated_at = NOW(),
+          last_updated_at = NOW()
       WHERE id = $1
+      RETURNING id, plan_id, order_no
     `, [id, remarks || '', user || 'System']);
+
+    // Audit trail so "who completed it / when" is answerable later (previously
+    // /planning/complete wrote no plan_audit_logs entry, leaving completions
+    // invisible in history).
+    if (upd && upd.length) {
+      await q(
+        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'COMPLETE', $2, $3)",
+        [upd[0].id, JSON.stringify({ completed_qty: completed_qty ?? null, remarks: remarks || '' }), user || 'System']
+      ).catch(e => console.warn('[complete] audit log skipped:', e.message));
+    }
+
+    // [Real-Time Sync] push the completion to MAIN promptly.
+    if (typeof syncService !== 'undefined' && syncService.triggerSync) {
+      syncService.triggerSync();
+    }
 
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
