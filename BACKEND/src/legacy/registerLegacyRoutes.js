@@ -15317,7 +15317,11 @@ function erpRowKey(mapped, keyCols) {
 
 // Superadmin gate (role_code === 'superadmin' OR username === 'superadmin').
 async function requireErpSuperadmin(req) {
-  const username = req.body && req.body.username;
+  // Accept the actor from the body (POST fetch/sync), the query string (GET
+  // history — a GET carries no body), or the standard request identity header.
+  const username = (req.body && req.body.username)
+    || (req.query && req.query.username)
+    || getRequestUsername(req);
   if (!username) return { ok: false, status: 401, error: 'Authorization required (missing username)' };
   const u = (await q('SELECT username, role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
   if (!u) return { ok: false, status: 401, error: 'Invalid user' };
@@ -15505,6 +15509,241 @@ app.post('/api/reports/erp-jr-summary/sync', (req, res) => handleErpSync('summar
 app.post('/api/reports/erp-jr-details/sync', (req, res) => handleErpSync('details', req, res));
 app.post('/api/reports/erp-bom/sync',        (req, res) => handleErpSync('bom', req, res));
 app.post('/api/reports/erp-mould-item/sync', (req, res) => handleErpSync('mouldItem', req, res));
+
+/* ============================================================
+   ERP AUTO-SYNC SCHEDULER (MAIN only)
+   ------------------------------------------------------------
+   Runs the whole hands-off pipeline on a timer so nobody has to
+   press "Fetch" / "Import":
+     1. Fetch ERP  -> erp_jr_status / erp_jr_summary / erp_jr_details
+     2. Import     -> or_jr_report (per factory, all factories)
+     3. Order Master build + completion history (per factory)
+   MAIN is the single ERP source; every LOCAL server receives the
+   result through normal LOCAL<-MAIN sync. LOCAL never runs this.
+   Every run is written to erp_autosync_history so it can be reviewed.
+   ============================================================ */
+const ERP_AUTOSYNC_INTERVAL_MS = Math.max(
+  60000, Number(process.env.ERP_AUTOSYNC_INTERVAL_MS) || 5 * 60 * 1000
+);
+const ERP_AUTOSYNC_ENABLED = String(process.env.ERP_AUTOSYNC_ENABLED ?? '1') !== '0';
+let _erpAutoSyncRunning = false;
+let _erpAutoSyncHistoryReady = false;
+
+function isMainServer() {
+  return String(process.env.SERVER_TYPE || '').toUpperCase() === 'MAIN';
+}
+
+async function ensureErpAutoSyncHistoryTable() {
+  if (_erpAutoSyncHistoryReady) return;
+  await q(`
+    CREATE TABLE IF NOT EXISTS erp_autosync_history (
+      id BIGSERIAL PRIMARY KEY,
+      ran_at TIMESTAMPTZ DEFAULT NOW(),
+      duration_ms INTEGER,
+      status TEXT,          -- ok | partial | error | skipped
+      trigger TEXT,         -- auto | manual
+      summary JSONB
+    )
+  `).catch(e => console.warn('[ERP AutoSync] history table create skipped:', e.message));
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_erp_autosync_history_ran ON erp_autosync_history(ran_at DESC)`)
+    .catch(() => {});
+  _erpAutoSyncHistoryReady = true;
+}
+
+async function recordErpAutoSyncHistory(status, trigger, summary, durationMs) {
+  try {
+    await ensureErpAutoSyncHistoryTable();
+    await q(
+      `INSERT INTO erp_autosync_history (status, trigger, summary, duration_ms) VALUES ($1, $2, $3, $4)`,
+      [status, trigger, JSON.stringify(summary || {}), Math.round(durationMs || 0)]
+    );
+    // Retention: keep the most recent 2000 runs.
+    await q(`
+      DELETE FROM erp_autosync_history
+       WHERE id < (SELECT COALESCE(MIN(id), 0) FROM (
+         SELECT id FROM erp_autosync_history ORDER BY id DESC LIMIT 2000
+       ) keep)
+    `).catch(() => {});
+  } catch (e) {
+    console.warn('[ERP AutoSync] history write failed:', e.message);
+  }
+}
+
+// One full pipeline pass. trigger = 'auto' | 'manual'. Never throws — always
+// records a history row. Returns the summary object.
+async function runErpAutoSyncCycle(trigger = 'auto') {
+  if (!isMainServer()) {
+    return { status: 'skipped', reason: 'not MAIN server' };
+  }
+  if (_erpAutoSyncRunning) {
+    return { status: 'skipped', reason: 'previous cycle still running' };
+  }
+  _erpAutoSyncRunning = true;
+  const startedAt = Date.now();
+  const summary = { trigger, fetch: {}, factories: [] };
+  let hadError = false;
+
+  try {
+    // 1. FETCH ERP (status, summary, details). syncErpReport keeps existing data
+    //    when the ERP returns [] (it is intermittently empty), so this never wipes.
+    for (const key of ['status', 'summary', 'details']) {
+      try {
+        summary.fetch[key] = await syncErpReport(key);
+      } catch (e) {
+        hadError = true;
+        summary.fetch[key] = { error: String(e.message || e) };
+        console.warn(`[ERP AutoSync] fetch ${key} failed:`, e.message);
+      }
+    }
+
+    // 2 + 3. For every factory with ERP linkage: import OR-JR, then build orders.
+    const factories = await q(`SELECT id, name, erp_factory_id, plant_codes FROM factories ORDER BY id`);
+    for (const f of factories) {
+      const hasLinkage =
+        (f.erp_factory_id !== null && f.erp_factory_id !== undefined) ||
+        String(f.plant_codes || '').trim() !== '';
+      if (!hasLinkage) continue;
+
+      const fs = { factory_id: f.id, name: f.name };
+      try {
+        // Import OR-JR (uncapped — internal, no wire transfer).
+        const { rows } = await buildErpOrJrActionableRows(f.id, { cap: Infinity, factoryName: f.name });
+        const saved = await saveOrJrRows(rows, { factoryId: f.id, user: 'ERP-AutoSync' });
+        fs.imported = saved.upsertCount;
+
+        // Build Order Master + completion history in its own transaction.
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          const ord = await runOrdersFetchFromOrJr(client, { factoryId: f.id, actorName: 'ERP-AutoSync' });
+          await client.query('COMMIT');
+          fs.orders_added = ord.count;
+          fs.orders_updated = ord.updated;
+          fs.completion_flagged = ord.flagged;
+        } catch (e) {
+          await client.query('ROLLBACK').catch(() => {});
+          throw e;
+        } finally {
+          client.release();
+        }
+      } catch (e) {
+        // NO_SNAPSHOT means nobody has fetched yet (ERP empty on first boot) — not a hard error.
+        if (e.code === 'NO_SNAPSHOT' || e.code === 'NO_LINKAGE') {
+          fs.skipped = e.code;
+        } else {
+          hadError = true;
+          fs.error = String(e.message || e);
+          console.warn(`[ERP AutoSync] factory ${f.id} (${f.name}) failed:`, e.message);
+        }
+      }
+      summary.factories.push(fs);
+    }
+
+    const status = hadError ? 'partial' : 'ok';
+    summary.status = status;
+    await recordErpAutoSyncHistory(status, trigger, summary, Date.now() - startedAt);
+    return summary;
+  } catch (e) {
+    summary.status = 'error';
+    summary.error = String(e.message || e);
+    console.error('[ERP AutoSync] cycle failed:', e.message);
+    await recordErpAutoSyncHistory('error', trigger, summary, Date.now() - startedAt);
+    return summary;
+  } finally {
+    _erpAutoSyncRunning = false;
+  }
+}
+
+function startErpAutoSync() {
+  if (!isMainServer()) {
+    console.log('[ERP AutoSync] skipped — not MAIN server.');
+    return;
+  }
+  if (!ERP_AUTOSYNC_ENABLED) {
+    console.log('[ERP AutoSync] disabled via ERP_AUTOSYNC_ENABLED=0.');
+    return;
+  }
+  console.log(`[ERP AutoSync] enabled — every ${Math.round(ERP_AUTOSYNC_INTERVAL_MS / 60000)} min on MAIN.`);
+  // First run shortly after boot, then on the interval. Errors are swallowed
+  // inside runErpAutoSyncCycle (always records history), so the timer is safe.
+  setTimeout(() => { runErpAutoSyncCycle('auto').catch(() => {}); }, 15000);
+  setInterval(() => { runErpAutoSyncCycle('auto').catch(() => {}); }, ERP_AUTOSYNC_INTERVAL_MS).unref();
+}
+
+// History read — for the "check what auto-sync did" view. Superadmin only.
+app.get('/api/reports/erp-autosync-history', async (req, res) => {
+  try {
+    const auth = await requireErpSuperadmin(req);
+    if (!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
+    await ensureErpAutoSyncHistoryTable();
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+    const rows = await q(
+      `SELECT id, ran_at, duration_ms, status, trigger, summary
+         FROM erp_autosync_history
+        ORDER BY ran_at DESC
+        LIMIT $1`, [limit]
+    );
+    res.json({
+      ok: true,
+      enabled: ERP_AUTOSYNC_ENABLED && isMainServer(),
+      interval_minutes: Math.round(ERP_AUTOSYNC_INTERVAL_MS / 60000),
+      running: _erpAutoSyncRunning,
+      data: rows
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// Manual "run the full auto-sync now" — MAIN + superadmin only. Keeps the
+// per-report Fetch buttons AND gives one button to run the whole pipeline.
+app.post('/api/reports/erp-autosync/run-now', async (req, res) => {
+  if (!isMainServer()) {
+    return res.status(403).json({ ok: false, error: 'ERP auto-sync runs on the MAIN server only.' });
+  }
+  const auth = await requireErpSuperadmin(req);
+  if (!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
+  if (_erpAutoSyncRunning) {
+    return res.json({ ok: true, message: 'A sync cycle is already running.', running: true });
+  }
+  const summary = await runErpAutoSyncCycle('manual');
+  res.json({ ok: true, message: 'ERP auto-sync cycle finished.', summary });
+});
+
+startErpAutoSync();
+
+/* ============================================================
+   LOCAL LOCKOUT — masters & imports run on MAIN only
+   ------------------------------------------------------------
+   Everything (ERP fetch, OR-JR import, Order Master build, and all
+   master bulk uploads) is done on MAIN and flows to every factory
+   LOCAL server through normal sync. A LOCAL box must not upload or
+   import anything itself. Registered here (before the upload route
+   handlers below) so it intercepts them. Single-row master edits are
+   NOT touched — only bulk uploads / imports.
+   ============================================================ */
+const MAIN_ONLY_IMPORT_PATHS = new Set([
+  '/api/upload/excel',
+  '/api/upload/or-jr-preview', '/api/upload/or-jr-confirm', '/api/upload/or-jr-erp-preview',
+  '/api/orders/fetch-from-orjr',
+  '/api/upload/machines-preview', '/api/upload/machines-confirm',
+  '/api/upload/wipstock-preview', '/api/upload/wipstock-confirm',
+  '/api/admin/clear-data'
+]);
+app.use((req, res, next) => {
+  if (req.method === 'POST' && !isMainServer()) {
+    const p = req.path;
+    const isGenericMasterUpload =
+      /^\/api\/upload\/(orders|moulds|machines|orjrwise|orjrwisedetail|jcdetails|boplanningdetail|wipstock)$/.test(p);
+    if (MAIN_ONLY_IMPORT_PATHS.has(p) || isGenericMasterUpload) {
+      return res.status(403).json({
+        ok: false,
+        error: 'Uploads and imports run on the MAIN server only. This factory server receives all master and order data automatically via sync.'
+      });
+    }
+  }
+  next();
+});
 
 /* ============================================================
    OR-JR STATUS <- ERP IMPORT (stage 2)
@@ -16595,36 +16834,33 @@ app.post('/api/upload/or-jr-preview', (req, res, next) => { upload.single('file'
 });
 
 // 2. CONFIRM (Batch Save - UPSERT)
-app.post('/api/upload/or-jr-confirm', async (req, res) => {
-  try {
-    const { rows, user } = req.body;
-    const writeContext = await getWritableFactoryContext(req, 'confirm OR-JR Status uploads');
-    if (!writeContext.ok) {
-      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
-    }
-    const requestFactoryId = writeContext.factoryId;
-    if (!rows || !Array.isArray(rows)) return res.json({ ok: false, error: 'Invalid data' });
-    assertUploadRowsMatchFactory(rows, requestFactoryId, 'OR-JR Status upload');
+// Shared save path for OR-JR Status rows. Both the manual Excel/ERP confirm
+// endpoint and the ERP auto-sync scheduler call this so their behaviour can
+// never drift. Uses `pool` (auto-commit per statement, matching the original
+// endpoint). Returns { count, upsertCount, flagged }.
+async function saveOrJrRows(rows, { factoryId, user }) {
+  const actor = user || 'System';
+  if (!rows || !Array.isArray(rows)) throw new Error('Invalid data');
+  // Defence in depth — the same guard the endpoint used before delegating here.
+  assertUploadRowsMatchFactory(rows, factoryId, 'OR-JR Status upload');
 
-    // Process all NEW and UPDATE rows (no SKIP status exists anymore)
-    const toProcess = rows.filter(r => r._status === 'NEW' || r._status === 'UPDATE');
-    console.log(`[OR - JR Confirm] Processing ${toProcess.length} rows (Total sent: ${rows.length}, Skipped: ${rows.length - toProcess.length})`);
+  // Process all NEW and UPDATE rows (no SKIP status exists anymore)
+  const toProcess = rows.filter(r => r._status === 'NEW' || r._status === 'UPDATE');
+  console.log(`[OR - JR Confirm] Processing ${toProcess.length} rows (Total sent: ${rows.length}, Skipped: ${rows.length - toProcess.length})`);
+  if (!toProcess.length) {
+    // Still reconcile completion confirmations so a no-op import keeps history current.
+    const completionSync = await syncOrderCompletionConfirmations(pool, { factoryId, actorName: actor });
+    return { count: 0, upsertCount: 0, flagged: completionSync.flagged };
+  }
 
-    console.log('!!! HANDLER HIT: /api/upload/or-jr-confirm !!!');
-    if (!toProcess.length) return res.json({ ok: true, message: 'Nothing to save' });
-
-    // Use pool directly for auto-commit. No manual client connection needed.
-    // const client = await pool.connect(); 
-
-
-
+  {
     let upsertCount = 0;
 
     for (const r of toProcess) {
       try { // ATOMIC ROW START
 
 
-        const rowFactoryId = normalizeFactoryId(r.factory_id) ?? requestFactoryId;
+        const rowFactoryId = normalizeFactoryId(r.factory_id) ?? factoryId;
 
         // Pure UPSERT — key is (or_jr_no + job_card_no).
         // Each OR+JC combination is its own independent row.
@@ -16738,7 +16974,7 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
     let autoLink = { linked: 0, scannedOrders: 0 };
     try {
       const importedOrderNos = toProcess.map((r) => r.or_jr_no);
-      autoLink = await autoLinkPlansFromOrJrRemarks(pool, importedOrderNos, requestFactoryId);
+      autoLink = await autoLinkPlansFromOrJrRemarks(pool, importedOrderNos, factoryId);
       if (autoLink.linked) {
         console.log(`[OR - JR Confirm] Auto-linked ${autoLink.linked} plan(s) to Job Cards across ${autoLink.scannedOrders} order(s)`);
       }
@@ -16747,18 +16983,34 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
     }
 
     const completionSync = await syncOrderCompletionConfirmations(pool, {
-      factoryId: requestFactoryId,
-      actorName: user || getRequestUsername(req) || 'System'
+      factoryId,
+      actorName: actor
     });
 
     console.log(`[OR - JR Confirm] Committed ${upsertCount} upserts`);
+    return { count: toProcess.length, upsertCount, flagged: completionSync.flagged };
+  }
+}
+
+app.post('/api/upload/or-jr-confirm', async (req, res) => {
+  try {
+    const { rows, user } = req.body;
+    const writeContext = await getWritableFactoryContext(req, 'confirm OR-JR Status uploads');
+    if (!writeContext.ok) {
+      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
+    }
+    const requestFactoryId = writeContext.factoryId;
+    if (!rows || !Array.isArray(rows)) return res.json({ ok: false, error: 'Invalid data' });
+
+    const result = await saveOrJrRows(rows, {
+      factoryId: requestFactoryId,
+      user: user || getRequestUsername(req) || 'System'
+    });
     res.json({
       ok: true,
-      count: toProcess.length,
-      message: `Saved ${upsertCount} OR-JR rows. ${completionSync.flagged} orders now need completion confirmation.`
+      count: result.count,
+      message: `Saved ${result.upsertCount} OR-JR rows. ${result.flagged} orders now need completion confirmation.`
     });
-
-
   } catch (e) {
     console.error('upload/or-jr-confirm', e);
     res.status(500).json({ ok: false, error: String(e) });
@@ -16788,6 +17040,102 @@ function userCanEditMasters(user) {
   return ['supervisor', 'manager', 'planner'].includes(String(user.role_code || '').toLowerCase());
 }
 
+// Shared projection of the stored erp_jr_status snapshot -> actionable
+// (NEW/UPDATE) or_jr_report rows for ONE factory. Both the manual preview
+// endpoint and the ERP auto-sync scheduler call this. Pass cap = Infinity for
+// the scheduler (no wire transfer, so no row cap); the endpoint passes the
+// configured cap so its JSON payload stays bounded. Throws typed errors
+// (err.statusCode) for missing linkage / empty snapshot so callers can map them.
+async function buildErpOrJrActionableRows(factoryId, { cap = Infinity, factoryName = '' } = {}) {
+  // Factory linkage must be configured or we cannot tell which rows are ours.
+  const factoryMap = await loadErpFactoryMap();
+  const myFactory = factoryMap.rows.find(f => Number(f.id) === Number(factoryId));
+  const hasLinkage = myFactory
+    && (myFactory.erp_factory_id !== null && myFactory.erp_factory_id !== undefined
+      || String(myFactory.plant_codes || '').trim() !== '');
+  if (!hasLinkage) {
+    const e = new Error(`ERP factory ID is not configured for ${factoryName || myFactory?.name || 'this factory'}. Set it in the Factory master before importing.`);
+    e.statusCode = 409; e.code = 'NO_LINKAGE';
+    throw e;
+  }
+
+  // The snapshot grows with every ERP fetch (5.8k rows on staging already), so it is
+  // never loaded whole. It is walked in keyset-paginated batches, projected to the
+  // columns the import actually writes, and diffed batch-by-batch against a single
+  // in-memory map of this factory's existing rows. Only actionable (NEW/UPDATE) rows
+  // are kept — SKIP rows are counted and dropped, since neither the modal nor
+  // /api/upload/or-jr-confirm does anything with them.
+  const dbMap = await loadOrJrExistingMap(factoryId);
+
+  let sourceRows = 0, otherFactory = 0, unresolved = 0, scopedRows = 0, skipped = 0, changedRows = 0;
+  const rows = [];
+  let lastId = 0;
+
+  for (;;) {
+    const batch = await q(
+      `SELECT id, factory_id, ${ERP_PREVIEW_SELECT_COLUMNS}
+         FROM erp_jr_status
+        WHERE id > $1
+        ORDER BY id
+        LIMIT $2`,
+      [lastId, OR_JR_ERP_PREVIEW_BATCH_SIZE]
+    );
+    if (!batch.length) break;
+    lastId = batch[batch.length - 1].id;
+    sourceRows += batch.length;
+
+    for (const row of batch) {
+      const verdict = classifyErpRowFactory(row, factoryId, factoryMap);
+      if (verdict === 'other') { otherFactory++; continue; }
+      if (verdict !== 'match') { unresolved++; continue; }
+
+      const mappedRow = erpStatusRowToOrJrReportRow(row, factoryId);
+      if (!mappedRow.or_jr_no) continue;
+      scopedRows++;
+
+      assertUploadRowsMatchFactory([mappedRow], factoryId, 'OR-JR Status ERP import');
+
+      const classified = classifyOrJrPreviewRow(mappedRow, dbMap);
+      if (classified._status === 'SKIP') { skipped++; continue; }
+
+      changedRows++;
+      if (rows.length < cap) rows.push(classified);
+    }
+  }
+
+  if (!sourceRows) {
+    const e = new Error("No ERP data has been fetched yet. Ask a superadmin to press 'Fetch Latest Data' on Masters -> JR Status ERP first.");
+    e.statusCode = 409; e.code = 'NO_SNAPSHOT';
+    throw e;
+  }
+
+  const snap = (await q(
+    `SELECT to_char(max(synced_at), 'YYYY-MM-DD HH24:MI') AS last_sync,
+            EXTRACT(EPOCH FROM (now() - max(synced_at))) / 3600 AS age_hours
+       FROM erp_jr_status`
+  ))[0] || {};
+
+  return {
+    rows,
+    meta: {
+      factory_id: factoryId,
+      factory_name: factoryName || myFactory?.name || '',
+      snapshot_synced_at: snap.last_sync || null,
+      snapshot_age_hours: snap.age_hours === null || snap.age_hours === undefined
+        ? null : Math.round(Number(snap.age_hours)),
+      source_rows: sourceRows,
+      scoped_rows: scopedRows,
+      other_factory: otherFactory,
+      unresolved,
+      skipped_rows: skipped,
+      changed_rows: changedRows,
+      returned_rows: rows.length,
+      row_cap: cap === Infinity ? null : cap,
+      truncated: changedRows > rows.length
+    }
+  };
+}
+
 app.post('/api/upload/or-jr-erp-preview', async (req, res) => {
   try {
     const writeContext = await getWritableFactoryContext(req, 'import OR-JR Status from ERP data');
@@ -16811,112 +17159,14 @@ app.post('/api/upload/or-jr-erp-preview', async (req, res) => {
       return res.status(403).json({ ok: false, error: 'Masters edit permission is required to import ERP data.' });
     }
 
-    // Factory linkage must be configured or we cannot tell which rows are ours.
-    const factoryMap = await loadErpFactoryMap();
-    const myFactory = factoryMap.rows.find(f => Number(f.id) === Number(requestFactoryId));
-    const hasLinkage = myFactory
-      && (myFactory.erp_factory_id !== null && myFactory.erp_factory_id !== undefined
-        || String(myFactory.plant_codes || '').trim() !== '');
-    if (!hasLinkage) {
-      return res.status(409).json({
-        ok: false,
-        error: `ERP factory ID is not configured for ${writeContext.factoryName || 'this factory'}. Set it in the Factory master before importing.`
-      });
-    }
-
-    // The snapshot grows with every ERP fetch (5.8k rows on staging already), so it is
-    // never loaded whole. It is walked in keyset-paginated batches, projected to the
-    // columns the import actually writes, and diffed batch-by-batch against a single
-    // in-memory map of this factory's existing rows. Only actionable (NEW/UPDATE) rows
-    // are kept — SKIP rows are counted and dropped, since neither the modal nor
-    // /api/upload/or-jr-confirm does anything with them.
-    const dbMap = await loadOrJrExistingMap(requestFactoryId);
-
-    let sourceRows = 0;
-    let otherFactory = 0;
-    let unresolved = 0;
-    let scopedRows = 0;
-    let skipped = 0;
-    let changedRows = 0;   // total actionable rows found, INCLUDING any beyond the cap
-    const preview = [];    // capped at OR_JR_ERP_PREVIEW_ROW_CAP
-    let lastId = 0;
-
-    for (;;) {
-      // Keyset pagination on the SERIAL pk: stable order, no OFFSET re-scan.
-      const batch = await q(
-        `SELECT id, factory_id, ${ERP_PREVIEW_SELECT_COLUMNS}
-           FROM erp_jr_status
-          WHERE id > $1
-          ORDER BY id
-          LIMIT $2`,
-        [lastId, OR_JR_ERP_PREVIEW_BATCH_SIZE]
-      );
-      if (!batch.length) break;
-      lastId = batch[batch.length - 1].id;
-      sourceRows += batch.length;
-
-      for (const row of batch) {
-        // Factory split — classify every row, never assume an unknown row is ours.
-        const verdict = classifyErpRowFactory(row, requestFactoryId, factoryMap);
-        if (verdict === 'other') { otherFactory++; continue; }
-        if (verdict !== 'match') { unresolved++; continue; }
-
-        const mappedRow = erpStatusRowToOrJrReportRow(row, requestFactoryId);
-        if (!mappedRow.or_jr_no) continue;
-        scopedRows++;
-
-        // Defence in depth: the same guard the Excel upload uses.
-        assertUploadRowsMatchFactory([mappedRow], requestFactoryId, 'OR-JR Status ERP import');
-
-        const classified = classifyOrJrPreviewRow(mappedRow, dbMap);
-        if (classified._status === 'SKIP') { skipped++; continue; }
-
-        changedRows++;
-        // Past the cap we keep counting but stop materialising, so the response size is
-        // bounded. The rows we DO return are exactly the rows the save will write — the
-        // truncation happens before the payload, never between preview and save.
-        if (preview.length < OR_JR_ERP_PREVIEW_ROW_CAP) preview.push(classified);
-      }
-    }
-
-    if (!sourceRows) {
-      return res.status(409).json({
-        ok: false,
-        error: "No ERP data has been fetched yet. Ask a superadmin to press 'Fetch Latest Data' on Masters -> JR Status ERP first."
-      });
-    }
-
-    const meta = (await q(
-      `SELECT to_char(max(synced_at), 'YYYY-MM-DD HH24:MI') AS last_sync,
-              EXTRACT(EPOCH FROM (now() - max(synced_at))) / 3600 AS age_hours
-         FROM erp_jr_status`
-    ))[0] || {};
-
-    console.log(`[OR-JR ERP Import] factory=${requestFactoryId} source=${sourceRows} scoped=${scopedRows} changed=${changedRows} returned=${preview.length} skipped=${skipped} other=${otherFactory} unresolved=${unresolved}`);
-
-    res.json({
-      ok: true,
-      data: preview,
-      meta: {
-        factory_id: requestFactoryId,
-        factory_name: writeContext.factoryName || '',
-        snapshot_synced_at: meta.last_sync || null,
-        snapshot_age_hours: meta.age_hours === null || meta.age_hours === undefined
-          ? null
-          : Math.round(Number(meta.age_hours)),
-        source_rows: sourceRows,
-        scoped_rows: scopedRows,
-        other_factory: otherFactory,
-        unresolved,
-        // Change accounting. changed_rows is every NEW/UPDATE in the snapshot;
-        // returned_rows is how many of those fit under the cap and are in `data`.
-        skipped_rows: skipped,
-        changed_rows: changedRows,
-        returned_rows: preview.length,
-        row_cap: OR_JR_ERP_PREVIEW_ROW_CAP,
-        truncated: changedRows > preview.length
-      }
+    const { rows, meta } = await buildErpOrJrActionableRows(requestFactoryId, {
+      cap: OR_JR_ERP_PREVIEW_ROW_CAP,
+      factoryName: writeContext.factoryName || ''
     });
+
+    console.log(`[OR-JR ERP Import] factory=${requestFactoryId} source=${meta.source_rows} scoped=${meta.scoped_rows} changed=${meta.changed_rows} returned=${meta.returned_rows} skipped=${meta.skipped_rows} other=${meta.other_factory} unresolved=${meta.unresolved}`);
+
+    res.json({ ok: true, data: rows, meta });
   } catch (e) {
     console.error('upload/or-jr-erp-preview', e);
     const status = e?.statusCode || 500;
@@ -17380,93 +17630,57 @@ app.post('/api/admin/users/password', async (req, res) => {
   }
 });
 
-// 8. FETCH ORDERS FROM OR-JR (Sync)
-app.post('/api/orders/fetch-from-orjr', async (req, res) => {
-  try {
-    const writeContext = await getWritableFactoryContext(req, 'fetch orders from OR-JR');
-    if (!writeContext.ok) {
-      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
-    }
-    const requestFactoryId = writeContext.factoryId;
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // 1. Fetch Candidates from OR-JR Report
-      // Filters: MLD Status NOT IN ('Completed', 'Cancelled') AND JR Close = 'Open'
-      // Taking all available fields as per user request
-
-      let srcSql = `
+// Shared Order Master build: project open OR-JR rows -> orders for ONE factory
+// (or all, when factoryId is null), plus completion-history reconciliation.
+// Runs inside a caller-supplied transaction `client`. Both the manual
+// /api/orders/fetch-from-orjr endpoint and the ERP auto-sync scheduler call
+// this so behaviour cannot drift. Returns { noCandidates, count, updated, flagged, cleared }.
+async function runOrdersFetchFromOrJr(client, { factoryId, actorName }) {
+  // 1. Fetch Candidates from OR-JR Report
+  // Filters: MLD Status NOT IN ('Completed', 'Cancelled') AND JR Close = 'Open'
+  let srcSql = `
 SELECT *
   FROM or_jr_report
 WHERE
   (
-    mld_status IS NULL 
-            OR TRIM(mld_status) = '' 
+    mld_status IS NULL
+            OR TRIM(mld_status) = ''
             OR TRIM(LOWER(mld_status)) NOT IN('completed', 'cancelled')
   )
-
 --User Req: Ignore JR Close(fetch even if Closed, as long as Mould is not Completed)
 --BUT: If manually Closed by User(is_closed), do NOT fetch.
   AND(is_closed IS FALSE OR is_closed IS NULL)
   `;
-      const srcParams = [];
-      if (requestFactoryId) {
-        srcParams.push(requestFactoryId);
-        srcSql += ` AND factory_id = $${srcParams.length}`;
-      }
-      // Debug log the query result count
-      const preCheck = requestFactoryId
-        ? await client.query(`SELECT COUNT(*) as c FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
-        : await client.query(`SELECT COUNT(*) as c FROM or_jr_report WHERE 1 = 1`);
-      console.log('OR-JR Total Count:', preCheck.rows[0].c);
+  const srcParams = [];
+  if (factoryId) {
+    srcParams.push(factoryId);
+    srcSql += ` AND factory_id = $${srcParams.length}`;
+  }
 
-      const candidates = await client.query(srcSql, srcParams);
-      console.log('OR-JR Filtered Candidates:', candidates.rows.length);
+  const candidates = await client.query(srcSql, srcParams);
+  console.log('OR-JR Filtered Candidates:', candidates.rows.length);
 
-      if (!candidates.rows.length) {
-        const completionSync = await syncOrderCompletionConfirmations(client, {
-          factoryId: requestFactoryId,
-          actorName: getRequestUsername(req) || 'System'
-        });
-        await client.query('COMMIT');
-        return res.json({
-          ok: true,
-          message: completionSync.flagged > 0
-            ? `No open OR-JR rows to fetch. ${completionSync.flagged} orders moved to confirmation.`
-            : 'No matching active records found in OR-JR Report.'
-        });
-      }
+  if (!candidates.rows.length) {
+    const completionSync = await syncOrderCompletionConfirmations(client, { factoryId, actorName });
+    return { noCandidates: true, count: 0, updated: 0, flagged: completionSync.flagged, cleared: completionSync.cleared };
+  }
 
-      let count = 0;
-      let updated = 0;
+  let count = 0;
+  let updated = 0;
 
-      for (const row of candidates.rows) {
-        const qty = row.plan_qty || 0;
-        const rowFactoryId = normalizeFactoryId(row.factory_id) ?? requestFactoryId;
+  for (const row of candidates.rows) {
+    const qty = row.plan_qty || 0;
+    const rowFactoryId = normalizeFactoryId(row.factory_id) ?? factoryId;
 
+    // REMOVED FORCE CLEAN: keep "Closed" history — do NOT delete Completed/Cancelled orders.
+    const existing = await client.query(
+      `SELECT id FROM orders WHERE order_no = $1 AND (factory_id = $2 OR factory_id IS NULL)`,
+      [row.or_jr_no, rowFactoryId]
+    );
 
-
-        // REMOVED FORCE CLEAN: User wants to keep "Closed" history.
-        // DO NOT delete existing Completed/Cancelled orders.
-        /*
-        await client.query(`
-            DELETE FROM orders 
-            WHERE TRIM(order_no) ILIKE TRIM($1) 
-              AND status NOT IN('Pending', 'In Progress')
-        `, [row.or_jr_no]);
-        */
-
-        // 2. Now check remaining (Active) orders
-        const existing = await client.query(
-          `SELECT id FROM orders WHERE order_no = $1 AND (factory_id = $2 OR factory_id IS NULL)`,
-          [row.or_jr_no, rowFactoryId]
-        );
-
-        if (existing.rows.length > 0) {
-          // UPDATE Existing Active Order (Take the first one, though there should be only one)
-          const targetId = existing.rows[0].id;
-          await client.query(`
+    if (existing.rows.length > 0) {
+      const targetId = existing.rows[0].id;
+      await client.query(`
                 UPDATE orders SET
 item_code = $2,
   item_name = $3,
@@ -17484,18 +17698,10 @@ item_code = $2,
   completion_confirmed_by = NULL,
   updated_at = NOW()
                 WHERE id = $1
-  `, [
-            targetId,
-            row.item_code,
-            row.product_name,
-            row.client_name,
-            qty,
-            rowFactoryId
-          ]);
-          updated++;
-        } else {
-          // INSERT New Order
-          await client.query(`
+  `, [targetId, row.item_code, row.product_name, row.client_name, qty, rowFactoryId]);
+      updated++;
+    } else {
+      await client.query(`
                 INSERT INTO orders(
     order_no, item_code, item_name, client_name, qty,
     priority, status, created_at, updated_at, factory_id
@@ -17503,44 +17709,52 @@ item_code = $2,
     $1, $2, $3, $4, $5,
     'Normal', 'Pending', NOW(), NOW(), $6
   )
-    `, [
-            row.or_jr_no,
-            row.item_code,
-            row.product_name,
-            row.client_name,
-            qty,
-            rowFactoryId
-          ]);
-          count++;
-        }
-      }
+    `, [row.or_jr_no, row.item_code, row.product_name, row.client_name, qty, rowFactoryId]);
+      count++;
+    }
+  }
 
-      // C. FINAL SAFEGUARD: Deduplicate Orders Table
-      // Ensure no order_no has multiple rows. Keep the one with 'Pending' status, or the latest created_at.
-      // This handles any edge cases from the manual loops.
-      await client.query(`
+  // C. FINAL SAFEGUARD: Deduplicate Orders Table (keep 'Pending' / latest).
+  await client.query(`
         DELETE FROM orders a USING(
       SELECT MIN(ctid) as ctid, TRIM(UPPER(order_no)) as norm_no, COALESCE(factory_id, 0) as factory_scope
-          FROM orders 
+          FROM orders
           GROUP BY TRIM(UPPER(order_no)), COALESCE(factory_id, 0) HAVING COUNT(*) > 1
     ) b
-        WHERE TRIM(UPPER(a.order_no)) = b.norm_no 
+        WHERE TRIM(UPPER(a.order_no)) = b.norm_no
         AND COALESCE(a.factory_id, 0) = b.factory_scope
         AND a.ctid <> b.ctid
         AND a.status <> 'Pending'
   `);
 
-      const completionSync = await syncOrderCompletionConfirmations(client, {
+  const completionSync = await syncOrderCompletionConfirmations(client, { factoryId, actorName });
+  return { noCandidates: false, count, updated, flagged: completionSync.flagged, cleared: completionSync.cleared };
+}
+
+// 8. FETCH ORDERS FROM OR-JR (Sync)
+app.post('/api/orders/fetch-from-orjr', async (req, res) => {
+  try {
+    const writeContext = await getWritableFactoryContext(req, 'fetch orders from OR-JR');
+    if (!writeContext.ok) {
+      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
+    }
+    const requestFactoryId = writeContext.factoryId;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const r = await runOrdersFetchFromOrJr(client, {
         factoryId: requestFactoryId,
         actorName: getRequestUsername(req) || 'System'
       });
-
       await client.query('COMMIT');
       res.json({
         ok: true,
-        message: `Synced successfully. Added: ${count}, Updated: ${updated}, Pending confirmation: ${completionSync.flagged}, Cleared: ${completionSync.cleared}`
+        message: r.noCandidates
+          ? (r.flagged > 0
+            ? `No open OR-JR rows to fetch. ${r.flagged} orders moved to confirmation.`
+            : 'No matching active records found in OR-JR Report.')
+          : `Synced successfully. Added: ${r.count}, Updated: ${r.updated}, Pending confirmation: ${r.flagged}, Cleared: ${r.cleared}`
       });
-
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;

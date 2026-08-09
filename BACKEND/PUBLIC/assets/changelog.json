@@ -11,8 +11,46 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.19",
+  "latest": "1.22.0",
   "versions": [
+    {
+      "version": "1.22.0",
+      "date": "2026-08-08",
+      "title": "ERP data now updates itself every 5 minutes",
+      "summary": "You no longer have to press Fetch or Import. On the main server the app now automatically pulls the latest OR-JR Status, Summary and Details from the ERP every 5 minutes, imports them for every factory, and refreshes the Order Master — all on its own, with full history kept so you can check what happened. Factory (LOCAL) servers receive everything automatically and no longer show any upload or import buttons, because all master and order data is now managed only on the main server.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-database",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "The main server now auto-fetches ERP OR-JR Status, Summary and Details every 5 minutes and auto-imports them for every factory — no need to press Fetch or Import."
+            },
+            {
+              "type": "feat",
+              "text": "Order Master is rebuilt automatically after each ERP sync, and every run is saved to a history you can review (order changes are still tracked in the order completion history)."
+            },
+            {
+              "type": "improvement",
+              "text": "Factory servers are now read-only for masters and imports — all uploads and imports happen on the main server only and sync down automatically, so the upload/import buttons are hidden on factory servers."
+            }
+          ]
+        },
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Orders and OR-JR data stay fresh on their own, so planning always works from the latest ERP figures without a manual refresh."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.19",
       "date": "2026-08-08",

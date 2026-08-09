@@ -957,6 +957,25 @@
         document.getElementById('omLastFetch').style.display = 'none';
       }
 
+      // LOCAL factory servers are read-only for masters & imports. Everything
+      // (ERP fetch, OR-JR import, Order Master build, bulk master uploads) is done
+      // on MAIN and flows here via LOCAL<-MAIN sync — including the new 5-minute
+      // ERP auto-sync. Hide every upload/import/fetch control so nobody hits a
+      // button the server would 403 anyway. The server enforces this too.
+      if (!jmsIsMainServer()) {
+        const _hide = (id) => { const el = document.getElementById(id); if (el) el.style.display = 'none'; };
+        ['uploadFile', 'templateBtn', 'erpFetchBtn', 'orjrErpImportBtn',
+         'omFetchBtn', 'omHistoryBtn'].forEach(_hide);
+        const us = document.getElementById('uploadSection');
+        if (us) {
+          const upBtn = us.querySelector('button[onclick="uploadMaster()"]');
+          if (upBtn) upBtn.style.display = 'none';
+        }
+        if (typeof hintEl !== 'undefined' && hintEl && !reportOnlyTypes.includes(type)) {
+          hintEl.textContent = 'Read-only on this factory server — managed on MAIN and synced here automatically.';
+        }
+      }
+
       // User Master Specific UI
       if (type === 'users') {
         document.getElementById('uploadSection').innerHTML = `
@@ -1014,9 +1033,11 @@
         document.querySelector('.upload-box > div').appendChild(clearBtn);
       }
 
-      // Show/Hide based on role (Case Insensitive)
+      // Show/Hide based on role (Case Insensitive). Clearing master data is a
+      // write, so it is MAIN-only too — never expose it on a LOCAL factory server
+      // (the server also blocks /api/admin/clear-data on LOCAL).
       const role = (user && (user.role || user.role_code || '')).toLowerCase();
-      if (['superadmin', 'admin'].includes(role)) {
+      if (['superadmin', 'admin'].includes(role) && jmsIsMainServer()) {
         clearBtn.style.display = 'inline-block';
       } else {
         clearBtn.style.display = 'none';
