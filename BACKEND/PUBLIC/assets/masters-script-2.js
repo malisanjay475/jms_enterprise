@@ -1033,9 +1033,11 @@
         document.querySelector('.upload-box > div').appendChild(clearBtn);
       }
 
-      // Show/Hide based on role (Case Insensitive)
+      // Show/Hide based on role (Case Insensitive). Clearing master data is a
+      // write, so it is MAIN-only too — never expose it on a LOCAL factory server
+      // (the server also blocks /api/admin/clear-data on LOCAL).
       const role = (user && (user.role || user.role_code || '')).toLowerCase();
-      if (['superadmin', 'admin'].includes(role)) {
+      if (['superadmin', 'admin'].includes(role) && jmsIsMainServer()) {
         clearBtn.style.display = 'inline-block';
       } else {
         clearBtn.style.display = 'none';

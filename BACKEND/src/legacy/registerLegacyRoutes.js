@@ -15317,7 +15317,11 @@ function erpRowKey(mapped, keyCols) {
 
 // Superadmin gate (role_code === 'superadmin' OR username === 'superadmin').
 async function requireErpSuperadmin(req) {
-  const username = req.body && req.body.username;
+  // Accept the actor from the body (POST fetch/sync), the query string (GET
+  // history — a GET carries no body), or the standard request identity header.
+  const username = (req.body && req.body.username)
+    || (req.query && req.query.username)
+    || getRequestUsername(req);
   if (!username) return { ok: false, status: 401, error: 'Authorization required (missing username)' };
   const u = (await q('SELECT username, role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
   if (!u) return { ok: false, status: 401, error: 'Invalid user' };
@@ -15723,7 +15727,8 @@ const MAIN_ONLY_IMPORT_PATHS = new Set([
   '/api/upload/or-jr-preview', '/api/upload/or-jr-confirm', '/api/upload/or-jr-erp-preview',
   '/api/orders/fetch-from-orjr',
   '/api/upload/machines-preview', '/api/upload/machines-confirm',
-  '/api/upload/wipstock-preview', '/api/upload/wipstock-confirm'
+  '/api/upload/wipstock-preview', '/api/upload/wipstock-confirm',
+  '/api/admin/clear-data'
 ]);
 app.use((req, res, next) => {
   if (req.method === 'POST' && !isMainServer()) {
