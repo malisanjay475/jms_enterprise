@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.23.0",
+  "latest": "1.23.1",
   "versions": [
+    {
+      "version": "1.23.1",
+      "date": "2026-08-10",
+      "title": "Machine-Wise Report — machines now in correct order",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "In the Machine-Wise Plan Report, machines now sort in true numeric order (…-6, -7, -8, -10, -11) instead of text order that put -10 and -11 before -6." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.23.0",
       "date": "2026-08-09",

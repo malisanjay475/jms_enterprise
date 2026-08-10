@@ -9368,7 +9368,7 @@ app.get('/api/reports/machine-wise', async (req, res) => {
       for (const s of siblings) if (!seen.has(s.id)) { plans.push(s); seen.add(s.id); }
       // Re-sort the merged set by machine, running-first, queue order.
       plans.sort((a, b) =>
-        String(a.machine).localeCompare(String(b.machine))
+        String(a.machine).localeCompare(String(b.machine), undefined, { numeric: true, sensitivity: 'base' })
         || ((String(a.status).toUpperCase() === 'RUNNING' ? 0 : 1) - (String(b.status).toUpperCase() === 'RUNNING' ? 0 : 1))
         || ((a.seq ?? 999999) - (b.seq ?? 999999))
         || (a.id - b.id));
@@ -9404,8 +9404,14 @@ app.get('/api/reports/machine-wise', async (req, res) => {
       byMachine.get(key).push(p);
     }
 
+    // Emit machines in natural (numeric-aware) ascending order so e.g.
+    // HYD-300-6, -7, -8, -10, -11 sort correctly instead of 10, 11, 6, 7, 8.
+    const machineKeys = [...byMachine.keys()].sort((a, b) =>
+      String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' }));
+
     const rows = [];
-    for (const [, list] of byMachine) {
+    for (const machineKey of machineKeys) {
+      const list = byMachine.get(machineKey);
       let cursor = null; // rolling Exp End Date for the machine queue
       list.forEach((p, idx) => {
         const qty = Number(p.qty) || 0;
