@@ -907,6 +907,10 @@
         data: data,
         columns: columns,
         pageLength: 25,
+        // Machine-Wise report is already returned in natural machine order
+        // (…-6, -7, -8, -10, -11) with each machine's queue in sequence — keep
+        // that server order instead of letting DataTables re-sort Machine as text.
+        order: (type === 'machine-wise') ? [] : undefined,
         dom: 'Bfrtip',
         buttons: [
           {
