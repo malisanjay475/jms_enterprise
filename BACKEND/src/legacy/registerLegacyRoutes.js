@@ -9264,6 +9264,210 @@ app.get('/api/planning/board', async (req, res) => {
 });
 
 /* ============================================================
+   MACHINE-WISE PLAN REPORT (from Machine Timeline)
+   ------------------------------------------------------------
+   Summary  = one row per plan on the machine (queue order).
+   Detail   = one row per colour of each plan.
+   Figures mirror the Machine Timeline: BAL QTY is the LIVE balance
+   (plan qty − produced up to the request time), Exp End Date is the
+   balance/pcs-per-hour ripple chained down each machine's queue.
+   ?machine= (blank/all = every machine), ?view=summary|detail,
+   ?includeSiblingOr=1 also pulls same-OR plans on other machines.
+   ============================================================ */
+// Canonical (prefix-stripped, upper-trimmed) machine expression, matching the board.
+const MW_MACHINE_EXPR = `TRIM(UPPER(CASE WHEN pb.machine LIKE '%>%' THEN SPLIT_PART(pb.machine, '>', 2) ELSE pb.machine END))`;
+
+async function fetchMachineWisePlans({ factoryId, machine, orNos }) {
+  const params = [];
+  let where = `pb.status NOT IN ('COMPLETED', 'REJECTED') AND UPPER(COALESCE(pb.jc_approval_status, '')) != 'REJECTED'`;
+  if (factoryId) {
+    params.push(factoryId);
+    where += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
+  }
+  if (Array.isArray(orNos)) {
+    // Sibling-OR expansion: any plan on ANY machine for these OR numbers.
+    if (!orNos.length) return [];
+    params.push(orNos.map(o => String(o).trim().toUpperCase()));
+    where += ` AND TRIM(UPPER(pb.order_no)) = ANY($${params.length})`;
+  } else if (machine && machine !== 'all') {
+    params.push(String(machine).trim().toUpperCase());
+    where += ` AND ${MW_MACHINE_EXPR} = $${params.length}`;
+  }
+
+  return await q(`
+    SELECT * FROM (
+      SELECT DISTINCT ON (pb.id)
+        pb.id,
+        pb.plan_id      AS "planId",
+        COALESCE(planMachine.machine,
+                 CASE WHEN pb.machine LIKE '%>%' THEN TRIM(SPLIT_PART(pb.machine, '>', 2)) ELSE pb.machine END
+        ) AS machine,
+        pb.order_no     AS "orNo",
+        ojr.or_jr_date  AS "orDate",
+        COALESCE(NULLIF(TRIM(pb.job_card_no), ''), ojr.job_card_no) AS "jcNo",
+        COALESCE(pb.job_card_date, ojr.job_card_date) AS "jcDate",
+        COALESCE(mps.mould_no, m.mould_number, pb.mould_code, '-') AS "mouldNo",
+        COALESCE(pb.mould_name, m.mould_name, 'Unknown') AS "mouldName",
+        pb.plan_qty     AS "qty",
+        pb.colour_details AS "colourDetails",
+        pb.start_date   AS "startDate",
+        pb.end_date     AS "endDate",
+        pb.seq,
+        pb.machine_priority AS "machinePriority",
+        pb.status,
+        pb.factory_id   AS "factoryId",
+        COALESCE(mMaster.pcs_per_hour, m.pcs_per_hour) AS "pcsHour"
+      FROM plan_board pb
+      LEFT JOIN machines planMachine
+        ON ( LOWER(TRIM(planMachine.machine)) = LOWER(TRIM(pb.machine))
+             OR (pb.machine LIKE '%>%' AND LOWER(TRIM(planMachine.machine)) = LOWER(TRIM(SPLIT_PART(pb.machine, '>', 2)))) )
+       AND (planMachine.factory_id = pb.factory_id OR planMachine.factory_id IS NULL OR pb.factory_id IS NULL)
+      LEFT JOIN moulds m ON m.mould_name = pb.mould_name
+      LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
+      LEFT JOIN moulds mMaster ON TRIM(mMaster.mould_number) = TRIM(mps.mould_no)
+      LEFT JOIN LATERAL (
+        SELECT rpt.or_jr_date, rpt.job_card_no, rpt.job_card_date
+        FROM or_jr_report rpt
+        WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no)
+        ORDER BY
+          CASE
+            WHEN NULLIF(TRIM(pb.plan_id), '') IS NOT NULL
+                 AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.plan_id)) || '%' THEN 0
+            WHEN NULLIF(TRIM(pb.our_code), '') IS NOT NULL
+                 AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.our_code)) || '%' THEN 0
+            ELSE 1
+          END,
+          (NULLIF(TRIM(rpt.job_card_no), '') IS NULL)::int,
+          rpt.id
+        LIMIT 1
+      ) ojr ON true
+      WHERE ${where}
+      ORDER BY pb.id ASC, mps.plan_date DESC NULLS LAST, mps.id DESC NULLS LAST
+    ) t
+    ORDER BY t.machine ASC,
+             CASE WHEN UPPER(COALESCE(t.status, '')) = 'RUNNING' THEN 0 ELSE 1 END ASC,
+             COALESCE(t.seq, 999999) ASC,
+             t."startDate" ASC,
+             t.id ASC
+  `, params);
+}
+
+app.get('/api/reports/machine-wise', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const machine = (req.query.machine && String(req.query.machine).trim()) || '';
+    const view = String(req.query.view || 'summary').toLowerCase() === 'detail' ? 'detail' : 'summary';
+    const includeSiblingOr = String(req.query.includeSiblingOr || '') === '1';
+
+    let plans = await fetchMachineWisePlans({ factoryId, machine });
+
+    if (includeSiblingOr && plans.length) {
+      const orNos = [...new Set(plans.map(p => String(p.orNo || '').trim().toUpperCase()).filter(Boolean))];
+      const siblings = await fetchMachineWisePlans({ factoryId, orNos });
+      const seen = new Set(plans.map(p => p.id));
+      for (const s of siblings) if (!seen.has(s.id)) { plans.push(s); seen.add(s.id); }
+      // Re-sort the merged set by machine, running-first, queue order.
+      plans.sort((a, b) =>
+        String(a.machine).localeCompare(String(b.machine))
+        || ((String(a.status).toUpperCase() === 'RUNNING' ? 0 : 1) - (String(b.status).toUpperCase() === 'RUNNING' ? 0 : 1))
+        || ((a.seq ?? 999999) - (b.seq ?? 999999))
+        || (a.id - b.id));
+    }
+
+    // Live produced quantities (up to now): total per plan + per plan+colour.
+    const planIds = [...new Set(plans.map(p => p.planId).filter(Boolean))];
+    const totalProduced = new Map();   // planId -> produced
+    const colourProduced = new Map();  // planId||colourUpper -> produced
+    if (planIds.length) {
+      const tp = await q(
+        `SELECT plan_id, SUM(good_qty)::numeric AS produced
+           FROM dpr_hourly WHERE plan_id = ANY($1) AND is_deleted = false
+          GROUP BY plan_id`, [planIds]);
+      for (const r of tp) totalProduced.set(r.plan_id, Number(r.produced) || 0);
+      const cp = await q(
+        `SELECT plan_id, UPPER(TRIM(COALESCE(colour, ''))) AS colour, SUM(good_qty)::numeric AS produced
+           FROM dpr_hourly WHERE plan_id = ANY($1) AND is_deleted = false
+          GROUP BY plan_id, UPPER(TRIM(COALESCE(colour, '')))`, [planIds]);
+      for (const r of cp) colourProduced.set(`${r.plan_id}||${r.colour}`, Number(r.produced) || 0);
+    }
+
+    const hoursFor = (qty, pcsHour) => {
+      const ph = Number(pcsHour) || 0;
+      return ph > 0 ? Number(qty) / ph : null;
+    };
+
+    // Group by machine for queue numbering + Exp End Date ripple.
+    const byMachine = new Map();
+    for (const p of plans) {
+      const key = String(p.machine || '');
+      if (!byMachine.has(key)) byMachine.set(key, []);
+      byMachine.get(key).push(p);
+    }
+
+    const rows = [];
+    for (const [, list] of byMachine) {
+      let cursor = null; // rolling Exp End Date for the machine queue
+      list.forEach((p, idx) => {
+        const qty = Number(p.qty) || 0;
+        const produced = totalProduced.get(p.planId) || 0;
+        const balQty = Math.max(0, qty - produced);           // LIVE balance
+        const remBalQty = Math.max(0, qty - balQty);          // = produced (per spec: QTY − BAL QTY)
+        const totalPlanTime = hoursFor(qty, p.pcsHour);       // QTY ÷ pcs/hour, hours
+        const remainingHours = hoursFor(balQty, p.pcsHour) || 0;
+
+        // Exp End Date: first plan chains from its start (or now if already past),
+        // each subsequent queued plan chains from the previous plan's Exp End.
+        const base = cursor || (p.startDate ? new Date(p.startDate) : new Date());
+        const startBasis = cursor ? base : new Date(Math.max(base.getTime(), Date.now()));
+        const expEnd = (p.pcsHour && Number(p.pcsHour) > 0)
+          ? new Date(startBasis.getTime() + remainingHours * 3600 * 1000)
+          : null;
+        if (expEnd) cursor = expEnd;
+
+        const common = {
+          machine: p.machine, orNo: p.orNo, orDate: p.orDate,
+          jcNo: p.jcNo, jcDate: p.jcDate, planId: p.planId,
+          mouldNo: p.mouldNo, mouldName: p.mouldName,
+          startDate: p.startDate, endDate: p.endDate,
+          expEndDate: expEnd ? expEnd.toISOString() : null,
+          totalPlanTime: totalPlanTime == null ? null : Math.round(totalPlanTime * 100) / 100,
+          planQueued: idx + 1,
+          status: p.status
+        };
+
+        if (view === 'summary') {
+          rows.push({ ...common, qty, balQty, remBalQty });
+        } else {
+          const colours = Array.isArray(p.colourDetails) ? p.colourDetails : [];
+          if (!colours.length) {
+            rows.push({ ...common, colour: '—', qty, balQty, remBalQty });
+          } else {
+            for (const c of colours) {
+              const cQty = Number(c.planQty) || 0;
+              const cName = c.colourName || '—';
+              const cProduced = colourProduced.get(`${p.planId}||${String(cName).trim().toUpperCase()}`) || 0;
+              const cBal = Math.max(0, cQty - cProduced);
+              rows.push({
+                ...common,
+                colour: cName,
+                qty: cQty,
+                balQty: cBal,
+                remBalQty: Math.max(0, cQty - cBal)
+              });
+            }
+          }
+        }
+      });
+    }
+
+    res.json({ ok: true, view, count: rows.length, data: rows });
+  } catch (e) {
+    console.error('/api/reports/machine-wise', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+/* ============================================================
    JC GATE — a plan may only be marked "JC Given", given a
    machine priority, or started when (1) a Job Card number is
    linked in the OR-JR Report AND (2) BOTH PPC and Moulding

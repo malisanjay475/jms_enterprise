@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.22.1",
+  "latest": "1.23.0",
   "versions": [
+    {
+      "version": "1.23.0",
+      "date": "2026-08-09",
+      "title": "New Machine-Wise Plan Report",
+      "summary": "A new report shows every plan sitting on a machine, in queue order, exactly like the Machine Timeline — with live balance figures worked out up to the moment you open it. It comes in two views: a Summary (one row per plan) and a Detail (one row per colour). You can also tick a box to pull in the same OR's plans that are running on other machines. Open it from Reports, or straight from the Machine Timeline with the new 'Machine Report' button, and download it to Excel.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New Machine-Wise Plan Report (Summary per plan + Detail per colour) showing OR/JC, mould, qty, live balance, start/end, expected end date, total plan time and queue position for every plan on a machine."
+            },
+            {
+              "type": "feat",
+              "text": "A 'Machine Report' button on the Machine Timeline opens the report directly, and an 'include same OR on other machines' option pulls in sibling plans. Both views download to Excel."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.22.1",
       "date": "2026-08-10",

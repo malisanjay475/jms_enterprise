@@ -101,6 +101,19 @@
       setTimeout(() => window.enforcePlanningDeepLinkView('window-load-deferred'), 150);
     });
 
+    // Open the Machine-Wise Plan Report (from the Machine Timeline). Carries the
+    // current factory scope so the report opens already scoped; the report page
+    // auto-runs on ?view=machine-wise.
+    window.openMachineWiseReport = function () {
+      let url = 'reports.html?view=machine-wise';
+      try {
+        const scope = (window.JPSMS && JPSMS.factories && JPSMS.factories.getCurrentScope)
+          ? JPSMS.factories.getCurrentScope() : null;
+        if (scope && scope.id) url += `&factory_id=${encodeURIComponent(scope.id)}`;
+      } catch (_) { }
+      window.open(url, '_blank');
+    };
+
     window.switchView = function (viewName) {
       viewName = (viewName || '').trim();
       console.log('Switching View to:', viewName);
@@ -521,6 +534,7 @@
                 <div class="planning-action-buttons">
                     <button class="btn" id="btnToggleMap"><i class="bi bi-eye-slash"></i> Hide Machine Grid</button>
                   <button class="btn" type="button" onclick="window.switchView('timeline')"><i class="bi bi-bar-chart-steps"></i> Machine Timeline</button>
+                  <button class="btn" type="button" onclick="window.openMachineWiseReport()" title="Machine-Wise Plan Report (Summary + colour Detail, downloadable)"><i class="bi bi-file-earmark-spreadsheet"></i> Machine Report</button>
                   <button class="btn" type="button" onclick="window.switchView('excel_timeline')" style="background:linear-gradient(135deg,#eff6ff,#dbeafe); color:#1d4ed8; border-color:#bfdbfe; font-weight:700;"><i class="bi bi-grid-3x3-gap-fill"></i> Excel View Timeline</button>
                   <button class="btn" type="button" onclick="window.switchView('master')"><i class="bi bi-table"></i> Master Plan</button>
                   <button class="btn" id="btnBalance" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-shuffle"></i> Balance Load</button>
