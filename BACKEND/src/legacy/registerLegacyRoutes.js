@@ -102,6 +102,21 @@ function naturalCompare(a, b) {
   return A.s.localeCompare(B.s, undefined, { numeric: true, sensitivity: 'base' });
 }
 
+// Collapse a query result to one row per `id` in place (keeps a single occurrence).
+// Guards against LEFT JOIN fan-out (e.g. a non-unique join key matching several rows)
+// silently duplicating primary-table rows. No-op when every id is already unique.
+function dedupeById(rows) {
+  if (!Array.isArray(rows) || rows.length < 2) return rows;
+  const seen = new Set();
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const id = rows[i] && rows[i].id;
+    if (id === undefined || id === null) continue; // can't key it — leave as-is
+    if (seen.has(id)) rows.splice(i, 1);
+    else seen.add(id);
+  }
+  return rows;
+}
+
 async function getWritableFactoryContext(req, actionLabel = 'perform this action') {
   const currentScope = await getFactoryScopeForRequest(req);
   const username = getRequestUsername(req);
@@ -19042,13 +19057,23 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
           AND(rpt.job_card_no IS NOT NULL AND TRIM(rpt.job_card_no) != '')
         LIMIT 1
       ) ojr ON true
+      -- order_no is unique only WITHIN a factory (the orders table is per-factory). On the
+      -- MAIN "All Factories" view this plain join matched EVERY factory's orders row with the
+      -- same order_no, fanning each hourly entry into N copies — the Compliance Summary showed
+      -- a plan's cells twice (e.g. the Dungra plan). Scope to the entry's own factory so at
+      -- most one orders row matches (null-tolerant for legacy rows). KAN-127.
       LEFT JOIN orders o ON o.order_no = COALESCE(d.order_no, pb.order_no)
+        AND (o.factory_id = d.factory_id OR o.factory_id IS NULL OR d.factory_id IS NULL)
     `;
     const entryParams = [fDate, tDate, shift];
     if (factoryId) {
       entryParams.push(factoryId);
     }
     const entries = await q(sqlEntries, entryParams);
+    // Safety net: a dpr_hourly row must appear exactly once. Even if a LEFT JOIN ever
+    // fans out again (a non-unique join key), collapse back to one row per dpr_hourly id
+    // so the matrix can never render the same entry twice.
+    dedupeById(entries);
 
     // 3. Get Setup Data (std_actual) for Range
     let setupQuery = `
@@ -19156,7 +19181,10 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
           AND(rpt.job_card_no IS NOT NULL AND TRIM(rpt.job_card_no) != '')
         LIMIT 1
       ) ojr ON true
+      -- Same per-factory order_no hazard as the entries query: scope orders to the setup's
+      -- own factory so an all-factory view can't fan a setup row across factories. KAN-127.
       LEFT JOIN orders o ON o.order_no = pb.order_no
+        AND (o.factory_id = s.factory_id OR o.factory_id IS NULL OR s.factory_id IS NULL)
 
       WHERE s.dpr_date BETWEEN $1 AND $2 AND s.shift = $3 AND s.is_deleted = false
         AND ($4::int IS NULL OR s.factory_id = $4)
@@ -19166,6 +19194,8 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
 
     // 3. Get Setup Data (std_actual) for Date Range
     const setups = await q(setupQuery, setupParams);
+    // Safety net: one row per std_actual id (see dedupeById note on entries above).
+    dedupeById(setups);
 
 
     // 3. Build Map: Machine -> Slot -> [Entries]
