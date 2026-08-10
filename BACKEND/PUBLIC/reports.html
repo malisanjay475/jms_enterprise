@@ -299,6 +299,11 @@
           <label class="mw-chk" style="padding-top:8px"><input type="checkbox" id="mwSiblingOr"> Include</label>
         </div>
 
+        <div class="control-group" id="mwScheduleGroup" style="display:none">
+          <label class="control-label">Machine finish schedule</label>
+          <label class="mw-chk" style="padding-top:8px"><input type="checkbox" id="mwSchedule"> All machines, plan-by-plan finish times</label>
+        </div>
+
         <div class="control-group" id="maintPeriodGroup" style="display:none">
           <label class="control-label">Period</label>
           <select id="maintPeriod" class="form-input">
@@ -401,6 +406,18 @@
       <div id="mouldReportBody"></div>
     </div>
 
+    <!-- Machine Finish Schedule (per-machine, plan-by-plan finish times) -->
+    <div class="card" id="mwScheduleCard" style="display:none">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px" class="no-print">
+        <h3 style="margin:0; font-size:1.1rem; font-weight:700">Machine Finish Schedule</h3>
+        <div>
+          <span id="mwScheduleCount" class="status-badge" style="margin-right:8px"></span>
+          <button class="btn-action" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>
+        </div>
+      </div>
+      <div id="mwScheduleBody"></div>
+    </div>
+
     <!-- Empty State -->
     <div id="emptyState" style="text-align:center; padding:100px 20px; color:var(--text-light)">
       <i class="bi bi-file-earmark-bar-graph" style="font-size:3rem; opacity:0.3"></i>
@@ -477,6 +494,7 @@
       document.getElementById('mwMachineGroup').style.display = isMw ? 'flex' : 'none';
       document.getElementById('mwViewGroup').style.display = isMw ? 'flex' : 'none';
       document.getElementById('mwSiblingGroup').style.display = isMw ? 'flex' : 'none';
+      document.getElementById('mwScheduleGroup').style.display = isMw ? 'flex' : 'none';
       if (isMw) loadMwMachines();
     }
 
@@ -535,8 +553,10 @@
           const machine = document.getElementById('tonnageMachine').value;
           endpoint = `/reports/tonnage?factory_id=${factoryId}&from=${from}&to=${to}&group=${period}&shift=${shift}&machine=${machine}`;
         } else if (type === 'machine-wise') {
-          const mwMachine = encodeURIComponent(document.getElementById('mwMachine').value || '');
-          const mwView = document.getElementById('mwView').value || 'summary';
+          const schedule = document.getElementById('mwSchedule').checked;
+          // Finish-schedule mode forces ALL machines + summary view (one row per plan).
+          const mwMachine = schedule ? '' : encodeURIComponent(document.getElementById('mwMachine').value || '');
+          const mwView = schedule ? 'summary' : (document.getElementById('mwView').value || 'summary');
           const sibling = document.getElementById('mwSiblingOr').checked ? '1' : '0';
           endpoint = `/reports/machine-wise?factory_id=${factoryId}&machine=${mwMachine}&view=${mwView}&includeSiblingOr=${sibling}`;
         } else {
@@ -555,7 +575,11 @@
             renderReport(res.data, type, res.summary);
           } else if (type === 'machine-wise') {
             window._mwView = res.view || 'summary';
-            renderReport(res.data, type, null);
+            if (document.getElementById('mwSchedule').checked) {
+              renderMachineSchedule(res.data);
+            } else {
+              renderReport(res.data, type, null);
+            }
           } else {
             window._maintGroup = res.group || 'daily';
             renderReport(res.data, type, res.summary);
@@ -578,6 +602,7 @@
     function renderMouldReport(groups, fields) {
       document.getElementById('emptyState').style.display = 'none';
       document.getElementById('tableCard').style.display = 'none';
+      document.getElementById('mwScheduleCard').style.display = 'none';
       const card = document.getElementById('mouldReportCard');
       const body = document.getElementById('mouldReportBody');
       card.style.display = 'block';
@@ -761,9 +786,57 @@
         </div>`;
     }
 
+    // Machine Finish Schedule: all machines, each with its running + queued plans
+    // laid out left-to-right in queue order, each showing its finish (Exp End) time.
+    function renderMachineSchedule(data) {
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('tableCard').style.display = 'none';
+      document.getElementById('mouldReportCard').style.display = 'none';
+      document.getElementById('mwScheduleCard').style.display = 'block';
+
+      const escL = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const fmtFinish = iso => {
+        if (!iso) return '—';
+        const dt = new Date(iso);
+        if (isNaN(dt.getTime())) return '—';
+        const p = n => String(n).padStart(2, '0');
+        return `${p(dt.getDate())}-${p(dt.getMonth() + 1)}-${dt.getFullYear()} ${p(dt.getHours())}:${p(dt.getMinutes())} Hrs`;
+      };
+
+      const groups = [];
+      const idx = new Map();
+      (data || []).forEach(r => {
+        const m = r.machine || '—';
+        if (!idx.has(m)) { idx.set(m, groups.length); groups.push({ machine: m, plans: [] }); }
+        groups[idx.get(m)].plans.push(r);
+      });
+      document.getElementById('mwScheduleCount').textContent = `${groups.length} machine${groups.length === 1 ? '' : 's'}`;
+
+      let html = '';
+      if (!groups.length) {
+        html = '<div style="color:var(--text-light);padding:20px">No running or queued plans found.</div>';
+      }
+      groups.forEach(g => {
+        const cells = g.plans.map((p, i) => `
+          <span style="display:inline-block;min-width:196px;background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:8px 11px;font-size:.82rem;line-height:1.45;vertical-align:top">
+            <b>Plan ${p.planQueued || i + 1}</b> <span style="color:#64748b">${escL(p.planId || '')}</span><br>
+            <span style="color:#334155">${escL(p.mouldName || '')}</span><br>
+            <span style="color:#64748b;font-size:.76rem">${escL(p.orNo || '')}</span><br>
+            <span style="color:#0369a1;font-weight:800">Finish: ${fmtFinish(p.expEndDate)}</span>
+          </span>`).join('<span style="align-self:center;color:#94a3b8;font-weight:900;padding:0 2px">→</span>');
+        html += `
+          <div style="display:flex;gap:14px;align-items:flex-start;padding:12px 6px;border-bottom:1px solid var(--border)">
+            <div style="flex:0 0 190px;font-weight:800;color:var(--text);padding-top:6px">${escL(g.machine)}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch">${cells || '<span style="color:var(--text-light);padding-top:8px">No plans</span>'}</div>
+          </div>`;
+      });
+      document.getElementById('mwScheduleBody').innerHTML = html;
+    }
+
     function renderReport(data, type, summary) {
       document.getElementById('emptyState').style.display = 'none';
       document.getElementById('mouldReportCard').style.display = 'none';
+      document.getElementById('mwScheduleCard').style.display = 'none';
       document.getElementById('tableCard').style.display = 'block';
       if (type === 'extra-qty-allowed') renderEqaSummary(summary);
       else if (type === 'machine-maintenance') renderMaintSummary(summary);

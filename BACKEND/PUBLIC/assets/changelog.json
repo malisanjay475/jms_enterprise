@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.23.1",
+  "latest": "1.24.0",
   "versions": [
+    {
+      "version": "1.24.0",
+      "date": "2026-08-10",
+      "title": "Machine Finish Schedule view",
+      "summary": "The Machine-Wise Plan Report has a new 'Machine finish schedule' tick box. Turn it on to see every machine on one line with its running plan and all the plans queued after it, each showing when it will finish — for example 'Plan 1 finish 11-08-2026 10:10 Hrs → Plan 2 finish 13-08-2026 23:15 Hrs'. One machine per row, plans in order.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New 'Machine finish schedule' option in the Machine-Wise Plan Report: shows all machines, each with its running plan and next queued plans in order, and the finish time of each."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.23.1",
       "date": "2026-08-10",
