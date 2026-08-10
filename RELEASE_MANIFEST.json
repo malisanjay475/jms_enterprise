@@ -1,6 +1,6 @@
 {
-  "version": "1.22.1",
-  "commit": "dpr-summary-orders-fanout-fix",
-  "releaseId": "1.22.1+dpr-summary-orders-fanout",
-  "builtAt": "2026-08-10T10:28:04.978Z"
+  "version": "1.24.1",
+  "commit": "mould-change-report-linewise",
+  "releaseId": "1.24.1+mould-change-report-linewise",
+  "builtAt": "2026-08-10T12:43:22.825Z"
 }

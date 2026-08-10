@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.24.0",
+  "latest": "1.24.1",
   "versions": [
+    {
+      "version": "1.24.1",
+      "date": "2026-08-10",
+      "title": "Mould Change Report is now split by machine line",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "improvement", "text": "The Daily Mould Change Report now has a separate labelled section for each machine line — B Line 1, B Line 2, C Line 1, E Line 1, F Line 1 and so on — instead of merging all lines with the same number together. Print and Excel follow the same layout." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.24.0",
       "date": "2026-08-10",

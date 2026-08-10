@@ -699,6 +699,9 @@
       const escH = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
       // Derive Line number from machine code, e.g. "B-L-1-OM-350-5" -> "1"
       const lineOf = (machine) => { const m = String(machine || '').match(/(?:^|[-\s_])L[-\s_]?(\d+)/i); return m ? m[1] : '?'; };
+      // Building/unit letter from the machine-code prefix, e.g. "B-L-1-OM-350-5" -> "B",
+      // "C-L4-OM-100-1" -> "C". Used to group the report per physical line (B Line 1, C Line 2, …).
+      const buildingOf = (machine) => { const m = String(machine || '').trim().match(/^([A-Za-z]+)/); return m ? m[1].toUpperCase() : '?'; };
       // Local (not UTC) YYYY-MM-DD so date filtering matches the factory's wall clock.
       const localDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       // Robust mould identity: ignore the board's '-' placeholder; fall back to mould name.
@@ -919,6 +922,7 @@
           changes.push({
             machine: mach,
             line: lineOf(mach),
+            building: buildingOf(mach),
             unit: String(curr.plant || curr.building || '1'),
             time: changeTime,
             productionDate: productionDateStr,
@@ -947,12 +951,20 @@
       const dayCount = changes.filter(c => c.shift === 'Day').length;
       const nightCount = changes.filter(c => c.shift === 'Night').length;
 
-      // ---- Group by Line, then sort each group by time ----
+      // ---- Group by BUILDING + LINE (e.g. "B 1", "C 2"), then sort each group by time ----
+      // Key is "<building> <line>" so every physical line is its own section:
+      // B Line 1..4, C Line 1..4, E Line 1..2, F Line 1, ordered by building letter then line no.
       const byLine = {};
-      changes.forEach(c => { (byLine[c.line] = byLine[c.line] || []).push(c); });
+      changes.forEach(c => {
+        const key = `${c.building} ${c.line}`;
+        (byLine[key] = byLine[key] || []).push(c);
+      });
       const lineKeys = Object.keys(byLine).sort((a, b) => {
-        const na = parseInt(a, 10), nb = parseInt(b, 10);
-        if (isNaN(na) && isNaN(nb)) return a.localeCompare(b);
+        const [ba, la] = a.split(' ');
+        const [bb, lb] = b.split(' ');
+        if (ba !== bb) return ba.localeCompare(bb); // building letter: B, C, E, F …
+        const na = parseInt(la, 10), nb = parseInt(lb, 10);
+        if (isNaN(na) && isNaN(nb)) return la.localeCompare(lb);
         if (isNaN(na)) return 1; if (isNaN(nb)) return -1;
         return na - nb;
       });
@@ -1028,12 +1040,11 @@
       `;
 
       let serialNo = 0;
-      lineKeys.forEach((k, gi) => {
-        // Section band before every group except the first (which sits under the main header).
-        if (gi > 0) {
-          const unit = byLine[k][0].unit || '1';
-          html += headRow(`UNIT-${escH(unit)}-LINE NO ${escH(k)}`);
-        }
+      lineKeys.forEach((k) => {
+        const g = byLine[k][0];
+        // Section band before EVERY line group (including the first) so each physical
+        // line is clearly separated and labelled, e.g. "B LINE 1", "C LINE 2".
+        html += headRow(`${escH(g.building)} LINE ${escH(g.line)}`);
         byLine[k].forEach(c => {
           serialNo += 1;
           const shiftBg = c.shift === 'Day' ? '#fff7ed' : '#eff6ff';
