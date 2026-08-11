@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.24.5",
+  "latest": "1.25.0",
   "versions": [
+    {
+      "version": "1.25.0",
+      "date": "2026-08-11",
+      "title": "Timeline — see plans still waiting for approval",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "Machine Timeline and Excel View Timeline now show a 'Pending Plan Approval' badge on any plan still waiting for approval — 'From PPC & Moulding' when it hasn't started, or 'From Moulding' once PPC has checked it." },
+            { "type": "feat", "text": "Both timelines have a new 'Pending Approval' filter to show only the plans still awaiting PPC / Moulding approval." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.24.5",
       "date": "2026-08-11",
