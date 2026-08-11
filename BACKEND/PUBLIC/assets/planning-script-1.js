@@ -626,6 +626,21 @@
         gap: 4px;
         line-height: 1.2;
       }
+      .etv-card-appr {
+        font-size: .58rem;
+        font-weight: 800;
+        color: #92400e;
+        background: #fef3c7;
+        border: 1px solid #fcd34d;
+        border-radius: 5px;
+        padding: 2px 5px;
+        margin-top: 2px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        line-height: 1.25;
+        white-space: normal;
+      }
       .etv-card-change strong { font-weight: 900; }
       .etv-card-urgent {
         animation: etvUrgentPulse 1.1s ease-in-out infinite;
@@ -1051,6 +1066,10 @@
                 <option value="24">⏱ Next 24 Hours</option>
                 <option value="48">⏱ Next 48 Hours</option>
               </select>
+              <select id="etv-approval" onchange="window.etvFilter()" style="min-width:150px;border-color:#d97706;color:#b45309;font-weight:700">
+                <option value="">Approval: All</option>
+                <option value="pending">⏳ Pending (PPC/Moulding)</option>
+              </select>
             </div>
           </div>
 
@@ -1411,6 +1430,7 @@
       const sVal  = document.getElementById('etv-status')?.value || '';
       const fVal  = document.getElementById('etv-forecast')?.value || '';
       const pVal  = document.getElementById('etv-priority-filter')?.value || ''; /* Fix 6 */
+      const aVal  = document.getElementById('etv-approval')?.value || ''; /* pending-approval filter */
       const norm  = v => String(v||'').trim().toUpperCase();
 
       const ms    = window.etvMs || { tonnage:new Set(), bldg:new Set(), line:new Set() };
@@ -1434,6 +1454,9 @@
         if (pVal === 'P1' || pVal === 'P2' || pVal === 'P3' || pVal === 'P4') {
           if (!mPlans.some(p => p.machinePriority === pVal)) return false;
         }
+
+        /* Pending-approval filter — keep only machines with a plan awaiting PPC/Moulding approval */
+        if (aVal === 'pending' && !mPlans.some(p => window.tlIsApprovalPending && window.tlIsApprovalPending(p))) return false;
 
         /* ── FORECAST: keep only machines whose mould change / new job starts within the window ── */
         if (cutoffTime > 0) {
@@ -1534,7 +1557,7 @@
     }
 
     window.etvReset = function () {
-      ['etv-search','etv-status','etv-forecast','etv-priority-filter'].forEach(id => {
+      ['etv-search','etv-status','etv-forecast','etv-priority-filter','etv-approval'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
       });
@@ -1578,12 +1601,17 @@
 
       /* visible plans per machine — when forecast is on, drop plans starting beyond the cutoff
          (keep RUNNING/started plans so the active job stays in view) */
+      const approvalPendingOnly = (document.getElementById('etv-approval')?.value || '') === 'pending';
       const visiblePlans = (code) => {
         const all = etvGroups[code] || [];
-        const filtered = cutoffTime ? all.filter(p => {
+        let filtered = cutoffTime ? all.filter(p => {
           const start = p._rippledStartRaw ? p._rippledStartRaw.getTime() : 0;
           return start < cutoffTime;
         }) : all;
+        // When the pending-approval filter is on, show only plans still awaiting approval.
+        if (approvalPendingOnly) {
+          filtered = filtered.filter(p => window.tlIsApprovalPending && window.tlIsApprovalPending(p));
+        }
         // Push plans with BAL ≤ 0 (fully/over-produced) to the end.
         // Running plans are exempt — they stay in position even if bal is 0.
         return filtered.slice().sort((a, b) => {
@@ -1824,6 +1852,15 @@
                 </div>
                 <div class="etv-card-mould" title="${esc(p.mouldName || '')}">${esc(mouldDisp)}</div>
                 ${clientDisp ? `<div style="font-size:.6rem;color:#64748b;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(clientDisp)}</div>` : ''}
+                ${(() => {
+                  // Plan approval badge — shown only while approval is incomplete.
+                  const _appr = String(p.jcApprovalStatus || p.jc_approval_status || 'PENDING').toUpperCase();
+                  if (_appr !== 'PENDING' && _appr !== 'PPC_APPROVED') return '';
+                  const _txt = _appr === 'PPC_APPROVED'
+                    ? 'Pending Approval: Moulding'
+                    : 'Pending Approval: PPC &amp; Moulding';
+                  return `<div class="etv-card-appr" title="Plan awaiting ${_appr === 'PPC_APPROVED' ? 'Moulding' : 'PPC & Moulding'} approval"><i class="bi bi-hourglass-split"></i> ${_txt}</div>`;
+                })()}
                 <div class="etv-card-qty">
                   <span>P:<strong>${fmtQty(p.planQty)}</strong></span>
                   <span class="${p.balQty > 0 ? 'bal-pos' : 'bal-done'}">B:<strong>${fmtQty(p.balQty)}</strong></span>
