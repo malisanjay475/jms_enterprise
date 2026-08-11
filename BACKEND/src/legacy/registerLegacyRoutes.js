@@ -9526,6 +9526,53 @@ async function getPlanJcGateError(planId) {
   return null;
 }
 
+// Priority-order start gate: a machine's plans must run in P1→P4 order.
+// Returns an error string if starting `plan` would jump ahead of a higher-priority
+// (or any, when `plan` itself has none) plan still pending on the same machine; else null.
+// COMPLETED / REJECTED plans are ignored (they no longer hold the queue). If no priority
+// plans are pending on the machine, any plan may start (null).
+async function getPriorityOrderStartError(plan) {
+  if (!plan || !plan.machine) return null;
+  // Factory-scope: plan_id / machine rows repeat across factories (KAN-127), so only
+  // compare against plans in the SAME factory (null-tolerant for legacy rows).
+  const fClause = (plan.factory_id != null && plan.factory_id !== '')
+    ? ` AND (factory_id = ${Number(plan.factory_id)} OR factory_id IS NULL)` : '';
+  const top = await q(
+    `SELECT id, plan_id, order_no, machine_priority
+       FROM plan_board
+      WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
+        AND machine_priority IS NOT NULL
+        AND UPPER(COALESCE(status, '')) <> 'COMPLETED'
+        AND UPPER(COALESCE(jc_approval_status, '')) <> 'REJECTED'${fClause}
+      ORDER BY machine_priority ASC
+      LIMIT 1`,
+    [plan.machine]
+  );
+  if (!top.length) return null;                                   // no pending priority plans
+  if (String(top[0].id) === String(plan.id)) return null;         // this IS the current top
+  return `Plans must run in priority order — start ${top[0].machine_priority} (Order ${top[0].order_no}) first on machine ${plan.machine}.`;
+}
+
+// Renumber a machine's P1..P4 so they stay contiguous and gap-free after a plan
+// leaves the queue (completed / priority cleared). COMPLETED/REJECTED plans are excluded.
+async function compactMachinePriorities(machine) {
+  if (!machine) return;
+  const labelled = await q(
+    `SELECT id, machine_priority FROM plan_board
+       WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
+         AND machine_priority IS NOT NULL
+         AND UPPER(COALESCE(status, '')) <> 'COMPLETED'
+         AND UPPER(COALESCE(jc_approval_status, '')) <> 'REJECTED'
+       ORDER BY machine_priority ASC`, [machine]
+  );
+  const labels = ['P1', 'P2', 'P3', 'P4'];
+  for (let i = 0; i < labelled.length; i++) {
+    if (labelled[i].machine_priority !== labels[i]) {
+      await q(`UPDATE plan_board SET machine_priority = $1, updated_at = NOW() WHERE id = $2`, [labels[i], labelled[i].id]);
+    }
+  }
+}
+
 /* ============================================================
    MACHINE PRIORITY (P1–P4) API
    Each machine can have at most one plan per label.
@@ -9551,11 +9598,16 @@ app.post('/api/planning/machine-priority', async (req, res) => {
     }
     if (!machine) return res.status(400).json({ ok: false, error: 'machine not found for plan' });
 
-    // JC GATE — setting a priority requires linked JC + full PPC/Moulding approval.
-    // Clearing (priority === null) is always allowed.
+    // JC-GIVEN GATE — setting a priority requires the plan's "JC Given" to be checked
+    // (job_card_given = true). Because JC Given itself can only be ticked once the Job Card
+    // is linked AND fully PPC/Moulding-approved, this is at least as strict as the old
+    // approval gate. Clearing (priority === null) is always allowed.
     if (priority !== null) {
-      const gateErr = await getPlanJcGateError(planId);
-      if (gateErr) return res.status(403).json({ ok: false, error: gateErr });
+      const jg = await q(`SELECT job_card_given, order_no FROM plan_board WHERE id = $1${fClause}`, [planId]);
+      if (!jg.length) return res.status(404).json({ ok: false, error: 'Plan not found' });
+      if (!jg[0].job_card_given) {
+        return res.status(403).json({ ok: false, error: `Mark "JC Given" for Order ${jg[0].order_no} before setting a priority.` });
+      }
     }
 
     await q('BEGIN');
@@ -9578,21 +9630,9 @@ app.post('/api/planning/machine-priority', async (req, res) => {
                  WHERE id = $2${fClause}`, [priority, planId]);
       }
 
-      // 4. Compact: re-read all labelled plans on this machine sorted by label,
-      //    then reassign P1, P2, P3... filling gaps.
-      const labelled = await q(
-        `SELECT id, machine_priority FROM plan_board
-         WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
-           AND machine_priority IS NOT NULL${fClause}
-         ORDER BY machine_priority ASC`, [machine]
-      );
-      const labels = ['P1', 'P2', 'P3', 'P4'];
-      for (let i = 0; i < labelled.length; i++) {
-        const newLabel = labels[i];
-        if (labelled[i].machine_priority !== newLabel) {
-          await q(`UPDATE plan_board SET machine_priority = $1, updated_at = NOW() WHERE id = $2`, [newLabel, labelled[i].id]);
-        }
-      }
+      // 4. Compact: renumber remaining labels on this machine so P1..P4 stay contiguous
+      //    (gap-free) and exclude any completed/rejected holders.
+      await compactMachinePriorities(machine);
       await q('COMMIT');
     } catch (txErr) {
       await q('ROLLBACK');
@@ -9744,8 +9784,17 @@ app.post('/api/planning/complete', async (req, res) => {
           updated_at = NOW(),
           last_updated_at = NOW()
       WHERE id = $1
-      RETURNING id, plan_id, order_no
+      RETURNING id, plan_id, order_no, machine
     `, [id, remarks || '', user || 'System']);
+
+    // A completed plan leaves the priority queue: clear its P1–P4 label and renumber the
+    // machine's remaining plans so P1..P4 stay contiguous (so the next plan becomes P1 and
+    // the machine doesn't "run without a P1"). KAN priority-order rules.
+    if (upd && upd.length && upd[0].machine) {
+      await q(`UPDATE plan_board SET machine_priority = NULL, updated_at = NOW()
+                 WHERE id = $1 AND machine_priority IS NOT NULL`, [id]);
+      await compactMachinePriorities(upd[0].machine);
+    }
 
     // Audit trail so "who completed it / when" is answerable later (previously
     // /planning/complete wrote no plan_audit_logs entry, leaving completions
@@ -11884,6 +11933,13 @@ app.post('/api/planning/run', async (req, res) => {
       return res.json({ ok: false, error: `Cannot start plan for Order ${plan.order_no} — ${stageMsg}. Complete Job Card approval first.` });
     }
 
+    // PRIORITY-ORDER GATE — plans must run in P1→P4 order. Block if a higher-priority
+    // (or any, when this plan has no priority) plan is still pending on the same machine.
+    if (!force) {
+      const orderErr = await getPriorityOrderStartError(plan);
+      if (orderErr) return res.json({ ok: false, error: orderErr });
+    }
+
     // 2. Check for EXISTING Running Plan on this machine
     // 2. AUTO-STOP ALL other Running Plans (Robust Fix)
     // Use UPDATE with RETURNING to catch and stop multiple existing plans if any
@@ -12843,6 +12899,12 @@ app.post('/api/planning/start', async (req, res) => {
     const planRes = await q('SELECT * FROM plan_board WHERE id = $1', [rowId]);
     if (!planRes.length) return res.json({ ok: false, error: 'Plan not found' });
     const plan = planRes[0];
+
+    // PRIORITY-ORDER GATE — plans must run in P1→P4 order (see /planning/run).
+    if (!(req.body && req.body.force)) {
+      const orderErr = await getPriorityOrderStartError(plan);
+      if (orderErr) return res.json({ ok: false, error: orderErr });
+    }
 
     // 2. Auto-stop any other Running plans on this machine first.
     //    Using UPPER() so 'Running', 'RUNNING' etc. are all caught.
