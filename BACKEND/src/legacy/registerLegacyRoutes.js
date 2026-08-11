@@ -1044,7 +1044,10 @@ app.get('/api/dpr/dashboard-matrix', async (req, res) => {
             SUM( (h.shots * COALESCE(m.no_of_cav, pm.no_of_cav, 1) * COALESCE(m.std_wt_kg, m.std_wt_kg, pm.std_wt_kg, pm.std_wt_kg, 0)) / 1000 ) as total_tonnage_plan
         FROM dpr_hourly h
         LEFT JOIN moulds m ON m.mould_number = h.mould_no
-        LEFT JOIN plan_board pb ON pb.id::TEXT = h.plan_id OR pb.plan_id = h.plan_id
+        LEFT JOIN plan_board pb ON (pb.id::TEXT = h.plan_id OR pb.plan_id = h.plan_id)
+          -- Factory-scope: plan_id repeats across factories, so an unscoped join can
+          -- fan out (multiply) the hour's tonnage via a same-plan_id plan elsewhere (KAN-127).
+          AND (pb.factory_id = h.factory_id OR pb.factory_id IS NULL OR h.factory_id IS NULL)
         LEFT JOIN moulds pm ON pm.mould_number = pb.item_code
         WHERE h.dpr_date = $1::date AND h.shift = $2 AND (h.factory_id = $3 OR ($3 IS NULL AND h.factory_id IS NULL))
         GROUP BY h.hour_slot
@@ -2178,6 +2181,23 @@ function isAdminLikeRole(user) {
 
 function isSuperadminRole(user) {
   return String(user?.role_code || '').toLowerCase() === 'superadmin';
+}
+
+// Roles allowed to delete a DPR entry from the DPR Compliance Summary, in
+// addition to admin/superadmin. Keep in sync with the frontend gate
+// (canDeleteDprEntry in dpr.html).
+const DPR_DELETE_ENTRY_ROLES = new Set(['planner', 'ppc_ass_manager', 'ppc_manager']);
+function canDeleteDprEntry(user) {
+  if (isAdminLikeRole(user)) return true;
+  return DPR_DELETE_ENTRY_ROLES.has(String(user?.role_code || '').toLowerCase());
+}
+
+// Roles allowed to permanently delete a plan from Master Plan, in addition to
+// admin/superadmin. Keep in sync with the frontend gate (planning-script-3.js).
+const PLAN_DELETE_ROLES = new Set(['ppc_ass_manager', 'ppc_manager']);
+function canDeletePlan(user) {
+  if (isAdminLikeRole(user)) return true;
+  return PLAN_DELETE_ROLES.has(String(user?.role_code || '').toLowerCase());
 }
 
 function getRoleSortRank(roleCode) {
@@ -7304,6 +7324,10 @@ app.get('/api/planning/machine-jobs', async (req, res) => {
             SELECT 1 FROM dpr_hourly dh
             WHERE (dh.plan_id = pb.plan_id
                 OR CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT))
+              -- plan_id is unique only WITHIN a factory (each factory mints the same
+              -- PLN-<yr>-<seq> sequence), so match production factory-scoped or another
+              -- factory's output attributes to this plan (KAN-127).
+              AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
               AND dh.dpr_date = $2::date
               AND dh.shift    = $3
               AND dh.is_deleted = false
@@ -7325,6 +7349,9 @@ app.get('/api/planning/machine-jobs', async (req, res) => {
         FROM dpr_hourly dh
         WHERE (dh.plan_id = pb.plan_id
             OR CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT))
+          -- Factory-scope: plan_id repeats across factories, so an unscoped SUM adds
+          -- other factories' production to this plan's total (KAN-127).
+          AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
           AND dh.is_deleted = false
       ) dpr_totals ON true
       LEFT JOIN LATERAL (
@@ -7338,6 +7365,8 @@ app.get('/api/planning/machine-jobs', async (req, res) => {
           FROM dpr_hourly
           WHERE (plan_id = pb.plan_id
               OR CAST(plan_id AS TEXT) = CAST(pb.id AS TEXT))
+            -- Factory-scope: plan_id repeats across factories (KAN-127).
+            AND (factory_id = pb.factory_id OR factory_id IS NULL OR pb.factory_id IS NULL)
             AND is_deleted = false
           GROUP BY 1
         ) t
@@ -7862,9 +7891,11 @@ async function getShiftingLabelContext(rawScanValue, factoryId) {
   const producedRows = await q(
     `SELECT COALESCE(SUM(good_qty), 0) AS total_produced
        FROM dpr_hourly
-      WHERE CAST(plan_id AS TEXT) = $1
-         OR ($2 <> '' AND CAST(plan_id AS TEXT) = $2)`,
-    [String(resolvedPlanPk), resolvedPlanCode]
+      WHERE (CAST(plan_id AS TEXT) = $1
+         OR ($2 <> '' AND CAST(plan_id AS TEXT) = $2))
+        -- Factory-scope: plan_id repeats across factories (KAN-127).
+        AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)`,
+    [String(resolvedPlanPk), resolvedPlanCode, resolvedFactoryId || null]
   );
 
   const shiftedRows = await q(
@@ -8074,9 +8105,12 @@ app.get('/api/shifting/dashboard', async (req, res) => {
            ${shiftFilter}) as last_shifted_at
        FROM plan_board pb
        LEFT JOIN dpr_hourly dh ON (
-           CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT) 
+           CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT)
            OR CAST(dh.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT)
        )
+           -- Factory-scope: plan_id repeats across factories, so total_produced must
+           -- not sum other factories' output for the same plan_id (KAN-127).
+           AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
        ${whereClause}
        GROUP BY pb.id, pb.plan_id, pb.machine, pb.line, pb.order_no, pb.item_name, pb.mould_name, pb.plan_qty, pb.status, pb.start_date, pb.end_date, pb.seq
        ORDER BY pb.line, pb.machine, pb.seq`,
@@ -8136,8 +8170,10 @@ app.get('/api/shifting/jobs', async (req, res) => {
          COALESCE(
            (SELECT SUM(dh.good_qty)
               FROM dpr_hourly dh
-             WHERE CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT)
-                OR CAST(dh.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT)),
+             WHERE (CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT)
+                OR CAST(dh.plan_id AS TEXT) = CAST(pb.plan_id AS TEXT))
+               -- Factory-scope: plan_id repeats across factories (KAN-127).
+               AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)),
            0
          ) AS total_produced,
          COALESCE(
@@ -8221,9 +8257,11 @@ app.get('/api/shifting/jobs/:id/details', async (req, res) => {
       q(
         `SELECT TRIM(COALESCE(colour, '')) AS colour, COALESCE(SUM(good_qty), 0) AS qty
            FROM dpr_hourly
-          WHERE CAST(plan_id AS TEXT) = $1::text OR ($2::text <> '' AND CAST(plan_id AS TEXT) = $2::text)
+          WHERE (CAST(plan_id AS TEXT) = $1::text OR ($2::text <> '' AND CAST(plan_id AS TEXT) = $2::text))
+            -- Factory-scope: plan_id repeats across factories (KAN-127).
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
           GROUP BY TRIM(COALESCE(colour, ''))`,
-        shared
+        [planPk, planCode, normalizeFactoryId(plan.factory_id) || null]
       ),
       q(
         `SELECT TRIM(COALESCE(colour, '')) AS colour, COALESCE(SUM(quantity), 0) AS qty
@@ -9124,7 +9162,7 @@ app.get('/api/planning/board', async (req, res) => {
         -- Fetch Mould No from Master (Strict => Fallback to Mould Master)
         COALESCE(mps.mould_no, m.mould_number, '-') AS "mouldNo",
         mps.cavity       AS "cavity",
-        ojr.job_card_no  AS "jcNo",
+        COALESCE(NULLIF(TRIM(pb.job_card_no), ''), ojr.job_card_no) AS "jcNo",
         pb.job_card_given,
         COALESCE(pb.jc_approval_status, 'PENDING') AS "jcApprovalStatus",
         pb.plan_qty     AS "planQty",
@@ -9164,13 +9202,27 @@ app.get('/api/planning/board', async (req, res) => {
       -- Fetch Master CT using Mould No from Summary
       LEFT JOIN moulds mMaster ON TRIM(mMaster.mould_number) = TRIM(mps.mould_no)
 
-      -- Fetch JC No from OR-JR Report
+      -- Fetch JC No from OR-JR Report. An OR can carry several job cards (one per
+      -- job plan), so a blind LIMIT 1 would show an arbitrary — often wrong — JC on
+      -- every plan of that OR. Prefer the row whose OR-JR Remarks reference THIS
+      -- plan's Plan ID / our_code (the plan<->JC link written in OR-JR Status), and
+      -- only fall back to an arbitrary (but deterministic, lowest-id) job card for
+      -- the OR when no row references this plan. Note: pb.job_card_no (persisted at
+      -- link time) still wins over this via the COALESCE on the jcNo column above.
       LEFT JOIN LATERAL (
-         SELECT job_card_no 
-         FROM or_jr_report rpt 
-         WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no) 
-           AND rpt.job_card_no IS NOT NULL 
-           AND rpt.job_card_no <> ''
+         SELECT rpt.job_card_no
+         FROM or_jr_report rpt
+         WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no)
+           AND NULLIF(TRIM(rpt.job_card_no), '') IS NOT NULL
+         ORDER BY
+           CASE
+             WHEN NULLIF(TRIM(pb.plan_id), '') IS NOT NULL
+                  AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.plan_id)) || '%' THEN 0
+             WHEN NULLIF(TRIM(pb.our_code), '') IS NOT NULL
+                  AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.our_code)) || '%' THEN 0
+             ELSE 1
+           END,
+           rpt.id
          LIMIT 1
       ) ojr ON true
       -- Optimized DPR Join: Only aggregate for current orders
@@ -9178,6 +9230,8 @@ app.get('/api/planning/board', async (req, res) => {
           SELECT SUM(good_qty) as qty, MIN(created_at) as first_entry
           FROM dpr_hourly dh
           WHERE dh.plan_id = pb.plan_id
+            -- Factory-scope: plan_id repeats across factories (KAN-127).
+            AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
             AND dh.is_deleted = false
       ) dpr ON true
       WHERE ${where}
@@ -9224,6 +9278,216 @@ app.get('/api/planning/board', async (req, res) => {
 
     res.json({ ok: true, data: { plans: normalized } });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+/* ============================================================
+   MACHINE-WISE PLAN REPORT (from Machine Timeline)
+   ------------------------------------------------------------
+   Summary  = one row per plan on the machine (queue order).
+   Detail   = one row per colour of each plan.
+   Figures mirror the Machine Timeline: BAL QTY is the LIVE balance
+   (plan qty − produced up to the request time), Exp End Date is the
+   balance/pcs-per-hour ripple chained down each machine's queue.
+   ?machine= (blank/all = every machine), ?view=summary|detail,
+   ?includeSiblingOr=1 also pulls same-OR plans on other machines.
+   ============================================================ */
+// Canonical (prefix-stripped, upper-trimmed) machine expression, matching the board.
+const MW_MACHINE_EXPR = `TRIM(UPPER(CASE WHEN pb.machine LIKE '%>%' THEN SPLIT_PART(pb.machine, '>', 2) ELSE pb.machine END))`;
+
+async function fetchMachineWisePlans({ factoryId, machine, orNos }) {
+  const params = [];
+  let where = `pb.status NOT IN ('COMPLETED', 'REJECTED') AND UPPER(COALESCE(pb.jc_approval_status, '')) != 'REJECTED'`;
+  if (factoryId) {
+    params.push(factoryId);
+    where += ` AND (pb.factory_id = $${params.length} OR pb.factory_id IS NULL)`;
+  }
+  if (Array.isArray(orNos)) {
+    // Sibling-OR expansion: any plan on ANY machine for these OR numbers.
+    if (!orNos.length) return [];
+    params.push(orNos.map(o => String(o).trim().toUpperCase()));
+    where += ` AND TRIM(UPPER(pb.order_no)) = ANY($${params.length})`;
+  } else if (machine && machine !== 'all') {
+    params.push(String(machine).trim().toUpperCase());
+    where += ` AND ${MW_MACHINE_EXPR} = $${params.length}`;
+  }
+
+  return await q(`
+    SELECT * FROM (
+      SELECT DISTINCT ON (pb.id)
+        pb.id,
+        pb.plan_id      AS "planId",
+        COALESCE(planMachine.machine,
+                 CASE WHEN pb.machine LIKE '%>%' THEN TRIM(SPLIT_PART(pb.machine, '>', 2)) ELSE pb.machine END
+        ) AS machine,
+        pb.order_no     AS "orNo",
+        ojr.or_jr_date  AS "orDate",
+        COALESCE(NULLIF(TRIM(pb.job_card_no), ''), ojr.job_card_no) AS "jcNo",
+        COALESCE(pb.job_card_date, ojr.job_card_date) AS "jcDate",
+        COALESCE(mps.mould_no, m.mould_number, pb.mould_code, '-') AS "mouldNo",
+        COALESCE(pb.mould_name, m.mould_name, 'Unknown') AS "mouldName",
+        pb.plan_qty     AS "qty",
+        pb.colour_details AS "colourDetails",
+        pb.start_date   AS "startDate",
+        pb.end_date     AS "endDate",
+        pb.seq,
+        pb.machine_priority AS "machinePriority",
+        pb.status,
+        pb.factory_id   AS "factoryId",
+        COALESCE(mMaster.pcs_per_hour, m.pcs_per_hour) AS "pcsHour"
+      FROM plan_board pb
+      LEFT JOIN machines planMachine
+        ON ( LOWER(TRIM(planMachine.machine)) = LOWER(TRIM(pb.machine))
+             OR (pb.machine LIKE '%>%' AND LOWER(TRIM(planMachine.machine)) = LOWER(TRIM(SPLIT_PART(pb.machine, '>', 2)))) )
+       AND (planMachine.factory_id = pb.factory_id OR planMachine.factory_id IS NULL OR pb.factory_id IS NULL)
+      LEFT JOIN moulds m ON m.mould_name = pb.mould_name
+      LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
+      LEFT JOIN moulds mMaster ON TRIM(mMaster.mould_number) = TRIM(mps.mould_no)
+      LEFT JOIN LATERAL (
+        SELECT rpt.or_jr_date, rpt.job_card_no, rpt.job_card_date
+        FROM or_jr_report rpt
+        WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no)
+        ORDER BY
+          CASE
+            WHEN NULLIF(TRIM(pb.plan_id), '') IS NOT NULL
+                 AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.plan_id)) || '%' THEN 0
+            WHEN NULLIF(TRIM(pb.our_code), '') IS NOT NULL
+                 AND LOWER(COALESCE(rpt.remarks_all, '')) LIKE '%' || LOWER(TRIM(pb.our_code)) || '%' THEN 0
+            ELSE 1
+          END,
+          (NULLIF(TRIM(rpt.job_card_no), '') IS NULL)::int,
+          rpt.id
+        LIMIT 1
+      ) ojr ON true
+      WHERE ${where}
+      ORDER BY pb.id ASC, mps.plan_date DESC NULLS LAST, mps.id DESC NULLS LAST
+    ) t
+    ORDER BY t.machine ASC,
+             CASE WHEN UPPER(COALESCE(t.status, '')) = 'RUNNING' THEN 0 ELSE 1 END ASC,
+             COALESCE(t.seq, 999999) ASC,
+             t."startDate" ASC,
+             t.id ASC
+  `, params);
+}
+
+app.get('/api/reports/machine-wise', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const machine = (req.query.machine && String(req.query.machine).trim()) || '';
+    const view = String(req.query.view || 'summary').toLowerCase() === 'detail' ? 'detail' : 'summary';
+    const includeSiblingOr = String(req.query.includeSiblingOr || '') === '1';
+
+    let plans = await fetchMachineWisePlans({ factoryId, machine });
+
+    if (includeSiblingOr && plans.length) {
+      const orNos = [...new Set(plans.map(p => String(p.orNo || '').trim().toUpperCase()).filter(Boolean))];
+      const siblings = await fetchMachineWisePlans({ factoryId, orNos });
+      const seen = new Set(plans.map(p => p.id));
+      for (const s of siblings) if (!seen.has(s.id)) { plans.push(s); seen.add(s.id); }
+      // Re-sort the merged set by machine, running-first, queue order.
+      plans.sort((a, b) =>
+        String(a.machine).localeCompare(String(b.machine), undefined, { numeric: true, sensitivity: 'base' })
+        || ((String(a.status).toUpperCase() === 'RUNNING' ? 0 : 1) - (String(b.status).toUpperCase() === 'RUNNING' ? 0 : 1))
+        || ((a.seq ?? 999999) - (b.seq ?? 999999))
+        || (a.id - b.id));
+    }
+
+    // Live produced quantities (up to now): total per plan + per plan+colour.
+    const planIds = [...new Set(plans.map(p => p.planId).filter(Boolean))];
+    const totalProduced = new Map();   // planId -> produced
+    const colourProduced = new Map();  // planId||colourUpper -> produced
+    if (planIds.length) {
+      const tp = await q(
+        `SELECT plan_id, SUM(good_qty)::numeric AS produced
+           FROM dpr_hourly WHERE plan_id = ANY($1) AND is_deleted = false
+          GROUP BY plan_id`, [planIds]);
+      for (const r of tp) totalProduced.set(r.plan_id, Number(r.produced) || 0);
+      const cp = await q(
+        `SELECT plan_id, UPPER(TRIM(COALESCE(colour, ''))) AS colour, SUM(good_qty)::numeric AS produced
+           FROM dpr_hourly WHERE plan_id = ANY($1) AND is_deleted = false
+          GROUP BY plan_id, UPPER(TRIM(COALESCE(colour, '')))`, [planIds]);
+      for (const r of cp) colourProduced.set(`${r.plan_id}||${r.colour}`, Number(r.produced) || 0);
+    }
+
+    const hoursFor = (qty, pcsHour) => {
+      const ph = Number(pcsHour) || 0;
+      return ph > 0 ? Number(qty) / ph : null;
+    };
+
+    // Group by machine for queue numbering + Exp End Date ripple.
+    const byMachine = new Map();
+    for (const p of plans) {
+      const key = String(p.machine || '');
+      if (!byMachine.has(key)) byMachine.set(key, []);
+      byMachine.get(key).push(p);
+    }
+
+    // Emit machines in natural (numeric-aware) ascending order so e.g.
+    // HYD-300-6, -7, -8, -10, -11 sort correctly instead of 10, 11, 6, 7, 8.
+    const machineKeys = [...byMachine.keys()].sort((a, b) =>
+      String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' }));
+
+    const rows = [];
+    for (const machineKey of machineKeys) {
+      const list = byMachine.get(machineKey);
+      let cursor = null; // rolling Exp End Date for the machine queue
+      list.forEach((p, idx) => {
+        const qty = Number(p.qty) || 0;
+        const produced = totalProduced.get(p.planId) || 0;
+        const balQty = Math.max(0, qty - produced);           // LIVE balance
+        const remBalQty = Math.max(0, qty - balQty);          // = produced (per spec: QTY − BAL QTY)
+        const totalPlanTime = hoursFor(qty, p.pcsHour);       // QTY ÷ pcs/hour, hours
+        const remainingHours = hoursFor(balQty, p.pcsHour) || 0;
+
+        // Exp End Date: first plan chains from its start (or now if already past),
+        // each subsequent queued plan chains from the previous plan's Exp End.
+        const base = cursor || (p.startDate ? new Date(p.startDate) : new Date());
+        const startBasis = cursor ? base : new Date(Math.max(base.getTime(), Date.now()));
+        const expEnd = (p.pcsHour && Number(p.pcsHour) > 0)
+          ? new Date(startBasis.getTime() + remainingHours * 3600 * 1000)
+          : null;
+        if (expEnd) cursor = expEnd;
+
+        const common = {
+          machine: p.machine, orNo: p.orNo, orDate: p.orDate,
+          jcNo: p.jcNo, jcDate: p.jcDate, planId: p.planId,
+          mouldNo: p.mouldNo, mouldName: p.mouldName,
+          startDate: p.startDate, endDate: p.endDate,
+          expEndDate: expEnd ? expEnd.toISOString() : null,
+          totalPlanTime: totalPlanTime == null ? null : Math.round(totalPlanTime * 100) / 100,
+          planQueued: idx + 1,
+          status: p.status
+        };
+
+        if (view === 'summary') {
+          rows.push({ ...common, qty, balQty, remBalQty });
+        } else {
+          const colours = Array.isArray(p.colourDetails) ? p.colourDetails : [];
+          if (!colours.length) {
+            rows.push({ ...common, colour: '—', qty, balQty, remBalQty });
+          } else {
+            for (const c of colours) {
+              const cQty = Number(c.planQty) || 0;
+              const cName = c.colourName || '—';
+              const cProduced = colourProduced.get(`${p.planId}||${String(cName).trim().toUpperCase()}`) || 0;
+              const cBal = Math.max(0, cQty - cProduced);
+              rows.push({
+                ...common,
+                colour: cName,
+                qty: cQty,
+                balQty: cBal,
+                remBalQty: Math.max(0, cQty - cBal)
+              });
+            }
+          }
+        }
+      });
+    }
+
+    res.json({ ok: true, view, count: rows.length, data: rows });
+  } catch (e) {
+    console.error('/api/reports/machine-wise', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
 });
 
 /* ============================================================
@@ -9464,20 +9728,39 @@ app.post('/api/planning/complete', async (req, res) => {
     const { id, completed_qty, remarks, user } = req.body;
     if (!id) return res.json({ ok: false, error: 'Missing ID' });
 
-    // Update status, timestamps, and details
-    // Ensure we handle completed_qty - optional to store in good_qty or just rely on remarks/logging
-    // We will update good_qty to completed_qty if provided, for record keeping.
-    // Actually plan_board doesn't have good_qty, it has dpr aggregation.
-    // We will just store the fact it is complete.
-
-    await q(`
-      UPDATE plan_board 
+    // Update status, timestamps, and details.
+    // CRITICAL: bump updated_at (and last_updated_at) so the completion is a fresh
+    // change. The sync push selects rows by `updated_at > lastPush`, and the pull
+    // upsert only overwrites a local row when the incoming row is NEWER
+    // (EXCLUDED.updated_at > plan_board.updated_at). Without stamping updated_at,
+    // the COMPLETED status (a) is never pushed to MAIN and (b) gets overwritten
+    // back to active on the next pull — the plan "auto comes back" (KAN history).
+    const upd = await q(`
+      UPDATE plan_board
       SET status = 'COMPLETED',
           remarks = $2,
           completed_by = $3,
-          completed_at = NOW()
+          completed_at = NOW(),
+          updated_at = NOW(),
+          last_updated_at = NOW()
       WHERE id = $1
+      RETURNING id, plan_id, order_no
     `, [id, remarks || '', user || 'System']);
+
+    // Audit trail so "who completed it / when" is answerable later (previously
+    // /planning/complete wrote no plan_audit_logs entry, leaving completions
+    // invisible in history).
+    if (upd && upd.length) {
+      await q(
+        "INSERT INTO plan_audit_logs (plan_id, action, details, user_name) VALUES ($1, 'COMPLETE', $2, $3)",
+        [upd[0].id, JSON.stringify({ completed_qty: completed_qty ?? null, remarks: remarks || '' }), user || 'System']
+      ).catch(e => console.warn('[complete] audit log skipped:', e.message));
+    }
+
+    // [Real-Time Sync] push the completion to MAIN promptly.
+    if (typeof syncService !== 'undefined' && syncService.triggerSync) {
+      syncService.triggerSync();
+    }
 
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
@@ -10722,38 +11005,16 @@ app.post('/api/planning/create', async (req, res) => {
         }
       }
 
-      // ── DUPLICATE GUARD ──────────────────────────────────────────────
-      // Block creation if an active (non-completed, non-deleted) plan
-      // already exists for the same order_no + mould_code/mould_name.
-      if (p.orderNo && (p.mouldCode || p.mouldName)) {
-        const dupCheck = await client.query(
-          `SELECT plan_id, status, machine
-             FROM plan_board
-            WHERE TRIM(COALESCE(order_no,'')) ILIKE TRIM($1)
-              AND (
-                    TRIM(COALESCE(mould_code,'')) ILIKE TRIM($2)
-                 OR TRIM(COALESCE(mould_name,'')) ILIKE TRIM($3)
-              )
-              AND COALESCE(is_deleted, false) = false
-              AND status NOT IN ('COMPLETED','CANCELLED')
-              AND ($4::int IS NULL OR factory_id = $4)
-            LIMIT 3`,
-          [
-            p.orderNo,
-            p.mouldCode || '',
-            p.mouldName || '',
-            requestFactoryId ?? null
-          ]
-        );
-        if (dupCheck.rows.length > 0) {
-          const existing = dupCheck.rows.map(r => `${r.plan_id} (${r.status} on ${r.machine})`).join(', ');
-          throw new Error(
-            `Duplicate plan blocked: An active plan already exists for order "${p.orderNo}" with mould "${p.mouldName || p.mouldCode}". ` +
-            `Existing: ${existing}. Complete or cancel it before creating a new one.`
-          );
-        }
-      }
-      // ─────────────────────────────────────────────────────────────────
+      // NOTE: The old "DUPLICATE GUARD" that blocked creating a second plan for
+      // the same order_no + mould while an earlier plan was still active
+      // (status NOT IN COMPLETED/CANCELLED) has been removed (KAN-124). It
+      // prevented legitimate workflows — splitting one order+mould across
+      // machines/shifts, or planning a second batch while the first is still
+      // running. Over-planning is still bounded by the family/remaining-balance
+      // guard above, and DPR isolates production by plan_id, so distinct plans
+      // for the same order+mould no longer conflate. A future refinement could
+      // block only true accidental duplicates (identical qty, zero production)
+      // if double-created plans become a problem in practice.
 
       const planType = ['Moulding', 'Printing', 'Tuffting', 'Labour Job'].includes(p.planType) ? p.planType : 'Moulding';
       const ins = await client.query(
@@ -11680,6 +11941,17 @@ app.post('/api/planning/delete', async (req, res) => {
 
     const actor = getRequestUsername(req) || 'System';
 
+    // Permission: admin/superadmin OR ppc_ass_manager / ppc_manager. The frontend
+    // only shows the delete button to these roles; enforce it here too so the
+    // permanent delete cannot be triggered by anyone else.
+    if (!actor || actor === 'System') {
+      return res.status(401).json({ ok: false, error: 'Authorization required.' });
+    }
+    const actorRow = (await q('SELECT role_code FROM users WHERE username = $1 LIMIT 1', [actor]))[0];
+    if (!actorRow || !canDeletePlan(actorRow)) {
+      return res.status(403).json({ ok: false, error: 'You do not have permission to delete plans.' });
+    }
+
     // 1. Fetch before delete for logging
     const check = await q('SELECT * FROM plan_board WHERE id = $1', [rowId]);
     if (check.length) {
@@ -11835,6 +12107,8 @@ app.get('/api/planning/orders/:orderNo/history', async (req, res) => {
            SELECT SUM(good_qty) AS produced
            FROM dpr_hourly dh
            WHERE dh.plan_id = pb.plan_id
+             -- Factory-scope: plan_id repeats across factories (KAN-127).
+             AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
              AND dh.is_deleted = false
        ) dpr ON true
        WHERE TRIM(COALESCE(pb.order_no,'')) = TRIM($1)
@@ -11946,9 +12220,11 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
     // making this query take 7+ seconds. CTE reduces it to ~58ms.
     let statusSql = `
       WITH dpr_agg AS (
-        SELECT plan_id, SUM(good_qty) AS qty, MIN(created_at) AS first_entry
+        -- Group by (plan_id, factory_id): plan_id repeats across factories, so grouping
+        -- by plan_id alone attributes other factories' production to this plan (KAN-127).
+        SELECT plan_id, factory_id, SUM(good_qty) AS qty, MIN(created_at) AS first_entry
         FROM dpr_hourly
-        GROUP BY plan_id
+        GROUP BY plan_id, factory_id
       )
       SELECT
         pb.machine,
@@ -11972,6 +12248,7 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
        AND TRIM(COALESCE(mps.mould_name, '')) = TRIM(COALESCE(pb.mould_name, ''))
        AND ($2::int IS NULL OR mps.factory_id = $2 OR mps.factory_id IS NULL)
       LEFT JOIN dpr_agg dpr ON dpr.plan_id = pb.plan_id
+        AND (dpr.factory_id = pb.factory_id OR dpr.factory_id IS NULL OR pb.factory_id IS NULL)
       WHERE pb.machine = ANY($1::text[])
         AND UPPER(COALESCE(pb.status, '')) IN ('RUNNING', 'PLANNED')
     `;
@@ -12795,6 +13072,8 @@ app.get('/api/planning/completed', async (req, res) => {
         LEFT JOIN LATERAL (
            SELECT SUM(good_qty) as qty FROM dpr_hourly dh
            WHERE (dh.plan_id = pb.plan_id OR dh.plan_id = pb.id::TEXT)
+             -- Factory-scope: plan_id repeats across factories (KAN-127).
+             AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
              AND (dh.is_deleted IS NULL OR dh.is_deleted = false)
         ) dpr ON true
         LEFT JOIN LATERAL (
@@ -12910,8 +13189,10 @@ app.get('/api/planning/colour-wise-completion', async (req, res) => {
       `SELECT plan_id, UPPER(TRIM(colour)) AS colour_upper, SUM(good_qty) AS produced_qty
        FROM dpr_hourly
        WHERE plan_id = ANY($1) AND (is_deleted IS NOT TRUE)
+         -- Factory-scope: plan_id repeats across factories (KAN-127).
+         AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
        GROUP BY plan_id, UPPER(TRIM(colour))`,
-      [planIds]
+      [planIds, factoryId || null]
     );
 
     // Build lookup: planId -> { COLOUR_UPPER -> produced_qty }
@@ -14120,6 +14401,8 @@ app.get('/api/planning/job-card-print', async (req, res) => {
             MIN(dh.created_at) AS first_entry
           FROM dpr_hourly dh
           WHERE TRIM(COALESCE(dh.plan_id, '')) = TRIM(COALESCE(pb.plan_id, ''))
+            -- Factory-scope: plan_id repeats across factories (KAN-127).
+            AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
         ) dpr ON true
         WHERE TRIM(COALESCE(pb.machine, '')) = TRIM($1)
           AND UPPER(COALESCE(pb.status, '')) IN ('RUNNING', 'PLANNED')
@@ -15040,6 +15323,7 @@ app.get('/api/reports/or-jr', async (req, res) => {
     p.status
       FROM plan_board p
       LEFT JOIN dpr_hourly d ON p.plan_id = d.plan_id
+        AND (d.factory_id = p.factory_id OR d.factory_id IS NULL OR p.factory_id IS NULL)
       GROUP BY p.plan_id, p.order_no, p.item_name, p.mould_name, p.plan_qty, p.status
     `);
     res.json({ ok: true, data: rows });
@@ -15286,7 +15570,11 @@ function erpRowKey(mapped, keyCols) {
 
 // Superadmin gate (role_code === 'superadmin' OR username === 'superadmin').
 async function requireErpSuperadmin(req) {
-  const username = req.body && req.body.username;
+  // Accept the actor from the body (POST fetch/sync), the query string (GET
+  // history — a GET carries no body), or the standard request identity header.
+  const username = (req.body && req.body.username)
+    || (req.query && req.query.username)
+    || getRequestUsername(req);
   if (!username) return { ok: false, status: 401, error: 'Authorization required (missing username)' };
   const u = (await q('SELECT username, role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
   if (!u) return { ok: false, status: 401, error: 'Invalid user' };
@@ -15474,6 +15762,241 @@ app.post('/api/reports/erp-jr-summary/sync', (req, res) => handleErpSync('summar
 app.post('/api/reports/erp-jr-details/sync', (req, res) => handleErpSync('details', req, res));
 app.post('/api/reports/erp-bom/sync',        (req, res) => handleErpSync('bom', req, res));
 app.post('/api/reports/erp-mould-item/sync', (req, res) => handleErpSync('mouldItem', req, res));
+
+/* ============================================================
+   ERP AUTO-SYNC SCHEDULER (MAIN only)
+   ------------------------------------------------------------
+   Runs the whole hands-off pipeline on a timer so nobody has to
+   press "Fetch" / "Import":
+     1. Fetch ERP  -> erp_jr_status / erp_jr_summary / erp_jr_details
+     2. Import     -> or_jr_report (per factory, all factories)
+     3. Order Master build + completion history (per factory)
+   MAIN is the single ERP source; every LOCAL server receives the
+   result through normal LOCAL<-MAIN sync. LOCAL never runs this.
+   Every run is written to erp_autosync_history so it can be reviewed.
+   ============================================================ */
+const ERP_AUTOSYNC_INTERVAL_MS = Math.max(
+  60000, Number(process.env.ERP_AUTOSYNC_INTERVAL_MS) || 5 * 60 * 1000
+);
+const ERP_AUTOSYNC_ENABLED = String(process.env.ERP_AUTOSYNC_ENABLED ?? '1') !== '0';
+let _erpAutoSyncRunning = false;
+let _erpAutoSyncHistoryReady = false;
+
+function isMainServer() {
+  return String(process.env.SERVER_TYPE || '').toUpperCase() === 'MAIN';
+}
+
+async function ensureErpAutoSyncHistoryTable() {
+  if (_erpAutoSyncHistoryReady) return;
+  await q(`
+    CREATE TABLE IF NOT EXISTS erp_autosync_history (
+      id BIGSERIAL PRIMARY KEY,
+      ran_at TIMESTAMPTZ DEFAULT NOW(),
+      duration_ms INTEGER,
+      status TEXT,          -- ok | partial | error | skipped
+      trigger TEXT,         -- auto | manual
+      summary JSONB
+    )
+  `).catch(e => console.warn('[ERP AutoSync] history table create skipped:', e.message));
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_erp_autosync_history_ran ON erp_autosync_history(ran_at DESC)`)
+    .catch(() => {});
+  _erpAutoSyncHistoryReady = true;
+}
+
+async function recordErpAutoSyncHistory(status, trigger, summary, durationMs) {
+  try {
+    await ensureErpAutoSyncHistoryTable();
+    await q(
+      `INSERT INTO erp_autosync_history (status, trigger, summary, duration_ms) VALUES ($1, $2, $3, $4)`,
+      [status, trigger, JSON.stringify(summary || {}), Math.round(durationMs || 0)]
+    );
+    // Retention: keep the most recent 2000 runs.
+    await q(`
+      DELETE FROM erp_autosync_history
+       WHERE id < (SELECT COALESCE(MIN(id), 0) FROM (
+         SELECT id FROM erp_autosync_history ORDER BY id DESC LIMIT 2000
+       ) keep)
+    `).catch(() => {});
+  } catch (e) {
+    console.warn('[ERP AutoSync] history write failed:', e.message);
+  }
+}
+
+// One full pipeline pass. trigger = 'auto' | 'manual'. Never throws — always
+// records a history row. Returns the summary object.
+async function runErpAutoSyncCycle(trigger = 'auto') {
+  if (!isMainServer()) {
+    return { status: 'skipped', reason: 'not MAIN server' };
+  }
+  if (_erpAutoSyncRunning) {
+    return { status: 'skipped', reason: 'previous cycle still running' };
+  }
+  _erpAutoSyncRunning = true;
+  const startedAt = Date.now();
+  const summary = { trigger, fetch: {}, factories: [] };
+  let hadError = false;
+
+  try {
+    // 1. FETCH ERP (status, summary, details). syncErpReport keeps existing data
+    //    when the ERP returns [] (it is intermittently empty), so this never wipes.
+    for (const key of ['status', 'summary', 'details']) {
+      try {
+        summary.fetch[key] = await syncErpReport(key);
+      } catch (e) {
+        hadError = true;
+        summary.fetch[key] = { error: String(e.message || e) };
+        console.warn(`[ERP AutoSync] fetch ${key} failed:`, e.message);
+      }
+    }
+
+    // 2 + 3. For every factory with ERP linkage: import OR-JR, then build orders.
+    const factories = await q(`SELECT id, name, erp_factory_id, plant_codes FROM factories ORDER BY id`);
+    for (const f of factories) {
+      const hasLinkage =
+        (f.erp_factory_id !== null && f.erp_factory_id !== undefined) ||
+        String(f.plant_codes || '').trim() !== '';
+      if (!hasLinkage) continue;
+
+      const fs = { factory_id: f.id, name: f.name };
+      try {
+        // Import OR-JR (uncapped — internal, no wire transfer).
+        const { rows } = await buildErpOrJrActionableRows(f.id, { cap: Infinity, factoryName: f.name });
+        const saved = await saveOrJrRows(rows, { factoryId: f.id, user: 'ERP-AutoSync' });
+        fs.imported = saved.upsertCount;
+
+        // Build Order Master + completion history in its own transaction.
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          const ord = await runOrdersFetchFromOrJr(client, { factoryId: f.id, actorName: 'ERP-AutoSync' });
+          await client.query('COMMIT');
+          fs.orders_added = ord.count;
+          fs.orders_updated = ord.updated;
+          fs.completion_flagged = ord.flagged;
+        } catch (e) {
+          await client.query('ROLLBACK').catch(() => {});
+          throw e;
+        } finally {
+          client.release();
+        }
+      } catch (e) {
+        // NO_SNAPSHOT means nobody has fetched yet (ERP empty on first boot) — not a hard error.
+        if (e.code === 'NO_SNAPSHOT' || e.code === 'NO_LINKAGE') {
+          fs.skipped = e.code;
+        } else {
+          hadError = true;
+          fs.error = String(e.message || e);
+          console.warn(`[ERP AutoSync] factory ${f.id} (${f.name}) failed:`, e.message);
+        }
+      }
+      summary.factories.push(fs);
+    }
+
+    const status = hadError ? 'partial' : 'ok';
+    summary.status = status;
+    await recordErpAutoSyncHistory(status, trigger, summary, Date.now() - startedAt);
+    return summary;
+  } catch (e) {
+    summary.status = 'error';
+    summary.error = String(e.message || e);
+    console.error('[ERP AutoSync] cycle failed:', e.message);
+    await recordErpAutoSyncHistory('error', trigger, summary, Date.now() - startedAt);
+    return summary;
+  } finally {
+    _erpAutoSyncRunning = false;
+  }
+}
+
+function startErpAutoSync() {
+  if (!isMainServer()) {
+    console.log('[ERP AutoSync] skipped — not MAIN server.');
+    return;
+  }
+  if (!ERP_AUTOSYNC_ENABLED) {
+    console.log('[ERP AutoSync] disabled via ERP_AUTOSYNC_ENABLED=0.');
+    return;
+  }
+  console.log(`[ERP AutoSync] enabled — every ${Math.round(ERP_AUTOSYNC_INTERVAL_MS / 60000)} min on MAIN.`);
+  // First run shortly after boot, then on the interval. Errors are swallowed
+  // inside runErpAutoSyncCycle (always records history), so the timer is safe.
+  setTimeout(() => { runErpAutoSyncCycle('auto').catch(() => {}); }, 15000);
+  setInterval(() => { runErpAutoSyncCycle('auto').catch(() => {}); }, ERP_AUTOSYNC_INTERVAL_MS).unref();
+}
+
+// History read — for the "check what auto-sync did" view. Superadmin only.
+app.get('/api/reports/erp-autosync-history', async (req, res) => {
+  try {
+    const auth = await requireErpSuperadmin(req);
+    if (!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
+    await ensureErpAutoSyncHistoryTable();
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+    const rows = await q(
+      `SELECT id, ran_at, duration_ms, status, trigger, summary
+         FROM erp_autosync_history
+        ORDER BY ran_at DESC
+        LIMIT $1`, [limit]
+    );
+    res.json({
+      ok: true,
+      enabled: ERP_AUTOSYNC_ENABLED && isMainServer(),
+      interval_minutes: Math.round(ERP_AUTOSYNC_INTERVAL_MS / 60000),
+      running: _erpAutoSyncRunning,
+      data: rows
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// Manual "run the full auto-sync now" — MAIN + superadmin only. Keeps the
+// per-report Fetch buttons AND gives one button to run the whole pipeline.
+app.post('/api/reports/erp-autosync/run-now', async (req, res) => {
+  if (!isMainServer()) {
+    return res.status(403).json({ ok: false, error: 'ERP auto-sync runs on the MAIN server only.' });
+  }
+  const auth = await requireErpSuperadmin(req);
+  if (!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
+  if (_erpAutoSyncRunning) {
+    return res.json({ ok: true, message: 'A sync cycle is already running.', running: true });
+  }
+  const summary = await runErpAutoSyncCycle('manual');
+  res.json({ ok: true, message: 'ERP auto-sync cycle finished.', summary });
+});
+
+startErpAutoSync();
+
+/* ============================================================
+   LOCAL LOCKOUT — masters & imports run on MAIN only
+   ------------------------------------------------------------
+   Everything (ERP fetch, OR-JR import, Order Master build, and all
+   master bulk uploads) is done on MAIN and flows to every factory
+   LOCAL server through normal sync. A LOCAL box must not upload or
+   import anything itself. Registered here (before the upload route
+   handlers below) so it intercepts them. Single-row master edits are
+   NOT touched — only bulk uploads / imports.
+   ============================================================ */
+const MAIN_ONLY_IMPORT_PATHS = new Set([
+  '/api/upload/excel',
+  '/api/upload/or-jr-preview', '/api/upload/or-jr-confirm', '/api/upload/or-jr-erp-preview',
+  '/api/orders/fetch-from-orjr',
+  '/api/upload/machines-preview', '/api/upload/machines-confirm',
+  '/api/upload/wipstock-preview', '/api/upload/wipstock-confirm',
+  '/api/admin/clear-data'
+]);
+app.use((req, res, next) => {
+  if (req.method === 'POST' && !isMainServer()) {
+    const p = req.path;
+    const isGenericMasterUpload =
+      /^\/api\/upload\/(orders|moulds|machines|orjrwise|orjrwisedetail|jcdetails|boplanningdetail|wipstock)$/.test(p);
+    if (MAIN_ONLY_IMPORT_PATHS.has(p) || isGenericMasterUpload) {
+      return res.status(403).json({
+        ok: false,
+        error: 'Uploads and imports run on the MAIN server only. This factory server receives all master and order data automatically via sync.'
+      });
+    }
+  }
+  next();
+});
 
 /* ============================================================
    OR-JR STATUS <- ERP IMPORT (stage 2)
@@ -15894,14 +16417,20 @@ async function writeErpPlanningDetail(client, rows, factoryId) {
       delParams.push(r.or_jr_no, r.mould_no, r.mould_item_code);
       return `($${b + 1}::text,$${b + 2}::text,$${b + 3}::text)`;
     });
-    delParams.push(factoryId);
+    // Delete by the natural key (or_jr_no + mould_no + mould_item_code) across ALL
+    // factories — NOT factory-scoped. The unique index (mould_report_planning_uniq /
+    // mould_report_date_uniq_idx) is GLOBAL (no factory_id) and or_jr_no is globally
+    // unique by its factory prefix. A factory-scoped delete left a same-key row that was
+    // stored under a wrong/NULL factory_id in place, so the re-insert below collided
+    // (23505 mould_report_planning_uniq) and aborted the whole ERP import. Clearing the
+    // stray row by natural key first makes the re-insert idempotent and re-homes the
+    // data to the correct factory.
     await client.query(`
       DELETE FROM mould_planning_report t
       USING (VALUES ${delTuples.join(',')}) AS v(or_jr_no, mould_no, mould_item_code)
       WHERE TRIM(COALESCE(t.or_jr_no, ''))       = TRIM(v.or_jr_no)
         AND TRIM(COALESCE(t.mould_no, ''))        = TRIM(v.mould_no)
         AND TRIM(COALESCE(t.mould_item_code, '')) = TRIM(v.mould_item_code)
-        AND ($${delParams.length}::int IS NULL OR t.factory_id = $${delParams.length} OR t.factory_id IS NULL)
     `, delParams);
 
     const params = [];
@@ -16088,6 +16617,7 @@ app.get('/api/reports/or-jr', async (req, res) => {
         p.status
        FROM plan_board p
        LEFT JOIN dpr_hourly d ON p.plan_id = d.plan_id
+         AND (d.factory_id = p.factory_id OR d.factory_id IS NULL OR p.factory_id IS NULL)
        GROUP BY p.plan_id, p.order_no, p.item_name, p.mould_name, p.plan_qty, p.status
        ORDER BY p.status, p.plan_id`
     );
@@ -16557,36 +17087,33 @@ app.post('/api/upload/or-jr-preview', (req, res, next) => { upload.single('file'
 });
 
 // 2. CONFIRM (Batch Save - UPSERT)
-app.post('/api/upload/or-jr-confirm', async (req, res) => {
-  try {
-    const { rows, user } = req.body;
-    const writeContext = await getWritableFactoryContext(req, 'confirm OR-JR Status uploads');
-    if (!writeContext.ok) {
-      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
-    }
-    const requestFactoryId = writeContext.factoryId;
-    if (!rows || !Array.isArray(rows)) return res.json({ ok: false, error: 'Invalid data' });
-    assertUploadRowsMatchFactory(rows, requestFactoryId, 'OR-JR Status upload');
+// Shared save path for OR-JR Status rows. Both the manual Excel/ERP confirm
+// endpoint and the ERP auto-sync scheduler call this so their behaviour can
+// never drift. Uses `pool` (auto-commit per statement, matching the original
+// endpoint). Returns { count, upsertCount, flagged }.
+async function saveOrJrRows(rows, { factoryId, user }) {
+  const actor = user || 'System';
+  if (!rows || !Array.isArray(rows)) throw new Error('Invalid data');
+  // Defence in depth — the same guard the endpoint used before delegating here.
+  assertUploadRowsMatchFactory(rows, factoryId, 'OR-JR Status upload');
 
-    // Process all NEW and UPDATE rows (no SKIP status exists anymore)
-    const toProcess = rows.filter(r => r._status === 'NEW' || r._status === 'UPDATE');
-    console.log(`[OR - JR Confirm] Processing ${toProcess.length} rows (Total sent: ${rows.length}, Skipped: ${rows.length - toProcess.length})`);
+  // Process all NEW and UPDATE rows (no SKIP status exists anymore)
+  const toProcess = rows.filter(r => r._status === 'NEW' || r._status === 'UPDATE');
+  console.log(`[OR - JR Confirm] Processing ${toProcess.length} rows (Total sent: ${rows.length}, Skipped: ${rows.length - toProcess.length})`);
+  if (!toProcess.length) {
+    // Still reconcile completion confirmations so a no-op import keeps history current.
+    const completionSync = await syncOrderCompletionConfirmations(pool, { factoryId, actorName: actor });
+    return { count: 0, upsertCount: 0, flagged: completionSync.flagged };
+  }
 
-    console.log('!!! HANDLER HIT: /api/upload/or-jr-confirm !!!');
-    if (!toProcess.length) return res.json({ ok: true, message: 'Nothing to save' });
-
-    // Use pool directly for auto-commit. No manual client connection needed.
-    // const client = await pool.connect(); 
-
-
-
+  {
     let upsertCount = 0;
 
     for (const r of toProcess) {
       try { // ATOMIC ROW START
 
 
-        const rowFactoryId = normalizeFactoryId(r.factory_id) ?? requestFactoryId;
+        const rowFactoryId = normalizeFactoryId(r.factory_id) ?? factoryId;
 
         // Pure UPSERT — key is (or_jr_no + job_card_no).
         // Each OR+JC combination is its own independent row.
@@ -16700,7 +17227,7 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
     let autoLink = { linked: 0, scannedOrders: 0 };
     try {
       const importedOrderNos = toProcess.map((r) => r.or_jr_no);
-      autoLink = await autoLinkPlansFromOrJrRemarks(pool, importedOrderNos, requestFactoryId);
+      autoLink = await autoLinkPlansFromOrJrRemarks(pool, importedOrderNos, factoryId);
       if (autoLink.linked) {
         console.log(`[OR - JR Confirm] Auto-linked ${autoLink.linked} plan(s) to Job Cards across ${autoLink.scannedOrders} order(s)`);
       }
@@ -16709,18 +17236,34 @@ app.post('/api/upload/or-jr-confirm', async (req, res) => {
     }
 
     const completionSync = await syncOrderCompletionConfirmations(pool, {
-      factoryId: requestFactoryId,
-      actorName: user || getRequestUsername(req) || 'System'
+      factoryId,
+      actorName: actor
     });
 
     console.log(`[OR - JR Confirm] Committed ${upsertCount} upserts`);
+    return { count: toProcess.length, upsertCount, flagged: completionSync.flagged };
+  }
+}
+
+app.post('/api/upload/or-jr-confirm', async (req, res) => {
+  try {
+    const { rows, user } = req.body;
+    const writeContext = await getWritableFactoryContext(req, 'confirm OR-JR Status uploads');
+    if (!writeContext.ok) {
+      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
+    }
+    const requestFactoryId = writeContext.factoryId;
+    if (!rows || !Array.isArray(rows)) return res.json({ ok: false, error: 'Invalid data' });
+
+    const result = await saveOrJrRows(rows, {
+      factoryId: requestFactoryId,
+      user: user || getRequestUsername(req) || 'System'
+    });
     res.json({
       ok: true,
-      count: toProcess.length,
-      message: `Saved ${upsertCount} OR-JR rows. ${completionSync.flagged} orders now need completion confirmation.`
+      count: result.count,
+      message: `Saved ${result.upsertCount} OR-JR rows. ${result.flagged} orders now need completion confirmation.`
     });
-
-
   } catch (e) {
     console.error('upload/or-jr-confirm', e);
     res.status(500).json({ ok: false, error: String(e) });
@@ -16750,6 +17293,102 @@ function userCanEditMasters(user) {
   return ['supervisor', 'manager', 'planner'].includes(String(user.role_code || '').toLowerCase());
 }
 
+// Shared projection of the stored erp_jr_status snapshot -> actionable
+// (NEW/UPDATE) or_jr_report rows for ONE factory. Both the manual preview
+// endpoint and the ERP auto-sync scheduler call this. Pass cap = Infinity for
+// the scheduler (no wire transfer, so no row cap); the endpoint passes the
+// configured cap so its JSON payload stays bounded. Throws typed errors
+// (err.statusCode) for missing linkage / empty snapshot so callers can map them.
+async function buildErpOrJrActionableRows(factoryId, { cap = Infinity, factoryName = '' } = {}) {
+  // Factory linkage must be configured or we cannot tell which rows are ours.
+  const factoryMap = await loadErpFactoryMap();
+  const myFactory = factoryMap.rows.find(f => Number(f.id) === Number(factoryId));
+  const hasLinkage = myFactory
+    && (myFactory.erp_factory_id !== null && myFactory.erp_factory_id !== undefined
+      || String(myFactory.plant_codes || '').trim() !== '');
+  if (!hasLinkage) {
+    const e = new Error(`ERP factory ID is not configured for ${factoryName || myFactory?.name || 'this factory'}. Set it in the Factory master before importing.`);
+    e.statusCode = 409; e.code = 'NO_LINKAGE';
+    throw e;
+  }
+
+  // The snapshot grows with every ERP fetch (5.8k rows on staging already), so it is
+  // never loaded whole. It is walked in keyset-paginated batches, projected to the
+  // columns the import actually writes, and diffed batch-by-batch against a single
+  // in-memory map of this factory's existing rows. Only actionable (NEW/UPDATE) rows
+  // are kept — SKIP rows are counted and dropped, since neither the modal nor
+  // /api/upload/or-jr-confirm does anything with them.
+  const dbMap = await loadOrJrExistingMap(factoryId);
+
+  let sourceRows = 0, otherFactory = 0, unresolved = 0, scopedRows = 0, skipped = 0, changedRows = 0;
+  const rows = [];
+  let lastId = 0;
+
+  for (;;) {
+    const batch = await q(
+      `SELECT id, factory_id, ${ERP_PREVIEW_SELECT_COLUMNS}
+         FROM erp_jr_status
+        WHERE id > $1
+        ORDER BY id
+        LIMIT $2`,
+      [lastId, OR_JR_ERP_PREVIEW_BATCH_SIZE]
+    );
+    if (!batch.length) break;
+    lastId = batch[batch.length - 1].id;
+    sourceRows += batch.length;
+
+    for (const row of batch) {
+      const verdict = classifyErpRowFactory(row, factoryId, factoryMap);
+      if (verdict === 'other') { otherFactory++; continue; }
+      if (verdict !== 'match') { unresolved++; continue; }
+
+      const mappedRow = erpStatusRowToOrJrReportRow(row, factoryId);
+      if (!mappedRow.or_jr_no) continue;
+      scopedRows++;
+
+      assertUploadRowsMatchFactory([mappedRow], factoryId, 'OR-JR Status ERP import');
+
+      const classified = classifyOrJrPreviewRow(mappedRow, dbMap);
+      if (classified._status === 'SKIP') { skipped++; continue; }
+
+      changedRows++;
+      if (rows.length < cap) rows.push(classified);
+    }
+  }
+
+  if (!sourceRows) {
+    const e = new Error("No ERP data has been fetched yet. Ask a superadmin to press 'Fetch Latest Data' on Masters -> JR Status ERP first.");
+    e.statusCode = 409; e.code = 'NO_SNAPSHOT';
+    throw e;
+  }
+
+  const snap = (await q(
+    `SELECT to_char(max(synced_at), 'YYYY-MM-DD HH24:MI') AS last_sync,
+            EXTRACT(EPOCH FROM (now() - max(synced_at))) / 3600 AS age_hours
+       FROM erp_jr_status`
+  ))[0] || {};
+
+  return {
+    rows,
+    meta: {
+      factory_id: factoryId,
+      factory_name: factoryName || myFactory?.name || '',
+      snapshot_synced_at: snap.last_sync || null,
+      snapshot_age_hours: snap.age_hours === null || snap.age_hours === undefined
+        ? null : Math.round(Number(snap.age_hours)),
+      source_rows: sourceRows,
+      scoped_rows: scopedRows,
+      other_factory: otherFactory,
+      unresolved,
+      skipped_rows: skipped,
+      changed_rows: changedRows,
+      returned_rows: rows.length,
+      row_cap: cap === Infinity ? null : cap,
+      truncated: changedRows > rows.length
+    }
+  };
+}
+
 app.post('/api/upload/or-jr-erp-preview', async (req, res) => {
   try {
     const writeContext = await getWritableFactoryContext(req, 'import OR-JR Status from ERP data');
@@ -16773,112 +17412,14 @@ app.post('/api/upload/or-jr-erp-preview', async (req, res) => {
       return res.status(403).json({ ok: false, error: 'Masters edit permission is required to import ERP data.' });
     }
 
-    // Factory linkage must be configured or we cannot tell which rows are ours.
-    const factoryMap = await loadErpFactoryMap();
-    const myFactory = factoryMap.rows.find(f => Number(f.id) === Number(requestFactoryId));
-    const hasLinkage = myFactory
-      && (myFactory.erp_factory_id !== null && myFactory.erp_factory_id !== undefined
-        || String(myFactory.plant_codes || '').trim() !== '');
-    if (!hasLinkage) {
-      return res.status(409).json({
-        ok: false,
-        error: `ERP factory ID is not configured for ${writeContext.factoryName || 'this factory'}. Set it in the Factory master before importing.`
-      });
-    }
-
-    // The snapshot grows with every ERP fetch (5.8k rows on staging already), so it is
-    // never loaded whole. It is walked in keyset-paginated batches, projected to the
-    // columns the import actually writes, and diffed batch-by-batch against a single
-    // in-memory map of this factory's existing rows. Only actionable (NEW/UPDATE) rows
-    // are kept — SKIP rows are counted and dropped, since neither the modal nor
-    // /api/upload/or-jr-confirm does anything with them.
-    const dbMap = await loadOrJrExistingMap(requestFactoryId);
-
-    let sourceRows = 0;
-    let otherFactory = 0;
-    let unresolved = 0;
-    let scopedRows = 0;
-    let skipped = 0;
-    let changedRows = 0;   // total actionable rows found, INCLUDING any beyond the cap
-    const preview = [];    // capped at OR_JR_ERP_PREVIEW_ROW_CAP
-    let lastId = 0;
-
-    for (;;) {
-      // Keyset pagination on the SERIAL pk: stable order, no OFFSET re-scan.
-      const batch = await q(
-        `SELECT id, factory_id, ${ERP_PREVIEW_SELECT_COLUMNS}
-           FROM erp_jr_status
-          WHERE id > $1
-          ORDER BY id
-          LIMIT $2`,
-        [lastId, OR_JR_ERP_PREVIEW_BATCH_SIZE]
-      );
-      if (!batch.length) break;
-      lastId = batch[batch.length - 1].id;
-      sourceRows += batch.length;
-
-      for (const row of batch) {
-        // Factory split — classify every row, never assume an unknown row is ours.
-        const verdict = classifyErpRowFactory(row, requestFactoryId, factoryMap);
-        if (verdict === 'other') { otherFactory++; continue; }
-        if (verdict !== 'match') { unresolved++; continue; }
-
-        const mappedRow = erpStatusRowToOrJrReportRow(row, requestFactoryId);
-        if (!mappedRow.or_jr_no) continue;
-        scopedRows++;
-
-        // Defence in depth: the same guard the Excel upload uses.
-        assertUploadRowsMatchFactory([mappedRow], requestFactoryId, 'OR-JR Status ERP import');
-
-        const classified = classifyOrJrPreviewRow(mappedRow, dbMap);
-        if (classified._status === 'SKIP') { skipped++; continue; }
-
-        changedRows++;
-        // Past the cap we keep counting but stop materialising, so the response size is
-        // bounded. The rows we DO return are exactly the rows the save will write — the
-        // truncation happens before the payload, never between preview and save.
-        if (preview.length < OR_JR_ERP_PREVIEW_ROW_CAP) preview.push(classified);
-      }
-    }
-
-    if (!sourceRows) {
-      return res.status(409).json({
-        ok: false,
-        error: "No ERP data has been fetched yet. Ask a superadmin to press 'Fetch Latest Data' on Masters -> JR Status ERP first."
-      });
-    }
-
-    const meta = (await q(
-      `SELECT to_char(max(synced_at), 'YYYY-MM-DD HH24:MI') AS last_sync,
-              EXTRACT(EPOCH FROM (now() - max(synced_at))) / 3600 AS age_hours
-         FROM erp_jr_status`
-    ))[0] || {};
-
-    console.log(`[OR-JR ERP Import] factory=${requestFactoryId} source=${sourceRows} scoped=${scopedRows} changed=${changedRows} returned=${preview.length} skipped=${skipped} other=${otherFactory} unresolved=${unresolved}`);
-
-    res.json({
-      ok: true,
-      data: preview,
-      meta: {
-        factory_id: requestFactoryId,
-        factory_name: writeContext.factoryName || '',
-        snapshot_synced_at: meta.last_sync || null,
-        snapshot_age_hours: meta.age_hours === null || meta.age_hours === undefined
-          ? null
-          : Math.round(Number(meta.age_hours)),
-        source_rows: sourceRows,
-        scoped_rows: scopedRows,
-        other_factory: otherFactory,
-        unresolved,
-        // Change accounting. changed_rows is every NEW/UPDATE in the snapshot;
-        // returned_rows is how many of those fit under the cap and are in `data`.
-        skipped_rows: skipped,
-        changed_rows: changedRows,
-        returned_rows: preview.length,
-        row_cap: OR_JR_ERP_PREVIEW_ROW_CAP,
-        truncated: changedRows > preview.length
-      }
+    const { rows, meta } = await buildErpOrJrActionableRows(requestFactoryId, {
+      cap: OR_JR_ERP_PREVIEW_ROW_CAP,
+      factoryName: writeContext.factoryName || ''
     });
+
+    console.log(`[OR-JR ERP Import] factory=${requestFactoryId} source=${meta.source_rows} scoped=${meta.scoped_rows} changed=${meta.changed_rows} returned=${meta.returned_rows} skipped=${meta.skipped_rows} other=${meta.other_factory} unresolved=${meta.unresolved}`);
+
+    res.json({ ok: true, data: rows, meta });
   } catch (e) {
     console.error('upload/or-jr-erp-preview', e);
     const status = e?.statusCode || 500;
@@ -17342,93 +17883,57 @@ app.post('/api/admin/users/password', async (req, res) => {
   }
 });
 
-// 8. FETCH ORDERS FROM OR-JR (Sync)
-app.post('/api/orders/fetch-from-orjr', async (req, res) => {
-  try {
-    const writeContext = await getWritableFactoryContext(req, 'fetch orders from OR-JR');
-    if (!writeContext.ok) {
-      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
-    }
-    const requestFactoryId = writeContext.factoryId;
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // 1. Fetch Candidates from OR-JR Report
-      // Filters: MLD Status NOT IN ('Completed', 'Cancelled') AND JR Close = 'Open'
-      // Taking all available fields as per user request
-
-      let srcSql = `
+// Shared Order Master build: project open OR-JR rows -> orders for ONE factory
+// (or all, when factoryId is null), plus completion-history reconciliation.
+// Runs inside a caller-supplied transaction `client`. Both the manual
+// /api/orders/fetch-from-orjr endpoint and the ERP auto-sync scheduler call
+// this so behaviour cannot drift. Returns { noCandidates, count, updated, flagged, cleared }.
+async function runOrdersFetchFromOrJr(client, { factoryId, actorName }) {
+  // 1. Fetch Candidates from OR-JR Report
+  // Filters: MLD Status NOT IN ('Completed', 'Cancelled') AND JR Close = 'Open'
+  let srcSql = `
 SELECT *
   FROM or_jr_report
 WHERE
   (
-    mld_status IS NULL 
-            OR TRIM(mld_status) = '' 
+    mld_status IS NULL
+            OR TRIM(mld_status) = ''
             OR TRIM(LOWER(mld_status)) NOT IN('completed', 'cancelled')
   )
-
 --User Req: Ignore JR Close(fetch even if Closed, as long as Mould is not Completed)
 --BUT: If manually Closed by User(is_closed), do NOT fetch.
   AND(is_closed IS FALSE OR is_closed IS NULL)
   `;
-      const srcParams = [];
-      if (requestFactoryId) {
-        srcParams.push(requestFactoryId);
-        srcSql += ` AND factory_id = $${srcParams.length}`;
-      }
-      // Debug log the query result count
-      const preCheck = requestFactoryId
-        ? await client.query(`SELECT COUNT(*) as c FROM or_jr_report WHERE factory_id = $1`, [requestFactoryId])
-        : await client.query(`SELECT COUNT(*) as c FROM or_jr_report WHERE 1 = 1`);
-      console.log('OR-JR Total Count:', preCheck.rows[0].c);
+  const srcParams = [];
+  if (factoryId) {
+    srcParams.push(factoryId);
+    srcSql += ` AND factory_id = $${srcParams.length}`;
+  }
 
-      const candidates = await client.query(srcSql, srcParams);
-      console.log('OR-JR Filtered Candidates:', candidates.rows.length);
+  const candidates = await client.query(srcSql, srcParams);
+  console.log('OR-JR Filtered Candidates:', candidates.rows.length);
 
-      if (!candidates.rows.length) {
-        const completionSync = await syncOrderCompletionConfirmations(client, {
-          factoryId: requestFactoryId,
-          actorName: getRequestUsername(req) || 'System'
-        });
-        await client.query('COMMIT');
-        return res.json({
-          ok: true,
-          message: completionSync.flagged > 0
-            ? `No open OR-JR rows to fetch. ${completionSync.flagged} orders moved to confirmation.`
-            : 'No matching active records found in OR-JR Report.'
-        });
-      }
+  if (!candidates.rows.length) {
+    const completionSync = await syncOrderCompletionConfirmations(client, { factoryId, actorName });
+    return { noCandidates: true, count: 0, updated: 0, flagged: completionSync.flagged, cleared: completionSync.cleared };
+  }
 
-      let count = 0;
-      let updated = 0;
+  let count = 0;
+  let updated = 0;
 
-      for (const row of candidates.rows) {
-        const qty = row.plan_qty || 0;
-        const rowFactoryId = normalizeFactoryId(row.factory_id) ?? requestFactoryId;
+  for (const row of candidates.rows) {
+    const qty = row.plan_qty || 0;
+    const rowFactoryId = normalizeFactoryId(row.factory_id) ?? factoryId;
 
+    // REMOVED FORCE CLEAN: keep "Closed" history — do NOT delete Completed/Cancelled orders.
+    const existing = await client.query(
+      `SELECT id FROM orders WHERE order_no = $1 AND (factory_id = $2 OR factory_id IS NULL)`,
+      [row.or_jr_no, rowFactoryId]
+    );
 
-
-        // REMOVED FORCE CLEAN: User wants to keep "Closed" history.
-        // DO NOT delete existing Completed/Cancelled orders.
-        /*
-        await client.query(`
-            DELETE FROM orders 
-            WHERE TRIM(order_no) ILIKE TRIM($1) 
-              AND status NOT IN('Pending', 'In Progress')
-        `, [row.or_jr_no]);
-        */
-
-        // 2. Now check remaining (Active) orders
-        const existing = await client.query(
-          `SELECT id FROM orders WHERE order_no = $1 AND (factory_id = $2 OR factory_id IS NULL)`,
-          [row.or_jr_no, rowFactoryId]
-        );
-
-        if (existing.rows.length > 0) {
-          // UPDATE Existing Active Order (Take the first one, though there should be only one)
-          const targetId = existing.rows[0].id;
-          await client.query(`
+    if (existing.rows.length > 0) {
+      const targetId = existing.rows[0].id;
+      await client.query(`
                 UPDATE orders SET
 item_code = $2,
   item_name = $3,
@@ -17446,18 +17951,10 @@ item_code = $2,
   completion_confirmed_by = NULL,
   updated_at = NOW()
                 WHERE id = $1
-  `, [
-            targetId,
-            row.item_code,
-            row.product_name,
-            row.client_name,
-            qty,
-            rowFactoryId
-          ]);
-          updated++;
-        } else {
-          // INSERT New Order
-          await client.query(`
+  `, [targetId, row.item_code, row.product_name, row.client_name, qty, rowFactoryId]);
+      updated++;
+    } else {
+      await client.query(`
                 INSERT INTO orders(
     order_no, item_code, item_name, client_name, qty,
     priority, status, created_at, updated_at, factory_id
@@ -17465,44 +17962,52 @@ item_code = $2,
     $1, $2, $3, $4, $5,
     'Normal', 'Pending', NOW(), NOW(), $6
   )
-    `, [
-            row.or_jr_no,
-            row.item_code,
-            row.product_name,
-            row.client_name,
-            qty,
-            rowFactoryId
-          ]);
-          count++;
-        }
-      }
+    `, [row.or_jr_no, row.item_code, row.product_name, row.client_name, qty, rowFactoryId]);
+      count++;
+    }
+  }
 
-      // C. FINAL SAFEGUARD: Deduplicate Orders Table
-      // Ensure no order_no has multiple rows. Keep the one with 'Pending' status, or the latest created_at.
-      // This handles any edge cases from the manual loops.
-      await client.query(`
+  // C. FINAL SAFEGUARD: Deduplicate Orders Table (keep 'Pending' / latest).
+  await client.query(`
         DELETE FROM orders a USING(
       SELECT MIN(ctid) as ctid, TRIM(UPPER(order_no)) as norm_no, COALESCE(factory_id, 0) as factory_scope
-          FROM orders 
+          FROM orders
           GROUP BY TRIM(UPPER(order_no)), COALESCE(factory_id, 0) HAVING COUNT(*) > 1
     ) b
-        WHERE TRIM(UPPER(a.order_no)) = b.norm_no 
+        WHERE TRIM(UPPER(a.order_no)) = b.norm_no
         AND COALESCE(a.factory_id, 0) = b.factory_scope
         AND a.ctid <> b.ctid
         AND a.status <> 'Pending'
   `);
 
-      const completionSync = await syncOrderCompletionConfirmations(client, {
+  const completionSync = await syncOrderCompletionConfirmations(client, { factoryId, actorName });
+  return { noCandidates: false, count, updated, flagged: completionSync.flagged, cleared: completionSync.cleared };
+}
+
+// 8. FETCH ORDERS FROM OR-JR (Sync)
+app.post('/api/orders/fetch-from-orjr', async (req, res) => {
+  try {
+    const writeContext = await getWritableFactoryContext(req, 'fetch orders from OR-JR');
+    if (!writeContext.ok) {
+      return res.status(writeContext.status || 403).json({ ok: false, error: writeContext.error });
+    }
+    const requestFactoryId = writeContext.factoryId;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const r = await runOrdersFetchFromOrJr(client, {
         factoryId: requestFactoryId,
         actorName: getRequestUsername(req) || 'System'
       });
-
       await client.query('COMMIT');
       res.json({
         ok: true,
-        message: `Synced successfully. Added: ${count}, Updated: ${updated}, Pending confirmation: ${completionSync.flagged}, Cleared: ${completionSync.cleared}`
+        message: r.noCandidates
+          ? (r.flagged > 0
+            ? `No open OR-JR rows to fetch. ${r.flagged} orders moved to confirmation.`
+            : 'No matching active records found in OR-JR Report.')
+          : `Synced successfully. Added: ${r.count}, Updated: ${r.updated}, Pending confirmation: ${r.flagged}, Cleared: ${r.cleared}`
       });
-
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;
@@ -18304,13 +18809,16 @@ VALUES($1, $2, $3, $4, $5, $6, $7, 'Pending', NOW(), $8)
           const fid = row.factory_id ?? requestFactoryId;
           // Delete all existing rows for this colour+mould (any plan_date) so we store
           // exactly one summed row per (or_jr_no, mould_no, mould_item_code).
+          // Delete by natural key across ALL factories (not factory-scoped). The unique
+          // index is global and or_jr_no is globally unique by prefix, so a same-key row
+          // stored under a wrong/NULL factory_id must also be cleared — otherwise the
+          // re-insert collides (23505 mould_report_planning_uniq) and aborts the import.
           await client.query(`
             DELETE FROM mould_planning_report
             WHERE TRIM(COALESCE(or_jr_no, ''))       = TRIM($1)
               AND TRIM(COALESCE(mould_no, ''))        = TRIM($2)
               AND TRIM(COALESCE(mould_item_code, '')) = TRIM($3)
-              AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
-          `, [row.or_jr_no, row.mould_no, row.mould_item_code, fid]);
+          `, [row.or_jr_no, row.mould_no, row.mould_item_code]);
 
           await client.query(`
             INSERT INTO mould_planning_report(
@@ -19041,7 +19549,10 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       -- Compliance Summary still double on MAIN even after dpr_hourly was deduped (KAN-119).
       LEFT JOIN LATERAL (
         SELECT * FROM plan_board pb2
-        WHERE pb2.plan_id = d.plan_id OR CAST(pb2.id AS TEXT) = CAST(d.plan_id AS TEXT)
+        WHERE (pb2.plan_id = d.plan_id OR CAST(pb2.id AS TEXT) = CAST(d.plan_id AS TEXT))
+          -- Factory-scope: plan_id repeats across factories, so pick the plan in the
+          -- SAME factory as the hourly entry, not a same-plan_id plan elsewhere (KAN-127).
+          AND (pb2.factory_id = d.factory_id OR pb2.factory_id IS NULL OR d.factory_id IS NULL)
         ORDER BY (pb2.plan_id = d.plan_id) DESC, pb2.id DESC
         LIMIT 1
       ) pb ON true
@@ -19078,10 +19589,14 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
     // 3. Get Setup Data (std_actual) for Range
     let setupQuery = `
       WITH plan_prod AS (
-        -- Cumulative good produced per plan (factory scoped), computed ONCE.
+        -- Cumulative good produced per plan, computed ONCE.
         -- Dedupe dpr_hourly to one row per natural key first (KAN-119) so duplicate
         -- synced rows don't multiply produced (which inflates balance / OEE / EFF).
-        SELECT dh.plan_id, SUM(dh.good_qty)::int AS produced
+        -- Group by (plan_id, factory_id): plan_id is unique only WITHIN a factory
+        -- (each factory mints the same PLN-<yr>-<seq> sequence), so grouping by
+        -- plan_id alone sums other factories' production into this plan under the
+        -- "All Factories" view (KAN-127). The join below matches on both columns.
+        SELECT dh.plan_id, dh.factory_id, SUM(dh.good_qty)::int AS produced
         FROM (
           SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
           FROM dpr_hourly
@@ -19090,7 +19605,7 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
             AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
           ORDER BY ${DPR_HOURLY_KEY}, id DESC
         ) dh
-        GROUP BY dh.plan_id
+        GROUP BY dh.plan_id, dh.factory_id
       )
       SELECT
         s.id,
@@ -19125,12 +19640,16 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         s.machine, s.mould_name, s.order_no, s.plan_id, s.shift
 
       FROM std_actual s
+      -- Match produced on (plan_id, factory_id) — plan_id repeats across factories (KAN-127).
       LEFT JOIN plan_prod pp ON pp.plan_id = s.plan_id
+        AND (pp.factory_id = s.factory_id OR pp.factory_id IS NULL OR s.factory_id IS NULL)
       -- One plan_board row per setup — duplicate plan rows (sync) would otherwise
       -- multiply std_actual rows and double-count plan_qty/STD in the summary (KAN-119).
       LEFT JOIN LATERAL (
         SELECT * FROM plan_board pb2
         WHERE pb2.plan_id = s.plan_id
+          -- Factory-scope: plan_id repeats across factories (KAN-127).
+          AND (pb2.factory_id = s.factory_id OR pb2.factory_id IS NULL OR s.factory_id IS NULL)
         ORDER BY pb2.id DESC
         LIMIT 1
       ) pb ON true
@@ -19314,17 +19833,18 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
 
-// POST /api/dpr/delete-entry (Admin Soft-Delete)
+// POST /api/dpr/delete-entry (Soft-Delete — admin/superadmin + planner,
+// ppc_ass_manager, ppc_manager; used by the DPR Compliance Summary)
 app.post('/api/dpr/delete-entry', async (req, res) => {
   try {
     const { id, session } = req.body;
     if (!id) return res.status(400).json({ ok: false, error: 'ID required' });
     if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
 
-    // Verify Admin
+    // Verify permission: admin/superadmin OR planner / ppc_ass_manager / ppc_manager.
     const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
-    if (!u.length || !isAdminLikeRole(u[0])) {
-      return res.status(403).json({ ok: false, error: 'Admin or Superadmin access required' });
+    if (!u.length || !canDeleteDprEntry(u[0])) {
+      return res.status(403).json({ ok: false, error: 'You do not have permission to delete DPR entries.' });
     }
 
     await q('UPDATE dpr_hourly SET is_deleted = true WHERE id = $1', [id]);
@@ -19784,12 +20304,14 @@ app.get('/api/orders/pending', async (req, res) => {
       WHERE
           (r.is_closed IS FALSE OR r.is_closed IS NULL)
         AND(r.mld_status IS NULL OR(LOWER(r.mld_status) NOT IN('completed', 'cancelled')))
-        AND NOT EXISTS (
-          SELECT 1
-          FROM or_jr_report rc
-          WHERE rc.or_jr_no = o.order_no
-            AND LOWER(COALESCE(TRIM(rc.mld_status), '')) = 'cancelled'
-        )
+        -- NOTE: cancelled/completed job cards are filtered PER ROW just above. We must
+        -- NOT additionally drop the whole OR when *any* single job card is cancelled —
+        -- an OR routinely mixes cancelled/completed job cards with live, still-plannable
+        -- ones (e.g. OR JR/JP/2627/0452 had one Cancelled JC alongside two "On Schedule"
+        -- JCs and unplanned moulds). The per-row filter already excludes the dead rows,
+        -- and an OR whose job cards are ALL cancelled/completed leaves no eligible row,
+        -- so it still drops off. (Previous order-wide NOT EXISTS cancelled subquery
+        -- hid the entire OR — removed. KAN-126.)
         AND NOT (
           COALESCE(TRIM(r.job_card_no), '') = ''
           AND LOWER(COALESCE(TRIM(r.jr_close), '')) IN('close', 'closed', 'yes')
@@ -19842,11 +20364,22 @@ app.get('/api/orders', async (req, res) => { // Alias
       SELECT *
       FROM orders o
       WHERE o.status = 'Pending'
-        AND NOT EXISTS (
-          SELECT 1
-          FROM or_jr_report r
-          WHERE r.or_jr_no = o.order_no
-            AND LOWER(COALESCE(TRIM(r.mld_status), '')) = 'cancelled'
+        -- Exclude an OR only when it is GENUINELY dead: it has cancelled job card(s)
+        -- AND no live (non-cancelled) job card left. A single cancelled job card mixed
+        -- with live ones must NOT hide the order, and an order with no OR-JR rows yet
+        -- (freshly created, JC not issued) must still show. (Previous blanket
+        -- NOT EXISTS cancelled subquery hid any OR with even one cancelled JC — KAN-126.)
+        AND NOT (
+          EXISTS (
+            SELECT 1 FROM or_jr_report r
+            WHERE r.or_jr_no = o.order_no
+              AND LOWER(COALESCE(TRIM(r.mld_status), '')) = 'cancelled'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM or_jr_report r2
+            WHERE r2.or_jr_no = o.order_no
+              AND LOWER(COALESCE(TRIM(r2.mld_status), '')) <> 'cancelled'
+          )
         )
     `;
     const params = [];

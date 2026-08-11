@@ -5,6 +5,14 @@
 (function () {
     console.log('[TimelinePatch] Initializing v56 (Reorder Ripple + Load)...');
 
+    // --- SHARED: is a plan still awaiting PPC / Moulding approval? ---
+    // PENDING (or NULL) => waiting on PPC (and then Moulding); PPC_APPROVED => waiting on Moulding.
+    // APPROVED / REJECTED are not "pending". Shared by Machine Timeline & Excel View Timeline.
+    window.tlIsApprovalPending = function (p) {
+        const s = String((p && (p.jcApprovalStatus || p.jc_approval_status)) || 'PENDING').toUpperCase();
+        return s === 'PENDING' || s === 'PPC_APPROVED';
+    };
+
     // --- SHARED MACHINE SORT: Building → Line → Machine Number ---
     // Used by Machine Timeline, Excel View Timeline and the Change Machine picker
     // so every surface shows machines in the exact same perfect ascending series.
@@ -1157,6 +1165,12 @@
                 mPlans = mPlans.filter(p => !!p.machinePriority);
             }
 
+            // --- PENDING-APPROVAL VIEW CLIP ---
+            // Show ONLY plans still awaiting PPC / Moulding approval (PENDING / PPC_APPROVED).
+            if (document.getElementById('filt-approval-pending')?.checked) {
+                mPlans = mPlans.filter(p => window.tlIsApprovalPending(p));
+            }
+
             mPlans.sort((a, b) => {
                 const isRunA = (a.status || '').toLowerCase() === 'running';
                 const isRunB = (b.status || '').toLowerCase() === 'running';
@@ -1337,6 +1351,20 @@
                            </div>
                        </div>
 
+                       ${(() => {
+                           // Plan approval badge — shown only while approval is incomplete.
+                           // PENDING => waiting on both PPC & Moulding; PPC_APPROVED => Moulding only.
+                           const _appr = String(p.jcApprovalStatus || p.jc_approval_status || 'PENDING').toUpperCase();
+                           if (_appr !== 'PENDING' && _appr !== 'PPC_APPROVED') return '';
+                           const _txt = _appr === 'PPC_APPROVED'
+                               ? 'Pending Plan Approval From Moulding'
+                               : 'Pending Plan Approval From PPC &amp; Moulding';
+                           return `<div style="display:flex; align-items:center; gap:5px; background:#fef3c7; border:1px solid #fcd34d; border-radius:5px; padding:3px 6px; font-size:0.72rem; font-weight:800; color:#92400e; line-height:1.25;">
+                               <i class="bi bi-hourglass-split" style="color:#d97706; font-size:0.8rem"></i>
+                               ${_txt}
+                           </div>`;
+                       })()}
+
                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:0.8rem; color:#64748b; padding-bottom:4px; border-bottom:1px solid #f1f5f9;">
                           <div>Qty: <strong style="color:#1e293b">${formatNum(p.planQty)}</strong></div>
                           <div>Bal: ${isOverProduced
@@ -1489,6 +1517,10 @@
                     <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.82rem;font-weight:700;color:#7c3aed;white-space:nowrap;border:1px solid #c4b5fd;border-radius:6px;padding:4px 8px;background:#f5f3ff;" title="Show only machines with P1-P4 priority plans">
                         <input type="checkbox" id="filt-priority-view" onchange="window.superFilterTimeline()" style="cursor:pointer;accent-color:#7c3aed;">
                         Priority View
+                    </label>
+                    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.82rem;font-weight:700;color:#b45309;white-space:nowrap;border:1px solid #fcd34d;border-radius:6px;padding:4px 8px;background:#fffbeb;" title="Show only plans awaiting PPC / Moulding approval">
+                        <input type="checkbox" id="filt-approval-pending" onchange="window.superFilterTimeline()" style="cursor:pointer;accent-color:#d97706;">
+                        Pending Approval
                     </label>
 
                     <button class="mod-btn-reset" onclick="window.switchView(null)" title="Dashboard" style="margin-right:4px">
@@ -1836,6 +1868,7 @@
         const f = document.getElementById('filt-forecast')?.value; // "24", "48", etc.
         const overOnly = document.getElementById('filt-overproduced')?.checked;
         const priorityOnly = document.getElementById('filt-priority-view')?.checked;
+        const approvalPendingOnly = document.getElementById('filt-approval-pending')?.checked;
 
         const norm = (v) => String(v || '').trim().toUpperCase();
 
@@ -1855,6 +1888,7 @@
 
             if (overOnly && !mPlans.some(p => (p.balQty || 0) < 0)) return false;
             if (priorityOnly && !mPlans.some(p => p.machinePriority)) return false;
+            if (approvalPendingOnly && !mPlans.some(p => window.tlIsApprovalPending(p))) return false;
 
             // --- FORECAST FILTER ---
             // If Forecast ON: Show machine ONLY if it has a Mould Change (or new plan) STARTING in [Now, Cutoff]
@@ -1920,6 +1954,8 @@
     window.superResetTimelineFilters = function () {
         ['filt-search', 'filt-bldg', 'filt-line', 'filt-status', 'filt-forecast'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         const overEl = document.getElementById('filt-overproduced'); if (overEl) overEl.checked = false;
+        const apprEl = document.getElementById('filt-approval-pending'); if (apprEl) apprEl.checked = false;
+        const prioEl = document.getElementById('filt-priority-view'); if (prioEl) prioEl.checked = false;
         window.superUpdateLineOptions(); window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
