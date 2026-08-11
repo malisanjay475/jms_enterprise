@@ -12484,6 +12484,138 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
 
 
 /* ============================================================
+   MOULD → MACHINE RUN HISTORY (for Create Plan machine picker)
+   Answers "which machine ran this mould best?" from real DPR data.
+   Groups dpr_hourly by machine for the given mould over a recent
+   window and derives actual cycle time, efficiency, rejection %,
+   run count and last-run date. plan_id repeats across factories, so
+   every aggregate is factory-scoped (NULL-tolerant) — see KAN-127.
+============================================================ */
+app.get('/api/planning/mould-history', async (req, res) => {
+  try {
+    const mould = String(req.query.mould || '').trim();
+    if (!mould) return res.json({ ok: true, mould: '', machines: [], lastRun: null });
+
+    const windowMonths = Math.min(Math.max(parseInt(req.query.months, 10) || 6, 1), 36);
+    const factoryId = getFactoryId(req);
+
+    // Mould Master standard (moulds are company-wide — do NOT factory-filter, KAN-114).
+    const mouldRows = await q(
+      `SELECT cycle_time, no_of_cav, std_wt_kg, mould_name
+         FROM moulds
+        WHERE UPPER(TRIM(mould_number)) = UPPER(TRIM($1))
+        LIMIT 1`,
+      [mould]
+    );
+    const stdCycle = Number(mouldRows[0]?.cycle_time || 0) || null;
+    const cavity = Math.max(Number(mouldRows[0]?.no_of_cav || 1) || 1, 1);
+    const stdPph = stdCycle > 0 ? (3600 / stdCycle) * cavity : null;
+
+    // Per-machine aggregates from the real production log.
+    const aggRows = await q(
+      `SELECT
+          h.machine,
+          COUNT(DISTINCT h.plan_id)                       AS runs,
+          COUNT(*)                                        AS hour_rows,
+          COALESCE(SUM(h.good_qty), 0)                    AS good,
+          COALESCE(SUM(h.reject_qty), 0)                  AS reject,
+          COALESCE(SUM(NULLIF(h.shots, 0)), 0)            AS shots,
+          COALESCE(SUM(GREATEST(COALESCE(h.downtime_min, 0), 0)), 0) AS downtime_min,
+          MAX(h.dpr_date)                                 AS last_date
+         FROM dpr_hourly h
+        WHERE UPPER(TRIM(COALESCE(h.mould_no, ''))) = UPPER(TRIM($1))
+          AND COALESCE(h.is_deleted, false) = false
+          AND h.dpr_date >= (CURRENT_DATE - ($2 || ' months')::interval)
+          AND (h.factory_id = $3 OR $3 IS NULL OR h.factory_id IS NULL)
+          AND NULLIF(TRIM(COALESCE(h.machine, '')), '') IS NOT NULL
+        GROUP BY h.machine`,
+      [mould, String(windowMonths), factoryId]
+    );
+
+    const machines = aggRows.map((r) => {
+      const good = Number(r.good || 0);
+      const reject = Number(r.reject || 0);
+      const totalShotsPcs = good + reject;
+      // shots = machine cycles. Fall back to pieces/cavity when shots weren't logged.
+      const shots = Number(r.shots || 0) || (cavity > 0 ? totalShotsPcs / cavity : 0);
+      // Productive runtime = logged hours minus downtime.
+      const runtimeHours = Math.max(
+        Number(r.hour_rows || 0) - Number(r.downtime_min || 0) / 60,
+        0
+      );
+      const runtimeSec = runtimeHours * 3600;
+      const actualCycle = shots > 0 && runtimeSec > 0 ? runtimeSec / shots : null;
+      const actualPph = runtimeHours > 0 ? good / runtimeHours : null;
+      const efficiency = actualPph !== null && stdPph ? (actualPph / stdPph) * 100 : null;
+      const rejectionPct = totalShotsPcs > 0 ? (reject / totalShotsPcs) * 100 : 0;
+      return {
+        machine: r.machine,
+        runs: Number(r.runs || 0),
+        totalPcs: good,
+        actualCycle: actualCycle !== null ? Number(actualCycle.toFixed(1)) : null,
+        stdCycle,
+        efficiency: efficiency !== null ? Number(efficiency.toFixed(0)) : null,
+        rejectionPct: Number(rejectionPct.toFixed(1)),
+        lastRun: r.last_date ? String(r.last_date).slice(0, 10) : null
+      };
+    });
+
+    // Rank: best efficiency, then lowest rejection, then fastest cycle, then most runs.
+    // Machines with no usable efficiency sink to the bottom but still appear.
+    const ranked = [...machines].sort((a, b) => {
+      const ea = a.efficiency == null ? -1 : a.efficiency;
+      const eb = b.efficiency == null ? -1 : b.efficiency;
+      if (eb !== ea) return eb - ea;
+      if (a.rejectionPct !== b.rejectionPct) return a.rejectionPct - b.rejectionPct;
+      const ca = a.actualCycle == null ? Infinity : a.actualCycle;
+      const cb = b.actualCycle == null ? Infinity : b.actualCycle;
+      if (ca !== cb) return ca - cb;
+      return b.runs - a.runs;
+    });
+    const bestMachine = ranked.length && ranked[0].efficiency != null ? ranked[0].machine : null;
+
+    // Most recent run of this mould anywhere (for the footer strip).
+    const lastRows = await q(
+      `SELECT h.machine, h.dpr_date::text AS dpr_date, h.plan_id, h.jobcard_no
+         FROM dpr_hourly h
+        WHERE UPPER(TRIM(COALESCE(h.mould_no, ''))) = UPPER(TRIM($1))
+          AND COALESCE(h.is_deleted, false) = false
+          AND (h.factory_id = $2 OR $2 IS NULL OR h.factory_id IS NULL)
+        ORDER BY h.dpr_date DESC NULLS LAST, h.created_at DESC NULLS LAST
+        LIMIT 1`,
+      [mould, factoryId]
+    );
+    const lastRunRow = lastRows[0] || null;
+    const lastMachineAgg = lastRunRow ? machines.find((m) => m.machine === lastRunRow.machine) : null;
+    const lastRun = lastRunRow
+      ? {
+          machine: lastRunRow.machine,
+          date: lastRunRow.dpr_date ? String(lastRunRow.dpr_date).slice(0, 10) : null,
+          jobCard: lastRunRow.jobcard_no || null,
+          efficiency: lastMachineAgg?.efficiency ?? null,
+          totalPcs: lastMachineAgg?.totalPcs ?? null
+        }
+      : null;
+
+    res.json({
+      ok: true,
+      mould,
+      mouldName: mouldRows[0]?.mould_name || null,
+      windowMonths,
+      stdCycle,
+      cavity,
+      bestMachine,
+      machines,
+      lastRun
+    });
+  } catch (e) {
+    console.error('planning/mould-history', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+
+/* ============================================================
    ALTERNATIVE MOULDS & BATCH PLANNING API
 ============================================================ */
 

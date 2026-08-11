@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.26.1",
+  "latest": "1.27.0",
   "versions": [
+    {
+      "version": "1.27.0",
+      "date": "2026-08-11",
+      "title": "Create Plan shows the best machine for each mould from run history",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "When you pick a mould and choose a machine, each machine card now shows how that mould actually ran there — cycle time, efficiency and number of past runs — and marks the best machine with a ★ BEST badge." },
+            { "type": "feat", "text": "A new 'View History & Comparison' button compares every machine side by side (actual vs standard cycle time, efficiency, rejection %, runs and last run) and shows when this mould last ran, using real production data from the last 6 months." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.26.1",
       "date": "2026-08-11",
