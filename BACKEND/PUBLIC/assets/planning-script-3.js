@@ -7632,11 +7632,16 @@
               }
             }
 
-            // PERMANENT DELETE (Admin Only)
-            if (window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.hasRole('admin')) {
+            // PERMANENT DELETE - admin/superadmin + ppc_ass_manager / ppc_manager
+            // (the server enforces the same set on /api/planning/delete).
+            if (window.JPSMS && window.JPSMS.auth && (function () {
+              const u = JPSMS.auth.getUser() || {};
+              const r = String(u.role_code || u.role || '').toLowerCase();
+              return JPSMS.auth.hasRole('admin') || ['ppc_ass_manager', 'ppc_manager'].includes(r);
+            })()) {
               actionHtml += `
                 <button class="btn icon mini master-action-btn delete" 
-                   title="Delete Plan Permanently (Admin Only)" 
+                   title="Delete Plan Permanently"
                    onclick="event.stopPropagation(); window.removePlan('${p.id}', '${esc(p.orderNo || p.order_no || 'Unknown Order')}')">
                    <i class="bi bi-trash"></i>
                 </button>`;

@@ -2192,6 +2192,14 @@ function canDeleteDprEntry(user) {
   return DPR_DELETE_ENTRY_ROLES.has(String(user?.role_code || '').toLowerCase());
 }
 
+// Roles allowed to permanently delete a plan from Master Plan, in addition to
+// admin/superadmin. Keep in sync with the frontend gate (planning-script-3.js).
+const PLAN_DELETE_ROLES = new Set(['ppc_ass_manager', 'ppc_manager']);
+function canDeletePlan(user) {
+  if (isAdminLikeRole(user)) return true;
+  return PLAN_DELETE_ROLES.has(String(user?.role_code || '').toLowerCase());
+}
+
 function getRoleSortRank(roleCode) {
   const role = String(roleCode || '').toLowerCase();
   if (role === 'superadmin') return 0;
@@ -11932,6 +11940,17 @@ app.post('/api/planning/delete', async (req, res) => {
     if (!rowId) return res.json({ ok: false, error: 'Missing rowId' });
 
     const actor = getRequestUsername(req) || 'System';
+
+    // Permission: admin/superadmin OR ppc_ass_manager / ppc_manager. The frontend
+    // only shows the delete button to these roles; enforce it here too so the
+    // permanent delete cannot be triggered by anyone else.
+    if (!actor || actor === 'System') {
+      return res.status(401).json({ ok: false, error: 'Authorization required.' });
+    }
+    const actorRow = (await q('SELECT role_code FROM users WHERE username = $1 LIMIT 1', [actor]))[0];
+    if (!actorRow || !canDeletePlan(actorRow)) {
+      return res.status(403).json({ ok: false, error: 'You do not have permission to delete plans.' });
+    }
 
     // 1. Fetch before delete for logging
     const check = await q('SELECT * FROM plan_board WHERE id = $1', [rowId]);
