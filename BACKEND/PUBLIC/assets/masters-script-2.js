@@ -949,7 +949,7 @@
       // ERP dump (5-minute MAIN sync), so hide the file picker, Upload button and template
       // and show an auto-managed hint. (LOCAL servers are handled by the read-only block
       // below; this branch only runs on MAIN.)
-      if (ERP_IMPORT_TYPES[type] && jmsIsMainServer()) {
+      if (ERP_IMPORT_TYPES[type] && jmsIsMainServer() && JPSMS.auth.can('masters', 'edit')) {
         const _u = JPSMS.auth.getUser() || {};
         const _role = String((_u.role || _u.role_code || '')).toLowerCase();
         const canManualUpload = ['superadmin', 'admin'].includes(_role);
@@ -957,8 +957,12 @@
         const fileEl = document.getElementById('uploadFile');
         const tmplBtn = document.getElementById('templateBtn');
         const upBtn = us ? us.querySelector('button[onclick="uploadMaster()"]') : null;
+        // setupUI can run more than once (the /api/version callback re-runs it), and an
+        // earlier branch may have left the section/hint hidden. Restore both first so the
+        // role-specific state below always applies from a known baseline.
+        if (us) us.style.display = 'flex';
+        if (hintEl) hintEl.style.display = '';
         if (canManualUpload) {
-          if (us) us.style.display = 'flex';
           if (fileEl) fileEl.style.display = '';
           if (upBtn) upBtn.style.display = '';
           if (tmplBtn) tmplBtn.style.display = 'inline-flex';
@@ -966,7 +970,7 @@
           if (fileEl) fileEl.style.display = 'none';
           if (upBtn) upBtn.style.display = 'none';
           if (tmplBtn) tmplBtn.style.display = 'none';
-          if (typeof hintEl !== 'undefined' && hintEl) {
+          if (hintEl) {
             hintEl.textContent = 'Managed automatically from ERP — manual upload is limited to Superadmin/Admin.';
           }
         }
@@ -1017,20 +1021,27 @@
         document.getElementById('uploadSection').style.display = 'flex';
       }
 
-      // OR-JR Toggle Button
+      // OR-JR Toggle Button. setupUI can run more than once for this view (e.g. the
+      // /api/version callback re-runs it once the server type resolves), so reuse a
+      // single button by stable id instead of appending a new one each time — otherwise
+      // duplicate "Closed OR-JR" / "Back to Active" buttons pile up.
       if (type === 'orjr') {
         const box = document.querySelector('.upload-box > div');
-        const toggleBtn = document.createElement('button');
-        toggleBtn.className = 'btn-action';
-        toggleBtn.style.marginLeft = '10px';
-        toggleBtn.style.background = currentView === 'closed' ? '#64748b' : '#334155'; // Gray for toggle
-
-        toggleBtn.innerHTML = currentView === 'closed'
-          ? '<i class="bi bi-arrow-left"></i> Back to Active'
-          : '<i class="bi bi-archive"></i> Closed OR-JR';
-
-        toggleBtn.onclick = toggleOrJrView;
-        box.appendChild(toggleBtn);
+        let toggleBtn = document.getElementById('orjrToggleBtn');
+        if (!toggleBtn && box) {
+          toggleBtn = document.createElement('button');
+          toggleBtn.id = 'orjrToggleBtn';
+          toggleBtn.onclick = toggleOrJrView;
+          box.appendChild(toggleBtn);
+        }
+        if (toggleBtn) {
+          toggleBtn.className = 'btn-action';
+          toggleBtn.style.marginLeft = '10px';
+          toggleBtn.style.background = currentView === 'closed' ? '#64748b' : '#334155'; // Gray for toggle
+          toggleBtn.innerHTML = currentView === 'closed'
+            ? '<i class="bi bi-arrow-left"></i> Back to Active'
+            : '<i class="bi bi-archive"></i> Closed OR-JR';
+        }
       }
 
       // MOULD Master Specific UI. Mould master is mastered on MAIN only — the Add Mould
