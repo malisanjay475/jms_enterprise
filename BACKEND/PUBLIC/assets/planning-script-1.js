@@ -1914,6 +1914,23 @@
           alert(`Cannot set priority ${priority} — "JC Given" is not checked for this plan.\n\nMark JC Given (requires a linked Job Card with PPC + Moulding approval) before setting a priority.`);
           return;
         }
+        // CONTIGUITY — priorities must be assigned in order (P1 → P2 → P3 → P4).
+        // Block e.g. picking P4 while P3 isn't set on this machine.
+        const rank = { P1: 1, P2: 2, P3: 3, P4: 4 }[priority] || 0;
+        if (rank > 1) {
+          const held = new Set((gQueue || [])
+            .filter(p => String(p.id || p.planId || p.plan_id || '') !== String(planId)
+                      && (p.status || '').toLowerCase() !== 'completed')
+            .map(p => p.machinePriority)
+            .filter(Boolean));
+          const labels = ['P1', 'P2', 'P3', 'P4'];
+          for (let k = 0; k < rank - 1; k++) {
+            if (!held.has(labels[k])) {
+              alert(`Set ${labels[k]} first — priorities must be assigned in order (P1 → P2 → P3 → P4).`);
+              return;
+            }
+          }
+        }
       }
 
       /* Fix 8: visual save feedback — dim the button row while saving */

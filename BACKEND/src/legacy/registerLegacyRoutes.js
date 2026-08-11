@@ -9553,6 +9553,33 @@ async function getPriorityOrderStartError(plan) {
   return `Plans must run in priority order — start ${top[0].machine_priority} (Order ${top[0].order_no}) first on machine ${plan.machine}.`;
 }
 
+// Priority contiguity gate: priorities must be assigned in order (P1 → P2 → P3 → P4).
+// Returns an error string if setting `priority` on `planId` would skip a level (e.g. P4
+// while P3 is unset on that machine), else null. P1 is always allowed. The plan being
+// edited and COMPLETED/REJECTED plans are excluded from "already held". `fClause` is the
+// caller's factory-scope SQL fragment.
+async function getPriorityContiguityError(machine, planId, priority, fClause) {
+  const rank = { P1: 1, P2: 2, P3: 3, P4: 4 }[priority];
+  if (!rank || rank === 1) return null; // no predecessors for P1
+  const rows = await q(
+    `SELECT DISTINCT machine_priority FROM plan_board
+      WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
+        AND machine_priority IS NOT NULL
+        AND id <> $2
+        AND UPPER(COALESCE(status, '')) <> 'COMPLETED'
+        AND UPPER(COALESCE(jc_approval_status, '')) <> 'REJECTED'${fClause}`,
+    [machine, planId]
+  );
+  const held = new Set(rows.map(r => r.machine_priority));
+  const labels = ['P1', 'P2', 'P3', 'P4'];
+  for (let k = 0; k < rank - 1; k++) {
+    if (!held.has(labels[k])) {
+      return `Set ${labels[k]} first — priorities must be assigned in order (P1 → P2 → P3 → P4).`;
+    }
+  }
+  return null;
+}
+
 // Renumber a machine's P1..P4 so they stay contiguous and gap-free after a plan
 // leaves the queue (completed / priority cleared). COMPLETED/REJECTED plans are excluded.
 async function compactMachinePriorities(machine) {
@@ -9608,6 +9635,9 @@ app.post('/api/planning/machine-priority', async (req, res) => {
       if (!jg[0].job_card_given) {
         return res.status(403).json({ ok: false, error: `Mark "JC Given" for Order ${jg[0].order_no} before setting a priority.` });
       }
+      // CONTIGUITY GATE — must assign in order; block e.g. P4 while P3 is unset.
+      const contigErr = await getPriorityContiguityError(machine, planId, priority, fClause);
+      if (contigErr) return res.status(409).json({ ok: false, error: contigErr });
     }
 
     await q('BEGIN');

@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.26.0",
+  "latest": "1.26.1",
   "versions": [
+    {
+      "version": "1.26.1",
+      "date": "2026-08-11",
+      "title": "Machine priority must be set in order (P1 → P2 → P3 → P4)",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "You must now assign machine priorities in order. If P1 and P2 are set and you pick P4, it no longer jumps in — it tells you to set P3 first. This keeps every machine's queue as a clean P1, P2, P3, P4 with no skipped numbers." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.26.0",
       "date": "2026-08-11",
