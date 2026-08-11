@@ -743,6 +743,17 @@
         });
       }
 
+      // Drop empty / zero-quantity queued plans. A plan with no planned quantity is a
+      // placeholder that never actually runs, so counting a transition into it as a mould
+      // change adds phantom rows — and many such zero plans pile up at the tail of the
+      // queue. Keep RUNNING plans regardless so the mould currently on the machine is never
+      // dropped (its start still anchors the next real change).
+      plans = plans.filter(p => {
+        const isRun = (p.status || '').toUpperCase() === 'RUNNING';
+        const qty = Number(p.planQty != null ? p.planQty : p.plan_qty) || 0;
+        return isRun || qty > 0;
+      });
+
       if (!plans.length) {
         list.innerHTML = '<div class="muted" style="padding:20px; text-align:center">No planning data available.</div>';
         return;
