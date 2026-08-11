@@ -2183,6 +2183,15 @@ function isSuperadminRole(user) {
   return String(user?.role_code || '').toLowerCase() === 'superadmin';
 }
 
+// Roles allowed to delete a DPR entry from the DPR Compliance Summary, in
+// addition to admin/superadmin. Keep in sync with the frontend gate
+// (canDeleteDprEntry in dpr.html).
+const DPR_DELETE_ENTRY_ROLES = new Set(['planner', 'ppc_ass_manager', 'ppc_manager']);
+function canDeleteDprEntry(user) {
+  if (isAdminLikeRole(user)) return true;
+  return DPR_DELETE_ENTRY_ROLES.has(String(user?.role_code || '').toLowerCase());
+}
+
 function getRoleSortRank(roleCode) {
   const role = String(roleCode || '').toLowerCase();
   if (role === 'superadmin') return 0;
@@ -19805,17 +19814,18 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
 });
 
-// POST /api/dpr/delete-entry (Admin Soft-Delete)
+// POST /api/dpr/delete-entry (Soft-Delete — admin/superadmin + planner,
+// ppc_ass_manager, ppc_manager; used by the DPR Compliance Summary)
 app.post('/api/dpr/delete-entry', async (req, res) => {
   try {
     const { id, session } = req.body;
     if (!id) return res.status(400).json({ ok: false, error: 'ID required' });
     if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
 
-    // Verify Admin
+    // Verify permission: admin/superadmin OR planner / ppc_ass_manager / ppc_manager.
     const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
-    if (!u.length || !isAdminLikeRole(u[0])) {
-      return res.status(403).json({ ok: false, error: 'Admin or Superadmin access required' });
+    if (!u.length || !canDeleteDprEntry(u[0])) {
+      return res.status(403).json({ ok: false, error: 'You do not have permission to delete DPR entries.' });
     }
 
     await q('UPDATE dpr_hourly SET is_deleted = true WHERE id = $1', [id]);
