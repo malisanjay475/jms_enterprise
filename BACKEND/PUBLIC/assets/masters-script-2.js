@@ -19,10 +19,14 @@
       .then(r => r.json())
       .then(v => {
         __jmsServerType = String(v && v.serverType ? v.serverType : 'MAIN').toUpperCase();
-        // Re-run the toolbar setup if an ERP report or the Mould master is already open,
-        // so MAIN-only controls appear/disappear once the real server type is known.
+        // Re-run the toolbar setup if an ERP report, the Mould master, or one of the
+        // OR-JR reports is already open, so MAIN-only controls appear/disappear once the
+        // real server type is known. Without the OR-JR types here the read-only "managed
+        // on MAIN" banner painted while the type was still null stays stuck on MAIN and
+        // the Superadmin/Admin manual upload never appears.
         if (typeof currentType !== 'undefined'
-            && ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem', 'moulds'].includes(currentType)
+            && ['erpjrstatus', 'erpjrsummary', 'erpjrdetails', 'erpbom', 'erpmoulditem', 'moulds',
+                'orjr', 'orjrwise', 'orjrwisedetail'].includes(currentType)
             && typeof setupUI === 'function') {
           try { setupUI(currentType, typeof currentView !== 'undefined' ? currentView : undefined); } catch (_) { /* non-fatal */ }
           // Moulds: the per-row Edit action is decided during the table render, not in
@@ -938,6 +942,34 @@
       } else {
         if (orjrErpImportBtn) orjrErpImportBtn.style.display = 'none';
         if (orjrErpSnapshotAge) orjrErpSnapshotAge.style.display = 'none';
+      }
+
+      // Manual Excel upload for the OR-JR reports (Status / Wise Summary / Wise Detail)
+      // is restricted to Superadmin/Admin on MAIN. Everyone else relies on the automatic
+      // ERP dump (5-minute MAIN sync), so hide the file picker, Upload button and template
+      // and show an auto-managed hint. (LOCAL servers are handled by the read-only block
+      // below; this branch only runs on MAIN.)
+      if (ERP_IMPORT_TYPES[type] && jmsIsMainServer()) {
+        const _u = JPSMS.auth.getUser() || {};
+        const _role = String((_u.role || _u.role_code || '')).toLowerCase();
+        const canManualUpload = ['superadmin', 'admin'].includes(_role);
+        const us = document.getElementById('uploadSection');
+        const fileEl = document.getElementById('uploadFile');
+        const tmplBtn = document.getElementById('templateBtn');
+        const upBtn = us ? us.querySelector('button[onclick="uploadMaster()"]') : null;
+        if (canManualUpload) {
+          if (us) us.style.display = 'flex';
+          if (fileEl) fileEl.style.display = '';
+          if (upBtn) upBtn.style.display = '';
+          if (tmplBtn) tmplBtn.style.display = 'inline-flex';
+        } else {
+          if (fileEl) fileEl.style.display = 'none';
+          if (upBtn) upBtn.style.display = 'none';
+          if (tmplBtn) tmplBtn.style.display = 'none';
+          if (typeof hintEl !== 'undefined' && hintEl) {
+            hintEl.textContent = 'Managed automatically from ERP — manual upload is limited to Superadmin/Admin.';
+          }
+        }
       }
 
       // Hide Upload Section for Orders (Auto-fetch)

@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.24.4",
+  "latest": "1.24.5",
   "versions": [
+    {
+      "version": "1.24.5",
+      "date": "2026-08-11",
+      "title": "OR-JR reports — manual upload for Superadmin/Admin on MAIN",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-sliders",
+          "changes": [
+            { "type": "fix", "text": "OR-JR Status, ORJR Wise Summary and ORJR Wise Detail now show the manual Excel upload again on the MAIN server for Superadmin and Admin (it was stuck on the read-only 'managed automatically' message). Other users continue to get the automatic ERP dump." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.24.4",
       "date": "2026-08-11",
