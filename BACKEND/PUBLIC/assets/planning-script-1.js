@@ -1878,7 +1878,12 @@
                     const isAct = p.machinePriority === px;
                     const cols = {P1:'#2563eb',P2:'#16a34a',P3:'#f59e0b',P4:'#dc2626'};
                     const c = cols[px];
-                    return `<button class="etv-mp-btn${isAct?' etv-mp-btn-active':''}" data-color="${c}" style="${isAct?`background:${c};color:#fff;border-color:${c};`:`color:${c};border-color:${c};`}" onclick="window.etvSetMachinePriority('${esc(String(p.id||p.planId||p.plan_id||''))}','${esc(m.code)}','${px}',${isAct}); event.stopPropagation();" title="${isAct?'Clear '+px:'Set as '+px}">${px}</button>`;
+                    // Locked when "JC Given" isn't checked — but an already-set priority stays
+                    // clickable so it can be cleared (clearing is always allowed).
+                    const locked = !isAct && !p.job_card_given;
+                    const lockStyle = locked ? 'opacity:.4;cursor:not-allowed;' : '';
+                    const ttl = locked ? 'Mark JC Given first to set a priority' : (isAct ? 'Clear '+px : 'Set as '+px);
+                    return `<button class="etv-mp-btn${isAct?' etv-mp-btn-active':''}" data-color="${c}" style="${lockStyle}${isAct?`background:${c};color:#fff;border-color:${c};`:`color:${c};border-color:${c};`}" onclick="window.etvSetMachinePriority('${esc(String(p.id||p.planId||p.plan_id||''))}','${esc(m.code)}','${px}',${isAct}); event.stopPropagation();" title="${ttl}">${px}</button>`;
                   }).join('')}
                 </div>
               </div>
@@ -1899,23 +1904,15 @@
       const key = String(planId) + '|' + machineCode;
       if (window._etvMpInFlight[key]) return; // Fix 3: block double-click
 
-      // JC GATE — setting a priority requires linked JC + full PPC/Moulding approval
+      // JC-GIVEN GATE — setting a priority requires the plan's "JC Given" to be checked
       // (clearing an existing priority is always allowed). Server enforces this too.
       if (!isActive) {
         const gQueue = (typeof etvGroups !== 'undefined' ? etvGroups : window.etvGroups || {})[machineCode] || [];
         const gPlan = gQueue.find(p => String(p.id || p.planId || p.plan_id || '') === String(planId))
                    || (window.allMasterPlans || []).find(p => String(p.id || p.planId || p.plan_id || '') === String(planId));
-        if (gPlan) {
-          const jcLinked = gPlan.jcNo || gPlan.jc_no || gPlan.job_card_no || '';
-          const jcApproval = String(gPlan.jcApprovalStatus || gPlan.jc_approval_status || 'PENDING').toUpperCase();
-          if (!jcLinked || jcApproval !== 'APPROVED') {
-            const why = !jcLinked ? 'No Job Card number is linked to this plan.'
-              : jcApproval === 'PPC_APPROVED' ? 'Moulding approval is pending.'
-              : jcApproval === 'REJECTED' ? 'This plan was REJECTED.'
-              : 'PPC and Moulding approvals are pending.';
-            alert(`Cannot set priority ${priority} — ${why}\n\nComplete Job Card approval (PPC + Moulding) first.`);
-            return;
-          }
+        if (gPlan && !gPlan.job_card_given) {
+          alert(`Cannot set priority ${priority} — "JC Given" is not checked for this plan.\n\nMark JC Given (requires a linked Job Card with PPC + Moulding approval) before setting a priority.`);
+          return;
         }
       }
 
