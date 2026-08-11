@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.24.2",
+  "latest": "1.24.3",
   "versions": [
+    {
+      "version": "1.24.3",
+      "date": "2026-08-10",
+      "title": "More roles can delete a DPR entry",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "Planner, PPC Assistant Manager and PPC Manager can now delete a DPR entry from the DPR Compliance Summary, in addition to Admin and Superadmin." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.24.2",
       "date": "2026-08-11",
