@@ -5174,9 +5174,134 @@
         // Renders machine selection cards above the colour table.
         // PRIMARY cards first, then SECONDARY, then COMPATIBLE — clicking one selects
         // that machine for ALL colour rows and sets the global cpSelectedMachine.
+        // ---- Mould → machine run history (Create Plan machine picker) --------------
+        // Fetches per-mould history once, caches it, then re-renders the machine cards so
+        // the "Best" badge + compact cycle/efficiency line appear. A single "View history"
+        // button opens the full 3+ machine comparison. Selecting a machine stays required.
+        async function loadCpMouldHistories(modal, mouldCodes) {
+          const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          window.cpMouldHistoryMap = window.cpMouldHistoryMap || {};
+          const codes = Array.from(new Set((mouldCodes || []).map((c) => String(c || '').trim()).filter(Boolean)));
+          await Promise.all(codes.map(async (code) => {
+            if (window.cpMouldHistoryMap[code]) return; // cached
+            try {
+              const res = await api.get(`/planning/mould-history?mould=${encodeURIComponent(code)}&months=6`);
+              window.cpMouldHistoryMap[code] = res && res.ok ? res : { machines: [], lastRun: null, bestMachine: null };
+            } catch {
+              window.cpMouldHistoryMap[code] = { machines: [], lastRun: null, bestMachine: null };
+            }
+          }));
+          // Re-render cards for the currently open modal now that history is available.
+          if (modal && document.body.contains(modal) && Array.isArray(window.cpColourPlanRows)) {
+            renderCpColourMachineCards(modal, window.cpColourPlanRows);
+          }
+        }
+
+        // Resolve the history object for the mould currently chosen in the machine picker.
+        function getCpActiveMouldHistory(colourRows) {
+          const map = window.cpMouldHistoryMap || {};
+          const codes = (Array.isArray(colourRows) ? colourRows : [])
+            .map((r) => String(r.selectedMouldCode || r.mouldSelection || '').trim())
+            .filter(Boolean);
+          for (const code of codes) {
+            if (map[code] && (map[code].machines || []).length) return { code, data: map[code] };
+          }
+          if (codes.length && map[codes[0]]) return { code: codes[0], data: map[codes[0]] };
+          return null;
+        }
+
+        function cpHistStat(label, value, accent) {
+          return `<div style="display:flex; justify-content:space-between; gap:6px; font-size:0.62rem; line-height:1.35">
+            <span style="color:#94a3b8">${label}</span>
+            <b style="color:${accent || '#0f172a'}">${value}</b>
+          </div>`;
+        }
+
+        window.openCpMouldHistoryModal = function () {
+          const parent = document.getElementById('cpColourPlanModal');
+          const hist = getCpActiveMouldHistory(window.cpColourPlanRows);
+          if (!hist || !hist.data) return toast('No run history available yet.', 'info');
+          const data = hist.data;
+          const machines = Array.isArray(data.machines) ? data.machines.slice() : [];
+          machines.sort((a, b) => {
+            if (a.machine === data.bestMachine) return -1;
+            if (b.machine === data.bestMachine) return 1;
+            const ea = a.efficiency == null ? -1 : a.efficiency;
+            const eb = b.efficiency == null ? -1 : b.efficiency;
+            return eb - ea;
+          });
+
+          const overlay = document.createElement('div');
+          overlay.className = 'modal show';
+          overlay.style.cssText = 'display:flex; z-index:12000';
+          overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+          const lr = data.lastRun;
+          const lastRunStrip = lr
+            ? `<div style="background:#f1f5f9; border-radius:12px; padding:10px 14px; font-size:0.8rem; color:#475569; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+                 <i class="bi bi-clock-history"></i>
+                 <span>Last run of this mould:</span>
+                 <b style="color:#0f172a">${esc(lr.machine || '-')}</b>
+                 <span>· ${esc(lr.date || '-')}</span>
+                 ${lr.totalPcs != null ? `<span>· ${Number(lr.totalPcs).toLocaleString()} pcs</span>` : ''}
+                 ${lr.efficiency != null ? `<span>· ${lr.efficiency}% eff</span>` : ''}
+                 ${lr.jobCard ? `<span>· JC ${esc(lr.jobCard)}</span>` : ''}
+               </div>`
+            : `<div style="background:#f1f5f9; border-radius:12px; padding:10px 14px; font-size:0.8rem; color:#94a3b8">No previous run recorded for this mould.</div>`;
+
+          const cards = machines.length
+            ? machines.map((m) => {
+                const isBest = m.machine === data.bestMachine;
+                const effColor = m.efficiency == null ? '#94a3b8' : m.efficiency >= 90 ? '#15803d' : m.efficiency >= 75 ? '#b45309' : '#dc2626';
+                const rejColor = m.rejectionPct <= 2 ? '#15803d' : m.rejectionPct <= 4 ? '#b45309' : '#dc2626';
+                return `<div style="border:2px solid ${isBest ? '#3b82f6' : '#e2e8f0'}; border-radius:12px; padding:11px 12px; background:${isBest ? '#eff6ff' : '#fff'}; display:flex; flex-direction:column; gap:6px">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:6px">
+                      <b style="font-size:0.9rem; color:#0f172a">${esc(m.machine)}</b>
+                      ${isBest ? '<span style="background:#dbeafe; color:#1d4ed8; border-radius:6px; padding:1px 7px; font-size:0.6rem; font-weight:900">BEST</span>' : ''}
+                    </div>
+                    ${cpHistStat('Cycle (act/std)', `${m.actualCycle != null ? m.actualCycle + 's' : '—'} / ${m.stdCycle != null ? m.stdCycle + 's' : '—'}`)}
+                    ${cpHistStat('Efficiency', m.efficiency != null ? m.efficiency + '%' : '—', effColor)}
+                    ${cpHistStat('Rejection', m.rejectionPct + '%', rejColor)}
+                    ${cpHistStat('Runs / pcs', `${m.runs} · ${Number(m.totalPcs || 0).toLocaleString()}`)}
+                    ${cpHistStat('Last run', m.lastRun || '—')}
+                  </div>`;
+              }).join('')
+            : `<div style="grid-column:1/-1; color:#94a3b8; text-align:center; padding:24px">This mould has not run on any machine in the last ${esc(String(data.windowMonths || 6))} months.</div>`;
+
+          const bestBanner = data.bestMachine
+            ? `<div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:12px; padding:10px 14px; color:#047857; font-size:0.82rem; font-weight:700; display:flex; gap:8px; align-items:center">
+                 <i class="bi bi-award-fill"></i> Best machine by history: <b>${esc(data.bestMachine)}</b> — ranked on efficiency, rejection and actual cycle time.
+               </div>`
+            : '';
+
+          overlay.innerHTML = `
+            <div class="modal-card" style="width:min(760px, 96vw); max-height:90vh; display:flex; flex-direction:column">
+              <div class="modal-head" style="padding:14px 18px">
+                <div>
+                  <div style="font-size:.72rem; color:#0284c7; font-weight:900; letter-spacing:.1em; text-transform:uppercase">Machine History &amp; Comparison</div>
+                  <div style="font-weight:900; color:#0f172a; font-size:1rem; margin-top:2px">Mould ${esc(data.mouldName || hist.code)} <span style="font-family:monospace; color:#64748b; font-size:0.82rem">${esc(hist.code)}</span></div>
+                </div>
+                <button class="btn icon ghost" aria-label="Close"><i class="bi bi-x-lg"></i></button>
+              </div>
+              <div class="modal-body" style="padding:16px 18px; overflow-y:auto; display:flex; flex-direction:column; gap:12px">
+                ${bestBanner}
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px">${cards}</div>
+                ${lastRunStrip}
+                <div style="font-size:0.68rem; color:#94a3b8">Based on real DPR production entries over the last ${esc(String(data.windowMonths || 6))} months, scoped to this factory.</div>
+              </div>
+            </div>`;
+          overlay.querySelector('button[aria-label="Close"]').addEventListener('click', () => overlay.remove());
+          document.body.appendChild(overlay);
+        };
+
         function renderCpColourMachineCards(modal, colourRows) {
           const cardsContainer = modal.querySelector('#cpColourMachineCards');
           if (!cardsContainer) return;
+          const activeHistory = getCpActiveMouldHistory(colourRows);
+          const historyData = activeHistory ? activeHistory.data : null;
+          const historyByMachine = {};
+          if (historyData) (historyData.machines || []).forEach((m) => { historyByMachine[m.machine] = m; });
+          const bestMachineName = historyData ? historyData.bestMachine : null;
 
           // Union of all unique machines across every colour row's availableMachines list
           const allMachines = [];
@@ -5220,10 +5345,16 @@
             return;
           }
 
+          // Show the "View History & Comparison" button once we have any history for this mould.
+          const histBtn = modal.querySelector('#cpMachineHistoryBtn');
+          if (histBtn) histBtn.style.display = (historyData && (historyData.machines || []).length) ? 'inline-flex' : 'none';
+
           allMachines.forEach((mac) => {
             const isPrimary  = mac.preferenceRole === 'PRIMARY';
             const isSecondary = mac.preferenceRole === 'SECONDARY';
             const isFree = !!mac.isFree;
+            const macHist = historyByMachine[mac.machine] || null;
+            const isBestMachine = bestMachineName && mac.machine === bestMachineName;
 
             // Role styling
             const roleBg     = isPrimary ? '#eff6ff' : isSecondary ? '#fff7ed' : '#f8fafc';
@@ -5271,12 +5402,33 @@
               ? `${runningOrders[0]} +${runningOrders.length - 1}`
               : runningOrders[0] || '';
 
+            // Compact history line: actual cycle + efficiency, from real DPR runs.
+            let histLine = '';
+            if (macHist && (macHist.actualCycle != null || macHist.efficiency != null)) {
+              const effColor = macHist.efficiency == null ? '#64748b' : macHist.efficiency >= 90 ? '#15803d' : macHist.efficiency >= 75 ? '#b45309' : '#dc2626';
+              histLine = `<div style="display:flex; align-items:center; gap:4px; margin-top:2px; flex-wrap:wrap; font-size:0.58rem">
+                  ${macHist.actualCycle != null ? `<span style="color:#475569">⏱ ${macHist.actualCycle}s</span>` : ''}
+                  ${macHist.efficiency != null ? `<span style="color:${effColor}; font-weight:900">${macHist.efficiency}% eff</span>` : ''}
+                  <span style="color:#94a3b8">· ${macHist.runs} run${macHist.runs === 1 ? '' : 's'}</span>
+                </div>`;
+            } else if (historyData) {
+              histLine = `<div style="margin-top:2px; font-size:0.55rem; color:#cbd5e1">No past runs</div>`;
+            }
+            if (isBestMachine) {
+              card.dataset.roleBorder = '#3b82f6';
+              card.style.borderColor = '#3b82f6';
+            }
+
             card.innerHTML = `
               <div style="display:flex; justify-content:space-between; align-items:center; gap:4px; margin-bottom:4px">
                 <span style="font-weight:900; color:#0f172a; font-size:0.72rem; line-height:1.2; word-break:break-all">${esc(mac.machine || '-')}</span>
-                <span style="background:${roleBg}; color:${roleColor}; border:1px solid ${roleBorder}; border-radius:999px; padding:1px 5px; font-size:0.56rem; font-weight:900; white-space:nowrap; flex-shrink:0">${roleLabel}</span>
+                <span style="display:flex; gap:3px; flex-shrink:0">
+                  ${isBestMachine ? '<span style="background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; border-radius:999px; padding:1px 5px; font-size:0.52rem; font-weight:900; white-space:nowrap">★ BEST</span>' : ''}
+                  <span style="background:${roleBg}; color:${roleColor}; border:1px solid ${roleBorder}; border-radius:999px; padding:1px 5px; font-size:0.56rem; font-weight:900; white-space:nowrap">${roleLabel}</span>
+                </span>
               </div>
               ${metaLine ? `<div style="color:#64748b; font-size:0.63rem; margin-bottom:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${metaLine}</div>` : ''}
+              ${histLine}
               <div style="display:flex; align-items:center; gap:3px; margin-top:auto; padding-top:4px; border-top:1px solid #f1f5f9; flex-wrap:wrap">
                 <span style="font-size:0.6rem; line-height:1">${statusDot}</span>
                 <span style="font-weight:900; color:${statusColor}; font-size:0.65rem">${esc(statusText)}</span>
@@ -5523,6 +5675,11 @@
             window.cpVariantMismatchMap = Object.fromEntries(
               machineEntries.map(([code, r]) => [code, { mismatch: !!r.mismatch, requestedNames: r.requestedNames || '' }])
             );
+            // Per-mould machine RUN HISTORY (best machine, cycle/eff/rejection, last run).
+            // Fetched in the background so it never delays the machine cards; the cards
+            // re-render once history arrives.
+            window.cpMouldHistoryMap = window.cpMouldHistoryMap || {};
+            loadCpMouldHistories(modal, familyMoulds.map((v) => v.code));
             const colourRows = buildCpColourRows(mouldForColourCalc, colourPayload.rows, {
               availableMoulds: familyMoulds,
               machineMap: window.cpVariantMachineMap
@@ -5591,6 +5748,9 @@
                   <span style="font-weight:900; color:#0f172a; font-size:0.82rem">&#9881; Select Machine</span>
                   <span style="color:#94a3b8; font-size:0.7rem">Click a card to assign machine to this plan</span>
                   <span id="cpColourMachineChip" style="display:none; background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; border-radius:999px; padding:2px 8px; font-size:0.7rem; font-weight:900"></span>
+                  <button type="button" id="cpMachineHistoryBtn" onclick="window.openCpMouldHistoryModal()" title="Which machine ran this mould best? Compare cycle time, efficiency, rejection and last run." style="display:none; margin-left:auto; align-items:center; gap:5px; background:#f0f9ff; color:#0369a1; border:1px solid #bae6fd; border-radius:999px; padding:3px 11px; font-size:0.7rem; font-weight:900; cursor:pointer">
+                    <i class="bi bi-graph-up-arrow"></i> View History &amp; Comparison
+                  </button>
                 </div>
                 <div id="cpColourMachineCards" style="display:flex; flex-wrap:wrap; gap:6px; align-items:stretch"></div>
               </div>
