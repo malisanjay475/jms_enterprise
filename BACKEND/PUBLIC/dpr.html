@@ -216,7 +216,17 @@
         </div>
     </div>
     <script>
-        // --- ADMIN DELETE MODAL LOGIC (ADD-ON) ---
+        // Who may delete a DPR entry from the Compliance Summary: admin/superadmin
+        // plus planner, ppc_ass_manager, ppc_manager. Mirrors the backend gate
+        // (canDeleteDprEntry in registerLegacyRoutes.js). The server enforces this too.
+        window.canDeleteDprEntry = () => {
+            const u = (window.JPSMS && JPSMS.auth && JPSMS.auth.getUser && JPSMS.auth.getUser()) || {};
+            const r = String(u.role_code || u.role || '').toLowerCase();
+            const adminLike = (JPSMS.auth.isAdminLike ? JPSMS.auth.isAdminLike(u) : (r === 'admin' || r === 'superadmin'));
+            return adminLike || ['planner', 'ppc_ass_manager', 'ppc_manager'].includes(r);
+        };
+
+        // --- DELETE MODAL LOGIC (ADD-ON) ---
         window.deleteEntry = async (id) => {
             if (!confirm('This entry will be deleted. Are you sure?')) return;
             try {
@@ -316,8 +326,8 @@
             window.showEntryDetails = (entry) => {
                 if (typeof originalShowEntryDetails === 'function') originalShowEntryDetails(entry);
                 
-                        // After rendering, inject delete button if admin-like
-                if (window.JPSMS.auth.hasRole('admin')) {
+                        // After rendering, inject delete button for users allowed to delete DPR entries
+                if (window.canDeleteDprEntry && window.canDeleteDprEntry()) {
                     const container = document.getElementById('modal-details-content');
                     if (container && !document.getElementById('btn-delete-entry-inline')) {
                         const e = typeof entry === 'string' ? JSON.parse(decodeURIComponent(entry)) : entry;

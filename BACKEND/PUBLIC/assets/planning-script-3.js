@@ -101,6 +101,19 @@
       setTimeout(() => window.enforcePlanningDeepLinkView('window-load-deferred'), 150);
     });
 
+    // Open the Machine-Wise Plan Report (from the Machine Timeline). Carries the
+    // current factory scope so the report opens already scoped; the report page
+    // auto-runs on ?view=machine-wise.
+    window.openMachineWiseReport = function () {
+      let url = 'reports.html?view=machine-wise';
+      try {
+        const scope = (window.JPSMS && JPSMS.factories && JPSMS.factories.getCurrentScope)
+          ? JPSMS.factories.getCurrentScope() : null;
+        if (scope && scope.id) url += `&factory_id=${encodeURIComponent(scope.id)}`;
+      } catch (_) { }
+      window.open(url, '_blank');
+    };
+
     window.switchView = function (viewName) {
       viewName = (viewName || '').trim();
       console.log('Switching View to:', viewName);
@@ -521,6 +534,7 @@
                 <div class="planning-action-buttons">
                     <button class="btn" id="btnToggleMap"><i class="bi bi-eye-slash"></i> Hide Machine Grid</button>
                   <button class="btn" type="button" onclick="window.switchView('timeline')"><i class="bi bi-bar-chart-steps"></i> Machine Timeline</button>
+                  <button class="btn" type="button" onclick="window.openMachineWiseReport()" title="Machine-Wise Plan Report (Summary + colour Detail, downloadable)"><i class="bi bi-file-earmark-spreadsheet"></i> Machine Report</button>
                   <button class="btn" type="button" onclick="window.switchView('excel_timeline')" style="background:linear-gradient(135deg,#eff6ff,#dbeafe); color:#1d4ed8; border-color:#bfdbfe; font-weight:700;"><i class="bi bi-grid-3x3-gap-fill"></i> Excel View Timeline</button>
                   <button class="btn" type="button" onclick="window.switchView('master')"><i class="bi bi-table"></i> Master Plan</button>
                   <button class="btn" id="btnBalance" style="display:${canEdit ? 'inline-flex' : 'none'}"><i class="bi bi-shuffle"></i> Balance Load</button>
@@ -1522,7 +1536,11 @@
         /* View Routing moved to end of script for hoisting safety */
 
 
-        if (action === 'create') openCreatePlanLauncher();
+        // Deep-link ?action=create: defer to the next tick so every const declared
+        // later in this DOMContentLoaded scope is initialized before the launcher runs.
+        // Calling it inline here threw "Cannot access '…' before initialization" (TDZ)
+        // on create deep links, which aborted the board/timeline render (blank Plan Qty).
+        if (action === 'create') setTimeout(openCreatePlanLauncher, 0);
 
         // Toggle map
         // Toggle map
@@ -7614,11 +7632,16 @@
               }
             }
 
-            // PERMANENT DELETE (Admin Only)
-            if (window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.hasRole('admin')) {
+            // PERMANENT DELETE - admin/superadmin + ppc_ass_manager / ppc_manager
+            // (the server enforces the same set on /api/planning/delete).
+            if (window.JPSMS && window.JPSMS.auth && (function () {
+              const u = JPSMS.auth.getUser() || {};
+              const r = String(u.role_code || u.role || '').toLowerCase();
+              return JPSMS.auth.hasRole('admin') || ['ppc_ass_manager', 'ppc_manager'].includes(r);
+            })()) {
               actionHtml += `
                 <button class="btn icon mini master-action-btn delete" 
-                   title="Delete Plan Permanently (Admin Only)" 
+                   title="Delete Plan Permanently"
                    onclick="event.stopPropagation(); window.removePlan('${p.id}', '${esc(p.orderNo || p.order_no || 'Unknown Order')}')">
                    <i class="bi bi-trash"></i>
                 </button>`;

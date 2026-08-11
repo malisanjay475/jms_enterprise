@@ -11,8 +11,395 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.21.10",
+  "latest": "1.25.0",
   "versions": [
+    {
+      "version": "1.25.0",
+      "date": "2026-08-11",
+      "title": "Timeline — see plans still waiting for approval",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "Machine Timeline and Excel View Timeline now show a 'Pending Plan Approval' badge on any plan still waiting for approval — 'From PPC & Moulding' when it hasn't started, or 'From Moulding' once PPC has checked it." },
+            { "type": "feat", "text": "Both timelines have a new 'Pending Approval' filter to show only the plans still awaiting PPC / Moulding approval." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.24.5",
+      "date": "2026-08-11",
+      "title": "OR-JR reports — manual upload for Superadmin/Admin on MAIN",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-sliders",
+          "changes": [
+            { "type": "fix", "text": "OR-JR Status, ORJR Wise Summary and ORJR Wise Detail now show the manual Excel upload again on the MAIN server for Superadmin and Admin (it was stuck on the read-only 'managed automatically' message). Other users continue to get the automatic ERP dump." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.24.4",
+      "date": "2026-08-11",
+      "title": "More roles can delete a plan from Master Plan",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "PPC Assistant Manager and PPC Manager can now permanently delete a plan from Master Plan, in addition to Admin and Superadmin. This is now enforced on the server as well." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.24.3",
+      "date": "2026-08-10",
+      "title": "More roles can delete a DPR entry",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "Planner, PPC Assistant Manager and PPC Manager can now delete a DPR entry from the DPR Compliance Summary, in addition to Admin and Superadmin." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.24.2",
+      "date": "2026-08-11",
+      "title": "Mould Change Report ignores empty zero-quantity plans",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "fix", "text": "The Daily Mould Change Report no longer lists changes into empty plans that have zero planned quantity — these placeholder plans pile up at the end of a machine's queue and were showing as extra mould changes." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.24.1",
+      "date": "2026-08-10",
+      "title": "Mould Change Report is now split by machine line",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning Board",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "improvement", "text": "The Daily Mould Change Report now has a separate labelled section for each machine line — B Line 1, B Line 2, C Line 1, E Line 1, F Line 1 and so on — instead of merging all lines with the same number together. Print and Excel follow the same layout." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.24.0",
+      "date": "2026-08-10",
+      "title": "Machine Finish Schedule view",
+      "summary": "The Machine-Wise Plan Report has a new 'Machine finish schedule' tick box. Turn it on to see every machine on one line with its running plan and all the plans queued after it, each showing when it will finish — for example 'Plan 1 finish 11-08-2026 10:10 Hrs → Plan 2 finish 13-08-2026 23:15 Hrs'. One machine per row, plans in order.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New 'Machine finish schedule' option in the Machine-Wise Plan Report: shows all machines, each with its running plan and next queued plans in order, and the finish time of each."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.23.1",
+      "date": "2026-08-10",
+      "title": "Machine-Wise Report — machines now in correct order",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "In the Machine-Wise Plan Report, machines now sort in true numeric order (…-6, -7, -8, -10, -11) instead of text order that put -10 and -11 before -6." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.23.0",
+      "date": "2026-08-09",
+      "title": "New Machine-Wise Plan Report",
+      "summary": "A new report shows every plan sitting on a machine, in queue order, exactly like the Machine Timeline — with live balance figures worked out up to the moment you open it. It comes in two views: a Summary (one row per plan) and a Detail (one row per colour). You can also tick a box to pull in the same OR's plans that are running on other machines. Open it from Reports, or straight from the Machine Timeline with the new 'Machine Report' button, and download it to Excel.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New Machine-Wise Plan Report (Summary per plan + Detail per colour) showing OR/JC, mould, qty, live balance, start/end, expected end date, total plan time and queue position for every plan on a machine."
+            },
+            {
+              "type": "feat",
+              "text": "A 'Machine Report' button on the Machine Timeline opens the report directly, and an 'include same OR on other machines' option pulls in sibling plans. Both views download to Excel."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.22.1",
+      "date": "2026-08-10",
+      "title": "Fixed DPR Compliance Summary showing a plan twice",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "In the All-Factories view, a plan's hourly entries could appear twice in the Compliance Summary when the same order number existed in more than one factory. Each entry now shows only once." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.22.0",
+      "date": "2026-08-08",
+      "title": "ERP data now updates itself every 5 minutes",
+      "summary": "You no longer have to press Fetch or Import. On the main server the app now automatically pulls the latest OR-JR Status, Summary and Details from the ERP every 5 minutes, imports them for every factory, and refreshes the Order Master — all on its own, with full history kept so you can check what happened. Factory (LOCAL) servers receive everything automatically and no longer show any upload or import buttons, because all master and order data is now managed only on the main server.",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-database",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "The main server now auto-fetches ERP OR-JR Status, Summary and Details every 5 minutes and auto-imports them for every factory — no need to press Fetch or Import."
+            },
+            {
+              "type": "feat",
+              "text": "Order Master is rebuilt automatically after each ERP sync, and every run is saved to a history you can review (order changes are still tracked in the order completion history)."
+            },
+            {
+              "type": "improvement",
+              "text": "Factory servers are now read-only for masters and imports — all uploads and imports happen on the main server only and sync down automatically, so the upload/import buttons are hidden on factory servers."
+            }
+          ]
+        },
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "improvement",
+              "text": "Orders and OR-JR data stay fresh on their own, so planning always works from the latest ERP figures without a manual refresh."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.19",
+      "date": "2026-08-08",
+      "title": "Fixed a duplicate-key error when importing planning data",
+      "summary": "Uploading a file or importing from ERP for a factory could fail with a 'duplicate key' error and import nothing, when a matching record was left under a different factory. The importer now clears the old record correctly, so the import completes and the data appears in Create Plan.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Importing planning data (file upload or ERP) no longer fails with a duplicate-key error when a matching record exists under a different factory — the import now completes and the orders show up in Create Plan."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.18",
+      "date": "2026-08-08",
+      "title": "Completed plans no longer come back",
+      "summary": "When a plan was marked Complete from the Machine Timeline on a factory server, it could reappear as active a few minutes later after syncing with the main server. The completion is now recorded correctly so it syncs to the main server and stays completed. Completions are also written to the plan history now, so you can see who completed a plan and when.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "A plan marked Complete now stays completed and no longer reappears on the board after a sync with the main server."
+            },
+            {
+              "type": "improvement",
+              "text": "Completing a plan is now saved to the plan history, so you can see who completed it and when."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.17",
+      "date": "2026-08-07",
+      "title": "Factory servers always use India time now",
+      "summary": "Dates, times and Day/Night shifts are now always calculated in India Standard Time on the factory servers, even if the computer's own clock or timezone is set wrong. This keeps DPR dates, shift timing and 'last updated' times correct everywhere.",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-clock-history",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The app now forces India Standard Time (Asia/Kolkata) for all date, time and shift calculations, so a factory server whose Windows clock is on the wrong timezone no longer shows wrong dates or Day/Night shifts."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.16",
+      "date": "2026-08-07",
+      "title": "Production & balance figures corrected across the app",
+      "summary": "On the main server, Produced and Balance could be badly wrong — a plan that never ran could show tens of thousands produced and a large negative balance. The cause: each factory reuses the same plan numbers (PLN-YYYY-NNNN), and the totals were adding up production from every factory that shared the number. Produced is now counted per factory, so the Planning Board timeline, Excel view, DPR Compliance Summary, shifting and reports all show the correct figures.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Produced and Balance are now counted per factory, so a plan no longer shows other factories' production (which could make a not-started plan look massively over-produced with a negative balance)."
+            }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "DPR Compliance Summary production, OEE, efficiency and tonnage no longer inflate from other factories that reuse the same plan number."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.15",
+      "date": "2026-08-06",
+      "title": "Orders with a cancelled job card show again in Create Plan",
+      "summary": "If an order had even one cancelled job card, the whole order disappeared from Create Plan — even when other job cards were still on schedule and moulds were left to plan. Orders now stay in the Create Plan list as long as they have at least one live job card; only orders whose job cards are all cancelled or completed drop off.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "A single cancelled job card no longer hides the entire order from Create Plan; orders with remaining live job cards and unplanned moulds now appear as expected."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.14",
+      "date": "2026-08-06",
+      "title": "Correct Job Card number shows per plan on the board",
+      "summary": "When one order had several job cards (one per job plan), the planning board could show the wrong job card — or none — on a plan, because it picked any job card on the order instead of the one linked to that specific plan. Each plan now shows its own linked Job Card number.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "The board now shows each plan's own linked Job Card number (matched via the plan's link on the order), instead of an arbitrary job card when the order has more than one."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.13",
+      "date": "2026-08-06",
+      "title": "Plan the same order & mould more than once",
+      "summary": "Create Plan used to block a second plan for the same order and mould while an earlier plan was still open, so you had to complete or cancel the first before splitting the work across machines or shifts. That block is removed — you can now create additional plans for the same order and mould. Over-planning is still limited by the remaining order balance.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Removed the block that stopped a second plan for the same order and mould while an earlier plan was still open, so work can be split across machines or shifts."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.12",
+      "date": "2026-08-05",
+      "title": "Rejected plans come back for planning",
+      "summary": "When a plan was rejected at the Moulding approval stage, its job stayed marked as planned and never returned to Create Plan, so it couldn't be planned again. A rejected plan now frees its mould and the job reappears in the Create Plan pending list.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "A plan rejected at Moulding approval now returns to the Create Plan pending list with its mould freed, so the job can be planned again instead of staying stuck."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.21.11",
+      "date": "2026-08-05",
+      "title": "Planning board no longer goes blank when opened via a Create-Plan link",
+      "summary": "Opening the Planning board from a 'create plan' link could hit a script error that stopped the board from finishing drawing, leaving the Plan Qty and other columns blank. The board now loads fully in that case.",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Fixed a load-order error that could blank out the Planning board (including Plan Qty) when it was opened via a create-plan link."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.21.10",
       "date": "2026-08-05",
