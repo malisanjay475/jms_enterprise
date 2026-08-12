@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.36.1",
+  "latest": "1.37.1",
   "versions": [
     {
-      "version": "1.36.1",
+      "version": "1.37.1",
       "date": "2026-08-12",
       "title": "Plans & orders now sync correctly between factory and main servers",
       "modules": [
@@ -32,6 +32,21 @@
           "icon": "bi-arrow-repeat",
           "changes": [
             { "type": "fix", "text": "Orders are now kept separate per factory when syncing, so an order in one factory can no longer overwrite a same-numbered order in another factory on the main server." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.37.0",
+      "date": "2026-08-12",
+      "title": "Order Analyze cards show real produced quantity",
+      "modules": [
+        {
+          "app": "analyze",
+          "label": "Analyze",
+          "icon": "bi-graph-up-arrow",
+          "changes": [
+            { "type": "fix", "text": "Order cards in Analyze now show the actual produced quantity and completion % from real production, instead of showing 0 / 0% for every order. Completed orders with no hourly entries show 100%." }
           ]
         }
       ]

@@ -1,6 +1,6 @@
 {
-  "version": "1.36.1",
+  "version": "1.37.1",
   "commit": "sync-per-factory-plan-order-keys",
-  "releaseId": "1.36.1+sync-per-factory-plan-order-keys",
+  "releaseId": "1.37.1+sync-per-factory-plan-order-keys",
   "builtAt": "2026-08-12T00:00:00.000Z"
 }
