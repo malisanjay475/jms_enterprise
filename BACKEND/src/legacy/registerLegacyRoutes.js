@@ -13222,8 +13222,13 @@ app.get('/api/planning/job-sheet', async (req, res) => {
     const factoryId = getFactoryId(req);
     const search    = (req.query.search || '').trim();
 
-    // $1 = factoryId
-    const params = [factoryId];
+    // Date filter: show orders whose plan(s) were created on this date.
+    // Defaults to today (process TZ is Asia/Kolkata). Accepts YYYY-MM-DD.
+    let date = (req.query.date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) date = '';
+
+    // $1 = factoryId, $2 = date ('' → today via CURRENT_DATE)
+    const params = [factoryId, date || null];
     let searchClause = '';
     if (search) {
       params.push(`%${search}%`);
@@ -13254,8 +13259,19 @@ app.get('/api/planning/job-sheet', async (req, res) => {
         o.qty        AS order_qty,
         o.balance    AS order_balance,
         o.status     AS order_status,
-        o.created_at AS order_created_at
+        o.created_at AS order_created_at,
+        pb.plan_created_at,
+        pb.plan_count
       FROM orders o
+      JOIN (
+        SELECT TRIM(order_no) AS order_no,
+               MAX(created_at) AS plan_created_at,
+               COUNT(*)        AS plan_count
+        FROM plan_board
+        WHERE ($1::integer IS NULL OR factory_id = $1::integer OR factory_id IS NULL)
+          AND created_at::date = COALESCE($2::date, CURRENT_DATE)
+        GROUP BY TRIM(order_no)
+      ) pb ON pb.order_no = TRIM(o.order_no)
       LEFT JOIN LATERAL (
         SELECT *
         FROM or_jr_report rr
@@ -13265,9 +13281,8 @@ app.get('/api/planning/job-sheet', async (req, res) => {
         LIMIT 1
       ) r ON true
       WHERE ($1::integer IS NULL OR o.factory_id = $1::integer)
-        AND LOWER(o.priority) = 'high'
         ${searchClause}
-      ORDER BY o.created_at DESC
+      ORDER BY pb.plan_created_at DESC
       LIMIT 500
     `;
 
