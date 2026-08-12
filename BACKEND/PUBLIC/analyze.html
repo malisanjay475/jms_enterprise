@@ -291,10 +291,18 @@
         </div>
 
         <div class="filter-bar">
-            <label>Date Range:</label>
-            <input type="date" class="form-control" style="width:auto">
+            <label>Factory:</label>
+            <select id="factorySelect" class="form-control" style="width:auto" onchange="onFactoryChange()"></select>
+            <label id="compareLabel" style="display:none; align-items:center; gap:6px; cursor:pointer">
+                <input type="checkbox" id="compareToggle" onchange="onCompareToggle()" style="width:auto; margin:0"> Compare
+            </label>
+            <select id="factoryCompareSelect" class="form-control" multiple size="1"
+                style="width:auto; min-width:200px; display:none" title="Pick factories to compare"></select>
+            <span style="width:1px; height:24px; background:var(--border)"></span>
+            <label>Date:</label>
+            <input type="date" id="fromDate" class="form-control" style="width:auto">
             <span>to</span>
-            <input type="date" class="form-control" style="width:auto">
+            <input type="date" id="toDate" class="form-control" style="width:auto">
             <button class="btn btn-primary" onclick="loadData()">Apply</button>
         </div>
 
@@ -305,12 +313,79 @@
 
     <script src="/assets/app.min.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
+        // Shared analyze filter state (factory access, date range, compare)
+        const AnalyzeFilters = {
+            view: 'plant',
+            factories: [],        // accessible factories [{id,name,code}]
+            canAll: false,
+            factoryId: null,      // selected single factory (null = all accessible)
+            compare: false,
+            compareIds: [],       // factory ids to compare
+            from: null,
+            to: null,
+            lossPerShift: 0,
+            lossPerMachineHour: 0
+        };
+
+        async function loadFactories() {
+            try {
+                const res = await JPSMS.api.get('/factories');
+                if (res.ok && Array.isArray(res.data)) {
+                    AnalyzeFilters.factories = res.data;
+                    AnalyzeFilters.canAll = !!res.can_select_all_factories;
+                }
+            } catch (e) { console.warn('factory load failed', e); }
+
+            const sel = document.getElementById('factorySelect');
+            const cmp = document.getElementById('factoryCompareSelect');
+            const cmpLabel = document.getElementById('compareLabel');
+            if (!sel) return;
+
+            const opts = [];
+            if (AnalyzeFilters.canAll || AnalyzeFilters.factories.length > 1) {
+                opts.push('<option value="">All My Factories</option>');
+            }
+            AnalyzeFilters.factories.forEach(f => {
+                opts.push(`<option value="${f.id}">${f.name || f.code || ('Factory ' + f.id)}</option>`);
+            });
+            sel.innerHTML = opts.join('');
+
+            // Default: single-factory users are locked to their factory
+            if (AnalyzeFilters.factories.length === 1 && !AnalyzeFilters.canAll) {
+                AnalyzeFilters.factoryId = AnalyzeFilters.factories[0].id;
+                sel.value = String(AnalyzeFilters.factoryId);
+                sel.disabled = true;
+            }
+
+            // Compare is available to anyone who can see >1 factory
+            if ((AnalyzeFilters.canAll || AnalyzeFilters.factories.length > 1)) {
+                cmpLabel.style.display = 'inline-flex';
+                cmp.innerHTML = AnalyzeFilters.factories
+                    .map(f => `<option value="${f.id}">${f.name || f.code || ('Factory ' + f.id)}</option>`).join('');
+            }
+        }
+
+        function onFactoryChange() {
+            const v = document.getElementById('factorySelect').value;
+            AnalyzeFilters.factoryId = v ? Number(v) : null;
+            loadData();
+        }
+        function onCompareToggle() {
+            AnalyzeFilters.compare = document.getElementById('compareToggle').checked;
+            const cmp = document.getElementById('factoryCompareSelect');
+            cmp.style.display = AnalyzeFilters.compare ? 'inline-block' : 'none';
+            cmp.size = AnalyzeFilters.compare ? Math.min(4, AnalyzeFilters.factories.length) : 1;
+            if (!AnalyzeFilters.compare) { AnalyzeFilters.compareIds = []; loadData(); }
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
             JPSMS.auth.requireAuth();
             JPSMS.renderShell('analyze');
 
             const params = new URLSearchParams(window.location.search);
             const view = params.get('view') || 'plant';
+            AnalyzeFilters.view = view;
+            await loadFactories();
 
             // Permission Check
             const permMap = {
@@ -497,6 +572,29 @@
                                         </div>
                                     </div>
 
+                                    <!-- 1b. Order Lifecycle Timeline (OR -> JC -> Plan -> Production -> Complete) -->
+                                    <div class="card" style="margin:24px 0 0 0; padding:18px 22px">
+                                        <h4 style="margin:0 0 16px 0; font-size:0.95rem; color:#1e293b; font-weight:700">Order Lifecycle</h4>
+                                        <div id="lifecycleStepper" style="display:flex; align-items:flex-start; gap:0; overflow-x:auto"></div>
+                                    </div>
+
+                                    <!-- 1c. STD vs Actual — Shift & Factory Loss -->
+                                    <div class="card" style="margin:24px 0 0 0; padding:18px 22px">
+                                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px">
+                                            <h4 style="margin:0; font-size:0.95rem; color:#1e293b; font-weight:700">STD vs Actual — Loss Analysis</h4>
+                                            <div style="display:flex; gap:8px; align-items:center; font-size:0.8rem; color:#64748b">
+                                                <span>₹/shift</span>
+                                                <input type="number" id="rateShift" class="form-control" style="width:90px; padding:4px 8px" placeholder="0" oninput="onLossRateChange()">
+                                                <span>₹/machine-hr</span>
+                                                <input type="number" id="rateMcHr" class="form-control" style="width:90px; padding:4px 8px" placeholder="0" oninput="onLossRateChange()">
+                                            </div>
+                                        </div>
+                                        <div style="display:grid; grid-template-columns: 1fr 1.4fr; gap:20px; align-items:center">
+                                            <div id="lossCards" style="display:grid; grid-template-columns:1fr 1fr; gap:12px"></div>
+                                            <div style="min-height:220px; position:relative"><canvas id="lossWaterfall"></canvas></div>
+                                        </div>
+                                    </div>
+
                                     <!-- 2. KPI Cards (6 Cards) -->
                                     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:16px; margin-top:24px">
                                         <!-- Plan -->
@@ -636,14 +734,14 @@
                                             <table class="table" style="margin:0; font-size:0.9rem">
                                                 <thead style="background:#f1f5f9; color:#475569; font-weight:600; font-size:0.8rem; text-transform:uppercase">
                                                     <tr>
-                                                        <th style="padding:15px 20px">Log Entry</th>
-                                                        <th>Start Time</th>
-                                                        <th></th>
-                                                        <th>End Time</th>
-                                                        <th class="text-end">Output Qty</th>
-                                                        <th class="text-center">Avg Cycle Time</th>
-                                                        <th>Status/Downtime</th>
-                                                        <th>Remarks</th>
+                                                        <th style="padding:15px 20px">Date</th>
+                                                        <th>Shift</th>
+                                                        <th>Hour</th>
+                                                        <th>Machine</th>
+                                                        <th class="text-end">Good Qty</th>
+                                                        <th class="text-center">Reject</th>
+                                                        <th>Downtime</th>
+                                                        <th>Entered By</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody id="logTableBody">
@@ -777,9 +875,36 @@
             });
         }
 
+        function syncFilterState() {
+            AnalyzeFilters.from = (document.getElementById('fromDate') || {}).value || null;
+            AnalyzeFilters.to = (document.getElementById('toDate') || {}).value || null;
+            const cmp = document.getElementById('factoryCompareSelect');
+            if (cmp && AnalyzeFilters.compare) {
+                AnalyzeFilters.compareIds = Array.from(cmp.selectedOptions).map(o => Number(o.value));
+            }
+        }
+
+        // Build a query string from shared filters
+        function filterQS(extra) {
+            syncFilterState();
+            const p = new URLSearchParams();
+            if (AnalyzeFilters.factoryId) p.set('factory', AnalyzeFilters.factoryId);
+            if (AnalyzeFilters.from) p.set('from', AnalyzeFilters.from);
+            if (AnalyzeFilters.to) p.set('to', AnalyzeFilters.to);
+            if (AnalyzeFilters.lossPerShift) p.set('lossPerShift', AnalyzeFilters.lossPerShift);
+            if (AnalyzeFilters.lossPerMachineHour) p.set('lossPerMachineHour', AnalyzeFilters.lossPerMachineHour);
+            Object.entries(extra || {}).forEach(([k, v]) => { if (v != null && v !== '') p.set(k, v); });
+            const s = p.toString();
+            return s ? ('?' + s) : '';
+        }
+
         function loadData() {
-            JPSMS.toast('Refreshing data...');
-            // In future, fetch real data based on date range and view
+            syncFilterState();
+            const view = AnalyzeFilters.view;
+            if (view === 'order') return fetchOrderList();
+            // other views re-render on refresh
+            renderView(view);
+            JPSMS.toast('Refreshed');
         }
 
         let orderCharts = {};
@@ -798,47 +923,28 @@
             listEl.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding:40px; color:#94a3b8"><div class="spinner-border spinner-border-sm text-primary" role="status"></div> Loading...</div>';
 
             try {
-                const [resRun, resComp] = await Promise.all([
-                    JPSMS.api.get('/planning/board'),
-                    JPSMS.api.get('/planning/completed?limit=100')
-                ]);
-
+                const res = await JPSMS.api.get('/analyze/orders' + filterQS());
                 allOrdersData = [];
-                const seen = new Set();
 
-                // Helper
-                const add = (p, status) => {
-                    const oNo = p.order_no || p.orderNo;
-                    if (!oNo || seen.has(oNo)) return;
-                    seen.add(oNo);
-                    allOrdersData.push({
-                        orderNo: oNo,
-                        client: p.client_name || p.clientName || '-',
-                        item: p.item_name || p.itemName || '-',
-                        status: status,
-                        date: p.startDate || p.plan_date || p.completed_at || p.created_at || new Date().toISOString(),
-                        mould: p.mould_name || p.mouldName || '-',
-                        planQty: p.plan_qty || p.planQty || 0
+                if (res.ok && Array.isArray(res.data)) {
+                    res.data.forEach(p => {
+                        allOrdersData.push({
+                            orderNo: p.order_no,
+                            factoryId: p.factory_id,
+                            client: p.client_name || '-',
+                            item: p.item_name || '-',
+                            status: p.view_status || 'RUNNING',
+                            date: p.start_date || p.job_card_date || p.or_jr_date || p.created_at || new Date().toISOString(),
+                            mould: p.mould_name || '-',
+                            planQty: p.plan_qty || 0,
+                            balQty: p.bal_qty || 0,
+                            jcNo: p.job_card_no || null
+                        });
                     });
-                };
-
-                // 1. Running
-                if (resRun.ok || (resRun.data && resRun.data.plans)) {
-                    const plans = Array.isArray(resRun.data) ? resRun.data : (resRun.data.plans || []);
-                    plans.forEach(p => add(p, 'RUNNING'));
                 }
 
-                // 2. Completed
-                if (resComp.ok || (resComp.data && Array.isArray(resComp.data))) {
-                    const comps = Array.isArray(resComp.data) ? resComp.data : (resComp.data || []);
-                    comps.forEach(p => add(p, 'COMPLETED'));
-                }
-
-                // Sort by Date Descending
                 allOrdersData.sort((a, b) => new Date(b.date) - new Date(a.date));
-
                 renderOrderList();
-
             } catch (e) {
                 console.error(e);
                 if (listEl) listEl.innerHTML = `<div style="grid-column: 1/-1; text-align:center; color:#ef4444; padding:20px">Error loading orders</div>`;
@@ -924,7 +1030,7 @@
             JPSMS.toast('Loading Order: ' + orderNo, 'info');
 
             try {
-                const res = await JPSMS.api.get('/analyze/order/' + encodeURIComponent(orderNo));
+                const res = await JPSMS.api.get('/analyze/order/' + encodeURIComponent(orderNo) + filterQS());
                 if (res.ok) {
                     renderOrderDashboard(res.data);
                     loading.style.display = 'none';
@@ -940,13 +1046,21 @@
             }
         }
 
+        let currentOrderData = null;
         function renderOrderDashboard(data) {
-            const { info, logs, stats } = data;
+            currentOrderData = data;
+            const { info, logs } = data;
+            const totals = data.totals || {};
+            const loss = data.loss || {};
 
             // 1. Header (Strip)
             document.getElementById('dItem').textContent = info.item_name || info.itemName || '-';
-            document.getElementById('dMachine').textContent = stats.machine || 'Multiple';
-            document.getElementById('dMould').textContent = info.mouldName || info.mouldNo || '-';
+            document.getElementById('dMachine').textContent = loss.machine || info.machine || 'Multiple';
+            document.getElementById('dMould').textContent = info.mould_name || info.mouldName || info.mould_number || '-';
+
+            // Lifecycle + Loss sections
+            renderLifecycle(data.lifecycle || {});
+            renderLoss(loss);
 
             const stEl = document.getElementById('dStatusText');
             const dotEl = document.getElementById('dStatusDot');
@@ -968,14 +1082,10 @@
             const plan = info.plan_qty || 0;
             const bal = Math.max(0, plan - totalGood);
 
-            // Recalculate Efficiency safely
-            let totalRunHours = 0;
-            if (logs && Array.isArray(logs)) {
-                logs.forEach(l => totalRunHours += (parseFloat(l.run_hours) || 0));
-            }
-
-            const stdCycleTime = info.std_cycle_time || 45; // Default if missing
-            const theoreticalOutput = totalRunHours > 0 ? (totalRunHours * 3600) / stdCycleTime : 0;
+            // Efficiency = good produced vs STD-achievable output in the productive time (from server loss calc)
+            const pph = loss.pcs_per_hour_std || 0;
+            const productiveHours = Math.max(0, (loss.actual_hours || 0) - (loss.downtime_hours || 0));
+            const theoreticalOutput = pph > 0 ? pph * productiveHours : 0;
             const calculatedEff = theoreticalOutput > 0 ? Math.round((totalGood / theoreticalOutput) * 100) : 0;
 
             const eff = calculatedEff + '%';
@@ -989,11 +1099,8 @@
 
             document.getElementById('kpiReject').textContent = totalReject.toLocaleString();
 
-            // Calc Total Downtime (Mock or Real)
-            let totalDownMins = 0;
-            if (data.downtime && Array.isArray(data.downtime)) {
-                totalDownMins = data.downtime.reduce((a, b) => a + (parseInt(b.duration) || 0), 0);
-            }
+            // Total downtime (real, from backend totals)
+            const totalDownMins = Math.round(totals.dt || 0);
             document.getElementById('kpiDown').textContent = totalDownMins;
 
 
@@ -1029,20 +1136,22 @@
             // 4. Logs Table
             const tbody = document.getElementById('logTableBody');
             if (logs && logs.length > 0) {
-                tbody.innerHTML = logs.map((l, i) => `
+                tbody.innerHTML = logs.map((l) => {
+                    const dt = Math.round(parseFloat(l.downtime_min) || 0);
+                    const enteredBy = l.userName || l.created_by || '-';
+                    const role = l.userRole ? ` <span style="font-size:0.7rem; color:#94a3b8">(${l.userRole})</span>` : '';
+                    return `
                     <tr>
-                        <td style="padding:15px 20px; font-weight:600; color:#334155">Shift ${l.shift || 1}</td>
-                        <td style="color:#64748b">${new Date(l.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                        <td style="color:#cbd5e1"><i class="bi bi-arrow-right"></i></td>
-                        <td style="color:#64748b">${new Date(new Date(l.date).getTime() + (l.run_hours || 4) * 3600000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                        <td class="text-end" style="font-weight:700; color:#334155">${l.good_qty}</td>
-                        <td class="text-center">${Math.floor(Math.random() * (50 - 40 + 1) + 40)} sec</td>
-                        <td>
-                            ${l.reject_qty > 0 ? `<div style="display:flex; align-items:center; gap:6px; color:#ef4444"><span style="width:8px; height:8px; background:#ef4444; border-radius:50%"></span> Qual Check (${l.reject_qty} Rej)</div>` : '<div style="display:flex; align-items:center; gap:6px; color:#10b981"><span style="width:8px; height:8px; background:#10b981; border-radius:50%"></span> Running</div>'}
-                        </td>
-                        <td style="color:#64748b">${l.reject_qty > 0 ? 'Quality Issue' : '-'}</td>
-                    </tr>
-                `).join('');
+                        <td style="padding:12px 20px; color:#334155">${l.date ? new Date(l.date).toLocaleDateString() : '-'}</td>
+                        <td style="color:#64748b">${l.shift || '-'}</td>
+                        <td style="color:#64748b">${l.hour_slot || '-'}</td>
+                        <td style="color:#64748b">${l.machine || '-'}${l.colour ? ` · ${l.colour}` : ''}</td>
+                        <td class="text-end" style="font-weight:700; color:#334155">${(parseInt(l.good_qty) || 0).toLocaleString()}</td>
+                        <td class="text-center" style="color:${l.reject_qty > 0 ? '#ef4444' : '#94a3b8'}">${parseInt(l.reject_qty) || 0}</td>
+                        <td>${dt > 0 ? `<span style="color:#f59e0b; font-weight:600">${dt} min</span>` : '<span style="color:#10b981">—</span>'}</td>
+                        <td style="color:#475569; font-weight:600">${enteredBy}${role}</td>
+                    </tr>`;
+                }).join('');
             } else {
                 tbody.innerHTML = '<tr><td colspan="8" class="text-center p-3">No activity logs found</td></tr>';
             }
@@ -1125,9 +1234,9 @@
             // --- Chart 2: Cycle Time (Bar - Avg vs Target) ---
             const ctCtx = document.getElementById('ctChart');
             if (ctCtx) {
-                // Mock Cycle Time Data (Ideal vs Actual)
-                const stdCT = data.info.std_cycle_time || 45; // Default 45s
-                const avgCT = data.stats.avgCycleTime || Math.floor(Math.random() * (50 - 40) + 40);
+                // Std vs Actual cycle time (real)
+                const stdCT = Math.round((data.loss && data.loss.std_cycle) || data.info.std_cycle || 0);
+                const avgCT = Math.round(parseFloat(data.info.act_cycle) || stdCT || 0);
 
                 orderCharts['ctChart'] = new Chart(ctCtx, {
                     type: 'bar',
@@ -1171,14 +1280,13 @@
             // --- Chart 3: Downtime (Doughnut) ---
             const dtCtx = document.getElementById('downtimeChart');
             if (dtCtx) {
-                // Mock Downtime Breakdown if not provided
-                let downtimeData = [15, 20, 30, 10];
-                let downtimeLabels = ['Machine Breakdown', 'Mould Change', 'Material Delay', 'Other'];
-
-                if (data.downtime && data.downtime.length > 0) {
-                    downtimeData = data.downtime.map(d => d.duration);
-                    downtimeLabels = data.downtime.map(d => d.reason);
-                }
+                // Real downtime breakdown from downtime_stats {reason: minutes}
+                const dtEntries = Object.entries(data.downtime_stats || {})
+                    .filter(([, v]) => (parseFloat(v) || 0) > 0)
+                    .sort((a, b) => b[1] - a[1]);
+                let downtimeLabels = dtEntries.map(e => e[0]);
+                let downtimeData = dtEntries.map(e => Math.round(parseFloat(e[1]) || 0));
+                if (!downtimeData.length) { downtimeLabels = ['No downtime']; downtimeData = [1]; }
 
                 orderCharts['downtimeChart'] = new Chart(dtCtx, {
                     type: 'doughnut',
@@ -1204,8 +1312,8 @@
             // --- Chart 4: Quality (Horizontal Bar) ---
             const qCtx = document.getElementById('qualityChart');
             if (qCtx) {
-                const good = data.stats.totalGood || 0;
-                const rej = data.stats.totalReject || 0;
+                const good = (data.totals && data.totals.good) || 0;
+                const rej = (data.totals && data.totals.rej) || 0;
 
                 orderCharts['qualityChart'] = new Chart(qCtx, {
                     type: 'bar',
@@ -1238,6 +1346,94 @@
                 });
             }
 
+        }
+
+        /* =========================================
+           ORDER LIFECYCLE + LOSS
+           ========================================= */
+        function fmtDate(d) { return d ? new Date(d).toLocaleDateString() : '—'; }
+        function gapChip(days) {
+            if (days == null) return '';
+            const c = days <= 1 ? '#10b981' : days <= 3 ? '#f59e0b' : '#ef4444';
+            return `<div style="font-size:0.7rem; color:${c}; font-weight:700; margin-top:2px">+${days}d</div>`;
+        }
+        function renderLifecycle(lc) {
+            const el = document.getElementById('lifecycleStepper');
+            if (!el) return;
+            const g = lc.gaps || {};
+            const steps = [
+                { label: 'OR Date', date: lc.or_date, icon: 'file-earmark-text', gap: null },
+                { label: 'JC Converted', date: lc.jc_date, icon: 'card-checklist', gap: g.or_to_jc },
+                { label: 'Planned', date: lc.plan_date, icon: 'calendar2-check', gap: g.jc_to_plan },
+                { label: 'Production Start', date: lc.prod_start, icon: 'play-circle', gap: g.plan_to_prod },
+                { label: (lc.status || 'Latest'), date: lc.prod_last, icon: 'flag', gap: g.prod_span }
+            ];
+            el.innerHTML = steps.map((s, i) => `
+                <div style="flex:1; min-width:120px; text-align:center; position:relative">
+                    ${i > 0 ? `<div style="position:absolute; left:-50%; top:18px; width:100%; height:2px; background:#e2e8f0; z-index:0"></div>` : ''}
+                    <div style="position:relative; z-index:1; width:38px; height:38px; margin:0 auto; border-radius:50%; background:${s.date ? 'linear-gradient(135deg,#024c81,#01a8dd)' : '#e2e8f0'}; color:#fff; display:flex; align-items:center; justify-content:center">
+                        <i class="bi bi-${s.icon}"></i>
+                    </div>
+                    <div style="font-size:0.78rem; font-weight:700; color:#334155; margin-top:8px">${s.label}</div>
+                    <div style="font-size:0.75rem; color:#64748b">${fmtDate(s.date)}</div>
+                    ${gapChip(s.gap)}
+                </div>`).join('');
+        }
+
+        function lossCard(label, value, sub, color) {
+            return `<div style="background:#f8fafc; border-radius:10px; padding:12px 14px; border-left:3px solid ${color}">
+                <div style="font-size:0.72rem; color:#64748b; font-weight:600">${label}</div>
+                <div style="font-size:1.3rem; font-weight:800; color:#1e293b">${value}</div>
+                ${sub ? `<div style="font-size:0.72rem; color:#94a3b8">${sub}</div>` : ''}
+            </div>`;
+        }
+        function renderLoss(loss) {
+            const el = document.getElementById('lossCards');
+            if (!el) return;
+            const money = loss.money_loss_per_shift != null ? `₹${Number(loss.money_loss_per_shift).toLocaleString()}`
+                : loss.money_loss_per_machine_hour != null ? `₹${Number(loss.money_loss_per_machine_hour).toLocaleString()}`
+                    : 'Set ₹ rate';
+            el.innerHTML = [
+                lossCard('STD Time', `${loss.std_hours || 0} h`, `${loss.std_shifts || 0} shifts`, '#10b981'),
+                lossCard('Actual Time', `${loss.actual_hours || 0} h`, `${loss.actual_shifts || 0} shifts`, '#3b82f6'),
+                lossCard('Shift Loss', `${loss.shift_loss || 0}`, `${loss.total_loss_hours || 0} h lost`, '#f59e0b'),
+                lossCard('Factory Loss', money, loss.rate_per_shift ? `@ ₹${loss.rate_per_shift}/shift` : (loss.rate_per_machine_hour ? `@ ₹${loss.rate_per_machine_hour}/mc-hr` : 'enter a rate'), '#ef4444')
+            ].join('');
+
+            // Waterfall: STD -> +downtime -> +cycle slip -> +reject -> Actual
+            const cvs = document.getElementById('lossWaterfall');
+            if (!cvs) return;
+            if (orderCharts['lossWaterfall']) orderCharts['lossWaterfall'].destroy();
+            const std = loss.std_hours || 0;
+            const dt = loss.downtime_hours || 0;
+            const cyc = loss.cycle_loss_hours || 0;
+            const rej = loss.reject_loss_hours || 0;
+            orderCharts['lossWaterfall'] = new Chart(cvs, {
+                type: 'bar',
+                data: {
+                    labels: ['STD', 'Downtime', 'Slow Cycle', 'Rejects', 'Actual'],
+                    datasets: [{
+                        label: 'Hours',
+                        data: [std, dt, cyc, rej, loss.actual_hours || 0],
+                        backgroundColor: ['#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#3b82f6'],
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, title: { display: true, text: 'Time Loss Waterfall (hours)', font: { size: 11 } } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+        function onLossRateChange() {
+            AnalyzeFilters.lossPerShift = parseFloat(document.getElementById('rateShift').value) || 0;
+            AnalyzeFilters.lossPerMachineHour = parseFloat(document.getElementById('rateMcHr').value) || 0;
+            // Re-fetch current order with new rates (loss is computed server-side)
+            if (currentOrderData && currentOrderData.info) {
+                const on = currentOrderData.info.order_no || document.getElementById('modalTitle').textContent;
+                if (on) loadOrderDetails(on);
+            }
         }
 
         /* =========================================

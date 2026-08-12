@@ -10361,10 +10361,80 @@ async function buildDprOrderAnalysis(req) {
     colourStats.Unknown = { plan_qty: totalPlan, good_qty: totalGood, rej_qty: totalRej };
   }
 
+  // --- Lifecycle timeline (OR Date -> JC convert -> Plan -> Production -> Complete) ---
+  const firstProdRow = logs.length ? logs[0] : null;          // logs are ASC by date
+  const lastProdRow = logs.length ? logs[logs.length - 1] : null;
+  const dayDiff = (a, b) => {
+    if (!a || !b) return null;
+    const d1 = new Date(a), d2 = new Date(b);
+    if (isNaN(d1) || isNaN(d2)) return null;
+    return Math.round((d2 - d1) / 86400000);
+  };
+  const lifecycle = {
+    or_date: info.or_jr_date || null,
+    jc_date: info.job_card_date || null,
+    plan_date: info.start_date || null,
+    prod_start: firstProdRow ? firstProdRow.date : null,
+    prod_last: lastProdRow ? lastProdRow.date : null,
+    plan_end: info.end_date || null,
+    status: info.status || null,
+    gaps: {
+      or_to_jc: dayDiff(info.or_jr_date, info.job_card_date),
+      jc_to_plan: dayDiff(info.job_card_date, info.start_date),
+      plan_to_prod: dayDiff(info.start_date, firstProdRow ? firstProdRow.date : null),
+      prod_span: dayDiff(firstProdRow ? firstProdRow.date : null, lastProdRow ? lastProdRow.date : null)
+    }
+  };
+
+  // --- STD vs Actual time + shift loss + factory (money) loss ---
+  const SHIFT_HOURS = 11.5;                       // productive hours per shift (23h/day, 2 shifts)
+  const lossPerShift = toDprNumber(req.query.lossPerShift);        // optional ₹ per lost shift
+  const lossPerMachineHour = toDprNumber(req.query.lossPerMachineHour); // optional ₹ per lost machine-hour
+  const stdCycle = toDprNumber(info.std_cycle) || toDprNumber(info.act_cycle) || 0; // seconds
+  const stdCavity = toDprNumber(info.std_cavity) || 1;
+  const pcsPerHourStd = stdCycle > 0 ? (3600 / stdCycle) * stdCavity : 0;
+  const stdHours = pcsPerHourStd > 0 ? totalPlan / pcsPerHourStd : 0;
+
+  // Actual elapsed run hours ~= number of distinct hour-slots logged
+  const slotKeys = new Set();
+  logs.forEach(l => slotKeys.add(`${l.date}|${l.shift}|${l.hour_slot}|${l.machine}`));
+  const actualElapsedHours = slotKeys.size || 0;
+  const downtimeHours = totalDT / 60;
+  const productiveHours = Math.max(0, actualElapsedHours - downtimeHours);
+  const rejectLossHours = pcsPerHourStd > 0 ? totalRej / pcsPerHourStd : 0;
+  const cycleLossHours = Math.max(0, productiveHours - stdHours); // slower-than-STD running
+  const totalLossHours = Math.max(0, actualElapsedHours - stdHours);
+  const shiftLoss = totalLossHours / SHIFT_HOURS;
+  const machineName = info.machine || (firstProdRow ? firstProdRow.machine : null);
+
+  const loss = {
+    std_cycle: stdCycle,
+    std_cavity: stdCavity,
+    pcs_per_hour_std: Math.round(pcsPerHourStd * 100) / 100,
+    std_hours: Math.round(stdHours * 100) / 100,
+    std_shifts: Math.round((stdHours / SHIFT_HOURS) * 100) / 100,
+    actual_hours: Math.round(actualElapsedHours * 100) / 100,
+    actual_shifts: Math.round((actualElapsedHours / SHIFT_HOURS) * 100) / 100,
+    downtime_hours: Math.round(downtimeHours * 100) / 100,
+    reject_loss_hours: Math.round(rejectLossHours * 100) / 100,
+    cycle_loss_hours: Math.round(cycleLossHours * 100) / 100,
+    total_loss_hours: Math.round(totalLossHours * 100) / 100,
+    shift_loss: Math.round(shiftLoss * 100) / 100,
+    // money loss — all three methods returned; UI picks/compares
+    money_loss_per_shift: lossPerShift > 0 ? Math.round(shiftLoss * lossPerShift) : null,
+    money_loss_per_machine_hour: lossPerMachineHour > 0 ? Math.round(totalLossHours * lossPerMachineHour) : null,
+    rate_per_shift: lossPerShift || null,
+    rate_per_machine_hour: lossPerMachineHour || null,
+    machine: machineName,
+    shift_hours: SHIFT_HOURS
+  };
+
   return {
     info,
     logs,
     history,
+    lifecycle,
+    loss,
     colour_stats: colourStats,
     downtime_stats: downtimeStats,
     rejection_stats: rejectionStats,
@@ -10377,6 +10447,82 @@ async function buildDprOrderAnalysis(req) {
     scope: { mode, date, shift, machine, planId }
   };
 }
+
+// GET /api/analyze/orders
+// Factory-scoped list of orders (running + completed) for the Order Analyze picker.
+// Honors the caller's factory access; optional ?factory=<id> narrows to one accessible factory.
+app.get('/api/analyze/orders', async (req, res) => {
+  try {
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
+
+    const params = [];
+    const where = ['TRIM(COALESCE(pb.order_no, \'\')) <> \'\''];
+
+    // Factory scope
+    const reqFactory = Number(req.query.factory);
+    if (reqFactory) {
+      if (!canAll && !accessibleIds.includes(reqFactory)) {
+        return res.status(403).json({ ok: false, error: 'No access to that factory' });
+      }
+      params.push(reqFactory);
+      where.push(`pb.factory_id = $${params.length}`);
+    } else if (!canAll) {
+      if (!accessibleIds.length) return res.json({ ok: true, data: [] });
+      params.push(accessibleIds);
+      where.push(`pb.factory_id = ANY($${params.length}::int[])`);
+    }
+
+    const rows = await q(`
+      SELECT DISTINCT ON (pb.order_no)
+        pb.order_no,
+        pb.factory_id,
+        pb.plan_id,
+        pb.status,
+        pb.plan_qty,
+        pb.bal_qty,
+        pb.machine,
+        pb.line,
+        pb.item_name,
+        pb.mould_name,
+        pb.start_date,
+        pb.end_date,
+        pb.jc_approval_status,
+        COALESCE(o.client_name, ojr.client_name) AS client_name,
+        ojr.or_jr_date,
+        ojr.job_card_no,
+        ojr.job_card_date,
+        pb.created_at
+      FROM plan_board pb
+      LEFT JOIN orders o ON TRIM(o.order_no) = TRIM(pb.order_no)
+      LEFT JOIN LATERAL (
+        SELECT rpt.client_name, rpt.or_jr_date, rpt.job_card_no, rpt.job_card_date
+        FROM or_jr_report rpt
+        WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no)
+        ORDER BY rpt.job_card_date DESC NULLS LAST, rpt.id DESC
+        LIMIT 1
+      ) ojr ON true
+      WHERE ${where.join(' AND ')}
+      ORDER BY pb.order_no, pb.created_at DESC NULLS LAST, pb.id DESC
+    `, params);
+
+    // Derive a coarse RUNNING/COMPLETED status the UI can filter on
+    const data = rows.map(r => {
+      const st = String(r.status || '').toUpperCase();
+      const view = (st.includes('COMPLETE') || st === 'DONE') ? 'COMPLETED'
+        : (st.includes('REJECT') || st === 'DROPPED') ? 'CLOSED'
+          : 'RUNNING';
+      return { ...r, view_status: view };
+    }).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+    res.json({ ok: true, data, can_select_all_factories: canAll, factories: access.factories });
+  } catch (e) {
+    console.error('analyze/orders', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
 
 // GET /api/analyze/order/:orderNo
 // Detailed analysis of a specific Order
