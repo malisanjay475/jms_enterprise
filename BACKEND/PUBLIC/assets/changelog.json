@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.31.0",
+  "latest": "1.32.0",
   "versions": [
+    {
+      "version": "1.32.0",
+      "date": "2026-08-12",
+      "title": "A cleaner Complete Production Plan Report",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "The Complete Production Plan Report now opens with a summary strip showing total completed plans, planned vs produced quantity, overall achievement %, and how many plans met target or were short closed." },
+            { "type": "fix", "text": "The Colour Detail tab no longer shows 'No colour breakdown data found' when colour data exists — it now loads and displays every colour correctly." },
+            { "type": "improvement", "text": "Colour Detail now shows full details for each plan — client, job card, product and machine — with a colour swatch, each colour's share of the plan, produced and balance quantities, and progress bars." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.31.0",
       "date": "2026-08-12",
