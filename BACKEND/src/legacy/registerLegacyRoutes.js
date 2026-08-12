@@ -13222,8 +13222,13 @@ app.get('/api/planning/job-sheet', async (req, res) => {
     const factoryId = getFactoryId(req);
     const search    = (req.query.search || '').trim();
 
-    // $1 = factoryId
-    const params = [factoryId];
+    // Date filter: show orders whose plan(s) were created on this date.
+    // Defaults to today (process TZ is Asia/Kolkata). Accepts YYYY-MM-DD.
+    let date = (req.query.date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) date = '';
+
+    // $1 = factoryId, $2 = date ('' → today via CURRENT_DATE)
+    const params = [factoryId, date || null];
     let searchClause = '';
     if (search) {
       params.push(`%${search}%`);
@@ -13254,8 +13259,19 @@ app.get('/api/planning/job-sheet', async (req, res) => {
         o.qty        AS order_qty,
         o.balance    AS order_balance,
         o.status     AS order_status,
-        o.created_at AS order_created_at
+        o.created_at AS order_created_at,
+        pb.plan_created_at,
+        pb.plan_count
       FROM orders o
+      JOIN (
+        SELECT TRIM(order_no) AS order_no,
+               MAX(created_at) AS plan_created_at,
+               COUNT(*)        AS plan_count
+        FROM plan_board
+        WHERE ($1::integer IS NULL OR factory_id = $1::integer OR factory_id IS NULL)
+          AND created_at::date = COALESCE($2::date, CURRENT_DATE)
+        GROUP BY TRIM(order_no)
+      ) pb ON pb.order_no = TRIM(o.order_no)
       LEFT JOIN LATERAL (
         SELECT *
         FROM or_jr_report rr
@@ -13265,9 +13281,8 @@ app.get('/api/planning/job-sheet', async (req, res) => {
         LIMIT 1
       ) r ON true
       WHERE ($1::integer IS NULL OR o.factory_id = $1::integer)
-        AND LOWER(o.priority) = 'high'
         ${searchClause}
-      ORDER BY o.created_at DESC
+      ORDER BY pb.plan_created_at DESC
       LIMIT 500
     `;
 
@@ -20152,16 +20167,17 @@ app.post('/api/dpr/delete-entry', async (req, res) => {
   }
 });
 
-// POST /api/dpr/delete-quick (Superadmin-only Soft-Delete of Quick-Action entries)
+// POST /api/dpr/delete-quick (Soft-Delete of Quick-Action entries — admin/superadmin
+// + planner, ppc_ass_manager, ppc_manager; used by the DPR Compliance Summary)
 app.post('/api/dpr/delete-quick', async (req, res) => {
   try {
     let { id, ids, session } = req.body;
     if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
 
-    // Verify Superadmin ONLY
+    // Verify permission: admin/superadmin OR planner / ppc_ass_manager / ppc_manager.
     const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
-    if (!u.length || !isSuperadminRole(u[0])) {
-      return res.status(403).json({ ok: false, error: 'Superadmin access required' });
+    if (!u.length || !canDeleteDprEntry(u[0])) {
+      return res.status(403).json({ ok: false, error: 'You do not have permission to delete quick-action entries.' });
     }
 
     // Normalize id list
@@ -20200,17 +20216,18 @@ app.post('/api/dpr/delete-quick', async (req, res) => {
   }
 });
 
-// POST /api/dpr/delete-setup (Admin Soft-Delete)
+// POST /api/dpr/delete-setup (Soft-Delete — admin/superadmin + planner,
+// ppc_ass_manager, ppc_manager; used by the DPR Compliance Summary)
 app.post('/api/dpr/delete-setup', async (req, res) => {
   try {
     const { id, session } = req.body;
     if (!id) return res.status(400).json({ ok: false, error: 'ID required' });
     if (!session || !session.username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
 
-    // Verify Admin
+    // Verify permission: admin/superadmin OR planner / ppc_ass_manager / ppc_manager.
     const u = await q('SELECT role_code FROM users WHERE username=$1', [session.username]);
-    if (!u.length || !isAdminLikeRole(u[0])) {
-      return res.status(403).json({ ok: false, error: 'Admin or Superadmin access required' });
+    if (!u.length || !canDeleteDprEntry(u[0])) {
+      return res.status(403).json({ ok: false, error: 'You do not have permission to delete setups.' });
     }
 
     await q('UPDATE std_actual SET is_deleted = true WHERE id = $1', [id]);
