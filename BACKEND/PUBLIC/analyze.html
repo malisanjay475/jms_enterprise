@@ -575,6 +575,16 @@
                         .oa-swatch { width:16px; height:16px; border-radius:5px; border:1px solid rgba(0,0,0,.1); flex:none; }
                         .oa-cbar { flex:1; height:8px; border-radius:999px; background:#eef2f7; overflow:hidden; }
                         .oa-cbar > span { display:block; height:100%; background:linear-gradient(90deg,#024c81,#01a8dd); }
+                        .oa-tabbar { display:flex; gap:6px; overflow-x:auto; padding:6px; background:#fff; border:1px solid #e8edf3; border-radius:14px; margin-bottom:18px; position:sticky; top:0; z-index:5; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+                        .oa-tab { flex:none; display:inline-flex; align-items:center; gap:7px; padding:9px 15px; border:none; background:transparent; border-radius:10px; font-size:.85rem; font-weight:700; color:#64748b; cursor:pointer; white-space:nowrap; transition:all .15s ease; }
+                        .oa-tab:hover { background:#f1f5f9; color:#334155; }
+                        .oa-tab.active { background:linear-gradient(135deg,#024c81,#01a8dd); color:#fff; box-shadow:0 6px 14px -6px rgba(2,76,129,.5); }
+                        .oa-dt { width:100%; border-collapse:collapse; font-size:.85rem; }
+                        .oa-dt th, .oa-dt td { padding:9px 12px; border-bottom:1px solid #f1f5f9; text-align:left; }
+                        .oa-dt th { font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; color:#94a3b8; font-weight:700; }
+                        .oa-dt th.r, .oa-dt td.r { text-align:right; }
+                        .oa-dt tbody tr:hover { background:#f8fafc; }
+                        .oa-dt td:first-child { font-weight:600; color:#334155; }
                         @media (max-width:820px){ .oa-chart-grid { grid-template-columns:1fr; } }
                     </style>
 
@@ -619,106 +629,103 @@
                                 </div>
 
                                 <div id="modalDashboard" style="display:none">
-                                    <!-- Order info -->
-                                    <div class="oa-section">
-                                        <h4><i class="bi bi-info-circle"></i> Order Details</h4>
-                                        <div class="oa-meta">
-                                            <div><div class="lab">Client</div><div class="v" id="dClient">—</div></div>
-                                            <div><div class="lab">Item / Product</div><div class="v" id="dItem">—</div></div>
-                                            <div><div class="lab">Mould</div><div class="v" id="dMould">—</div></div>
-                                            <div><div class="lab">Machine</div><div class="v" id="dMachine">—</div></div>
-                                            <div><div class="lab">Job Card</div><div class="v" id="dJc">—</div></div>
-                                            <div><div class="lab">Priority</div><div class="v" id="dPriority">—</div></div>
-                                            <div><div class="lab">Plant / Line</div><div class="v" id="dPlant">—</div></div>
-                                            <div><div class="lab">Status</div><div class="v" id="dStatusText">—</div></div>
-                                        </div>
-                                        <div style="margin-top:16px">
-                                            <div style="display:flex; justify-content:space-between; font-size:.78rem; color:#64748b; margin-bottom:6px">
-                                                <span>Completion</span><span id="dProgLabel">—</span>
-                                            </div>
-                                            <div class="oa-prog" style="height:10px"><span id="dProgBar" style="width:0%"></span></div>
-                                        </div>
+                                    <!-- Tab bar -->
+                                    <div class="oa-tabbar" id="oaTabBar">
+                                        <button class="oa-tab active" data-tab="overview" onclick="oaTab('overview')"><i class="bi bi-grid-1x2"></i> Overview</button>
+                                        <button class="oa-tab" data-tab="break" onclick="oaTab('break')"><i class="bi bi-bar-chart-steps"></i> Breakdowns</button>
+                                        <button class="oa-tab" data-tab="quality" onclick="oaTab('quality')"><i class="bi bi-shield-check"></i> Quality &amp; Downtime</button>
+                                        <button class="oa-tab" data-tab="std" onclick="oaTab('std')"><i class="bi bi-hourglass-split"></i> STD &amp; Loss</button>
+                                        <button class="oa-tab" data-tab="plans" onclick="oaTab('plans')"><i class="bi bi-diagram-3"></i> Plans/Moulds</button>
+                                        <button class="oa-tab" data-tab="log" onclick="oaTab('log')"><i class="bi bi-clock-history"></i> Log</button>
                                     </div>
 
-                                    <!-- KPIs -->
-                                    <div class="oa-section">
-                                        <h4><i class="bi bi-speedometer2"></i> Key Metrics</h4>
-                                        <div class="oa-kpis">
-                                            <div class="oa-kpi accent-b"><div class="lab"><i class="bi bi-calendar-check"></i> Planned</div><div class="val" id="kpiPlan">—</div><div class="sub">pieces</div></div>
-                                            <div class="oa-kpi accent-g"><div class="lab"><i class="bi bi-check-circle"></i> Produced</div><div class="val" id="kpiGood">—</div><div class="sub" id="kpiGoodSub">good pcs</div></div>
-                                            <div class="oa-kpi accent-s"><div class="lab"><i class="bi bi-hourglass-split"></i> Balance</div><div class="val" id="kpiBal">—</div><div class="sub">remaining</div></div>
-                                            <div class="oa-kpi accent-r"><div class="lab"><i class="bi bi-x-circle"></i> Rejected</div><div class="val" id="kpiReject">—</div><div class="sub" id="kpiRejSub">—</div></div>
-                                            <div class="oa-kpi accent-p"><div class="lab"><i class="bi bi-lightning-charge"></i> Efficiency</div><div class="val" id="kpiEff">—</div><div class="sub">vs STD output</div></div>
-                                            <div class="oa-kpi accent-t"><div class="lab"><i class="bi bi-gear-wide-connected"></i> OEE</div><div class="val" id="kpiOee">—</div><div class="sub" id="kpiOeeSub">A· P· Q·</div></div>
-                                            <div class="oa-kpi accent-a"><div class="lab"><i class="bi bi-exclamation-triangle"></i> Downtime</div><div class="val" id="kpiDown">—</div><div class="sub">minutes</div></div>
-                                        </div>
-                                    </div>
-
-                                    <!-- Lifecycle -->
-                                    <div class="oa-section">
-                                        <h4><i class="bi bi-signpost-split"></i> Order Lifecycle</h4>
-                                        <div id="lifecycleStepper" style="display:flex; align-items:flex-start; overflow-x:auto"></div>
-                                    </div>
-
-                                    <!-- Loss -->
-                                    <div class="oa-section">
-                                        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px">
-                                            <h4 style="margin:0"><i class="bi bi-hourglass-bottom"></i> STD vs Actual — Time &amp; Loss</h4>
-                                            <div style="display:flex; gap:8px; align-items:center; font-size:.78rem; color:#64748b">
-                                                <span>₹/shift</span>
-                                                <input type="number" id="rateShift" class="form-control" style="width:88px; padding:5px 8px" placeholder="0" oninput="onLossRateChange()">
-                                                <span>₹/mc-hr</span>
-                                                <input type="number" id="rateMcHr" class="form-control" style="width:88px; padding:5px 8px" placeholder="0" oninput="onLossRateChange()">
+                                    <!-- ===== OVERVIEW ===== -->
+                                    <div class="oa-panel" data-panel="overview">
+                                        <div class="oa-section">
+                                            <h4><i class="bi bi-info-circle"></i> Order Details</h4>
+                                            <div class="oa-meta" id="oaMeta"></div>
+                                            <div style="margin-top:16px">
+                                                <div style="display:flex; justify-content:space-between; font-size:.78rem; color:#64748b; margin-bottom:6px"><span>Completion</span><span id="dProgLabel">—</span></div>
+                                                <div class="oa-prog" style="height:12px"><span id="dProgBar" style="width:0%"></span></div>
                                             </div>
                                         </div>
-                                        <div style="display:grid; grid-template-columns:1fr 1.3fr; gap:20px; align-items:center">
-                                            <div id="lossCards" style="display:grid; grid-template-columns:1fr 1fr; gap:12px"></div>
-                                            <div style="height:240px; position:relative"><canvas id="lossWaterfall"></canvas></div>
+                                        <div class="oa-section">
+                                            <h4><i class="bi bi-speedometer2"></i> Key Metrics</h4>
+                                            <div class="oa-kpis" id="oaKpis"></div>
+                                        </div>
+                                        <div class="oa-section">
+                                            <h4><i class="bi bi-signpost-split"></i> Order Lifecycle</h4>
+                                            <div id="lifecycleStepper" style="display:flex; align-items:flex-start; overflow-x:auto"></div>
+                                        </div>
+                                        <div class="oa-chart-grid">
+                                            <div class="oa-chart"><h4>Production vs Plan Target</h4><div class="cwrap"><canvas id="timelineChart"></canvas></div></div>
+                                            <div class="oa-chart"><h4>Good vs Reject</h4><div class="cwrap"><canvas id="qualityDonut"></canvas></div></div>
                                         </div>
                                     </div>
 
-                                    <!-- STD specs + Colour split -->
-                                    <div class="oa-chart-grid" style="margin-bottom:18px">
-                                        <div class="oa-chart">
-                                            <h4>Standard vs Actual Specs</h4>
-                                            <table class="oa-spec">
-                                                <thead><tr><th>Parameter</th><th>Standard</th><th>Actual</th><th>Diff</th></tr></thead>
-                                                <tbody id="oaSpecBody"></tbody>
-                                            </table>
+                                    <!-- ===== BREAKDOWNS ===== -->
+                                    <div class="oa-panel" data-panel="break" hidden>
+                                        <div class="oa-chart" style="margin-bottom:18px"><h4>Day-wise Production</h4><div class="cwrap" style="height:240px"><canvas id="bdDayChart"></canvas></div>
+                                            <div style="overflow-x:auto; margin-top:12px"><table class="oa-dt"><thead><tr><th>Date</th><th class="r">Good</th><th class="r">Reject</th><th class="r">Rej %</th><th class="r">Downtime</th><th class="r">Efficiency</th></tr></thead><tbody id="bdDayBody"></tbody></table></div>
                                         </div>
-                                        <div class="oa-chart">
-                                            <h4>Colour-wise Progress</h4>
-                                            <div id="oaColourWrap" style="max-height:230px; overflow-y:auto"></div>
+                                        <div class="oa-chart-grid" style="margin-bottom:18px">
+                                            <div class="oa-chart"><h4>Shift-wise</h4><div class="cwrap"><canvas id="bdShiftChart"></canvas></div>
+                                                <div style="overflow-x:auto; margin-top:10px"><table class="oa-dt"><thead><tr><th>Shift</th><th class="r">Good</th><th class="r">Reject</th><th class="r">Downtime</th></tr></thead><tbody id="bdShiftBody"></tbody></table></div>
+                                            </div>
+                                            <div class="oa-chart"><h4>Colour-wise Progress</h4><div id="oaColourWrap" style="max-height:300px; overflow-y:auto"></div></div>
+                                        </div>
+                                        <div class="oa-chart"><h4>Machine-wise</h4><div class="cwrap" style="height:220px"><canvas id="bdMachineChart"></canvas></div>
+                                            <div style="overflow-x:auto; margin-top:12px"><table class="oa-dt"><thead><tr><th>Machine</th><th class="r">Good</th><th class="r">Reject</th><th class="r">Rej %</th><th class="r">Downtime</th><th class="r">Run Hrs</th></tr></thead><tbody id="bdMachineBody"></tbody></table></div>
                                         </div>
                                     </div>
 
-                                    <!-- Charts -->
-                                    <div class="oa-chart-grid" style="margin-bottom:18px">
-                                        <div class="oa-chart"><h4>Production vs Plan Target</h4><div class="cwrap"><canvas id="timelineChart"></canvas></div></div>
-                                        <div class="oa-chart"><h4>Cycle Time — Actual vs STD</h4><div class="cwrap"><canvas id="ctChart"></canvas></div></div>
-                                        <div class="oa-chart"><h4>Downtime Breakdown</h4><div class="cwrap"><canvas id="downtimeChart"></canvas></div></div>
-                                        <div class="oa-chart"><h4>Rejection Pareto</h4><div class="cwrap"><canvas id="rejectChart"></canvas></div></div>
+                                    <!-- ===== QUALITY & DOWNTIME ===== -->
+                                    <div class="oa-panel" data-panel="quality" hidden>
+                                        <div class="oa-chart-grid" style="margin-bottom:18px">
+                                            <div class="oa-chart"><h4>Rejection Pareto</h4><div class="cwrap"><canvas id="rejectChart"></canvas></div></div>
+                                            <div class="oa-chart"><h4>Downtime Breakdown</h4><div class="cwrap"><canvas id="downtimeChart"></canvas></div></div>
+                                        </div>
+                                        <div class="oa-chart-grid" style="margin-bottom:18px">
+                                            <div class="oa-chart"><h4>Rejection by Reason</h4><div style="overflow-x:auto"><table class="oa-dt"><thead><tr><th>Reason</th><th class="r">Qty</th><th class="r">Share</th></tr></thead><tbody id="rejBody"></tbody></table></div></div>
+                                            <div class="oa-chart"><h4>Downtime by Reason</h4><div style="overflow-x:auto"><table class="oa-dt"><thead><tr><th>Reason</th><th class="r">Minutes</th><th class="r">Share</th></tr></thead><tbody id="dtBody"></tbody></table></div></div>
+                                        </div>
+                                        <div class="oa-chart"><h4>Cycle Time — Actual vs STD</h4><div class="cwrap" style="height:200px"><canvas id="ctChart"></canvas></div></div>
                                     </div>
 
-                                    <!-- Insights -->
-                                    <div class="oa-section">
-                                        <h4><i class="bi bi-lightbulb"></i> Insights</h4>
-                                        <div id="insightList" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px"></div>
+                                    <!-- ===== STD & LOSS ===== -->
+                                    <div class="oa-panel" data-panel="std" hidden>
+                                        <div class="oa-chart" style="margin-bottom:18px"><h4>Standard vs Actual Specs</h4>
+                                            <table class="oa-spec"><thead><tr><th>Parameter</th><th>Standard</th><th>Actual</th><th>Diff</th></tr></thead><tbody id="oaSpecBody"></tbody></table>
+                                        </div>
+                                        <div class="oa-section">
+                                            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px">
+                                                <h4 style="margin:0"><i class="bi bi-hourglass-bottom"></i> STD vs Actual — Time &amp; Loss</h4>
+                                                <div style="display:flex; gap:8px; align-items:center; font-size:.78rem; color:#64748b">
+                                                    <span>₹/shift</span><input type="number" id="rateShift" class="form-control" style="width:88px; padding:5px 8px" placeholder="0" oninput="onLossRateChange()">
+                                                    <span>₹/mc-hr</span><input type="number" id="rateMcHr" class="form-control" style="width:88px; padding:5px 8px" placeholder="0" oninput="onLossRateChange()">
+                                                </div>
+                                            </div>
+                                            <div style="display:grid; grid-template-columns:1fr 1.3fr; gap:20px; align-items:center">
+                                                <div id="lossCards" style="display:grid; grid-template-columns:1fr 1fr; gap:12px"></div>
+                                                <div style="height:250px; position:relative"><canvas id="lossWaterfall"></canvas></div>
+                                            </div>
+                                        </div>
+                                        <div class="oa-section"><h4><i class="bi bi-lightbulb"></i> Insights</h4><div id="insightList" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px"></div></div>
                                     </div>
 
-                                    <!-- Production log -->
-                                    <div class="oa-section" style="padding:0; overflow:hidden">
-                                        <div style="padding:14px 20px; border-bottom:1px solid #eef2f7"><h4 style="margin:0"><i class="bi bi-clock-history"></i> Production Log</h4></div>
-                                        <div style="overflow-x:auto">
-                                            <table class="table" style="margin:0; font-size:.88rem">
-                                                <thead style="background:#f8fafc; color:#64748b; font-size:.72rem; text-transform:uppercase">
-                                                    <tr>
-                                                        <th style="padding:12px 20px">Date</th><th>Shift</th><th>Hour</th><th>Machine</th>
-                                                        <th class="text-end">Good</th><th class="text-center">Reject</th><th>Downtime</th><th>Entered By</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody id="logTableBody"></tbody>
-                                            </table>
+                                    <!-- ===== PLANS ===== -->
+                                    <div class="oa-panel" data-panel="plans" hidden>
+                                        <div class="oa-chart" style="padding:0; overflow:hidden">
+                                            <div style="padding:14px 18px; border-bottom:1px solid #eef2f7"><h4 style="margin:0">Plans / Moulds in this Order</h4></div>
+                                            <div style="overflow-x:auto"><table class="oa-dt"><thead><tr><th>Plan ID</th><th>Mould</th><th>Machine</th><th>Status</th><th class="r">Plan</th><th class="r">Produced</th><th class="r">Balance</th><th class="r">Reject</th><th>Dates</th></tr></thead><tbody id="plansBody"></tbody></table></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- ===== LOG ===== -->
+                                    <div class="oa-panel" data-panel="log" hidden>
+                                        <div class="oa-chart" style="padding:0; overflow:hidden">
+                                            <div style="padding:14px 18px; border-bottom:1px solid #eef2f7; display:flex; justify-content:space-between; align-items:center"><h4 style="margin:0">Production Log</h4><span id="logCount" style="font-size:.78rem; color:#94a3b8"></span></div>
+                                            <div style="overflow-x:auto; max-height:520px"><table class="oa-dt"><thead style="position:sticky; top:0; background:#f8fafc"><tr><th>Date</th><th>Shift</th><th>Hour</th><th>Machine</th><th>Colour</th><th class="r">Good</th><th class="r">Reject</th><th>Downtime</th><th>Entered By</th></tr></thead><tbody id="logTableBody"></tbody></table></div>
                                         </div>
                                     </div>
                                 </div>
@@ -1022,7 +1029,7 @@
             }
 
             listEl.innerHTML = filtered.map(o => {
-                const cls = o.status.toLowerCase();
+                const cls = statusClass(o.status);
                 const plan = o.planQty || 0;
                 const done = Math.max(0, plan - (o.balQty || 0));
                 const pct = plan > 0 ? Math.min(100, Math.round((done / plan) * 100)) : 0;
@@ -1030,7 +1037,7 @@
                 <div class="oa-card ${cls}" data-ono="${esc(o.orderNo)}">
                     <div class="oa-card-top">
                         <div class="oa-ono">${esc(o.orderNo)}</div>
-                        <span class="oa-badge ${cls}">${esc(o.status)}</span>
+                        <span class="oa-badge ${cls}">${esc(o.status || '—')}</span>
                     </div>
                     <div class="oa-mould"><i class="bi bi-tools"></i> ${esc(o.mould)}</div>
                     <div class="oa-item">${esc(o.item)}</div>
@@ -1103,9 +1110,15 @@
             let hash = 0; for (let i = 0; i < n.length; i++) hash = n.charCodeAt(i) + ((hash << 5) - hash);
             return OA_PALETTE[Math.abs(hash) % OA_PALETTE.length];
         }
+        function specNum(v) {
+            if (v == null || v === '') return null;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+        }
         function specRow(label, std, act, unit) {
-            const s = (std != null && std !== '') ? Number(std) : null;
-            const a = (act != null && act !== '') ? Number(act) : null;
+            const s = specNum(std);
+            const a = specNum(act);
+            if (s == null && a == null) return ''; // no standard/actual → let caller show fallback
             const diff = (s != null && a != null) ? (a - s) : null;
             const dTxt = diff == null ? '—' : `${diff > 0 ? '+' : ''}${(Math.round(diff * 100) / 100)}`;
             const dCol = diff == null ? '#94a3b8' : (Math.abs(diff) < 1e-9 ? '#10b981' : (diff > 0 ? '#ef4444' : '#f59e0b'));
@@ -1113,48 +1126,72 @@
             return `<tr><td>${label}</td><td>${fmt(s)}</td><td>${fmt(a)}</td><td style="color:${dCol}; font-weight:700">${dTxt}</td></tr>`;
         }
 
+        function oaTab(name) {
+            document.querySelectorAll('#oaTabBar .oa-tab').forEach(b => b.classList.toggle('active', b.getAttribute('data-tab') === name));
+            document.querySelectorAll('#modalDashboard .oa-panel').forEach(p => { p.hidden = (p.getAttribute('data-panel') !== name); });
+            // Chart.js sizes to 0 inside hidden panels — resize the now-visible ones
+            const panel = document.querySelector('#modalDashboard .oa-panel[data-panel="' + name + '"]');
+            if (panel) requestAnimationFrame(() => {
+                Object.values(orderCharts).forEach(ch => { try { if (ch && panel.contains(ch.canvas)) ch.resize(); } catch (e) { } });
+            });
+        }
+
+        const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+        function metaRow(lab, v) { return `<div><div class="lab">${lab}</div><div class="v">${esc(v == null || v === '' ? '—' : v)}</div></div>`; }
+        function kpiCard(accent, icon, lab, val, sub) {
+            return `<div class="oa-kpi ${accent}"><div class="lab"><i class="bi ${icon}"></i> ${lab}</div><div class="val">${val}</div><div class="sub">${sub || ''}</div></div>`;
+        }
+        function fmtD(d) { return d ? new Date(d).toLocaleDateString() : '—'; }
+
         function renderOrderDashboard(data) {
             currentOrderData = data;
-            const { info, logs } = data;
+            const info = data.info || {};
             const totals = data.totals || {};
             const loss = data.loss || {};
-            const cls = statusClass(info.status);
+            const logs = Array.isArray(data.logs) ? data.logs : [];
+            const plans = Array.isArray(data.plans) ? data.plans : [];
 
             // Header badge + subtitle
-            const badge = document.getElementById('oaHeadBadge');
-            badge.textContent = info.status || 'Unknown';
+            document.getElementById('oaHeadBadge').textContent = info.status || 'Unknown';
             const subEl = document.getElementById('modalSubtitle');
             if (subEl) subEl.textContent = [info.client_name, info.mould_name || info.mould_number].filter(Boolean).join(' · ') || 'Analysis';
 
-            // Order details
-            const setT = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-            const itemTxt = info.item_name || info.itemName || info.product_name || '-';
-            setT('dClient', info.client_name || '-');
-            setT('dItem', info.product_name && info.product_name !== itemTxt ? `${itemTxt} · ${info.product_name}` : itemTxt);
-            setT('dMould', info.mould_name || info.mould_number || '-');
-            setT('dMachine', loss.machine || info.machine || 'Multiple');
-            setT('dJc', info.job_card_no || '-');
-            setT('dPriority', info.priority || '-');
-            setT('dPlant', [info.plant, info.line].filter(Boolean).join(' / ') || '-');
-            setT('dStatusText', info.status || 'Unknown');
-
-            // Totals
-            const totalGood = Math.round(totals.good || 0);
-            const totalReject = Math.round(totals.rej || 0);
+            // Totals (whole order)
+            const totalGood = Math.round(num(totals.good));
+            const totalReject = Math.round(num(totals.rej));
             const output = totalGood + totalReject;
-            const plan = Math.round(totals.plan || info.plan_qty || 0);
+            const plan = Math.round(num(totals.plan_order) || num(totals.plan) || num(info.plan_qty));
             const bal = Math.max(0, plan - totalGood);
             const donePct = plan > 0 ? Math.min(100, Math.round((totalGood / plan) * 100)) : 0;
             const rejRate = output > 0 ? ((totalReject / output) * 100).toFixed(1) : '0.0';
 
+            // Order details meta
+            const itemTxt = info.item_name || info.product_name || '-';
+            document.getElementById('oaMeta').innerHTML = [
+                metaRow('Client', info.client_name),
+                metaRow('Item / Product', info.product_name && info.product_name !== itemTxt ? `${itemTxt} · ${info.product_name}` : itemTxt),
+                metaRow('Mould', info.mould_name || info.mould_number),
+                metaRow('Machine(s)', loss.machine || info.machine || 'Multiple'),
+                metaRow('Job Card', info.job_card_no),
+                metaRow('Priority', info.priority),
+                metaRow('Plant / Line', [info.plant, info.line].filter(Boolean).join(' / ')),
+                metaRow('Status', info.status),
+                metaRow('OR Qty', info.or_qty != null ? Math.round(num(info.or_qty)).toLocaleString() : null),
+                metaRow('Plan Qty (order)', plan.toLocaleString()),
+                metaRow('OR Date', fmtD(info.or_jr_date)),
+                metaRow('JC Date', fmtD(info.job_card_date)),
+                metaRow('Plan Dates', [fmtD(info.start_date), fmtD(info.end_date)].join(' → ')),
+                metaRow('Batch', info.batch_no ? `${info.batch_no}${info.batch_qty ? ' (' + Math.round(num(info.batch_qty)).toLocaleString() + ')' : ''}` : null)
+            ].join('');
+
             // Progress
             document.getElementById('dProgBar').style.width = donePct + '%';
-            setT('dProgLabel', `${totalGood.toLocaleString()} / ${plan.toLocaleString()} pcs (${donePct}%)`);
+            document.getElementById('dProgLabel').textContent = `${totalGood.toLocaleString()} / ${plan.toLocaleString()} pcs (${donePct}%)`;
 
-            // Efficiency + OEE (from loss)
-            const pph = loss.pcs_per_hour_std || 0;
-            const runHours = loss.actual_hours || 0;
-            const downHours = loss.downtime_hours || 0;
+            // Efficiency + OEE
+            const pph = num(loss.pcs_per_hour_std);
+            const runHours = num(loss.actual_hours);
+            const downHours = num(loss.downtime_hours);
             const productiveHours = Math.max(0, runHours - downHours);
             const theoretical = pph > 0 ? pph * productiveHours : 0;
             const eff = theoretical > 0 ? Math.round((totalGood / theoretical) * 100) : 0;
@@ -1163,175 +1200,180 @@
             const quality = output > 0 ? totalGood / output : 0;
             const oee = Math.round(availability * performance * quality * 100);
 
-            setT('kpiPlan', plan.toLocaleString());
-            setT('kpiGood', totalGood.toLocaleString());
-            setT('kpiGoodSub', `${donePct}% of plan`);
-            setT('kpiBal', bal.toLocaleString());
-            setT('kpiReject', totalReject.toLocaleString());
-            setT('kpiRejSub', `${rejRate}% reject rate`);
-            setT('kpiEff', eff + '%');
-            setT('kpiOee', oee + '%');
-            setT('kpiOeeSub', `A${Math.round(availability * 100)} P${Math.round(performance * 100)} Q${Math.round(quality * 100)}`);
-            setT('kpiDown', Math.round(totals.dt || 0).toLocaleString());
+            document.getElementById('oaKpis').innerHTML = [
+                kpiCard('accent-b', 'bi-calendar-check', 'Planned', plan.toLocaleString(), 'pieces'),
+                kpiCard('accent-g', 'bi-check-circle', 'Produced', totalGood.toLocaleString(), `${donePct}% of plan`),
+                kpiCard('accent-s', 'bi-hourglass-split', 'Balance', bal.toLocaleString(), 'remaining'),
+                kpiCard('accent-r', 'bi-x-circle', 'Rejected', totalReject.toLocaleString(), `${rejRate}% reject rate`),
+                kpiCard('accent-p', 'bi-lightning-charge', 'Efficiency', eff + '%', 'vs STD output'),
+                kpiCard('accent-t', 'bi-gear-wide-connected', 'OEE', oee + '%', `A${Math.round(availability * 100)} P${Math.round(performance * 100)} Q${Math.round(quality * 100)}`),
+                kpiCard('accent-a', 'bi-exclamation-triangle', 'Downtime', Math.round(num(totals.dt)).toLocaleString(), 'minutes'),
+                kpiCard('accent-b', 'bi-diagram-3', 'Plans/Moulds', plans.length || 1, 'in this order')
+            ].join('');
 
-            // Lifecycle + Loss
             renderLifecycle(data.lifecycle || {});
             renderLoss(loss);
 
-            // STD vs Actual specs
-            document.getElementById('oaSpecBody').innerHTML = [
+            // Specs
+            const specRows = [
                 specRow('Weight (kg)', info.std_weight, info.act_weight, ''),
                 specRow('Cavity', info.std_cavity, info.act_cavity, ''),
                 specRow('Cycle Time (s)', info.std_cycle, info.act_cycle, '')
-            ].join('') || '<tr><td colspan="4" class="text-center p-3">No standard set</td></tr>';
+            ].filter(Boolean);
+            document.getElementById('oaSpecBody').innerHTML = specRows.length ? specRows.join('') : '<tr><td colspan="4" style="text-align:center; padding:16px; color:#94a3b8">No standard set</td></tr>';
 
-            // Colour-wise progress
-            const colourWrap = document.getElementById('oaColourWrap');
+            // Colour-wise
             const cstats = data.colour_stats || {};
             const cKeys = Object.keys(cstats);
-            if (cKeys.length) {
-                colourWrap.innerHTML = cKeys.map(c => {
-                    const cs = cstats[c];
-                    const cp = Math.round(cs.plan_qty || 0), cg = Math.round(cs.good_qty || 0);
-                    const pct = cp > 0 ? Math.min(100, Math.round((cg / cp) * 100)) : 0;
-                    return `<div class="oa-colour-row">
-                        <span class="oa-swatch" style="background:${cssColour(c)}"></span>
-                        <div style="flex:1; min-width:0">
-                            <div style="display:flex; justify-content:space-between; font-size:.82rem"><span style="font-weight:600; color:#334155">${esc(c)}</span><span style="color:#64748b">${cg.toLocaleString()} / ${cp.toLocaleString()}</span></div>
-                            <div class="oa-cbar" style="margin-top:5px"><span style="width:${pct}%"></span></div>
-                        </div>
-                        <span style="font-size:.8rem; font-weight:700; color:#475569; width:38px; text-align:right">${pct}%</span>
-                    </div>`;
-                }).join('');
-            } else {
-                colourWrap.innerHTML = '<div style="color:#94a3b8; padding:20px; text-align:center">No colour breakdown</div>';
-            }
+            document.getElementById('oaColourWrap').innerHTML = cKeys.length ? cKeys.map(c => {
+                const cs = cstats[c]; const cp = Math.round(num(cs.plan_qty)), cg = Math.round(num(cs.good_qty)), cr = Math.round(num(cs.rej_qty));
+                const pct = cp > 0 ? Math.min(100, Math.round((cg / cp) * 100)) : 0;
+                return `<div class="oa-colour-row"><span class="oa-swatch" style="background:${cssColour(c)}"></span><div style="flex:1; min-width:0"><div style="display:flex; justify-content:space-between; font-size:.82rem"><span style="font-weight:600; color:#334155">${esc(c)}</span><span style="color:#64748b">${cg.toLocaleString()} / ${cp.toLocaleString()}${cr ? ' · ' + cr + ' rej' : ''}</span></div><div class="oa-cbar" style="margin-top:5px"><span style="width:${pct}%"></span></div></div><span style="font-size:.8rem; font-weight:700; color:#475569; width:38px; text-align:right">${pct}%</span></div>`;
+            }).join('') : '<div style="color:#94a3b8; padding:20px; text-align:center">No colour breakdown</div>';
 
-            // Insights (data-driven)
+            // Insights
             const insights = [];
             const ins = (icon, col, text) => insights.push(`<div style="display:flex; gap:10px; align-items:flex-start; background:#f8fafc; border:1px solid #eef2f7; border-radius:12px; padding:12px 14px"><i class="bi ${icon}" style="color:${col}; font-size:1.1rem"></i><div style="font-size:.85rem; color:#475569; line-height:1.4">${text}</div></div>`);
-            if (eff >= 80) ins('bi-check-circle-fill', '#10b981', `Efficiency healthy at <strong>${eff}%</strong> (good vs STD-achievable).`);
-            else ins('bi-exclamation-triangle-fill', '#f59e0b', `Efficiency below target: <strong>${eff}%</strong> vs 80%.`);
-            if (loss.shift_loss > 0) ins('bi-hourglass-split', '#ef4444', `<strong>${loss.shift_loss}</strong> shift(s) lost — ${loss.total_loss_hours || 0}h over STD.`);
+            if (theoretical > 0) ins(eff >= 80 ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill', eff >= 80 ? '#10b981' : '#f59e0b', `Efficiency ${eff >= 80 ? 'healthy' : 'below target'} at <strong>${eff}%</strong>.`);
+            if (num(loss.shift_loss) > 0) ins('bi-hourglass-split', '#ef4444', `<strong>${loss.shift_loss}</strong> shift(s) lost — ${loss.total_loss_hours || 0}h over STD.`);
             const topRej = Object.entries(data.rejection_stats || {}).sort((a, b) => b[1] - a[1])[0];
-            if (topRej && topRej[1] > 0) ins('bi-x-octagon', '#ef4444', `Top rejection cause: <strong>${esc(topRej[0])}</strong> (${Math.round(topRej[1])} pcs).`);
+            if (topRej && topRej[1] > 0) ins('bi-x-octagon', '#ef4444', `Top rejection: <strong>${esc(topRej[0])}</strong> (${Math.round(topRej[1])} pcs).`);
             const topDt = Object.entries(data.downtime_stats || {}).sort((a, b) => b[1] - a[1])[0];
             if (topDt && topDt[1] > 0) ins('bi-cone-striped', '#f59e0b', `Biggest downtime: <strong>${esc(topDt[0])}</strong> (${Math.round(topDt[1])} min).`);
-            if (bal === 0 && plan > 0) ins('bi-flag-fill', '#10b981', `Plan quantity fully achieved.`);
-            else if (plan > 0) ins('bi-bullseye', '#3b82f6', `<strong>${bal.toLocaleString()}</strong> pcs balance to complete the plan.`);
+            if (bal === 0 && plan > 0) ins('bi-flag-fill', '#10b981', 'Plan quantity fully achieved.');
+            else if (plan > 0) ins('bi-bullseye', '#3b82f6', `<strong>${bal.toLocaleString()}</strong> pcs balance to complete.`);
+            if (!insights.length) ins('bi-info-circle', '#94a3b8', 'No production activity recorded yet for this order.');
             document.getElementById('insightList').innerHTML = insights.join('');
 
-            // Production log
-            const tbody = document.getElementById('logTableBody');
-            if (logs && logs.length > 0) {
-                tbody.innerHTML = logs.map((l) => {
-                    const dt = Math.round(parseFloat(l.downtime_min) || 0);
-                    const enteredBy = esc(l.userName || l.created_by || '-');
-                    const role = l.userRole ? ` <span style="font-size:.7rem; color:#94a3b8">(${esc(l.userRole)})</span>` : '';
-                    return `<tr>
-                        <td style="padding:11px 20px; color:#334155">${l.date ? new Date(l.date).toLocaleDateString() : '-'}</td>
-                        <td style="color:#64748b">${esc(l.shift || '-')}</td>
-                        <td style="color:#64748b">${esc(l.hour_slot || '-')}</td>
-                        <td style="color:#64748b">${esc(l.machine || '-')}${l.colour ? ' · ' + esc(l.colour) : ''}</td>
-                        <td class="text-end" style="font-weight:700; color:#334155">${(parseInt(l.good_qty) || 0).toLocaleString()}</td>
-                        <td class="text-center" style="color:${l.reject_qty > 0 ? '#ef4444' : '#94a3b8'}">${parseInt(l.reject_qty) || 0}</td>
-                        <td>${dt > 0 ? `<span style="color:#f59e0b; font-weight:600">${dt} min</span>` : '<span style="color:#10b981">—</span>'}</td>
-                        <td style="color:#475569; font-weight:600">${enteredBy}${role}</td>
-                    </tr>`;
-                }).join('');
-            } else {
-                tbody.innerHTML = '<tr><td colspan="8" class="text-center p-3">No activity logs found</td></tr>';
-            }
+            // Plans table
+            document.getElementById('plansBody').innerHTML = plans.length ? plans.map(p => {
+                const pq = Math.round(num(p.plan_qty)), pg = Math.round(num(p.produced_good)), pb = Math.max(0, pq - pg);
+                return `<tr><td>${esc(p.plan_id || '—')}</td><td>${esc(p.mould_name || p.mould_code || '—')}</td><td>${esc(p.machine || '—')}</td><td>${esc(p.status || '—')}</td><td class="r">${pq.toLocaleString()}</td><td class="r">${pg.toLocaleString()}</td><td class="r">${pb.toLocaleString()}</td><td class="r" style="color:${p.produced_rej > 0 ? '#ef4444' : '#94a3b8'}">${Math.round(num(p.produced_rej)).toLocaleString()}</td><td style="font-size:.78rem; color:#64748b">${fmtD(p.start_date)} → ${fmtD(p.end_date)}</td></tr>`;
+            }).join('') : '<tr><td colspan="9" style="text-align:center; padding:16px; color:#94a3b8">No plans found</td></tr>';
 
+            // Log
+            const tbody = document.getElementById('logTableBody');
+            document.getElementById('logCount').textContent = logs.length ? `${logs.length} entries` : '';
+            tbody.innerHTML = logs.length ? logs.map(l => {
+                const dt = Math.round(num(l.downtime_min));
+                const by = esc(l.userName || l.created_by || '-');
+                const role = l.userRole ? ` <span style="font-size:.7rem; color:#94a3b8">(${esc(l.userRole)})</span>` : '';
+                return `<tr><td>${l.date ? new Date(l.date).toLocaleDateString() : '-'}</td><td>${esc(l.shift || '-')}</td><td>${esc(l.hour_slot || '-')}</td><td>${esc(l.machine || '-')}</td><td>${esc(l.colour || '-')}</td><td class="r" style="font-weight:700">${Math.round(num(l.good_qty)).toLocaleString()}</td><td class="r" style="color:${num(l.reject_qty) > 0 ? '#ef4444' : '#94a3b8'}">${Math.round(num(l.reject_qty))}</td><td>${dt > 0 ? `<span style="color:#f59e0b; font-weight:600">${dt} min</span>` : '<span style="color:#10b981">—</span>'}</td><td style="font-weight:600; color:#475569">${by}${role}</td></tr>`;
+            }).join('') : '<tr><td colspan="9" style="text-align:center; padding:16px; color:#94a3b8">No activity logs found</td></tr>';
+
+            // Breakdown tables (day / shift / machine)
+            renderBreakdownTables(data, pph);
+
+            // Reset to first tab + charts
+            oaTab('overview');
             renderOrderCharts(data);
         }
 
+        function aggLogs(logs, keyFn) {
+            const m = {};
+            logs.forEach(l => {
+                const k = keyFn(l); if (k == null || k === '') return;
+                if (!m[k]) m[k] = { key: k, good: 0, rej: 0, dt: 0, slots: new Set() };
+                m[k].good += num(l.good_qty); m[k].rej += num(l.reject_qty); m[k].dt += num(l.downtime_min);
+                m[k].slots.add(`${l.date}|${l.shift}|${l.hour_slot}|${l.machine}`);
+            });
+            return Object.values(m);
+        }
+        function effOf(a, pph) {
+            const prod = Math.max(0, a.slots.size - a.dt / 60);
+            const theo = pph > 0 ? pph * prod : 0;
+            return theo > 0 ? Math.round((a.good / theo) * 100) : 0;
+        }
+        let oaBreak = {};
+        function renderBreakdownTables(data, pph) {
+            const logs = data.logs || [];
+            const rowNums = (a) => { const out = a.good + a.rej; const rr = out > 0 ? ((a.rej / out) * 100).toFixed(1) : '0.0'; return { out, rr }; };
+            const days = aggLogs(logs, l => l.date).sort((a, b) => String(a.key).localeCompare(String(b.key)));
+            const shifts = aggLogs(logs, l => l.shift || 'Unknown').sort((a, b) => b.good - a.good);
+            const machines = aggLogs(logs, l => l.machine || 'Unassigned').sort((a, b) => b.good - a.good);
+            oaBreak = { days, shifts, machines };
+
+            document.getElementById('bdDayBody').innerHTML = days.length ? days.map(a => { const { rr } = rowNums(a); return `<tr><td>${a.key ? new Date(a.key).toLocaleDateString() : '—'}</td><td class="r">${Math.round(a.good).toLocaleString()}</td><td class="r">${Math.round(a.rej)}</td><td class="r">${rr}%</td><td class="r">${Math.round(a.dt)} min</td><td class="r">${effOf(a, pph)}%</td></tr>`; }).join('') : '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:14px">No data</td></tr>';
+            document.getElementById('bdShiftBody').innerHTML = shifts.length ? shifts.map(a => `<tr><td>${esc(a.key)}</td><td class="r">${Math.round(a.good).toLocaleString()}</td><td class="r">${Math.round(a.rej)}</td><td class="r">${Math.round(a.dt)} min</td></tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:14px">No data</td></tr>';
+            document.getElementById('bdMachineBody').innerHTML = machines.length ? machines.map(a => { const { rr } = rowNums(a); return `<tr><td>${esc(a.key)}</td><td class="r">${Math.round(a.good).toLocaleString()}</td><td class="r">${Math.round(a.rej)}</td><td class="r">${rr}%</td><td class="r">${Math.round(a.dt)} min</td><td class="r">${a.slots.size}</td></tr>`; }).join('') : '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:14px">No data</td></tr>';
+        }
+
+        function mkChart(id, cfg) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (orderCharts[id]) { orderCharts[id].destroy(); delete orderCharts[id]; }
+            orderCharts[id] = new Chart(el, cfg);
+        }
         function renderOrderCharts(data) {
             const logs = data.logs || [];
+            const b = oaBreak || {};
 
-            ['timelineChart', 'ctChart', 'downtimeChart', 'rejectChart'].forEach(id => {
-                if (orderCharts[id]) { orderCharts[id].destroy(); delete orderCharts[id]; }
+            // Overview: production vs plan (cumulative by day)
+            const days = (b.days || []);
+            let acc = 0; const cum = days.map(a => (acc += a.good));
+            const plan = Math.round(num((data.totals || {}).plan_order) || num((data.totals || {}).plan));
+            const step = plan / Math.max(days.length, 1);
+            mkChart('timelineChart', {
+                type: 'line',
+                data: { labels: days.map(a => a.key ? new Date(a.key).toLocaleDateString() : '—'), datasets: [
+                    { label: 'Produced (cum.)', data: cum, borderColor: '#024c81', backgroundColor: 'rgba(1,168,221,.12)', fill: true, tension: .35, pointRadius: 3, pointBackgroundColor: '#fff', pointBorderColor: '#024c81', pointBorderWidth: 2 },
+                    { label: 'Plan Target', data: days.map((_, i) => Math.round((i + 1) * step)), borderColor: '#10b981', borderDash: [6, 5], pointRadius: 0, tension: .1, fill: false }
+                ] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } }, scales: { y: { beginAtZero: true }, x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } } } }
             });
 
-            // --- Chart 1: Production vs Plan (cumulative, grouped by day) ---
-            const timelineCtx = document.getElementById('timelineChart');
-            if (timelineCtx) {
-                const byDay = {};
-                logs.forEach(l => {
-                    const d = l.date || 'NA';
-                    byDay[d] = (byDay[d] || 0) + (parseInt(l.good_qty) || 0);
-                });
-                const days = Object.keys(byDay).sort();
-                let acc = 0;
-                const cum = days.map(d => (acc += byDay[d]));
-                const plan = Math.round((data.totals && data.totals.plan) || data.info.plan_qty || 0);
-                const step = plan / Math.max(days.length, 1);
-                const target = days.map((_, i) => Math.round((i + 1) * step));
-                orderCharts['timelineChart'] = new Chart(timelineCtx, {
-                    type: 'line',
-                    data: {
-                        labels: days.map(d => d === 'NA' ? '—' : new Date(d).toLocaleDateString()),
-                        datasets: [
-                            { label: 'Produced (cum.)', data: cum, borderColor: '#024c81', backgroundColor: 'rgba(1,168,221,.12)', fill: true, tension: 0.35, pointRadius: 3, pointBackgroundColor: '#fff', pointBorderColor: '#024c81', pointBorderWidth: 2 },
-                            { label: 'Plan Target', data: target, borderColor: '#10b981', borderDash: [6, 5], tension: 0.1, pointRadius: 0, fill: false }
-                        ]
-                    },
-                    options: {
-                        responsive: true, maintainAspectRatio: false,
-                        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } },
-                        scales: { y: { beginAtZero: true }, x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } } }
-                    }
-                });
-            }
+            // Overview: good vs reject donut
+            const tg = Math.round(num((data.totals || {}).good)), tr = Math.round(num((data.totals || {}).rej));
+            mkChart('qualityDonut', {
+                type: 'doughnut',
+                data: { labels: ['Good', 'Reject'], datasets: [{ data: [tg, tr || (tg ? 0 : 1)], backgroundColor: ['#10b981', '#ef4444'], borderWidth: 2, borderColor: '#fff' }] },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '62%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, usePointStyle: true } } } }
+            });
 
-            // --- Chart 2: Cycle time — Actual vs STD ---
-            const ctCtx = document.getElementById('ctChart');
-            if (ctCtx) {
-                const stdCT = Math.round((data.loss && data.loss.std_cycle) || data.info.std_cycle || 0);
-                const avgCT = Math.round(parseFloat(data.info.act_cycle) || 0);
-                orderCharts['ctChart'] = new Chart(ctCtx, {
-                    type: 'bar',
-                    data: { labels: ['Actual', 'Standard'], datasets: [{ data: [avgCT, stdCT], backgroundColor: [avgCT > stdCT && stdCT > 0 ? '#ef4444' : '#3b82f6', '#10b981'], barThickness: 64, borderRadius: 8 }] },
-                    options: {
-                        responsive: true, maintainAspectRatio: false,
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: { callbacks: { label: c => c.parsed.y + ' sec' } }
-                        },
-                        scales: { y: { beginAtZero: true, title: { display: true, text: 'seconds' } }, x: { grid: { display: false } } }
-                    }
-                });
-            }
+            // Breakdowns
+            const days2 = (b.days || []);
+            mkChart('bdDayChart', {
+                type: 'bar',
+                data: { labels: days2.map(a => a.key ? new Date(a.key).toLocaleDateString() : '—'), datasets: [
+                    { label: 'Good', data: days2.map(a => Math.round(a.good)), backgroundColor: '#10b981', borderRadius: 4, stack: 's' },
+                    { label: 'Reject', data: days2.map(a => Math.round(a.rej)), backgroundColor: '#ef4444', borderRadius: 4, stack: 's' }
+                ] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true } } }
+            });
+            const shifts = (b.shifts || []);
+            mkChart('bdShiftChart', {
+                type: 'bar',
+                data: { labels: shifts.map(a => a.key), datasets: [{ label: 'Good', data: shifts.map(a => Math.round(a.good)), backgroundColor: '#024c81', borderRadius: 5 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+            });
+            const machines = (b.machines || []);
+            mkChart('bdMachineChart', {
+                type: 'bar',
+                data: { labels: machines.map(a => a.key), datasets: [
+                    { label: 'Good', data: machines.map(a => Math.round(a.good)), backgroundColor: '#10b981', borderRadius: 4, stack: 's' },
+                    { label: 'Reject', data: machines.map(a => Math.round(a.rej)), backgroundColor: '#ef4444', borderRadius: 4, stack: 's' }
+                ] },
+                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } }, scales: { x: { stacked: true, beginAtZero: true }, y: { stacked: true } } }
+            });
 
-            // --- Chart 3: Downtime breakdown (doughnut) ---
-            const dtCtx = document.getElementById('downtimeChart');
-            if (dtCtx) {
-                const e = Object.entries(data.downtime_stats || {}).filter(([, v]) => (parseFloat(v) || 0) > 0).sort((a, b) => b[1] - a[1]);
-                const labels = e.length ? e.map(x => x[0]) : ['No downtime'];
-                const vals = e.length ? e.map(x => Math.round(parseFloat(x[1]))) : [1];
-                orderCharts['downtimeChart'] = new Chart(dtCtx, {
-                    type: 'doughnut',
-                    data: { labels, datasets: [{ data: vals, backgroundColor: OA_PALETTE, borderWidth: 2, borderColor: '#fff' }] },
-                    options: { responsive: true, maintainAspectRatio: false, cutout: '62%', plugins: { legend: { position: 'right', labels: { boxWidth: 12, usePointStyle: true, font: { size: 11 } } } } }
-                });
-            }
+            // Quality: rejection pareto + table
+            const rj = Object.entries(data.rejection_stats || {}).filter(([, v]) => num(v) > 0).sort((a, b2) => b2[1] - a[1]);
+            const rjTotal = rj.reduce((s, x) => s + num(x[1]), 0);
+            if (rj.length) mkChart('rejectChart', { type: 'bar', data: { labels: rj.slice(0, 10).map(x => x[0]), datasets: [{ label: 'Reject Qty', data: rj.slice(0, 10).map(x => Math.round(num(x[1]))), backgroundColor: '#ef4444', borderRadius: 5 }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } } });
+            else { if (orderCharts.rejectChart) { orderCharts.rejectChart.destroy(); delete orderCharts.rejectChart; } }
+            document.getElementById('rejBody').innerHTML = rj.length ? rj.map(x => `<tr><td>${esc(x[0])}</td><td class="r">${Math.round(num(x[1])).toLocaleString()}</td><td class="r">${rjTotal ? ((num(x[1]) / rjTotal) * 100).toFixed(1) : 0}%</td></tr>`).join('') : '<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:14px">No rejections</td></tr>';
 
-            // --- Chart 4: Rejection Pareto ---
-            const rjCtx = document.getElementById('rejectChart');
-            if (rjCtx) {
-                const e = Object.entries(data.rejection_stats || {}).filter(([, v]) => (parseFloat(v) || 0) > 0).sort((a, b) => b[1] - a[1]).slice(0, 10);
-                if (e.length) {
-                    orderCharts['rejectChart'] = new Chart(rjCtx, {
-                        type: 'bar',
-                        data: { labels: e.map(x => x[0]), datasets: [{ label: 'Reject Qty', data: e.map(x => Math.round(parseFloat(x[1]))), backgroundColor: '#ef4444', borderRadius: 5 }] },
-                        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } }
-                    });
-                } else {
-                    const c = rjCtx.getContext('2d'); c.clearRect(0, 0, rjCtx.width, rjCtx.height);
-                    c.fillStyle = '#94a3b8'; c.font = '14px sans-serif'; c.textAlign = 'center';
-                    c.fillText('No rejections recorded', rjCtx.width / 2, rjCtx.height / 2);
-                }
-            }
+            // Quality: downtime doughnut + table
+            const dt = Object.entries(data.downtime_stats || {}).filter(([, v]) => num(v) > 0).sort((a, b2) => b2[1] - a[1]);
+            const dtTotal = dt.reduce((s, x) => s + num(x[1]), 0);
+            if (dt.length) mkChart('downtimeChart', { type: 'doughnut', data: { labels: dt.map(x => x[0]), datasets: [{ data: dt.map(x => Math.round(num(x[1]))), backgroundColor: OA_PALETTE, borderWidth: 2, borderColor: '#fff' }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '60%', plugins: { legend: { position: 'right', labels: { boxWidth: 12, usePointStyle: true, font: { size: 11 } } } } } });
+            else { if (orderCharts.downtimeChart) { orderCharts.downtimeChart.destroy(); delete orderCharts.downtimeChart; } }
+            document.getElementById('dtBody').innerHTML = dt.length ? dt.map(x => `<tr><td>${esc(x[0])}</td><td class="r">${Math.round(num(x[1])).toLocaleString()}</td><td class="r">${dtTotal ? ((num(x[1]) / dtTotal) * 100).toFixed(1) : 0}%</td></tr>`).join('') : '<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:14px">No downtime</td></tr>';
+
+            // Quality: cycle actual vs std
+            const stdCT = Math.round(num((data.loss || {}).std_cycle) || num((data.info || {}).std_cycle));
+            const avgCT = Math.round(num((data.info || {}).act_cycle));
+            mkChart('ctChart', { type: 'bar', data: { labels: ['Actual', 'Standard'], datasets: [{ data: [avgCT, stdCT], backgroundColor: [avgCT > stdCT && stdCT > 0 ? '#ef4444' : '#3b82f6', '#10b981'], barThickness: 64, borderRadius: 8 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y + ' sec' } } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'seconds' } }, x: { grid: { display: false } } } } });
         }
 
         /* =========================================
