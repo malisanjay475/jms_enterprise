@@ -11,10 +11,62 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.30.0",
+  "latest": "1.36.0",
   "versions": [
     {
-      "version": "1.30.0",
+      "version": "1.36.0",
+      "date": "2026-08-12",
+      "title": "Order Analyze — full deep-dive with tabs",
+      "modules": [
+        {
+          "app": "analyze",
+          "label": "Analyze",
+          "icon": "bi-graph-up-arrow",
+          "changes": [
+            { "type": "feat", "text": "Opening an order in Analyze now shows a complete tabbed deep-dive: Overview, Breakdowns, Quality & Downtime, STD & Loss, Plans/Moulds and Log." },
+            { "type": "feat", "text": "Breakdowns tab adds day-wise (with efficiency), shift-wise, machine-wise and colour-wise views, each with a chart and table." },
+            { "type": "feat", "text": "A Plans/Moulds tab lists every plan in the order with planned, produced, balance and reject quantities, and the order now totals production across all its plans instead of just one." },
+            { "type": "fix", "text": "Fixed orders that showed blank or partial numbers when the order had more than one plan or mould — totals now cover the whole order." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.35.0",
+      "date": "2026-08-12",
+      "title": "Order Analyze redesigned — clearer, more accurate",
+      "modules": [
+        {
+          "app": "analyze",
+          "label": "Analyze",
+          "icon": "bi-graph-up-arrow",
+          "changes": [
+            { "type": "improvement", "text": "Order Analyze has a cleaner new layout. The order list now shows a completion progress bar on each card, and opening an order gives a tidy, sectioned dashboard instead of the old cramped view." },
+            { "type": "feat", "text": "The order dashboard now shows accurate key metrics together — Planned, Produced (with % of plan), Balance, Rejected with reject rate, Efficiency, OEE (Availability × Performance × Quality) and Downtime." },
+            { "type": "feat", "text": "New sections show Standard vs Actual specs (weight, cavity, cycle time with the difference), colour-wise progress, a rejection Pareto, and plain-language insights about efficiency, lost shifts, top rejection cause and biggest downtime." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.34.0",
+      "date": "2026-08-12",
+      "title": "Today & All Orders buttons on the Complete Production Plan Report",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "The Complete Production Plan Report now has a Today button (shows only plans completed today) and an All Orders button (clears the dates and shows everything), alongside the From/To date-wise filter." },
+            { "type": "fix", "text": "The Colour Detail tab no longer shows a 'too many clients' error on large date ranges — it now loads colour data in controlled batches." },
+            { "type": "improvement", "text": "Removed the summary metric cards from the top of the report for a cleaner, table-first view." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.33.0",
       "date": "2026-08-12",
       "title": "Redesigned Analyze — Order, Mould, Supervisor, Plant & Machine dashboards",
       "modules": [
@@ -29,6 +81,62 @@
             { "type": "feat", "text": "Plant Analyze shows line-wise and date-wise OEE with Availability, Performance and Quality, an OEE trend, and the top downtime loss reasons." },
             { "type": "feat", "text": "Machine Analyze shows per-machine utilisation, OEE ranking and downtime — click any machine to drill into its downtime and daily output." },
             { "type": "feat", "text": "Every Analyze screen respects your factory access, lets multi-factory users switch factory, and can compare factories side by side." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.32.0",
+      "date": "2026-08-12",
+      "title": "A cleaner Complete Production Plan Report",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "The Complete Production Plan Report now opens with a summary strip showing total completed plans, planned vs produced quantity, overall achievement %, and how many plans met target or were short closed." },
+            { "type": "fix", "text": "The Colour Detail tab no longer shows 'No colour breakdown data found' when colour data exists — it now loads and displays every colour correctly." },
+            { "type": "improvement", "text": "Colour Detail now shows full details for each plan — client, job card, product and machine — with a colour swatch, each colour's share of the plan, produced and balance quantities, and progress bars." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.31.0",
+      "date": "2026-08-12",
+      "title": "More PPC delete & restore access in DPR and Planning",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "Planner, PPC Manager and PPC Assistant Manager can now Delete Setup and Delete Quick Entry in the DPR Compliance Summary, the same as the existing Delete Entry access." }
+          ]
+        },
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "PPC Manager and PPC Assistant Manager can now Restore a completed plan back to the board from the Complete Production Plan report (previously Superadmin only)." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.30.0",
+      "date": "2026-08-12",
+      "title": "Job Sheet is now a date-wise daily plan list",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "The Job Sheet now has a Plan Date filter (with a Today button) and lists the orders whose plans were created on that date — pick any day to see what was planned. The View button still opens the order to show all of its moulds." },
+            { "type": "improvement", "text": "The Job Sheet is no longer limited to High Priority orders; it shows every order planned on the chosen date." }
           ]
         }
       ]
