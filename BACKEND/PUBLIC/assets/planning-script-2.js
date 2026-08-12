@@ -416,6 +416,19 @@
           const st = document.createElement('style');
           st.id = 'pcrStyles';
           st.textContent = `
+            .pcr-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px;}
+            @media(max-width:1100px){.pcr-kpis{grid-template-columns:repeat(3,1fr);}}
+            @media(max-width:640px){.pcr-kpis{grid-template-columns:repeat(2,1fr);}}
+            .pcr-kpi{display:flex;align-items:center;gap:11px;background:#fff;border:1px solid #e8eef5;
+              border-radius:13px;padding:12px 14px;box-shadow:0 1px 2px rgba(15,23,42,.04);}
+            .pcr-kpi-ico{width:38px;height:38px;flex:0 0 auto;border-radius:10px;display:inline-flex;
+              align-items:center;justify-content:center;font-size:1.05rem;}
+            .pcr-kpi-val{font-size:1.32rem;font-weight:900;color:#0f172a;line-height:1.05;
+              font-variant-numeric:tabular-nums;letter-spacing:-.01em;}
+            .pcr-kpi-lbl{font-size:0.68rem;color:#64748b;font-weight:700;text-transform:uppercase;
+              letter-spacing:.04em;margin-top:2px;}
+            .pcr-kpi-bar{margin-top:5px;height:4px;width:100%;background:#eef2f7;border-radius:3px;overflow:hidden;}
+            .pcr-kpi-bar>div{height:100%;border-radius:3px;}
             .pcr-grid{--pcr-cols:minmax(130px,1.2fr) 140px 150px minmax(210px,2.2fr) 110px minmax(120px,1fr) 84px 96px 104px 104px 104px 96px 92px 124px 70px;}
             .pcr-head{display:grid;grid-template-columns:var(--pcr-cols);gap:8px;align-items:center;position:sticky;top:0;z-index:6;
               padding:7px 12px;border-radius:10px;margin-bottom:6px;
@@ -467,8 +480,51 @@
         // Store plans for Detail tab use
         window._pcrPlans = plans;
 
+        // ─── KPI roll-up across all completed plans in view ──────────────
+        let kTotPlan = 0, kTotProd = 0, kMet = 0, kShort = 0;
+        plans.forEach(p => {
+          if (!p) return;
+          const _q = Number(p.planQty || 0), _pr = Number(p.producedQty || 0);
+          kTotPlan += _q; kTotProd += _pr;
+          if (_pr >= _q) kMet++; else kShort++;
+        });
+        const kAch = kTotPlan > 0 ? Math.round((kTotProd / kTotPlan) * 100) : 0;
+        const kAchColor = kAch >= 100 ? '#16a34a' : kAch >= 85 ? '#d97706' : '#dc2626';
+        const kBal = kTotProd - kTotPlan;
+        const kpiStrip = `
+          <div class="pcr-kpis">
+            <div class="pcr-kpi">
+              <div class="pcr-kpi-ico" style="background:#eff6ff;color:#2563eb"><i class="bi bi-clipboard-check"></i></div>
+              <div><div class="pcr-kpi-val">${plans.length.toLocaleString()}</div><div class="pcr-kpi-lbl">Completed Plans</div></div>
+            </div>
+            <div class="pcr-kpi">
+              <div class="pcr-kpi-ico" style="background:#f1f5f9;color:#475569"><i class="bi bi-bullseye"></i></div>
+              <div><div class="pcr-kpi-val">${kTotPlan.toLocaleString()}</div><div class="pcr-kpi-lbl">Total Planned</div></div>
+            </div>
+            <div class="pcr-kpi">
+              <div class="pcr-kpi-ico" style="background:#dcfce7;color:#16a34a"><i class="bi bi-box-seam"></i></div>
+              <div><div class="pcr-kpi-val" style="color:#15803d">${kTotProd.toLocaleString()}</div><div class="pcr-kpi-lbl">Total Produced</div></div>
+            </div>
+            <div class="pcr-kpi">
+              <div class="pcr-kpi-ico" style="background:${kAch>=100?'#dcfce7':'#fef3c7'};color:${kAchColor}"><i class="bi bi-graph-up-arrow"></i></div>
+              <div>
+                <div class="pcr-kpi-val" style="color:${kAchColor}">${kAch}%</div>
+                <div class="pcr-kpi-lbl">Achievement · ${kBal>=0?'+':''}${kBal.toLocaleString()}</div>
+                <div class="pcr-kpi-bar"><div style="width:${Math.min(100,kAch)}%;background:${kAchColor}"></div></div>
+              </div>
+            </div>
+            <div class="pcr-kpi">
+              <div class="pcr-kpi-ico" style="background:#dcfce7;color:#16a34a"><i class="bi bi-check2-circle"></i></div>
+              <div><div class="pcr-kpi-val" style="color:#15803d">${kMet.toLocaleString()}</div><div class="pcr-kpi-lbl">Target Met</div></div>
+            </div>
+            <div class="pcr-kpi">
+              <div class="pcr-kpi-ico" style="background:#fee2e2;color:#dc2626"><i class="bi bi-exclamation-triangle"></i></div>
+              <div><div class="pcr-kpi-val" style="color:#dc2626">${kShort.toLocaleString()}</div><div class="pcr-kpi-lbl">Short Closed</div></div>
+            </div>
+          </div>`;
+
         // Tab bar
-        let html = `
+        let html = kpiStrip + `
           <div id="pcr-tabs" style="display:flex; gap:8px; margin-bottom:12px; border-bottom:2px solid #e2e8f0; padding-bottom:0">
             <button id="pcr-tab-summary" onclick="window.showPcrTab('summary')"
               style="padding:7px 18px; border:none; border-bottom:3px solid #0369a1; background:none; color:#0369a1; font-weight:800; font-size:0.82rem; cursor:pointer; margin-bottom:-2px">
@@ -580,8 +636,11 @@
             return;
           }
 
-          // Fetch colour data for all completed plans
-          const planIds = plans.map(p => p.id || p.planId || p.plan_id).filter(Boolean);
+          // Fetch colour data for all completed plans.
+          // NOTE: the colour-wise-completion endpoint filters on pb.plan_id (the
+          // string PLN-… id), so we MUST send planId — sending the numeric PK (p.id)
+          // finds nothing and shows "No colour breakdown data found".
+          const planIds = plans.map(p => p.planId || p.plan_id || p.id).filter(Boolean);
           const allColourRows = [];
           // Fetch in one call per plan (or use the all endpoint)
           await Promise.all(planIds.map(async pid => {
@@ -596,6 +655,25 @@
             return;
           }
 
+          // Lookup summary plan info by planId (client, JC, product, mould code)
+          const planInfo = {};
+          plans.forEach(p => {
+            const k = String(p.planId || p.plan_id || p.id);
+            planInfo[k] = p;
+          });
+
+          const esc2 = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+          // Deterministic swatch colour from the colour name (for the dot indicator)
+          const swatch = (name) => {
+            const known = { WHITE:'#f8fafc', BLACK:'#1e293b', RED:'#dc2626', BLUE:'#2563eb', GREEN:'#16a34a',
+              YELLOW:'#eab308', ORANGE:'#f97316', PINK:'#ec4899', PURPLE:'#9333ea', GREY:'#94a3b8', GRAY:'#94a3b8',
+              BROWN:'#92400e', CREAM:'#fef9c3', NATURAL:'#e7e5e4', TRANSPARENT:'#e2e8f0', IVORY:'#fffbeb' };
+            const up = String(name || '').toUpperCase();
+            for (const key in known) { if (up.includes(key)) return known[key]; }
+            let h = 0; for (let i = 0; i < up.length; i++) h = (h * 31 + up.charCodeAt(i)) % 360;
+            return `hsl(${h},55%,60%)`;
+          };
+
           // Group by planId
           const grouped = {};
           allColourRows.forEach(r => {
@@ -604,61 +682,150 @@
             grouped[key].rows.push(r);
           });
 
-          // Render
-          let detailHtml = `<div style="margin-top:4px">`;
+          // ── Overall roll-up across every colour of every plan ──────────
+          let gTotPlan = 0, gTotProd = 0, gColours = 0;
           Object.values(grouped).forEach(g => {
+            g.rows.forEach(r => { gTotPlan += r.planQty; gTotProd += r.producedQty; gColours++; });
+          });
+          const gPct = gTotPlan > 0 ? Math.round((gTotProd / gTotPlan) * 100) : 0;
+          const gCol = gPct >= 100 ? '#16a34a' : gPct >= 85 ? '#d97706' : '#dc2626';
+
+          let detailHtml = `
+            <div class="pcrd-overall">
+              <div class="pcrd-ov-item"><div class="pcrd-ov-val">${Object.keys(grouped).length}</div><div class="pcrd-ov-lbl">Plans</div></div>
+              <div class="pcrd-ov-item"><div class="pcrd-ov-val">${gColours}</div><div class="pcrd-ov-lbl">Colour Lines</div></div>
+              <div class="pcrd-ov-item"><div class="pcrd-ov-val">${gTotPlan.toLocaleString()}</div><div class="pcrd-ov-lbl">Planned Qty</div></div>
+              <div class="pcrd-ov-item"><div class="pcrd-ov-val" style="color:#15803d">${gTotProd.toLocaleString()}</div><div class="pcrd-ov-lbl">Produced Qty</div></div>
+              <div class="pcrd-ov-item"><div class="pcrd-ov-val" style="color:${gCol}">${gPct}%</div><div class="pcrd-ov-lbl">Overall Achievement</div></div>
+            </div>
+            <div style="margin-top:4px">`;
+
+          Object.values(grouped).forEach(g => {
+            const info = planInfo[String(g.planId)] || {};
             const totalPlan = g.rows.reduce((s, r) => s + r.planQty, 0);
             const totalProd = g.rows.reduce((s, r) => s + r.producedQty, 0);
             const totalBal = g.rows.reduce((s, r) => s + r.balQty, 0);
+            const cardPct = totalPlan > 0 ? Math.round((totalProd / totalPlan) * 100) : 0;
+            const cardCol = cardPct >= 100 ? '#16a34a' : cardPct >= 85 ? '#d97706' : '#dc2626';
+            // Sort colours: biggest planned first
+            const rows = g.rows.slice().sort((a, b) => b.planQty - a.planQty);
             detailHtml += `
-              <div style="margin-bottom:16px; border:1px solid #e2e8f0; border-radius:8px; overflow:hidden">
-                <div style="background:#f1f5f9; padding:8px 14px; font-weight:700; font-size:0.82rem; color:#334155; display:flex; gap:16px; flex-wrap:wrap">
-                  <span>🏭 ${g.machine}</span>
-                  <span style="color:#0369a1">OR: ${g.orderNo}</span>
-                  <span>${g.mouldName}</span>
-                  <span style="margin-left:auto; color:#64748b">Plan #${g.planId}</span>
+              <div class="pcrd-card">
+                <div class="pcrd-head">
+                  <div class="pcrd-head-main">
+                    <div class="pcrd-mould" title="${esc2(g.mouldName)}"><i class="bi bi-box-seam"></i> ${esc2(g.mouldName || '-')}</div>
+                    <div class="pcrd-meta">
+                      <span class="pcrd-chip"><i class="bi bi-cpu"></i> ${esc2(g.machine || '-')}</span>
+                      <span class="pcrd-chip pcrd-or"><i class="bi bi-receipt"></i> ${esc2(g.orderNo || '-')}</span>
+                      ${info.jcNo ? `<span class="pcrd-chip"><i class="bi bi-card-list"></i> ${esc2(info.jcNo)}</span>` : ''}
+                      ${info.clientName ? `<span class="pcrd-chip"><i class="bi bi-building"></i> ${esc2(info.clientName)}</span>` : ''}
+                      ${info.itemName ? `<span class="pcrd-chip pcrd-item"><i class="bi bi-tag"></i> ${esc2(info.itemName)}</span>` : ''}
+                    </div>
+                  </div>
+                  <div class="pcrd-head-ach">
+                    <div class="pcrd-ach-pct" style="color:${cardCol}">${cardPct}%</div>
+                    <div class="pcrd-ach-lbl">${g.rows.length} colour${g.rows.length===1?'':'s'} · Plan #${esc2(g.planId)}</div>
+                  </div>
                 </div>
-                <table style="width:100%; border-collapse:collapse; font-size:0.8rem">
-                  <thead><tr style="background:#f8fafc">
-                    <th style="padding:5px 12px; text-align:left; color:#64748b; font-weight:700">Colour</th>
-                    <th style="padding:5px 12px; text-align:right; color:#64748b; font-weight:700">Plan Qty</th>
-                    <th style="padding:5px 12px; text-align:right; color:#16a34a; font-weight:700">Produced</th>
-                    <th style="padding:5px 12px; text-align:right; color:#dc2626; font-weight:700">Balance</th>
-                    <th style="padding:5px 12px; color:#64748b; font-weight:700">Progress</th>
+                <table class="pcrd-table">
+                  <thead><tr>
+                    <th style="text-align:left">Colour</th>
+                    <th style="text-align:right">Plan Qty</th>
+                    <th style="text-align:right">Produced</th>
+                    <th style="text-align:right">Balance</th>
+                    <th style="text-align:right">Share</th>
+                    <th style="width:170px">Progress</th>
                   </tr></thead>
                   <tbody>
-                    ${g.rows.map(r => {
+                    ${rows.map(r => {
                       const pct = r.pct || 0;
-                      const barColor = pct >= 100 ? '#16a34a' : pct >= 50 ? '#d97706' : '#dc2626';
-                      return `<tr style="border-top:1px solid #f1f5f9">
-                        <td style="padding:5px 12px; font-weight:600">${r.colour}</td>
-                        <td style="padding:5px 12px; text-align:right">${r.planQty.toLocaleString()}</td>
-                        <td style="padding:5px 12px; text-align:right; color:#16a34a; font-weight:700">${r.producedQty.toLocaleString()}</td>
-                        <td style="padding:5px 12px; text-align:right; color:${r.balQty > 0 ? '#dc2626' : '#16a34a'}">${r.balQty.toLocaleString()}</td>
-                        <td style="padding:5px 12px">
-                          <div style="display:flex; align-items:center; gap:6px">
-                            <div style="width:80px; height:6px; background:#e2e8f0; border-radius:3px; overflow:hidden">
-                              <div style="width:${Math.min(100,pct)}%; height:100%; background:${barColor}; border-radius:3px"></div>
-                            </div>
-                            <span style="font-size:0.75rem; font-weight:700; color:${barColor}">${pct}%</span>
+                      const barColor = pct >= 100 ? '#16a34a' : pct >= 85 ? '#d97706' : pct >= 50 ? '#f59e0b' : '#dc2626';
+                      const share = totalPlan > 0 ? Math.round((r.planQty / totalPlan) * 100) : 0;
+                      const balCol = r.balQty > 0 ? '#dc2626' : '#16a34a';
+                      const balTxt = r.balQty > 0 ? '↓ ' + r.balQty.toLocaleString() : (r.balQty < 0 ? '↑ ' + Math.abs(r.balQty).toLocaleString() : '0');
+                      return `<tr>
+                        <td><span class="pcrd-swatch" style="background:${swatch(r.colour)}"></span><span class="pcrd-cname">${esc2(r.colour)}</span></td>
+                        <td class="pcrd-num">${r.planQty.toLocaleString()}</td>
+                        <td class="pcrd-num" style="color:#15803d;font-weight:800">${r.producedQty.toLocaleString()}</td>
+                        <td class="pcrd-num" style="color:${balCol};font-weight:700">${balTxt}</td>
+                        <td class="pcrd-num" style="color:#64748b">${share}%</td>
+                        <td>
+                          <div class="pcrd-prog">
+                            <div class="pcrd-prog-track"><div style="width:${Math.min(100,pct)}%;background:${barColor}"></div></div>
+                            <span class="pcrd-prog-pct" style="color:${barColor}">${pct}%</span>
                           </div>
                         </td>
                       </tr>`;
                     }).join('')}
                   </tbody>
                   <tfoot>
-                    <tr style="border-top:2px solid #e2e8f0; background:#f8fafc; font-weight:700">
-                      <td style="padding:5px 12px">Total</td>
-                      <td style="padding:5px 12px; text-align:right">${totalPlan.toLocaleString()}</td>
-                      <td style="padding:5px 12px; text-align:right; color:#16a34a">${totalProd.toLocaleString()}</td>
-                      <td style="padding:5px 12px; text-align:right; color:${totalBal > 0 ? '#dc2626' : '#16a34a'}">${totalBal.toLocaleString()}</td>
-                      <td></td>
+                    <tr>
+                      <td style="font-weight:800">Total</td>
+                      <td class="pcrd-num" style="font-weight:800">${totalPlan.toLocaleString()}</td>
+                      <td class="pcrd-num" style="color:#15803d;font-weight:800">${totalProd.toLocaleString()}</td>
+                      <td class="pcrd-num" style="color:${totalBal > 0 ? '#dc2626' : '#16a34a'};font-weight:800">${totalBal > 0 ? '↓ ' + totalBal.toLocaleString() : (totalBal < 0 ? '↑ ' + Math.abs(totalBal).toLocaleString() : '0')}</td>
+                      <td class="pcrd-num" style="color:#94a3b8;font-weight:700">100%</td>
+                      <td>
+                        <div class="pcrd-prog">
+                          <div class="pcrd-prog-track"><div style="width:${Math.min(100,cardPct)}%;background:${cardCol}"></div></div>
+                          <span class="pcrd-prog-pct" style="color:${cardCol}">${cardPct}%</span>
+                        </div>
+                      </td>
                     </tr>
                   </tfoot>
                 </table>
               </div>`;
           });
           detailHtml += '</div>';
+
+          // Scoped styles for the detail view (inject once)
+          if (!document.getElementById('pcrdStyles')) {
+            const st2 = document.createElement('style');
+            st2.id = 'pcrdStyles';
+            st2.textContent = `
+              .pcrd-overall{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:4px 0 16px;
+                background:linear-gradient(180deg,#0f172a 0%,#1e293b 100%);border-radius:14px;padding:14px 16px;
+                box-shadow:0 6px 18px rgba(15,23,42,.18);}
+              @media(max-width:720px){.pcrd-overall{grid-template-columns:repeat(2,1fr);}}
+              .pcrd-ov-item{text-align:center;}
+              .pcrd-ov-val{font-size:1.35rem;font-weight:900;color:#f1f5f9;font-variant-numeric:tabular-nums;line-height:1.1;}
+              .pcrd-ov-lbl{font-size:0.64rem;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-top:3px;}
+              .pcrd-card{margin-bottom:14px;border:1px solid #e6ecf3;border-radius:13px;overflow:hidden;
+                background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.05);}
+              .pcrd-head{display:flex;align-items:flex-start;gap:14px;padding:11px 16px;
+                background:linear-gradient(180deg,#f8fafc 0%,#eef4fb 100%);border-bottom:1px solid #e6ecf3;}
+              .pcrd-head-main{min-width:0;flex:1;}
+              .pcrd-mould{font-weight:800;font-size:0.92rem;color:#0f172a;white-space:nowrap;overflow:hidden;
+                text-overflow:ellipsis;margin-bottom:6px;}
+              .pcrd-mould .bi{color:#0369a1;}
+              .pcrd-meta{display:flex;flex-wrap:wrap;gap:6px;}
+              .pcrd-chip{display:inline-flex;align-items:center;gap:4px;font-size:0.72rem;font-weight:600;color:#475569;
+                background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:2px 8px;max-width:240px;
+                overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+              .pcrd-chip .bi{color:#94a3b8;font-size:0.72rem;}
+              .pcrd-chip.pcrd-or{font-family:ui-monospace,Menlo,monospace;color:#0369a1;}
+              .pcrd-chip.pcrd-item{color:#64748b;}
+              .pcrd-head-ach{text-align:right;flex:0 0 auto;}
+              .pcrd-ach-pct{font-size:1.5rem;font-weight:900;line-height:1;font-variant-numeric:tabular-nums;}
+              .pcrd-ach-lbl{font-size:0.66rem;color:#94a3b8;font-weight:700;margin-top:3px;white-space:nowrap;}
+              .pcrd-table{width:100%;border-collapse:collapse;font-size:0.82rem;}
+              .pcrd-table thead th{padding:7px 14px;background:#f8fafc;color:#64748b;font-weight:800;
+                font-size:0.68rem;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #eef2f7;}
+              .pcrd-table tbody td{padding:7px 14px;border-top:1px solid #f4f7fb;}
+              .pcrd-table tbody tr:hover{background:#f7fbff;}
+              .pcrd-num{text-align:right;font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums;color:#334155;}
+              .pcrd-swatch{display:inline-block;width:12px;height:12px;border-radius:4px;margin-right:8px;
+                vertical-align:-1px;border:1px solid rgba(15,23,42,.15);box-shadow:inset 0 0 0 1px rgba(255,255,255,.35);}
+              .pcrd-cname{font-weight:700;color:#1e293b;}
+              .pcrd-prog{display:flex;align-items:center;gap:8px;justify-content:flex-end;}
+              .pcrd-prog-track{flex:1;max-width:110px;height:7px;background:#eef2f7;border-radius:4px;overflow:hidden;}
+              .pcrd-prog-track>div{height:100%;border-radius:4px;transition:width .3s ease;}
+              .pcrd-prog-pct{font-size:0.74rem;font-weight:800;min-width:34px;text-align:right;font-variant-numeric:tabular-nums;}
+              .pcrd-table tfoot td{padding:8px 14px;border-top:2px solid #e6ecf3;background:#f8fafc;color:#0f172a;}
+            `;
+            document.head.appendChild(st2);
+          }
+
           detailView.innerHTML = detailHtml;
         } catch (e) {
           detailView.innerHTML = `<div style="color:#dc2626; padding:20px">Error: ${e.message}</div>`;
