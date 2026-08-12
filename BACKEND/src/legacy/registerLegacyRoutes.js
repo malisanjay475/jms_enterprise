@@ -26547,6 +26547,115 @@ app.get('/api/analyze/plant', async (req, res) => {
   }
 });
 
+// GET /api/analyze/machine
+// Per-machine utilization, OEE, output and downtime — with an optional drill via ?machine=.
+app.get('/api/analyze/machine', async (req, res) => {
+  try {
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
+
+    const params = [];
+    const where = ['COALESCE(dh.is_deleted, false) = false'];
+
+    const reqFactory = Number(req.query.factory);
+    if (reqFactory) {
+      if (!canAll && !accessibleIds.includes(reqFactory)) {
+        return res.status(403).json({ ok: false, error: 'No access to that factory' });
+      }
+      params.push(reqFactory);
+      where.push(`dh.factory_id = $${params.length}`);
+    } else if (!canAll) {
+      if (!accessibleIds.length) return res.json({ ok: true, data: { machines: [], totals: {}, drill: null } });
+      params.push(accessibleIds);
+      where.push(`dh.factory_id = ANY($${params.length}::int[])`);
+    }
+    if (req.query.from) { params.push(req.query.from); where.push(`dh.dpr_date >= $${params.length}`); }
+    if (req.query.to) { params.push(req.query.to); where.push(`dh.dpr_date <= $${params.length}`); }
+    const drillMachine = String(req.query.machine || '').trim();
+    if (drillMachine) { params.push(drillMachine); where.push(`TRIM(COALESCE(dh.machine,'')) = TRIM($${params.length})`); }
+
+    const logs = await q(`
+      SELECT dh.dpr_date::text AS date, dh.shift, dh.hour_slot, dh.machine, dh.line, dh.mould_no,
+             dh.good_qty, dh.reject_qty, dh.downtime_min, dh.downtime_breakup,
+             COALESCE(
+               NULLIF(m.pcs_per_hour, 0),
+               CASE WHEN m.cycle_time > 0 THEN (3600.0 / m.cycle_time) * COALESCE(NULLIF(m.no_of_cav,0),1) ELSE NULL END
+             ) AS pph_std
+        FROM dpr_hourly dh
+        LEFT JOIN moulds m ON TRIM(m.mould_number) = TRIM(dh.mould_no)
+       WHERE ${where.join(' AND ')}
+    `, params);
+
+    // Elapsed calendar hours per machine (span of distinct date|shift) for utilization
+    const byMc = {};
+    const drill = drillMachine ? { downtimeReasons: {}, byDate: {}, currentMould: null } : null;
+    let tGood = 0, tRej = 0, tDt = 0;
+
+    logs.forEach(l => {
+      const good = toNum(l.good_qty), rej = toNum(l.reject_qty), dt = toNum(l.downtime_min), pph = toNum(l.pph_std);
+      const mc = l.machine || 'Unassigned';
+      if (!byMc[mc]) byMc[mc] = { key: mc, line: l.line || '-', good: 0, reject: 0, downtime: 0, stdCap: 0, slots: new Set(), moulds: new Set() };
+      const a = byMc[mc];
+      a.good += good; a.reject += rej; a.downtime += dt; a.stdCap += pph;
+      a.slots.add(`${l.date}|${l.shift}|${l.hour_slot}`);
+      if (l.mould_no) a.moulds.add(l.mould_no);
+      tGood += good; tRej += rej; tDt += dt;
+
+      if (drill) {
+        let db = l.downtime_breakup; if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
+        if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => drill.downtimeReasons[k] = (drill.downtimeReasons[k] || 0) + toNum(v));
+        const d = l.date || 'Unknown';
+        if (!drill.byDate[d]) drill.byDate[d] = { date: d, good: 0, reject: 0, downtime: 0 };
+        drill.byDate[d].good += good; drill.byDate[d].reject += rej; drill.byDate[d].downtime += dt;
+        if (l.mould_no) drill.currentMould = l.mould_no;
+      }
+    });
+
+    const machines = Object.values(byMc).map(a => {
+      const runHours = a.slots.size;
+      const output = a.good + a.reject;
+      const downHours = a.downtime / 60;
+      const availableHours = runHours + downHours;
+      const availability = availableHours > 0 ? runHours / availableHours : 0;
+      const performance = a.stdCap > 0 ? Math.min(1, output / a.stdCap) : 0;
+      const quality = output > 0 ? a.good / output : 0;
+      return {
+        key: a.key, line: a.line, good: a.good, reject: a.reject, output,
+        downtime: Math.round(a.downtime), runHours,
+        utilization: availableHours > 0 ? Math.round(availability * 100) : 0,
+        performance: Math.round(performance * 100),
+        quality: Math.round(quality * 100),
+        oee: Math.round(availability * performance * quality * 100),
+        mouldCount: a.moulds.size
+      };
+    }).sort((a, b) => b.oee - a.oee);
+
+    let drillOut = null;
+    if (drill) {
+      drillOut = {
+        machine: drillMachine,
+        currentMould: drill.currentMould,
+        downtimeReasons: Object.entries(drill.downtimeReasons).map(([reason, min]) => ({ reason, min: Math.round(min) })).sort((a, b) => b.min - a.min),
+        byDate: Object.values(drill.byDate).sort((a, b) => a.date.localeCompare(b.date))
+      };
+    }
+
+    res.json({
+      ok: true,
+      data: {
+        machines,
+        totals: { good: tGood, reject: tRej, output: tGood + tRej, downtime: Math.round(tDt), machines: machines.length },
+        drill: drillOut
+      }
+    });
+  } catch (e) {
+    console.error('analyze/machine', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 // ============================================================
 // ADMIN DATABASE TOOLS (Backup / Restore)
 // ============================================================
