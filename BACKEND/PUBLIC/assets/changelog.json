@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.28.0",
+  "latest": "1.28.1",
   "versions": [
+    {
+      "version": "1.28.1",
+      "date": "2026-08-12",
+      "title": "Tidier machine cards in Create Plan",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "Fixed the machine cards stretching very tall and the machine name breaking into one letter per line when a machine had the RUNNING NOW and BEST badges. Names now read across the card and each card is only as tall as its own content." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.28.0",
       "date": "2026-08-12",
