@@ -5450,13 +5450,13 @@
             }
 
             card.innerHTML = `
-              <div style="display:flex; justify-content:space-between; align-items:center; gap:4px; margin-bottom:4px">
-                <span style="font-weight:900; color:#0f172a; font-size:0.72rem; line-height:1.2; word-break:break-all">${esc(mac.machine || '-')}</span>
-                <span style="display:flex; gap:3px; flex-shrink:0; flex-wrap:wrap; justify-content:flex-end">
+              <div style="margin-bottom:4px">
+                <div style="font-weight:900; color:#0f172a; font-size:0.72rem; line-height:1.2; overflow-wrap:anywhere">${esc(mac.machine || '-')}</div>
+                <div style="display:flex; gap:3px; flex-wrap:wrap; margin-top:3px">
                   ${macLive ? '<span style="background:#dcfce7; color:#15803d; border:1px solid #86efac; border-radius:999px; padding:1px 5px; font-size:0.52rem; font-weight:900; white-space:nowrap">● RUNNING NOW</span>' : ''}
                   ${isBestMachine ? '<span style="background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; border-radius:999px; padding:1px 5px; font-size:0.52rem; font-weight:900; white-space:nowrap">★ BEST</span>' : ''}
                   <span style="background:${roleBg}; color:${roleColor}; border:1px solid ${roleBorder}; border-radius:999px; padding:1px 5px; font-size:0.56rem; font-weight:900; white-space:nowrap">${roleLabel}</span>
-                </span>
+                </div>
               </div>
               ${metaLine ? `<div style="color:#64748b; font-size:0.63rem; margin-bottom:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${metaLine}</div>` : ''}
               ${macLive ? `<div style="margin:2px 0 1px; font-size:0.58rem; color:#15803d; font-weight:900; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:2px 5px">▶ This mould running here now${macLive.order ? ` · ${esc(String(macLive.order))}` : ''}<br><span style="font-weight:700; color:#166534">Made ${Number(macLive.produced || 0).toLocaleString()} · Bal ${Number(macLive.balance || 0).toLocaleString()}</span></div>` : ''}
@@ -5784,7 +5784,7 @@
                     <i class="bi bi-graph-up-arrow"></i> View History &amp; Comparison
                   </button>
                 </div>
-                <div id="cpColourMachineCards" style="display:flex; flex-wrap:wrap; gap:6px; align-items:stretch"></div>
+                <div id="cpColourMachineCards" style="display:flex; flex-wrap:wrap; gap:6px; align-items:flex-start"></div>
               </div>
 
               <!-- Colour table — flex-grow to fill ALL remaining space, no max-height cap -->
