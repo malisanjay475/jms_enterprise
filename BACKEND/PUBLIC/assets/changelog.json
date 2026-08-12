@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.28.1",
+  "latest": "1.29.0",
   "versions": [
+    {
+      "version": "1.29.0",
+      "date": "2026-08-12",
+      "title": "More columns in the Mould Wise Item QTY report",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-bar-chart",
+          "changes": [
+            { "type": "feat", "text": "The Mould Wise Item QTY report can now show STD Cycle Time, Average Cycle Time and STD Weight as optional columns. Tick them in 'Include Columns' before generating the report." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.28.1",
       "date": "2026-08-12",

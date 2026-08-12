@@ -371,6 +371,9 @@
           <label class="mw-chk"><input type="checkbox" value="machine"    onchange="onMouldFieldChange()"> Machine</label>
           <label class="mw-chk"><input type="checkbox" value="efficiency" onchange="onMouldFieldChange()"> Efficiency</label>
           <label class="mw-chk"><input type="checkbox" value="std_prod"   onchange="onMouldFieldChange()"> Production As Per STD</label>
+          <label class="mw-chk"><input type="checkbox" value="std_cycle"  onchange="onMouldFieldChange()"> STD Cycle Time</label>
+          <label class="mw-chk"><input type="checkbox" value="avg_cycle"  onchange="onMouldFieldChange()"> Average Cycle Time</label>
+          <label class="mw-chk"><input type="checkbox" value="std_weight" onchange="onMouldFieldChange()"> STD Weight</label>
           <label class="mw-chk"><input type="checkbox" value="downtime"   onchange="onMouldFieldChange()"> Downtime (reason + min)</label>
           <label class="mw-chk"><input type="checkbox" value="reject_qty" onchange="onMouldFieldChange()"> Reject Qty</label>
           <label class="mw-chk"><input type="checkbox" value="reject_pct" onchange="onMouldFieldChange()"> Reject %</label>
@@ -627,6 +630,9 @@
       // Trailing metric columns (after Total).
       const metricCols = [];
       if (on.has('std_prod'))   metricCols.push({ label: 'Prod (STD)',  get: r => r.stdProd, num: true, sum: true });
+      if (on.has('std_cycle'))  metricCols.push({ label: 'STD Cycle (s)', get: r => r.stdCycle || '', num: true });
+      if (on.has('avg_cycle'))  metricCols.push({ label: 'Avg Cycle (s)', get: r => r.avgCycle || '', num: true });
+      if (on.has('std_weight')) metricCols.push({ label: 'STD Wt (kg)',  get: r => r.stdWeight || '', num: true });
       if (on.has('efficiency')) metricCols.push({ label: 'Eff %',       get: r => r.efficiency + '%', num: true });
       if (on.has('downtime'))   metricCols.push({ label: 'Downtime',    get: r => (r.downtimeMin ? r.downtimeMin + 'm' : '') + (r.downtimeReason ? ' — ' + r.downtimeReason : ''), num: false });
       if (on.has('reject_qty')) metricCols.push({ label: 'Reject Qty',  get: r => r.rejectQty, num: true, sum: true });
