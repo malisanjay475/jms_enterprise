@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.29.0",
+  "latest": "1.30.0",
   "versions": [
+    {
+      "version": "1.30.0",
+      "date": "2026-08-12",
+      "title": "Job Sheet is now a date-wise daily plan list",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "The Job Sheet now has a Plan Date filter (with a Today button) and lists the orders whose plans were created on that date — pick any day to see what was planned. The View button still opens the order to show all of its moulds." },
+            { "type": "improvement", "text": "The Job Sheet is no longer limited to High Priority orders; it shows every order planned on the chosen date." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.29.0",
       "date": "2026-08-12",
