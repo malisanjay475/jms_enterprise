@@ -10249,10 +10249,9 @@ async function buildDprOrderAnalysis(req) {
   if (planId) {
     logParams.push(planId);
     where.push(`(dh.plan_id = $${logParams.length} OR dh.plan_id = (SELECT pb.plan_id FROM plan_board pb WHERE pb.id::text = $${logParams.length} LIMIT 1))`);
-  } else if (info.plan_id) {
-    logParams.push(String(info.plan_id));
-    where.push(`(dh.plan_id = $${logParams.length} OR dh.plan_id IS NULL OR dh.plan_id = '')`);
   }
+  // When no explicit plan is requested, include EVERY log for the order (all plans/moulds)
+  // so totals and breakdowns reflect the whole order, not just one plan.
   if (machine) {
     logParams.push(machine);
     where.push(`TRIM(COALESCE(dh.machine, '')) = TRIM($${logParams.length})`);
@@ -10429,8 +10428,44 @@ async function buildDprOrderAnalysis(req) {
     shift_hours: SHIFT_HOURS
   };
 
+  // All plans/moulds that belong to this order (for the deep-dive "plans" tab)
+  let plans = [];
+  try {
+    plans = await q(`
+      SELECT
+        pb.id, pb.plan_id, pb.plant, pb.line, pb.machine, pb.status,
+        pb.jc_approval_status, pb.plan_qty, pb.bal_qty, pb.batch_no, pb.batch_qty,
+        pb.mould_item_qty, pb.item_code, pb.item_name, pb.mould_name, pb.mould_code,
+        pb.start_date, pb.end_date, pb.created_at,
+        COALESCE(m.std_wt_kg, m2.std_wt_kg) as std_weight,
+        COALESCE(m.cycle_time, m2.cycle_time) as std_cycle,
+        COALESCE(m.no_of_cav, m2.no_of_cav) as std_cavity
+      FROM plan_board pb
+      LEFT JOIN moulds m ON TRIM(m.mould_name) = TRIM(pb.mould_name)
+      LEFT JOIN moulds m2 ON TRIM(m2.mould_number) = TRIM(COALESCE(pb.mould_code, pb.item_code))
+      WHERE TRIM(pb.order_no) = $1
+      ORDER BY pb.created_at ASC NULLS LAST, pb.id ASC
+    `, [decodedOrder]);
+  } catch (e) { console.error('order plans fetch', e.message); }
+
+  // Per-plan produced/reject from logs (match by plan_id)
+  const producedByPlan = {};
+  logs.forEach(l => {
+    const k = String(l.plan_id || '');
+    if (!producedByPlan[k]) producedByPlan[k] = { good: 0, rej: 0, dt: 0 };
+    producedByPlan[k].good += toDprNumber(l.good_qty);
+    producedByPlan[k].rej += toDprNumber(l.reject_qty);
+    producedByPlan[k].dt += toDprNumber(l.downtime_min);
+  });
+  plans = plans.map(p => {
+    const pr = producedByPlan[String(p.plan_id || '')] || { good: 0, rej: 0, dt: 0 };
+    return { ...p, produced_good: pr.good, produced_rej: pr.rej, produced_dt: pr.dt };
+  });
+  const orderPlanTotal = plans.reduce((s, p) => s + toDprNumber(p.plan_qty), 0) || totalPlan;
+
   return {
     info,
+    plans,
     logs,
     history,
     lifecycle,
@@ -10440,6 +10475,7 @@ async function buildDprOrderAnalysis(req) {
     rejection_stats: rejectionStats,
     totals: {
       plan: totalPlan,
+      plan_order: orderPlanTotal,
       good: totalGood,
       rej: totalRej,
       dt: totalDT
