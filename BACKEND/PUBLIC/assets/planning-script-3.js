@@ -694,6 +694,12 @@
                   <datalist id="pcrSuggestions"></datalist>
                </div>
                <span id="pcrCount" style="font-size:0.78rem; font-weight:800; color:#0369a1; white-space:nowrap; flex:0 0 auto;"></span>
+               <button type="button" id="pcrTodayBtn" onclick="window.pcrSetToday()" title="Show only plans completed today" style="height:38px; border-radius:11px; border:1px solid #86efac; background:#f0fdf4; color:#15803d; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; font-weight:900; padding:0 12px; flex:0 0 auto; cursor:pointer;">
+                  <i class="bi bi-calendar-day"></i> Today
+               </button>
+               <button type="button" id="pcrAllBtn" onclick="window.pcrShowAll()" title="Show all completed plans (clear dates)" style="height:38px; border-radius:11px; border:1px solid #cbd5e1; background:#fff; color:#475569; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; font-weight:900; padding:0 12px; flex:0 0 auto; cursor:pointer;">
+                  <i class="bi bi-collection"></i> All Orders
+               </button>
                <div style="display:flex; align-items:center; gap:5px; white-space:nowrap; flex:0 0 auto;">
                   <label for="pcrFrom" style="font-size:0.78rem; color:#64748b; font-weight:900">From</label>
                   <input type="date" id="pcrFrom" class="input" style="width:124px; height:38px; border-radius:10px; border:1px solid #bfdbfe; font-weight:800">

@@ -416,19 +416,6 @@
           const st = document.createElement('style');
           st.id = 'pcrStyles';
           st.textContent = `
-            .pcr-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px;}
-            @media(max-width:1100px){.pcr-kpis{grid-template-columns:repeat(3,1fr);}}
-            @media(max-width:640px){.pcr-kpis{grid-template-columns:repeat(2,1fr);}}
-            .pcr-kpi{display:flex;align-items:center;gap:11px;background:#fff;border:1px solid #e8eef5;
-              border-radius:13px;padding:12px 14px;box-shadow:0 1px 2px rgba(15,23,42,.04);}
-            .pcr-kpi-ico{width:38px;height:38px;flex:0 0 auto;border-radius:10px;display:inline-flex;
-              align-items:center;justify-content:center;font-size:1.05rem;}
-            .pcr-kpi-val{font-size:1.32rem;font-weight:900;color:#0f172a;line-height:1.05;
-              font-variant-numeric:tabular-nums;letter-spacing:-.01em;}
-            .pcr-kpi-lbl{font-size:0.68rem;color:#64748b;font-weight:700;text-transform:uppercase;
-              letter-spacing:.04em;margin-top:2px;}
-            .pcr-kpi-bar{margin-top:5px;height:4px;width:100%;background:#eef2f7;border-radius:3px;overflow:hidden;}
-            .pcr-kpi-bar>div{height:100%;border-radius:3px;}
             .pcr-grid{--pcr-cols:minmax(130px,1.2fr) 140px 150px minmax(210px,2.2fr) 110px minmax(120px,1fr) 84px 96px 104px 104px 104px 96px 92px 124px 70px;}
             .pcr-head{display:grid;grid-template-columns:var(--pcr-cols);gap:8px;align-items:center;position:sticky;top:0;z-index:6;
               padding:7px 12px;border-radius:10px;margin-bottom:6px;
@@ -480,51 +467,8 @@
         // Store plans for Detail tab use
         window._pcrPlans = plans;
 
-        // ─── KPI roll-up across all completed plans in view ──────────────
-        let kTotPlan = 0, kTotProd = 0, kMet = 0, kShort = 0;
-        plans.forEach(p => {
-          if (!p) return;
-          const _q = Number(p.planQty || 0), _pr = Number(p.producedQty || 0);
-          kTotPlan += _q; kTotProd += _pr;
-          if (_pr >= _q) kMet++; else kShort++;
-        });
-        const kAch = kTotPlan > 0 ? Math.round((kTotProd / kTotPlan) * 100) : 0;
-        const kAchColor = kAch >= 100 ? '#16a34a' : kAch >= 85 ? '#d97706' : '#dc2626';
-        const kBal = kTotProd - kTotPlan;
-        const kpiStrip = `
-          <div class="pcr-kpis">
-            <div class="pcr-kpi">
-              <div class="pcr-kpi-ico" style="background:#eff6ff;color:#2563eb"><i class="bi bi-clipboard-check"></i></div>
-              <div><div class="pcr-kpi-val">${plans.length.toLocaleString()}</div><div class="pcr-kpi-lbl">Completed Plans</div></div>
-            </div>
-            <div class="pcr-kpi">
-              <div class="pcr-kpi-ico" style="background:#f1f5f9;color:#475569"><i class="bi bi-bullseye"></i></div>
-              <div><div class="pcr-kpi-val">${kTotPlan.toLocaleString()}</div><div class="pcr-kpi-lbl">Total Planned</div></div>
-            </div>
-            <div class="pcr-kpi">
-              <div class="pcr-kpi-ico" style="background:#dcfce7;color:#16a34a"><i class="bi bi-box-seam"></i></div>
-              <div><div class="pcr-kpi-val" style="color:#15803d">${kTotProd.toLocaleString()}</div><div class="pcr-kpi-lbl">Total Produced</div></div>
-            </div>
-            <div class="pcr-kpi">
-              <div class="pcr-kpi-ico" style="background:${kAch>=100?'#dcfce7':'#fef3c7'};color:${kAchColor}"><i class="bi bi-graph-up-arrow"></i></div>
-              <div>
-                <div class="pcr-kpi-val" style="color:${kAchColor}">${kAch}%</div>
-                <div class="pcr-kpi-lbl">Achievement · ${kBal>=0?'+':''}${kBal.toLocaleString()}</div>
-                <div class="pcr-kpi-bar"><div style="width:${Math.min(100,kAch)}%;background:${kAchColor}"></div></div>
-              </div>
-            </div>
-            <div class="pcr-kpi">
-              <div class="pcr-kpi-ico" style="background:#dcfce7;color:#16a34a"><i class="bi bi-check2-circle"></i></div>
-              <div><div class="pcr-kpi-val" style="color:#15803d">${kMet.toLocaleString()}</div><div class="pcr-kpi-lbl">Target Met</div></div>
-            </div>
-            <div class="pcr-kpi">
-              <div class="pcr-kpi-ico" style="background:#fee2e2;color:#dc2626"><i class="bi bi-exclamation-triangle"></i></div>
-              <div><div class="pcr-kpi-val" style="color:#dc2626">${kShort.toLocaleString()}</div><div class="pcr-kpi-lbl">Short Closed</div></div>
-            </div>
-          </div>`;
-
         // Tab bar
-        let html = kpiStrip + `
+        let html = `
           <div id="pcr-tabs" style="display:flex; gap:8px; margin-bottom:12px; border-bottom:2px solid #e2e8f0; padding-bottom:0">
             <button id="pcr-tab-summary" onclick="window.showPcrTab('summary')"
               style="padding:7px 18px; border:none; border-bottom:3px solid #0369a1; background:none; color:#0369a1; font-weight:800; font-size:0.82rem; cursor:pointer; margin-bottom:-2px">
@@ -604,6 +548,46 @@
       }
     };
 
+    // Local YYYY-MM-DD (avoids UTC roll-back that shows yesterday in IST before 05:30)
+    window._pcrLocalYmd = function (d) {
+      const n = d || new Date();
+      return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
+    };
+
+    // "Today" quick filter — only plans completed today
+    window.pcrSetToday = function () {
+      const f = document.getElementById('pcrFrom');
+      const t = document.getElementById('pcrTo');
+      const today = window._pcrLocalYmd();
+      if (f) f.value = today;
+      if (t) t.value = today;
+      window.loadProductionCompletionReport();
+    };
+
+    // "All Orders" — clear the date range and show every completed plan
+    window.pcrShowAll = function () {
+      const f = document.getElementById('pcrFrom');
+      const t = document.getElementById('pcrTo');
+      if (f) f.value = '';
+      if (t) t.value = '';
+      window.loadProductionCompletionReport();
+    };
+
+    // Run async tasks with a concurrency cap so we never open more DB
+    // connections than the pool allows ("too many clients already").
+    window._pcrMapLimit = async function (items, limit, worker) {
+      const out = new Array(items.length);
+      let i = 0;
+      async function run() {
+        while (i < items.length) {
+          const idx = i++;
+          try { out[idx] = await worker(items[idx], idx); } catch (_) { out[idx] = null; }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
+      return out;
+    };
+
     // Switch PCR tabs
     window.showPcrTab = async function(tab) {
       const summaryView = document.getElementById('pcr-summary-view');
@@ -642,13 +626,13 @@
           // finds nothing and shows "No colour breakdown data found".
           const planIds = plans.map(p => p.planId || p.plan_id || p.id).filter(Boolean);
           const allColourRows = [];
-          // Fetch in one call per plan (or use the all endpoint)
-          await Promise.all(planIds.map(async pid => {
-            try {
-              const r = await api.get(`/planning/colour-wise-completion?planId=${encodeURIComponent(pid)}`);
-              if (r && r.ok && r.data) allColourRows.push(...r.data);
-            } catch (_) {}
-          }));
+          // Fetch one call per plan, but cap concurrency to 6 so we don't
+          // exhaust the Postgres pool ("too many clients already") when the
+          // report has hundreds of completed plans.
+          await window._pcrMapLimit(planIds, 6, async (pid) => {
+            const r = await api.get(`/planning/colour-wise-completion?planId=${encodeURIComponent(pid)}`);
+            if (r && r.ok && r.data) allColourRows.push(...r.data);
+          });
 
           if (!allColourRows.length) {
             detailView.innerHTML = '<div style="padding:24px; color:#94a3b8">No colour breakdown data found.</div>';
