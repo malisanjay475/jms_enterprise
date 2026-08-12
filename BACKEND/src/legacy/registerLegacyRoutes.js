@@ -12585,6 +12585,57 @@ app.get('/api/planning/mould-history', async (req, res) => {
         LIMIT 1`,
       [mould, factoryId]
     );
+    // Is this mould RUNNING right now? Match live plan_board rows for this mould and
+    // attach current produced/balance. plan_id repeats across factories, so scope both
+    // the plan and its DPR production (KAN-127).
+    const liveRows = await q(
+      `SELECT
+          pb.machine,
+          pb.order_no,
+          pb.plan_id,
+          COALESCE(pb.plan_qty, 0)          AS plan_qty,
+          COALESCE(d.qty, 0)                AS produced
+         FROM plan_board pb
+         LEFT JOIN (
+           SELECT plan_id, factory_id, SUM(good_qty) AS qty
+             FROM dpr_hourly
+            WHERE COALESCE(is_deleted, false) = false
+            GROUP BY plan_id, factory_id
+         ) d ON d.plan_id = pb.plan_id
+            AND (d.factory_id = pb.factory_id OR d.factory_id IS NULL OR pb.factory_id IS NULL)
+        WHERE UPPER(COALESCE(pb.status, '')) = 'RUNNING'
+          AND (
+                UPPER(TRIM(COALESCE(pb.mould_code, ''))) = UPPER(TRIM($1))
+             OR UPPER(TRIM(COALESCE(pb.item_code, '')))  = UPPER(TRIM($1))
+          )
+          AND (pb.factory_id = $2 OR $2 IS NULL OR pb.factory_id IS NULL)
+        ORDER BY pb.machine`,
+      [mould, factoryId]
+    );
+    // A machine can hold more than one RUNNING plan for the same mould (e.g. two
+    // orders). Aggregate per machine so the card shows combined produced/balance and
+    // every order, rather than silently keeping only the last row.
+    const liveByMachineAgg = new Map();
+    liveRows.forEach((r) => {
+      const machine = r.machine;
+      if (!machine) return;
+      const planQty = Number(r.plan_qty || 0);
+      const produced = Number(r.produced || 0);
+      const cur = liveByMachineAgg.get(machine) || { machine, orders: [], planQty: 0, produced: 0 };
+      if (r.order_no && !cur.orders.includes(r.order_no)) cur.orders.push(r.order_no);
+      cur.planQty += planQty;
+      cur.produced += produced;
+      liveByMachineAgg.set(machine, cur);
+    });
+    const liveRuns = Array.from(liveByMachineAgg.values()).map((r) => ({
+      machine: r.machine,
+      order: r.orders.join(', ') || null,
+      planQty: r.planQty,
+      produced: r.produced,
+      balance: Math.max(r.planQty - r.produced, 0)
+    }));
+    const liveMachines = liveRuns.map((r) => r.machine);
+
     const lastRunRow = lastRows[0] || null;
     const lastMachineAgg = lastRunRow ? machines.find((m) => m.machine === lastRunRow.machine) : null;
     const lastRun = lastRunRow
@@ -12606,7 +12657,10 @@ app.get('/api/planning/mould-history', async (req, res) => {
       cavity,
       bestMachine,
       machines,
-      lastRun
+      lastRun,
+      liveRuns,
+      liveMachines,
+      isRunningNow: liveRuns.length > 0
     });
   } catch (e) {
     console.error('planning/mould-history', e);

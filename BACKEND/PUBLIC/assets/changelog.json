@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.27.0",
+  "latest": "1.28.0",
   "versions": [
+    {
+      "version": "1.28.0",
+      "date": "2026-08-12",
+      "title": "Create Plan shows if a mould is running right now",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "When choosing a machine, any machine that is running this mould at this moment now shows a green ● RUNNING NOW badge with its current order, made quantity and balance — so you can see live production before you plan." },
+            { "type": "feat", "text": "The 'View History & Comparison' panel lists every machine running this mould right now at the top, with a live banner, alongside the past-run comparison." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.27.0",
       "date": "2026-08-11",
