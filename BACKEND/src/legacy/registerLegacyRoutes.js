@@ -15507,7 +15507,15 @@ app.get('/api/reports/mould-wise-qty', async (req, res) => {
       "SUM(COALESCE(d.reject_qty, 0)) AS reject_qty",
       "SUM(COALESCE(d.downtime_min, 0)) AS downtime_min",
       "jsonb_agg(d.downtime_breakup) FILTER (WHERE d.downtime_breakup IS NOT NULL) AS downtime_breakups",
-      "MAX(COALESCE(m.pcs_per_hour, 0)) AS pcs_per_hour"
+      "MAX(COALESCE(m.pcs_per_hour, 0)) AS pcs_per_hour",
+      "MAX(COALESCE(m.cycle_time, 0)) AS std_cycle",
+      "MAX(COALESCE(m.std_wt_kg, 0)) AS std_weight",
+      // Actual cycle time = productive run seconds / shots, aggregated over the
+      // hourly slots in this group. Each dpr_hourly row is a 60-min slot; run
+      // seconds = (60 - downtime_min) minutes * 60. Matches the act_cycle formula
+      // used by the cycle-prediction query.
+      "SUM(GREATEST(0, 60 - COALESCE(d.downtime_min, 0)) * 60.0) AS run_seconds",
+      "SUM(COALESCE(d.shots, 0)) AS shots"
     ];
 
     const groupParts = [
@@ -15564,6 +15572,14 @@ app.get('/api/reports/mould-wise-qty', async (req, res) => {
       const rejectPct = (total + rejectQty) > 0
         ? (rejectQty / (total + rejectQty)) * 100 : 0;
 
+      // STD Cycle Time / STD Weight come from the mould master. Average (actual)
+      // cycle time = total productive run seconds / total shots for this group.
+      const stdCycle = Number(r.std_cycle) || 0;
+      const stdWeight = Number(r.std_weight) || 0;
+      const shots = Number(r.shots) || 0;
+      const runSeconds = Number(r.run_seconds) || 0;
+      const avgCycle = shots > 0 ? runSeconds / shots : 0;
+
       // Merge per-slot downtime maps -> { reasonCode: minutes }.
       const dtTotals = {};
       const breakups = Array.isArray(r.downtime_breakups) ? r.downtime_breakups : [];
@@ -15590,7 +15606,10 @@ app.get('/api/reports/mould-wise-qty', async (req, res) => {
         downtimeMin: Number(r.downtime_min) || 0,
         downtimeReason,
         rejectQty,
-        rejectPct: Math.round(rejectPct * 10) / 10
+        rejectPct: Math.round(rejectPct * 10) / 10,
+        stdCycle: Math.round(stdCycle * 100) / 100,
+        avgCycle: Math.round(avgCycle * 100) / 100,
+        stdWeight: Math.round(stdWeight * 1000) / 1000
       });
       entry.grandTotal += total;
     }
