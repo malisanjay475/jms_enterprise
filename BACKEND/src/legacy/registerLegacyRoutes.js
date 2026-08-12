@@ -10361,10 +10361,80 @@ async function buildDprOrderAnalysis(req) {
     colourStats.Unknown = { plan_qty: totalPlan, good_qty: totalGood, rej_qty: totalRej };
   }
 
+  // --- Lifecycle timeline (OR Date -> JC convert -> Plan -> Production -> Complete) ---
+  const firstProdRow = logs.length ? logs[0] : null;          // logs are ASC by date
+  const lastProdRow = logs.length ? logs[logs.length - 1] : null;
+  const dayDiff = (a, b) => {
+    if (!a || !b) return null;
+    const d1 = new Date(a), d2 = new Date(b);
+    if (isNaN(d1) || isNaN(d2)) return null;
+    return Math.round((d2 - d1) / 86400000);
+  };
+  const lifecycle = {
+    or_date: info.or_jr_date || null,
+    jc_date: info.job_card_date || null,
+    plan_date: info.start_date || null,
+    prod_start: firstProdRow ? firstProdRow.date : null,
+    prod_last: lastProdRow ? lastProdRow.date : null,
+    plan_end: info.end_date || null,
+    status: info.status || null,
+    gaps: {
+      or_to_jc: dayDiff(info.or_jr_date, info.job_card_date),
+      jc_to_plan: dayDiff(info.job_card_date, info.start_date),
+      plan_to_prod: dayDiff(info.start_date, firstProdRow ? firstProdRow.date : null),
+      prod_span: dayDiff(firstProdRow ? firstProdRow.date : null, lastProdRow ? lastProdRow.date : null)
+    }
+  };
+
+  // --- STD vs Actual time + shift loss + factory (money) loss ---
+  const SHIFT_HOURS = 11.5;                       // productive hours per shift (23h/day, 2 shifts)
+  const lossPerShift = toDprNumber(req.query.lossPerShift);        // optional ₹ per lost shift
+  const lossPerMachineHour = toDprNumber(req.query.lossPerMachineHour); // optional ₹ per lost machine-hour
+  const stdCycle = toDprNumber(info.std_cycle) || toDprNumber(info.act_cycle) || 0; // seconds
+  const stdCavity = toDprNumber(info.std_cavity) || 1;
+  const pcsPerHourStd = stdCycle > 0 ? (3600 / stdCycle) * stdCavity : 0;
+  const stdHours = pcsPerHourStd > 0 ? totalPlan / pcsPerHourStd : 0;
+
+  // Actual elapsed run hours ~= number of distinct hour-slots logged
+  const slotKeys = new Set();
+  logs.forEach(l => slotKeys.add(`${l.date}|${l.shift}|${l.hour_slot}|${l.machine}`));
+  const actualElapsedHours = slotKeys.size || 0;
+  const downtimeHours = totalDT / 60;
+  const productiveHours = Math.max(0, actualElapsedHours - downtimeHours);
+  const rejectLossHours = pcsPerHourStd > 0 ? totalRej / pcsPerHourStd : 0;
+  const cycleLossHours = Math.max(0, productiveHours - stdHours); // slower-than-STD running
+  const totalLossHours = Math.max(0, actualElapsedHours - stdHours);
+  const shiftLoss = totalLossHours / SHIFT_HOURS;
+  const machineName = info.machine || (firstProdRow ? firstProdRow.machine : null);
+
+  const loss = {
+    std_cycle: stdCycle,
+    std_cavity: stdCavity,
+    pcs_per_hour_std: Math.round(pcsPerHourStd * 100) / 100,
+    std_hours: Math.round(stdHours * 100) / 100,
+    std_shifts: Math.round((stdHours / SHIFT_HOURS) * 100) / 100,
+    actual_hours: Math.round(actualElapsedHours * 100) / 100,
+    actual_shifts: Math.round((actualElapsedHours / SHIFT_HOURS) * 100) / 100,
+    downtime_hours: Math.round(downtimeHours * 100) / 100,
+    reject_loss_hours: Math.round(rejectLossHours * 100) / 100,
+    cycle_loss_hours: Math.round(cycleLossHours * 100) / 100,
+    total_loss_hours: Math.round(totalLossHours * 100) / 100,
+    shift_loss: Math.round(shiftLoss * 100) / 100,
+    // money loss — all three methods returned; UI picks/compares
+    money_loss_per_shift: lossPerShift > 0 ? Math.round(shiftLoss * lossPerShift) : null,
+    money_loss_per_machine_hour: lossPerMachineHour > 0 ? Math.round(totalLossHours * lossPerMachineHour) : null,
+    rate_per_shift: lossPerShift || null,
+    rate_per_machine_hour: lossPerMachineHour || null,
+    machine: machineName,
+    shift_hours: SHIFT_HOURS
+  };
+
   return {
     info,
     logs,
     history,
+    lifecycle,
+    loss,
     colour_stats: colourStats,
     downtime_stats: downtimeStats,
     rejection_stats: rejectionStats,
@@ -10377,6 +10447,82 @@ async function buildDprOrderAnalysis(req) {
     scope: { mode, date, shift, machine, planId }
   };
 }
+
+// GET /api/analyze/orders
+// Factory-scoped list of orders (running + completed) for the Order Analyze picker.
+// Honors the caller's factory access; optional ?factory=<id> narrows to one accessible factory.
+app.get('/api/analyze/orders', async (req, res) => {
+  try {
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
+
+    const params = [];
+    const where = ['TRIM(COALESCE(pb.order_no, \'\')) <> \'\''];
+
+    // Factory scope
+    const reqFactory = Number(req.query.factory);
+    if (reqFactory) {
+      if (!canAll && !accessibleIds.includes(reqFactory)) {
+        return res.status(403).json({ ok: false, error: 'No access to that factory' });
+      }
+      params.push(reqFactory);
+      where.push(`pb.factory_id = $${params.length}`);
+    } else if (!canAll) {
+      if (!accessibleIds.length) return res.json({ ok: true, data: [] });
+      params.push(accessibleIds);
+      where.push(`pb.factory_id = ANY($${params.length}::int[])`);
+    }
+
+    const rows = await q(`
+      SELECT DISTINCT ON (pb.order_no)
+        pb.order_no,
+        pb.factory_id,
+        pb.plan_id,
+        pb.status,
+        pb.plan_qty,
+        pb.bal_qty,
+        pb.machine,
+        pb.line,
+        pb.item_name,
+        pb.mould_name,
+        pb.start_date,
+        pb.end_date,
+        pb.jc_approval_status,
+        COALESCE(o.client_name, ojr.client_name) AS client_name,
+        ojr.or_jr_date,
+        ojr.job_card_no,
+        ojr.job_card_date,
+        pb.created_at
+      FROM plan_board pb
+      LEFT JOIN orders o ON TRIM(o.order_no) = TRIM(pb.order_no)
+      LEFT JOIN LATERAL (
+        SELECT rpt.client_name, rpt.or_jr_date, rpt.job_card_no, rpt.job_card_date
+        FROM or_jr_report rpt
+        WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no)
+        ORDER BY rpt.job_card_date DESC NULLS LAST, rpt.id DESC
+        LIMIT 1
+      ) ojr ON true
+      WHERE ${where.join(' AND ')}
+      ORDER BY pb.order_no, pb.created_at DESC NULLS LAST, pb.id DESC
+    `, params);
+
+    // Derive a coarse RUNNING/COMPLETED status the UI can filter on
+    const data = rows.map(r => {
+      const st = String(r.status || '').toUpperCase();
+      const view = (st.includes('COMPLETE') || st === 'DONE') ? 'COMPLETED'
+        : (st.includes('REJECT') || st === 'DROPPED') ? 'CLOSED'
+          : 'RUNNING';
+      return { ...r, view_status: view };
+    }).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+    res.json({ ok: true, data, can_select_all_factories: canAll, factories: access.factories });
+  } catch (e) {
+    console.error('analyze/orders', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
 
 // GET /api/analyze/order/:orderNo
 // Detailed analysis of a specific Order
@@ -26122,139 +26268,497 @@ app.get('/api/analyze/mould/:mouldCode', async (req, res) => {
     const { mouldCode } = req.params;
     const { from, to } = req.query;
 
-    console.log('[Mould Analyze] Request for:', mouldCode, from, to);
+    // Factory scope from caller access
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
 
-    // 1. Fetch Mould Master Data (Standards)
+    // 1. Mould master (standards)
     const moulds = await q(
       `SELECT * FROM moulds WHERE mould_number ILIKE $1 OR mould_name ILIKE $1 LIMIT 1`,
       [mouldCode]
     );
     const mould = moulds.length ? moulds[0] : null;
+    const stdCycle = toNum(mould && mould.cycle_time);
+    const stdCavity = toNum(mould && mould.no_of_cav) || 1;
+    const pcsPerHourStd = stdCycle > 0 ? (3600 / stdCycle) * stdCavity : toNum(mould && mould.pcs_per_hour);
 
-    // 2. Build Query for DPR Logs
-    let sql = `
-SELECT
-dh.production_date,
-  dh.shift,
-  dh.prod_qty,
-  dh.reject_qty,
-  dh.downtime_min,
-  dh.act_cycle_time,
-  dh.reject_breakup,
-  dh.downtime_breakup,
-  dh.run_hours
-      FROM dpr_hourly dh
-WHERE(dh.mould_no ILIKE $1 OR dh.item_name ILIKE $1 OR dh.mould_name ILIKE $1)
-    `;
+    // 2. DPR logs (real dpr_hourly schema). Match on mould_no; join master for name fallback.
     const params = [mouldCode];
+    const where = ['(dh.mould_no ILIKE $1 OR dh.mould_no = $1)'];
 
-    if (from) {
-      params.push(from);
-      sql += ` AND dh.production_date >= $${params.length} `;
+    const reqFactory = Number(req.query.factory);
+    if (reqFactory) {
+      if (!canAll && !accessibleIds.includes(reqFactory)) {
+        return res.status(403).json({ ok: false, error: 'No access to that factory' });
+      }
+      params.push(reqFactory);
+      where.push(`dh.factory_id = $${params.length}`);
+    } else if (!canAll) {
+      if (!accessibleIds.length) return res.json({ ok: true, data: emptyMouldPayload(mould, mouldCode) });
+      params.push(accessibleIds);
+      where.push(`dh.factory_id = ANY($${params.length}::int[])`);
     }
-    if (to) {
-      params.push(to);
-      sql += ` AND dh.production_date <= $${params.length} `;
-    }
+    if (from) { params.push(from); where.push(`dh.dpr_date >= $${params.length}`); }
+    if (to) { params.push(to); where.push(`dh.dpr_date <= $${params.length}`); }
 
-    sql += ` ORDER BY dh.production_date ASC, dh.shift ASC`;
+    const logs = await q(`
+      SELECT dh.dpr_date::text AS date, dh.shift, dh.hour_slot, dh.machine, dh.line,
+             dh.order_no, dh.colour, dh.shots, dh.good_qty, dh.reject_qty, dh.downtime_min,
+             dh.reject_breakup, dh.downtime_breakup, dh.factory_id
+        FROM dpr_hourly dh
+       WHERE ${where.join(' AND ')}
+         AND COALESCE(dh.is_deleted, false) = false
+       ORDER BY dh.dpr_date ASC, dh.shift ASC, dh.hour_slot ASC
+    `, params);
 
-    const logs = await q(sql, params);
+    // 3. Aggregate
+    let totalGood = 0, totalReject = 0, totalDowntime = 0, totalShots = 0;
+    const slotKeys = new Set();
+    const rejectReasons = {}, downtimeReasons = {}, dailyTrend = {};
+    const byMachine = {}, byOrder = {};
 
-    // 3. Aggregate Data
-    let totalGood = 0;
-    let totalReject = 0;
-    let totalDowntime = 0;
-    let totalRunHours = 0;
-
-    // Cycle Time Avg (Weighted by production? Or simple avg? Simple avg of non-zero entries for now)
-    let cycleTimeSum = 0;
-    let cycleTimeCount = 0;
-
-    const rejectReasons = {};
-    const downtimeReasons = {};
-    const dailyTrend = {};
+    const bump = (bucket, key, field, val) => {
+      if (!bucket[key]) bucket[key] = { key, good: 0, reject: 0, downtime: 0, shots: 0 };
+      bucket[key][field] += val;
+    };
 
     logs.forEach(l => {
-      // Basic Sums
-      const good = toNum(l.prod_qty);
-      const rej = toNum(l.reject_qty);
-      totalGood += good;
-      totalReject += rej;
-      totalDowntime += toNum(l.downtime_min);
-      totalRunHours += toNum(l.run_hours);
+      const good = toNum(l.good_qty), rej = toNum(l.reject_qty), dt = toNum(l.downtime_min), sh = toNum(l.shots);
+      totalGood += good; totalReject += rej; totalDowntime += dt; totalShots += sh;
+      slotKeys.add(`${l.date}|${l.shift}|${l.hour_slot}|${l.machine}`);
 
-      // Avg Cycle Time
-      if (l.act_cycle_time) {
-        cycleTimeSum += toNum(l.act_cycle_time);
-        cycleTimeCount++;
-      }
+      let rb = l.reject_breakup; if (typeof rb === 'string') { try { rb = JSON.parse(rb); } catch (e) { rb = null; } }
+      if (rb && typeof rb === 'object') Object.entries(rb).forEach(([k, v]) => rejectReasons[k] = (rejectReasons[k] || 0) + toNum(v));
+      let db = l.downtime_breakup; if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
+      if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => downtimeReasons[k] = (downtimeReasons[k] || 0) + toNum(v));
 
-      // Rejection Breakup
-      if (l.reject_breakup) {
-        if (typeof l.reject_breakup === 'string') {
-          try { l.reject_breakup = JSON.parse(l.reject_breakup); } catch (e) { }
-        }
-        if (typeof l.reject_breakup === 'object') {
-          Object.entries(l.reject_breakup).forEach(([k, v]) => {
-            rejectReasons[k] = (rejectReasons[k] || 0) + toNum(v);
-          });
-        }
-      }
+      const d = l.date || 'Unknown';
+      if (!dailyTrend[d]) dailyTrend[d] = { date: d, good: 0, reject: 0, downtime: 0 };
+      dailyTrend[d].good += good; dailyTrend[d].reject += rej; dailyTrend[d].downtime += dt;
 
-      // Downtime Breakup
-      if (l.downtime_breakup) {
-        if (typeof l.downtime_breakup === 'string') {
-          try { l.downtime_breakup = JSON.parse(l.downtime_breakup); } catch (e) { }
-        }
-        if (typeof l.downtime_breakup === 'object') {
-          Object.entries(l.downtime_breakup).forEach(([k, v]) => {
-            downtimeReasons[k] = (downtimeReasons[k] || 0) + toNum(v);
-          });
-        }
-      }
-
-      // Daily Trend
-      const d = l.production_date ? new Date(l.production_date).toISOString().split('T')[0] : 'Unknown';
-      if (!dailyTrend[d]) dailyTrend[d] = { date: d, good: 0, reject: 0 };
-      dailyTrend[d].good += good;
-      dailyTrend[d].reject += rej;
+      const mc = l.machine || 'Unassigned';
+      bump(byMachine, mc, 'good', good); bump(byMachine, mc, 'reject', rej); bump(byMachine, mc, 'downtime', dt); bump(byMachine, mc, 'shots', sh);
+      const on = l.order_no || 'Unknown';
+      bump(byOrder, on, 'good', good); bump(byOrder, on, 'reject', rej); bump(byOrder, on, 'downtime', dt); bump(byOrder, on, 'shots', sh);
     });
 
-    const avgCycleTime = cycleTimeCount ? (cycleTimeSum / cycleTimeCount).toFixed(2) : 0;
+    // Actual run hours ~= distinct hour-slots; avg cycle actual from shots
+    const runHours = slotKeys.size;
+    const totalOutput = totalGood + totalReject;
+    const avgCycleTime = totalShots > 0 && runHours > 0 ? ((runHours * 3600) / totalShots).toFixed(2) : 0;
+    const rejRate = totalOutput ? ((totalReject / totalOutput) * 100).toFixed(1) : 0;
+
+    // OEE (uses total shots, not good-only): Availability × Performance × Quality
+    const availableHours = runHours + (totalDowntime / 60);
+    const availability = availableHours > 0 ? runHours / availableHours : 0;
+    const performance = (pcsPerHourStd > 0 && runHours > 0) ? Math.min(1, (totalShots * stdCavity) / (pcsPerHourStd * runHours)) : 0;
+    const quality = totalShots > 0 ? totalGood / (totalGood + totalReject) : 0;
+    const oee = Math.round(availability * performance * quality * 100);
+
     const sortedTrend = Object.values(dailyTrend).sort((a, b) => a.date.localeCompare(b.date));
-
-    // Sort Pareto
-    const rejectPareto = Object.entries(rejectReasons)
-      .map(([reason, qty]) => ({ reason, qty }))
-      .sort((a, b) => b.qty - a.qty);
-
-    // Sort Downtime
-    const downtimePareto = Object.entries(downtimeReasons)
-      .map(([reason, min]) => ({ reason, min }))
-      .sort((a, b) => b.min - a.min);
+    const rejectPareto = Object.entries(rejectReasons).map(([reason, qty]) => ({ reason, qty })).sort((a, b) => b.qty - a.qty);
+    const downtimePareto = Object.entries(downtimeReasons).map(([reason, min]) => ({ reason, min })).sort((a, b) => b.min - a.min);
+    const detailMachines = Object.values(byMachine).sort((a, b) => b.good - a.good);
+    const detailOrders = Object.values(byOrder).sort((a, b) => b.good - a.good);
 
     res.json({
       ok: true,
       data: {
         mould: mould || { mould_number: mouldCode, mould_name: 'Unknown (Check Master)' },
         kpi: {
-          totalGood,
-          totalReject,
-          totalOutput: totalGood + totalReject,
-          totalDowntime,
-          totalRunHours: totalRunHours.toFixed(1),
-          avgCycleTime
+          totalGood, totalReject, totalOutput,
+          totalDowntime, totalRunHours: runHours.toFixed(1),
+          avgCycleTime, stdCycle: stdCycle || null, rejRate, oee,
+          availability: Math.round(availability * 100),
+          performance: Math.round(performance * 100),
+          quality: Math.round(quality * 100)
         },
         rejections: rejectPareto,
         downtime: downtimePareto,
-        trend: sortedTrend
+        trend: sortedTrend,
+        detail: { machines: detailMachines, orders: detailOrders }
       }
     });
-
   } catch (e) {
     console.error('analyze/mould', e);
     res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+function emptyMouldPayload(mould, mouldCode) {
+  return {
+    mould: mould || { mould_number: mouldCode, mould_name: 'Unknown (Check Master)' },
+    kpi: { totalGood: 0, totalReject: 0, totalOutput: 0, totalDowntime: 0, totalRunHours: '0.0', avgCycleTime: 0, stdCycle: null, rejRate: 0, oee: 0, availability: 0, performance: 0, quality: 0 },
+    rejections: [], downtime: [], trend: [], detail: { machines: [], orders: [] }
+  };
+}
+
+// GET /api/analyze/supervisor
+// Groups DPR hourly entries by the supervisor/entry owner and resolves it to a user.
+// Answers "on which name is the data saved" + accountability metrics.
+app.get('/api/analyze/supervisor', async (req, res) => {
+  try {
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
+
+    const params = [];
+    const where = ['COALESCE(dh.is_deleted, false) = false'];
+
+    const reqFactory = Number(req.query.factory);
+    if (reqFactory) {
+      if (!canAll && !accessibleIds.includes(reqFactory)) {
+        return res.status(403).json({ ok: false, error: 'No access to that factory' });
+      }
+      params.push(reqFactory);
+      where.push(`dh.factory_id = $${params.length}`);
+    } else if (!canAll) {
+      if (!accessibleIds.length) return res.json({ ok: true, data: { supervisors: [], totals: {} } });
+      params.push(accessibleIds);
+      where.push(`dh.factory_id = ANY($${params.length}::int[])`);
+    }
+    if (req.query.from) { params.push(req.query.from); where.push(`dh.dpr_date >= $${params.length}`); }
+    if (req.query.to) { params.push(req.query.to); where.push(`dh.dpr_date <= $${params.length}`); }
+
+    const logs = await q(`
+      SELECT
+        LOWER(TRIM(COALESCE(NULLIF(TRIM(dh.supervisor), ''), dh.created_by, 'unknown'))) AS owner_key,
+        COALESCE(NULLIF(TRIM(dh.supervisor), ''), dh.created_by, 'Unknown') AS owner_raw,
+        dh.dpr_date::text AS date, dh.shift, dh.hour_slot, dh.machine, dh.line,
+        dh.good_qty, dh.reject_qty, dh.downtime_min,
+        u.username AS user_name, u.role_code AS user_role
+      FROM dpr_hourly dh
+      LEFT JOIN users u
+        ON LOWER(TRIM(u.username)) = LOWER(TRIM(COALESCE(NULLIF(TRIM(dh.supervisor), ''), dh.created_by, '')))
+      WHERE ${where.join(' AND ')}
+    `, params);
+
+    const map = {};
+    let tGood = 0, tRej = 0, tDt = 0, tEntries = 0;
+    logs.forEach(l => {
+      const key = l.owner_key || 'unknown';
+      if (!map[key]) map[key] = {
+        key,
+        name: l.user_name || l.owner_raw || 'Unknown',
+        role: l.user_role || null,
+        matched: !!l.user_name,
+        good: 0, reject: 0, downtime: 0, entries: 0,
+        shifts: new Set(), machines: new Set(), days: new Set()
+      };
+      const s = map[key];
+      const good = toNum(l.good_qty), rej = toNum(l.reject_qty), dt = toNum(l.downtime_min);
+      s.good += good; s.reject += rej; s.downtime += dt; s.entries += 1;
+      if (l.date && l.shift) s.shifts.add(`${l.date}|${l.shift}`);
+      if (l.machine) s.machines.add(l.machine);
+      if (l.date) s.days.add(l.date);
+      tGood += good; tRej += rej; tDt += dt; tEntries += 1;
+    });
+
+    const supervisors = Object.values(map).map(s => {
+      const output = s.good + s.reject;
+      return {
+        name: s.name, role: s.role, matched: s.matched,
+        good: s.good, reject: s.reject, output,
+        rejRate: output ? Number(((s.reject / output) * 100).toFixed(1)) : 0,
+        downtime: Math.round(s.downtime),
+        entries: s.entries,
+        shifts: s.shifts.size,
+        machines: s.machines.size,
+        days: s.days.size,
+        avgPerShift: s.shifts.size ? Math.round(s.good / s.shifts.size) : 0
+      };
+    }).sort((a, b) => b.good - a.good);
+
+    res.json({
+      ok: true,
+      data: {
+        supervisors,
+        totals: {
+          good: tGood, reject: tRej, output: tGood + tRej, downtime: Math.round(tDt),
+          entries: tEntries, supervisors: supervisors.length,
+          rejRate: (tGood + tRej) ? Number(((tRej / (tGood + tRej)) * 100).toFixed(1)) : 0
+        }
+      }
+    });
+  } catch (e) {
+    console.error('analyze/supervisor', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// GET /api/analyze/plant
+// Plant-level OEE — line-wise + date-wise, with A/P/Q components and plan attainment.
+app.get('/api/analyze/plant', async (req, res) => {
+  try {
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
+
+    const params = [];
+    const where = ['COALESCE(dh.is_deleted, false) = false'];
+
+    const reqFactory = Number(req.query.factory);
+    if (reqFactory) {
+      if (!canAll && !accessibleIds.includes(reqFactory)) {
+        return res.status(403).json({ ok: false, error: 'No access to that factory' });
+      }
+      params.push(reqFactory);
+      where.push(`dh.factory_id = $${params.length}`);
+    } else if (!canAll) {
+      if (!accessibleIds.length) return res.json({ ok: true, data: { overall: {}, byLine: [], byDate: [], lossReasons: [] } });
+      params.push(accessibleIds);
+      where.push(`dh.factory_id = ANY($${params.length}::int[])`);
+    }
+    if (req.query.from) { params.push(req.query.from); where.push(`dh.dpr_date >= $${params.length}`); }
+    if (req.query.to) { params.push(req.query.to); where.push(`dh.dpr_date <= $${params.length}`); }
+
+    // Join mould master for STD capacity (pcs/hour) to drive Performance
+    const logs = await q(`
+      SELECT dh.dpr_date::text AS date, dh.shift, dh.hour_slot, dh.line, dh.machine,
+             dh.good_qty, dh.reject_qty, dh.downtime_min, dh.shots, dh.downtime_breakup,
+             COALESCE(
+               NULLIF(m.pcs_per_hour, 0),
+               CASE WHEN m.cycle_time > 0 THEN (3600.0 / m.cycle_time) * COALESCE(NULLIF(m.no_of_cav,0),1) ELSE NULL END
+             ) AS pph_std
+        FROM dpr_hourly dh
+        LEFT JOIN moulds m ON TRIM(m.mould_number) = TRIM(dh.mould_no)
+       WHERE ${where.join(' AND ')}
+    `, params);
+
+    // Accumulator with running-hour slot tracking for A/P/Q
+    const mkAcc = (key) => ({ key, good: 0, reject: 0, downtime: 0, stdCap: 0, slots: new Set() });
+    const overall = mkAcc('ALL');
+    const byLine = {}, byDate = {}, lossReasons = {};
+
+    logs.forEach(l => {
+      const good = toNum(l.good_qty), rej = toNum(l.reject_qty), dt = toNum(l.downtime_min);
+      const pph = toNum(l.pph_std);
+      const slotKey = `${l.date}|${l.shift}|${l.hour_slot}|${l.machine}`;
+      const apply = (acc) => {
+        acc.good += good; acc.reject += rej; acc.downtime += dt;
+        acc.stdCap += pph; // each hour-slot contributes one hour of std capacity
+        acc.slots.add(slotKey);
+      };
+      apply(overall);
+      const line = l.line || 'Unassigned';
+      if (!byLine[line]) byLine[line] = mkAcc(line);
+      apply(byLine[line]);
+      const d = l.date || 'Unknown';
+      if (!byDate[d]) byDate[d] = mkAcc(d);
+      apply(byDate[d]);
+
+      let db = l.downtime_breakup; if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
+      if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => lossReasons[k] = (lossReasons[k] || 0) + toNum(v));
+    });
+
+    const oeeOf = (a) => {
+      const runHours = a.slots.size;
+      const output = a.good + a.reject;
+      const availableHours = runHours + (a.downtime / 60);
+      const availability = availableHours > 0 ? runHours / availableHours : 0;
+      const performance = a.stdCap > 0 ? Math.min(1, output / a.stdCap) : 0;
+      const quality = output > 0 ? a.good / output : 0;
+      return {
+        key: a.key, good: a.good, reject: a.reject, output,
+        downtime: Math.round(a.downtime), runHours,
+        availability: Math.round(availability * 100),
+        performance: Math.round(performance * 100),
+        quality: Math.round(quality * 100),
+        oee: Math.round(availability * performance * quality * 100)
+      };
+    };
+
+    const byDateArr = Object.values(byDate).map(oeeOf).sort((a, b) => a.key.localeCompare(b.key));
+    const byLineArr = Object.values(byLine).map(oeeOf).sort((a, b) => b.oee - a.oee);
+    const lossArr = Object.entries(lossReasons).map(([reason, min]) => ({ reason, min: Math.round(min) })).sort((a, b) => b.min - a.min);
+
+    res.json({ ok: true, data: { overall: oeeOf(overall), byLine: byLineArr, byDate: byDateArr, lossReasons: lossArr } });
+  } catch (e) {
+    console.error('analyze/plant', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// GET /api/analyze/machine
+// Per-machine utilization, OEE, output and downtime — with an optional drill via ?machine=.
+app.get('/api/analyze/machine', async (req, res) => {
+  try {
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
+
+    const params = [];
+    const where = ['COALESCE(dh.is_deleted, false) = false'];
+
+    const reqFactory = Number(req.query.factory);
+    if (reqFactory) {
+      if (!canAll && !accessibleIds.includes(reqFactory)) {
+        return res.status(403).json({ ok: false, error: 'No access to that factory' });
+      }
+      params.push(reqFactory);
+      where.push(`dh.factory_id = $${params.length}`);
+    } else if (!canAll) {
+      if (!accessibleIds.length) return res.json({ ok: true, data: { machines: [], totals: {}, drill: null } });
+      params.push(accessibleIds);
+      where.push(`dh.factory_id = ANY($${params.length}::int[])`);
+    }
+    if (req.query.from) { params.push(req.query.from); where.push(`dh.dpr_date >= $${params.length}`); }
+    if (req.query.to) { params.push(req.query.to); where.push(`dh.dpr_date <= $${params.length}`); }
+    const drillMachine = String(req.query.machine || '').trim();
+    if (drillMachine) { params.push(drillMachine); where.push(`TRIM(COALESCE(dh.machine,'')) = TRIM($${params.length})`); }
+
+    const logs = await q(`
+      SELECT dh.dpr_date::text AS date, dh.shift, dh.hour_slot, dh.machine, dh.line, dh.mould_no,
+             dh.good_qty, dh.reject_qty, dh.downtime_min, dh.downtime_breakup,
+             COALESCE(
+               NULLIF(m.pcs_per_hour, 0),
+               CASE WHEN m.cycle_time > 0 THEN (3600.0 / m.cycle_time) * COALESCE(NULLIF(m.no_of_cav,0),1) ELSE NULL END
+             ) AS pph_std
+        FROM dpr_hourly dh
+        LEFT JOIN moulds m ON TRIM(m.mould_number) = TRIM(dh.mould_no)
+       WHERE ${where.join(' AND ')}
+    `, params);
+
+    // Elapsed calendar hours per machine (span of distinct date|shift) for utilization
+    const byMc = {};
+    const drill = drillMachine ? { downtimeReasons: {}, byDate: {}, currentMould: null } : null;
+    let tGood = 0, tRej = 0, tDt = 0;
+
+    logs.forEach(l => {
+      const good = toNum(l.good_qty), rej = toNum(l.reject_qty), dt = toNum(l.downtime_min), pph = toNum(l.pph_std);
+      const mc = l.machine || 'Unassigned';
+      if (!byMc[mc]) byMc[mc] = { key: mc, line: l.line || '-', good: 0, reject: 0, downtime: 0, stdCap: 0, slots: new Set(), moulds: new Set() };
+      const a = byMc[mc];
+      a.good += good; a.reject += rej; a.downtime += dt; a.stdCap += pph;
+      a.slots.add(`${l.date}|${l.shift}|${l.hour_slot}`);
+      if (l.mould_no) a.moulds.add(l.mould_no);
+      tGood += good; tRej += rej; tDt += dt;
+
+      if (drill) {
+        let db = l.downtime_breakup; if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
+        if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => drill.downtimeReasons[k] = (drill.downtimeReasons[k] || 0) + toNum(v));
+        const d = l.date || 'Unknown';
+        if (!drill.byDate[d]) drill.byDate[d] = { date: d, good: 0, reject: 0, downtime: 0 };
+        drill.byDate[d].good += good; drill.byDate[d].reject += rej; drill.byDate[d].downtime += dt;
+        if (l.mould_no) drill.currentMould = l.mould_no;
+      }
+    });
+
+    const machines = Object.values(byMc).map(a => {
+      const runHours = a.slots.size;
+      const output = a.good + a.reject;
+      const downHours = a.downtime / 60;
+      const availableHours = runHours + downHours;
+      const availability = availableHours > 0 ? runHours / availableHours : 0;
+      const performance = a.stdCap > 0 ? Math.min(1, output / a.stdCap) : 0;
+      const quality = output > 0 ? a.good / output : 0;
+      return {
+        key: a.key, line: a.line, good: a.good, reject: a.reject, output,
+        downtime: Math.round(a.downtime), runHours,
+        utilization: availableHours > 0 ? Math.round(availability * 100) : 0,
+        performance: Math.round(performance * 100),
+        quality: Math.round(quality * 100),
+        oee: Math.round(availability * performance * quality * 100),
+        mouldCount: a.moulds.size
+      };
+    }).sort((a, b) => b.oee - a.oee);
+
+    let drillOut = null;
+    if (drill) {
+      drillOut = {
+        machine: drillMachine,
+        currentMould: drill.currentMould,
+        downtimeReasons: Object.entries(drill.downtimeReasons).map(([reason, min]) => ({ reason, min: Math.round(min) })).sort((a, b) => b.min - a.min),
+        byDate: Object.values(drill.byDate).sort((a, b) => a.date.localeCompare(b.date))
+      };
+    }
+
+    res.json({
+      ok: true,
+      data: {
+        machines,
+        totals: { good: tGood, reject: tRej, output: tGood + tRej, downtime: Math.round(tDt), machines: machines.length },
+        drill: drillOut
+      }
+    });
+  } catch (e) {
+    console.error('analyze/machine', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// GET /api/analyze/compare?factories=1,2,3
+// Side-by-side factory comparison (output, reject %, downtime, OEE) over the date range.
+app.get('/api/analyze/compare', async (req, res) => {
+  try {
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
+    const nameById = {};
+    access.factories.forEach(f => { nameById[Number(f.id)] = f.name || f.code || ('Factory ' + f.id); });
+
+    // Requested factories (default: all accessible)
+    let ids = String(req.query.factories || '')
+      .split(',').map(s => Number(s.trim())).filter(Boolean);
+    if (!ids.length) ids = accessibleIds.slice();
+    // Enforce access
+    if (!canAll) ids = ids.filter(id => accessibleIds.includes(id));
+    ids = Array.from(new Set(ids));
+    if (!ids.length) return res.json({ ok: true, data: { factories: [] } });
+
+    const params = [ids];
+    const where = ['COALESCE(dh.is_deleted, false) = false', 'dh.factory_id = ANY($1::int[])'];
+    if (req.query.from) { params.push(req.query.from); where.push(`dh.dpr_date >= $${params.length}`); }
+    if (req.query.to) { params.push(req.query.to); where.push(`dh.dpr_date <= $${params.length}`); }
+
+    const logs = await q(`
+      SELECT dh.factory_id, dh.dpr_date::text AS date, dh.shift, dh.hour_slot, dh.machine,
+             dh.good_qty, dh.reject_qty, dh.downtime_min,
+             COALESCE(
+               NULLIF(m.pcs_per_hour, 0),
+               CASE WHEN m.cycle_time > 0 THEN (3600.0 / m.cycle_time) * COALESCE(NULLIF(m.no_of_cav,0),1) ELSE NULL END
+             ) AS pph_std
+        FROM dpr_hourly dh
+        LEFT JOIN moulds m ON TRIM(m.mould_number) = TRIM(dh.mould_no)
+       WHERE ${where.join(' AND ')}
+    `, params);
+
+    const acc = {};
+    ids.forEach(id => { acc[id] = { factory_id: id, name: nameById[id] || ('Factory ' + id), good: 0, reject: 0, downtime: 0, stdCap: 0, slots: new Set() }; });
+    logs.forEach(l => {
+      const a = acc[l.factory_id]; if (!a) return;
+      a.good += toNum(l.good_qty); a.reject += toNum(l.reject_qty); a.downtime += toNum(l.downtime_min);
+      a.stdCap += toNum(l.pph_std); a.slots.add(`${l.date}|${l.shift}|${l.hour_slot}|${l.machine}`);
+    });
+
+    const factories = ids.map(id => {
+      const a = acc[id];
+      const runHours = a.slots.size, output = a.good + a.reject;
+      const availability = (runHours + a.downtime / 60) > 0 ? runHours / (runHours + a.downtime / 60) : 0;
+      const performance = a.stdCap > 0 ? Math.min(1, output / a.stdCap) : 0;
+      const quality = output > 0 ? a.good / output : 0;
+      return {
+        factory_id: id, name: a.name,
+        good: a.good, reject: a.reject, output,
+        rejRate: output ? Number(((a.reject / output) * 100).toFixed(1)) : 0,
+        downtime: Math.round(a.downtime), runHours,
+        availability: Math.round(availability * 100),
+        performance: Math.round(performance * 100),
+        quality: Math.round(quality * 100),
+        oee: Math.round(availability * performance * quality * 100)
+      };
+    });
+
+    res.json({ ok: true, data: { factories } });
+  } catch (e) {
+    console.error('analyze/compare', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
 
