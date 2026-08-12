@@ -210,10 +210,11 @@
         jobDetailState.machine = d.machine || '';
         jobDetailState.data = null;
 
-        const isAdmin = !!window.JPSMS?.auth?.hasRole?.('admin');
+        // Delete Setup allowed for admin/superadmin + planner, ppc_ass_manager, ppc_manager.
+        const canDelSetup = !!(window.canDeleteDprEntry && window.canDeleteDprEntry());
         const setupBtn = document.getElementById('btnDeleteSetup');
         if (setupBtn) {
-            if (isAdmin && d.id) {
+            if (canDelSetup && d.id) {
                 setupBtn.style.display = 'block';
                 window.currentSetupId = d.id;
             } else {
