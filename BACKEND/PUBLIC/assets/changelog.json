@@ -11,8 +11,28 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.28.1",
+  "latest": "1.29.0",
   "versions": [
+    {
+      "version": "1.29.0",
+      "date": "2026-08-12",
+      "title": "Redesigned Analyze — Order, Mould, Supervisor, Plant & Machine dashboards",
+      "modules": [
+        {
+          "app": "analyze",
+          "label": "Analyze",
+          "icon": "bi-graph-up-arrow",
+          "changes": [
+            { "type": "feat", "text": "Order Analyze now shows the full order lifecycle — OR date, JC conversion, plan and production start — with the delay in days at each step, plus a STD-vs-actual time view showing how many shifts were lost and the money loss." },
+            { "type": "feat", "text": "Mould Analyze has been rebuilt with a Summary and Detail view — accurate output, rejection rate, downtime, cycle time vs standard, OEE, and a breakdown by machine and by order." },
+            { "type": "feat", "text": "Supervisor Analyze shows exactly whose name each production entry is saved under, with output, rejection %, downtime, shifts and entries per supervisor." },
+            { "type": "feat", "text": "Plant Analyze shows line-wise and date-wise OEE with Availability, Performance and Quality, an OEE trend, and the top downtime loss reasons." },
+            { "type": "feat", "text": "Machine Analyze shows per-machine utilisation, OEE ranking and downtime — click any machine to drill into its downtime and daily output." },
+            { "type": "feat", "text": "Every Analyze screen respects your factory access, lets multi-factory users switch factory, and can compare factories side by side." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.28.1",
       "date": "2026-08-12",

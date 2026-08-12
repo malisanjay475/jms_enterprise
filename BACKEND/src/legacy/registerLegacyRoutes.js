@@ -26656,6 +26656,76 @@ app.get('/api/analyze/machine', async (req, res) => {
   }
 });
 
+// GET /api/analyze/compare?factories=1,2,3
+// Side-by-side factory comparison (output, reject %, downtime, OEE) over the date range.
+app.get('/api/analyze/compare', async (req, res) => {
+  try {
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
+    const nameById = {};
+    access.factories.forEach(f => { nameById[Number(f.id)] = f.name || f.code || ('Factory ' + f.id); });
+
+    // Requested factories (default: all accessible)
+    let ids = String(req.query.factories || '')
+      .split(',').map(s => Number(s.trim())).filter(Boolean);
+    if (!ids.length) ids = accessibleIds.slice();
+    // Enforce access
+    if (!canAll) ids = ids.filter(id => accessibleIds.includes(id));
+    ids = Array.from(new Set(ids));
+    if (!ids.length) return res.json({ ok: true, data: { factories: [] } });
+
+    const params = [ids];
+    const where = ['COALESCE(dh.is_deleted, false) = false', 'dh.factory_id = ANY($1::int[])'];
+    if (req.query.from) { params.push(req.query.from); where.push(`dh.dpr_date >= $${params.length}`); }
+    if (req.query.to) { params.push(req.query.to); where.push(`dh.dpr_date <= $${params.length}`); }
+
+    const logs = await q(`
+      SELECT dh.factory_id, dh.dpr_date::text AS date, dh.shift, dh.hour_slot, dh.machine,
+             dh.good_qty, dh.reject_qty, dh.downtime_min,
+             COALESCE(
+               NULLIF(m.pcs_per_hour, 0),
+               CASE WHEN m.cycle_time > 0 THEN (3600.0 / m.cycle_time) * COALESCE(NULLIF(m.no_of_cav,0),1) ELSE NULL END
+             ) AS pph_std
+        FROM dpr_hourly dh
+        LEFT JOIN moulds m ON TRIM(m.mould_number) = TRIM(dh.mould_no)
+       WHERE ${where.join(' AND ')}
+    `, params);
+
+    const acc = {};
+    ids.forEach(id => { acc[id] = { factory_id: id, name: nameById[id] || ('Factory ' + id), good: 0, reject: 0, downtime: 0, stdCap: 0, slots: new Set() }; });
+    logs.forEach(l => {
+      const a = acc[l.factory_id]; if (!a) return;
+      a.good += toNum(l.good_qty); a.reject += toNum(l.reject_qty); a.downtime += toNum(l.downtime_min);
+      a.stdCap += toNum(l.pph_std); a.slots.add(`${l.date}|${l.shift}|${l.hour_slot}|${l.machine}`);
+    });
+
+    const factories = ids.map(id => {
+      const a = acc[id];
+      const runHours = a.slots.size, output = a.good + a.reject;
+      const availability = (runHours + a.downtime / 60) > 0 ? runHours / (runHours + a.downtime / 60) : 0;
+      const performance = a.stdCap > 0 ? Math.min(1, output / a.stdCap) : 0;
+      const quality = output > 0 ? a.good / output : 0;
+      return {
+        factory_id: id, name: a.name,
+        good: a.good, reject: a.reject, output,
+        rejRate: output ? Number(((a.reject / output) * 100).toFixed(1)) : 0,
+        downtime: Math.round(a.downtime), runHours,
+        availability: Math.round(availability * 100),
+        performance: Math.round(performance * 100),
+        quality: Math.round(quality * 100),
+        oee: Math.round(availability * performance * quality * 100)
+      };
+    });
+
+    res.json({ ok: true, data: { factories } });
+  } catch (e) {
+    console.error('analyze/compare', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 // ============================================================
 // ADMIN DATABASE TOOLS (Backup / Restore)
 // ============================================================
