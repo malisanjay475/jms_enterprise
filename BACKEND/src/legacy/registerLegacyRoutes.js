@@ -10530,7 +10530,16 @@ app.get('/api/analyze/orders', async (req, res) => {
         ojr.or_jr_date,
         ojr.job_card_no,
         ojr.job_card_date,
-        pb.created_at
+        pb.created_at,
+        -- order-wide planned qty (all plans/moulds of this order, same factory)
+        (SELECT COALESCE(SUM(p2.plan_qty), 0)
+           FROM plan_board p2
+          WHERE TRIM(p2.order_no) = TRIM(pb.order_no)
+            AND (p2.factory_id = pb.factory_id OR p2.factory_id IS NULL OR pb.factory_id IS NULL)
+        ) AS plan_total,
+        -- actual production from hourly DPR (whole order)
+        COALESCE(prod.good, 0) AS produced_good,
+        COALESCE(prod.rej, 0) AS produced_rej
       FROM plan_board pb
       LEFT JOIN orders o ON TRIM(o.order_no) = TRIM(pb.order_no)
       LEFT JOIN LATERAL (
@@ -10540,6 +10549,13 @@ app.get('/api/analyze/orders', async (req, res) => {
         ORDER BY rpt.job_card_date DESC NULLS LAST, rpt.id DESC
         LIMIT 1
       ) ojr ON true
+      LEFT JOIN LATERAL (
+        SELECT SUM(dh.good_qty) AS good, SUM(dh.reject_qty) AS rej
+        FROM dpr_hourly dh
+        WHERE TRIM(dh.order_no) = TRIM(pb.order_no)
+          AND COALESCE(dh.is_deleted, false) = false
+          AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
+      ) prod ON true
       WHERE ${where.join(' AND ')}
       ORDER BY pb.order_no, pb.created_at DESC NULLS LAST, pb.id DESC
     `, params);
@@ -10550,7 +10566,9 @@ app.get('/api/analyze/orders', async (req, res) => {
       const view = (st.includes('COMPLETE') || st === 'DONE') ? 'COMPLETED'
         : (st.includes('REJECT') || st === 'DROPPED') ? 'CLOSED'
           : 'RUNNING';
-      return { ...r, view_status: view };
+      const planTotal = Number(r.plan_total) || Number(r.plan_qty) || 0;
+      const produced = Number(r.produced_good) || 0;
+      return { ...r, view_status: view, plan_total: planTotal, produced_good: produced, produced_rej: Number(r.produced_rej) || 0 };
     }).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
     res.json({ ok: true, data, can_select_all_factories: canAll, factories: access.factories });
