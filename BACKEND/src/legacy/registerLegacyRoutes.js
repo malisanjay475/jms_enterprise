@@ -26232,141 +26232,132 @@ app.get('/api/analyze/mould/:mouldCode', async (req, res) => {
     const { mouldCode } = req.params;
     const { from, to } = req.query;
 
-    console.log('[Mould Analyze] Request for:', mouldCode, from, to);
+    // Factory scope from caller access
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
 
-    // 1. Fetch Mould Master Data (Standards)
+    // 1. Mould master (standards)
     const moulds = await q(
       `SELECT * FROM moulds WHERE mould_number ILIKE $1 OR mould_name ILIKE $1 LIMIT 1`,
       [mouldCode]
     );
     const mould = moulds.length ? moulds[0] : null;
+    const stdCycle = toNum(mould && mould.cycle_time);
+    const stdCavity = toNum(mould && mould.no_of_cav) || 1;
+    const pcsPerHourStd = stdCycle > 0 ? (3600 / stdCycle) * stdCavity : toNum(mould && mould.pcs_per_hour);
 
-    // 2. Build Query for DPR Logs
-    let sql = `
-SELECT
-dh.production_date,
-  dh.shift,
-  dh.prod_qty,
-  dh.reject_qty,
-  dh.downtime_min,
-  dh.act_cycle_time,
-  dh.reject_breakup,
-  dh.downtime_breakup,
-  dh.run_hours
-      FROM dpr_hourly dh
-WHERE(dh.mould_no ILIKE $1 OR dh.item_name ILIKE $1 OR dh.mould_name ILIKE $1)
-    `;
+    // 2. DPR logs (real dpr_hourly schema). Match on mould_no; join master for name fallback.
     const params = [mouldCode];
+    const where = ['(dh.mould_no ILIKE $1 OR dh.mould_no = $1)'];
 
-    if (from) {
-      params.push(from);
-      sql += ` AND dh.production_date >= $${params.length} `;
+    const reqFactory = Number(req.query.factory);
+    if (reqFactory) {
+      if (!canAll && !accessibleIds.includes(reqFactory)) {
+        return res.status(403).json({ ok: false, error: 'No access to that factory' });
+      }
+      params.push(reqFactory);
+      where.push(`dh.factory_id = $${params.length}`);
+    } else if (!canAll) {
+      if (!accessibleIds.length) return res.json({ ok: true, data: emptyMouldPayload(mould, mouldCode) });
+      params.push(accessibleIds);
+      where.push(`dh.factory_id = ANY($${params.length}::int[])`);
     }
-    if (to) {
-      params.push(to);
-      sql += ` AND dh.production_date <= $${params.length} `;
-    }
+    if (from) { params.push(from); where.push(`dh.dpr_date >= $${params.length}`); }
+    if (to) { params.push(to); where.push(`dh.dpr_date <= $${params.length}`); }
 
-    sql += ` ORDER BY dh.production_date ASC, dh.shift ASC`;
+    const logs = await q(`
+      SELECT dh.dpr_date::text AS date, dh.shift, dh.hour_slot, dh.machine, dh.line,
+             dh.order_no, dh.colour, dh.shots, dh.good_qty, dh.reject_qty, dh.downtime_min,
+             dh.reject_breakup, dh.downtime_breakup, dh.factory_id
+        FROM dpr_hourly dh
+       WHERE ${where.join(' AND ')}
+         AND COALESCE(dh.is_deleted, false) = false
+       ORDER BY dh.dpr_date ASC, dh.shift ASC, dh.hour_slot ASC
+    `, params);
 
-    const logs = await q(sql, params);
+    // 3. Aggregate
+    let totalGood = 0, totalReject = 0, totalDowntime = 0, totalShots = 0;
+    const slotKeys = new Set();
+    const rejectReasons = {}, downtimeReasons = {}, dailyTrend = {};
+    const byMachine = {}, byOrder = {};
 
-    // 3. Aggregate Data
-    let totalGood = 0;
-    let totalReject = 0;
-    let totalDowntime = 0;
-    let totalRunHours = 0;
-
-    // Cycle Time Avg (Weighted by production? Or simple avg? Simple avg of non-zero entries for now)
-    let cycleTimeSum = 0;
-    let cycleTimeCount = 0;
-
-    const rejectReasons = {};
-    const downtimeReasons = {};
-    const dailyTrend = {};
+    const bump = (bucket, key, field, val) => {
+      if (!bucket[key]) bucket[key] = { key, good: 0, reject: 0, downtime: 0, shots: 0 };
+      bucket[key][field] += val;
+    };
 
     logs.forEach(l => {
-      // Basic Sums
-      const good = toNum(l.prod_qty);
-      const rej = toNum(l.reject_qty);
-      totalGood += good;
-      totalReject += rej;
-      totalDowntime += toNum(l.downtime_min);
-      totalRunHours += toNum(l.run_hours);
+      const good = toNum(l.good_qty), rej = toNum(l.reject_qty), dt = toNum(l.downtime_min), sh = toNum(l.shots);
+      totalGood += good; totalReject += rej; totalDowntime += dt; totalShots += sh;
+      slotKeys.add(`${l.date}|${l.shift}|${l.hour_slot}|${l.machine}`);
 
-      // Avg Cycle Time
-      if (l.act_cycle_time) {
-        cycleTimeSum += toNum(l.act_cycle_time);
-        cycleTimeCount++;
-      }
+      let rb = l.reject_breakup; if (typeof rb === 'string') { try { rb = JSON.parse(rb); } catch (e) { rb = null; } }
+      if (rb && typeof rb === 'object') Object.entries(rb).forEach(([k, v]) => rejectReasons[k] = (rejectReasons[k] || 0) + toNum(v));
+      let db = l.downtime_breakup; if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
+      if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => downtimeReasons[k] = (downtimeReasons[k] || 0) + toNum(v));
 
-      // Rejection Breakup
-      if (l.reject_breakup) {
-        if (typeof l.reject_breakup === 'string') {
-          try { l.reject_breakup = JSON.parse(l.reject_breakup); } catch (e) { }
-        }
-        if (typeof l.reject_breakup === 'object') {
-          Object.entries(l.reject_breakup).forEach(([k, v]) => {
-            rejectReasons[k] = (rejectReasons[k] || 0) + toNum(v);
-          });
-        }
-      }
+      const d = l.date || 'Unknown';
+      if (!dailyTrend[d]) dailyTrend[d] = { date: d, good: 0, reject: 0, downtime: 0 };
+      dailyTrend[d].good += good; dailyTrend[d].reject += rej; dailyTrend[d].downtime += dt;
 
-      // Downtime Breakup
-      if (l.downtime_breakup) {
-        if (typeof l.downtime_breakup === 'string') {
-          try { l.downtime_breakup = JSON.parse(l.downtime_breakup); } catch (e) { }
-        }
-        if (typeof l.downtime_breakup === 'object') {
-          Object.entries(l.downtime_breakup).forEach(([k, v]) => {
-            downtimeReasons[k] = (downtimeReasons[k] || 0) + toNum(v);
-          });
-        }
-      }
-
-      // Daily Trend
-      const d = l.production_date ? new Date(l.production_date).toISOString().split('T')[0] : 'Unknown';
-      if (!dailyTrend[d]) dailyTrend[d] = { date: d, good: 0, reject: 0 };
-      dailyTrend[d].good += good;
-      dailyTrend[d].reject += rej;
+      const mc = l.machine || 'Unassigned';
+      bump(byMachine, mc, 'good', good); bump(byMachine, mc, 'reject', rej); bump(byMachine, mc, 'downtime', dt); bump(byMachine, mc, 'shots', sh);
+      const on = l.order_no || 'Unknown';
+      bump(byOrder, on, 'good', good); bump(byOrder, on, 'reject', rej); bump(byOrder, on, 'downtime', dt); bump(byOrder, on, 'shots', sh);
     });
 
-    const avgCycleTime = cycleTimeCount ? (cycleTimeSum / cycleTimeCount).toFixed(2) : 0;
+    // Actual run hours ~= distinct hour-slots; avg cycle actual from shots
+    const runHours = slotKeys.size;
+    const totalOutput = totalGood + totalReject;
+    const avgCycleTime = totalShots > 0 && runHours > 0 ? ((runHours * 3600) / totalShots).toFixed(2) : 0;
+    const rejRate = totalOutput ? ((totalReject / totalOutput) * 100).toFixed(1) : 0;
+
+    // OEE (uses total shots, not good-only): Availability × Performance × Quality
+    const availableHours = runHours + (totalDowntime / 60);
+    const availability = availableHours > 0 ? runHours / availableHours : 0;
+    const performance = (pcsPerHourStd > 0 && runHours > 0) ? Math.min(1, (totalShots * stdCavity) / (pcsPerHourStd * runHours)) : 0;
+    const quality = totalShots > 0 ? totalGood / (totalGood + totalReject) : 0;
+    const oee = Math.round(availability * performance * quality * 100);
+
     const sortedTrend = Object.values(dailyTrend).sort((a, b) => a.date.localeCompare(b.date));
-
-    // Sort Pareto
-    const rejectPareto = Object.entries(rejectReasons)
-      .map(([reason, qty]) => ({ reason, qty }))
-      .sort((a, b) => b.qty - a.qty);
-
-    // Sort Downtime
-    const downtimePareto = Object.entries(downtimeReasons)
-      .map(([reason, min]) => ({ reason, min }))
-      .sort((a, b) => b.min - a.min);
+    const rejectPareto = Object.entries(rejectReasons).map(([reason, qty]) => ({ reason, qty })).sort((a, b) => b.qty - a.qty);
+    const downtimePareto = Object.entries(downtimeReasons).map(([reason, min]) => ({ reason, min })).sort((a, b) => b.min - a.min);
+    const detailMachines = Object.values(byMachine).sort((a, b) => b.good - a.good);
+    const detailOrders = Object.values(byOrder).sort((a, b) => b.good - a.good);
 
     res.json({
       ok: true,
       data: {
         mould: mould || { mould_number: mouldCode, mould_name: 'Unknown (Check Master)' },
         kpi: {
-          totalGood,
-          totalReject,
-          totalOutput: totalGood + totalReject,
-          totalDowntime,
-          totalRunHours: totalRunHours.toFixed(1),
-          avgCycleTime
+          totalGood, totalReject, totalOutput,
+          totalDowntime, totalRunHours: runHours.toFixed(1),
+          avgCycleTime, stdCycle: stdCycle || null, rejRate, oee,
+          availability: Math.round(availability * 100),
+          performance: Math.round(performance * 100),
+          quality: Math.round(quality * 100)
         },
         rejections: rejectPareto,
         downtime: downtimePareto,
-        trend: sortedTrend
+        trend: sortedTrend,
+        detail: { machines: detailMachines, orders: detailOrders }
       }
     });
-
   } catch (e) {
     console.error('analyze/mould', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
+
+function emptyMouldPayload(mould, mouldCode) {
+  return {
+    mould: mould || { mould_number: mouldCode, mould_name: 'Unknown (Check Master)' },
+    kpi: { totalGood: 0, totalReject: 0, totalOutput: 0, totalDowntime: 0, totalRunHours: '0.0', avgCycleTime: 0, stdCycle: null, rejRate: 0, oee: 0, availability: 0, performance: 0, quality: 0 },
+    rejections: [], downtime: [], trend: [], detail: { machines: [], orders: [] }
+  };
+}
 
 // ============================================================
 // ADMIN DATABASE TOOLS (Backup / Restore)
