@@ -26453,6 +26453,100 @@ app.get('/api/analyze/supervisor', async (req, res) => {
   }
 });
 
+// GET /api/analyze/plant
+// Plant-level OEE — line-wise + date-wise, with A/P/Q components and plan attainment.
+app.get('/api/analyze/plant', async (req, res) => {
+  try {
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
+
+    const params = [];
+    const where = ['COALESCE(dh.is_deleted, false) = false'];
+
+    const reqFactory = Number(req.query.factory);
+    if (reqFactory) {
+      if (!canAll && !accessibleIds.includes(reqFactory)) {
+        return res.status(403).json({ ok: false, error: 'No access to that factory' });
+      }
+      params.push(reqFactory);
+      where.push(`dh.factory_id = $${params.length}`);
+    } else if (!canAll) {
+      if (!accessibleIds.length) return res.json({ ok: true, data: { overall: {}, byLine: [], byDate: [], lossReasons: [] } });
+      params.push(accessibleIds);
+      where.push(`dh.factory_id = ANY($${params.length}::int[])`);
+    }
+    if (req.query.from) { params.push(req.query.from); where.push(`dh.dpr_date >= $${params.length}`); }
+    if (req.query.to) { params.push(req.query.to); where.push(`dh.dpr_date <= $${params.length}`); }
+
+    // Join mould master for STD capacity (pcs/hour) to drive Performance
+    const logs = await q(`
+      SELECT dh.dpr_date::text AS date, dh.shift, dh.hour_slot, dh.line, dh.machine,
+             dh.good_qty, dh.reject_qty, dh.downtime_min, dh.shots, dh.downtime_breakup,
+             COALESCE(
+               NULLIF(m.pcs_per_hour, 0),
+               CASE WHEN m.cycle_time > 0 THEN (3600.0 / m.cycle_time) * COALESCE(NULLIF(m.no_of_cav,0),1) ELSE NULL END
+             ) AS pph_std
+        FROM dpr_hourly dh
+        LEFT JOIN moulds m ON TRIM(m.mould_number) = TRIM(dh.mould_no)
+       WHERE ${where.join(' AND ')}
+    `, params);
+
+    // Accumulator with running-hour slot tracking for A/P/Q
+    const mkAcc = (key) => ({ key, good: 0, reject: 0, downtime: 0, stdCap: 0, slots: new Set() });
+    const overall = mkAcc('ALL');
+    const byLine = {}, byDate = {}, lossReasons = {};
+
+    logs.forEach(l => {
+      const good = toNum(l.good_qty), rej = toNum(l.reject_qty), dt = toNum(l.downtime_min);
+      const pph = toNum(l.pph_std);
+      const slotKey = `${l.date}|${l.shift}|${l.hour_slot}|${l.machine}`;
+      const apply = (acc) => {
+        acc.good += good; acc.reject += rej; acc.downtime += dt;
+        acc.stdCap += pph; // each hour-slot contributes one hour of std capacity
+        acc.slots.add(slotKey);
+      };
+      apply(overall);
+      const line = l.line || 'Unassigned';
+      if (!byLine[line]) byLine[line] = mkAcc(line);
+      apply(byLine[line]);
+      const d = l.date || 'Unknown';
+      if (!byDate[d]) byDate[d] = mkAcc(d);
+      apply(byDate[d]);
+
+      let db = l.downtime_breakup; if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
+      if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => lossReasons[k] = (lossReasons[k] || 0) + toNum(v));
+    });
+
+    const oeeOf = (a) => {
+      const runHours = a.slots.size;
+      const output = a.good + a.reject;
+      const availableHours = runHours + (a.downtime / 60);
+      const availability = availableHours > 0 ? runHours / availableHours : 0;
+      const performance = a.stdCap > 0 ? Math.min(1, output / a.stdCap) : 0;
+      const quality = output > 0 ? a.good / output : 0;
+      return {
+        key: a.key, good: a.good, reject: a.reject, output,
+        downtime: Math.round(a.downtime), runHours,
+        availability: Math.round(availability * 100),
+        performance: Math.round(performance * 100),
+        quality: Math.round(quality * 100),
+        oee: Math.round(availability * performance * quality * 100)
+      };
+    };
+
+    const byDateArr = Object.values(byDate).map(oeeOf).sort((a, b) => a.key.localeCompare(b.key));
+    const byLineArr = Object.values(byLine).map(oeeOf).sort((a, b) => b.oee - a.oee);
+    const lossArr = Object.entries(lossReasons).map(([reason, min]) => ({ reason, min: Math.round(min) })).sort((a, b) => b.min - a.min);
+
+    res.json({ ok: true, data: { overall: oeeOf(overall), byLine: byLineArr, byDate: byDateArr, lossReasons: lossArr } });
+  } catch (e) {
+    console.error('analyze/plant', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 // ============================================================
 // ADMIN DATABASE TOOLS (Backup / Restore)
 // ============================================================

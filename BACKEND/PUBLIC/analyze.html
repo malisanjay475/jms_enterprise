@@ -881,12 +881,29 @@
             } else {
                 // Plant (Default)
                 container.innerHTML = `
-                    <div class="chart-container">
-                        <h3>Plant OEE</h3>
-                        <canvas id="mainChart"></canvas>
+                    <div id="plantKpis" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap:15px; margin-bottom:20px"></div>
+                    <div style="display:grid; grid-template-columns: 1fr 2fr; gap:20px; margin-bottom:20px; height:340px">
+                        <div class="chart-container" style="height:100%">
+                            <h3>Overall OEE</h3>
+                            <canvas id="plantOeeGauge"></canvas>
+                        </div>
+                        <div class="chart-container" style="height:100%">
+                            <h3>OEE Trend (date-wise)</h3>
+                            <canvas id="plantTrend"></canvas>
+                        </div>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; height:340px">
+                        <div class="chart-container" style="height:100%">
+                            <h3>Line-wise OEE</h3>
+                            <canvas id="plantLines"></canvas>
+                        </div>
+                        <div class="chart-container" style="height:100%">
+                            <h3>Top Loss Reasons (downtime)</h3>
+                            <canvas id="plantLoss"></canvas>
+                        </div>
                     </div>
                  `;
-                initChart('doughnut', 'OEE');
+                loadPlantAnalysis();
             }
         }
 
@@ -1717,6 +1734,86 @@
             } catch (e) {
                 body.innerHTML = `<tr><td colspan="10" class="text-center p-3 text-danger">${e.message}</td></tr>`;
             }
+        }
+
+        /* =========================================
+           PLANT LOGIC
+           ========================================= */
+        let plantCharts = {};
+        function oeeColor(v) { return v >= 85 ? '#10b981' : v >= 60 ? '#f59e0b' : '#ef4444'; }
+        async function loadPlantAnalysis() {
+            const kpis = document.getElementById('plantKpis');
+            kpis.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:30px; color:#94a3b8"><div class="spinner-border spinner-border-sm text-primary"></div> Loading…</div>';
+            let data;
+            try {
+                const res = await JPSMS.api.get('/analyze/plant' + filterQS());
+                if (!res.ok) { kpis.innerHTML = `<div style="grid-column:1/-1; color:#ef4444; text-align:center; padding:20px">${res.error || 'No data'}</div>`; return; }
+                data = res.data;
+            } catch (e) {
+                kpis.innerHTML = `<div style="grid-column:1/-1; color:#ef4444; text-align:center; padding:20px">${e.message}</div>`; return;
+            }
+
+            const o = data.overall || {};
+            kpis.innerHTML = [
+                supKpiCard('OEE', `${o.oee || 0}%`, 'Availability × Perf × Quality', oeeColor(o.oee || 0)),
+                supKpiCard('Availability', `${o.availability || 0}%`, `${o.runHours || 0} run hrs`, '#3b82f6'),
+                supKpiCard('Performance', `${o.performance || 0}%`, 'vs STD capacity', '#8b5cf6'),
+                supKpiCard('Quality', `${o.quality || 0}%`, `${(o.reject || 0).toLocaleString()} rej`, '#ef4444'),
+                supKpiCard('Output', `${(o.output || 0).toLocaleString()}`, `${o.downtime || 0} min down`, '#10b981')
+            ].join('');
+
+            Object.values(plantCharts).forEach(c => c && c.destroy());
+            plantCharts = {};
+
+            // OEE gauge (doughnut)
+            plantCharts.gauge = new Chart(document.getElementById('plantOeeGauge'), {
+                type: 'doughnut',
+                data: { labels: ['OEE', ''], datasets: [{ data: [o.oee || 0, 100 - (o.oee || 0)], backgroundColor: [oeeColor(o.oee || 0), '#e2e8f0'], borderWidth: 0 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, cutout: '72%',
+                    plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                },
+                plugins: [{
+                    id: 'oeeText', afterDraw: (ch) => {
+                        const { ctx, chartArea } = ch; const x = (chartArea.left + chartArea.right) / 2; const y = (chartArea.top + chartArea.bottom) / 2;
+                        ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.font = 'bold 28px sans-serif'; ctx.fillStyle = oeeColor(o.oee || 0); ctx.fillText(`${o.oee || 0}%`, x, y);
+                        ctx.restore();
+                    }
+                }]
+            });
+
+            // Date-wise OEE trend
+            const bd = data.byDate || [];
+            plantCharts.trend = new Chart(document.getElementById('plantTrend'), {
+                type: 'line',
+                data: {
+                    labels: bd.map(d => new Date(d.key).toLocaleDateString()),
+                    datasets: [
+                        { label: 'OEE', data: bd.map(d => d.oee), borderColor: '#024c81', backgroundColor: 'rgba(1,168,221,0.12)', fill: true, tension: 0.3 },
+                        { label: 'Availability', data: bd.map(d => d.availability), borderColor: '#3b82f6', tension: 0.3, fill: false, pointRadius: 0 },
+                        { label: 'Performance', data: bd.map(d => d.performance), borderColor: '#8b5cf6', tension: 0.3, fill: false, pointRadius: 0 },
+                        { label: 'Quality', data: bd.map(d => d.quality), borderColor: '#10b981', tension: 0.3, fill: false, pointRadius: 0 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, max: 100 } } }
+            });
+
+            // Line-wise OEE bar
+            const bl = data.byLine || [];
+            plantCharts.lines = new Chart(document.getElementById('plantLines'), {
+                type: 'bar',
+                data: { labels: bl.map(l => l.key), datasets: [{ label: 'OEE %', data: bl.map(l => l.oee), backgroundColor: bl.map(l => oeeColor(l.oee)), borderRadius: 4 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: 100 } } }
+            });
+
+            // Loss Pareto
+            const lr = (data.lossReasons || []).slice(0, 10);
+            plantCharts.loss = new Chart(document.getElementById('plantLoss'), {
+                type: 'bar',
+                data: { labels: lr.map(r => r.reason), datasets: [{ label: 'Downtime (min)', data: lr.map(r => r.min), backgroundColor: '#f59e0b', borderRadius: 4 }] },
+                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
         }
     </script>
     <script src="/assets/ai-chat.js"></script>
