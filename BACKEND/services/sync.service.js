@@ -138,16 +138,31 @@ const LOCAL_NO_PUSH_TABLES = ['users', 'roles', 'erp_jr_status', 'erp_jr_summary
 const CONFLICT_KEYS = {
     users: 'id',
     roles: 'code',
-    // Natural key: order_no is UNIQUE NOT NULL at table creation (orders_order_no_key).
-    // Serial `id` diverges between LOCAL and MAIN when both mint orders independently, so
-    // keying on `id` let two servers' unrelated orders collide on order_no's unique index
-    // (23505 on orders_order_no_key — the recurring push failure). Nothing references
-    // orders.id (no FK, no order_id column anywhere; all joins use order_no), so the
-    // id divergence caused by dropping id from the sync payload is harmless. Matches the
-    // natural-key pattern used by std_actual / plan_board / or_jr_report. See
-    // [[project_sync_conflict_natural_key]].
-    orders: 'order_no',
-    plan_board: 'plan_id',
+    // Natural key. order_no is unique only WITHIN a factory (the orders table is
+    // per-factory: the app's own bulk-import upserts by order_no + factory_id, and the
+    // same order_no legitimately exists in more than one factory — e.g. the Dungra order
+    // that fanned out in the DPR matrix, KAN-127). Serial `id` diverges LOCAL↔MAIN, so it
+    // can't be the key either. Keying on order_no ALONE made a second factory's order
+    // collide with the first factory's identical order_no on MAIN — ON CONFLICT (order_no)
+    // UPDATED the existing row instead of INSERTing, so the pushing factory's order never
+    // became its own MAIN row (same defect that lost plan_board rows). The identity is
+    // (order_no, factory_id); the backing global UNIQUE (orders_order_no_key) is dropped
+    // and replaced by the factory-scoped expression index in the schema heal. Nothing
+    // references orders.id (no FK, no order_id column anywhere; all joins use order_no).
+    // Backed by RAW_CONFLICT_TARGETS.orders (COALESCE(factory_id, 0), NULL-safe).
+    // [[project_plan_id_not_globally_unique]] [[project_sync_conflict_natural_key]]
+    orders: 'order_no, factory_id',
+    // plan_id (PLN-<fy>-<seq>) is unique only WITHIN a factory — every factory mints
+    // the same sequence independently, so PLN-2026-050 exists on factory 1 AND factory 3.
+    // Keying the MAIN upsert on plan_id alone made a LOCAL factory-3 plan collide with an
+    // unrelated factory-1 plan already on MAIN: ON CONFLICT (plan_id) UPDATED the existing
+    // row instead of INSERTing, so the pushing factory's plan never became its own row on
+    // MAIN — the direct cause of "LOCAL has 93 plans, MAIN has 46". The natural identity is
+    // (plan_id, factory_id). Backed by the expression index in RAW_CONFLICT_TARGETS.plan_board
+    // (COALESCE(factory_id, 0), so NULL-factory legacy plans still collapse to one row).
+    // Same per-factory-natural-key fix already applied to moulds and machines.
+    // [[project_plan_id_not_globally_unique]] [[project_sync_conflict_natural_key]]
+    plan_board: 'plan_id, factory_id',
     plan_audit_logs: 'id',
     plan_history: 'id',
     purchase_order_items: 'id',
@@ -275,6 +290,21 @@ const SYNC_UPDATED_AT_SOURCE_COLUMNS = {
 // conflict target is overridden here.
 const RAW_CONFLICT_TARGETS = {
     or_jr_report: `TRIM(or_jr_no), COALESCE(job_card_no, '')`,
+    // plan_board's unique identity is idx_plan_board_plan_factory_unique ON
+    // (plan_id, (COALESCE(factory_id, 0))) — an EXPRESSION index (factory_id is
+    // nullable on legacy plans, and NULLs must collapse to a single row, not be
+    // treated as all-distinct). The ON CONFLICT target must reproduce it exactly or
+    // Postgres infers against a non-existent plain (plan_id, factory_id) index and
+    // fails every row with 42P10. getConflictColumns still returns
+    // ['plan_id','factory_id'] for the delete-trigger key and id-drop logic; only the
+    // upsert conflict target is overridden here. See CONFLICT_KEYS.plan_board.
+    plan_board: `plan_id, COALESCE(factory_id, 0)`,
+    // orders' unique identity is idx_orders_factory_order_unique ON
+    // (order_no, (COALESCE(factory_id, 0))) — an EXPRESSION index (factory_id is nullable
+    // on legacy rows and NULLs must collapse to one row). Same reasoning as plan_board:
+    // getConflictColumns still returns ['order_no','factory_id']; only the upsert conflict
+    // target is overridden here. See CONFLICT_KEYS.orders.
+    orders: `order_no, COALESCE(factory_id, 0)`,
     // moulds' unique index is idx_moulds_factory_mould_number_unique ON
     // ((LOWER(mould_number)), (COALESCE(factory_id, 0))) — an EXPRESSION index. The
     // ON CONFLICT target must reproduce it exactly, or Postgres infers against a
@@ -1702,13 +1732,22 @@ async function upsertData(table, data) {
                 // A row edited strictly AFTER the delete (updated_at > deleted_at) is a
                 // genuine newer intent and still passes through.
                 if (table === 'plan_board') {
+                    // record_pk format transitioned with the composite (plan_id, factory_id)
+                    // conflict key: NEW tombstones are JSON ({"plan_id":..,"factory_id":..}),
+                    // while tombstones written before the change are the bare plan_id string.
+                    // Match BOTH, and scope by factory so a delete on one factory's plan never
+                    // suppresses a different factory's same-numbered plan.
                     const tomb = await client.query(
                         `SELECT 1 FROM sync_deletions
                           WHERE table_name = 'plan_board'
-                            AND record_pk = $1
                             AND deleted_at >= COALESCE($2::timestamptz, deleted_at)
+                            AND (
+                                  record_pk = $1
+                               OR (left(record_pk, 1) = '{' AND (record_pk::jsonb->>'plan_id') = $1)
+                            )
+                            AND (factory_id IS NULL OR $3::int IS NULL OR factory_id = $3::int)
                           LIMIT 1`,
-                        [String(row.plan_id), row.updated_at ?? null]
+                        [String(row.plan_id), row.updated_at ?? null, row.factory_id ?? null]
                     );
                     if (tomb.rowCount > 0) {
                         stats.skipped += 1;

@@ -4951,6 +4951,54 @@ async function initializeLegacyRuntime() {
       console.warn('[DB] machines_name_key index drop skipped:', e.message);
     }
     await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_machines_factory_machine_unique ON machines ((LOWER(machine)), (COALESCE(factory_id, 0)))`);
+
+    // [FIX] plan_id must be unique per factory, not globally.
+    // Every factory mints the same PLN-<fy>-<seq> sequence independently, so the same
+    // plan_id exists on multiple factories. The original schema declared
+    // plan_board.plan_id as globally UNIQUE (plan_board_plan_id_key). On MAIN — which
+    // aggregates every factory — a second factory's plan collided with the first
+    // factory's identical plan_id and the sync upsert UPDATED that row instead of
+    // INSERTing a new one, so the pushing factory's plan never became its own row
+    // (symptom: LOCAL had 93 plans, MAIN only 46). Drop the global unique and replace
+    // it with a factory-scoped expression unique index (NULL factory_id collapses to 0
+    // so legacy plans stay single-rowed). Mirrors the moulds/machines fix and matches
+    // RAW_CONFLICT_TARGETS.plan_board in sync.service.js. [[project_plan_id_not_globally_unique]]
+    try {
+      await q(`ALTER TABLE plan_board DROP CONSTRAINT IF EXISTS plan_board_plan_id_key`);
+    } catch (e) {
+      console.warn('[DB] plan_board_plan_id_key drop skipped:', e.message);
+    }
+    try {
+      await q(`DROP INDEX IF EXISTS plan_board_plan_id_key`);
+    } catch (e) {
+      console.warn('[DB] plan_board_plan_id_key index drop skipped:', e.message);
+    }
+    await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_board_plan_factory_unique ON plan_board (plan_id, (COALESCE(factory_id, 0)))`)
+      .catch(err => console.warn('[DB] idx_plan_board_plan_factory_unique skipped (duplicate plan_id+factory in data):', err.message));
+
+    // [FIX] order_no must be unique per factory, not globally — same defect as plan_board.
+    // The orders table is per-factory (the bulk-import upserts by order_no + factory_id and
+    // the same order_no legitimately exists across factories, e.g. the Dungra order in
+    // KAN-127). The original schema declared order_no globally UNIQUE (orders_order_no_key),
+    // so on MAIN a second factory's order collided with the first factory's identical
+    // order_no and the sync upsert UPDATED that row instead of INSERTing a new one — the
+    // pushing factory's order never became its own MAIN row. Drop the global unique and
+    // replace with a factory-scoped expression unique index (NULL factory_id collapses to
+    // 0). Matches RAW_CONFLICT_TARGETS.orders in sync.service.js and the plan_board/moulds/
+    // machines fixes. [[project_plan_id_not_globally_unique]]
+    try {
+      await q(`ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_order_no_key`);
+    } catch (e) {
+      console.warn('[DB] orders_order_no_key drop skipped:', e.message);
+    }
+    try {
+      await q(`DROP INDEX IF EXISTS orders_order_no_key`);
+    } catch (e) {
+      console.warn('[DB] orders_order_no_key index drop skipped:', e.message);
+    }
+    await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_factory_order_unique ON orders (order_no, (COALESCE(factory_id, 0)))`)
+      .catch(err => console.warn('[DB] idx_orders_factory_order_unique skipped (duplicate order_no+factory in data):', err.message));
+
     await q(`ALTER TABLE machines ADD COLUMN IF NOT EXISTS machine_icon TEXT`);
     await q(`ALTER TABLE machines ADD COLUMN IF NOT EXISTS machine_process TEXT`);
     await q(`ALTER TABLE machines ADD COLUMN IF NOT EXISTS vendor_name TEXT`);
@@ -18490,7 +18538,7 @@ or_jr_no, item_code, product_name, client_name, plan_qty, 'Normal', 'Completed',
       FROM or_jr_report
       WHERE LOWER(mld_status) IN('completed')
       ${requestFactoryId ? `AND factory_id = $1` : ''}
-      ON CONFLICT(order_no) DO NOTHING
+      ON CONFLICT (order_no, (COALESCE(factory_id, 0))) DO NOTHING
     `, requestFactoryId ? [requestFactoryId] : []);
 
     // Also mark them as completed if they were inserted as 'Pending' by default or if we need to update status separately?
