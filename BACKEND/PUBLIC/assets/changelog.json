@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.30.0",
+  "latest": "1.31.0",
   "versions": [
+    {
+      "version": "1.31.0",
+      "date": "2026-08-12",
+      "title": "More PPC delete & restore access in DPR and Planning",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "Planner, PPC Manager and PPC Assistant Manager can now Delete Setup and Delete Quick Entry in the DPR Compliance Summary, the same as the existing Delete Entry access." }
+          ]
+        },
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "PPC Manager and PPC Assistant Manager can now Restore a completed plan back to the board from the Complete Production Plan report (previously Superadmin only)." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.30.0",
       "date": "2026-08-12",
