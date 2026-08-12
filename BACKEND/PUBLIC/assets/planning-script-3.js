@@ -5222,8 +5222,13 @@
           const hist = getCpActiveMouldHistory(window.cpColourPlanRows);
           if (!hist || !hist.data) return toast('No run history available yet.', 'info');
           const data = hist.data;
+          const liveByMachine = {};
+          (Array.isArray(data.liveRuns) ? data.liveRuns : []).forEach((r) => { liveByMachine[r.machine] = r; });
           const machines = Array.isArray(data.machines) ? data.machines.slice() : [];
           machines.sort((a, b) => {
+            const la = liveByMachine[a.machine] ? 1 : 0;
+            const lb = liveByMachine[b.machine] ? 1 : 0;
+            if (la !== lb) return lb - la; // running-now first
             if (a.machine === data.bestMachine) return -1;
             if (b.machine === data.bestMachine) return 1;
             const ea = a.efficiency == null ? -1 : a.efficiency;
@@ -5252,13 +5257,20 @@
           const cards = machines.length
             ? machines.map((m) => {
                 const isBest = m.machine === data.bestMachine;
+                const live = liveByMachine[m.machine] || null;
                 const effColor = m.efficiency == null ? '#94a3b8' : m.efficiency >= 90 ? '#15803d' : m.efficiency >= 75 ? '#b45309' : '#dc2626';
                 const rejColor = m.rejectionPct <= 2 ? '#15803d' : m.rejectionPct <= 4 ? '#b45309' : '#dc2626';
-                return `<div style="border:2px solid ${isBest ? '#3b82f6' : '#e2e8f0'}; border-radius:12px; padding:11px 12px; background:${isBest ? '#eff6ff' : '#fff'}; display:flex; flex-direction:column; gap:6px">
-                    <div style="display:flex; justify-content:space-between; align-items:center; gap:6px">
+                const cardBorder = live ? '#22c55e' : isBest ? '#3b82f6' : '#e2e8f0';
+                const cardBg = live ? '#f0fdf4' : isBest ? '#eff6ff' : '#fff';
+                return `<div style="border:2px solid ${cardBorder}; border-radius:12px; padding:11px 12px; background:${cardBg}; display:flex; flex-direction:column; gap:6px">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap">
                       <b style="font-size:0.9rem; color:#0f172a">${esc(m.machine)}</b>
-                      ${isBest ? '<span style="background:#dbeafe; color:#1d4ed8; border-radius:6px; padding:1px 7px; font-size:0.6rem; font-weight:900">BEST</span>' : ''}
+                      <span style="display:flex; gap:4px; flex-wrap:wrap">
+                        ${live ? '<span style="background:#dcfce7; color:#15803d; border-radius:6px; padding:1px 7px; font-size:0.6rem; font-weight:900">● RUNNING NOW</span>' : ''}
+                        ${isBest ? '<span style="background:#dbeafe; color:#1d4ed8; border-radius:6px; padding:1px 7px; font-size:0.6rem; font-weight:900">BEST</span>' : ''}
+                      </span>
                     </div>
+                    ${live ? `${cpHistStat('Running order', esc(String(live.order || '-')), '#15803d')}${cpHistStat('Made / Balance', `${Number(live.produced || 0).toLocaleString()} / ${Number(live.balance || 0).toLocaleString()}`, '#166534')}` : ''}
                     ${cpHistStat('Cycle (act/std)', `${m.actualCycle != null ? m.actualCycle + 's' : '—'} / ${m.stdCycle != null ? m.stdCycle + 's' : '—'}`)}
                     ${cpHistStat('Efficiency', m.efficiency != null ? m.efficiency + '%' : '—', effColor)}
                     ${cpHistStat('Rejection', m.rejectionPct + '%', rejColor)}
@@ -5267,6 +5279,13 @@
                   </div>`;
               }).join('')
             : `<div style="grid-column:1/-1; color:#94a3b8; text-align:center; padding:24px">This mould has not run on any machine in the last ${esc(String(data.windowMonths || 6))} months.</div>`;
+
+          const liveBanner = (Array.isArray(data.liveRuns) && data.liveRuns.length)
+            ? `<div style="background:#f0fdf4; border:1px solid #86efac; border-radius:12px; padding:10px 14px; color:#15803d; font-size:0.82rem; font-weight:700; display:flex; gap:8px; align-items:flex-start">
+                 <span style="font-size:0.7rem; margin-top:2px">●</span>
+                 <div>Running now on ${data.liveRuns.map((r) => `<b>${esc(r.machine)}</b>${r.order ? ` (${esc(String(r.order))})` : ''} — bal ${Number(r.balance || 0).toLocaleString()}`).join(', ')}.</div>
+               </div>`
+            : '';
 
           const bestBanner = data.bestMachine
             ? `<div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:12px; padding:10px 14px; color:#047857; font-size:0.82rem; font-weight:700; display:flex; gap:8px; align-items:center">
@@ -5284,6 +5303,7 @@
                 <button class="btn icon ghost" aria-label="Close"><i class="bi bi-x-lg"></i></button>
               </div>
               <div class="modal-body" style="padding:16px 18px; overflow-y:auto; display:flex; flex-direction:column; gap:12px">
+                ${liveBanner}
                 ${bestBanner}
                 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px">${cards}</div>
                 ${lastRunStrip}
@@ -5302,6 +5322,8 @@
           const historyByMachine = {};
           if (historyData) (historyData.machines || []).forEach((m) => { historyByMachine[m.machine] = m; });
           const bestMachineName = historyData ? historyData.bestMachine : null;
+          const liveByMachine = {};
+          if (historyData) (historyData.liveRuns || []).forEach((r) => { liveByMachine[r.machine] = r; });
 
           // Union of all unique machines across every colour row's availableMachines list
           const allMachines = [];
@@ -5355,6 +5377,7 @@
             const isFree = !!mac.isFree;
             const macHist = historyByMachine[mac.machine] || null;
             const isBestMachine = bestMachineName && mac.machine === bestMachineName;
+            const macLive = liveByMachine[mac.machine] || null;
 
             // Role styling
             const roleBg     = isPrimary ? '#eff6ff' : isSecondary ? '#fff7ed' : '#f8fafc';
@@ -5414,7 +5437,12 @@
             } else if (historyData) {
               histLine = `<div style="margin-top:2px; font-size:0.55rem; color:#cbd5e1">No past runs</div>`;
             }
-            if (isBestMachine) {
+            if (macLive) {
+              // Currently running THIS mould — green boundary takes priority.
+              card.dataset.roleBorder = '#22c55e';
+              card.style.borderColor = '#22c55e';
+              card.style.background = '#f0fdf4';
+            } else if (isBestMachine) {
               card.dataset.roleBorder = '#3b82f6';
               card.style.borderColor = '#3b82f6';
             }
@@ -5422,12 +5450,14 @@
             card.innerHTML = `
               <div style="display:flex; justify-content:space-between; align-items:center; gap:4px; margin-bottom:4px">
                 <span style="font-weight:900; color:#0f172a; font-size:0.72rem; line-height:1.2; word-break:break-all">${esc(mac.machine || '-')}</span>
-                <span style="display:flex; gap:3px; flex-shrink:0">
+                <span style="display:flex; gap:3px; flex-shrink:0; flex-wrap:wrap; justify-content:flex-end">
+                  ${macLive ? '<span style="background:#dcfce7; color:#15803d; border:1px solid #86efac; border-radius:999px; padding:1px 5px; font-size:0.52rem; font-weight:900; white-space:nowrap">● RUNNING NOW</span>' : ''}
                   ${isBestMachine ? '<span style="background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; border-radius:999px; padding:1px 5px; font-size:0.52rem; font-weight:900; white-space:nowrap">★ BEST</span>' : ''}
                   <span style="background:${roleBg}; color:${roleColor}; border:1px solid ${roleBorder}; border-radius:999px; padding:1px 5px; font-size:0.56rem; font-weight:900; white-space:nowrap">${roleLabel}</span>
                 </span>
               </div>
               ${metaLine ? `<div style="color:#64748b; font-size:0.63rem; margin-bottom:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${metaLine}</div>` : ''}
+              ${macLive ? `<div style="margin:2px 0 1px; font-size:0.58rem; color:#15803d; font-weight:900; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:2px 5px">▶ This mould running here now${macLive.order ? ` · ${esc(String(macLive.order))}` : ''}<br><span style="font-weight:700; color:#166534">Made ${Number(macLive.produced || 0).toLocaleString()} · Bal ${Number(macLive.balance || 0).toLocaleString()}</span></div>` : ''}
               ${histLine}
               <div style="display:flex; align-items:center; gap:3px; margin-top:auto; padding-top:4px; border-top:1px solid #f1f5f9; flex-wrap:wrap">
                 <span style="font-size:0.6rem; line-height:1">${statusDot}</span>
