@@ -5438,8 +5438,10 @@
               histLine = `<div style="margin-top:2px; font-size:0.55rem; color:#cbd5e1">No past runs</div>`;
             }
             if (macLive) {
-              // Currently running THIS mould — green boundary takes priority.
+              // Currently running THIS mould — green boundary + tint take priority and
+              // must survive deselection (baseBg is what the click handler restores).
               card.dataset.roleBorder = '#22c55e';
+              card.dataset.baseBg = '#f0fdf4';
               card.style.borderColor = '#22c55e';
               card.style.background = '#f0fdf4';
             } else if (isBestMachine) {
@@ -5471,7 +5473,7 @@
               // Deselect all cards
               cardsContainer.querySelectorAll('button[data-machine-name]').forEach((btn) => {
                 btn.style.borderColor = btn.dataset.roleBorder || '#e2e8f0';
-                btn.style.background  = '#fff';
+                btn.style.background  = btn.dataset.baseBg || '#fff';
                 btn.style.boxShadow   = 'none';
               });
               // Highlight this card

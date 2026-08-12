@@ -12612,18 +12612,29 @@ app.get('/api/planning/mould-history', async (req, res) => {
         ORDER BY pb.machine`,
       [mould, factoryId]
     );
-    const liveRuns = liveRows.map((r) => {
+    // A machine can hold more than one RUNNING plan for the same mould (e.g. two
+    // orders). Aggregate per machine so the card shows combined produced/balance and
+    // every order, rather than silently keeping only the last row.
+    const liveByMachineAgg = new Map();
+    liveRows.forEach((r) => {
+      const machine = r.machine;
+      if (!machine) return;
       const planQty = Number(r.plan_qty || 0);
       const produced = Number(r.produced || 0);
-      return {
-        machine: r.machine,
-        order: r.order_no || null,
-        planQty,
-        produced,
-        balance: Math.max(planQty - produced, 0)
-      };
+      const cur = liveByMachineAgg.get(machine) || { machine, orders: [], planQty: 0, produced: 0 };
+      if (r.order_no && !cur.orders.includes(r.order_no)) cur.orders.push(r.order_no);
+      cur.planQty += planQty;
+      cur.produced += produced;
+      liveByMachineAgg.set(machine, cur);
     });
-    const liveMachines = Array.from(new Set(liveRuns.map((r) => r.machine).filter(Boolean)));
+    const liveRuns = Array.from(liveByMachineAgg.values()).map((r) => ({
+      machine: r.machine,
+      order: r.orders.join(', ') || null,
+      planQty: r.planQty,
+      produced: r.produced,
+      balance: Math.max(r.planQty - r.produced, 0)
+    }));
+    const liveMachines = liveRuns.map((r) => r.machine);
 
     const lastRunRow = lastRows[0] || null;
     const lastMachineAgg = lastRunRow ? machines.find((m) => m.machine === lastRunRow.machine) : null;
