@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.34.0",
+  "latest": "1.35.0",
   "versions": [
+    {
+      "version": "1.35.0",
+      "date": "2026-08-12",
+      "title": "Order Analyze redesigned — clearer, more accurate",
+      "modules": [
+        {
+          "app": "analyze",
+          "label": "Analyze",
+          "icon": "bi-graph-up-arrow",
+          "changes": [
+            { "type": "improvement", "text": "Order Analyze has a cleaner new layout. The order list now shows a completion progress bar on each card, and opening an order gives a tidy, sectioned dashboard instead of the old cramped view." },
+            { "type": "feat", "text": "The order dashboard now shows accurate key metrics together — Planned, Produced (with % of plan), Balance, Rejected with reject rate, Efficiency, OEE (Availability × Performance × Quality) and Downtime." },
+            { "type": "feat", "text": "New sections show Standard vs Actual specs (weight, cavity, cycle time with the difference), colour-wise progress, a rejection Pareto, and plain-language insights about efficiency, lost shifts, top rejection cause and biggest downtime." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.34.0",
       "date": "2026-08-12",
