@@ -9333,6 +9333,7 @@ async function fetchMachineWisePlans({ factoryId, machine, orNos }) {
         pb.machine_priority AS "machinePriority",
         pb.status,
         pb.factory_id   AS "factoryId",
+        COALESCE(NULLIF(TRIM(ojr.client_name), ''), NULLIF(TRIM(o.client_name), ''), '-') AS "clientName",
         COALESCE(mMaster.pcs_per_hour, m.pcs_per_hour) AS "pcsHour"
       FROM plan_board pb
       LEFT JOIN machines planMachine
@@ -9342,8 +9343,10 @@ async function fetchMachineWisePlans({ factoryId, machine, orNos }) {
       LEFT JOIN moulds m ON m.mould_name = pb.mould_name
       LEFT JOIN mould_planning_summary mps ON (mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name)
       LEFT JOIN moulds mMaster ON TRIM(mMaster.mould_number) = TRIM(mps.mould_no)
+      LEFT JOIN orders o ON TRIM(UPPER(o.order_no)) = TRIM(UPPER(pb.order_no))
+        AND (o.factory_id = pb.factory_id OR o.factory_id IS NULL OR pb.factory_id IS NULL)
       LEFT JOIN LATERAL (
-        SELECT rpt.or_jr_date, rpt.job_card_no, rpt.job_card_date
+        SELECT rpt.or_jr_date, rpt.job_card_no, rpt.job_card_date, rpt.client_name
         FROM or_jr_report rpt
         WHERE TRIM(rpt.or_jr_no) = TRIM(pb.order_no)
         ORDER BY
@@ -16257,6 +16260,275 @@ app.post('/api/reports/erp-autosync/run-now', async (req, res) => {
 });
 
 startErpAutoSync();
+
+/* ============================================================
+   FINISHING-PLAN EMAIL ALERT (MAIN only)
+   ------------------------------------------------------------
+   Every FINISH_ALERT_INTERVAL_MS, look at every RUNNING plan on
+   the Dungra factory and, using the SAME live balance + Exp End
+   ripple as the Machine-Wise report, flag any whose expected
+   finish time falls inside the next FINISH_ALERT_WINDOW_HOURS
+   (default 3h). One urgent email is sent to PPC (Dungra) listing
+   Machine / OR / Plan Qty / Bal Qty / Client / Finish Time and
+   the next queued plan on that machine, if any.
+
+   Scoped to Dungra ONLY (factory_id = FINISH_ALERT_FACTORY_ID).
+   Each plan is alerted at most once (tracked in finish_alert_sent)
+   so PPC is not spammed on every 30-minute cycle. Silent when
+   nothing is finishing. Runs on MAIN only (the internet-facing
+   server that can reach the SMTP relay); LOCAL boxes skip it.
+   ============================================================ */
+const FINISH_ALERT_ENABLED       = String(process.env.FINISH_ALERT_ENABLED ?? '1') !== '0';
+const FINISH_ALERT_INTERVAL_MS   = Math.max(60000, Number(process.env.FINISH_ALERT_INTERVAL_MS) || 30 * 60 * 1000);
+const FINISH_ALERT_WINDOW_HOURS  = Math.max(0.25, Number(process.env.FINISH_ALERT_WINDOW_HOURS) || 3);
+const FINISH_ALERT_FACTORY_ID    = Number(process.env.FINISH_ALERT_FACTORY_ID) || 1; // 1 = Dungra Plant 1
+const FINISH_ALERT_TO            = (process.env.FINISH_ALERT_TO || 'info_dungra@joyo.in').trim();
+const FINISH_ALERT_CC            = (process.env.FINISH_ALERT_CC || 'sanjay.mali@joyo.in').trim();
+let _finishAlertRunning = false;
+let _finishAlertTableReady = false;
+
+async function ensureFinishAlertTable() {
+  if (_finishAlertTableReady) return;
+  await q(`
+    CREATE TABLE IF NOT EXISTS finish_alert_sent (
+      plan_board_id BIGINT PRIMARY KEY,
+      plan_id       TEXT,
+      or_no         TEXT,
+      machine       TEXT,
+      finish_at     TIMESTAMPTZ,
+      alerted_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(e => console.warn('[FinishAlert] table create skipped:', e.message));
+  _finishAlertTableReady = true;
+}
+
+// Minimal HTML escaping for values interpolated into the alert email.
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Format a Date in factory (IST) time — the app runs on Asia/Kolkata but we
+// pin the zone here so the email is correct even if the process TZ drifts.
+function fmtIst(d) {
+  if (!d) return '-';
+  try {
+    return new Date(d).toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit', month: 'short',
+      hour: '2-digit', minute: '2-digit', hour12: true,
+    });
+  } catch { return String(d); }
+}
+
+// Compute Dungra RUNNING plans finishing within `withinHours`, mirroring the
+// Machine-Wise report's per-machine Exp End ripple. Returns one entry per
+// finishing running plan, with its next queued plan on the same machine.
+async function computeFinishingPlans({ withinHours = FINISH_ALERT_WINDOW_HOURS } = {}) {
+  const plans = await fetchMachineWisePlans({ factoryId: FINISH_ALERT_FACTORY_ID, machine: 'all' });
+  if (!plans.length) return [];
+
+  // Live produced per plan (up to now) → live balance.
+  const planIds = [...new Set(plans.map(p => p.planId).filter(Boolean))];
+  const totalProduced = new Map();
+  if (planIds.length) {
+    const tp = await q(
+      `SELECT plan_id, SUM(good_qty)::numeric AS produced
+         FROM dpr_hourly WHERE plan_id = ANY($1) AND is_deleted = false
+        GROUP BY plan_id`, [planIds]);
+    for (const r of tp) totalProduced.set(r.plan_id, Number(r.produced) || 0);
+  }
+
+  const hoursFor = (qty, pcsHour) => {
+    const ph = Number(pcsHour) || 0;
+    return ph > 0 ? Number(qty) / ph : null;
+  };
+
+  // Group by machine, keeping the queue order fetchMachineWisePlans already applied.
+  const byMachine = new Map();
+  for (const p of plans) {
+    const key = String(p.machine || '');
+    if (!byMachine.has(key)) byMachine.set(key, []);
+    byMachine.get(key).push(p);
+  }
+
+  const now = Date.now();
+  const windowMs = withinHours * 3600 * 1000;
+  const out = [];
+
+  for (const list of byMachine.values()) {
+    let cursor = null; // rolling Exp End for this machine's queue
+    list.forEach((p, idx) => {
+      const qty = Number(p.qty) || 0;
+      const produced = totalProduced.get(p.planId) || 0;
+      const balQty = Math.max(0, qty - produced);
+      const remainingHours = hoursFor(balQty, p.pcsHour) || 0;
+
+      const base = cursor || (p.startDate ? new Date(p.startDate) : new Date());
+      const startBasis = cursor ? base : new Date(Math.max(base.getTime(), now));
+      const expEnd = (p.pcsHour && Number(p.pcsHour) > 0)
+        ? new Date(startBasis.getTime() + remainingHours * 3600 * 1000)
+        : null;
+      if (expEnd) cursor = expEnd;
+
+      const isRunning = String(p.status || '').toUpperCase() === 'RUNNING';
+      // Finishing = a RUNNING plan with work left whose Exp End is within the
+      // window (past-due plans have expEnd <= now, which is <= now+window → included).
+      if (isRunning && balQty > 0 && expEnd && (expEnd.getTime() - now) <= windowMs) {
+        const next = list[idx + 1] || null;
+        out.push({
+          planBoardId: p.id,
+          planId: p.planId,
+          machine: p.machine,
+          orNo: p.orNo,
+          client: p.clientName || '-',
+          planQty: qty,
+          balQty,
+          finishAt: expEnd,
+          nextPlan: next ? {
+            orNo: next.orNo,
+            planId: next.planId,
+            mouldName: next.mouldName,
+            planQty: Number(next.qty) || 0,
+          } : null,
+        });
+      }
+    });
+  }
+  return out;
+}
+
+function buildFinishAlertEmail(entries) {
+  const rowsHtml = entries.map(e => {
+    const next = e.nextPlan
+      ? `${escapeHtml(e.nextPlan.orNo || '-')} · ${escapeHtml(e.nextPlan.mouldName || '-')} · Qty ${e.nextPlan.planQty}`
+      : '<span style="color:#888">— none —</span>';
+    return `
+      <tr>
+        <td style="padding:8px 10px;border:1px solid #ddd;font-weight:600">${escapeHtml(e.machine || '-')}</td>
+        <td style="padding:8px 10px;border:1px solid #ddd">${escapeHtml(e.orNo || '-')}</td>
+        <td style="padding:8px 10px;border:1px solid #ddd">${escapeHtml(e.client || '-')}</td>
+        <td style="padding:8px 10px;border:1px solid #ddd;text-align:right">${e.planQty}</td>
+        <td style="padding:8px 10px;border:1px solid #ddd;text-align:right;color:#b00020;font-weight:700">${e.balQty}</td>
+        <td style="padding:8px 10px;border:1px solid #ddd;white-space:nowrap">${escapeHtml(fmtIst(e.finishAt))}</td>
+        <td style="padding:8px 10px;border:1px solid #ddd">${next}</td>
+      </tr>`;
+  }).join('');
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;color:#222">
+    <h2 style="margin:0 0 4px;color:#b00020">🔴 URGENT — Plans finishing within ${FINISH_ALERT_WINDOW_HOURS} hour(s)</h2>
+    <p style="margin:0 0 12px;color:#555">Dungra Plant · generated ${escapeHtml(fmtIst(new Date()))} IST.
+       The machines below have a running plan expected to finish soon — please prepare the next job / mould change.</p>
+    <table style="border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="background:#b00020;color:#fff">
+          <th style="padding:8px 10px;border:1px solid #b00020;text-align:left">Machine No</th>
+          <th style="padding:8px 10px;border:1px solid #b00020;text-align:left">OR No</th>
+          <th style="padding:8px 10px;border:1px solid #b00020;text-align:left">Client</th>
+          <th style="padding:8px 10px;border:1px solid #b00020;text-align:right">Plan Qty</th>
+          <th style="padding:8px 10px;border:1px solid #b00020;text-align:right">Bal Qty</th>
+          <th style="padding:8px 10px;border:1px solid #b00020;text-align:left">Finish Time</th>
+          <th style="padding:8px 10px;border:1px solid #b00020;text-align:left">Next Plan</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    <p style="margin:14px 0 0;color:#999;font-size:11px">Automated alert from JMS Enterprise. Do not reply.</p>
+  </div>`;
+
+  const text = entries.map(e =>
+    `Machine ${e.machine} | OR ${e.orNo} | ${e.client} | Plan ${e.planQty} | Bal ${e.balQty} | Finish ${fmtIst(e.finishAt)}` +
+    (e.nextPlan ? ` | Next: ${e.nextPlan.orNo} ${e.nextPlan.mouldName} Qty ${e.nextPlan.planQty}` : ' | Next: none')
+  ).join('\n');
+
+  return { html, text };
+}
+
+// One alert cycle. trigger = 'auto' | 'manual'. Never throws.
+async function runFinishAlertCycle(trigger = 'auto') {
+  if (!isMainServer()) return { status: 'skipped', reason: 'not MAIN server' };
+  if (_finishAlertRunning) return { status: 'skipped', reason: 'previous cycle still running' };
+
+  const mailer = require('../../services/mailer');
+  if (!mailer.isMailConfigured()) {
+    return { status: 'skipped', reason: 'SMTP not configured' };
+  }
+
+  _finishAlertRunning = true;
+  try {
+    await ensureFinishAlertTable();
+    const finishing = await computeFinishingPlans({ withinHours: FINISH_ALERT_WINDOW_HOURS });
+    if (!finishing.length) return { status: 'ok', finishing: 0, sent: 0 };
+
+    // Once-per-plan: drop any plan we've already emailed about.
+    const ids = finishing.map(e => e.planBoardId).filter(v => v != null);
+    const alreadySent = new Set();
+    if (ids.length) {
+      const seen = await q(`SELECT plan_board_id FROM finish_alert_sent WHERE plan_board_id = ANY($1)`, [ids]);
+      for (const r of seen) alreadySent.add(Number(r.plan_board_id));
+    }
+    const fresh = finishing.filter(e => !alreadySent.has(Number(e.planBoardId)));
+    if (!fresh.length) return { status: 'ok', finishing: finishing.length, sent: 0, reason: 'all already alerted' };
+
+    const { html, text } = buildFinishAlertEmail(fresh);
+    const subject = `🔴 URGENT: ${fresh.length} Dungra plan(s) finishing within ${FINISH_ALERT_WINDOW_HOURS}h`;
+    await mailer.sendMail({ to: FINISH_ALERT_TO, cc: FINISH_ALERT_CC, subject, html, text });
+
+    // Record so we don't re-alert these plans next cycle.
+    for (const e of fresh) {
+      await q(
+        `INSERT INTO finish_alert_sent (plan_board_id, plan_id, or_no, machine, finish_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (plan_board_id) DO NOTHING`,
+        [e.planBoardId, e.planId, e.orNo, e.machine, e.finishAt]
+      ).catch(() => {});
+    }
+    // Hygiene: drop rows older than 30 days (plan_board ids are never reused).
+    await q(`DELETE FROM finish_alert_sent WHERE alerted_at < NOW() - INTERVAL '30 days'`).catch(() => {});
+
+    console.log(`[FinishAlert] sent alert for ${fresh.length} plan(s) → ${FINISH_ALERT_TO}`);
+    return { status: 'ok', finishing: finishing.length, sent: fresh.length };
+  } catch (e) {
+    console.error('[FinishAlert] cycle failed:', e.message);
+    return { status: 'error', error: String(e.message || e) };
+  } finally {
+    _finishAlertRunning = false;
+  }
+}
+
+function startFinishAlert() {
+  if (!isMainServer()) { console.log('[FinishAlert] skipped — not MAIN server.'); return; }
+  if (!FINISH_ALERT_ENABLED) { console.log('[FinishAlert] disabled via FINISH_ALERT_ENABLED=0.'); return; }
+  console.log(`[FinishAlert] enabled — every ${Math.round(FINISH_ALERT_INTERVAL_MS / 60000)} min, window ${FINISH_ALERT_WINDOW_HOURS}h, factory ${FINISH_ALERT_FACTORY_ID} → ${FINISH_ALERT_TO} (cc ${FINISH_ALERT_CC}).`);
+  setTimeout(() => { runFinishAlertCycle('auto').catch(() => {}); }, 25000);
+  setInterval(() => { runFinishAlertCycle('auto').catch(() => {}); }, FINISH_ALERT_INTERVAL_MS).unref();
+}
+
+// Manual trigger + preview — MAIN + superadmin only. Lets Sanjay test the alert
+// without waiting for the timer. ?dry=1 previews the finishing plans WITHOUT
+// sending an email or recording them as alerted.
+app.post('/api/alerts/finishing-plans/run-now', async (req, res) => {
+  if (!isMainServer()) {
+    return res.status(403).json({ ok: false, error: 'Finishing-plan alerts run on the MAIN server only.' });
+  }
+  const auth = await requireErpSuperadmin(req);
+  if (!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
+  try {
+    const dry = String(req.query.dry || '') === '1';
+    if (dry) {
+      const finishing = await computeFinishingPlans({ withinHours: FINISH_ALERT_WINDOW_HOURS });
+      return res.json({ ok: true, dry: true, count: finishing.length, data: finishing });
+    }
+    const summary = await runFinishAlertCycle('manual');
+    res.json({ ok: true, summary });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+startFinishAlert();
 
 /* ============================================================
    LOCAL LOCKOUT — masters & imports run on MAIN only
