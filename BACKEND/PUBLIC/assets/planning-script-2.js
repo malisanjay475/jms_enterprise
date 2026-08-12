@@ -487,7 +487,11 @@
           </div>`;
 
         const u = (window.JPSMS && window.JPSMS.auth) ? window.JPSMS.auth.getUser() : {};
-        const isSuper = u.role_code === 'superadmin';
+        // Restore allowed for superadmin + PPC Manager / PPC Ass. Manager.
+        const _restoreRole = String(u.role_code || '').toLowerCase();
+        const isSuper = _restoreRole === 'superadmin'
+          || _restoreRole === 'ppc_manager'
+          || _restoreRole === 'ppc_ass_manager';
 
         plans.forEach((p) => {
           if (!p) return;
