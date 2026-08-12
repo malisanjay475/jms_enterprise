@@ -978,7 +978,9 @@
                             status: p.view_status || 'RUNNING',
                             date: p.start_date || p.job_card_date || p.or_jr_date || p.created_at || new Date().toISOString(),
                             mould: p.mould_name || '-',
-                            planQty: p.plan_qty || 0,
+                            planQty: p.plan_total || p.plan_qty || 0,
+                            produced: p.produced_good || 0,
+                            reject: p.produced_rej || 0,
                             balQty: p.bal_qty || 0,
                             jcNo: p.job_card_no || null
                         });
@@ -1031,8 +1033,12 @@
             listEl.innerHTML = filtered.map(o => {
                 const cls = statusClass(o.status);
                 const plan = o.planQty || 0;
-                const done = Math.max(0, plan - (o.balQty || 0));
+                // Prefer real production (good qty); fall back to plan−balance for older data.
+                let done = o.produced != null ? o.produced : Math.max(0, plan - (o.balQty || 0));
+                // A completed order with no hourly data logged still reads as 100% done.
+                if ((!done || done === 0) && cls === 'completed' && plan > 0) done = plan;
                 const pct = plan > 0 ? Math.min(100, Math.round((done / plan) * 100)) : 0;
+                const rej = o.reject || 0;
                 return `
                 <div class="oa-card ${cls}" data-ono="${esc(o.orderNo)}">
                     <div class="oa-card-top">
@@ -1043,7 +1049,7 @@
                     <div class="oa-item">${esc(o.item)}</div>
                     <div class="oa-prog"><span style="width:${pct}%"></span></div>
                     <div style="display:flex; justify-content:space-between; font-size:.72rem; color:#94a3b8; margin-bottom:10px">
-                        <span>${done.toLocaleString()} / ${plan.toLocaleString()} pcs</span><span>${pct}%</span>
+                        <span>${done.toLocaleString()} / ${plan.toLocaleString()} pcs${rej ? ' · ' + rej.toLocaleString() + ' rej' : ''}</span><span>${pct}%</span>
                     </div>
                     <div class="oa-foot" style="border-top:1px solid #f1f5f9; padding-top:10px">
                         <div>
