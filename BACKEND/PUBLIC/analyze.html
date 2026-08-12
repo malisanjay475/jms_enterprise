@@ -857,12 +857,27 @@
                 initChart('bar', 'Utilization %');
             } else if (view === 'supervisor') {
                 container.innerHTML = `
-                    <div class="chart-container">
-                        <h3>Shift Output by Supervisor</h3>
-                        <canvas id="mainChart"></canvas>
+                    <div id="supKpis" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:15px; margin-bottom:20px"></div>
+                    <div class="chart-container" style="height:360px; margin-bottom:20px">
+                        <h3>Output by Supervisor</h3>
+                        <canvas id="supChart"></canvas>
+                    </div>
+                    <div class="card" style="padding:0; overflow:hidden">
+                        <div style="padding:12px 16px; font-weight:700; color:#1e293b; background:#f8fafc; border-bottom:1px solid #e2e8f0">Supervisor Accountability — whose name the data is saved under</div>
+                        <div style="overflow-x:auto">
+                            <table class="table" style="margin:0; font-size:0.85rem">
+                                <thead><tr>
+                                    <th>Name</th><th>Role</th><th class="text-end">Good</th><th class="text-end">Reject</th>
+                                    <th class="text-end">Rej %</th><th class="text-end">Downtime</th>
+                                    <th class="text-end">Shifts</th><th class="text-end">Entries</th>
+                                    <th class="text-end">Machines</th><th class="text-end">Avg/Shift</th>
+                                </tr></thead>
+                                <tbody id="supTableBody"><tr><td colspan="10" class="text-center p-3">Loading…</td></tr></tbody>
+                            </table>
+                        </div>
                     </div>
                  `;
-                initChart('bar', 'Output (Pcs)');
+                loadSupervisorAnalysis();
             } else {
                 // Plant (Default)
                 container.innerHTML = `
@@ -1636,6 +1651,72 @@
                 },
                 options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
             });
+        }
+
+        /* =========================================
+           SUPERVISOR LOGIC
+           ========================================= */
+        let supChartInstance = null;
+        function supKpiCard(label, value, sub, color) {
+            return `<div class="card" style="padding:15px; border-left:4px solid ${color}">
+                <small style="color:#64748b">${label}</small>
+                <div style="font-weight:bold; font-size:1.4em">${value}</div>
+                ${sub ? `<small class="text-muted" style="font-size:0.8em">${sub}</small>` : ''}
+            </div>`;
+        }
+        async function loadSupervisorAnalysis() {
+            const body = document.getElementById('supTableBody');
+            try {
+                const res = await JPSMS.api.get('/analyze/supervisor' + filterQS());
+                if (!res.ok) { body.innerHTML = `<tr><td colspan="10" class="text-center p-3 text-danger">${res.error || 'No data'}</td></tr>`; return; }
+                const sups = res.data.supervisors || [];
+                const t = res.data.totals || {};
+
+                document.getElementById('supKpis').innerHTML = [
+                    supKpiCard('Supervisors', t.supervisors || 0, `${t.entries || 0} entries`, '#3b82f6'),
+                    supKpiCard('Total Good', (t.good || 0).toLocaleString(), 'pcs', '#10b981'),
+                    supKpiCard('Total Reject', (t.reject || 0).toLocaleString(), `${t.rejRate || 0}% rate`, '#ef4444'),
+                    supKpiCard('Downtime', `${t.downtime || 0} min`, 'owned across shifts', '#f59e0b')
+                ].join('');
+
+                if (!sups.length) { body.innerHTML = '<tr><td colspan="10" class="text-center p-3">No entries in range</td></tr>'; return; }
+
+                body.innerHTML = sups.map(s => `
+                    <tr>
+                        <td style="font-weight:700; color:#334155">${s.name}${s.matched ? '' : ' <span style="font-size:0.7rem; color:#f59e0b" title="No matching user account">(unmatched)</span>'}</td>
+                        <td style="color:#64748b">${s.role || '-'}</td>
+                        <td class="text-end">${s.good.toLocaleString()}</td>
+                        <td class="text-end" style="color:${s.reject > 0 ? '#ef4444' : '#94a3b8'}">${s.reject.toLocaleString()}</td>
+                        <td class="text-end" style="color:${s.rejRate > 5 ? '#ef4444' : '#64748b'}">${s.rejRate}%</td>
+                        <td class="text-end">${s.downtime} min</td>
+                        <td class="text-end">${s.shifts}</td>
+                        <td class="text-end">${s.entries}</td>
+                        <td class="text-end">${s.machines}</td>
+                        <td class="text-end" style="font-weight:600">${s.avgPerShift.toLocaleString()}</td>
+                    </tr>`).join('');
+
+                // Leaderboard chart (top 12 by good, good vs reject stacked)
+                const top = sups.slice(0, 12);
+                const ctx = document.getElementById('supChart');
+                if (supChartInstance) supChartInstance.destroy();
+                supChartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: top.map(s => s.name),
+                        datasets: [
+                            { label: 'Good', data: top.map(s => s.good), backgroundColor: '#10b981', borderRadius: 4 },
+                            { label: 'Reject', data: top.map(s => s.reject), backgroundColor: '#ef4444', borderRadius: 4 }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } },
+                        scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true } }
+                    }
+                });
+            } catch (e) {
+                body.innerHTML = `<tr><td colspan="10" class="text-center p-3 text-danger">${e.message}</td></tr>`;
+            }
         }
     </script>
     <script src="/assets/ai-chat.js"></script>

@@ -26359,6 +26359,100 @@ function emptyMouldPayload(mould, mouldCode) {
   };
 }
 
+// GET /api/analyze/supervisor
+// Groups DPR hourly entries by the supervisor/entry owner and resolves it to a user.
+// Answers "on which name is the data saved" + accountability metrics.
+app.get('/api/analyze/supervisor', async (req, res) => {
+  try {
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
+
+    const params = [];
+    const where = ['COALESCE(dh.is_deleted, false) = false'];
+
+    const reqFactory = Number(req.query.factory);
+    if (reqFactory) {
+      if (!canAll && !accessibleIds.includes(reqFactory)) {
+        return res.status(403).json({ ok: false, error: 'No access to that factory' });
+      }
+      params.push(reqFactory);
+      where.push(`dh.factory_id = $${params.length}`);
+    } else if (!canAll) {
+      if (!accessibleIds.length) return res.json({ ok: true, data: { supervisors: [], totals: {} } });
+      params.push(accessibleIds);
+      where.push(`dh.factory_id = ANY($${params.length}::int[])`);
+    }
+    if (req.query.from) { params.push(req.query.from); where.push(`dh.dpr_date >= $${params.length}`); }
+    if (req.query.to) { params.push(req.query.to); where.push(`dh.dpr_date <= $${params.length}`); }
+
+    const logs = await q(`
+      SELECT
+        LOWER(TRIM(COALESCE(NULLIF(TRIM(dh.supervisor), ''), dh.created_by, 'unknown'))) AS owner_key,
+        COALESCE(NULLIF(TRIM(dh.supervisor), ''), dh.created_by, 'Unknown') AS owner_raw,
+        dh.dpr_date::text AS date, dh.shift, dh.hour_slot, dh.machine, dh.line,
+        dh.good_qty, dh.reject_qty, dh.downtime_min,
+        u.username AS user_name, u.role_code AS user_role
+      FROM dpr_hourly dh
+      LEFT JOIN users u
+        ON LOWER(TRIM(u.username)) = LOWER(TRIM(COALESCE(NULLIF(TRIM(dh.supervisor), ''), dh.created_by, '')))
+      WHERE ${where.join(' AND ')}
+    `, params);
+
+    const map = {};
+    let tGood = 0, tRej = 0, tDt = 0, tEntries = 0;
+    logs.forEach(l => {
+      const key = l.owner_key || 'unknown';
+      if (!map[key]) map[key] = {
+        key,
+        name: l.user_name || l.owner_raw || 'Unknown',
+        role: l.user_role || null,
+        matched: !!l.user_name,
+        good: 0, reject: 0, downtime: 0, entries: 0,
+        shifts: new Set(), machines: new Set(), days: new Set()
+      };
+      const s = map[key];
+      const good = toNum(l.good_qty), rej = toNum(l.reject_qty), dt = toNum(l.downtime_min);
+      s.good += good; s.reject += rej; s.downtime += dt; s.entries += 1;
+      if (l.date && l.shift) s.shifts.add(`${l.date}|${l.shift}`);
+      if (l.machine) s.machines.add(l.machine);
+      if (l.date) s.days.add(l.date);
+      tGood += good; tRej += rej; tDt += dt; tEntries += 1;
+    });
+
+    const supervisors = Object.values(map).map(s => {
+      const output = s.good + s.reject;
+      return {
+        name: s.name, role: s.role, matched: s.matched,
+        good: s.good, reject: s.reject, output,
+        rejRate: output ? Number(((s.reject / output) * 100).toFixed(1)) : 0,
+        downtime: Math.round(s.downtime),
+        entries: s.entries,
+        shifts: s.shifts.size,
+        machines: s.machines.size,
+        days: s.days.size,
+        avgPerShift: s.shifts.size ? Math.round(s.good / s.shifts.size) : 0
+      };
+    }).sort((a, b) => b.good - a.good);
+
+    res.json({
+      ok: true,
+      data: {
+        supervisors,
+        totals: {
+          good: tGood, reject: tRej, output: tGood + tRej, downtime: Math.round(tDt),
+          entries: tEntries, supervisors: supervisors.length,
+          rejRate: (tGood + tRej) ? Number(((tRej / (tGood + tRej)) * 100).toFixed(1)) : 0
+        }
+      }
+    });
+  } catch (e) {
+    console.error('analyze/supervisor', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 // ============================================================
 // ADMIN DATABASE TOOLS (Backup / Restore)
 // ============================================================
