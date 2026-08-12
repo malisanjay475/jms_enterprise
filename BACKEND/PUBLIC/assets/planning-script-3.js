@@ -830,40 +830,47 @@
       <div id="jobSheetView" style="display:none; padding:16px">
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap">
           <h2 style="margin:0; font-size:1.25rem; font-weight:700; color:#1e293b; display:flex; align-items:center; gap:8px">
-            <i class="bi bi-fire" style="color:#f97316"></i> High Priority Job Sheet
-            <span style="padding:3px 10px; border-radius:20px; background:#fff7ed; color:#f97316; font-size:.72rem; font-weight:700; border:1px solid #fed7aa">🔥 HIGH PRIORITY ONLY</span>
+            <i class="bi bi-calendar2-week" style="color:#3b82f6"></i> Daily Job Sheet
           </h2>
           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:8px">
+            <label for="jsDate" style="font-size:.8rem; color:#475569; font-weight:600">Plan Date</label>
+            <input type="date" id="jsDate"
+              style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 10px; font-size:.83rem; color:#1e293b"
+              onchange="window.loadJobSheet()">
+            <button onclick="var d=document.getElementById('jsDate'); if(d){d.value=new Date().toLocaleDateString('en-CA');} window.loadJobSheet()"
+              style="padding:5px 12px; border-radius:6px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; cursor:pointer; font-size:.8rem; font-weight:600">
+              Today
+            </button>
             <input type="text" id="jsSearch" placeholder="Search order / product / client…"
-              style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 10px; font-size:.83rem; min-width:240px; color:#1e293b"
+              style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 10px; font-size:.83rem; min-width:220px; color:#1e293b"
               onkeydown="if(event.key==='Enter') window.loadJobSheet()">
             <button onclick="window.loadJobSheet()"
               style="padding:6px 16px; border-radius:6px; background:#3b82f6; color:#fff; border:none; cursor:pointer; font-size:.83rem; font-weight:600; display:flex; align-items:center; gap:5px">
               <i class="bi bi-search"></i> Search
             </button>
           </div>
-          <span style="font-size:.77rem; color:#94a3b8; margin-left:4px">Priority is set in Order Master</span>
+          <span style="font-size:.77rem; color:#94a3b8; margin-left:4px">Orders whose plan was created on the selected date</span>
           <span id="jsCount" style="margin-left:auto; font-size:.78rem; color:#94a3b8; font-weight:500"></span>
         </div>
         <div style="overflow-x:auto; border:1px solid #e2e8f0; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,.05)">
           <table id="jobSheetTable" style="width:100%; border-collapse:collapse; font-size:.81rem">
             <thead>
-              <tr style="background:#fff7ed; color:#92400e; font-weight:700; text-transform:uppercase; font-size:.72rem; letter-spacing:.04em">
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Priority</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Created Date</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">OR/JR No.</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">OR/JR Date</th>
-                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">OR Qty</th>
-                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">JR Qty</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Job Card No.</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">JC Date</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Item Code</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Product Name</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Client Name</th>
-                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">Order Qty</th>
-                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">Balance Qty</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Order Status</th>
-                <th style="padding:10px 12px; text-align:center; border-bottom:2px solid #fed7aa; white-space:nowrap">Details</th>
+              <tr style="background:#f1f5f9; color:#334155; font-weight:700; text-transform:uppercase; font-size:.72rem; letter-spacing:.04em">
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Plan Date</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Created Date</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">OR/JR No.</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">OR/JR Date</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">OR Qty</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">JR Qty</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Job Card No.</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">JC Date</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Item Code</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Product Name</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Client Name</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">Order Qty</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">Balance Qty</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Order Status</th>
+                <th style="padding:10px 12px; text-align:center; border-bottom:2px solid #e2e8f0; white-space:nowrap">Details</th>
               </tr>
             </thead>
             <tbody id="jobSheetBody">
@@ -5174,9 +5181,156 @@
         // Renders machine selection cards above the colour table.
         // PRIMARY cards first, then SECONDARY, then COMPATIBLE — clicking one selects
         // that machine for ALL colour rows and sets the global cpSelectedMachine.
+        // ---- Mould → machine run history (Create Plan machine picker) --------------
+        // Fetches per-mould history once, caches it, then re-renders the machine cards so
+        // the "Best" badge + compact cycle/efficiency line appear. A single "View history"
+        // button opens the full 3+ machine comparison. Selecting a machine stays required.
+        async function loadCpMouldHistories(modal, mouldCodes) {
+          const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+          window.cpMouldHistoryMap = window.cpMouldHistoryMap || {};
+          const codes = Array.from(new Set((mouldCodes || []).map((c) => String(c || '').trim()).filter(Boolean)));
+          await Promise.all(codes.map(async (code) => {
+            if (window.cpMouldHistoryMap[code]) return; // cached
+            try {
+              const res = await api.get(`/planning/mould-history?mould=${encodeURIComponent(code)}&months=6`);
+              window.cpMouldHistoryMap[code] = res && res.ok ? res : { machines: [], lastRun: null, bestMachine: null };
+            } catch {
+              window.cpMouldHistoryMap[code] = { machines: [], lastRun: null, bestMachine: null };
+            }
+          }));
+          // Re-render cards for the currently open modal now that history is available.
+          if (modal && document.body.contains(modal) && Array.isArray(window.cpColourPlanRows)) {
+            renderCpColourMachineCards(modal, window.cpColourPlanRows);
+          }
+        }
+
+        // Resolve the history object for the mould currently chosen in the machine picker.
+        function getCpActiveMouldHistory(colourRows) {
+          const map = window.cpMouldHistoryMap || {};
+          const codes = (Array.isArray(colourRows) ? colourRows : [])
+            .map((r) => String(r.selectedMouldCode || r.mouldSelection || '').trim())
+            .filter(Boolean);
+          for (const code of codes) {
+            if (map[code] && (map[code].machines || []).length) return { code, data: map[code] };
+          }
+          if (codes.length && map[codes[0]]) return { code: codes[0], data: map[codes[0]] };
+          return null;
+        }
+
+        function cpHistStat(label, value, accent) {
+          return `<div style="display:flex; justify-content:space-between; gap:6px; font-size:0.62rem; line-height:1.35">
+            <span style="color:#94a3b8">${label}</span>
+            <b style="color:${accent || '#0f172a'}">${value}</b>
+          </div>`;
+        }
+
+        window.openCpMouldHistoryModal = function () {
+          const parent = document.getElementById('cpColourPlanModal');
+          const hist = getCpActiveMouldHistory(window.cpColourPlanRows);
+          if (!hist || !hist.data) return toast('No run history available yet.', 'info');
+          const data = hist.data;
+          const liveByMachine = {};
+          (Array.isArray(data.liveRuns) ? data.liveRuns : []).forEach((r) => { liveByMachine[r.machine] = r; });
+          const machines = Array.isArray(data.machines) ? data.machines.slice() : [];
+          machines.sort((a, b) => {
+            const la = liveByMachine[a.machine] ? 1 : 0;
+            const lb = liveByMachine[b.machine] ? 1 : 0;
+            if (la !== lb) return lb - la; // running-now first
+            if (a.machine === data.bestMachine) return -1;
+            if (b.machine === data.bestMachine) return 1;
+            const ea = a.efficiency == null ? -1 : a.efficiency;
+            const eb = b.efficiency == null ? -1 : b.efficiency;
+            return eb - ea;
+          });
+
+          const overlay = document.createElement('div');
+          overlay.className = 'modal show';
+          overlay.style.cssText = 'display:flex; z-index:12000';
+          overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+          const lr = data.lastRun;
+          const lastRunStrip = lr
+            ? `<div style="background:#f1f5f9; border-radius:12px; padding:10px 14px; font-size:0.8rem; color:#475569; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+                 <i class="bi bi-clock-history"></i>
+                 <span>Last run of this mould:</span>
+                 <b style="color:#0f172a">${esc(lr.machine || '-')}</b>
+                 <span>· ${esc(lr.date || '-')}</span>
+                 ${lr.totalPcs != null ? `<span>· ${Number(lr.totalPcs).toLocaleString()} pcs</span>` : ''}
+                 ${lr.efficiency != null ? `<span>· ${lr.efficiency}% eff</span>` : ''}
+                 ${lr.jobCard ? `<span>· JC ${esc(lr.jobCard)}</span>` : ''}
+               </div>`
+            : `<div style="background:#f1f5f9; border-radius:12px; padding:10px 14px; font-size:0.8rem; color:#94a3b8">No previous run recorded for this mould.</div>`;
+
+          const cards = machines.length
+            ? machines.map((m) => {
+                const isBest = m.machine === data.bestMachine;
+                const live = liveByMachine[m.machine] || null;
+                const effColor = m.efficiency == null ? '#94a3b8' : m.efficiency >= 90 ? '#15803d' : m.efficiency >= 75 ? '#b45309' : '#dc2626';
+                const rejColor = m.rejectionPct <= 2 ? '#15803d' : m.rejectionPct <= 4 ? '#b45309' : '#dc2626';
+                const cardBorder = live ? '#22c55e' : isBest ? '#3b82f6' : '#e2e8f0';
+                const cardBg = live ? '#f0fdf4' : isBest ? '#eff6ff' : '#fff';
+                return `<div style="border:2px solid ${cardBorder}; border-radius:12px; padding:11px 12px; background:${cardBg}; display:flex; flex-direction:column; gap:6px">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap">
+                      <b style="font-size:0.9rem; color:#0f172a">${esc(m.machine)}</b>
+                      <span style="display:flex; gap:4px; flex-wrap:wrap">
+                        ${live ? '<span style="background:#dcfce7; color:#15803d; border-radius:6px; padding:1px 7px; font-size:0.6rem; font-weight:900">● RUNNING NOW</span>' : ''}
+                        ${isBest ? '<span style="background:#dbeafe; color:#1d4ed8; border-radius:6px; padding:1px 7px; font-size:0.6rem; font-weight:900">BEST</span>' : ''}
+                      </span>
+                    </div>
+                    ${live ? `${cpHistStat('Running order', esc(String(live.order || '-')), '#15803d')}${cpHistStat('Made / Balance', `${Number(live.produced || 0).toLocaleString()} / ${Number(live.balance || 0).toLocaleString()}`, '#166534')}` : ''}
+                    ${cpHistStat('Cycle (act/std)', `${m.actualCycle != null ? m.actualCycle + 's' : '—'} / ${m.stdCycle != null ? m.stdCycle + 's' : '—'}`)}
+                    ${cpHistStat('Efficiency', m.efficiency != null ? m.efficiency + '%' : '—', effColor)}
+                    ${cpHistStat('Rejection', m.rejectionPct + '%', rejColor)}
+                    ${cpHistStat('Runs / pcs', `${m.runs} · ${Number(m.totalPcs || 0).toLocaleString()}`)}
+                    ${cpHistStat('Last run', m.lastRun || '—')}
+                  </div>`;
+              }).join('')
+            : `<div style="grid-column:1/-1; color:#94a3b8; text-align:center; padding:24px">This mould has not run on any machine in the last ${esc(String(data.windowMonths || 6))} months.</div>`;
+
+          const liveBanner = (Array.isArray(data.liveRuns) && data.liveRuns.length)
+            ? `<div style="background:#f0fdf4; border:1px solid #86efac; border-radius:12px; padding:10px 14px; color:#15803d; font-size:0.82rem; font-weight:700; display:flex; gap:8px; align-items:flex-start">
+                 <span style="font-size:0.7rem; margin-top:2px">●</span>
+                 <div>Running now on ${data.liveRuns.map((r) => `<b>${esc(r.machine)}</b>${r.order ? ` (${esc(String(r.order))})` : ''} — bal ${Number(r.balance || 0).toLocaleString()}`).join(', ')}.</div>
+               </div>`
+            : '';
+
+          const bestBanner = data.bestMachine
+            ? `<div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:12px; padding:10px 14px; color:#047857; font-size:0.82rem; font-weight:700; display:flex; gap:8px; align-items:center">
+                 <i class="bi bi-award-fill"></i> Best machine by history: <b>${esc(data.bestMachine)}</b> — ranked on efficiency, rejection and actual cycle time.
+               </div>`
+            : '';
+
+          overlay.innerHTML = `
+            <div class="modal-card" style="width:min(760px, 96vw); max-height:90vh; display:flex; flex-direction:column">
+              <div class="modal-head" style="padding:14px 18px">
+                <div>
+                  <div style="font-size:.72rem; color:#0284c7; font-weight:900; letter-spacing:.1em; text-transform:uppercase">Machine History &amp; Comparison</div>
+                  <div style="font-weight:900; color:#0f172a; font-size:1rem; margin-top:2px">Mould ${esc(data.mouldName || hist.code)} <span style="font-family:monospace; color:#64748b; font-size:0.82rem">${esc(hist.code)}</span></div>
+                </div>
+                <button class="btn icon ghost" aria-label="Close"><i class="bi bi-x-lg"></i></button>
+              </div>
+              <div class="modal-body" style="padding:16px 18px; overflow-y:auto; display:flex; flex-direction:column; gap:12px">
+                ${liveBanner}
+                ${bestBanner}
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px">${cards}</div>
+                ${lastRunStrip}
+                <div style="font-size:0.68rem; color:#94a3b8">Based on real DPR production entries over the last ${esc(String(data.windowMonths || 6))} months, scoped to this factory.</div>
+              </div>
+            </div>`;
+          overlay.querySelector('button[aria-label="Close"]').addEventListener('click', () => overlay.remove());
+          document.body.appendChild(overlay);
+        };
+
         function renderCpColourMachineCards(modal, colourRows) {
           const cardsContainer = modal.querySelector('#cpColourMachineCards');
           if (!cardsContainer) return;
+          const activeHistory = getCpActiveMouldHistory(colourRows);
+          const historyData = activeHistory ? activeHistory.data : null;
+          const historyByMachine = {};
+          if (historyData) (historyData.machines || []).forEach((m) => { historyByMachine[m.machine] = m; });
+          const bestMachineName = historyData ? historyData.bestMachine : null;
+          const liveByMachine = {};
+          if (historyData) (historyData.liveRuns || []).forEach((r) => { liveByMachine[r.machine] = r; });
 
           // Union of all unique machines across every colour row's availableMachines list
           const allMachines = [];
@@ -5220,10 +5374,17 @@
             return;
           }
 
+          // Show the "View History & Comparison" button once we have any history for this mould.
+          const histBtn = modal.querySelector('#cpMachineHistoryBtn');
+          if (histBtn) histBtn.style.display = (historyData && (historyData.machines || []).length) ? 'inline-flex' : 'none';
+
           allMachines.forEach((mac) => {
             const isPrimary  = mac.preferenceRole === 'PRIMARY';
             const isSecondary = mac.preferenceRole === 'SECONDARY';
             const isFree = !!mac.isFree;
+            const macHist = historyByMachine[mac.machine] || null;
+            const isBestMachine = bestMachineName && mac.machine === bestMachineName;
+            const macLive = liveByMachine[mac.machine] || null;
 
             // Role styling
             const roleBg     = isPrimary ? '#eff6ff' : isSecondary ? '#fff7ed' : '#f8fafc';
@@ -5271,12 +5432,42 @@
               ? `${runningOrders[0]} +${runningOrders.length - 1}`
               : runningOrders[0] || '';
 
+            // Compact history line: actual cycle + efficiency, from real DPR runs.
+            let histLine = '';
+            if (macHist && (macHist.actualCycle != null || macHist.efficiency != null)) {
+              const effColor = macHist.efficiency == null ? '#64748b' : macHist.efficiency >= 90 ? '#15803d' : macHist.efficiency >= 75 ? '#b45309' : '#dc2626';
+              histLine = `<div style="display:flex; align-items:center; gap:4px; margin-top:2px; flex-wrap:wrap; font-size:0.58rem">
+                  ${macHist.actualCycle != null ? `<span style="color:#475569">⏱ ${macHist.actualCycle}s</span>` : ''}
+                  ${macHist.efficiency != null ? `<span style="color:${effColor}; font-weight:900">${macHist.efficiency}% eff</span>` : ''}
+                  <span style="color:#94a3b8">· ${macHist.runs} run${macHist.runs === 1 ? '' : 's'}</span>
+                </div>`;
+            } else if (historyData) {
+              histLine = `<div style="margin-top:2px; font-size:0.55rem; color:#cbd5e1">No past runs</div>`;
+            }
+            if (macLive) {
+              // Currently running THIS mould — green boundary + tint take priority and
+              // must survive deselection (baseBg is what the click handler restores).
+              card.dataset.roleBorder = '#22c55e';
+              card.dataset.baseBg = '#f0fdf4';
+              card.style.borderColor = '#22c55e';
+              card.style.background = '#f0fdf4';
+            } else if (isBestMachine) {
+              card.dataset.roleBorder = '#3b82f6';
+              card.style.borderColor = '#3b82f6';
+            }
+
             card.innerHTML = `
-              <div style="display:flex; justify-content:space-between; align-items:center; gap:4px; margin-bottom:4px">
-                <span style="font-weight:900; color:#0f172a; font-size:0.72rem; line-height:1.2; word-break:break-all">${esc(mac.machine || '-')}</span>
-                <span style="background:${roleBg}; color:${roleColor}; border:1px solid ${roleBorder}; border-radius:999px; padding:1px 5px; font-size:0.56rem; font-weight:900; white-space:nowrap; flex-shrink:0">${roleLabel}</span>
+              <div style="margin-bottom:4px">
+                <div style="font-weight:900; color:#0f172a; font-size:0.72rem; line-height:1.2; overflow-wrap:anywhere">${esc(mac.machine || '-')}</div>
+                <div style="display:flex; gap:3px; flex-wrap:wrap; margin-top:3px">
+                  ${macLive ? '<span style="background:#dcfce7; color:#15803d; border:1px solid #86efac; border-radius:999px; padding:1px 5px; font-size:0.52rem; font-weight:900; white-space:nowrap">● RUNNING NOW</span>' : ''}
+                  ${isBestMachine ? '<span style="background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; border-radius:999px; padding:1px 5px; font-size:0.52rem; font-weight:900; white-space:nowrap">★ BEST</span>' : ''}
+                  <span style="background:${roleBg}; color:${roleColor}; border:1px solid ${roleBorder}; border-radius:999px; padding:1px 5px; font-size:0.56rem; font-weight:900; white-space:nowrap">${roleLabel}</span>
+                </div>
               </div>
               ${metaLine ? `<div style="color:#64748b; font-size:0.63rem; margin-bottom:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${metaLine}</div>` : ''}
+              ${macLive ? `<div style="margin:2px 0 1px; font-size:0.58rem; color:#15803d; font-weight:900; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:2px 5px">▶ This mould running here now${macLive.order ? ` · ${esc(String(macLive.order))}` : ''}<br><span style="font-weight:700; color:#166534">Made ${Number(macLive.produced || 0).toLocaleString()} · Bal ${Number(macLive.balance || 0).toLocaleString()}</span></div>` : ''}
+              ${histLine}
               <div style="display:flex; align-items:center; gap:3px; margin-top:auto; padding-top:4px; border-top:1px solid #f1f5f9; flex-wrap:wrap">
                 <span style="font-size:0.6rem; line-height:1">${statusDot}</span>
                 <span style="font-weight:900; color:${statusColor}; font-size:0.65rem">${esc(statusText)}</span>
@@ -5289,7 +5480,7 @@
               // Deselect all cards
               cardsContainer.querySelectorAll('button[data-machine-name]').forEach((btn) => {
                 btn.style.borderColor = btn.dataset.roleBorder || '#e2e8f0';
-                btn.style.background  = '#fff';
+                btn.style.background  = btn.dataset.baseBg || '#fff';
                 btn.style.boxShadow   = 'none';
               });
               // Highlight this card
@@ -5523,6 +5714,11 @@
             window.cpVariantMismatchMap = Object.fromEntries(
               machineEntries.map(([code, r]) => [code, { mismatch: !!r.mismatch, requestedNames: r.requestedNames || '' }])
             );
+            // Per-mould machine RUN HISTORY (best machine, cycle/eff/rejection, last run).
+            // Fetched in the background so it never delays the machine cards; the cards
+            // re-render once history arrives.
+            window.cpMouldHistoryMap = window.cpMouldHistoryMap || {};
+            loadCpMouldHistories(modal, familyMoulds.map((v) => v.code));
             const colourRows = buildCpColourRows(mouldForColourCalc, colourPayload.rows, {
               availableMoulds: familyMoulds,
               machineMap: window.cpVariantMachineMap
@@ -5591,8 +5787,11 @@
                   <span style="font-weight:900; color:#0f172a; font-size:0.82rem">&#9881; Select Machine</span>
                   <span style="color:#94a3b8; font-size:0.7rem">Click a card to assign machine to this plan</span>
                   <span id="cpColourMachineChip" style="display:none; background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; border-radius:999px; padding:2px 8px; font-size:0.7rem; font-weight:900"></span>
+                  <button type="button" id="cpMachineHistoryBtn" onclick="window.openCpMouldHistoryModal()" title="Which machine ran this mould best? Compare cycle time, efficiency, rejection and last run." style="display:none; margin-left:auto; align-items:center; gap:5px; background:#f0f9ff; color:#0369a1; border:1px solid #bae6fd; border-radius:999px; padding:3px 11px; font-size:0.7rem; font-weight:900; cursor:pointer">
+                    <i class="bi bi-graph-up-arrow"></i> View History &amp; Comparison
+                  </button>
                 </div>
-                <div id="cpColourMachineCards" style="display:flex; flex-wrap:wrap; gap:6px; align-items:stretch"></div>
+                <div id="cpColourMachineCards" style="display:flex; flex-wrap:wrap; gap:6px; align-items:flex-start"></div>
               </div>
 
               <!-- Colour table — flex-grow to fill ALL remaining space, no max-height cap -->
@@ -9762,19 +9961,25 @@
   // ── Load / refresh table ──────────────────────────────────────────────────
   window.loadJobSheet = async function () {
     const searchEl = document.getElementById('jsSearch');
+    const dateEl   = document.getElementById('jsDate');
     const body     = document.getElementById('jobSheetBody');
     const countEl  = document.getElementById('jsCount');
 
     if (!body) return;
 
+    // Default the date picker to today (local, YYYY-MM-DD) on first load
+    if (dateEl && !dateEl.value) dateEl.value = new Date().toLocaleDateString('en-CA');
+
     const search = (searchEl ? searchEl.value : '').trim();
+    const date   = (dateEl ? dateEl.value : '').trim();
 
     body.innerHTML = `<tr><td colspan="15" style="padding:40px;text-align:center;color:#94a3b8">
-      <i class="bi bi-hourglass-split"></i> Loading high-priority orders…</td></tr>`;
+      <i class="bi bi-hourglass-split"></i> Loading plans…</td></tr>`;
     if (countEl) countEl.textContent = '';
 
     try {
       const params = new URLSearchParams({ search });
+      if (date) params.set('date', date);
       const res  = await fetch(`/api/planning/job-sheet?${params}`, { headers: _jsFactoryHeaders() });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -9783,25 +9988,29 @@
       // Cache rows so View Details can use them without another API call
       window._jsRows = rows;
 
-      if (countEl) countEl.textContent = `${rows.length} high-priority order${rows.length !== 1 ? 's' : ''}`;
+      if (countEl) countEl.textContent = `${rows.length} order${rows.length !== 1 ? 's' : ''} planned on ${_fmtDate(date)}`;
 
       if (rows.length === 0) {
         body.innerHTML = `<tr><td colspan="15" style="padding:48px;text-align:center;color:#94a3b8">
           <i class="bi bi-inbox" style="font-size:1.6rem"></i><br><br>
-          No high-priority orders found.<br>
-          <span style="font-size:.78rem;color:#cbd5e1">Set priority to <strong>High</strong> in Order Master to see orders here.</span></td></tr>`;
+          No plans created on ${_fmtDate(date)}.<br>
+          <span style="font-size:.78rem;color:#cbd5e1">Pick another date, or create a plan for this date.</span></td></tr>`;
         return;
       }
 
-      const border = 'border-bottom:1px solid #fde8cc';
+      const border = 'border-bottom:1px solid #eef2f7';
       const td = (val, extra = '') =>
         `<td style="padding:9px 12px;${border};${extra}">${val}</td>`;
 
       body.innerHTML = rows.map((r, i) => {
-        const rowBg = i % 2 === 1 ? 'background:#fffbf5' : 'background:#fff';
+        const rowBg = i % 2 === 1 ? 'background:#f8fafc' : 'background:#fff';
         const idx   = i; // used by View button to look up from _jsRows
+        const planCount = Number(r.plan_count) || 0;
+        const planBadge = planCount > 1
+          ? `<span style="margin-left:6px;padding:1px 7px;border-radius:20px;background:#e0f2fe;color:#0369a1;font-size:.68rem;font-weight:700;white-space:nowrap">${planCount} plans</span>`
+          : '';
         return `<tr style="${rowBg}">
-          ${td(`<span style="padding:3px 10px;border-radius:20px;background:#f97316;color:#fff;font-size:.73rem;font-weight:700;white-space:nowrap">🔥 HIGH</span>`)}
+          ${td(`<span style="white-space:nowrap;font-weight:600;color:#1e293b">${_fmtDate(r.plan_created_at)}</span>${planBadge}`, 'white-space:nowrap')}
           ${td(_fmtDate(r.order_created_at), 'white-space:nowrap;font-weight:600;color:#1e293b')}
           ${td(`<span style="font-weight:600;color:#0f172a">${r.or_jr_no || '—'}</span>`)}
           ${td(_fmtDate(r.or_jr_date), 'white-space:nowrap')}

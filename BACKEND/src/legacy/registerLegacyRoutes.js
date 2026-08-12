@@ -9526,6 +9526,80 @@ async function getPlanJcGateError(planId) {
   return null;
 }
 
+// Priority-order start gate: a machine's plans must run in P1→P4 order.
+// Returns an error string if starting `plan` would jump ahead of a higher-priority
+// (or any, when `plan` itself has none) plan still pending on the same machine; else null.
+// COMPLETED / REJECTED plans are ignored (they no longer hold the queue). If no priority
+// plans are pending on the machine, any plan may start (null).
+async function getPriorityOrderStartError(plan) {
+  if (!plan || !plan.machine) return null;
+  // Factory-scope: plan_id / machine rows repeat across factories (KAN-127), so only
+  // compare against plans in the SAME factory (null-tolerant for legacy rows).
+  const fClause = (plan.factory_id != null && plan.factory_id !== '')
+    ? ` AND (factory_id = ${Number(plan.factory_id)} OR factory_id IS NULL)` : '';
+  const top = await q(
+    `SELECT id, plan_id, order_no, machine_priority
+       FROM plan_board
+      WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
+        AND machine_priority IS NOT NULL
+        AND UPPER(COALESCE(status, '')) <> 'COMPLETED'
+        AND UPPER(COALESCE(jc_approval_status, '')) <> 'REJECTED'${fClause}
+      ORDER BY machine_priority ASC
+      LIMIT 1`,
+    [plan.machine]
+  );
+  if (!top.length) return null;                                   // no pending priority plans
+  if (String(top[0].id) === String(plan.id)) return null;         // this IS the current top
+  return `Plans must run in priority order — start ${top[0].machine_priority} (Order ${top[0].order_no}) first on machine ${plan.machine}.`;
+}
+
+// Priority contiguity gate: priorities must be assigned in order (P1 → P2 → P3 → P4).
+// Returns an error string if setting `priority` on `planId` would skip a level (e.g. P4
+// while P3 is unset on that machine), else null. P1 is always allowed. The plan being
+// edited and COMPLETED/REJECTED plans are excluded from "already held". `fClause` is the
+// caller's factory-scope SQL fragment.
+async function getPriorityContiguityError(machine, planId, priority, fClause) {
+  const rank = { P1: 1, P2: 2, P3: 3, P4: 4 }[priority];
+  if (!rank || rank === 1) return null; // no predecessors for P1
+  const rows = await q(
+    `SELECT DISTINCT machine_priority FROM plan_board
+      WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
+        AND machine_priority IS NOT NULL
+        AND id <> $2
+        AND UPPER(COALESCE(status, '')) <> 'COMPLETED'
+        AND UPPER(COALESCE(jc_approval_status, '')) <> 'REJECTED'${fClause}`,
+    [machine, planId]
+  );
+  const held = new Set(rows.map(r => r.machine_priority));
+  const labels = ['P1', 'P2', 'P3', 'P4'];
+  for (let k = 0; k < rank - 1; k++) {
+    if (!held.has(labels[k])) {
+      return `Set ${labels[k]} first — priorities must be assigned in order (P1 → P2 → P3 → P4).`;
+    }
+  }
+  return null;
+}
+
+// Renumber a machine's P1..P4 so they stay contiguous and gap-free after a plan
+// leaves the queue (completed / priority cleared). COMPLETED/REJECTED plans are excluded.
+async function compactMachinePriorities(machine) {
+  if (!machine) return;
+  const labelled = await q(
+    `SELECT id, machine_priority FROM plan_board
+       WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
+         AND machine_priority IS NOT NULL
+         AND UPPER(COALESCE(status, '')) <> 'COMPLETED'
+         AND UPPER(COALESCE(jc_approval_status, '')) <> 'REJECTED'
+       ORDER BY machine_priority ASC`, [machine]
+  );
+  const labels = ['P1', 'P2', 'P3', 'P4'];
+  for (let i = 0; i < labelled.length; i++) {
+    if (labelled[i].machine_priority !== labels[i]) {
+      await q(`UPDATE plan_board SET machine_priority = $1, updated_at = NOW() WHERE id = $2`, [labels[i], labelled[i].id]);
+    }
+  }
+}
+
 /* ============================================================
    MACHINE PRIORITY (P1–P4) API
    Each machine can have at most one plan per label.
@@ -9551,11 +9625,19 @@ app.post('/api/planning/machine-priority', async (req, res) => {
     }
     if (!machine) return res.status(400).json({ ok: false, error: 'machine not found for plan' });
 
-    // JC GATE — setting a priority requires linked JC + full PPC/Moulding approval.
-    // Clearing (priority === null) is always allowed.
+    // JC-GIVEN GATE — setting a priority requires the plan's "JC Given" to be checked
+    // (job_card_given = true). Because JC Given itself can only be ticked once the Job Card
+    // is linked AND fully PPC/Moulding-approved, this is at least as strict as the old
+    // approval gate. Clearing (priority === null) is always allowed.
     if (priority !== null) {
-      const gateErr = await getPlanJcGateError(planId);
-      if (gateErr) return res.status(403).json({ ok: false, error: gateErr });
+      const jg = await q(`SELECT job_card_given, order_no FROM plan_board WHERE id = $1${fClause}`, [planId]);
+      if (!jg.length) return res.status(404).json({ ok: false, error: 'Plan not found' });
+      if (!jg[0].job_card_given) {
+        return res.status(403).json({ ok: false, error: `Mark "JC Given" for Order ${jg[0].order_no} before setting a priority.` });
+      }
+      // CONTIGUITY GATE — must assign in order; block e.g. P4 while P3 is unset.
+      const contigErr = await getPriorityContiguityError(machine, planId, priority, fClause);
+      if (contigErr) return res.status(409).json({ ok: false, error: contigErr });
     }
 
     await q('BEGIN');
@@ -9578,21 +9660,9 @@ app.post('/api/planning/machine-priority', async (req, res) => {
                  WHERE id = $2${fClause}`, [priority, planId]);
       }
 
-      // 4. Compact: re-read all labelled plans on this machine sorted by label,
-      //    then reassign P1, P2, P3... filling gaps.
-      const labelled = await q(
-        `SELECT id, machine_priority FROM plan_board
-         WHERE TRIM(UPPER(machine)) = TRIM(UPPER($1))
-           AND machine_priority IS NOT NULL${fClause}
-         ORDER BY machine_priority ASC`, [machine]
-      );
-      const labels = ['P1', 'P2', 'P3', 'P4'];
-      for (let i = 0; i < labelled.length; i++) {
-        const newLabel = labels[i];
-        if (labelled[i].machine_priority !== newLabel) {
-          await q(`UPDATE plan_board SET machine_priority = $1, updated_at = NOW() WHERE id = $2`, [newLabel, labelled[i].id]);
-        }
-      }
+      // 4. Compact: renumber remaining labels on this machine so P1..P4 stay contiguous
+      //    (gap-free) and exclude any completed/rejected holders.
+      await compactMachinePriorities(machine);
       await q('COMMIT');
     } catch (txErr) {
       await q('ROLLBACK');
@@ -9744,8 +9814,17 @@ app.post('/api/planning/complete', async (req, res) => {
           updated_at = NOW(),
           last_updated_at = NOW()
       WHERE id = $1
-      RETURNING id, plan_id, order_no
+      RETURNING id, plan_id, order_no, machine
     `, [id, remarks || '', user || 'System']);
+
+    // A completed plan leaves the priority queue: clear its P1–P4 label and renumber the
+    // machine's remaining plans so P1..P4 stay contiguous (so the next plan becomes P1 and
+    // the machine doesn't "run without a P1"). KAN priority-order rules.
+    if (upd && upd.length && upd[0].machine) {
+      await q(`UPDATE plan_board SET machine_priority = NULL, updated_at = NOW()
+                 WHERE id = $1 AND machine_priority IS NOT NULL`, [id]);
+      await compactMachinePriorities(upd[0].machine);
+    }
 
     // Audit trail so "who completed it / when" is answerable later (previously
     // /planning/complete wrote no plan_audit_logs entry, leaving completions
@@ -11884,6 +11963,13 @@ app.post('/api/planning/run', async (req, res) => {
       return res.json({ ok: false, error: `Cannot start plan for Order ${plan.order_no} — ${stageMsg}. Complete Job Card approval first.` });
     }
 
+    // PRIORITY-ORDER GATE — plans must run in P1→P4 order. Block if a higher-priority
+    // (or any, when this plan has no priority) plan is still pending on the same machine.
+    if (!force) {
+      const orderErr = await getPriorityOrderStartError(plan);
+      if (orderErr) return res.json({ ok: false, error: orderErr });
+    }
+
     // 2. Check for EXISTING Running Plan on this machine
     // 2. AUTO-STOP ALL other Running Plans (Robust Fix)
     // Use UPDATE with RETURNING to catch and stop multiple existing plans if any
@@ -12398,6 +12484,192 @@ app.get('/api/planning/machines/compatible', async (req, res) => {
 
 
 /* ============================================================
+   MOULD → MACHINE RUN HISTORY (for Create Plan machine picker)
+   Answers "which machine ran this mould best?" from real DPR data.
+   Groups dpr_hourly by machine for the given mould over a recent
+   window and derives actual cycle time, efficiency, rejection %,
+   run count and last-run date. plan_id repeats across factories, so
+   every aggregate is factory-scoped (NULL-tolerant) — see KAN-127.
+============================================================ */
+app.get('/api/planning/mould-history', async (req, res) => {
+  try {
+    const mould = String(req.query.mould || '').trim();
+    if (!mould) return res.json({ ok: true, mould: '', machines: [], lastRun: null });
+
+    const windowMonths = Math.min(Math.max(parseInt(req.query.months, 10) || 6, 1), 36);
+    const factoryId = getFactoryId(req);
+
+    // Mould Master standard (moulds are company-wide — do NOT factory-filter, KAN-114).
+    const mouldRows = await q(
+      `SELECT cycle_time, no_of_cav, std_wt_kg, mould_name
+         FROM moulds
+        WHERE UPPER(TRIM(mould_number)) = UPPER(TRIM($1))
+        LIMIT 1`,
+      [mould]
+    );
+    const stdCycle = Number(mouldRows[0]?.cycle_time || 0) || null;
+    const cavity = Math.max(Number(mouldRows[0]?.no_of_cav || 1) || 1, 1);
+    const stdPph = stdCycle > 0 ? (3600 / stdCycle) * cavity : null;
+
+    // Per-machine aggregates from the real production log.
+    const aggRows = await q(
+      `SELECT
+          h.machine,
+          COUNT(DISTINCT h.plan_id)                       AS runs,
+          COUNT(*)                                        AS hour_rows,
+          COALESCE(SUM(h.good_qty), 0)                    AS good,
+          COALESCE(SUM(h.reject_qty), 0)                  AS reject,
+          COALESCE(SUM(NULLIF(h.shots, 0)), 0)            AS shots,
+          COALESCE(SUM(GREATEST(COALESCE(h.downtime_min, 0), 0)), 0) AS downtime_min,
+          MAX(h.dpr_date)                                 AS last_date
+         FROM dpr_hourly h
+        WHERE UPPER(TRIM(COALESCE(h.mould_no, ''))) = UPPER(TRIM($1))
+          AND COALESCE(h.is_deleted, false) = false
+          AND h.dpr_date >= (CURRENT_DATE - ($2 || ' months')::interval)
+          AND (h.factory_id = $3 OR $3 IS NULL OR h.factory_id IS NULL)
+          AND NULLIF(TRIM(COALESCE(h.machine, '')), '') IS NOT NULL
+        GROUP BY h.machine`,
+      [mould, String(windowMonths), factoryId]
+    );
+
+    const machines = aggRows.map((r) => {
+      const good = Number(r.good || 0);
+      const reject = Number(r.reject || 0);
+      const totalShotsPcs = good + reject;
+      // shots = machine cycles. Fall back to pieces/cavity when shots weren't logged.
+      const shots = Number(r.shots || 0) || (cavity > 0 ? totalShotsPcs / cavity : 0);
+      // Productive runtime = logged hours minus downtime.
+      const runtimeHours = Math.max(
+        Number(r.hour_rows || 0) - Number(r.downtime_min || 0) / 60,
+        0
+      );
+      const runtimeSec = runtimeHours * 3600;
+      const actualCycle = shots > 0 && runtimeSec > 0 ? runtimeSec / shots : null;
+      const actualPph = runtimeHours > 0 ? good / runtimeHours : null;
+      const efficiency = actualPph !== null && stdPph ? (actualPph / stdPph) * 100 : null;
+      const rejectionPct = totalShotsPcs > 0 ? (reject / totalShotsPcs) * 100 : 0;
+      return {
+        machine: r.machine,
+        runs: Number(r.runs || 0),
+        totalPcs: good,
+        actualCycle: actualCycle !== null ? Number(actualCycle.toFixed(1)) : null,
+        stdCycle,
+        efficiency: efficiency !== null ? Number(efficiency.toFixed(0)) : null,
+        rejectionPct: Number(rejectionPct.toFixed(1)),
+        lastRun: r.last_date ? String(r.last_date).slice(0, 10) : null
+      };
+    });
+
+    // Rank: best efficiency, then lowest rejection, then fastest cycle, then most runs.
+    // Machines with no usable efficiency sink to the bottom but still appear.
+    const ranked = [...machines].sort((a, b) => {
+      const ea = a.efficiency == null ? -1 : a.efficiency;
+      const eb = b.efficiency == null ? -1 : b.efficiency;
+      if (eb !== ea) return eb - ea;
+      if (a.rejectionPct !== b.rejectionPct) return a.rejectionPct - b.rejectionPct;
+      const ca = a.actualCycle == null ? Infinity : a.actualCycle;
+      const cb = b.actualCycle == null ? Infinity : b.actualCycle;
+      if (ca !== cb) return ca - cb;
+      return b.runs - a.runs;
+    });
+    const bestMachine = ranked.length && ranked[0].efficiency != null ? ranked[0].machine : null;
+
+    // Most recent run of this mould anywhere (for the footer strip).
+    const lastRows = await q(
+      `SELECT h.machine, h.dpr_date::text AS dpr_date, h.plan_id, h.jobcard_no
+         FROM dpr_hourly h
+        WHERE UPPER(TRIM(COALESCE(h.mould_no, ''))) = UPPER(TRIM($1))
+          AND COALESCE(h.is_deleted, false) = false
+          AND (h.factory_id = $2 OR $2 IS NULL OR h.factory_id IS NULL)
+        ORDER BY h.dpr_date DESC NULLS LAST, h.created_at DESC NULLS LAST
+        LIMIT 1`,
+      [mould, factoryId]
+    );
+    // Is this mould RUNNING right now? Match live plan_board rows for this mould and
+    // attach current produced/balance. plan_id repeats across factories, so scope both
+    // the plan and its DPR production (KAN-127).
+    const liveRows = await q(
+      `SELECT
+          pb.machine,
+          pb.order_no,
+          pb.plan_id,
+          COALESCE(pb.plan_qty, 0)          AS plan_qty,
+          COALESCE(d.qty, 0)                AS produced
+         FROM plan_board pb
+         LEFT JOIN (
+           SELECT plan_id, factory_id, SUM(good_qty) AS qty
+             FROM dpr_hourly
+            WHERE COALESCE(is_deleted, false) = false
+            GROUP BY plan_id, factory_id
+         ) d ON d.plan_id = pb.plan_id
+            AND (d.factory_id = pb.factory_id OR d.factory_id IS NULL OR pb.factory_id IS NULL)
+        WHERE UPPER(COALESCE(pb.status, '')) = 'RUNNING'
+          AND (
+                UPPER(TRIM(COALESCE(pb.mould_code, ''))) = UPPER(TRIM($1))
+             OR UPPER(TRIM(COALESCE(pb.item_code, '')))  = UPPER(TRIM($1))
+          )
+          AND (pb.factory_id = $2 OR $2 IS NULL OR pb.factory_id IS NULL)
+        ORDER BY pb.machine`,
+      [mould, factoryId]
+    );
+    // A machine can hold more than one RUNNING plan for the same mould (e.g. two
+    // orders). Aggregate per machine so the card shows combined produced/balance and
+    // every order, rather than silently keeping only the last row.
+    const liveByMachineAgg = new Map();
+    liveRows.forEach((r) => {
+      const machine = r.machine;
+      if (!machine) return;
+      const planQty = Number(r.plan_qty || 0);
+      const produced = Number(r.produced || 0);
+      const cur = liveByMachineAgg.get(machine) || { machine, orders: [], planQty: 0, produced: 0 };
+      if (r.order_no && !cur.orders.includes(r.order_no)) cur.orders.push(r.order_no);
+      cur.planQty += planQty;
+      cur.produced += produced;
+      liveByMachineAgg.set(machine, cur);
+    });
+    const liveRuns = Array.from(liveByMachineAgg.values()).map((r) => ({
+      machine: r.machine,
+      order: r.orders.join(', ') || null,
+      planQty: r.planQty,
+      produced: r.produced,
+      balance: Math.max(r.planQty - r.produced, 0)
+    }));
+    const liveMachines = liveRuns.map((r) => r.machine);
+
+    const lastRunRow = lastRows[0] || null;
+    const lastMachineAgg = lastRunRow ? machines.find((m) => m.machine === lastRunRow.machine) : null;
+    const lastRun = lastRunRow
+      ? {
+          machine: lastRunRow.machine,
+          date: lastRunRow.dpr_date ? String(lastRunRow.dpr_date).slice(0, 10) : null,
+          jobCard: lastRunRow.jobcard_no || null,
+          efficiency: lastMachineAgg?.efficiency ?? null,
+          totalPcs: lastMachineAgg?.totalPcs ?? null
+        }
+      : null;
+
+    res.json({
+      ok: true,
+      mould,
+      mouldName: mouldRows[0]?.mould_name || null,
+      windowMonths,
+      stdCycle,
+      cavity,
+      bestMachine,
+      machines,
+      lastRun,
+      liveRuns,
+      liveMachines,
+      isRunningNow: liveRuns.length > 0
+    });
+  } catch (e) {
+    console.error('planning/mould-history', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+
+/* ============================================================
    ALTERNATIVE MOULDS & BATCH PLANNING API
 ============================================================ */
 
@@ -12844,6 +13116,12 @@ app.post('/api/planning/start', async (req, res) => {
     if (!planRes.length) return res.json({ ok: false, error: 'Plan not found' });
     const plan = planRes[0];
 
+    // PRIORITY-ORDER GATE — plans must run in P1→P4 order (see /planning/run).
+    if (!(req.body && req.body.force)) {
+      const orderErr = await getPriorityOrderStartError(plan);
+      if (orderErr) return res.json({ ok: false, error: orderErr });
+    }
+
     // 2. Auto-stop any other Running plans on this machine first.
     //    Using UPPER() so 'Running', 'RUNNING' etc. are all caught.
     const stopped = await q(
@@ -12944,8 +13222,13 @@ app.get('/api/planning/job-sheet', async (req, res) => {
     const factoryId = getFactoryId(req);
     const search    = (req.query.search || '').trim();
 
-    // $1 = factoryId
-    const params = [factoryId];
+    // Date filter: show orders whose plan(s) were created on this date.
+    // Defaults to today (process TZ is Asia/Kolkata). Accepts YYYY-MM-DD.
+    let date = (req.query.date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) date = '';
+
+    // $1 = factoryId, $2 = date ('' → today via CURRENT_DATE)
+    const params = [factoryId, date || null];
     let searchClause = '';
     if (search) {
       params.push(`%${search}%`);
@@ -12976,8 +13259,19 @@ app.get('/api/planning/job-sheet', async (req, res) => {
         o.qty        AS order_qty,
         o.balance    AS order_balance,
         o.status     AS order_status,
-        o.created_at AS order_created_at
+        o.created_at AS order_created_at,
+        pb.plan_created_at,
+        pb.plan_count
       FROM orders o
+      JOIN (
+        SELECT TRIM(order_no) AS order_no,
+               MAX(created_at) AS plan_created_at,
+               COUNT(*)        AS plan_count
+        FROM plan_board
+        WHERE ($1::integer IS NULL OR factory_id = $1::integer OR factory_id IS NULL)
+          AND created_at::date = COALESCE($2::date, CURRENT_DATE)
+        GROUP BY TRIM(order_no)
+      ) pb ON pb.order_no = TRIM(o.order_no)
       LEFT JOIN LATERAL (
         SELECT *
         FROM or_jr_report rr
@@ -12987,9 +13281,8 @@ app.get('/api/planning/job-sheet', async (req, res) => {
         LIMIT 1
       ) r ON true
       WHERE ($1::integer IS NULL OR o.factory_id = $1::integer)
-        AND LOWER(o.priority) = 'high'
         ${searchClause}
-      ORDER BY o.created_at DESC
+      ORDER BY pb.plan_created_at DESC
       LIMIT 500
     `;
 

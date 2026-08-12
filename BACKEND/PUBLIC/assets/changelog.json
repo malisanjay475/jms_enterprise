@@ -11,8 +11,87 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.25.0",
+  "latest": "1.28.1",
   "versions": [
+    {
+      "version": "1.28.1",
+      "date": "2026-08-12",
+      "title": "Tidier machine cards in Create Plan",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "Fixed the machine cards stretching very tall and the machine name breaking into one letter per line when a machine had the RUNNING NOW and BEST badges. Names now read across the card and each card is only as tall as its own content." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.28.0",
+      "date": "2026-08-12",
+      "title": "Create Plan shows if a mould is running right now",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "When choosing a machine, any machine that is running this mould at this moment now shows a green ● RUNNING NOW badge with its current order, made quantity and balance — so you can see live production before you plan." },
+            { "type": "feat", "text": "The 'View History & Comparison' panel lists every machine running this mould right now at the top, with a live banner, alongside the past-run comparison." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.27.0",
+      "date": "2026-08-11",
+      "title": "Create Plan shows the best machine for each mould from run history",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "When you pick a mould and choose a machine, each machine card now shows how that mould actually ran there — cycle time, efficiency and number of past runs — and marks the best machine with a ★ BEST badge." },
+            { "type": "feat", "text": "A new 'View History & Comparison' button compares every machine side by side (actual vs standard cycle time, efficiency, rejection %, runs and last run) and shows when this mould last ran, using real production data from the last 6 months." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.26.1",
+      "date": "2026-08-11",
+      "title": "Machine priority must be set in order (P1 → P2 → P3 → P4)",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "You must now assign machine priorities in order. If P1 and P2 are set and you pick P4, it no longer jumps in — it tells you to set P3 first. This keeps every machine's queue as a clean P1, P2, P3, P4 with no skipped numbers." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.26.0",
+      "date": "2026-08-11",
+      "title": "Machine priority (P1–P4) — cleaner rules, runs in order",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "You can now set a plan's priority (P1–P4) only after 'JC Given' is ticked. Until then the P1–P4 buttons are locked." },
+            { "type": "improvement", "text": "Plans now run strictly in priority order — a machine won't let you start a later plan while a higher-priority (P1 before P2, etc.) plan is still pending. Clear the message tells you which one to start first." },
+            { "type": "fix", "text": "When a priority plan is completed, its P1–P4 label is released and the machine's remaining plans renumber up automatically, so the queue always has a clean P1, P2, P3, P4 with no gaps." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.25.0",
       "date": "2026-08-11",
