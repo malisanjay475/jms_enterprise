@@ -153,7 +153,7 @@
     </div>
 
     <script src="/assets/app.min.js"></script>
-  <script src="/assets/dpr-script-1.js?v=release81"></script>
+  <script src="/assets/dpr-script-1.js?v=release82"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"
@@ -246,10 +246,11 @@
             }
         };
 
-        // Superadmin-only: delete a single quick-action entry from the hourly grid cell
+        // Delete a single quick-action entry from the hourly grid cell.
+        // Allowed: admin/superadmin + planner, ppc_ass_manager, ppc_manager (canDeleteDprEntry).
         window.deleteQuickEntry = async (id, btn) => {
-            if (!window.JPSMS.auth.isSuperadmin || !window.JPSMS.auth.isSuperadmin()) {
-                alert('Superadmin access required.');
+            if (!window.canDeleteDprEntry || !window.canDeleteDprEntry()) {
+                alert('You do not have permission to delete quick-action entries.');
                 return;
             }
             if (!confirm('Delete this quick-action entry?')) return;
@@ -272,10 +273,11 @@
             }
         };
 
-        // Superadmin-only: clear all quick-action entries in a machine row
+        // Clear all quick-action entries in a machine row.
+        // Allowed: admin/superadmin + planner, ppc_ass_manager, ppc_manager (canDeleteDprEntry).
         window.clearRowQuickEntries = async (ids, btn) => {
-            if (!window.JPSMS.auth.isSuperadmin || !window.JPSMS.auth.isSuperadmin()) {
-                alert('Superadmin access required.');
+            if (!window.canDeleteDprEntry || !window.canDeleteDprEntry()) {
+                alert('You do not have permission to delete quick-action entries.');
                 return;
             }
             if (!Array.isArray(ids) || !ids.length) return;
@@ -348,7 +350,7 @@
     </script>
 </body>
 
-  <script src="/assets/dpr-script-2.js?v=release74"></script>
+  <script src="/assets/dpr-script-2.js?v=release75"></script>
   <script src="/assets/dpr-machine-auto.js?v=release4"></script>
 
 <!-- JOB DETAIL MODAL -->

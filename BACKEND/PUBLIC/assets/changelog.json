@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.29.0",
+  "latest": "1.30.0",
   "versions": [
     {
-      "version": "1.29.0",
+      "version": "1.30.0",
       "date": "2026-08-12",
       "title": "Redesigned Analyze — Order, Mould, Supervisor, Plant & Machine dashboards",
       "modules": [
@@ -29,6 +29,21 @@
             { "type": "feat", "text": "Plant Analyze shows line-wise and date-wise OEE with Availability, Performance and Quality, an OEE trend, and the top downtime loss reasons." },
             { "type": "feat", "text": "Machine Analyze shows per-machine utilisation, OEE ranking and downtime — click any machine to drill into its downtime and daily output." },
             { "type": "feat", "text": "Every Analyze screen respects your factory access, lets multi-factory users switch factory, and can compare factories side by side." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.29.0",
+      "date": "2026-08-12",
+      "title": "More columns in the Mould Wise Item QTY report",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-bar-chart",
+          "changes": [
+            { "type": "feat", "text": "The Mould Wise Item QTY report can now show STD Cycle Time, Average Cycle Time and STD Weight as optional columns. Tick them in 'Include Columns' before generating the report." }
           ]
         }
       ]
