@@ -5737,7 +5737,8 @@ app.post('/api/login', async (req, res) => {
            VALUES ($1,$2,$3,'login_geoblock',$4,$5,$6,$7,$8,$9,NOW())`,
           [u.username, u.role_code || '', requestedApp || 'web', fence.detail || 'blocked',
            /mobile|android|iphone|ipad/i.test(String(req.headers['user-agent'] || '')) ? 'mobile' : 'desktop',
-           _ip, String(req.headers['user-agent'] || '').slice(0, 500), '', '']
+           _ip, String(req.headers['user-agent'] || '').slice(0, 500),
+           String(req.body?.factory_id || ''), String(req.body?.session_id || '')]
         ).catch(() => {});
         return res.status(403).json({ ok: false, error: fence.error, geoblock: true });
       }

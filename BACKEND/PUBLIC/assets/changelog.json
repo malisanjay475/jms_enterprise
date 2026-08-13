@@ -23,8 +23,9 @@
           "label": "All",
           "icon": "bi-shield-lock",
           "changes": [
-            { "type": "security", "text": "On the main website, a user without Global Access can now sign in only from inside the factory. Their phone or PC must share its location and be within the factory boundary, otherwise login is blocked. Grant Global Access (Remote Login) to let someone sign in from anywhere." },
-            { "type": "improvement", "text": "Logging in on a factory LOCAL server is unchanged — it works exactly as before, with no location check." }
+            { "type": "security", "text": "On the main website, a user without Global Access can now sign in only from inside the factory, and their device must share its location to be allowed in." },
+            { "type": "security", "text": "Grant a user Global Access (Remote Login) to let them sign in from anywhere." },
+            { "type": "improvement", "text": "Logging in on a factory LOCAL server is unchanged and has no location check." }
           ]
         }
       ]

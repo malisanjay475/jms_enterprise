@@ -416,6 +416,12 @@ function escHtml(value) {
     // non-global users on MAIN are blocked without a valid in-range fix.
     function getLoginGeo(timeoutMs = 9000) {
         return new Promise((resolve) => {
+            // Only the MAIN (internet) server enforces the geofence, and it is always
+            // served over HTTPS (a secure context). LOCAL factory servers run on plain
+            // HTTP (insecure context) where geolocation is unavailable anyway — skip
+            // immediately so LOCAL login keeps its exact prior behaviour with no
+            // permission prompt and no delay.
+            if (typeof window !== 'undefined' && window.isSecureContext === false) return resolve(null);
             if (!('geolocation' in navigator)) return resolve(null);
             let done = false;
             const finish = (v) => { if (!done) { done = true; resolve(v); } };
@@ -437,10 +443,13 @@ function escHtml(value) {
             const payload = { username, password };
             if (options?.requested_app) payload.requested_app = options.requested_app;
             const geo = (options && options.geo) ? options.geo : await getLoginGeo();
-            if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
+            const latOk = geo && Number.isFinite(geo.lat) && geo.lat >= -90 && geo.lat <= 90;
+            const lngOk = geo && Number.isFinite(geo.lng) && geo.lng >= -180 && geo.lng <= 180;
+            if (latOk && lngOk) {
                 payload.geo_lat = geo.lat;
                 payload.geo_lng = geo.lng;
-                payload.geo_acc = geo.acc;
+                // Only forward a sane accuracy; the server treats a missing one as no margin.
+                if (Number.isFinite(geo.acc) && geo.acc >= 0) payload.geo_acc = geo.acc;
             }
             const res = await exports.api.post('/login', payload);
             if (res.ok) {
