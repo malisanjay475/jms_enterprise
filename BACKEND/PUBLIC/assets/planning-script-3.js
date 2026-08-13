@@ -694,6 +694,12 @@
                   <datalist id="pcrSuggestions"></datalist>
                </div>
                <span id="pcrCount" style="font-size:0.78rem; font-weight:800; color:#0369a1; white-space:nowrap; flex:0 0 auto;"></span>
+               <button type="button" id="pcrTodayBtn" onclick="window.pcrSetToday()" title="Show only plans completed today" style="height:38px; border-radius:11px; border:1px solid #86efac; background:#f0fdf4; color:#15803d; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; font-weight:900; padding:0 12px; flex:0 0 auto; cursor:pointer;">
+                  <i class="bi bi-calendar-day"></i> Today
+               </button>
+               <button type="button" id="pcrAllBtn" onclick="window.pcrShowAll()" title="Show all completed plans (clear dates)" style="height:38px; border-radius:11px; border:1px solid #cbd5e1; background:#fff; color:#475569; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; font-weight:900; padding:0 12px; flex:0 0 auto; cursor:pointer;">
+                  <i class="bi bi-collection"></i> All Orders
+               </button>
                <div style="display:flex; align-items:center; gap:5px; white-space:nowrap; flex:0 0 auto;">
                   <label for="pcrFrom" style="font-size:0.78rem; color:#64748b; font-weight:900">From</label>
                   <input type="date" id="pcrFrom" class="input" style="width:124px; height:38px; border-radius:10px; border:1px solid #bfdbfe; font-weight:800">
@@ -830,40 +836,47 @@
       <div id="jobSheetView" style="display:none; padding:16px">
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap">
           <h2 style="margin:0; font-size:1.25rem; font-weight:700; color:#1e293b; display:flex; align-items:center; gap:8px">
-            <i class="bi bi-fire" style="color:#f97316"></i> High Priority Job Sheet
-            <span style="padding:3px 10px; border-radius:20px; background:#fff7ed; color:#f97316; font-size:.72rem; font-weight:700; border:1px solid #fed7aa">🔥 HIGH PRIORITY ONLY</span>
+            <i class="bi bi-calendar2-week" style="color:#3b82f6"></i> Daily Job Sheet
           </h2>
           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-left:8px">
+            <label for="jsDate" style="font-size:.8rem; color:#475569; font-weight:600">Plan Date</label>
+            <input type="date" id="jsDate"
+              style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 10px; font-size:.83rem; color:#1e293b"
+              onchange="window.loadJobSheet()">
+            <button onclick="var d=document.getElementById('jsDate'); if(d){d.value=new Date().toLocaleDateString('en-CA');} window.loadJobSheet()"
+              style="padding:5px 12px; border-radius:6px; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; cursor:pointer; font-size:.8rem; font-weight:600">
+              Today
+            </button>
             <input type="text" id="jsSearch" placeholder="Search order / product / client…"
-              style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 10px; font-size:.83rem; min-width:240px; color:#1e293b"
+              style="border:1px solid #cbd5e1; border-radius:6px; padding:5px 10px; font-size:.83rem; min-width:220px; color:#1e293b"
               onkeydown="if(event.key==='Enter') window.loadJobSheet()">
             <button onclick="window.loadJobSheet()"
               style="padding:6px 16px; border-radius:6px; background:#3b82f6; color:#fff; border:none; cursor:pointer; font-size:.83rem; font-weight:600; display:flex; align-items:center; gap:5px">
               <i class="bi bi-search"></i> Search
             </button>
           </div>
-          <span style="font-size:.77rem; color:#94a3b8; margin-left:4px">Priority is set in Order Master</span>
+          <span style="font-size:.77rem; color:#94a3b8; margin-left:4px">Orders whose plan was created on the selected date</span>
           <span id="jsCount" style="margin-left:auto; font-size:.78rem; color:#94a3b8; font-weight:500"></span>
         </div>
         <div style="overflow-x:auto; border:1px solid #e2e8f0; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,.05)">
           <table id="jobSheetTable" style="width:100%; border-collapse:collapse; font-size:.81rem">
             <thead>
-              <tr style="background:#fff7ed; color:#92400e; font-weight:700; text-transform:uppercase; font-size:.72rem; letter-spacing:.04em">
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Priority</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Created Date</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">OR/JR No.</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">OR/JR Date</th>
-                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">OR Qty</th>
-                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">JR Qty</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Job Card No.</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">JC Date</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Item Code</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Product Name</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Client Name</th>
-                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">Order Qty</th>
-                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #fed7aa; white-space:nowrap">Balance Qty</th>
-                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #fed7aa; white-space:nowrap">Order Status</th>
-                <th style="padding:10px 12px; text-align:center; border-bottom:2px solid #fed7aa; white-space:nowrap">Details</th>
+              <tr style="background:#f1f5f9; color:#334155; font-weight:700; text-transform:uppercase; font-size:.72rem; letter-spacing:.04em">
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Plan Date</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Created Date</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">OR/JR No.</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">OR/JR Date</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">OR Qty</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">JR Qty</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Job Card No.</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">JC Date</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Item Code</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Product Name</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Client Name</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">Order Qty</th>
+                <th style="padding:10px 12px; text-align:right;  border-bottom:2px solid #e2e8f0; white-space:nowrap">Balance Qty</th>
+                <th style="padding:10px 12px; text-align:left;   border-bottom:2px solid #e2e8f0; white-space:nowrap">Order Status</th>
+                <th style="padding:10px 12px; text-align:center; border-bottom:2px solid #e2e8f0; white-space:nowrap">Details</th>
               </tr>
             </thead>
             <tbody id="jobSheetBody">
@@ -9954,19 +9967,25 @@
   // ── Load / refresh table ──────────────────────────────────────────────────
   window.loadJobSheet = async function () {
     const searchEl = document.getElementById('jsSearch');
+    const dateEl   = document.getElementById('jsDate');
     const body     = document.getElementById('jobSheetBody');
     const countEl  = document.getElementById('jsCount');
 
     if (!body) return;
 
+    // Default the date picker to today (local, YYYY-MM-DD) on first load
+    if (dateEl && !dateEl.value) dateEl.value = new Date().toLocaleDateString('en-CA');
+
     const search = (searchEl ? searchEl.value : '').trim();
+    const date   = (dateEl ? dateEl.value : '').trim();
 
     body.innerHTML = `<tr><td colspan="15" style="padding:40px;text-align:center;color:#94a3b8">
-      <i class="bi bi-hourglass-split"></i> Loading high-priority orders…</td></tr>`;
+      <i class="bi bi-hourglass-split"></i> Loading plans…</td></tr>`;
     if (countEl) countEl.textContent = '';
 
     try {
       const params = new URLSearchParams({ search });
+      if (date) params.set('date', date);
       const res  = await fetch(`/api/planning/job-sheet?${params}`, { headers: _jsFactoryHeaders() });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -9975,25 +9994,29 @@
       // Cache rows so View Details can use them without another API call
       window._jsRows = rows;
 
-      if (countEl) countEl.textContent = `${rows.length} high-priority order${rows.length !== 1 ? 's' : ''}`;
+      if (countEl) countEl.textContent = `${rows.length} order${rows.length !== 1 ? 's' : ''} planned on ${_fmtDate(date)}`;
 
       if (rows.length === 0) {
         body.innerHTML = `<tr><td colspan="15" style="padding:48px;text-align:center;color:#94a3b8">
           <i class="bi bi-inbox" style="font-size:1.6rem"></i><br><br>
-          No high-priority orders found.<br>
-          <span style="font-size:.78rem;color:#cbd5e1">Set priority to <strong>High</strong> in Order Master to see orders here.</span></td></tr>`;
+          No plans created on ${_fmtDate(date)}.<br>
+          <span style="font-size:.78rem;color:#cbd5e1">Pick another date, or create a plan for this date.</span></td></tr>`;
         return;
       }
 
-      const border = 'border-bottom:1px solid #fde8cc';
+      const border = 'border-bottom:1px solid #eef2f7';
       const td = (val, extra = '') =>
         `<td style="padding:9px 12px;${border};${extra}">${val}</td>`;
 
       body.innerHTML = rows.map((r, i) => {
-        const rowBg = i % 2 === 1 ? 'background:#fffbf5' : 'background:#fff';
+        const rowBg = i % 2 === 1 ? 'background:#f8fafc' : 'background:#fff';
         const idx   = i; // used by View button to look up from _jsRows
+        const planCount = Number(r.plan_count) || 0;
+        const planBadge = planCount > 1
+          ? `<span style="margin-left:6px;padding:1px 7px;border-radius:20px;background:#e0f2fe;color:#0369a1;font-size:.68rem;font-weight:700;white-space:nowrap">${planCount} plans</span>`
+          : '';
         return `<tr style="${rowBg}">
-          ${td(`<span style="padding:3px 10px;border-radius:20px;background:#f97316;color:#fff;font-size:.73rem;font-weight:700;white-space:nowrap">🔥 HIGH</span>`)}
+          ${td(`<span style="white-space:nowrap;font-weight:600;color:#1e293b">${_fmtDate(r.plan_created_at)}</span>${planBadge}`, 'white-space:nowrap')}
           ${td(_fmtDate(r.order_created_at), 'white-space:nowrap;font-weight:600;color:#1e293b')}
           ${td(`<span style="font-weight:600;color:#0f172a">${r.or_jr_no || '—'}</span>`)}
           ${td(_fmtDate(r.or_jr_date), 'white-space:nowrap')}

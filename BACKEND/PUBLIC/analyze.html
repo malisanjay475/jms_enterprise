@@ -291,10 +291,19 @@
         </div>
 
         <div class="filter-bar">
-            <label>Date Range:</label>
-            <input type="date" class="form-control" style="width:auto">
+            <label>Factory:</label>
+            <select id="factorySelect" class="form-control" style="width:auto" onchange="onFactoryChange()"></select>
+            <label id="compareLabel" style="display:none; align-items:center; gap:6px; cursor:pointer">
+                <input type="checkbox" id="compareToggle" onchange="onCompareToggle()" style="width:auto; margin:0"> Compare
+            </label>
+            <select id="factoryCompareSelect" class="form-control" multiple size="1"
+                style="width:auto; min-width:200px; display:none" title="Pick factories to compare"
+                onchange="loadCompare()"></select>
+            <span style="width:1px; height:24px; background:var(--border)"></span>
+            <label>Date:</label>
+            <input type="date" id="fromDate" class="form-control" style="width:auto">
             <span>to</span>
-            <input type="date" class="form-control" style="width:auto">
+            <input type="date" id="toDate" class="form-control" style="width:auto">
             <button class="btn btn-primary" onclick="loadData()">Apply</button>
         </div>
 
@@ -305,12 +314,151 @@
 
     <script src="/assets/app.min.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
+        // Shared analyze filter state (factory access, date range, compare)
+        const AnalyzeFilters = {
+            view: 'plant',
+            factories: [],        // accessible factories [{id,name,code}]
+            canAll: false,
+            factoryId: null,      // selected single factory (null = all accessible)
+            compare: false,
+            compareIds: [],       // factory ids to compare
+            from: null,
+            to: null,
+            lossPerShift: 0,
+            lossPerMachineHour: 0
+        };
+
+        async function loadFactories() {
+            try {
+                const res = await JPSMS.api.get('/factories');
+                if (res.ok && Array.isArray(res.data)) {
+                    AnalyzeFilters.factories = res.data;
+                    AnalyzeFilters.canAll = !!res.can_select_all_factories;
+                }
+            } catch (e) { console.warn('factory load failed', e); }
+
+            const sel = document.getElementById('factorySelect');
+            const cmp = document.getElementById('factoryCompareSelect');
+            const cmpLabel = document.getElementById('compareLabel');
+            if (!sel) return;
+
+            const opts = [];
+            if (AnalyzeFilters.canAll || AnalyzeFilters.factories.length > 1) {
+                opts.push('<option value="">All My Factories</option>');
+            }
+            AnalyzeFilters.factories.forEach(f => {
+                opts.push(`<option value="${f.id}">${f.name || f.code || ('Factory ' + f.id)}</option>`);
+            });
+            sel.innerHTML = opts.join('');
+
+            // Default: single-factory users are locked to their factory
+            if (AnalyzeFilters.factories.length === 1 && !AnalyzeFilters.canAll) {
+                AnalyzeFilters.factoryId = AnalyzeFilters.factories[0].id;
+                sel.value = String(AnalyzeFilters.factoryId);
+                sel.disabled = true;
+            }
+
+            // Compare is available to anyone who can see >1 factory
+            if ((AnalyzeFilters.canAll || AnalyzeFilters.factories.length > 1)) {
+                cmpLabel.style.display = 'inline-flex';
+                cmp.innerHTML = AnalyzeFilters.factories
+                    .map(f => `<option value="${f.id}">${f.name || f.code || ('Factory ' + f.id)}</option>`).join('');
+            }
+        }
+
+        function onFactoryChange() {
+            const v = document.getElementById('factorySelect').value;
+            AnalyzeFilters.factoryId = v ? Number(v) : null;
+            loadData();
+        }
+        function onCompareToggle() {
+            AnalyzeFilters.compare = document.getElementById('compareToggle').checked;
+            const cmp = document.getElementById('factoryCompareSelect');
+            cmp.style.display = AnalyzeFilters.compare ? 'inline-block' : 'none';
+            cmp.size = AnalyzeFilters.compare ? Math.min(4, AnalyzeFilters.factories.length) : 1;
+            const panel = document.getElementById('comparePanel');
+            if (!AnalyzeFilters.compare) {
+                AnalyzeFilters.compareIds = [];
+                if (panel) panel.remove();
+            } else {
+                loadCompare();
+            }
+        }
+
+        let compareChart = null;
+        async function loadCompare() {
+            syncFilterState();
+            const ids = AnalyzeFilters.compareIds;
+            let panel = document.getElementById('comparePanel');
+            if (!ids.length) { if (panel) panel.remove(); return; }
+
+            if (!panel) {
+                panel = document.createElement('div');
+                panel.id = 'comparePanel';
+                panel.className = 'card';
+                panel.style.cssText = 'padding:0; overflow:hidden; margin-bottom:24px';
+                const ca = document.getElementById('contentArea');
+                ca.parentNode.insertBefore(panel, ca);
+            }
+            panel.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8"><div class="spinner-border spinner-border-sm text-primary"></div> Comparing factories…</div>';
+
+            try {
+                const res = await JPSMS.api.get('/analyze/compare' + filterQS({ factories: ids.join(',') }));
+                if (!res.ok) { panel.innerHTML = `<div style="padding:20px; color:#ef4444">${res.error || 'Compare failed'}</div>`; return; }
+                const facs = res.data.factories || [];
+                if (!facs.length) { panel.innerHTML = '<div style="padding:20px; color:#64748b">No data for selected factories</div>'; return; }
+
+                const metric = (label, val, color) => `<span style="color:${color}; font-weight:700">${val}</span> <span style="font-size:0.72rem; color:#94a3b8">${label}</span>`;
+                panel.innerHTML = `
+                    <div style="padding:12px 16px; font-weight:700; color:#1e293b; background:#f8fafc; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center">
+                        <span><i class="bi bi-bar-chart-steps"></i> Factory Comparison</span>
+                        <button class="btn icon ghost" onclick="document.getElementById('compareToggle').checked=false; onCompareToggle()"><i class="bi bi-x-lg"></i></button>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1.2fr 1fr; gap:20px; padding:16px">
+                        <div style="overflow-x:auto">
+                            <table class="table" style="margin:0; font-size:0.85rem">
+                                <thead><tr><th>Factory</th><th class="text-end">OEE</th><th class="text-end">Avail</th><th class="text-end">Perf</th><th class="text-end">Qual</th><th class="text-end">Output</th><th class="text-end">Rej %</th><th class="text-end">Downtime</th></tr></thead>
+                                <tbody>${facs.map(f => `<tr>
+                                    <td style="font-weight:700">${f.name}</td>
+                                    <td class="text-end" style="color:${oeeColor(f.oee)}; font-weight:700">${f.oee}%</td>
+                                    <td class="text-end">${f.availability}%</td>
+                                    <td class="text-end">${f.performance}%</td>
+                                    <td class="text-end">${f.quality}%</td>
+                                    <td class="text-end">${f.output.toLocaleString()}</td>
+                                    <td class="text-end" style="color:${f.rejRate > 5 ? '#ef4444' : '#64748b'}">${f.rejRate}%</td>
+                                    <td class="text-end">${f.downtime} min</td>
+                                </tr>`).join('')}</tbody>
+                            </table>
+                        </div>
+                        <div style="min-height:220px; position:relative"><canvas id="compareChart"></canvas></div>
+                    </div>`;
+
+                if (compareChart) compareChart.destroy();
+                compareChart = new Chart(document.getElementById('compareChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: facs.map(f => f.name),
+                        datasets: [
+                            { label: 'OEE', data: facs.map(f => f.oee), backgroundColor: '#024c81', borderRadius: 4 },
+                            { label: 'Quality', data: facs.map(f => f.quality), backgroundColor: '#10b981', borderRadius: 4 },
+                            { label: 'Rej %', data: facs.map(f => f.rejRate), backgroundColor: '#ef4444', borderRadius: 4 }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
+                });
+            } catch (e) {
+                panel.innerHTML = `<div style="padding:20px; color:#ef4444">${e.message}</div>`;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
             JPSMS.auth.requireAuth();
             JPSMS.renderShell('analyze');
 
             const params = new URLSearchParams(window.location.search);
             const view = params.get('view') || 'plant';
+            AnalyzeFilters.view = view;
+            await loadFactories();
 
             // Permission Check
             const permMap = {
@@ -379,280 +527,207 @@
             if (view === 'order') {
                 container.innerHTML = `
                     <style>
-                        .order-grid {
-                            display: grid;
-                            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-                            gap: 20px;
-                            padding-bottom: 40px;
-                        }
-                        .order-card {
-                            background: white;
-                            border: 1px solid #e2e8f0;
-                            border-radius: 12px;
-                            padding: 20px;
-                            cursor: pointer;
-                            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-                            position: relative;
-                            overflow: hidden;
-                        }
-                        .order-card:hover {
-                            transform: translateY(-4px);
-                            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-                            border-color: #cbd5e1;
-                        }
-                        .order-card::before {
-                            content: '';
-                            position: absolute;
-                            top: 0;
-                            left: 0;
-                            width: 100%;
-                            height: 4px;
-                            background: #e2e8f0;
-                        }
-                        .order-card.running::before { background: #3b82f6; }
-                        .order-card.completed::before { background: #10b981; }
-                        
-                        .oc-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
-                        .oc-title { font-weight: 700; color: #1e293b; font-size: 1.1rem; }
-                        .oc-mould { color: #64748b; font-size: 0.9rem; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
-                        .oc-client { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+                        .oa-toolbar { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:20px; flex-wrap:wrap; }
+                        .oa-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:18px; padding-bottom:40px; }
+                        .oa-card { background:#fff; border:1px solid var(--border,#e2e8f0); border-radius:16px; padding:18px 20px; cursor:pointer; position:relative; overflow:hidden; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+                        .oa-card:hover { transform:translateY(-3px); box-shadow:0 12px 24px -12px rgba(2,76,129,.35); border-color:#bfdbfe; }
+                        .oa-card::before { content:''; position:absolute; inset:0 auto 0 0; width:5px; background:#e2e8f0; }
+                        .oa-card.running::before { background:linear-gradient(#3b82f6,#01a8dd); }
+                        .oa-card.completed::before { background:#10b981; }
+                        .oa-card.closed::before { background:#ef4444; }
+                        .oa-card-top { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:10px; }
+                        .oa-ono { font-weight:800; color:#0f172a; font-size:1.1rem; letter-spacing:-.01em; }
+                        .oa-badge { font-size:.68rem; font-weight:800; letter-spacing:.04em; padding:4px 10px; border-radius:999px; text-transform:uppercase; }
+                        .oa-badge.running { background:rgba(59,130,246,.12); color:#2563eb; }
+                        .oa-badge.completed { background:rgba(16,185,129,.14); color:#059669; }
+                        .oa-badge.closed { background:rgba(239,68,68,.12); color:#dc2626; }
+                        .oa-mould { color:#334155; font-size:.9rem; font-weight:600; display:flex; align-items:center; gap:6px; margin-bottom:4px; }
+                        .oa-item { font-size:.84rem; color:#64748b; margin-bottom:14px; min-height:38px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+                        .oa-prog { height:7px; border-radius:999px; background:#eef2f7; overflow:hidden; margin-bottom:6px; }
+                        .oa-prog > span { display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,#024c81,#01a8dd); }
+                        .oa-foot { display:flex; justify-content:space-between; align-items:flex-end; }
+                        .oa-client { font-size:.72rem; color:#94a3b8; text-transform:uppercase; letter-spacing:.05em; font-weight:700; }
+
+                        .oa-modal-body { flex:1; overflow-y:auto; padding:22px; background:#eef2f7; }
+                        .oa-section { background:#fff; border:1px solid #e8edf3; border-radius:16px; padding:18px 20px; margin-bottom:18px; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+                        .oa-section h4 { margin:0 0 14px; font-size:.82rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:#64748b; display:flex; align-items:center; gap:8px; }
+                        .oa-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+                        .oa-kpi { border:1px solid #eef2f7; border-radius:14px; padding:14px 16px; background:linear-gradient(180deg,#fff,#fafcff); }
+                        .oa-kpi .lab { font-size:.72rem; font-weight:700; color:#64748b; display:flex; align-items:center; gap:6px; }
+                        .oa-kpi .val { font-size:1.55rem; font-weight:800; color:#0f172a; margin-top:4px; line-height:1.1; }
+                        .oa-kpi .sub { font-size:.72rem; color:#94a3b8; margin-top:2px; }
+                        .oa-kpi.accent-b { border-top:3px solid #3b82f6; } .oa-kpi.accent-g { border-top:3px solid #10b981; }
+                        .oa-kpi.accent-s { border-top:3px solid #64748b; } .oa-kpi.accent-r { border-top:3px solid #ef4444; }
+                        .oa-kpi.accent-p { border-top:3px solid #8b5cf6; } .oa-kpi.accent-a { border-top:3px solid #f59e0b; }
+                        .oa-kpi.accent-t { border-top:3px solid #0ea5e9; }
+                        .oa-meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px 22px; }
+                        .oa-meta .lab { font-size:.7rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#94a3b8; }
+                        .oa-meta .v { font-size:.98rem; font-weight:700; color:#1e293b; margin-top:2px; }
+                        .oa-chart-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+                        .oa-chart { background:#fff; border:1px solid #e8edf3; border-radius:16px; padding:16px 18px; }
+                        .oa-chart h4 { margin:0 0 12px; font-size:.82rem; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:#64748b; }
+                        .oa-chart .cwrap { position:relative; height:230px; }
+                        .oa-spec { width:100%; border-collapse:collapse; font-size:.9rem; }
+                        .oa-spec th, .oa-spec td { padding:10px 12px; text-align:right; border-bottom:1px solid #f1f5f9; }
+                        .oa-spec th:first-child, .oa-spec td:first-child { text-align:left; color:#475569; font-weight:600; }
+                        .oa-spec thead th { font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; }
+                        .oa-colour-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid #f1f5f9; }
+                        .oa-swatch { width:16px; height:16px; border-radius:5px; border:1px solid rgba(0,0,0,.1); flex:none; }
+                        .oa-cbar { flex:1; height:8px; border-radius:999px; background:#eef2f7; overflow:hidden; }
+                        .oa-cbar > span { display:block; height:100%; background:linear-gradient(90deg,#024c81,#01a8dd); }
+                        .oa-tabbar { display:flex; gap:6px; overflow-x:auto; padding:6px; background:#fff; border:1px solid #e8edf3; border-radius:14px; margin-bottom:18px; position:sticky; top:0; z-index:5; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+                        .oa-tab { flex:none; display:inline-flex; align-items:center; gap:7px; padding:9px 15px; border:none; background:transparent; border-radius:10px; font-size:.85rem; font-weight:700; color:#64748b; cursor:pointer; white-space:nowrap; transition:all .15s ease; }
+                        .oa-tab:hover { background:#f1f5f9; color:#334155; }
+                        .oa-tab.active { background:linear-gradient(135deg,#024c81,#01a8dd); color:#fff; box-shadow:0 6px 14px -6px rgba(2,76,129,.5); }
+                        .oa-dt { width:100%; border-collapse:collapse; font-size:.85rem; }
+                        .oa-dt th, .oa-dt td { padding:9px 12px; border-bottom:1px solid #f1f5f9; text-align:left; }
+                        .oa-dt th { font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; color:#94a3b8; font-weight:700; }
+                        .oa-dt th.r, .oa-dt td.r { text-align:right; }
+                        .oa-dt tbody tr:hover { background:#f8fafc; }
+                        .oa-dt td:first-child { font-weight:600; color:#334155; }
+                        @media (max-width:820px){ .oa-chart-grid { grid-template-columns:1fr; } }
                     </style>
 
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px">
+                    <div class="oa-toolbar">
                         <div class="analysis-tabs" style="margin:0; width:auto;">
                             <div class="analysis-tab active" onclick="filterOrderList('RUNNING', this)">Running</div>
                             <div class="analysis-tab" onclick="filterOrderList('COMPLETED', this)">Completed</div>
+                            <div class="analysis-tab" onclick="filterOrderList('ALL', this)">All</div>
                         </div>
-                        <div style="width:300px">
-                             <input type="text" id="orderSearch" class="form-control" placeholder="Search orders..." onkeyup="filterOrdersLocal()">
+                        <div style="min-width:240px; flex:1; max-width:340px">
+                            <input type="text" id="orderSearch" class="form-control" placeholder="Search order, client, item, mould…" onkeyup="filterOrdersLocal()">
                         </div>
                     </div>
 
-                    <div id="orderListContainer" class="order-grid">
-                        <div style="grid-column: 1/-1; text-align:center; padding:40px; color:#94a3b8">
+                    <div id="orderListContainer" class="oa-grid">
+                        <div style="grid-column:1/-1; text-align:center; padding:40px; color:#94a3b8">
                             <div class="spinner-border text-primary" role="status"></div>
-                            <div style="margin-top:10px">Loading Orders...</div>
+                            <div style="margin-top:10px">Loading orders…</div>
                         </div>
                     </div>
 
                     <!-- ORDER DETAIL MODAL -->
-                    <div id="orderDetailModal" class="modal-overlay" style="z-index: 1050;">
-                        <div class="modal-content" style="width: 1200px; max-width: 95vw; height: 90vh; display:flex; flex-direction:column; padding:0; overflow:hidden">
-                            
-                            <!-- Modal Header -->
-                            <div style="padding: 20px 24px; border-bottom: 1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center; background:#f8fafc">
-                                <div>
-                                    <h2 style="margin:0; font-size:1.5rem; color:#0f172a" id="modalTitle">Order Details</h2>
-                                    <div style="font-size:0.9rem; color:#64748b; margin-top:4px" id="modalSubtitle">-</div>
+                    <div id="orderDetailModal" class="modal-overlay" style="z-index:1050;">
+                        <div class="modal-content" style="width:1240px; max-width:96vw; height:92vh; display:flex; flex-direction:column; padding:0; overflow:hidden">
+                            <div style="padding:18px 24px; border-bottom:1px solid #e8edf3; display:flex; justify-content:space-between; align-items:center; gap:16px; background:linear-gradient(135deg,#024c81,#01a8dd); color:#fff">
+                                <div style="min-width:0">
+                                    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+                                        <h2 style="margin:0; font-size:1.45rem; font-weight:800" id="modalTitle">Order</h2>
+                                        <span id="oaHeadBadge" class="oa-badge" style="background:rgba(255,255,255,.2); color:#fff">—</span>
+                                    </div>
+                                    <div style="font-size:.88rem; opacity:.9; margin-top:3px" id="modalSubtitle">—</div>
                                 </div>
-                                <button class="btn icon ghost" onclick="document.getElementById('orderDetailModal').classList.remove('active')">
+                                <button class="btn icon ghost" style="color:#fff" onclick="document.getElementById('orderDetailModal').classList.remove('active')">
                                     <i class="bi bi-x-lg" style="font-size:1.2rem"></i>
                                 </button>
                             </div>
 
-                            <!-- Modal Body -->
-                            <div id="orderDetailContent" style="flex:1; overflow-y:auto; padding:24px; background:#f1f5f9; display:flex; flex-direction:column; gap:24px">
-                                
-                                <div id="modalLoading" style="text-align:center; padding:50px">
+                            <div id="orderDetailContent" class="oa-modal-body">
+                                <div id="modalLoading" style="text-align:center; padding:60px">
                                     <div class="spinner-border text-primary" role="status"></div>
+                                    <div style="margin-top:12px; color:#64748b">Loading analysis…</div>
                                 </div>
 
-                                <div id="modalDashboard" style="display:none; width:100%">
-                                    
-                                    <!-- 1. Header Strip (White) -->
-                                    <div style="background:white; padding:12px 20px; border-radius:8px; border:1px solid #e2e8f0; display:flex; align-items:center; gap:20px; flex-wrap:wrap; box-shadow: 0 1px 2px rgba(0,0,0,0.05)">
-                                        <div style="flex:1; display:flex; align-items:center; gap:10px; min-width:200px">
-                                            <i class="bi bi-box-seam" style="font-size:1.2rem; color:#475569"></i>
-                                            <div>
-                                                <div style="font-size:0.75rem; color:#64748b; font-weight:600">ITEM NAME</div>
-                                                <div id="dItem" style="font-weight:700; color:#1e293b; font-size:1rem">-</div>
+                                <div id="modalDashboard" style="display:none">
+                                    <!-- Tab bar -->
+                                    <div class="oa-tabbar" id="oaTabBar">
+                                        <button class="oa-tab active" data-tab="overview" onclick="oaTab('overview')"><i class="bi bi-grid-1x2"></i> Overview</button>
+                                        <button class="oa-tab" data-tab="break" onclick="oaTab('break')"><i class="bi bi-bar-chart-steps"></i> Breakdowns</button>
+                                        <button class="oa-tab" data-tab="quality" onclick="oaTab('quality')"><i class="bi bi-shield-check"></i> Quality &amp; Downtime</button>
+                                        <button class="oa-tab" data-tab="std" onclick="oaTab('std')"><i class="bi bi-hourglass-split"></i> STD &amp; Loss</button>
+                                        <button class="oa-tab" data-tab="plans" onclick="oaTab('plans')"><i class="bi bi-diagram-3"></i> Plans/Moulds</button>
+                                        <button class="oa-tab" data-tab="log" onclick="oaTab('log')"><i class="bi bi-clock-history"></i> Log</button>
+                                    </div>
+
+                                    <!-- ===== OVERVIEW ===== -->
+                                    <div class="oa-panel" data-panel="overview">
+                                        <div class="oa-section">
+                                            <h4><i class="bi bi-info-circle"></i> Order Details</h4>
+                                            <div class="oa-meta" id="oaMeta"></div>
+                                            <div style="margin-top:16px">
+                                                <div style="display:flex; justify-content:space-between; font-size:.78rem; color:#64748b; margin-bottom:6px"><span>Completion</span><span id="dProgLabel">—</span></div>
+                                                <div class="oa-prog" style="height:12px"><span id="dProgBar" style="width:0%"></span></div>
                                             </div>
                                         </div>
-                                        <div style="width:1px; height:30px; background:#e2e8f0"></div>
-                                        <div style="flex:1; display:flex; align-items:center; gap:10px; min-width:180px">
-                                            <i class="bi bi-cpu" style="font-size:1.2rem; color:#475569"></i>
-                                            <div>
-                                                <div style="font-size:0.75rem; color:#64748b; font-weight:600">MACHINE</div>
-                                                <div id="dMachine" style="font-weight:700; color:#1e293b; font-size:1rem">-</div>
-                                            </div>
+                                        <div class="oa-section">
+                                            <h4><i class="bi bi-speedometer2"></i> Key Metrics</h4>
+                                            <div class="oa-kpis" id="oaKpis"></div>
                                         </div>
-                                        <div style="width:1px; height:30px; background:#e2e8f0"></div>
-                                        <div style="flex:1; display:flex; align-items:center; gap:10px; min-width:180px">
-                                            <i class="bi bi-tools" style="font-size:1.2rem; color:#475569"></i>
-                                            <div>
-                                                <div style="font-size:0.75rem; color:#64748b; font-weight:600">MOULD</div>
-                                                <div id="dMould" style="font-weight:700; color:#1e293b; font-size:1rem">-</div>
-                                            </div>
+                                        <div class="oa-section">
+                                            <h4><i class="bi bi-signpost-split"></i> Order Lifecycle</h4>
+                                            <div id="lifecycleStepper" style="display:flex; align-items:flex-start; overflow-x:auto"></div>
                                         </div>
-                                        <div style="width:1px; height:30px; background:#e2e8f0"></div>
-                                        <div style="flex:1; display:flex; align-items:center; gap:10px; min-width:150px">
-                                            <i class="bi bi-activity" style="font-size:1.2rem; color:#475569"></i>
-                                            <div>
-                                                <div style="font-size:0.75rem; color:#64748b; font-weight:600">STATUS</div>
-                                                <div id="dStatus" style="font-weight:700; color:#1e293b; font-size:1rem; display:flex; align-items:center; gap:6px">
-                                                    <span id="dStatusDot" style="width:10px; height:10px; border-radius:50%; background:#cbd5e1"></span>
-                                                    <span id="dStatusText">-</span>
-                                                </div>
-                                            </div>
+                                        <div class="oa-chart-grid">
+                                            <div class="oa-chart"><h4>Production vs Plan Target</h4><div class="cwrap"><canvas id="timelineChart"></canvas></div></div>
+                                            <div class="oa-chart"><h4>Good vs Reject</h4><div class="cwrap"><canvas id="qualityDonut"></canvas></div></div>
                                         </div>
                                     </div>
 
-                                    <!-- 2. KPI Cards (6 Cards) -->
-                                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:16px; margin-top:24px">
-                                        <!-- Plan -->
-                                        <div class="card" style="margin:0; padding:16px; border-left:4px solid #3b82f6; display:flex; flex-direction:column; justify-content:center">
-                                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
-                                                <i class="bi bi-calendar-check text-primary"></i> <span style="font-size:0.8rem; font-weight:600; color:#64748b">Planned Qty</span>
-                                            </div>
-                                            <div id="kpiPlan" style="font-size:1.6rem; font-weight:800; color:#1e293b">-</div>
+                                    <!-- ===== BREAKDOWNS ===== -->
+                                    <div class="oa-panel" data-panel="break" hidden>
+                                        <div class="oa-chart" style="margin-bottom:18px"><h4>Day-wise Production</h4><div class="cwrap" style="height:240px"><canvas id="bdDayChart"></canvas></div>
+                                            <div style="overflow-x:auto; margin-top:12px"><table class="oa-dt"><thead><tr><th>Date</th><th class="r">Good</th><th class="r">Reject</th><th class="r">Rej %</th><th class="r">Downtime</th><th class="r">Efficiency</th></tr></thead><tbody id="bdDayBody"></tbody></table></div>
                                         </div>
-                                        <!-- Actual -->
-                                        <div class="card" style="margin:0; padding:16px; border-left:4px solid #10b981; position:relative">
-                                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
-                                                <i class="bi bi-check-circle text-success"></i> <span style="font-size:0.8rem; font-weight:600; color:#64748b">Actual Qty</span>
+                                        <div class="oa-chart-grid" style="margin-bottom:18px">
+                                            <div class="oa-chart"><h4>Shift-wise</h4><div class="cwrap"><canvas id="bdShiftChart"></canvas></div>
+                                                <div style="overflow-x:auto; margin-top:10px"><table class="oa-dt"><thead><tr><th>Shift</th><th class="r">Good</th><th class="r">Reject</th><th class="r">Downtime</th></tr></thead><tbody id="bdShiftBody"></tbody></table></div>
                                             </div>
-                                            <div id="kpiGood" style="font-size:1.6rem; font-weight:800; color:#1e293b">-</div>
-                                            <small id="kpiGoodToday" style="font-size:0.75rem; color:#10b981; font-weight:600; position:absolute; top:18px; right:16px"></small>
+                                            <div class="oa-chart"><h4>Colour-wise Progress</h4><div id="oaColourWrap" style="max-height:300px; overflow-y:auto"></div></div>
                                         </div>
-                                        <!-- Balance -->
-                                        <div class="card" style="margin:0; padding:16px; border-left:4px solid #64748b">
-                                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
-                                                 <i class="bi bi-hourglass-split text-secondary"></i> <span style="font-size:0.8rem; font-weight:600; color:#64748b">Balance Qty</span>
-                                            </div>
-                                            <div id="kpiBal" style="font-size:1.6rem; font-weight:800; color:#1e293b">-</div>
-                                        </div>
-                                        <!-- Efficiency -->
-                                        <div class="card" style="margin:0; padding:16px; border-left:4px solid #8b5cf6">
-                                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
-                                                <i class="bi bi-lightning-charge text-purple"></i> <span style="font-size:0.8rem; font-weight:600; color:#64748b">Efficiency</span>
-                                            </div>
-                                            <div style="display:flex; align-items:center; gap:6px">
-                                                <div id="kpiEff" style="font-size:1.6rem; font-weight:800; color:#1e293b">-</div>
-                                                <i class="bi bi-caret-up-fill text-success" style="font-size:1rem"></i>
-                                            </div>
-                                        </div>
-                                        <!-- Downtime -->
-                                        <div class="card" style="margin:0; padding:16px; border-left:4px solid #f59e0b">
-                                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
-                                                <i class="bi bi-exclamation-triangle text-warning"></i> <span style="font-size:0.8rem; font-weight:600; color:#64748b">Total Downtime</span>
-                                            </div>
-                                             <div style="display:flex; align-items:baseline; gap:4px">
-                                                <div id="kpiDown" style="font-size:1.6rem; font-weight:800; color:#1e293b">-</div>
-                                                <span style="font-size:0.9rem; color:#64748b">mins</span>
-                                             </div>
-                                        </div>
-                                        <!-- Rejected -->
-                                        <div class="card" style="margin:0; padding:16px; border-left:4px solid #ef4444">
-                                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
-                                                <i class="bi bi-x-circle text-danger"></i> <span style="font-size:0.8rem; font-weight:600; color:#64748b">Total Rejected</span>
-                                            </div>
-                                            <div style="display:flex; align-items:baseline; gap:4px">
-                                                <div id="kpiReject" style="font-size:1.6rem; font-weight:800; color:#1e293b">-</div>
-                                                <span style="font-size:0.9rem; color:#64748b">Parts</span>
-                                            </div>
+                                        <div class="oa-chart"><h4>Machine-wise</h4><div class="cwrap" style="height:220px"><canvas id="bdMachineChart"></canvas></div>
+                                            <div style="overflow-x:auto; margin-top:12px"><table class="oa-dt"><thead><tr><th>Machine</th><th class="r">Good</th><th class="r">Reject</th><th class="r">Rej %</th><th class="r">Downtime</th><th class="r">Run Hrs</th></tr></thead><tbody id="bdMachineBody"></tbody></table></div>
                                         </div>
                                     </div>
 
-                                    <!-- 3. Grid Layout: Charts (2 Col) + Sidebar (1 Col) -->
-                                    <div style="display:grid; grid-template-columns: 3fr 1fr; gap:24px; margin-top:24px">
-                                        
-                                        <!-- Left Column: Charts Grid (2x2) -->
-                                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px">
-                                            <!-- Chart 1: Production Timeline -->
-                                            <div class="card" style="margin:0; padding:20px; min-height:300px">
-                                                <h4 style="margin:0 0 15px 0; font-size:0.95rem; color:#1e293b; font-weight:700">Production Timeline</h4>
-                                                <div style="flex:1; position:relative">
-                                                     <canvas id="timelineChart"></canvas>
+                                    <!-- ===== QUALITY & DOWNTIME ===== -->
+                                    <div class="oa-panel" data-panel="quality" hidden>
+                                        <div class="oa-chart-grid" style="margin-bottom:18px">
+                                            <div class="oa-chart"><h4>Rejection Pareto</h4><div class="cwrap"><canvas id="rejectChart"></canvas></div></div>
+                                            <div class="oa-chart"><h4>Downtime Breakdown</h4><div class="cwrap"><canvas id="downtimeChart"></canvas></div></div>
+                                        </div>
+                                        <div class="oa-chart-grid" style="margin-bottom:18px">
+                                            <div class="oa-chart"><h4>Rejection by Reason</h4><div style="overflow-x:auto"><table class="oa-dt"><thead><tr><th>Reason</th><th class="r">Qty</th><th class="r">Share</th></tr></thead><tbody id="rejBody"></tbody></table></div></div>
+                                            <div class="oa-chart"><h4>Downtime by Reason</h4><div style="overflow-x:auto"><table class="oa-dt"><thead><tr><th>Reason</th><th class="r">Minutes</th><th class="r">Share</th></tr></thead><tbody id="dtBody"></tbody></table></div></div>
+                                        </div>
+                                        <div class="oa-chart"><h4>Cycle Time — Actual vs STD</h4><div class="cwrap" style="height:200px"><canvas id="ctChart"></canvas></div></div>
+                                    </div>
+
+                                    <!-- ===== STD & LOSS ===== -->
+                                    <div class="oa-panel" data-panel="std" hidden>
+                                        <div class="oa-chart" style="margin-bottom:18px"><h4>Standard vs Actual Specs</h4>
+                                            <table class="oa-spec"><thead><tr><th>Parameter</th><th>Standard</th><th>Actual</th><th>Diff</th></tr></thead><tbody id="oaSpecBody"></tbody></table>
+                                        </div>
+                                        <div class="oa-section">
+                                            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px">
+                                                <h4 style="margin:0"><i class="bi bi-hourglass-bottom"></i> STD vs Actual — Time &amp; Loss</h4>
+                                                <div style="display:flex; gap:8px; align-items:center; font-size:.78rem; color:#64748b">
+                                                    <span>₹/shift</span><input type="number" id="rateShift" class="form-control" style="width:88px; padding:5px 8px" placeholder="0" oninput="onLossRateChange()">
+                                                    <span>₹/mc-hr</span><input type="number" id="rateMcHr" class="form-control" style="width:88px; padding:5px 8px" placeholder="0" oninput="onLossRateChange()">
                                                 </div>
                                             </div>
-                                            <!-- Chart 2: Cycle Time Analysis -->
-                                            <div class="card" style="margin:0; padding:20px; min-height:300px">
-                                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
-                                                    <h4 style="margin:0; font-size:0.95rem; color:#1e293b; font-weight:700">Cycle Time Analysis</h4>
-                                                    <select style="border:none; bg:transparent; font-size:0.8rem; color:#64748b"><option>1M</option></select>
-                                                </div>
-                                                <div style="flex:1; position:relative">
-                                                     <canvas id="ctChart"></canvas>
-                                                </div>
-                                            </div>
-                                            <!-- Chart 3: Downtime Breakdown -->
-                                            <div class="card" style="margin:0; padding:20px; min-height:300px">
-                                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
-                                                    <h4 style="margin:0; font-size:0.95rem; color:#1e293b; font-weight:700">Downtime Breakdown</h4>
-                                                    <select style="border:none; bg:transparent; font-size:0.8rem; color:#64748b"><option>1Hr</option></select>
-                                                </div>
-                                                <div style="display:flex; gap:10px; height:100%">
-                                                    <div style="flex:1; position:relative">
-                                                        <canvas id="downtimeChart"></canvas>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <!-- Chart 4: Quality Inspection -->
-                                            <div class="card" style="margin:0; padding:20px; min-height:300px">
-                                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
-                                                    <h4 style="margin:0; font-size:0.95rem; color:#1e293b; font-weight:700">Quality Inspection</h4>
-                                                </div>
-                                                <div style="flex:1; position:relative">
-                                                      <canvas id="qualityChart"></canvas>
-                                                </div>
+                                            <div style="display:grid; grid-template-columns:1fr 1.3fr; gap:20px; align-items:center">
+                                                <div id="lossCards" style="display:grid; grid-template-columns:1fr 1fr; gap:12px"></div>
+                                                <div style="height:250px; position:relative"><canvas id="lossWaterfall"></canvas></div>
                                             </div>
                                         </div>
+                                        <div class="oa-section"><h4><i class="bi bi-lightbulb"></i> Insights</h4><div id="insightList" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px"></div></div>
+                                    </div>
 
-                                        <!-- Right Column: Job Insights -->
-                                        <div style="display:flex; flex-direction:column; gap:20px">
-                                            <div class="card" style="margin:0; padding:0; overflow:hidden; background:#334155; color:white; border:none">
-                                                <div style="padding:15px 20px; display:flex; justify-content:space-between; align-items:center; background:#1e293b">
-                                                    <h4 style="margin:0; font-size:0.95rem; font-weight:600">Job Insights</h4>
-                                                    <i class="bi bi-chevron-double-right" style="font-size:0.8rem"></i>
-                                                </div>
-                                                <div style="padding:20px; background:#f8fafc; height:100%">
-                                                    <div id="insightList" style="display:flex; flex-direction:column; gap:12px">
-                                                        <!-- Alerts populated by JS -->
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            
-                                            <!-- Duplicate Panel to match screenshot vertical fill -->
-                                            <div class="card" style="margin:0; padding:0; overflow:hidden; background:#334155; color:white; border:none; flex:1">
-                                                <div style="padding:15px 20px; display:flex; justify-content:space-between; align-items:center; background:#1e293b">
-                                                    <h4 style="margin:0; font-size:0.95rem; font-weight:600">System Alerts</h4>
-                                                    <i class="bi bi-chevron-double-right" style="font-size:0.8rem"></i>
-                                                </div>
-                                                <div style="padding:20px; background:#f8fafc; height:100%">
-                                                      <div style="background:white; padding:12px; border-radius:6px; border:1px solid #e2e8f0; display:flex; gap:10px; align-items:start">
-                                                            <i class="bi bi-check-circle-fill text-success" style="font-size:1.1rem"></i>
-                                                            <div style="font-size:0.85rem; color:#475569; line-height:1.4">Efficiency currently at <span id="alertEffVal">86%</span></div>
-                                                        </div>
-                                                </div>
-                                            </div>
-
+                                    <!-- ===== PLANS ===== -->
+                                    <div class="oa-panel" data-panel="plans" hidden>
+                                        <div class="oa-chart" style="padding:0; overflow:hidden">
+                                            <div style="padding:14px 18px; border-bottom:1px solid #eef2f7"><h4 style="margin:0">Plans / Moulds in this Order</h4></div>
+                                            <div style="overflow-x:auto"><table class="oa-dt"><thead><tr><th>Plan ID</th><th>Mould</th><th>Machine</th><th>Status</th><th class="r">Plan</th><th class="r">Produced</th><th class="r">Balance</th><th class="r">Reject</th><th>Dates</th></tr></thead><tbody id="plansBody"></tbody></table></div>
                                         </div>
                                     </div>
 
-                                    <!-- 4. Production Logs (Bottom) -->
-                                    <div style="margin-top:0">
-                                        <div style="background:#1e293b; color:white; padding:10px 20px; border-radius:8px 8px 0 0; display:inline-block; font-size:0.9rem; font-weight:600">Production Logs</div>
-                                        <div style="background:white; border:1px solid #e2e8f0; border-top:4px solid #1e293b; border-radius:0 8px 8px 8px; overflow:hidden">
-                                            <table class="table" style="margin:0; font-size:0.9rem">
-                                                <thead style="background:#f1f5f9; color:#475569; font-weight:600; font-size:0.8rem; text-transform:uppercase">
-                                                    <tr>
-                                                        <th style="padding:15px 20px">Log Entry</th>
-                                                        <th>Start Time</th>
-                                                        <th></th>
-                                                        <th>End Time</th>
-                                                        <th class="text-end">Output Qty</th>
-                                                        <th class="text-center">Avg Cycle Time</th>
-                                                        <th>Status/Downtime</th>
-                                                        <th>Remarks</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody id="logTableBody">
-                                                    <!-- Javascript renders here -->
-                                                </tbody>
-                                            </table>
+                                    <!-- ===== LOG ===== -->
+                                    <div class="oa-panel" data-panel="log" hidden>
+                                        <div class="oa-chart" style="padding:0; overflow:hidden">
+                                            <div style="padding:14px 18px; border-bottom:1px solid #eef2f7; display:flex; justify-content:space-between; align-items:center"><h4 style="margin:0">Production Log</h4><span id="logCount" style="font-size:.78rem; color:#94a3b8"></span></div>
+                                            <div style="overflow-x:auto; max-height:520px"><table class="oa-dt"><thead style="position:sticky; top:0; background:#f8fafc"><tr><th>Date</th><th>Shift</th><th>Hour</th><th>Machine</th><th>Colour</th><th class="r">Good</th><th class="r">Reject</th><th>Downtime</th><th>Entered By</th></tr></thead><tbody id="logTableBody"></tbody></table></div>
                                         </div>
                                     </div>
-
                                 </div>
                             </div>
                         </div>
@@ -664,13 +739,25 @@
             } else if (view === 'mould') {
                 container.innerHTML = `
                     <div style="display:flex; gap:10px; margin-bottom:20px">
-                        <input type="text" id="mouldSearchInput" class="form-control" placeholder="Enter Mould Name or Code" style="flex:1; max-width:300px">
-                        <button class="btn btn-primary" onclick="searchMould()">Search</button>
+                        <input type="text" id="mouldSearchInput" class="form-control" list="mouldOptions" placeholder="Enter Mould Name or Code" style="flex:1; max-width:340px" onkeydown="if(event.key==='Enter')searchMould()">
+                        <datalist id="mouldOptions"></datalist>
+                        <button class="btn btn-primary" onclick="searchMould()">Analyze</button>
                     </div>
 
                     <div id="mouldDashboard" style="display:none">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px">
+                            <div>
+                                <div id="mTitle" style="font-size:1.2rem; font-weight:800; color:#1e293b">-</div>
+                                <div id="mSub" style="font-size:0.85rem; color:#64748b">-</div>
+                            </div>
+                            <div class="analysis-tabs" style="margin:0; width:auto">
+                                <div class="analysis-tab active" id="mTabSummary" onclick="switchMouldTab('summary')">Summary</div>
+                                <div class="analysis-tab" id="mTabDetail" onclick="switchMouldTab('detail')">Detail</div>
+                            </div>
+                        </div>
+
                         <!-- KPI Cards -->
-                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:15px; margin-bottom:20px">
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:15px; margin-bottom:20px">
                              <div class="card" style="padding:15px; border-left:4px solid #3b82f6">
                                 <small style="color:#64748b">Total Output</small>
                                 <div id="mkpiOutput" style="font-weight:bold; font-size:1.4em">-</div>
@@ -690,8 +777,29 @@
                                 <div id="mkpiCT" style="font-weight:bold; font-size:1.4em; color:#10b981">-</div>
                                 <small id="mkpiStdCT" class="text-muted" style="font-size:0.8em">Std: -</small>
                             </div>
+                             <div class="card" style="padding:15px; border-left:4px solid #8b5cf6">
+                                <small style="color:#64748b">OEE</small>
+                                <div id="mkpiOEE" style="font-weight:bold; font-size:1.4em; color:#8b5cf6">-</div>
+                                <small id="mkpiOEEbreak" class="text-muted" style="font-size:0.72em">A- P- Q-</small>
+                            </div>
                         </div>
 
+                        <!-- DETAIL tables (hidden in summary) -->
+                        <div id="mouldDetail" style="display:none">
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px">
+                                <div class="card" style="padding:0; overflow:hidden">
+                                    <div style="padding:12px 16px; font-weight:700; color:#1e293b; background:#f8fafc; border-bottom:1px solid #e2e8f0">By Machine</div>
+                                    <div style="overflow-x:auto"><table class="table" style="margin:0; font-size:0.85rem"><thead><tr><th>Machine</th><th class="text-end">Good</th><th class="text-end">Reject</th><th class="text-end">Downtime</th></tr></thead><tbody id="mDetailMachines"></tbody></table></div>
+                                </div>
+                                <div class="card" style="padding:0; overflow:hidden">
+                                    <div style="padding:12px 16px; font-weight:700; color:#1e293b; background:#f8fafc; border-bottom:1px solid #e2e8f0">By Order</div>
+                                    <div style="overflow-x:auto"><table class="table" style="margin:0; font-size:0.85rem"><thead><tr><th>Order</th><th class="text-end">Good</th><th class="text-end">Reject</th><th class="text-end">Downtime</th></tr></thead><tbody id="mDetailOrders"></tbody></table></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SUMMARY charts -->
+                        <div id="mouldSummary">
                         <!-- Charts Row 1 -->
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-bottom:20px; height:350px">
                             <div class="chart-container" style="height:100%">
@@ -709,77 +817,136 @@
                                 <h3>Daily Production Trend</h3>
                                 <canvas id="mouldTrendChart"></canvas>
                          </div>
+                        </div><!-- /mouldSummary -->
                     </div>
                      <div id="mouldError" style="display:none; padding:20px; text-align:center; color:#ef4444; background:#fef2f2; border-radius:8px"></div>
                  `;
-                // No initChart called here, wait for search searchMould()
+                loadMouldOptions();
+                // Charts render after search (searchMould)
 
             } else if (view === 'machine') {
                 container.innerHTML = `
-                    <div class="chart-container">
-                        <h3>Machine Utilization %</h3>
-                        <canvas id="mainChart"></canvas>
+                    <div id="mcKpis" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap:15px; margin-bottom:20px"></div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-bottom:20px; height:340px">
+                        <div class="chart-container" style="height:100%">
+                            <h3>Machine OEE Ranking</h3>
+                            <canvas id="mcOeeChart"></canvas>
+                        </div>
+                        <div class="chart-container" style="height:100%">
+                            <h3>Utilization %</h3>
+                            <canvas id="mcUtilChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="card" style="padding:0; overflow:hidden">
+                        <div style="padding:12px 16px; font-weight:700; color:#1e293b; background:#f8fafc; border-bottom:1px solid #e2e8f0">Machines — click a row to drill into downtime</div>
+                        <div style="overflow-x:auto">
+                            <table class="table" style="margin:0; font-size:0.85rem">
+                                <thead><tr>
+                                    <th>Machine</th><th>Line</th><th class="text-end">Util %</th><th class="text-end">OEE</th>
+                                    <th class="text-end">Perf</th><th class="text-end">Qual</th>
+                                    <th class="text-end">Good</th><th class="text-end">Reject</th>
+                                    <th class="text-end">Downtime</th><th class="text-end">Run Hrs</th><th class="text-end">Moulds</th>
+                                </tr></thead>
+                                <tbody id="mcTableBody"><tr><td colspan="11" class="text-center p-3">Loading…</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div id="mcDrill" style="display:none; margin-top:20px">
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; height:320px">
+                            <div class="chart-container" style="height:100%">
+                                <h3 id="mcDrillTitle">Downtime Breakdown</h3>
+                                <canvas id="mcDrillDown"></canvas>
+                            </div>
+                            <div class="chart-container" style="height:100%">
+                                <h3>Daily Output</h3>
+                                <canvas id="mcDrillTrend"></canvas>
+                            </div>
+                        </div>
                     </div>
                  `;
-                initChart('bar', 'Utilization %');
+                loadMachineAnalysis();
             } else if (view === 'supervisor') {
                 container.innerHTML = `
-                    <div class="chart-container">
-                        <h3>Shift Output by Supervisor</h3>
-                        <canvas id="mainChart"></canvas>
+                    <div id="supKpis" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:15px; margin-bottom:20px"></div>
+                    <div class="chart-container" style="height:360px; margin-bottom:20px">
+                        <h3>Output by Supervisor</h3>
+                        <canvas id="supChart"></canvas>
+                    </div>
+                    <div class="card" style="padding:0; overflow:hidden">
+                        <div style="padding:12px 16px; font-weight:700; color:#1e293b; background:#f8fafc; border-bottom:1px solid #e2e8f0">Supervisor Accountability — whose name the data is saved under</div>
+                        <div style="overflow-x:auto">
+                            <table class="table" style="margin:0; font-size:0.85rem">
+                                <thead><tr>
+                                    <th>Name</th><th>Role</th><th class="text-end">Good</th><th class="text-end">Reject</th>
+                                    <th class="text-end">Rej %</th><th class="text-end">Downtime</th>
+                                    <th class="text-end">Shifts</th><th class="text-end">Entries</th>
+                                    <th class="text-end">Machines</th><th class="text-end">Avg/Shift</th>
+                                </tr></thead>
+                                <tbody id="supTableBody"><tr><td colspan="10" class="text-center p-3">Loading…</td></tr></tbody>
+                            </table>
+                        </div>
                     </div>
                  `;
-                initChart('bar', 'Output (Pcs)');
+                loadSupervisorAnalysis();
             } else {
                 // Plant (Default)
                 container.innerHTML = `
-                    <div class="chart-container">
-                        <h3>Plant OEE</h3>
-                        <canvas id="mainChart"></canvas>
+                    <div id="plantKpis" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap:15px; margin-bottom:20px"></div>
+                    <div style="display:grid; grid-template-columns: 1fr 2fr; gap:20px; margin-bottom:20px; height:340px">
+                        <div class="chart-container" style="height:100%">
+                            <h3>Overall OEE</h3>
+                            <canvas id="plantOeeGauge"></canvas>
+                        </div>
+                        <div class="chart-container" style="height:100%">
+                            <h3>OEE Trend (date-wise)</h3>
+                            <canvas id="plantTrend"></canvas>
+                        </div>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; height:340px">
+                        <div class="chart-container" style="height:100%">
+                            <h3>Line-wise OEE</h3>
+                            <canvas id="plantLines"></canvas>
+                        </div>
+                        <div class="chart-container" style="height:100%">
+                            <h3>Top Loss Reasons (downtime)</h3>
+                            <canvas id="plantLoss"></canvas>
+                        </div>
                     </div>
                  `;
-                initChart('doughnut', 'OEE');
+                loadPlantAnalysis();
             }
         }
 
-        function initChart(type, label) {
-            const ctx = document.getElementById('mainChart');
-            if (!ctx) return;
+        function syncFilterState() {
+            AnalyzeFilters.from = (document.getElementById('fromDate') || {}).value || null;
+            AnalyzeFilters.to = (document.getElementById('toDate') || {}).value || null;
+            const cmp = document.getElementById('factoryCompareSelect');
+            if (cmp && AnalyzeFilters.compare) {
+                AnalyzeFilters.compareIds = Array.from(cmp.selectedOptions).map(o => Number(o.value));
+            }
+        }
 
-            new Chart(ctx, {
-                type: type,
-                data: {
-                    labels: ['A', 'B', 'C', 'D', 'E'],
-                    datasets: [{
-                        label: label,
-                        data: [12, 19, 3, 5, 2],
-                        backgroundColor: [
-                            'rgba(255, 99, 132, 0.2)',
-                            'rgba(54, 162, 235, 0.2)',
-                            'rgba(255, 206, 86, 0.2)',
-                            'rgba(75, 192, 192, 0.2)',
-                            'rgba(153, 102, 255, 0.2)'
-                        ],
-                        borderColor: [
-                            'rgba(255, 99, 132, 1)',
-                            'rgba(54, 162, 235, 1)',
-                            'rgba(255, 206, 86, 1)',
-                            'rgba(75, 192, 192, 1)',
-                            'rgba(153, 102, 255, 1)'
-                        ],
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false
-                }
-            });
+        // Build a query string from shared filters
+        function filterQS(extra) {
+            syncFilterState();
+            const p = new URLSearchParams();
+            if (AnalyzeFilters.factoryId) p.set('factory', AnalyzeFilters.factoryId);
+            if (AnalyzeFilters.from) p.set('from', AnalyzeFilters.from);
+            if (AnalyzeFilters.to) p.set('to', AnalyzeFilters.to);
+            if (AnalyzeFilters.lossPerShift) p.set('lossPerShift', AnalyzeFilters.lossPerShift);
+            if (AnalyzeFilters.lossPerMachineHour) p.set('lossPerMachineHour', AnalyzeFilters.lossPerMachineHour);
+            Object.entries(extra || {}).forEach(([k, v]) => { if (v != null && v !== '') p.set(k, v); });
+            const s = p.toString();
+            return s ? ('?' + s) : '';
         }
 
         function loadData() {
-            JPSMS.toast('Refreshing data...');
-            // In future, fetch real data based on date range and view
+            syncFilterState();
+            const view = AnalyzeFilters.view;
+            if (view === 'order') return fetchOrderList();
+            // other views re-render on refresh
+            renderView(view);
+            JPSMS.toast('Refreshed');
         }
 
         let orderCharts = {};
@@ -798,47 +965,30 @@
             listEl.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding:40px; color:#94a3b8"><div class="spinner-border spinner-border-sm text-primary" role="status"></div> Loading...</div>';
 
             try {
-                const [resRun, resComp] = await Promise.all([
-                    JPSMS.api.get('/planning/board'),
-                    JPSMS.api.get('/planning/completed?limit=100')
-                ]);
-
+                const res = await JPSMS.api.get('/analyze/orders' + filterQS());
                 allOrdersData = [];
-                const seen = new Set();
 
-                // Helper
-                const add = (p, status) => {
-                    const oNo = p.order_no || p.orderNo;
-                    if (!oNo || seen.has(oNo)) return;
-                    seen.add(oNo);
-                    allOrdersData.push({
-                        orderNo: oNo,
-                        client: p.client_name || p.clientName || '-',
-                        item: p.item_name || p.itemName || '-',
-                        status: status,
-                        date: p.startDate || p.plan_date || p.completed_at || p.created_at || new Date().toISOString(),
-                        mould: p.mould_name || p.mouldName || '-',
-                        planQty: p.plan_qty || p.planQty || 0
+                if (res.ok && Array.isArray(res.data)) {
+                    res.data.forEach(p => {
+                        allOrdersData.push({
+                            orderNo: p.order_no,
+                            factoryId: p.factory_id,
+                            client: p.client_name || '-',
+                            item: p.item_name || '-',
+                            status: p.view_status || 'RUNNING',
+                            date: p.start_date || p.job_card_date || p.or_jr_date || p.created_at || new Date().toISOString(),
+                            mould: p.mould_name || '-',
+                            planQty: p.plan_total || p.plan_qty || 0,
+                            produced: p.produced_good || 0,
+                            reject: p.produced_rej || 0,
+                            balQty: p.bal_qty || 0,
+                            jcNo: p.job_card_no || null
+                        });
                     });
-                };
-
-                // 1. Running
-                if (resRun.ok || (resRun.data && resRun.data.plans)) {
-                    const plans = Array.isArray(resRun.data) ? resRun.data : (resRun.data.plans || []);
-                    plans.forEach(p => add(p, 'RUNNING'));
                 }
 
-                // 2. Completed
-                if (resComp.ok || (resComp.data && Array.isArray(resComp.data))) {
-                    const comps = Array.isArray(resComp.data) ? resComp.data : (resComp.data || []);
-                    comps.forEach(p => add(p, 'COMPLETED'));
-                }
-
-                // Sort by Date Descending
                 allOrdersData.sort((a, b) => new Date(b.date) - new Date(a.date));
-
                 renderOrderList();
-
             } catch (e) {
                 console.error(e);
                 if (listEl) listEl.innerHTML = `<div style="grid-column: 1/-1; text-align:center; color:#ef4444; padding:20px">Error loading orders</div>`;
@@ -876,41 +1026,52 @@
             });
 
             if (filtered.length === 0) {
-                listEl.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding:40px; color:#94a3b8; font-size:1rem; background:#f8fafc; border-radius:12px; border:1px dashed #cbd5e1">No orders found matching your criteria.</div>';
+                listEl.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding:40px; color:#94a3b8; font-size:1rem; background:#f8fafc; border-radius:16px; border:1px dashed #cbd5e1">No orders found matching your criteria.</div>';
                 return;
             }
 
-            listEl.innerHTML = filtered.map(o => `
-                <div class="order-card ${o.status.toLowerCase()}" onclick="clickOrder('${o.orderNo}')">
-                    <div class="oc-header">
-                        <div class="oc-title">${o.orderNo}</div>
-                        <div class="tag ${o.status === 'RUNNING' ? 'o' : 'g'}">${o.status}</div>
+            listEl.innerHTML = filtered.map(o => {
+                const cls = statusClass(o.status);
+                const plan = o.planQty || 0;
+                // Prefer real production (good qty); fall back to plan−balance for older data.
+                let done = o.produced != null ? o.produced : Math.max(0, plan - (o.balQty || 0));
+                // A completed order with no hourly data logged still reads as 100% done.
+                if ((!done || done === 0) && cls === 'completed' && plan > 0) done = plan;
+                const pct = plan > 0 ? Math.min(100, Math.round((done / plan) * 100)) : 0;
+                const rej = o.reject || 0;
+                return `
+                <div class="oa-card ${cls}" data-ono="${esc(o.orderNo)}">
+                    <div class="oa-card-top">
+                        <div class="oa-ono">${esc(o.orderNo)}</div>
+                        <span class="oa-badge ${cls}">${esc(o.status || '—')}</span>
                     </div>
-                    <div class="oc-mould"><i class="bi bi-box-seam"></i> ${o.mould}</div>
-                    <div style="font-size:0.9rem; color:#475569; margin-bottom:12px; height:40px; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical">${o.item}</div>
-                    
-                    <div style="border-top:1px solid #f1f5f9; padding-top:10px; display:flex; justify-content:space-between; align-items:flex-end">
+                    <div class="oa-mould"><i class="bi bi-tools"></i> ${esc(o.mould)}</div>
+                    <div class="oa-item">${esc(o.item)}</div>
+                    <div class="oa-prog"><span style="width:${pct}%"></span></div>
+                    <div style="display:flex; justify-content:space-between; font-size:.72rem; color:#94a3b8; margin-bottom:10px">
+                        <span>${done.toLocaleString()} / ${plan.toLocaleString()} pcs${rej ? ' · ' + rej.toLocaleString() + ' rej' : ''}</span><span>${pct}%</span>
+                    </div>
+                    <div class="oa-foot" style="border-top:1px solid #f1f5f9; padding-top:10px">
                         <div>
-                             <div class="oc-client">${o.client}</div>
-                             <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px">${new Date(o.date).toLocaleDateString()}</div>
+                            <div class="oa-client">${esc(o.client)}</div>
+                            <div style="font-size:.72rem; color:#94a3b8; margin-top:2px">${o.jcNo ? 'JC ' + esc(o.jcNo) + ' · ' : ''}${o.date ? new Date(o.date).toLocaleDateString() : ''}</div>
                         </div>
-                        <div style="text-align:right">
-                            <span style="font-size:0.75rem; color:#64748b">Qty</span>
-                            <div style="font-weight:700; color:#334155">${(o.planQty || 0).toLocaleString()}</div>
-                        </div>
+                        <i class="bi bi-arrow-right-circle" style="font-size:1.3rem; color:#cbd5e1"></i>
                     </div>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
+
+            listEl.onclick = (ev) => {
+                const card = ev.target.closest('.oa-card[data-ono]');
+                if (card) clickOrder(card.getAttribute('data-ono'));
+            };
         }
 
         function clickOrder(orderNo) {
-            // Open Modal
             const modal = document.getElementById('orderDetailModal');
-            modal.classList.add('active'); // Use .active class from app.css
-
+            modal.classList.add('active');
             document.getElementById('modalTitle').textContent = orderNo;
-            document.getElementById('modalSubtitle').textContent = 'Loading details...';
-
+            document.getElementById('modalSubtitle').textContent = 'Loading details…';
             loadOrderDetails(orderNo);
         }
 
@@ -924,7 +1085,7 @@
             JPSMS.toast('Loading Order: ' + orderNo, 'info');
 
             try {
-                const res = await JPSMS.api.get('/analyze/order/' + encodeURIComponent(orderNo));
+                const res = await JPSMS.api.get('/analyze/order/' + encodeURIComponent(orderNo) + filterQS());
                 if (res.ok) {
                     renderOrderDashboard(res.data);
                     loading.style.display = 'none';
@@ -940,304 +1101,378 @@
             }
         }
 
+        let currentOrderData = null;
+        const OA_PALETTE = ['#024c81', '#01a8dd', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#0ea5e9', '#14b8a6', '#f43f5e', '#6366f1'];
+        function statusClass(s) {
+            const u = String(s || '').toUpperCase();
+            if (u.includes('COMPLETE') || u === 'DONE') return 'completed';
+            if (u.includes('REJECT') || u === 'DROPPED') return 'closed';
+            return 'running';
+        }
+        function cssColour(name) {
+            const n = String(name || '').trim().toLowerCase();
+            const known = { white: '#e5e7eb', black: '#1f2937', red: '#ef4444', blue: '#3b82f6', green: '#10b981', yellow: '#facc15', orange: '#f97316', grey: '#9ca3af', gray: '#9ca3af', natural: '#f5f5dc', transparent: '#dbeafe' };
+            for (const k in known) if (n.includes(k)) return known[k];
+            let hash = 0; for (let i = 0; i < n.length; i++) hash = n.charCodeAt(i) + ((hash << 5) - hash);
+            return OA_PALETTE[Math.abs(hash) % OA_PALETTE.length];
+        }
+        function specNum(v) {
+            if (v == null || v === '') return null;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+        }
+        function specRow(label, std, act, unit) {
+            const s = specNum(std);
+            const a = specNum(act);
+            if (s == null && a == null) return ''; // no standard/actual → let caller show fallback
+            const diff = (s != null && a != null) ? (a - s) : null;
+            const dTxt = diff == null ? '—' : `${diff > 0 ? '+' : ''}${(Math.round(diff * 100) / 100)}`;
+            const dCol = diff == null ? '#94a3b8' : (Math.abs(diff) < 1e-9 ? '#10b981' : (diff > 0 ? '#ef4444' : '#f59e0b'));
+            const fmt = v => v == null ? '—' : `${Math.round(v * 100) / 100}${unit || ''}`;
+            return `<tr><td>${label}</td><td>${fmt(s)}</td><td>${fmt(a)}</td><td style="color:${dCol}; font-weight:700">${dTxt}</td></tr>`;
+        }
+
+        function oaTab(name) {
+            document.querySelectorAll('#oaTabBar .oa-tab').forEach(b => b.classList.toggle('active', b.getAttribute('data-tab') === name));
+            document.querySelectorAll('#modalDashboard .oa-panel').forEach(p => { p.hidden = (p.getAttribute('data-panel') !== name); });
+            // Chart.js sizes to 0 inside hidden panels — resize the now-visible ones
+            const panel = document.querySelector('#modalDashboard .oa-panel[data-panel="' + name + '"]');
+            if (panel) requestAnimationFrame(() => {
+                Object.values(orderCharts).forEach(ch => { try { if (ch && panel.contains(ch.canvas)) ch.resize(); } catch (e) { } });
+            });
+        }
+
+        const num = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+        function metaRow(lab, v) { return `<div><div class="lab">${lab}</div><div class="v">${esc(v == null || v === '' ? '—' : v)}</div></div>`; }
+        function kpiCard(accent, icon, lab, val, sub) {
+            return `<div class="oa-kpi ${accent}"><div class="lab"><i class="bi ${icon}"></i> ${lab}</div><div class="val">${val}</div><div class="sub">${sub || ''}</div></div>`;
+        }
+        function fmtD(d) { return d ? new Date(d).toLocaleDateString() : '—'; }
+
         function renderOrderDashboard(data) {
-            const { info, logs, stats } = data;
+            currentOrderData = data;
+            const info = data.info || {};
+            const totals = data.totals || {};
+            const loss = data.loss || {};
+            const logs = Array.isArray(data.logs) ? data.logs : [];
+            const plans = Array.isArray(data.plans) ? data.plans : [];
 
-            // 1. Header (Strip)
-            document.getElementById('dItem').textContent = info.item_name || info.itemName || '-';
-            document.getElementById('dMachine').textContent = stats.machine || 'Multiple';
-            document.getElementById('dMould').textContent = info.mouldName || info.mouldNo || '-';
+            // Header badge + subtitle
+            document.getElementById('oaHeadBadge').textContent = info.status || 'Unknown';
+            const subEl = document.getElementById('modalSubtitle');
+            if (subEl) subEl.textContent = [info.client_name, info.mould_name || info.mould_number].filter(Boolean).join(' · ') || 'Analysis';
 
-            const stEl = document.getElementById('dStatusText');
-            const dotEl = document.getElementById('dStatusDot');
-            stEl.textContent = info.status || 'Unknown';
-            dotEl.style.background = (info.status === 'RUNNING') ? '#3b82f6' : ((info.status === 'COMPLETED') ? '#10b981' : '#cbd5e1');
-
-            // 2. KPIs
-            // Calculate totals manually from logs to ensure accuracy and avoid string concatenation issues
-            let totalGood = 0;
-            let totalReject = 0;
-
-            if (logs && Array.isArray(logs)) {
-                logs.forEach(l => {
-                    totalGood += (parseInt(l.good_qty) || 0);
-                    totalReject += (parseInt(l.reject_qty) || 0);
-                });
-            }
-
-            const plan = info.plan_qty || 0;
+            // Totals (whole order)
+            const totalGood = Math.round(num(totals.good));
+            const totalReject = Math.round(num(totals.rej));
+            const output = totalGood + totalReject;
+            const plan = Math.round(num(totals.plan_order) || num(totals.plan) || num(info.plan_qty));
             const bal = Math.max(0, plan - totalGood);
+            const donePct = plan > 0 ? Math.min(100, Math.round((totalGood / plan) * 100)) : 0;
+            const rejRate = output > 0 ? ((totalReject / output) * 100).toFixed(1) : '0.0';
 
-            // Recalculate Efficiency safely
-            let totalRunHours = 0;
-            if (logs && Array.isArray(logs)) {
-                logs.forEach(l => totalRunHours += (parseFloat(l.run_hours) || 0));
-            }
+            // Order details meta
+            const itemTxt = info.item_name || info.product_name || '-';
+            document.getElementById('oaMeta').innerHTML = [
+                metaRow('Client', info.client_name),
+                metaRow('Item / Product', info.product_name && info.product_name !== itemTxt ? `${itemTxt} · ${info.product_name}` : itemTxt),
+                metaRow('Mould', info.mould_name || info.mould_number),
+                metaRow('Machine(s)', loss.machine || info.machine || 'Multiple'),
+                metaRow('Job Card', info.job_card_no),
+                metaRow('Priority', info.priority),
+                metaRow('Plant / Line', [info.plant, info.line].filter(Boolean).join(' / ')),
+                metaRow('Status', info.status),
+                metaRow('OR Qty', info.or_qty != null ? Math.round(num(info.or_qty)).toLocaleString() : null),
+                metaRow('Plan Qty (order)', plan.toLocaleString()),
+                metaRow('OR Date', fmtD(info.or_jr_date)),
+                metaRow('JC Date', fmtD(info.job_card_date)),
+                metaRow('Plan Dates', [fmtD(info.start_date), fmtD(info.end_date)].join(' → ')),
+                metaRow('Batch', info.batch_no ? `${info.batch_no}${info.batch_qty ? ' (' + Math.round(num(info.batch_qty)).toLocaleString() + ')' : ''}` : null)
+            ].join('');
 
-            const stdCycleTime = info.std_cycle_time || 45; // Default if missing
-            const theoreticalOutput = totalRunHours > 0 ? (totalRunHours * 3600) / stdCycleTime : 0;
-            const calculatedEff = theoreticalOutput > 0 ? Math.round((totalGood / theoreticalOutput) * 100) : 0;
+            // Progress
+            document.getElementById('dProgBar').style.width = donePct + '%';
+            document.getElementById('dProgLabel').textContent = `${totalGood.toLocaleString()} / ${plan.toLocaleString()} pcs (${donePct}%)`;
 
-            const eff = calculatedEff + '%';
+            // Efficiency + OEE
+            const pph = num(loss.pcs_per_hour_std);
+            const runHours = num(loss.actual_hours);
+            const downHours = num(loss.downtime_hours);
+            const productiveHours = Math.max(0, runHours - downHours);
+            const theoretical = pph > 0 ? pph * productiveHours : 0;
+            const eff = theoretical > 0 ? Math.round((totalGood / theoretical) * 100) : 0;
+            const availability = runHours > 0 ? productiveHours / runHours : 0;
+            const performance = theoretical > 0 ? Math.min(1, output / theoretical) : 0;
+            const quality = output > 0 ? totalGood / output : 0;
+            const oee = Math.round(availability * performance * quality * 100);
 
-            document.getElementById('kpiPlan').textContent = plan.toLocaleString();
-            document.getElementById('kpiGood').textContent = totalGood.toLocaleString();
-            document.getElementById('kpiGoodToday').textContent = totalGood > 0 ? `+${Math.floor(totalGood * 0.1)} Today` : '';
-            document.getElementById('kpiBal').textContent = bal.toLocaleString();
-            document.getElementById('kpiEff').textContent = eff;
-            document.getElementById('alertEffVal').textContent = eff;
+            document.getElementById('oaKpis').innerHTML = [
+                kpiCard('accent-b', 'bi-calendar-check', 'Planned', plan.toLocaleString(), 'pieces'),
+                kpiCard('accent-g', 'bi-check-circle', 'Produced', totalGood.toLocaleString(), `${donePct}% of plan`),
+                kpiCard('accent-s', 'bi-hourglass-split', 'Balance', bal.toLocaleString(), 'remaining'),
+                kpiCard('accent-r', 'bi-x-circle', 'Rejected', totalReject.toLocaleString(), `${rejRate}% reject rate`),
+                kpiCard('accent-p', 'bi-lightning-charge', 'Efficiency', eff + '%', 'vs STD output'),
+                kpiCard('accent-t', 'bi-gear-wide-connected', 'OEE', oee + '%', `A${Math.round(availability * 100)} P${Math.round(performance * 100)} Q${Math.round(quality * 100)}`),
+                kpiCard('accent-a', 'bi-exclamation-triangle', 'Downtime', Math.round(num(totals.dt)).toLocaleString(), 'minutes'),
+                kpiCard('accent-b', 'bi-diagram-3', 'Plans/Moulds', plans.length || 1, 'in this order')
+            ].join('');
 
-            document.getElementById('kpiReject').textContent = totalReject.toLocaleString();
+            renderLifecycle(data.lifecycle || {});
+            renderLoss(loss);
 
-            // Calc Total Downtime (Mock or Real)
-            let totalDownMins = 0;
-            if (data.downtime && Array.isArray(data.downtime)) {
-                totalDownMins = data.downtime.reduce((a, b) => a + (parseInt(b.duration) || 0), 0);
-            }
-            document.getElementById('kpiDown').textContent = totalDownMins;
+            // Specs
+            const specRows = [
+                specRow('Weight (kg)', info.std_weight, info.act_weight, ''),
+                specRow('Cavity', info.std_cavity, info.act_cavity, ''),
+                specRow('Cycle Time (s)', info.std_cycle, info.act_cycle, '')
+            ].filter(Boolean);
+            document.getElementById('oaSpecBody').innerHTML = specRows.length ? specRows.join('') : '<tr><td colspan="4" style="text-align:center; padding:16px; color:#94a3b8">No standard set</td></tr>';
 
+            // Colour-wise
+            const cstats = data.colour_stats || {};
+            const cKeys = Object.keys(cstats);
+            document.getElementById('oaColourWrap').innerHTML = cKeys.length ? cKeys.map(c => {
+                const cs = cstats[c]; const cp = Math.round(num(cs.plan_qty)), cg = Math.round(num(cs.good_qty)), cr = Math.round(num(cs.rej_qty));
+                const pct = cp > 0 ? Math.min(100, Math.round((cg / cp) * 100)) : 0;
+                return `<div class="oa-colour-row"><span class="oa-swatch" style="background:${cssColour(c)}"></span><div style="flex:1; min-width:0"><div style="display:flex; justify-content:space-between; font-size:.82rem"><span style="font-weight:600; color:#334155">${esc(c)}</span><span style="color:#64748b">${cg.toLocaleString()} / ${cp.toLocaleString()}${cr ? ' · ' + cr + ' rej' : ''}</span></div><div class="oa-cbar" style="margin-top:5px"><span style="width:${pct}%"></span></div></div><span style="font-size:.8rem; font-weight:700; color:#475569; width:38px; text-align:right">${pct}%</span></div>`;
+            }).join('') : '<div style="color:#94a3b8; padding:20px; text-align:center">No colour breakdown</div>';
 
-            // 3. Populate Insights (Mock based on data)
-            const insightList = document.getElementById('insightList');
-            insightList.innerHTML = '';
+            // Insights
+            const insights = [];
+            const ins = (icon, col, text) => insights.push(`<div style="display:flex; gap:10px; align-items:flex-start; background:#f8fafc; border:1px solid #eef2f7; border-radius:12px; padding:12px 14px"><i class="bi ${icon}" style="color:${col}; font-size:1.1rem"></i><div style="font-size:.85rem; color:#475569; line-height:1.4">${text}</div></div>`);
+            if (theoretical > 0) ins(eff >= 80 ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill', eff >= 80 ? '#10b981' : '#f59e0b', `Efficiency ${eff >= 80 ? 'healthy' : 'below target'} at <strong>${eff}%</strong>.`);
+            if (num(loss.shift_loss) > 0) ins('bi-hourglass-split', '#ef4444', `<strong>${loss.shift_loss}</strong> shift(s) lost — ${loss.total_loss_hours || 0}h over STD.`);
+            const topRej = Object.entries(data.rejection_stats || {}).sort((a, b) => b[1] - a[1])[0];
+            if (topRej && topRej[1] > 0) ins('bi-x-octagon', '#ef4444', `Top rejection: <strong>${esc(topRej[0])}</strong> (${Math.round(topRej[1])} pcs).`);
+            const topDt = Object.entries(data.downtime_stats || {}).sort((a, b) => b[1] - a[1])[0];
+            if (topDt && topDt[1] > 0) ins('bi-cone-striped', '#f59e0b', `Biggest downtime: <strong>${esc(topDt[0])}</strong> (${Math.round(topDt[1])} min).`);
+            if (bal === 0 && plan > 0) ins('bi-flag-fill', '#10b981', 'Plan quantity fully achieved.');
+            else if (plan > 0) ins('bi-bullseye', '#3b82f6', `<strong>${bal.toLocaleString()}</strong> pcs balance to complete.`);
+            if (!insights.length) ins('bi-info-circle', '#94a3b8', 'No production activity recorded yet for this order.');
+            document.getElementById('insightList').innerHTML = insights.join('');
 
-            // Insight: Eff
-            if (parseInt(eff) < 80) {
-                insightList.innerHTML += `
-                    <div style="background:white; padding:12px; border-radius:6px; border:1px solid #e2e8f0; display:flex; gap:10px; align-items:start">
-                        <i class="bi bi-exclamation-triangle-fill text-warning" style="font-size:1.1rem"></i>
-                        <div style="font-size:0.85rem; color:#475569; line-height:1.4">Efficiency is below target (80%). Current: ${eff}</div>
-                    </div>`;
-            } else {
-                insightList.innerHTML += `
-                    <div style="background:white; padding:12px; border-radius:6px; border:1px solid #e2e8f0; display:flex; gap:10px; align-items:start">
-                        <i class="bi bi-check-circle-fill text-success" style="font-size:1.1rem"></i>
-                        <div style="font-size:0.85rem; color:#475569; line-height:1.4">Efficiency is optimum at ${eff}</div>
-                    </div>`;
-            }
+            // Plans table
+            document.getElementById('plansBody').innerHTML = plans.length ? plans.map(p => {
+                const pq = Math.round(num(p.plan_qty)), pg = Math.round(num(p.produced_good)), pb = Math.max(0, pq - pg);
+                return `<tr><td>${esc(p.plan_id || '—')}</td><td>${esc(p.mould_name || p.mould_code || '—')}</td><td>${esc(p.machine || '—')}</td><td>${esc(p.status || '—')}</td><td class="r">${pq.toLocaleString()}</td><td class="r">${pg.toLocaleString()}</td><td class="r">${pb.toLocaleString()}</td><td class="r" style="color:${p.produced_rej > 0 ? '#ef4444' : '#94a3b8'}">${Math.round(num(p.produced_rej)).toLocaleString()}</td><td style="font-size:.78rem; color:#64748b">${fmtD(p.start_date)} → ${fmtD(p.end_date)}</td></tr>`;
+            }).join('') : '<tr><td colspan="9" style="text-align:center; padding:16px; color:#94a3b8">No plans found</td></tr>';
 
-            // Insight: Mould Change
-            if (info.mouldName) {
-                insightList.innerHTML += `
-                    <div style="background:white; padding:12px; border-radius:6px; border:1px solid #e2e8f0; display:flex; gap:10px; align-items:start">
-                        <i class="bi bi-tools text-primary" style="font-size:1.1rem"></i>
-                        <div style="font-size:0.85rem; color:#475569; line-height:1.4">Mould active: <strong>${info.mouldName}</strong></div>
-                    </div>`;
-            }
-
-
-            // 4. Logs Table
+            // Log
             const tbody = document.getElementById('logTableBody');
-            if (logs && logs.length > 0) {
-                tbody.innerHTML = logs.map((l, i) => `
-                    <tr>
-                        <td style="padding:15px 20px; font-weight:600; color:#334155">Shift ${l.shift || 1}</td>
-                        <td style="color:#64748b">${new Date(l.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                        <td style="color:#cbd5e1"><i class="bi bi-arrow-right"></i></td>
-                        <td style="color:#64748b">${new Date(new Date(l.date).getTime() + (l.run_hours || 4) * 3600000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                        <td class="text-end" style="font-weight:700; color:#334155">${l.good_qty}</td>
-                        <td class="text-center">${Math.floor(Math.random() * (50 - 40 + 1) + 40)} sec</td>
-                        <td>
-                            ${l.reject_qty > 0 ? `<div style="display:flex; align-items:center; gap:6px; color:#ef4444"><span style="width:8px; height:8px; background:#ef4444; border-radius:50%"></span> Qual Check (${l.reject_qty} Rej)</div>` : '<div style="display:flex; align-items:center; gap:6px; color:#10b981"><span style="width:8px; height:8px; background:#10b981; border-radius:50%"></span> Running</div>'}
-                        </td>
-                        <td style="color:#64748b">${l.reject_qty > 0 ? 'Quality Issue' : '-'}</td>
-                    </tr>
-                `).join('');
-            } else {
-                tbody.innerHTML = '<tr><td colspan="8" class="text-center p-3">No activity logs found</td></tr>';
-            }
+            document.getElementById('logCount').textContent = logs.length ? `${logs.length} entries` : '';
+            tbody.innerHTML = logs.length ? logs.map(l => {
+                const dt = Math.round(num(l.downtime_min));
+                const by = esc(l.userName || l.created_by || '-');
+                const role = l.userRole ? ` <span style="font-size:.7rem; color:#94a3b8">(${esc(l.userRole)})</span>` : '';
+                return `<tr><td>${l.date ? new Date(l.date).toLocaleDateString() : '-'}</td><td>${esc(l.shift || '-')}</td><td>${esc(l.hour_slot || '-')}</td><td>${esc(l.machine || '-')}</td><td>${esc(l.colour || '-')}</td><td class="r" style="font-weight:700">${Math.round(num(l.good_qty)).toLocaleString()}</td><td class="r" style="color:${num(l.reject_qty) > 0 ? '#ef4444' : '#94a3b8'}">${Math.round(num(l.reject_qty))}</td><td>${dt > 0 ? `<span style="color:#f59e0b; font-weight:600">${dt} min</span>` : '<span style="color:#10b981">—</span>'}</td><td style="font-weight:600; color:#475569">${by}${role}</td></tr>`;
+            }).join('') : '<tr><td colspan="9" style="text-align:center; padding:16px; color:#94a3b8">No activity logs found</td></tr>';
 
+            // Breakdown tables (day / shift / machine)
+            renderBreakdownTables(data, pph);
 
-            // 5. Render Charts
+            // Reset to first tab + charts
+            oaTab('overview');
             renderOrderCharts(data);
         }
 
-        function renderOrderCharts(data) {
-            const { logs } = data;
+        function aggLogs(logs, keyFn) {
+            const m = {};
+            logs.forEach(l => {
+                const k = keyFn(l); if (k == null || k === '') return;
+                if (!m[k]) m[k] = { key: k, good: 0, rej: 0, dt: 0, slots: new Set() };
+                m[k].good += num(l.good_qty); m[k].rej += num(l.reject_qty); m[k].dt += num(l.downtime_min);
+                m[k].slots.add(`${l.date}|${l.shift}|${l.hour_slot}|${l.machine}`);
+            });
+            return Object.values(m);
+        }
+        function effOf(a, pph) {
+            const prod = Math.max(0, a.slots.size - a.dt / 60);
+            const theo = pph > 0 ? pph * prod : 0;
+            return theo > 0 ? Math.round((a.good / theo) * 100) : 0;
+        }
+        let oaBreak = {};
+        function renderBreakdownTables(data, pph) {
+            const logs = data.logs || [];
+            const rowNums = (a) => { const out = a.good + a.rej; const rr = out > 0 ? ((a.rej / out) * 100).toFixed(1) : '0.0'; return { out, rr }; };
+            const days = aggLogs(logs, l => l.date).sort((a, b) => String(a.key).localeCompare(String(b.key)));
+            const shifts = aggLogs(logs, l => l.shift || 'Unknown').sort((a, b) => b.good - a.good);
+            const machines = aggLogs(logs, l => l.machine || 'Unassigned').sort((a, b) => b.good - a.good);
+            oaBreak = { days, shifts, machines };
 
-            // Clean up old instances
-            ['timelineChart', 'ctChart', 'downtimeChart', 'qualityChart'].forEach(id => {
-                const cvs = document.getElementById(id);
-                if (cvs && orderCharts[id]) {
-                    orderCharts[id].destroy();
-                }
+            document.getElementById('bdDayBody').innerHTML = days.length ? days.map(a => { const { rr } = rowNums(a); return `<tr><td>${a.key ? new Date(a.key).toLocaleDateString() : '—'}</td><td class="r">${Math.round(a.good).toLocaleString()}</td><td class="r">${Math.round(a.rej)}</td><td class="r">${rr}%</td><td class="r">${Math.round(a.dt)} min</td><td class="r">${effOf(a, pph)}%</td></tr>`; }).join('') : '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:14px">No data</td></tr>';
+            document.getElementById('bdShiftBody').innerHTML = shifts.length ? shifts.map(a => `<tr><td>${esc(a.key)}</td><td class="r">${Math.round(a.good).toLocaleString()}</td><td class="r">${Math.round(a.rej)}</td><td class="r">${Math.round(a.dt)} min</td></tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:14px">No data</td></tr>';
+            document.getElementById('bdMachineBody').innerHTML = machines.length ? machines.map(a => { const { rr } = rowNums(a); return `<tr><td>${esc(a.key)}</td><td class="r">${Math.round(a.good).toLocaleString()}</td><td class="r">${Math.round(a.rej)}</td><td class="r">${rr}%</td><td class="r">${Math.round(a.dt)} min</td><td class="r">${a.slots.size}</td></tr>`; }).join('') : '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:14px">No data</td></tr>';
+        }
+
+        function mkChart(id, cfg) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (orderCharts[id]) { orderCharts[id].destroy(); delete orderCharts[id]; }
+            orderCharts[id] = new Chart(el, cfg);
+        }
+        function renderOrderCharts(data) {
+            const logs = data.logs || [];
+            const b = oaBreak || {};
+
+            // Overview: production vs plan (cumulative by day)
+            const days = (b.days || []);
+            let acc = 0; const cum = days.map(a => (acc += a.good));
+            const plan = Math.round(num((data.totals || {}).plan_order) || num((data.totals || {}).plan));
+            const step = plan / Math.max(days.length, 1);
+            mkChart('timelineChart', {
+                type: 'line',
+                data: { labels: days.map(a => a.key ? new Date(a.key).toLocaleDateString() : '—'), datasets: [
+                    { label: 'Produced (cum.)', data: cum, borderColor: '#024c81', backgroundColor: 'rgba(1,168,221,.12)', fill: true, tension: .35, pointRadius: 3, pointBackgroundColor: '#fff', pointBorderColor: '#024c81', pointBorderWidth: 2 },
+                    { label: 'Plan Target', data: days.map((_, i) => Math.round((i + 1) * step)), borderColor: '#10b981', borderDash: [6, 5], pointRadius: 0, tension: .1, fill: false }
+                ] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }, tooltip: { mode: 'index', intersect: false } }, scales: { y: { beginAtZero: true }, x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } } } }
             });
 
+            // Overview: good vs reject donut
+            const tg = Math.round(num((data.totals || {}).good)), tr = Math.round(num((data.totals || {}).rej));
+            mkChart('qualityDonut', {
+                type: 'doughnut',
+                data: { labels: ['Good', 'Reject'], datasets: [{ data: [tg, tr || (tg ? 0 : 1)], backgroundColor: ['#10b981', '#ef4444'], borderWidth: 2, borderColor: '#fff' }] },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '62%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, usePointStyle: true } } } }
+            });
 
-            // --- Chart 1: Production Timeline (Area/Line) ---
-            const timelineCtx = document.getElementById('timelineChart');
-            if (timelineCtx) {
-                // Group logs roughly or use individual points (Reversing to show chronological)
-                const sortedLogs = [...logs].reverse();
-                const labels = sortedLogs.map(l => new Date(l.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            // Breakdowns
+            const days2 = (b.days || []);
+            mkChart('bdDayChart', {
+                type: 'bar',
+                data: { labels: days2.map(a => a.key ? new Date(a.key).toLocaleDateString() : '—'), datasets: [
+                    { label: 'Good', data: days2.map(a => Math.round(a.good)), backgroundColor: '#10b981', borderRadius: 4, stack: 's' },
+                    { label: 'Reject', data: days2.map(a => Math.round(a.rej)), backgroundColor: '#ef4444', borderRadius: 4, stack: 's' }
+                ] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true } } }
+            });
+            const shifts = (b.shifts || []);
+            mkChart('bdShiftChart', {
+                type: 'bar',
+                data: { labels: shifts.map(a => a.key), datasets: [{ label: 'Good', data: shifts.map(a => Math.round(a.good)), backgroundColor: '#024c81', borderRadius: 5 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+            });
+            const machines = (b.machines || []);
+            mkChart('bdMachineChart', {
+                type: 'bar',
+                data: { labels: machines.map(a => a.key), datasets: [
+                    { label: 'Good', data: machines.map(a => Math.round(a.good)), backgroundColor: '#10b981', borderRadius: 4, stack: 's' },
+                    { label: 'Reject', data: machines.map(a => Math.round(a.rej)), backgroundColor: '#ef4444', borderRadius: 4, stack: 's' }
+                ] },
+                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } }, scales: { x: { stacked: true, beginAtZero: true }, y: { stacked: true } } }
+            });
 
-                // Cumulative Output Calculation
-                let acc = 0;
-                const accData = sortedLogs.map(l => { acc += l.good_qty; return acc; });
+            // Quality: rejection pareto + table
+            const rj = Object.entries(data.rejection_stats || {}).filter(([, v]) => num(v) > 0).sort((a, b2) => b2[1] - a[1]);
+            const rjTotal = rj.reduce((s, x) => s + num(x[1]), 0);
+            if (rj.length) mkChart('rejectChart', { type: 'bar', data: { labels: rj.slice(0, 10).map(x => x[0]), datasets: [{ label: 'Reject Qty', data: rj.slice(0, 10).map(x => Math.round(num(x[1]))), backgroundColor: '#ef4444', borderRadius: 5 }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } } });
+            else { if (orderCharts.rejectChart) { orderCharts.rejectChart.destroy(); delete orderCharts.rejectChart; } }
+            document.getElementById('rejBody').innerHTML = rj.length ? rj.map(x => `<tr><td>${esc(x[0])}</td><td class="r">${Math.round(num(x[1])).toLocaleString()}</td><td class="r">${rjTotal ? ((num(x[1]) / rjTotal) * 100).toFixed(1) : 0}%</td></tr>`).join('') : '<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:14px">No rejections</td></tr>';
 
-                // Construct Target Line (Linear projection)
-                const planQty = data.info.plan_qty || 0;
-                const targetStep = planQty / (Math.max(sortedLogs.length, 1));
-                const targetData = sortedLogs.map((_, i) => Math.floor((i + 1) * targetStep));
+            // Quality: downtime doughnut + table
+            const dt = Object.entries(data.downtime_stats || {}).filter(([, v]) => num(v) > 0).sort((a, b2) => b2[1] - a[1]);
+            const dtTotal = dt.reduce((s, x) => s + num(x[1]), 0);
+            if (dt.length) mkChart('downtimeChart', { type: 'doughnut', data: { labels: dt.map(x => x[0]), datasets: [{ data: dt.map(x => Math.round(num(x[1]))), backgroundColor: OA_PALETTE, borderWidth: 2, borderColor: '#fff' }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '60%', plugins: { legend: { position: 'right', labels: { boxWidth: 12, usePointStyle: true, font: { size: 11 } } } } } });
+            else { if (orderCharts.downtimeChart) { orderCharts.downtimeChart.destroy(); delete orderCharts.downtimeChart; } }
+            document.getElementById('dtBody').innerHTML = dt.length ? dt.map(x => `<tr><td>${esc(x[0])}</td><td class="r">${Math.round(num(x[1])).toLocaleString()}</td><td class="r">${dtTotal ? ((num(x[1]) / dtTotal) * 100).toFixed(1) : 0}%</td></tr>`).join('') : '<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:14px">No downtime</td></tr>';
 
-                orderCharts['timelineChart'] = new Chart(timelineCtx, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'Cumulative Output',
-                            data: accData,
-                            borderColor: '#3b82f6',
-                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                            fill: true,
-                            tension: 0.4,
-                            pointRadius: 3,
-                            pointBackgroundColor: '#fff',
-                            pointBorderColor: '#3b82f6',
-                            pointBorderWidth: 2
-                        }, {
-                            label: 'Plan Target',
-                            data: targetData,
-                            borderColor: '#10b981',
-                            borderDash: [5, 5],
-                            tension: 0.1,
-                            pointRadius: 0,
-                            fill: false
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
-                        scales: {
-                            y: { beginAtZero: true, grid: { borderDash: [2, 4] } },
-                            x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } }
-                        },
-                        interaction: {
-                            mode: 'nearest',
-                            axis: 'x',
-                            intersect: false
-                        }
-                    }
-                });
-            }
+            // Quality: cycle actual vs std
+            const stdCT = Math.round(num((data.loss || {}).std_cycle) || num((data.info || {}).std_cycle));
+            const avgCT = Math.round(num((data.info || {}).act_cycle));
+            mkChart('ctChart', { type: 'bar', data: { labels: ['Actual', 'Standard'], datasets: [{ data: [avgCT, stdCT], backgroundColor: [avgCT > stdCT && stdCT > 0 ? '#ef4444' : '#3b82f6', '#10b981'], barThickness: 64, borderRadius: 8 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y + ' sec' } } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'seconds' } }, x: { grid: { display: false } } } } });
+        }
 
-            // --- Chart 2: Cycle Time (Bar - Avg vs Target) ---
-            const ctCtx = document.getElementById('ctChart');
-            if (ctCtx) {
-                // Mock Cycle Time Data (Ideal vs Actual)
-                const stdCT = data.info.std_cycle_time || 45; // Default 45s
-                const avgCT = data.stats.avgCycleTime || Math.floor(Math.random() * (50 - 40) + 40);
+        /* =========================================
+           ORDER LIFECYCLE + LOSS
+           ========================================= */
+        function esc(v) {
+            return String(v == null ? '' : v)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+        function fmtDate(d) { return d ? new Date(d).toLocaleDateString() : '—'; }
+        function gapChip(days) {
+            if (days == null) return '';
+            const c = days <= 1 ? '#10b981' : days <= 3 ? '#f59e0b' : '#ef4444';
+            return `<div style="font-size:0.7rem; color:${c}; font-weight:700; margin-top:2px">+${days}d</div>`;
+        }
+        function renderLifecycle(lc) {
+            const el = document.getElementById('lifecycleStepper');
+            if (!el) return;
+            const g = lc.gaps || {};
+            const steps = [
+                { label: 'OR Date', date: lc.or_date, icon: 'file-earmark-text', gap: null },
+                { label: 'JC Converted', date: lc.jc_date, icon: 'card-checklist', gap: g.or_to_jc },
+                { label: 'Planned', date: lc.plan_date, icon: 'calendar2-check', gap: g.jc_to_plan },
+                { label: 'Production Start', date: lc.prod_start, icon: 'play-circle', gap: g.plan_to_prod },
+                { label: (lc.status || 'Latest'), date: lc.prod_last, icon: 'flag', gap: g.prod_span }
+            ];
+            el.innerHTML = steps.map((s, i) => `
+                <div style="flex:1; min-width:120px; text-align:center; position:relative">
+                    ${i > 0 ? `<div style="position:absolute; left:-50%; top:18px; width:100%; height:2px; background:#e2e8f0; z-index:0"></div>` : ''}
+                    <div style="position:relative; z-index:1; width:38px; height:38px; margin:0 auto; border-radius:50%; background:${s.date ? 'linear-gradient(135deg,#024c81,#01a8dd)' : '#e2e8f0'}; color:#fff; display:flex; align-items:center; justify-content:center">
+                        <i class="bi bi-${s.icon}"></i>
+                    </div>
+                    <div style="font-size:0.78rem; font-weight:700; color:#334155; margin-top:8px">${s.label}</div>
+                    <div style="font-size:0.75rem; color:#64748b">${fmtDate(s.date)}</div>
+                    ${gapChip(s.gap)}
+                </div>`).join('');
+        }
 
-                orderCharts['ctChart'] = new Chart(ctCtx, {
-                    type: 'bar',
-                    data: {
-                        labels: ['Avg Cycle Time', 'Target Cycle Time'],
-                        datasets: [{
-                            data: [avgCT, stdCT],
-                            backgroundColor: ['#3b82f6', '#10b981'],
-                            barThickness: 60,
-                            borderRadius: 6
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            y: { display: false, max: Math.max(avgCT, stdCT) * 1.2 },
-                            x: { grid: { display: false } }
-                        }
-                    },
-                    plugins: [{
-                        id: 'ctLabels',
-                        afterDraw: (chart) => {
-                            const ctx = chart.ctx;
-                            chart.data.datasets.forEach((dataset, i) => {
-                                const meta = chart.getDatasetMeta(i);
-                                meta.data.forEach((bar, index) => {
-                                    const val = dataset.data[index] + ' sec';
-                                    ctx.fillStyle = '#1e293b';
-                                    ctx.font = 'bold 12px sans-serif';
-                                    ctx.textAlign = 'center';
-                                    ctx.fillText(val, bar.x, bar.y - 10);
-                                });
-                            });
-                        }
+        function lossCard(label, value, sub, color) {
+            return `<div style="background:#f8fafc; border-radius:10px; padding:12px 14px; border-left:3px solid ${color}">
+                <div style="font-size:0.72rem; color:#64748b; font-weight:600">${label}</div>
+                <div style="font-size:1.3rem; font-weight:800; color:#1e293b">${value}</div>
+                ${sub ? `<div style="font-size:0.72rem; color:#94a3b8">${sub}</div>` : ''}
+            </div>`;
+        }
+        function renderLoss(loss) {
+            const el = document.getElementById('lossCards');
+            if (!el) return;
+            const money = loss.money_loss_per_shift != null ? `₹${Number(loss.money_loss_per_shift).toLocaleString()}`
+                : loss.money_loss_per_machine_hour != null ? `₹${Number(loss.money_loss_per_machine_hour).toLocaleString()}`
+                    : 'Set ₹ rate';
+            el.innerHTML = [
+                lossCard('STD Time', `${loss.std_hours || 0} h`, `${loss.std_shifts || 0} shifts`, '#10b981'),
+                lossCard('Actual Time', `${loss.actual_hours || 0} h`, `${loss.actual_shifts || 0} shifts`, '#3b82f6'),
+                lossCard('Shift Loss', `${loss.shift_loss || 0}`, `${loss.total_loss_hours || 0} h lost`, '#f59e0b'),
+                lossCard('Factory Loss', money, loss.rate_per_shift ? `@ ₹${loss.rate_per_shift}/shift` : (loss.rate_per_machine_hour ? `@ ₹${loss.rate_per_machine_hour}/mc-hr` : 'enter a rate'), '#ef4444')
+            ].join('');
+
+            // Waterfall: STD -> +downtime -> +cycle slip -> +reject -> Actual
+            const cvs = document.getElementById('lossWaterfall');
+            if (!cvs) return;
+            if (orderCharts['lossWaterfall']) orderCharts['lossWaterfall'].destroy();
+            const std = loss.std_hours || 0;
+            const dt = loss.downtime_hours || 0;
+            const cyc = loss.cycle_loss_hours || 0;
+            const rej = loss.reject_loss_hours || 0;
+            orderCharts['lossWaterfall'] = new Chart(cvs, {
+                type: 'bar',
+                data: {
+                    labels: ['STD', 'Downtime', 'Slow Cycle', 'Rejects', 'Actual'],
+                    datasets: [{
+                        label: 'Hours',
+                        data: [std, dt, cyc, rej, loss.actual_hours || 0],
+                        backgroundColor: ['#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#3b82f6'],
+                        borderRadius: 6
                     }]
-                });
-            }
-
-            // --- Chart 3: Downtime (Doughnut) ---
-            const dtCtx = document.getElementById('downtimeChart');
-            if (dtCtx) {
-                // Mock Downtime Breakdown if not provided
-                let downtimeData = [15, 20, 30, 10];
-                let downtimeLabels = ['Machine Breakdown', 'Mould Change', 'Material Delay', 'Other'];
-
-                if (data.downtime && data.downtime.length > 0) {
-                    downtimeData = data.downtime.map(d => d.duration);
-                    downtimeLabels = data.downtime.map(d => d.reason);
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, title: { display: true, text: 'Time Loss Waterfall (hours)', font: { size: 11 } } },
+                    scales: { y: { beginAtZero: true } }
                 }
-
-                orderCharts['downtimeChart'] = new Chart(dtCtx, {
-                    type: 'doughnut',
-                    data: {
-                        labels: downtimeLabels,
-                        datasets: [{
-                            data: downtimeData,
-                            backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6', '#94a3b8'],
-                            borderWidth: 0
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        cutout: '65%',
-                        plugins: {
-                            legend: { position: 'right', labels: { boxWidth: 12, usePointStyle: true, font: { size: 11 } } }
-                        }
-                    }
-                });
+            });
+        }
+        function onLossRateChange() {
+            AnalyzeFilters.lossPerShift = parseFloat(document.getElementById('rateShift').value) || 0;
+            AnalyzeFilters.lossPerMachineHour = parseFloat(document.getElementById('rateMcHr').value) || 0;
+            // Re-fetch current order with new rates (loss is computed server-side)
+            if (currentOrderData && currentOrderData.info) {
+                const on = currentOrderData.info.order_no || document.getElementById('modalTitle').textContent;
+                if (on) loadOrderDetails(on);
             }
-
-            // --- Chart 4: Quality (Horizontal Bar) ---
-            const qCtx = document.getElementById('qualityChart');
-            if (qCtx) {
-                const good = data.stats.totalGood || 0;
-                const rej = data.stats.totalReject || 0;
-
-                orderCharts['qualityChart'] = new Chart(qCtx, {
-                    type: 'bar',
-                    data: {
-                        labels: ['Production'],
-                        datasets: [{
-                            label: 'Good',
-                            data: [good],
-                            backgroundColor: '#10b981',
-                            barThickness: 40,
-                            borderRadius: 4
-                        }, {
-                            label: 'Rejected',
-                            data: [rej],
-                            backgroundColor: '#ef4444',
-                            barThickness: 40,
-                            borderRadius: 4
-                        }]
-                    },
-                    options: {
-                        indexAxis: 'y', // Horizontal
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { position: 'bottom' } },
-                        scales: {
-                            x: { stacked: true, grid: { display: false } },
-                            y: { stacked: true, display: false }
-                        }
-                    }
-                });
-            }
-
         }
 
         /* =========================================
@@ -1256,14 +1491,7 @@
 
             JPSMS.toast('Analyzing Mould Data...', 'info');
 
-            // Date Range from global inputs?
-            // For now let's assume global date inputs exist but user might leave empty for "All Time"
-            const d1 = document.querySelector('input[type="date"]:nth-of-type(1)').value;
-            const d2 = document.querySelector('input[type="date"]:nth-of-type(2)').value;
-
-            let url = `/analyze/mould/${encodeURIComponent(code)}?`;
-            if (d1) url += `from=${d1}&`;
-            if (d2) url += `to=${d2}`;
+            const url = `/analyze/mould/${encodeURIComponent(code)}` + filterQS();
 
             try {
                 const res = await JPSMS.api.get(url);
@@ -1280,23 +1508,56 @@
             }
         }
 
+        function switchMouldTab(tab) {
+            const isDetail = tab === 'detail';
+            document.getElementById('mouldSummary').style.display = isDetail ? 'none' : 'block';
+            document.getElementById('mouldDetail').style.display = isDetail ? 'block' : 'none';
+            document.getElementById('mTabSummary').classList.toggle('active', !isDetail);
+            document.getElementById('mTabDetail').classList.toggle('active', isDetail);
+        }
+
+        // Populate mould autocomplete from master (best-effort)
+        async function loadMouldOptions() {
+            const dl = document.getElementById('mouldOptions');
+            if (!dl) return;
+            try {
+                const res = await JPSMS.api.get('/masters/moulds');
+                const rows = (res && (res.data || res)) || [];
+                if (Array.isArray(rows)) {
+                    dl.innerHTML = rows.slice(0, 500).map(m =>
+                        `<option value="${(m.mould_number || m.mould_name || '').replace(/"/g, '&quot;')}">${m.mould_name || ''}</option>`).join('');
+                }
+            } catch (e) { /* optional */ }
+        }
+
         function renderMouldDashboard(data) {
             const { mould, kpi, rejections, downtime, trend } = data;
+            const detail = data.detail || { machines: [], orders: [] };
+
+            // Title
+            document.getElementById('mTitle').textContent = mould.mould_name || mould.mould_number || '-';
+            document.getElementById('mSub').textContent =
+                `${mould.mould_number || ''}${mould.no_of_cav ? ' · ' + mould.no_of_cav + ' cav' : ''}${mould.cycle_time ? ' · STD ' + mould.cycle_time + 's' : ''}`;
 
             // KPIs
             const totalOut = kpi.totalOutput;
-            const rejRate = totalOut ? ((kpi.totalReject / totalOut) * 100).toFixed(1) : 0;
-
             document.getElementById('mkpiOutput').textContent = totalOut.toLocaleString();
             document.getElementById('mkpiRunHrs').textContent = `Run Hrs: ${kpi.totalRunHours}`;
-
-            document.getElementById('mkpiRejRate').textContent = `${rejRate}%`;
+            document.getElementById('mkpiRejRate').textContent = `${kpi.rejRate}%`;
             document.getElementById('mkpiRejQty').textContent = `Qty: ${kpi.totalReject}`;
-
             document.getElementById('mkpiDown').textContent = `${kpi.totalDowntime} min`;
+            document.getElementById('mkpiCT').textContent = `${kpi.avgCycleTime}s`;
+            document.getElementById('mkpiStdCT').textContent = `Std: ${kpi.stdCycle || mould.cycle_time || '-'}s`;
+            document.getElementById('mkpiOEE').textContent = `${kpi.oee}%`;
+            document.getElementById('mkpiOEEbreak').textContent = `A${kpi.availability} P${kpi.performance} Q${kpi.quality}`;
 
-            document.getElementById('mkpiCT').textContent = kpi.avgCycleTime;
-            document.getElementById('mkpiStdCT').textContent = `Std: ${mould.cycle_time || '-'}`;
+            // Detail tables
+            const rowFor = (r) => `<tr><td style="font-weight:600">${r.key}</td><td class="text-end">${(r.good || 0).toLocaleString()}</td><td class="text-end" style="color:${r.reject > 0 ? '#ef4444' : '#94a3b8'}">${(r.reject || 0).toLocaleString()}</td><td class="text-end">${Math.round(r.downtime || 0)} min</td></tr>`;
+            document.getElementById('mDetailMachines').innerHTML = detail.machines.length ? detail.machines.map(rowFor).join('') : '<tr><td colspan="4" class="text-center p-3">No data</td></tr>';
+            document.getElementById('mDetailOrders').innerHTML = detail.orders.length ? detail.orders.map(rowFor).join('') : '<tr><td colspan="4" class="text-center p-3">No data</td></tr>';
+
+            // Reset to Summary tab on each search
+            switchMouldTab('summary');
 
             // --- CHARTS ---
             if (mouldCharts.rej) mouldCharts.rej.destroy();
@@ -1379,6 +1640,245 @@
                 },
                 options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
             });
+        }
+
+        /* =========================================
+           SUPERVISOR LOGIC
+           ========================================= */
+        let supChartInstance = null;
+        function supKpiCard(label, value, sub, color) {
+            return `<div class="card" style="padding:15px; border-left:4px solid ${color}">
+                <small style="color:#64748b">${label}</small>
+                <div style="font-weight:bold; font-size:1.4em">${value}</div>
+                ${sub ? `<small class="text-muted" style="font-size:0.8em">${sub}</small>` : ''}
+            </div>`;
+        }
+        async function loadSupervisorAnalysis() {
+            const body = document.getElementById('supTableBody');
+            try {
+                const res = await JPSMS.api.get('/analyze/supervisor' + filterQS());
+                if (!res.ok) { body.innerHTML = `<tr><td colspan="10" class="text-center p-3 text-danger">${res.error || 'No data'}</td></tr>`; return; }
+                const sups = res.data.supervisors || [];
+                const t = res.data.totals || {};
+
+                document.getElementById('supKpis').innerHTML = [
+                    supKpiCard('Supervisors', t.supervisors || 0, `${t.entries || 0} entries`, '#3b82f6'),
+                    supKpiCard('Total Good', (t.good || 0).toLocaleString(), 'pcs', '#10b981'),
+                    supKpiCard('Total Reject', (t.reject || 0).toLocaleString(), `${t.rejRate || 0}% rate`, '#ef4444'),
+                    supKpiCard('Downtime', `${t.downtime || 0} min`, 'owned across shifts', '#f59e0b')
+                ].join('');
+
+                if (!sups.length) { body.innerHTML = '<tr><td colspan="10" class="text-center p-3">No entries in range</td></tr>'; return; }
+
+                body.innerHTML = sups.map(s => `
+                    <tr>
+                        <td style="font-weight:700; color:#334155">${s.name}${s.matched ? '' : ' <span style="font-size:0.7rem; color:#f59e0b" title="No matching user account">(unmatched)</span>'}</td>
+                        <td style="color:#64748b">${s.role || '-'}</td>
+                        <td class="text-end">${s.good.toLocaleString()}</td>
+                        <td class="text-end" style="color:${s.reject > 0 ? '#ef4444' : '#94a3b8'}">${s.reject.toLocaleString()}</td>
+                        <td class="text-end" style="color:${s.rejRate > 5 ? '#ef4444' : '#64748b'}">${s.rejRate}%</td>
+                        <td class="text-end">${s.downtime} min</td>
+                        <td class="text-end">${s.shifts}</td>
+                        <td class="text-end">${s.entries}</td>
+                        <td class="text-end">${s.machines}</td>
+                        <td class="text-end" style="font-weight:600">${s.avgPerShift.toLocaleString()}</td>
+                    </tr>`).join('');
+
+                // Leaderboard chart (top 12 by good, good vs reject stacked)
+                const top = sups.slice(0, 12);
+                const ctx = document.getElementById('supChart');
+                if (supChartInstance) supChartInstance.destroy();
+                supChartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: top.map(s => s.name),
+                        datasets: [
+                            { label: 'Good', data: top.map(s => s.good), backgroundColor: '#10b981', borderRadius: 4 },
+                            { label: 'Reject', data: top.map(s => s.reject), backgroundColor: '#ef4444', borderRadius: 4 }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } },
+                        scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true } }
+                    }
+                });
+            } catch (e) {
+                body.innerHTML = `<tr><td colspan="10" class="text-center p-3 text-danger">${e.message}</td></tr>`;
+            }
+        }
+
+        /* =========================================
+           PLANT LOGIC
+           ========================================= */
+        let plantCharts = {};
+        function oeeColor(v) { return v >= 85 ? '#10b981' : v >= 60 ? '#f59e0b' : '#ef4444'; }
+        async function loadPlantAnalysis() {
+            const kpis = document.getElementById('plantKpis');
+            kpis.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:30px; color:#94a3b8"><div class="spinner-border spinner-border-sm text-primary"></div> Loading…</div>';
+            let data;
+            try {
+                const res = await JPSMS.api.get('/analyze/plant' + filterQS());
+                if (!res.ok) { kpis.innerHTML = `<div style="grid-column:1/-1; color:#ef4444; text-align:center; padding:20px">${res.error || 'No data'}</div>`; return; }
+                data = res.data;
+            } catch (e) {
+                kpis.innerHTML = `<div style="grid-column:1/-1; color:#ef4444; text-align:center; padding:20px">${e.message}</div>`; return;
+            }
+
+            const o = data.overall || {};
+            kpis.innerHTML = [
+                supKpiCard('OEE', `${o.oee || 0}%`, 'Availability × Perf × Quality', oeeColor(o.oee || 0)),
+                supKpiCard('Availability', `${o.availability || 0}%`, `${o.runHours || 0} run hrs`, '#3b82f6'),
+                supKpiCard('Performance', `${o.performance || 0}%`, 'vs STD capacity', '#8b5cf6'),
+                supKpiCard('Quality', `${o.quality || 0}%`, `${(o.reject || 0).toLocaleString()} rej`, '#ef4444'),
+                supKpiCard('Output', `${(o.output || 0).toLocaleString()}`, `${o.downtime || 0} min down`, '#10b981')
+            ].join('');
+
+            Object.values(plantCharts).forEach(c => c && c.destroy());
+            plantCharts = {};
+
+            // OEE gauge (doughnut)
+            plantCharts.gauge = new Chart(document.getElementById('plantOeeGauge'), {
+                type: 'doughnut',
+                data: { labels: ['OEE', ''], datasets: [{ data: [o.oee || 0, 100 - (o.oee || 0)], backgroundColor: [oeeColor(o.oee || 0), '#e2e8f0'], borderWidth: 0 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, cutout: '72%',
+                    plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                },
+                plugins: [{
+                    id: 'oeeText', afterDraw: (ch) => {
+                        const { ctx, chartArea } = ch; const x = (chartArea.left + chartArea.right) / 2; const y = (chartArea.top + chartArea.bottom) / 2;
+                        ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.font = 'bold 28px sans-serif'; ctx.fillStyle = oeeColor(o.oee || 0); ctx.fillText(`${o.oee || 0}%`, x, y);
+                        ctx.restore();
+                    }
+                }]
+            });
+
+            // Date-wise OEE trend
+            const bd = data.byDate || [];
+            plantCharts.trend = new Chart(document.getElementById('plantTrend'), {
+                type: 'line',
+                data: {
+                    labels: bd.map(d => new Date(d.key).toLocaleDateString()),
+                    datasets: [
+                        { label: 'OEE', data: bd.map(d => d.oee), borderColor: '#024c81', backgroundColor: 'rgba(1,168,221,0.12)', fill: true, tension: 0.3 },
+                        { label: 'Availability', data: bd.map(d => d.availability), borderColor: '#3b82f6', tension: 0.3, fill: false, pointRadius: 0 },
+                        { label: 'Performance', data: bd.map(d => d.performance), borderColor: '#8b5cf6', tension: 0.3, fill: false, pointRadius: 0 },
+                        { label: 'Quality', data: bd.map(d => d.quality), borderColor: '#10b981', tension: 0.3, fill: false, pointRadius: 0 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, max: 100 } } }
+            });
+
+            // Line-wise OEE bar
+            const bl = data.byLine || [];
+            plantCharts.lines = new Chart(document.getElementById('plantLines'), {
+                type: 'bar',
+                data: { labels: bl.map(l => l.key), datasets: [{ label: 'OEE %', data: bl.map(l => l.oee), backgroundColor: bl.map(l => oeeColor(l.oee)), borderRadius: 4 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: 100 } } }
+            });
+
+            // Loss Pareto
+            const lr = (data.lossReasons || []).slice(0, 10);
+            plantCharts.loss = new Chart(document.getElementById('plantLoss'), {
+                type: 'bar',
+                data: { labels: lr.map(r => r.reason), datasets: [{ label: 'Downtime (min)', data: lr.map(r => r.min), backgroundColor: '#f59e0b', borderRadius: 4 }] },
+                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
+        }
+
+        /* =========================================
+           MACHINE LOGIC
+           ========================================= */
+        let machineCharts = {};
+        async function loadMachineAnalysis() {
+            const body = document.getElementById('mcTableBody');
+            let data;
+            try {
+                const res = await JPSMS.api.get('/analyze/machine' + filterQS());
+                if (!res.ok) { body.innerHTML = `<tr><td colspan="11" class="text-center p-3 text-danger">${res.error || 'No data'}</td></tr>`; return; }
+                data = res.data;
+            } catch (e) { body.innerHTML = `<tr><td colspan="11" class="text-center p-3 text-danger">${e.message}</td></tr>`; return; }
+
+            const machines = data.machines || [];
+            const t = data.totals || {};
+            document.getElementById('mcKpis').innerHTML = [
+                supKpiCard('Machines', t.machines || 0, 'in range', '#3b82f6'),
+                supKpiCard('Total Output', (t.output || 0).toLocaleString(), 'pcs', '#10b981'),
+                supKpiCard('Total Reject', (t.reject || 0).toLocaleString(), '', '#ef4444'),
+                supKpiCard('Downtime', `${t.downtime || 0} min`, 'across machines', '#f59e0b')
+            ].join('');
+
+            if (!machines.length) { body.innerHTML = '<tr><td colspan="11" class="text-center p-3">No entries in range</td></tr>'; return; }
+
+            body.innerHTML = machines.map((m, i) => `
+                <tr style="cursor:pointer" data-mc-idx="${i}">
+                    <td style="font-weight:700; color:#334155">${esc(m.key)}</td>
+                    <td style="color:#64748b">${esc(m.line)}</td>
+                    <td class="text-end" style="font-weight:600">${m.utilization}%</td>
+                    <td class="text-end" style="color:${oeeColor(m.oee)}; font-weight:700">${m.oee}%</td>
+                    <td class="text-end">${m.performance}%</td>
+                    <td class="text-end">${m.quality}%</td>
+                    <td class="text-end">${m.good.toLocaleString()}</td>
+                    <td class="text-end" style="color:${m.reject > 0 ? '#ef4444' : '#94a3b8'}">${m.reject.toLocaleString()}</td>
+                    <td class="text-end">${m.downtime} min</td>
+                    <td class="text-end">${m.runHours}</td>
+                    <td class="text-end">${m.mouldCount}</td>
+                </tr>`).join('');
+            // Delegated click — avoids interpolating machine names into inline JS
+            body.onclick = (ev) => {
+                const tr = ev.target.closest('tr[data-mc-idx]');
+                if (!tr) return;
+                const m = machines[Number(tr.getAttribute('data-mc-idx'))];
+                if (m) drillMachine(m.key);
+            };
+
+            Object.values(machineCharts).forEach(c => c && c.destroy());
+            machineCharts = {};
+            const top = machines.slice(0, 14);
+            machineCharts.oee = new Chart(document.getElementById('mcOeeChart'), {
+                type: 'bar',
+                data: { labels: top.map(m => m.key), datasets: [{ label: 'OEE %', data: top.map(m => m.oee), backgroundColor: top.map(m => oeeColor(m.oee)), borderRadius: 4 }] },
+                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, max: 100 } } }
+            });
+            machineCharts.util = new Chart(document.getElementById('mcUtilChart'), {
+                type: 'bar',
+                data: { labels: top.map(m => m.key), datasets: [{ label: 'Utilization %', data: top.map(m => m.utilization), backgroundColor: '#3b82f6', borderRadius: 4 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: 100 } } }
+            });
+        }
+
+        async function drillMachine(machine) {
+            const wrap = document.getElementById('mcDrill');
+            document.getElementById('mcDrillTitle').textContent = `Downtime Breakdown — ${machine}`;
+            wrap.style.display = 'block';
+            wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            try {
+                const res = await JPSMS.api.get('/analyze/machine' + filterQS({ machine }));
+                if (!res.ok || !res.data.drill) return;
+                const d = res.data.drill;
+
+                ['down', 'trend'].forEach(k => { if (machineCharts['drill_' + k]) machineCharts['drill_' + k].destroy(); });
+
+                const dr = d.downtimeReasons.slice(0, 8);
+                machineCharts.drill_down = new Chart(document.getElementById('mcDrillDown'), {
+                    type: 'doughnut',
+                    data: { labels: dr.length ? dr.map(r => r.reason) : ['No downtime'], datasets: [{ data: dr.length ? dr.map(r => r.min) : [1], backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#10b981', '#6366f1', '#94a3b8', '#0ea5e9'], borderWidth: 0 }] },
+                    options: { responsive: true, maintainAspectRatio: false, cutout: '60%', plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } } }
+                });
+                machineCharts.drill_trend = new Chart(document.getElementById('mcDrillTrend'), {
+                    type: 'line',
+                    data: {
+                        labels: d.byDate.map(x => new Date(x.date).toLocaleDateString()),
+                        datasets: [
+                            { label: 'Good', data: d.byDate.map(x => x.good), borderColor: '#10b981', tension: 0.3, fill: false },
+                            { label: 'Reject', data: d.byDate.map(x => x.reject), borderColor: '#ef4444', tension: 0.3, fill: false }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
+                });
+            } catch (e) { JPSMS.toast(e.message, 'error'); }
         }
     </script>
     <script src="/assets/ai-chat.js"></script>

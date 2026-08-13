@@ -321,8 +321,8 @@ describe('Sync service plan_board resurrection guard', () => {
       }
       if (text.includes('information_schema.columns')) {
         return {
-          rows: ['plan_id', 'updated_at', 'status', 'mould_name'].map((c) => ({ column_name: c })),
-          rowCount: 4
+          rows: ['plan_id', 'factory_id', 'updated_at', 'status', 'mould_name'].map((c) => ({ column_name: c })),
+          rowCount: 5
         };
       }
       return { rows: [], rowCount: 0 };

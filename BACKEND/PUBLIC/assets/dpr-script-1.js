@@ -1871,9 +1871,10 @@
                                                  }
                                                  else { bg = '#fee2e2'; border = '1px solid #fca5a5'; content = `<div style="color:#b91c1c; font-weight:700; font-size:0.75rem; line-height:1.1; display:flex; align-items:center; justify-content:center; height:100%; text-align:center">${activeOverrideStatus}</div>`; }
 
-                                                 // Superadmin-only per-cell delete (×) for this quick-action entry
+                                                 // Per-cell delete (×) for this quick-action entry.
+                                                 // Allowed: admin/superadmin + planner, ppc_ass_manager, ppc_manager.
                                                  if (overrideEntryId) rowQuickIds.push(overrideEntryId);
-                                                 if (overrideEntryId && window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isSuperadmin && window.JPSMS.auth.isSuperadmin()) {
+                                                 if (overrideEntryId && window.canDeleteDprEntry && window.canDeleteDprEntry()) {
                                                      content += `<button title="Delete this quick-action entry" onclick="event.stopPropagation(); deleteQuickEntry(${overrideEntryId}, this)" style="position:absolute; top:1px; right:1px; width:16px; height:16px; line-height:14px; padding:0; border:none; border-radius:50%; background:rgba(0,0,0,0.35); color:#fff; font-size:0.7rem; font-weight:800; cursor:pointer; z-index:5">×</button>`;
                                                  }
 
@@ -2378,10 +2379,11 @@
                                         const _summaryBlink = (rowEff > 0 && rowEff < 85 && !m.is_dummy) ? ' blink-alert' : '';
                                         machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${summaryH}</td></tr>`;
 
-                                        // Superadmin-only row-level "clear quick entries" button (replaces this row's placeholder)
+                                        // Row-level "clear quick entries" button (replaces this row's placeholder).
+                                        // Allowed: admin/superadmin + planner, ppc_ass_manager, ppc_manager.
                                         const _uniqQuickIds = Array.from(new Set(rowQuickIds));
-                                        const _isSuper = !!(window.JPSMS && window.JPSMS.auth && window.JPSMS.auth.isSuperadmin && window.JPSMS.auth.isSuperadmin());
-                                        const _rowClearBtn = (_uniqQuickIds.length && _isSuper)
+                                        const _canDelQuick = !!(window.canDeleteDprEntry && window.canDeleteDprEntry());
+                                        const _rowClearBtn = (_uniqQuickIds.length && _canDelQuick)
                                             ? `<button title="Delete all quick-action entries in this row" onclick="event.stopPropagation(); clearRowQuickEntries([${_uniqQuickIds.join(',')}], this)" style="display:inline-block; margin-top:6px; padding:2px 8px; border:1px solid #fca5a5; border-radius:4px; background:#fef2f2; color:#b91c1c; font-size:0.6rem; font-weight:700; cursor:pointer">🗑 Clear ${_uniqQuickIds.length} quick</button>`
                                             : '';
                                         machineRowHtml = machineRowHtml.replace('<!--ROWCLEAR-->', _rowClearBtn);
