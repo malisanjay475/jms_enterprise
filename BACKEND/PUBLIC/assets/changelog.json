@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.28.1",
+  "latest": "1.29.0",
   "versions": [
+    {
+      "version": "1.29.0",
+      "date": "2026-08-13",
+      "title": "Factory-only login for non-global users (on the main site)",
+      "modules": [
+        {
+          "app": "all",
+          "label": "All",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "On the main website, a user without Global Access can now sign in only from inside the factory. Their phone or PC must share its location and be within the factory boundary, otherwise login is blocked. Grant Global Access (Remote Login) to let someone sign in from anywhere." },
+            { "type": "improvement", "text": "Logging in on a factory LOCAL server is unchanged — it works exactly as before, with no location check." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.28.1",
       "date": "2026-08-12",

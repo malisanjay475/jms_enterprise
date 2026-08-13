@@ -411,11 +411,37 @@ function escHtml(value) {
         setWriteScope: (factoryId, factoryName) => setWriteFactoryScope(factoryId, factoryName)
     };
 
+    // Best-effort GPS fix for MAIN-server geofenced login. Resolves { lat, lng, acc }
+    // or null (denied / unsupported / timeout). The server decides whether it's required —
+    // non-global users on MAIN are blocked without a valid in-range fix.
+    function getLoginGeo(timeoutMs = 9000) {
+        return new Promise((resolve) => {
+            if (!('geolocation' in navigator)) return resolve(null);
+            let done = false;
+            const finish = (v) => { if (!done) { done = true; resolve(v); } };
+            try {
+                navigator.geolocation.getCurrentPosition(
+                    (p) => finish({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }),
+                    () => finish(null),
+                    { enableHighAccuracy: true, maximumAge: 0, timeout: timeoutMs }
+                );
+            } catch { finish(null); }
+            setTimeout(() => finish(null), timeoutMs + 500);
+        });
+    }
+
     // --- Auth ---
     exports.auth = {
+        getLoginGeo,
         login: async (username, password, options = {}) => {
             const payload = { username, password };
             if (options?.requested_app) payload.requested_app = options.requested_app;
+            const geo = (options && options.geo) ? options.geo : await getLoginGeo();
+            if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
+                payload.geo_lat = geo.lat;
+                payload.geo_lng = geo.lng;
+                payload.geo_acc = geo.acc;
+            }
             const res = await exports.api.post('/login', payload);
             if (res.ok) {
                 localStorage.setItem('token', 'dummy-token-for-now'); // Simulating token
