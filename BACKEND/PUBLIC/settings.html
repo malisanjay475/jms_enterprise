@@ -815,6 +815,19 @@
                 </div>
             </section>
 
+            <section class="card settings-card" id="loginGeofenceCard" style="display:none">
+                <div class="section-head">
+                    <div>
+                        <div class="section-eyebrow" style="background: rgba(22, 163, 74, 0.12); color:#15803d;"><i class="bi bi-geo-alt"></i><span>Login Geofence</span></div>
+                        <div class="section-title">Where non-global users may sign in (main server only).</div>
+                        <div class="section-copy">A user without Global Access can log in on the main website only when inside one of these boundaries. Set each factory's location and radius. Local factory servers are never affected.</div>
+                    </div>
+                    <button class="btn-outline" id="refreshGeofenceBtn" type="button"><i class="bi bi-arrow-repeat"></i> Refresh</button>
+                </div>
+                <div class="directory-state" id="geofenceListState">Loading geofence settings...</div>
+                <div id="geofenceList" style="display:flex; flex-direction:column; gap:14px; margin-top:12px"></div>
+            </section>
+
             <section class="card settings-card" id="localServersCard">
                 <div class="section-head">
                     <div>
@@ -1064,6 +1077,98 @@
                         </div>
                     `;
                 }).join('');
+            }
+
+            // ---- Login Geofence (superadmin) ----------------------------------------
+            function renderGeofenceList(items) {
+                const listEl = document.getElementById('geofenceList');
+                const stateEl = document.getElementById('geofenceListState');
+                if (!Array.isArray(items) || !items.length) {
+                    stateEl.textContent = 'No factories available.';
+                    listEl.innerHTML = '';
+                    return;
+                }
+                stateEl.textContent = `${items.length} ${items.length === 1 ? 'factory' : 'factories'}`;
+                listEl.innerHTML = items.map(f => {
+                    const name = escapeHtml(f.name || ('Factory ' + f.id));
+                    const code = escapeHtml(f.code || '');
+                    const lat = (f.latitude != null) ? escapeHtml(String(f.latitude)) : '';
+                    const lng = (f.longitude != null) ? escapeHtml(String(f.longitude)) : '';
+                    const radius = escapeHtml(String(f.geofence_radius_m ?? 300));
+                    const enabled = f.geofence_enabled !== false;
+                    return `
+                    <div class="factory-row" data-geo-id="${f.id}" style="flex-direction:column; align-items:stretch; gap:10px">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap">
+                            <div class="factory-name">${name} <span class="factory-meta">${code}</span></div>
+                            <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; cursor:pointer">
+                                <input type="checkbox" class="geo-enabled" ${enabled ? 'checked' : ''}> Geofence enabled
+                            </label>
+                        </div>
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px">
+                            <label style="font-size:0.78rem; color:#64748b">Latitude
+                                <input class="geo-lat" type="number" step="any" value="${lat}" placeholder="20.3188" style="width:100%; margin-top:3px; padding:7px 9px; border:1px solid #cbd5e1; border-radius:8px">
+                            </label>
+                            <label style="font-size:0.78rem; color:#64748b">Longitude
+                                <input class="geo-lng" type="number" step="any" value="${lng}" placeholder="72.9516" style="width:100%; margin-top:3px; padding:7px 9px; border:1px solid #cbd5e1; border-radius:8px">
+                            </label>
+                            <label style="font-size:0.78rem; color:#64748b">Radius (m)
+                                <input class="geo-radius" type="number" min="10" max="50000" value="${radius}" style="width:100%; margin-top:3px; padding:7px 9px; border:1px solid #cbd5e1; border-radius:8px">
+                            </label>
+                        </div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap">
+                            <button class="btn-outline geo-use-loc" type="button"><i class="bi bi-crosshair"></i> Use my current location</button>
+                            <button class="btn-primary geo-save" type="button"><i class="bi bi-check-circle"></i> Save</button>
+                        </div>
+                    </div>`;
+                }).join('');
+
+                listEl.querySelectorAll('[data-geo-id]').forEach(row => {
+                    row.querySelector('.geo-use-loc').addEventListener('click', () => {
+                        if (!('geolocation' in navigator)) { window.JPSMS.toast('Location not available on this device.', 'error'); return; }
+                        window.JPSMS.toast('Getting your location...', 'info');
+                        navigator.geolocation.getCurrentPosition(
+                            p => {
+                                row.querySelector('.geo-lat').value = p.coords.latitude.toFixed(6);
+                                row.querySelector('.geo-lng').value = p.coords.longitude.toFixed(6);
+                                window.JPSMS.toast('Location filled in. Review and Save.', 'success');
+                            },
+                            () => window.JPSMS.toast('Could not get location (permission denied or unavailable).', 'error'),
+                            { enableHighAccuracy: true, maximumAge: 0, timeout: 9000 }
+                        );
+                    });
+                    row.querySelector('.geo-save').addEventListener('click', async () => {
+                        const btn = row.querySelector('.geo-save');
+                        btn.disabled = true;
+                        try {
+                            const res = await window.JPSMS.api.post('/factories/geofence', {
+                                id: Number(row.dataset.geoId),
+                                latitude: row.querySelector('.geo-lat').value.trim(),
+                                longitude: row.querySelector('.geo-lng').value.trim(),
+                                geofence_radius_m: row.querySelector('.geo-radius').value.trim(),
+                                geofence_enabled: row.querySelector('.geo-enabled').checked
+                            });
+                            if (!res.ok) throw new Error(res.error || 'Save failed');
+                            window.JPSMS.toast('Geofence saved.', 'success');
+                        } catch (e) {
+                            window.JPSMS.toast(e.message || 'Save failed.', 'error');
+                        } finally {
+                            btn.disabled = false;
+                        }
+                    });
+                });
+            }
+
+            async function loadGeofences() {
+                if (!isSuperadmin(currentUser)) return;
+                const card = document.getElementById('loginGeofenceCard');
+                card.style.display = '';
+                try {
+                    const res = await window.JPSMS.api.get('/factories/geofence');
+                    if (!res.ok) throw new Error(res.error || 'Failed to load');
+                    renderGeofenceList(res.data || []);
+                } catch (e) {
+                    document.getElementById('geofenceListState').textContent = e.message || 'Failed to load geofence settings.';
+                }
             }
 
             function populateFactoryOptions(items) {
@@ -1825,6 +1930,7 @@
                 document.getElementById('localServerForm').addEventListener('submit', handleCreateLocalServer);
                 document.getElementById('refreshFactoriesBtn').addEventListener('click', loadFactories);
                 document.getElementById('refreshLocalServersBtn').addEventListener('click', loadLocalServers);
+                document.getElementById('refreshGeofenceBtn').addEventListener('click', loadGeofences);
 
                 const params = new URLSearchParams(window.location.search);
                 if (params.get('view') === 'factory') {
@@ -1836,6 +1942,7 @@
                 }
 
                 await loadFactories();
+                await loadGeofences();
                 await loadLocalServers();
                 await initLocalUpdateCard();
             });

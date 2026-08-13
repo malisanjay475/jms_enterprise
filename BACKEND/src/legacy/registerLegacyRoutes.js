@@ -5871,6 +5871,68 @@ app.post('/api/factories/save', async (req, res) => {
   }
 });
 
+// Login geofence config for every factory (superadmin only). Powers the settings
+// editor that sets where non-global users may sign in on the MAIN server.
+app.get('/api/factories/geofence', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    if (!actor || !isSuperadminRole(actor)) {
+      return res.status(403).json({ ok: false, error: 'Superadmin access required' });
+    }
+    const rows = await q(
+      `SELECT id, name, code, latitude, longitude,
+              COALESCE(geofence_radius_m, 300) AS geofence_radius_m,
+              COALESCE(geofence_enabled, TRUE) AS geofence_enabled
+         FROM factories
+        WHERE is_active = TRUE
+        ORDER BY id`
+    );
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/factories/geofence — save one factory's geofence (superadmin only).
+app.post('/api/factories/geofence', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    if (!actor || !isSuperadminRole(actor)) {
+      return res.status(403).json({ ok: false, error: 'Superadmin access required' });
+    }
+    const { id } = req.body || {};
+    if (!id) return res.json({ ok: false, error: 'Factory id required' });
+
+    // Blank coordinates clear the fence (NULL); otherwise validate ranges.
+    const rawLat = req.body.latitude;
+    const rawLng = req.body.longitude;
+    const hasLat = rawLat !== '' && rawLat !== null && rawLat !== undefined;
+    const hasLng = rawLng !== '' && rawLng !== null && rawLng !== undefined;
+    let latitude = null;
+    let longitude = null;
+    if (hasLat || hasLng) {
+      latitude = Number(rawLat);
+      longitude = Number(rawLng);
+      if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+          !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+        return res.json({ ok: false, error: 'Latitude must be -90..90 and longitude -180..180.' });
+      }
+    }
+    const radius = Math.max(10, Math.min(50000, parseInt(req.body.geofence_radius_m, 10) || 300));
+    const enabled = req.body.geofence_enabled !== false;
+
+    await q(
+      `UPDATE factories
+          SET latitude=$1, longitude=$2, geofence_radius_m=$3, geofence_enabled=$4, updated_at=NOW()
+        WHERE id=$5`,
+      [latitude, longitude, radius, enabled, id]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 
 /* ============================================================
    USER MANAGEMENT
