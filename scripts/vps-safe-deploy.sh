@@ -178,12 +178,24 @@ backup_before_deploy() {
 write_env_file "$APP_IMAGE"
 
 if [[ -n "${GHCR_PULL_TOKEN:-}" ]]; then
+  echo "[deploy] authenticating to ghcr.io as ${GHCR_USERNAME:-${GITHUB_REPOSITORY%%/*}}"
   echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u "${GHCR_USERNAME:-${GITHUB_REPOSITORY%%/*}}" --password-stdin
+else
+  echo "[deploy] WARNING: GHCR_PULL_TOKEN not set — relying on cached docker credentials on the VPS." >&2
+  echo "[deploy] Set the GHCR_PULL_TOKEN secret (a PAT with read:packages) to authenticate pulls of the private image." >&2
 fi
 
 backup_before_deploy
 
-$DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" pull app || true
+# Pull the target image. A failed pull is FATAL — never fall back to whatever
+# image is cached locally. APP_IMAGE can be a mutable tag (reused sha / latest),
+# so a stale image under the same tag could otherwise be started silently,
+# deploying old code. A broken or absent GHCR auth surfaces here.
+if ! $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" pull app; then
+  echo "[deploy] ERROR: failed to pull app image: $APP_IMAGE" >&2
+  echo "[deploy] Check GHCR authentication — set the GHCR_PULL_TOKEN secret (PAT with read:packages)." >&2
+  exit 1
+fi
 
 # Pre-clean ALL stale containers with conflicting names before compose up.
 # --remove-orphans can race against containers that were just removed, causing
