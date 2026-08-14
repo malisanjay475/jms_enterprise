@@ -452,6 +452,10 @@
       JPSMS.renderShell('reports');
 
       initFilters();
+      ['factorySelector', 'dateFrom', 'dateTo'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', onMdhFilterChange);
+      });
       const params = new URLSearchParams(window.location.search);
       if (params.get('view') === 'jms-plan') {
         document.getElementById('reportType').value = 'jms-plan';
@@ -509,26 +513,62 @@
       const isMdh = type === 'machine-date-history';
       document.getElementById('mdhMachineGroup').style.display = isMdh ? 'flex' : 'none';
       if (isMw) loadMwMachines();
-      if (isMdh) loadMdhMachines();
+      if (isMdh) {
+        // Reflect the "last 2 months" default in the visible date fields (the page
+        // otherwise pre-fills the current month). The user can still change them.
+        const now = new Date();
+        const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, now.getDate());
+        document.getElementById('dateFrom').value = twoMonthsAgo.toISOString().split('T')[0];
+        document.getElementById('dateTo').value = now.toISOString().split('T')[0];
+        loadMdhMachines();
+      }
+    }
+
+    // When the factory or dates change while the Machine Date-Wise History report is
+    // active, refresh the machine dropdown so its options match the new window.
+    function onMdhFilterChange() {
+      if (document.getElementById('reportType').value === 'machine-date-history') {
+        loadMdhMachines();
+      }
+    }
+
+    // Build the date-range query for the machine-date-history endpoint. Returns
+    // { ok, qs } or { ok:false, error } — a half-filled range (only From or only To)
+    // is rejected rather than silently falling back to the 2-month default.
+    function mdhRangeQuery() {
+      const from = document.getElementById('dateFrom').value;
+      const to = document.getElementById('dateTo').value;
+      if ((from && !to) || (!from && to)) {
+        return { ok: false, error: 'Enter both From and To dates, or leave both blank for the last 2 months.' };
+      }
+      return { ok: true, qs: (from && to) ? `&from=${from}&to=${to}` : `&months=2` };
     }
 
     // Machines that actually have production in the window — guarantees the dropdown
     // values match the DPR data the report queries.
     async function loadMdhMachines() {
+      const sel = document.getElementById('mdhMachine');
+      const range = mdhRangeQuery();
+      if (!range.ok) {
+        sel.innerHTML = '<option value="">Select machine…</option>';
+        JPSMS.toast(range.error, 'error');
+        return;
+      }
       try {
         const factoryId = document.getElementById('factorySelector').value;
-        const from = document.getElementById('dateFrom').value;
-        const to = document.getElementById('dateTo').value;
-        const range = (from && to) ? `&from=${from}&to=${to}` : `&months=2`;
-        const res = await JPSMS.api.get(`/reports/machine-date-history?factory_id=${factoryId}${range}`);
+        const res = await JPSMS.api.get(`/reports/machine-date-history?factory_id=${factoryId}${range.qs}`);
         const machines = (res && res.machines) || [];
         const escLocal = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-        const sel = document.getElementById('mdhMachine');
         const prev = sel.value;
         sel.innerHTML = '<option value="">Select machine…</option>' +
           machines.map(m => `<option value="${escLocal(m)}">${escLocal(m)}</option>`).join('');
         if (prev && machines.includes(prev)) sel.value = prev;
-      } catch (e) { console.warn('loadMdhMachines failed', e); }
+      } catch (e) {
+        console.warn('loadMdhMachines failed', e);
+        // Clear stale options so a machine from an earlier window can't be generated.
+        sel.innerHTML = '<option value="">Select machine…</option>';
+        JPSMS.toast('Could not load machines for this range. Adjust the filters and retry.', 'error');
+      }
     }
 
     let _mwMachinesLoaded = false;
@@ -595,8 +635,9 @@
         } else if (type === 'machine-date-history') {
           const machine = encodeURIComponent(document.getElementById('mdhMachine').value || '');
           if (!machine) { JPSMS.toast('Select a machine first.', 'error'); return; }
-          const range = (from && to) ? `&from=${from}&to=${to}` : `&months=2`;
-          endpoint = `/reports/machine-date-history?factory_id=${factoryId}&machine=${machine}${range}`;
+          const range = mdhRangeQuery();
+          if (!range.ok) { JPSMS.toast(range.error, 'error'); return; }
+          endpoint = `/reports/machine-date-history?factory_id=${factoryId}&machine=${machine}${range.qs}`;
         } else {
           endpoint = `/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`;
         }
@@ -997,10 +1038,11 @@
         ];
       } else if (type === 'machine-date-history') {
         const num = v => (v == null || v === '') ? '' : Number(v).toLocaleString('en-IN');
+        const txt = $.fn.dataTable.render.text();
         columns = [
           { title: "Date", data: "date", render: v => v ? fmtDate(v) : '' },
-          { title: "Mould No", data: "mouldNo" },
-          { title: "Mould Name", data: "mouldName" },
+          { title: "Mould No", data: "mouldNo", render: txt },
+          { title: "Mould Name", data: "mouldName", render: txt },
           { title: "Good Qty", data: "goodQty", render: num },
           { title: "Reject Qty", data: "rejectQty", render: num }
         ];

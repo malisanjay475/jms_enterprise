@@ -9648,17 +9648,27 @@ app.get('/api/reports/machine-date-history', async (req, res) => {
     params.push(factoryId);
     where += ` AND (h.factory_id = $${params.length} OR $${params.length} IS NULL OR h.factory_id IS NULL)`;
 
+    // Resolve mould name via a CTE that is exactly one row per mould_number. The same
+    // mould_number can exist under different factory_id values (unique index is on
+    // (mould_number, factory_id)), so a plain join would fan out and DOUBLE the summed
+    // quantities. Collapsing to one name per key keeps the join strictly 1:1.
     const rows = await q(
-      `SELECT
+      `WITH mould_names AS (
+         SELECT UPPER(TRIM(mould_number)) AS mkey, MIN(NULLIF(TRIM(mould_name), '')) AS mould_name
+           FROM moulds
+          WHERE mould_number IS NOT NULL
+          GROUP BY UPPER(TRIM(mould_number))
+       )
+       SELECT
           h.dpr_date::text AS date,
           COALESCE(NULLIF(TRIM(h.mould_no), ''), '-') AS mould_no,
-          COALESCE(NULLIF(TRIM(m.mould_name), ''), '') AS mould_name,
+          COALESCE(MIN(mn.mould_name), '') AS mould_name,
           SUM(COALESCE(h.good_qty, 0))   AS good_qty,
           SUM(COALESCE(h.reject_qty, 0)) AS reject_qty
          FROM dpr_hourly h
-         LEFT JOIN moulds m ON UPPER(TRIM(m.mould_number)) = UPPER(TRIM(h.mould_no))
+         LEFT JOIN mould_names mn ON mn.mkey = UPPER(TRIM(h.mould_no))
         WHERE ${where}
-        GROUP BY h.dpr_date, COALESCE(NULLIF(TRIM(h.mould_no), ''), '-'), COALESCE(NULLIF(TRIM(m.mould_name), ''), '')
+        GROUP BY h.dpr_date, COALESCE(NULLIF(TRIM(h.mould_no), ''), '-')
         ORDER BY h.dpr_date DESC, mould_no ASC`,
       params
     );
