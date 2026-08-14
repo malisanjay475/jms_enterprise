@@ -24882,14 +24882,22 @@ app.get('/api/qc/job-setup', async (req, res) => {
     // Get STD values from mould master
     let std = { std_weight: null, std_cycle_time: null, std_cavity: null };
     if (mould_name) {
+      // Read the canonical Mould Master columns (std_wt_kg / cycle_time / no_of_cav).
+      // These are what the Mould Master edit screen writes; older legacy column
+      // names (article_weight/std_weight/no_of_cavity) hold stale values and must
+      // NOT be read here, or the Supervisor app shows a wrong STD Weight.
+      // Match by mould_number OR mould_name so a coded plan still resolves.
       const mouldRows = await q(
         `SELECT
-           COALESCE(article_weight, std_weight) AS std_weight,
-           COALESCE(cycle_time, std_cycle_time) AS std_cycle_time,
-           COALESCE(no_of_cavity, std_cavity, cavity) AS std_cavity
+           std_wt_kg   AS std_weight,
+           cycle_time  AS std_cycle_time,
+           no_of_cav   AS std_cavity
          FROM moulds
-         WHERE LOWER(TRIM(mould_name)) = LOWER(TRIM($1))
+         WHERE (LOWER(TRIM(mould_name)) = LOWER(TRIM($1))
+                OR LOWER(TRIM(mould_number)) = LOWER(TRIM($1)))
            AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+         ORDER BY (LOWER(TRIM(mould_number)) = LOWER(TRIM($1))) DESC,
+                  std_wt_kg IS NULL ASC
          LIMIT 1`,
         [mould_name, factoryId]
       );
