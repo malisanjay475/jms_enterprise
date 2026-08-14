@@ -25,6 +25,14 @@
           "changes": [
             { "type": "fix", "text": "The Job Setup screen now shows the correct STD Weight, Cycle Time and Cavity from Mould Master instead of an older stored value." }
           ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Hardened login: removed an old duplicate sign-in path and made password checking consistent across the app." }
+          ]
         }
       ]
     },
