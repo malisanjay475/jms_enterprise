@@ -3992,7 +3992,9 @@ app.post('/api/admin/plans/bulk-approve', async (req, res) => {
     );
     if (!userRows.length) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
     const user = userRows[0];
-    const bcrypt = require('bcrypt');
+    // Use the module-level bcryptjs (line ~27). Native `bcrypt` is NOT a
+    // dependency (only bcryptjs is installed), so require('bcrypt') here would
+    // throw at runtime. bcryptjs verifies the same $2a/$2b hashes.
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
     if (!isAdminLikeRole(user.role_code)) {
@@ -20006,32 +20008,11 @@ const PORT = process.env.PORT || 3000;
 
 
 
-// -------------------------------------------------------------
-// ENHANCED LOGIN (Return Role)
-// -------------------------------------------------------------
-app.post('/api/login', async (req, res) => {
-  try {
-    const { username, password } = req.body || {};
-    if (!username || !password) return res.json({ ok: false, error: 'Missing credentials' });
-
-    const rows = await q(
-      `SELECT username, line, role_code FROM users 
-       WHERE username = $1 
-         AND password = $2 
-         AND COALESCE(is_active, TRUE) = TRUE
-       LIMIT 1`,
-      [username, password]
-    );
-
-    if (!rows.length) return res.json({ ok: false, error: 'Invalid username or password' });
-
-    // Frontend expects role_code for supervisor check
-    res.json({ ok: true, data: { username: rows[0].username, line: rows[0].line, role: rows[0].role_code, role_code: rows[0].role_code } });
-  } catch (e) {
-    console.error('login error', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
+// NOTE: A second, duplicate `app.post('/api/login')` used to live here. It was
+// dead code (Express matches the first-registered route at ~line 5674) AND
+// insecure — it did a plaintext `password = $2` SQL match with no bcrypt. It
+// has been removed. The real login handler with bcrypt + brute-force + geofence
+// is the one defined earlier in this file.
 
 // -------------------------------------------------------------
 // DASHBOARD APIs
