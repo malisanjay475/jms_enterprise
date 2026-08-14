@@ -23,7 +23,7 @@
           "label": "Platform",
           "icon": "bi-shield-check",
           "changes": [
-            { "type": "fix", "text": "Fixed an admin login path that could fail unexpectedly, and removed an old duplicate login route that skipped the normal security checks." }
+            { "type": "fix", "text": "Admin login is more reliable, and an old sign-in method that could bypass the standard security checks has been removed." }
           ]
         }
       ]
