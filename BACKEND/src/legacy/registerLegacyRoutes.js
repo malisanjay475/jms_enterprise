@@ -9612,6 +9612,8 @@ app.get('/api/reports/machine-date-history', async (req, res) => {
     // Optional explicit range overrides the months window.
     const from = String(req.query.from || '').trim();
     const to = String(req.query.to || '').trim();
+    // When set, split each date into its Day/Night shift rows.
+    const splitShift = String(req.query.split_shift || '') === '1';
 
     if (!machine) {
       // Machine list for the dropdown — only machines with production in range.
@@ -9652,6 +9654,13 @@ app.get('/api/reports/machine-date-history', async (req, res) => {
     // mould_number can exist under different factory_id values (unique index is on
     // (mould_number, factory_id)), so a plain join would fan out and DOUBLE the summed
     // quantities. Collapsing to one name per key keeps the join strictly 1:1.
+    // Optional shift split: add the shift to the grouping and select it. Ordering keeps
+    // Day before Night within each date.
+    const shiftSelect = splitShift ? `COALESCE(NULLIF(TRIM(h.shift), ''), '-') AS shift,` : '';
+    const shiftGroupBy = splitShift ? `, COALESCE(NULLIF(TRIM(h.shift), ''), '-')` : '';
+    const shiftOrderBy = splitShift
+      ? `, CASE WHEN UPPER(COALESCE(h.shift, '')) LIKE 'D%' THEN 0 ELSE 1 END, shift ASC`
+      : '';
     const rows = await q(
       `WITH mould_names AS (
          SELECT UPPER(TRIM(mould_number)) AS mkey, MIN(NULLIF(TRIM(mould_name), '')) AS mould_name
@@ -9661,6 +9670,7 @@ app.get('/api/reports/machine-date-history', async (req, res) => {
        )
        SELECT
           h.dpr_date::text AS date,
+          ${shiftSelect}
           COALESCE(NULLIF(TRIM(h.mould_no), ''), '-') AS mould_no,
           COALESCE(MIN(mn.mould_name), '') AS mould_name,
           SUM(COALESCE(h.good_qty, 0))   AS good_qty,
@@ -9668,19 +9678,20 @@ app.get('/api/reports/machine-date-history', async (req, res) => {
          FROM dpr_hourly h
          LEFT JOIN mould_names mn ON mn.mkey = UPPER(TRIM(h.mould_no))
         WHERE ${where}
-        GROUP BY h.dpr_date, COALESCE(NULLIF(TRIM(h.mould_no), ''), '-')
-        ORDER BY h.dpr_date DESC, mould_no ASC`,
+        GROUP BY h.dpr_date${shiftGroupBy}, COALESCE(NULLIF(TRIM(h.mould_no), ''), '-')
+        ORDER BY h.dpr_date DESC${shiftOrderBy}, mould_no ASC`,
       params
     );
 
     const data = rows.map((r) => ({
       date: r.date ? String(r.date).slice(0, 10) : '',
+      ...(splitShift ? { shift: r.shift || '-' } : {}),
       mouldNo: r.mould_no,
       mouldName: r.mould_name || '',
       goodQty: Number(r.good_qty || 0),
       rejectQty: Number(r.reject_qty || 0)
     }));
-    res.json({ ok: true, machine, months, data });
+    res.json({ ok: true, machine, months, splitShift, data });
   } catch (e) {
     console.error('reports/machine-date-history', e);
     res.status(500).json({ ok: false, error: String(e) });

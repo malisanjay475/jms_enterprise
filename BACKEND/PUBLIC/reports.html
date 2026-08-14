@@ -287,6 +287,11 @@
           </select>
         </div>
 
+        <div class="control-group" id="mdhShiftGroup" style="display:none">
+          <label class="control-label">Shift split</label>
+          <label class="mw-chk" style="padding-top:8px"><input type="checkbox" id="mdhSplitShift"> Split by Day / Night</label>
+        </div>
+
         <div class="control-group" id="mwMachineGroup" style="display:none">
           <label class="control-label">Machine</label>
           <select id="mwMachine" class="form-input">
@@ -512,6 +517,7 @@
       document.getElementById('mwScheduleGroup').style.display = isMw ? 'flex' : 'none';
       const isMdh = type === 'machine-date-history';
       document.getElementById('mdhMachineGroup').style.display = isMdh ? 'flex' : 'none';
+      document.getElementById('mdhShiftGroup').style.display = isMdh ? 'flex' : 'none';
       if (isMw) loadMwMachines();
       if (isMdh) {
         // Reflect the "last 2 months" default in the visible date fields (the page
@@ -637,7 +643,8 @@
           if (!machine) { JPSMS.toast('Select a machine first.', 'error'); return; }
           const range = mdhRangeQuery();
           if (!range.ok) { JPSMS.toast(range.error, 'error'); return; }
-          endpoint = `/reports/machine-date-history?factory_id=${factoryId}&machine=${machine}${range.qs}`;
+          const splitShift = document.getElementById('mdhSplitShift').checked ? '&split_shift=1' : '';
+          endpoint = `/reports/machine-date-history?factory_id=${factoryId}&machine=${machine}${range.qs}${splitShift}`;
         } else {
           endpoint = `/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`;
         }
@@ -661,6 +668,7 @@
             }
           } else if (type === 'machine-date-history') {
             window._mdhMachine = res.machine || '';
+            window._mdhSplitShift = !!res.splitShift;
             renderReport(res.data, type, null);
           } else {
             window._maintGroup = res.group || 'daily';
@@ -934,7 +942,7 @@
         : type === 'machine-maintenance' ? `Machine Maintenance (${(window._maintGroup || 'daily')})`
         : type === 'tonnage' ? `Tonnage (${(window._tonnageGroup || 'monthly')}${(window._tonnageShift && window._tonnageShift !== 'all') ? ' · ' + (window._tonnageShift === 'split' ? 'Day+Night' : window._tonnageShift) : ''})`
         : type === 'machine-wise' ? `Machine-Wise Plan (${window._mwView === 'detail' ? 'Detail · per colour' : 'Summary · per plan'})`
-        : type === 'machine-date-history' ? `Machine Date-Wise History${window._mdhMachine ? ' · ' + window._mdhMachine : ''}`
+        : type === 'machine-date-history' ? `Machine Date-Wise History${window._mdhMachine ? ' · ' + window._mdhMachine : ''}${window._mdhSplitShift ? ' · Day/Night' : ''}`
         : (type === 'summary' ? 'Summary View' : 'Detailed View');
       badge.className = 'status-badge ' + (type === 'summary' ? 'badge-summary' : 'badge-detail');
 
@@ -1041,6 +1049,7 @@
         const txt = $.fn.dataTable.render.text();
         columns = [
           { title: "Date", data: "date", render: v => v ? fmtDate(v) : '' },
+          ...(window._mdhSplitShift ? [{ title: "Shift", data: "shift", render: txt }] : []),
           { title: "Mould No", data: "mouldNo", render: txt },
           { title: "Mould Name", data: "mouldName", render: txt },
           { title: "Good Qty", data: "goodQty", render: num },

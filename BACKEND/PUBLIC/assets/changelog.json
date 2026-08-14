@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.39.0",
+  "latest": "1.39.1",
   "versions": [
+    {
+      "version": "1.39.1",
+      "date": "2026-08-14",
+      "title": "Shift split in Machine Date-Wise History",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-bar-chart",
+          "changes": [
+            { "type": "feat", "text": "The Machine Date-Wise History report has a new 'Split by Day / Night' option that breaks each date into separate Day and Night shift rows." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.39.0",
       "date": "2026-08-13",
