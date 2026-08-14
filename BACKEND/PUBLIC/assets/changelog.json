@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.39.2",
+  "latest": "1.39.3",
   "versions": [
+    {
+      "version": "1.39.3",
+      "date": "2026-08-14",
+      "title": "Login reliability & security hardening",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-check",
+          "changes": [
+            { "type": "fix", "text": "Fixed an admin login path that could fail unexpectedly, and removed an old duplicate login route that skipped the normal security checks." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.39.2",
       "date": "2026-08-14",
