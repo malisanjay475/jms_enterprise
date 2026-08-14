@@ -276,6 +276,14 @@
             <option value="machine-maintenance">Machine Maintenance Report</option>
             <option value="tonnage">Tonnage Report</option>
             <option value="machine-wise">Machine-Wise Plan Report</option>
+            <option value="machine-date-history">Machine Date-Wise History</option>
+          </select>
+        </div>
+
+        <div class="control-group" id="mdhMachineGroup" style="display:none">
+          <label class="control-label">Machine</label>
+          <select id="mdhMachine" class="form-input">
+            <option value="">Select machine…</option>
           </select>
         </div>
 
@@ -498,7 +506,29 @@
       document.getElementById('mwViewGroup').style.display = isMw ? 'flex' : 'none';
       document.getElementById('mwSiblingGroup').style.display = isMw ? 'flex' : 'none';
       document.getElementById('mwScheduleGroup').style.display = isMw ? 'flex' : 'none';
+      const isMdh = type === 'machine-date-history';
+      document.getElementById('mdhMachineGroup').style.display = isMdh ? 'flex' : 'none';
       if (isMw) loadMwMachines();
+      if (isMdh) loadMdhMachines();
+    }
+
+    // Machines that actually have production in the window — guarantees the dropdown
+    // values match the DPR data the report queries.
+    async function loadMdhMachines() {
+      try {
+        const factoryId = document.getElementById('factorySelector').value;
+        const from = document.getElementById('dateFrom').value;
+        const to = document.getElementById('dateTo').value;
+        const range = (from && to) ? `&from=${from}&to=${to}` : `&months=2`;
+        const res = await JPSMS.api.get(`/reports/machine-date-history?factory_id=${factoryId}${range}`);
+        const machines = (res && res.machines) || [];
+        const escLocal = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const sel = document.getElementById('mdhMachine');
+        const prev = sel.value;
+        sel.innerHTML = '<option value="">Select machine…</option>' +
+          machines.map(m => `<option value="${escLocal(m)}">${escLocal(m)}</option>`).join('');
+        if (prev && machines.includes(prev)) sel.value = prev;
+      } catch (e) { console.warn('loadMdhMachines failed', e); }
     }
 
     let _mwMachinesLoaded = false;
@@ -562,6 +592,11 @@
           const mwView = schedule ? 'summary' : (document.getElementById('mwView').value || 'summary');
           const sibling = document.getElementById('mwSiblingOr').checked ? '1' : '0';
           endpoint = `/reports/machine-wise?factory_id=${factoryId}&machine=${mwMachine}&view=${mwView}&includeSiblingOr=${sibling}`;
+        } else if (type === 'machine-date-history') {
+          const machine = encodeURIComponent(document.getElementById('mdhMachine').value || '');
+          if (!machine) { JPSMS.toast('Select a machine first.', 'error'); return; }
+          const range = (from && to) ? `&from=${from}&to=${to}` : `&months=2`;
+          endpoint = `/reports/machine-date-history?factory_id=${factoryId}&machine=${machine}${range}`;
         } else {
           endpoint = `/reports/wip?type=${type}&factory_id=${factoryId}&from=${from}&to=${to}`;
         }
@@ -583,6 +618,9 @@
             } else {
               renderReport(res.data, type, null);
             }
+          } else if (type === 'machine-date-history') {
+            window._mdhMachine = res.machine || '';
+            renderReport(res.data, type, null);
           } else {
             window._maintGroup = res.group || 'daily';
             renderReport(res.data, type, res.summary);
@@ -855,6 +893,7 @@
         : type === 'machine-maintenance' ? `Machine Maintenance (${(window._maintGroup || 'daily')})`
         : type === 'tonnage' ? `Tonnage (${(window._tonnageGroup || 'monthly')}${(window._tonnageShift && window._tonnageShift !== 'all') ? ' · ' + (window._tonnageShift === 'split' ? 'Day+Night' : window._tonnageShift) : ''})`
         : type === 'machine-wise' ? `Machine-Wise Plan (${window._mwView === 'detail' ? 'Detail · per colour' : 'Summary · per plan'})`
+        : type === 'machine-date-history' ? `Machine Date-Wise History${window._mdhMachine ? ' · ' + window._mdhMachine : ''}`
         : (type === 'summary' ? 'Summary View' : 'Detailed View');
       badge.className = 'status-badge ' + (type === 'summary' ? 'badge-summary' : 'badge-detail');
 
@@ -956,6 +995,15 @@
           { title: "Rem Bal Qty", data: "remBalQty", render: num },
           { title: "Plan Queued", data: "planQueued" }
         ];
+      } else if (type === 'machine-date-history') {
+        const num = v => (v == null || v === '') ? '' : Number(v).toLocaleString('en-IN');
+        columns = [
+          { title: "Date", data: "date", render: v => v ? fmtDate(v) : '' },
+          { title: "Mould No", data: "mouldNo" },
+          { title: "Mould Name", data: "mouldName" },
+          { title: "Good Qty", data: "goodQty", render: num },
+          { title: "Reject Qty", data: "rejectQty", render: num }
+        ];
       } else if (type === 'summary') {
         columns = [
           { title: "Unit", data: "factory_unit" },
@@ -989,17 +1037,17 @@
         // Machine-Wise report is already returned in natural machine order
         // (…-6, -7, -8, -10, -11) with each machine's queue in sequence — keep
         // that server order instead of letting DataTables re-sort Machine as text.
-        order: (type === 'machine-wise') ? [] : undefined,
+        order: (type === 'machine-wise' || type === 'machine-date-history') ? [] : undefined,
         dom: 'Bfrtip',
         buttons: [
           {
             extend: 'excelHtml5',
-            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : type === 'machine-maintenance' ? 'Machine Maintenance Report' : type === 'tonnage' ? 'Tonnage Report' : type === 'machine-wise' ? ('Machine-Wise Plan Report (' + (window._mwView === 'detail' ? 'Detail' : 'Summary') + ')') : 'WIP Report') + ' - ' + new Date().toLocaleString('en-IN'),
+            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : type === 'machine-maintenance' ? 'Machine Maintenance Report' : type === 'tonnage' ? 'Tonnage Report' : type === 'machine-wise' ? ('Machine-Wise Plan Report (' + (window._mwView === 'detail' ? 'Detail' : 'Summary') + ')') : type === 'machine-date-history' ? ('Machine Date-Wise History' + (window._mdhMachine ? ' - ' + window._mdhMachine : '')) : 'WIP Report') + ' - ' + new Date().toLocaleString('en-IN'),
             className: 'btn-dt'
           },
           {
             extend: 'csvHtml5',
-            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : type === 'machine-maintenance' ? 'Machine Maintenance Report' : type === 'tonnage' ? 'Tonnage Report' : type === 'machine-wise' ? ('Machine-Wise Plan Report (' + (window._mwView === 'detail' ? 'Detail' : 'Summary') + ')') : 'WIP Report') + ' - ' + new Date().toLocaleString('en-IN'),
+            title: (type === 'jms-plan' ? 'JMS Plan Report' : type === 'extra-qty-allowed' ? 'Extra Allowed QTY By PPC' : type === 'machine-maintenance' ? 'Machine Maintenance Report' : type === 'tonnage' ? 'Tonnage Report' : type === 'machine-wise' ? ('Machine-Wise Plan Report (' + (window._mwView === 'detail' ? 'Detail' : 'Summary') + ')') : type === 'machine-date-history' ? ('Machine Date-Wise History' + (window._mdhMachine ? ' - ' + window._mdhMachine : '')) : 'WIP Report') + ' - ' + new Date().toLocaleString('en-IN'),
              className: 'btn-dt'
           }
         ],
