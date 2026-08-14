@@ -9600,6 +9600,93 @@ async function fetchMachineWisePlans({ factoryId, machine, orNos }) {
   `, params);
 }
 
+// Machine Date-Wise History: which mould(s) ran on a machine, per date, over a
+// recent window (default 2 months). With no `machine`, returns the list of machines
+// that have production in range (so the report dropdown always matches real data).
+// All queries factory-scoped and NULL-tolerant (plan_id/machine repeat across factories).
+app.get('/api/reports/machine-date-history', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const machine = String(req.query.machine || '').trim();
+    const months = Math.min(Math.max(parseInt(req.query.months, 10) || 2, 1), 24);
+    // Optional explicit range overrides the months window.
+    const from = String(req.query.from || '').trim();
+    const to = String(req.query.to || '').trim();
+
+    if (!machine) {
+      // Machine list for the dropdown — only machines with production in range.
+      const params = [];
+      let where = `COALESCE(h.is_deleted, false) = false AND NULLIF(TRIM(COALESCE(h.machine,'')),'') IS NOT NULL`;
+      if (from && to) {
+        params.push(from, to);
+        where += ` AND h.dpr_date BETWEEN $${params.length - 1}::date AND $${params.length}::date`;
+      } else {
+        params.push(String(months));
+        where += ` AND h.dpr_date >= (CURRENT_DATE - ($${params.length} || ' months')::interval)`;
+      }
+      params.push(factoryId);
+      where += ` AND (h.factory_id = $${params.length} OR $${params.length} IS NULL OR h.factory_id IS NULL)`;
+      const rows = await q(
+        `SELECT DISTINCT h.machine FROM dpr_hourly h WHERE ${where} ORDER BY h.machine`,
+        params
+      );
+      return res.json({ ok: true, machines: rows.map((r) => r.machine) });
+    }
+
+    // Date-wise rows for the chosen machine: one row per (date, mould) with qty.
+    const params = [];
+    params.push(machine);
+    let where = `UPPER(TRIM(COALESCE(h.machine,''))) = UPPER(TRIM($1))
+      AND COALESCE(h.is_deleted, false) = false`;
+    if (from && to) {
+      params.push(from, to);
+      where += ` AND h.dpr_date BETWEEN $${params.length - 1}::date AND $${params.length}::date`;
+    } else {
+      params.push(String(months));
+      where += ` AND h.dpr_date >= (CURRENT_DATE - ($${params.length} || ' months')::interval)`;
+    }
+    params.push(factoryId);
+    where += ` AND (h.factory_id = $${params.length} OR $${params.length} IS NULL OR h.factory_id IS NULL)`;
+
+    // Resolve mould name via a CTE that is exactly one row per mould_number. The same
+    // mould_number can exist under different factory_id values (unique index is on
+    // (mould_number, factory_id)), so a plain join would fan out and DOUBLE the summed
+    // quantities. Collapsing to one name per key keeps the join strictly 1:1.
+    const rows = await q(
+      `WITH mould_names AS (
+         SELECT UPPER(TRIM(mould_number)) AS mkey, MIN(NULLIF(TRIM(mould_name), '')) AS mould_name
+           FROM moulds
+          WHERE mould_number IS NOT NULL
+          GROUP BY UPPER(TRIM(mould_number))
+       )
+       SELECT
+          h.dpr_date::text AS date,
+          COALESCE(NULLIF(TRIM(h.mould_no), ''), '-') AS mould_no,
+          COALESCE(MIN(mn.mould_name), '') AS mould_name,
+          SUM(COALESCE(h.good_qty, 0))   AS good_qty,
+          SUM(COALESCE(h.reject_qty, 0)) AS reject_qty
+         FROM dpr_hourly h
+         LEFT JOIN mould_names mn ON mn.mkey = UPPER(TRIM(h.mould_no))
+        WHERE ${where}
+        GROUP BY h.dpr_date, COALESCE(NULLIF(TRIM(h.mould_no), ''), '-')
+        ORDER BY h.dpr_date DESC, mould_no ASC`,
+      params
+    );
+
+    const data = rows.map((r) => ({
+      date: r.date ? String(r.date).slice(0, 10) : '',
+      mouldNo: r.mould_no,
+      mouldName: r.mould_name || '',
+      goodQty: Number(r.good_qty || 0),
+      rejectQty: Number(r.reject_qty || 0)
+    }));
+    res.json({ ok: true, machine, months, data });
+  } catch (e) {
+    console.error('reports/machine-date-history', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 app.get('/api/reports/machine-wise', async (req, res) => {
   try {
     const factoryId = getFactoryId(req);
