@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.39.1",
+  "latest": "1.39.2",
   "versions": [
+    {
+      "version": "1.39.2",
+      "date": "2026-08-14",
+      "title": "Correct STD Weight in Supervisor Job Setup",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "fix", "text": "The Job Setup screen now shows the correct STD Weight, Cycle Time and Cavity from Mould Master instead of an older stored value." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.39.1",
       "date": "2026-08-14",
