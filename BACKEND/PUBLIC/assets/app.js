@@ -411,11 +411,46 @@ function escHtml(value) {
         setWriteScope: (factoryId, factoryName) => setWriteFactoryScope(factoryId, factoryName)
     };
 
+    // Best-effort GPS fix for MAIN-server geofenced login. Resolves { lat, lng, acc }
+    // or null (denied / unsupported / timeout). The server decides whether it's required —
+    // non-global users on MAIN are blocked without a valid in-range fix.
+    function getLoginGeo(timeoutMs = 9000) {
+        return new Promise((resolve) => {
+            // Only the MAIN (internet) server enforces the geofence, and it is always
+            // served over HTTPS (a secure context). LOCAL factory servers run on plain
+            // HTTP (insecure context) where geolocation is unavailable anyway — skip
+            // immediately so LOCAL login keeps its exact prior behaviour with no
+            // permission prompt and no delay.
+            if (typeof window !== 'undefined' && window.isSecureContext === false) return resolve(null);
+            if (!('geolocation' in navigator)) return resolve(null);
+            let done = false;
+            const finish = (v) => { if (!done) { done = true; resolve(v); } };
+            try {
+                navigator.geolocation.getCurrentPosition(
+                    (p) => finish({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy }),
+                    () => finish(null),
+                    { enableHighAccuracy: true, maximumAge: 0, timeout: timeoutMs }
+                );
+            } catch { finish(null); }
+            setTimeout(() => finish(null), timeoutMs + 500);
+        });
+    }
+
     // --- Auth ---
     exports.auth = {
+        getLoginGeo,
         login: async (username, password, options = {}) => {
             const payload = { username, password };
             if (options?.requested_app) payload.requested_app = options.requested_app;
+            const geo = (options && options.geo) ? options.geo : await getLoginGeo();
+            const latOk = geo && Number.isFinite(geo.lat) && geo.lat >= -90 && geo.lat <= 90;
+            const lngOk = geo && Number.isFinite(geo.lng) && geo.lng >= -180 && geo.lng <= 180;
+            if (latOk && lngOk) {
+                payload.geo_lat = geo.lat;
+                payload.geo_lng = geo.lng;
+                // Only forward a sane accuracy; the server treats a missing one as no margin.
+                if (Number.isFinite(geo.acc) && geo.acc >= 0) payload.geo_acc = geo.acc;
+            }
             const res = await exports.api.post('/login', payload);
             if (res.ok) {
                 localStorage.setItem('token', 'dummy-token-for-now'); // Simulating token

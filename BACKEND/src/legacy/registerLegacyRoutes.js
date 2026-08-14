@@ -2179,6 +2179,81 @@ function isAdminLikeRole(user) {
   return role === 'admin' || role === 'superadmin';
 }
 
+// Great-circle distance between two lat/lng points, in metres (Haversine).
+function _haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+// MAIN-server login geofence. Enforced ONLY when SERVER_TYPE=MAIN and the user is NOT
+// global/admin/superadmin. A non-global user may sign in only when their GPS is within
+// geofence_radius_m (+ GPS accuracy margin) of one of their factories. Returns
+// { allowed, error, detail }. LOCAL servers never call this — login stays as-is there.
+async function enforceLoginGeofence(user, geo) {
+  // Global / admin / superadmin bypass entirely — they may log in from anywhere.
+  if (user.global_access === true || isAdminLikeRole(user)) return { allowed: true };
+
+  // Load the user's factories' geofence config. If the user has no factory mapping,
+  // fall back to all active factories (so a mis-configured mapping can't lock them out
+  // of an on-site login).
+  let rows = await q(
+    `SELECT f.name, f.latitude, f.longitude, f.geofence_radius_m, f.geofence_enabled
+       FROM factories f
+       JOIN user_factories uf ON uf.factory_id = f.id
+      WHERE uf.user_id = $1 AND f.is_active = TRUE`,
+    [user.id]
+  );
+  if (!rows.length) {
+    rows = await q(
+      `SELECT name, latitude, longitude, geofence_radius_m, geofence_enabled
+         FROM factories WHERE is_active = TRUE`
+    );
+  }
+
+  // Only factories that are geofence-enabled AND have coordinates can be enforced.
+  const fenced = rows.filter((f) =>
+    f.geofence_enabled !== false &&
+    f.latitude != null && f.longitude != null
+  );
+  // No enforceable geofence configured anywhere → cannot check, fail open (admin gap,
+  // not the user's fault). Logged by the caller.
+  if (!fenced.length) return { allowed: true, detail: 'no-geofence-configured' };
+
+  // Geofence configured but the client sent no usable GPS → strict block.
+  const lat = Number(geo?.lat);
+  const lng = Number(geo?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return {
+      allowed: false,
+      error: 'Location is required to sign in. Please allow location access — you can only log in from inside the factory.',
+      detail: 'no-gps'
+    };
+  }
+
+  const acc = Number(geo?.acc);
+  // Accuracy margin: trust the reported accuracy but clamp to [0, 400] so a wildly
+  // inaccurate fix can't wave someone in from far away.
+  const margin = Number.isFinite(acc) ? Math.max(0, Math.min(400, acc)) : 0;
+
+  for (const f of fenced) {
+    const radius = Number(f.geofence_radius_m) > 0 ? Number(f.geofence_radius_m) : 300;
+    const dist = _haversineMeters(lat, lng, Number(f.latitude), Number(f.longitude));
+    if (dist - margin <= radius) {
+      return { allowed: true, detail: `inside:${f.name}:${Math.round(dist)}m` };
+    }
+  }
+  return {
+    allowed: false,
+    error: 'Login blocked: you are outside the factory. Non-global users can only sign in from inside the factory premises.',
+    detail: 'outside'
+  };
+}
+
 function isSuperadminRole(user) {
   return String(user?.role_code || '').toLowerCase() === 'superadmin';
 }
@@ -4069,6 +4144,29 @@ async function bootstrapFreshCoreTables() {
       AND UPPER(TRIM(COALESCE(factories.code, ''))) = v.code_match
   `).catch(err => console.warn('[DB] factories ERP mapping seed skipped:', err.message));
 
+  // Geofence coordinates for MAIN-server login enforcement. A non-global user may only
+  // log in on the MAIN (internet) server when their GPS is within geofence_radius_m of
+  // one of their factories. LOCAL servers never run this check (see /api/login).
+  await q(`ALTER TABLE factories ADD COLUMN IF NOT EXISTS latitude NUMERIC`);
+  await q(`ALTER TABLE factories ADD COLUMN IF NOT EXISTS longitude NUMERIC`);
+  await q(`ALTER TABLE factories ADD COLUMN IF NOT EXISTS geofence_radius_m INTEGER DEFAULT 300`);
+  await q(`ALTER TABLE factories ADD COLUMN IF NOT EXISTS geofence_enabled BOOLEAN DEFAULT TRUE`);
+  // Seed known factory coordinates once, only where latitude is not already set (never
+  // overwrite a value a superadmin has since corrected in the UI). Match by name OR code.
+  await q(`
+    UPDATE factories SET latitude = v.lat, longitude = v.lng
+    FROM (VALUES
+      ('DUNGRA',   'F1', 20.318788::numeric, 72.951641::numeric),
+      ('SHIVANI',  'F2', 20.381028::numeric, 72.886036::numeric),
+      ('KACHIGAM', 'F3', 20.374366::numeric, 72.888369::numeric)
+    ) AS v(name_match, code_match, lat, lng)
+    WHERE factories.latitude IS NULL
+      AND (
+        UPPER(COALESCE(factories.name, '') || ' ' || COALESCE(factories.code, '')) LIKE '%' || v.name_match || '%'
+        OR UPPER(TRIM(COALESCE(factories.code, ''))) = v.code_match
+      )
+  `).catch(err => console.warn('[DB] factories geofence seed skipped:', err.message));
+
   await q(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -4951,6 +5049,54 @@ async function initializeLegacyRuntime() {
       console.warn('[DB] machines_name_key index drop skipped:', e.message);
     }
     await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_machines_factory_machine_unique ON machines ((LOWER(machine)), (COALESCE(factory_id, 0)))`);
+
+    // [FIX] plan_id must be unique per factory, not globally.
+    // Every factory mints the same PLN-<fy>-<seq> sequence independently, so the same
+    // plan_id exists on multiple factories. The original schema declared
+    // plan_board.plan_id as globally UNIQUE (plan_board_plan_id_key). On MAIN — which
+    // aggregates every factory — a second factory's plan collided with the first
+    // factory's identical plan_id and the sync upsert UPDATED that row instead of
+    // INSERTing a new one, so the pushing factory's plan never became its own row
+    // (symptom: LOCAL had 93 plans, MAIN only 46). Drop the global unique and replace
+    // it with a factory-scoped expression unique index (NULL factory_id collapses to 0
+    // so legacy plans stay single-rowed). Mirrors the moulds/machines fix and matches
+    // RAW_CONFLICT_TARGETS.plan_board in sync.service.js. [[project_plan_id_not_globally_unique]]
+    try {
+      await q(`ALTER TABLE plan_board DROP CONSTRAINT IF EXISTS plan_board_plan_id_key`);
+    } catch (e) {
+      console.warn('[DB] plan_board_plan_id_key drop skipped:', e.message);
+    }
+    try {
+      await q(`DROP INDEX IF EXISTS plan_board_plan_id_key`);
+    } catch (e) {
+      console.warn('[DB] plan_board_plan_id_key index drop skipped:', e.message);
+    }
+    await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_board_plan_factory_unique ON plan_board (plan_id, (COALESCE(factory_id, 0)))`)
+      .catch(err => console.warn('[DB] idx_plan_board_plan_factory_unique skipped (duplicate plan_id+factory in data):', err.message));
+
+    // [FIX] order_no must be unique per factory, not globally — same defect as plan_board.
+    // The orders table is per-factory (the bulk-import upserts by order_no + factory_id and
+    // the same order_no legitimately exists across factories, e.g. the Dungra order in
+    // KAN-127). The original schema declared order_no globally UNIQUE (orders_order_no_key),
+    // so on MAIN a second factory's order collided with the first factory's identical
+    // order_no and the sync upsert UPDATED that row instead of INSERTing a new one — the
+    // pushing factory's order never became its own MAIN row. Drop the global unique and
+    // replace with a factory-scoped expression unique index (NULL factory_id collapses to
+    // 0). Matches RAW_CONFLICT_TARGETS.orders in sync.service.js and the plan_board/moulds/
+    // machines fixes. [[project_plan_id_not_globally_unique]]
+    try {
+      await q(`ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_order_no_key`);
+    } catch (e) {
+      console.warn('[DB] orders_order_no_key drop skipped:', e.message);
+    }
+    try {
+      await q(`DROP INDEX IF EXISTS orders_order_no_key`);
+    } catch (e) {
+      console.warn('[DB] orders_order_no_key index drop skipped:', e.message);
+    }
+    await q(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_factory_order_unique ON orders (order_no, (COALESCE(factory_id, 0)))`)
+      .catch(err => console.warn('[DB] idx_orders_factory_order_unique skipped (duplicate order_no+factory in data):', err.message));
+
     await q(`ALTER TABLE machines ADD COLUMN IF NOT EXISTS machine_icon TEXT`);
     await q(`ALTER TABLE machines ADD COLUMN IF NOT EXISTS machine_process TEXT`);
     await q(`ALTER TABLE machines ADD COLUMN IF NOT EXISTS vendor_name TEXT`);
@@ -5575,6 +5721,29 @@ app.post('/api/login', async (req, res) => {
     }
     _clearLoginFailures(username);
 
+    // MAIN-server geofence: a non-global user may only log in from inside the factory.
+    // LOCAL servers skip this entirely — factory-floor login is unchanged.
+    if (String(process.env.SERVER_TYPE || '').toUpperCase() === 'MAIN') {
+      const geo = {
+        lat: req.body?.geo_lat,
+        lng: req.body?.geo_lng,
+        acc: req.body?.geo_acc
+      };
+      const fence = await enforceLoginGeofence(u, geo);
+      if (!fence.allowed) {
+        const _ip = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+        q(
+          `INSERT INTO user_activity_log (username, role_code, app_id, action, page, device_type, ip_address, user_agent, factory_id, session_id, created_at)
+           VALUES ($1,$2,$3,'login_geoblock',$4,$5,$6,$7,$8,$9,NOW())`,
+          [u.username, u.role_code || '', requestedApp || 'web', fence.detail || 'blocked',
+           /mobile|android|iphone|ipad/i.test(String(req.headers['user-agent'] || '')) ? 'mobile' : 'desktop',
+           _ip, String(req.headers['user-agent'] || '').slice(0, 500),
+           String(req.body?.factory_id || ''), String(req.body?.session_id || '')]
+        ).catch(() => {});
+        return res.status(403).json({ ok: false, error: fence.error, geoblock: true });
+      }
+    }
+
     if (requestedApp) {
       const roleCode = String(u.role_code || '').toLowerCase();
       const isAdminLikeLogin = roleCode === 'admin' || roleCode === 'superadmin';
@@ -5696,6 +5865,68 @@ app.post('/api/factories/save', async (req, res) => {
         [name, code, location, is_active ?? true]
       );
     }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Login geofence config for every factory (superadmin only). Powers the settings
+// editor that sets where non-global users may sign in on the MAIN server.
+app.get('/api/factories/geofence', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    if (!actor || !isSuperadminRole(actor)) {
+      return res.status(403).json({ ok: false, error: 'Superadmin access required' });
+    }
+    const rows = await q(
+      `SELECT id, name, code, latitude, longitude,
+              COALESCE(geofence_radius_m, 300) AS geofence_radius_m,
+              COALESCE(geofence_enabled, TRUE) AS geofence_enabled
+         FROM factories
+        WHERE is_active = TRUE
+        ORDER BY id`
+    );
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/factories/geofence — save one factory's geofence (superadmin only).
+app.post('/api/factories/geofence', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    if (!actor || !isSuperadminRole(actor)) {
+      return res.status(403).json({ ok: false, error: 'Superadmin access required' });
+    }
+    const { id } = req.body || {};
+    if (!id) return res.json({ ok: false, error: 'Factory id required' });
+
+    // Blank coordinates clear the fence (NULL); otherwise validate ranges.
+    const rawLat = req.body.latitude;
+    const rawLng = req.body.longitude;
+    const hasLat = rawLat !== '' && rawLat !== null && rawLat !== undefined;
+    const hasLng = rawLng !== '' && rawLng !== null && rawLng !== undefined;
+    let latitude = null;
+    let longitude = null;
+    if (hasLat || hasLng) {
+      latitude = Number(rawLat);
+      longitude = Number(rawLng);
+      if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+          !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+        return res.json({ ok: false, error: 'Latitude must be -90..90 and longitude -180..180.' });
+      }
+    }
+    const radius = Math.max(10, Math.min(50000, parseInt(req.body.geofence_radius_m, 10) || 300));
+    const enabled = req.body.geofence_enabled !== false;
+
+    await q(
+      `UPDATE factories
+          SET latitude=$1, longitude=$2, geofence_radius_m=$3, geofence_enabled=$4, updated_at=NOW()
+        WHERE id=$5`,
+      [latitude, longitude, radius, enabled, id]
+    );
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -18544,7 +18775,7 @@ or_jr_no, item_code, product_name, client_name, plan_qty, 'Normal', 'Completed',
       FROM or_jr_report
       WHERE LOWER(mld_status) IN('completed')
       ${requestFactoryId ? `AND factory_id = $1` : ''}
-      ON CONFLICT(order_no) DO NOTHING
+      ON CONFLICT (order_no, (COALESCE(factory_id, 0))) DO NOTHING
     `, requestFactoryId ? [requestFactoryId] : []);
 
     // Also mark them as completed if they were inserted as 'Pending' by default or if we need to update status separately?
@@ -24651,14 +24882,22 @@ app.get('/api/qc/job-setup', async (req, res) => {
     // Get STD values from mould master
     let std = { std_weight: null, std_cycle_time: null, std_cavity: null };
     if (mould_name) {
+      // Read the canonical Mould Master columns (std_wt_kg / cycle_time / no_of_cav).
+      // These are what the Mould Master edit screen writes; older legacy column
+      // names (article_weight/std_weight/no_of_cavity) hold stale values and must
+      // NOT be read here, or the Supervisor app shows a wrong STD Weight.
+      // Match by mould_number OR mould_name so a coded plan still resolves.
       const mouldRows = await q(
         `SELECT
-           COALESCE(article_weight, std_weight) AS std_weight,
-           COALESCE(cycle_time, std_cycle_time) AS std_cycle_time,
-           COALESCE(no_of_cavity, std_cavity, cavity) AS std_cavity
+           std_wt_kg   AS std_weight,
+           cycle_time  AS std_cycle_time,
+           no_of_cav   AS std_cavity
          FROM moulds
-         WHERE LOWER(TRIM(mould_name)) = LOWER(TRIM($1))
+         WHERE (LOWER(TRIM(mould_name)) = LOWER(TRIM($1))
+                OR LOWER(TRIM(mould_number)) = LOWER(TRIM($1)))
            AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+         ORDER BY (LOWER(TRIM(mould_number)) = LOWER(TRIM($1))) DESC,
+                  std_wt_kg IS NULL ASC
          LIMIT 1`,
         [mould_name, factoryId]
       );

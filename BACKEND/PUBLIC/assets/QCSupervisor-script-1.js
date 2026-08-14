@@ -613,7 +613,10 @@
                 const res = await fetch('/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password, requested_app: 'qc_supervisor_app' })
+                    body: JSON.stringify({
+                        username, password, requested_app: 'qc_supervisor_app',
+                        geo_lat: lastGeo?.lat, geo_lng: lastGeo?.lng, geo_acc: lastGeo?.acc
+                    })
                 });
 
                 const data = await res.json();
