@@ -19,6 +19,16 @@ KEEP_DB_DUMPS="${KEEP_DB_DUMPS:-120}"
 KEEP_UPLOAD_TARS="${KEEP_UPLOAD_TARS:-30}"
 DISK_WARN_PCT="${DISK_WARN_PCT:-85}"
 
+# --- Throttling: keep the backup from starving the live site --------------
+# The dump/gzip/tar/rclone steps compete with the app for CPU, disk I/O, and
+# uplink bandwidth, which shows up as site-wide slowness during backup windows.
+# Run the heavy host-side work at the lowest CPU + idle I/O priority, and cap
+# rclone's upload bandwidth so the VPS uplink stays available for users.
+LOWPRIO=""
+command -v nice   >/dev/null 2>&1 && LOWPRIO="nice -n 19"
+command -v ionice >/dev/null 2>&1 && LOWPRIO="ionice -c3 ${LOWPRIO}"
+RCLONE_BWLIMIT="${RCLONE_BWLIMIT:-8M}"   # cap Drive upload (e.g. 8M = 8 MByte/s); set 0 to disable
+
 DUMP_DIR="$BACKUP_ROOT/dumps"; UPLOAD_DIR="$BACKUP_ROOT/uploads"
 mkdir -p "$DUMP_DIR" "$UPLOAD_DIR"
 TS="$(date +%Y-%m-%d_%H-%M)"
@@ -33,7 +43,7 @@ docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$" || fail "DB contai
 if docker exec "$DB_CONTAINER" sh -eu -c '
        export PGPASSWORD="$POSTGRES_PASSWORD"
        exec pg_dump -U "$POSTGRES_USER" --no-owner --no-acl "${POSTGRES_DB:-$POSTGRES_USER}"
-     ' | gzip -6 > "$DB_FILE"; then
+     ' | $LOWPRIO gzip -6 > "$DB_FILE"; then
   SIZE_KB="$(du -k "$DB_FILE" | cut -f1)"
   [ "${SIZE_KB:-0}" -lt 5 ] && { rm -f "$DB_FILE"; fail "DB dump <5 KB."; }
   log "DB backup OK: $(basename "$DB_FILE") (${SIZE_KB} KB)"
@@ -43,7 +53,7 @@ fi
 
 log "Archiving uploaded files..."
 if docker ps --format '{{.Names}}' | grep -q "^${APP_CONTAINER}$"; then
-  if docker exec "$APP_CONTAINER" sh -c 'cd /app/PUBLIC && tar -czf - uploads 2>/dev/null' > "$UP_FILE" 2>/dev/null; then
+  if $LOWPRIO docker exec "$APP_CONTAINER" sh -c 'cd /app/PUBLIC && tar -czf - uploads 2>/dev/null' > "$UP_FILE" 2>/dev/null; then
     log "Uploads backup OK: $(basename "$UP_FILE") ($(du -k "$UP_FILE" | cut -f1) KB)"
   else log "WARN: uploads archive failed."; rm -f "$UP_FILE"; fi
 else log "WARN: app container not running — skipping uploads."; fi
@@ -60,9 +70,13 @@ rotate "$UPLOAD_DIR" "jms_uploads_*.tar.gz" "$KEEP_UPLOAD_TARS"
 
 if command -v rclone >/dev/null 2>&1 && rclone listremotes 2>/dev/null | grep -q "^${RCLONE_REMOTE}:"; then
   M="$(date +%Y-%m)"
-  log "Uploading to Google Drive (${RCLONE_REMOTE}:${RCLONE_DEST})..."
-  rclone copy "$DB_FILE" "${RCLONE_REMOTE}:${RCLONE_DEST}/db/${M}/" --no-traverse 2>&1 && log "Drive: DB uploaded." || log "WARN: Drive DB upload failed."
-  [ -f "$UP_FILE" ] && { rclone copy "$UP_FILE" "${RCLONE_REMOTE}:${RCLONE_DEST}/uploads/${M}/" --no-traverse 2>&1 && log "Drive: uploads uploaded." || log "WARN: Drive uploads failed."; }
+  # Cap bandwidth + single transfer so the upload doesn't saturate the VPS
+  # uplink and slow the live site. RCLONE_BWLIMIT=0 disables the cap.
+  RC_FLAGS="--no-traverse --transfers 1 --tpslimit 4"
+  [ "${RCLONE_BWLIMIT}" != "0" ] && RC_FLAGS="$RC_FLAGS --bwlimit ${RCLONE_BWLIMIT}"
+  log "Uploading to Google Drive (${RCLONE_REMOTE}:${RCLONE_DEST}, bwlimit=${RCLONE_BWLIMIT})..."
+  $LOWPRIO rclone copy "$DB_FILE" "${RCLONE_REMOTE}:${RCLONE_DEST}/db/${M}/" $RC_FLAGS 2>&1 && log "Drive: DB uploaded." || log "WARN: Drive DB upload failed."
+  [ -f "$UP_FILE" ] && { $LOWPRIO rclone copy "$UP_FILE" "${RCLONE_REMOTE}:${RCLONE_DEST}/uploads/${M}/" $RC_FLAGS 2>&1 && log "Drive: uploads uploaded." || log "WARN: Drive uploads failed."; }
   rclone delete "${RCLONE_REMOTE}:${RCLONE_DEST}/db"      --min-age 35d 2>/dev/null || true
   rclone delete "${RCLONE_REMOTE}:${RCLONE_DEST}/uploads" --min-age 35d 2>/dev/null || true
 else
