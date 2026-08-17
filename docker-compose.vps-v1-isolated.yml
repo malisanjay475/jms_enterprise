@@ -100,9 +100,14 @@ services:
           "require('http').get('http://127.0.0.1:3000/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
         ]
       interval: 10s
-      timeout: 5s
+      # Startup is heavy: the app runs a ~100MB DB backup dump + ERP autosync +
+      # migrations at boot, which can briefly delay even the static /health route.
+      # A tight probe here flags a healthy container as unhealthy and triggers a
+      # false rollback (v1.39.4 deploy). Give the storm room: longer start_period
+      # and a 10s per-probe timeout so the deploy waits it out instead of bailing.
+      timeout: 10s
       retries: 12
-      start_period: 90s
+      start_period: 180s
     networks: [jms_v1_net]
     # Routing for the host-level Traefik reverse proxy (project traefik-nru0).
     # Traefik runs with providers.docker + exposedbydefault=false, so the app is

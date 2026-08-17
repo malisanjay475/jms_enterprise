@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.39.4",
+  "latest": "1.39.5",
   "versions": [
+    {
+      "version": "1.39.5",
+      "date": "2026-08-17",
+      "title": "Packing Settings fixed + steadier deployments",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "Packing Settings now loads the Assembly Lines table and the Add/Edit Line form works — adding or editing a line saves correctly instead of showing an error." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "improvement", "text": "Deployments now wait longer for the app to finish starting before health checks run, so a busy start-up no longer triggers a false rollback." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.39.4",
       "date": "2026-08-17",
