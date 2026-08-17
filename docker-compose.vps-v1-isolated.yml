@@ -31,6 +31,24 @@ services:
       - "effective_io_concurrency=${PG_EFFECTIVE_IO_CONCURRENCY:-200}"
       - "-c"
       - "max_connections=${PG_MAX_CONNECTIONS:-100}"
+      # Hard backstop against a stalled/abandoned transaction holding locks and
+      # freezing the app (root cause of the 2026-08-17 outage: a transaction sat
+      # "idle in transaction" for 14 min because the event loop was starved).
+      # Postgres auto-terminates any session idle-in-transaction past this. Set
+      # at the server level so it protects EVERY connection, independent of the
+      # app pool config or a manual `ALTER DATABASE`. 120000ms = 2 min.
+      - "-c"
+      - "idle_in_transaction_session_timeout=${PG_IDLE_IN_TXN_TIMEOUT:-120000}"
+      # Load pg_stat_statements so we can rank the slowest queries app-wide and
+      # index/optimize the real offenders instead of guessing per-page. Requires
+      # `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;` once (the app does this
+      # on boot). Takes effect on DB container recreate.
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+      - "-c"
+      - "pg_stat_statements.max=${PG_SS_MAX:-5000}"
+      - "-c"
+      - "pg_stat_statements.track=top"
     environment:
       POSTGRES_USER: ${DB_USER:-jms_v1}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-JmsV1DbAuto9x4k2m7n1q5w8r}
