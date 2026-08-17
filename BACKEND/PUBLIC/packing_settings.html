@@ -43,7 +43,7 @@
     </div>
 
     <!-- Modal (native overlay — the app does not ship bootstrap JS) -->
-    <div id="lineModal" class="modal"
+    <div id="lineModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-hidden="true"
         style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1100; justify-content:center; align-items:center;">
         <div
             style="background:var(--bg-card, #fff); color:inherit; padding:22px; border-radius:10px; width:480px; max-width:96%; max-height:90vh; overflow:auto;">
@@ -84,14 +84,28 @@
     <script>
         let isEdit = false;
         const lineModal = () => document.getElementById('lineModal');
-        function showModal() { lineModal().style.display = 'flex'; }
-        function closeModal() { lineModal().style.display = 'none'; }
+        function showModal() {
+            const m = lineModal();
+            m.style.display = 'flex';
+            m.setAttribute('aria-hidden', 'false');
+            // Move focus into the dialog (first enabled field)
+            const firstField = m.querySelector('input:not([disabled])');
+            if (firstField) firstField.focus();
+        }
+        function closeModal() {
+            const m = lineModal();
+            m.style.display = 'none';
+            m.setAttribute('aria-hidden', 'true');
+        }
+        function isModalOpen() { return lineModal().style.display !== 'none'; }
 
         document.addEventListener('DOMContentLoaded', () => {
             JPSMS.auth.requireAuth();
             JPSMS.renderShell('packing');
             // Close when clicking the dark backdrop (but not the dialog itself)
             lineModal().addEventListener('click', (e) => { if (e.target === lineModal()) closeModal(); });
+            // Escape closes the dialog
+            document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isModalOpen()) closeModal(); });
             loadLines();
         });
 
