@@ -128,12 +128,13 @@
                     </tr>
                 `).join('');
             } catch (e) {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="4" class="text-center text-danger py-4">
-                            Failed to load assembly lines. ${e.message || ''}
-                        </td>
-                    </tr>`;
+                const row = document.createElement('tr');
+                const cell = document.createElement('td');
+                cell.colSpan = 4;
+                cell.className = 'text-center text-danger py-4';
+                cell.textContent = `Failed to load assembly lines. ${e && e.message ? e.message : ''}`;
+                row.appendChild(cell);
+                tbody.replaceChildren(row);
                 JPSMS.toast(e.message, 'error');
             }
         }
