@@ -16,8 +16,16 @@
     {
       "version": "1.39.5",
       "date": "2026-08-17",
-      "title": "Steadier production deployments",
+      "title": "Packing Settings fixed + steadier deployments",
       "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "Packing Settings now loads the Assembly Lines table and the Add/Edit Line form works — adding or editing a line saves correctly instead of showing an error." }
+          ]
+        },
         {
           "app": "all",
           "label": "Platform",
