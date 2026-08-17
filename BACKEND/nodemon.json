@@ -1,0 +1,15 @@
+{
+  "//": "Auto-restart the backend on code changes for local dev (npm run dev). Frontend files (PUBLIC/*.html, assets) do NOT need a restart — just hard-refresh the browser (Ctrl+F5). So we ignore them here to avoid pointless restarts.",
+  "watch": ["server.js", "src", "routes", "services", "middleware", "utils"],
+  "ext": "js,json",
+  "ignore": [
+    "PUBLIC/**",
+    "uploads/**",
+    "logs/**",
+    "tmp/**",
+    "node_modules/**",
+    "tests/**",
+    "**/*.test.js"
+  ],
+  "delay": 800
+}
