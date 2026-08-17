@@ -4573,13 +4573,24 @@ async function initializeLegacyRuntime() {
 
     // Non-blocking index creation (resilient — ownership/permission errors are non-fatal)
     await qIdx(`
+            -- Query performance telemetry. Harmless if the shared_preload_libraries
+            -- entry isn't set yet; it starts collecting after the DB is recreated.
+            CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
             CREATE INDEX IF NOT EXISTS idx_plan_board_machine ON plan_board(machine);
             CREATE INDEX IF NOT EXISTS idx_plan_board_status ON plan_board(status);
             CREATE INDEX IF NOT EXISTS idx_std_actual_plan_id ON std_actual(plan_id);
             CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
             -- NEW MASTER PLAN OPTIMIZATION INDEXES
-            CREATE INDEX IF NOT EXISTS idx_dpr_hourly_order ON dpr_hourly(order_no);
+            -- dpr_hourly is a hot, sync-written table. It historically carried
+            -- DUPLICATE indexes (idx_dpr_hourly_order == idx_dpr_hourly_order_no,
+            -- idx_dpr_hourly_factory == idx_dpr_hourly_factory_id), which doubled
+            -- write/sync cost for zero read benefit. Standardize on the *_no / *_id
+            -- names, ensure they exist, and drop the legacy twins. (2026-08-17 perf)
+            CREATE INDEX IF NOT EXISTS idx_dpr_hourly_order_no ON dpr_hourly(order_no);
+            CREATE INDEX IF NOT EXISTS idx_dpr_hourly_factory_id ON dpr_hourly(factory_id);
+            DROP INDEX IF EXISTS idx_dpr_hourly_order;
+            DROP INDEX IF EXISTS idx_dpr_hourly_factory;
             CREATE INDEX IF NOT EXISTS idx_or_jr_report_no ON or_jr_report(or_jr_no);
             CREATE INDEX IF NOT EXISTS idx_moulds_mould_name ON moulds(mould_name);
             CREATE INDEX IF NOT EXISTS idx_or_jr_report_no_trim ON or_jr_report(TRIM(or_jr_no));
