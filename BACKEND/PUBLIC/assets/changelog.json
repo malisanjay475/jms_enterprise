@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.39.4",
+  "latest": "1.39.5",
   "versions": [
+    {
+      "version": "1.39.5",
+      "date": "2026-08-17",
+      "title": "Steadier production deployments",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "improvement", "text": "Deployments now wait longer for the app to finish starting before health checks run, so a busy start-up no longer triggers a false rollback." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.39.4",
       "date": "2026-08-17",
