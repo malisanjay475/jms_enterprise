@@ -221,7 +221,13 @@ let _timer = null;
 function start() {
   if (_timer) return; // already started
   console.log(`[Backup] Service started. Interval: ${INTERVAL_MS / 60000} min. Max dumps: ${MAX_BACKUPS}. Dir: ${BACKUP_DIR}`);
-  runBackup(); // run immediately on start
+  // Do NOT run a backup immediately: a pg_dump at boot holds read locks on every
+  // table, which blocks the concurrent boot-time schema DDL (ALTER TABLE …) and
+  // can deadlock startup so the HTTP server never binds. Delay the first dump
+  // past the boot window; the interval timer then carries it from there.
+  const firstDelay = Math.min(INTERVAL_MS, 60000);
+  const first = setTimeout(runBackup, firstDelay);
+  if (first.unref) first.unref();
   _timer = setInterval(runBackup, INTERVAL_MS);
   if (_timer.unref) _timer.unref(); // don't keep process alive for backup alone
 }
