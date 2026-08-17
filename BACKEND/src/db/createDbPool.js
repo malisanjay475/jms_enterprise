@@ -27,22 +27,24 @@ function createDbPool(config) {
     query_timeout: 300000,
     // Never let an abandoned open transaction hold locks indefinitely.
     idle_in_transaction_session_timeout: 120000,
+
+    // Pin every DB session to IST via the Postgres startup `options` packet, so
+    // timestamptz values read/write in India time regardless of the server's
+    // postgresql.conf timezone. MAIN sets PGTZ via Docker, but LOCAL Windows
+    // Postgres installs default their `timezone` GUC to the machine's zone at
+    // install time — so a mis-set box returns e.g. -07 offsets.
+    //
+    // This replaces a previous `pool.on('connect')` that ran an un-awaited
+    // `SET TIME ZONE` query: that query raced the first real query on each new
+    // connection, producing "Calling client.query() when the client is already
+    // executing a query" deprecation warnings and, under load, genuine
+    // concurrent-query state on one client. Setting it as a startup parameter
+    // applies the timezone BEFORE any query runs — no extra query, no race.
+    options: '-c timezone=Asia/Kolkata',
   });
 
   pool.on('error', (error) => {
     console.error('[DB] Unexpected pool error:', error.message);
-  });
-
-  // Pin every DB session to IST so timestamptz values read/write in India time
-  // regardless of the server's postgresql.conf timezone. MAIN sets PGTZ via Docker,
-  // but the LOCAL Windows Postgres installs default their `timezone` GUC to the
-  // machine's zone at install time — so a mis-set box returns e.g. -07 offsets.
-  // Setting it per-connection makes the app's timezone correct even when the
-  // underlying Postgres config is wrong, and is harmless where it's already IST.
-  pool.on('connect', (client) => {
-    client.query("SET TIME ZONE 'Asia/Kolkata'").catch((error) => {
-      console.error('[DB] Failed to pin session timezone to Asia/Kolkata:', error.message);
-    });
   });
 
   return pool;
