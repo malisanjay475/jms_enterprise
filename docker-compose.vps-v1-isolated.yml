@@ -9,6 +9,28 @@ services:
   db:
     image: postgres:14-alpine
     restart: unless-stopped
+    # Performance tuning — stock Postgres ships with tiny defaults (128MB
+    # shared_buffers, 4MB work_mem) that make every query slow under load.
+    # Values are conservative and safe for a ~2GB VPS; raise the PG_* env vars
+    # on a bigger box (rule of thumb: shared_buffers ≈ 25% RAM,
+    # effective_cache_size ≈ 50-75% RAM). random_page_cost/io_concurrency are
+    # set for SSD storage.
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=${PG_SHARED_BUFFERS:-256MB}"
+      - "-c"
+      - "effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-768MB}"
+      - "-c"
+      - "work_mem=${PG_WORK_MEM:-8MB}"
+      - "-c"
+      - "maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-128MB}"
+      - "-c"
+      - "random_page_cost=${PG_RANDOM_PAGE_COST:-1.1}"
+      - "-c"
+      - "effective_io_concurrency=${PG_EFFECTIVE_IO_CONCURRENCY:-200}"
+      - "-c"
+      - "max_connections=${PG_MAX_CONNECTIONS:-100}"
     environment:
       POSTGRES_USER: ${DB_USER:-jms_v1}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-JmsV1DbAuto9x4k2m7n1q5w8r}

@@ -4777,6 +4777,12 @@ async function initializeLegacyRuntime() {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            INSERT INTO assembly_lines (line_id, line_name)
+            SELECT DISTINCT table_id, table_id
+            FROM assembly_plans
+            WHERE table_id IS NOT NULL
+            ON CONFLICT (line_id) DO NOTHING;
+
             CREATE TABLE IF NOT EXISTS shift_teams (
                 id SERIAL PRIMARY KEY,
                 line TEXT NOT NULL,
