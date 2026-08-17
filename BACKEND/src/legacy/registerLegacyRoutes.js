@@ -4770,6 +4770,13 @@ async function initializeLegacyRuntime() {
                 created_by TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS assembly_lines (
+                line_id TEXT PRIMARY KEY,
+                line_name TEXT,
+                scanner_config TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS shift_teams (
                 id SERIAL PRIMARY KEY,
                 line TEXT NOT NULL,
