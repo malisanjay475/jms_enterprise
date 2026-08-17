@@ -4535,8 +4535,22 @@ async function waitForDb(pool, retries = 30, delay = 2000) {
   throw new Error('[DB] Could not connect after multiple retries.');
 }
 
+// Fixed advisory-lock key that serializes the legacy DDL bootstrap below across
+// every PM2 cluster worker and container instance. Distinct from the migrations
+// lock (see runMigrations). Without it, all workers run the same idempotent
+// CREATE TABLE / ALTER block at once and deadlock competing for ACCESS EXCLUSIVE
+// locks (notably `ALTER TABLE factories`), so boot never reaches app.listen()
+// and the site serves a Traefik 404. One worker runs the DDL while the rest wait,
+// then find everything present and finish fast.
+const LEGACY_INIT_LOCK_KEY = 4715132010;
+
 async function initializeLegacyRuntime() {
+  let __initLockClient = null;
   try {
+    // Serialize the DDL bootstrap across all workers/instances (see key comment).
+    __initLockClient = await pool.connect();
+    await __initLockClient.query('SELECT pg_advisory_lock($1)', [LEGACY_INIT_LOCK_KEY]);
+
     // [FIX] Wait for DB before anything else
     await waitForDb(pool);
     await bootstrapFreshCoreTables();
@@ -4776,6 +4790,12 @@ async function initializeLegacyRuntime() {
                 scanner_config TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            INSERT INTO assembly_lines (line_id, line_name)
+            SELECT DISTINCT table_id, table_id
+            FROM assembly_plans
+            WHERE table_id IS NOT NULL
+            ON CONFLICT (line_id) DO NOTHING;
 
             CREATE TABLE IF NOT EXISTS shift_teams (
                 id SERIAL PRIMARY KEY,
@@ -5582,6 +5602,18 @@ async function initializeLegacyRuntime() {
     global.__JMS_DB_INIT_OK = true;
   } catch (e) {
     console.error('[DB] Indexing warning:', e.message);
+  } finally {
+    // Always release the DDL advisory lock so the next worker can proceed, even
+    // if init errored. process.exit below would drop the connection anyway, but
+    // releasing explicitly lets waiting workers continue immediately.
+    if (__initLockClient) {
+      try {
+        await __initLockClient.query('SELECT pg_advisory_unlock($1)', [LEGACY_INIT_LOCK_KEY]);
+      } catch (err) {
+        console.error('[DB] legacy init advisory unlock failed:', err.message);
+      }
+      try { __initLockClient.release(); } catch (_) {}
+    }
   }
 
   if (!global.__JMS_DB_INIT_OK) {
@@ -16760,6 +16792,15 @@ async function runErpAutoSyncCycle(trigger = 'auto') {
 function startErpAutoSync() {
   if (!isMainServer()) {
     console.log('[ERP AutoSync] skipped — not MAIN server.');
+    return;
+  }
+  // Run the scheduler in ONE PM2 worker only. NODE_APP_INSTANCE is '0' on the
+  // first cluster worker and unset under plain `node`. Running it in all workers
+  // meant N concurrent autosync cycles reading `factories`, whose locks helped
+  // deadlock boot-time DDL.
+  const inst = process.env.NODE_APP_INSTANCE;
+  if (!(inst === undefined || inst === '' || inst === '0')) {
+    console.log(`[ERP AutoSync] skipped on worker ${inst} — runs on primary worker only.`);
     return;
   }
   if (!ERP_AUTOSYNC_ENABLED) {

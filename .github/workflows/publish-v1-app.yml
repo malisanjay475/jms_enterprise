@@ -240,7 +240,16 @@ jobs:
             cd "$DEPLOY_PATH"
             git fetch --prune origin
             git checkout "$DEPLOY_BRANCH"
-            git pull --ff-only origin "$DEPLOY_BRANCH"
+            # The VPS working tree sometimes carries local edits to tracked files
+            # (compose/backup scripts), which makes `git pull --ff-only` abort and
+            # silently blocks every deploy. Stash anything dirty (recoverable via
+            # `git stash list`) then hard-sync to origin so the tree always matches
+            # the deployed branch and the deploy is idempotent.
+            if [ -n "$(git status --porcelain)" ]; then
+              echo "[deploy] Working tree dirty — stashing local changes before sync"
+              git stash push -u -m "auto-stash before deploy $(date -u +%FT%TZ)" || true
+            fi
+            git reset --hard "origin/$DEPLOY_BRANCH"
             bash scripts/vps-safe-deploy.sh
 
       - name: Deploy production over SSH (key)
@@ -289,5 +298,14 @@ jobs:
             cd "$DEPLOY_PATH"
             git fetch --prune origin
             git checkout "$DEPLOY_BRANCH"
-            git pull --ff-only origin "$DEPLOY_BRANCH"
+            # The VPS working tree sometimes carries local edits to tracked files
+            # (compose/backup scripts), which makes `git pull --ff-only` abort and
+            # silently blocks every deploy. Stash anything dirty (recoverable via
+            # `git stash list`) then hard-sync to origin so the tree always matches
+            # the deployed branch and the deploy is idempotent.
+            if [ -n "$(git status --porcelain)" ]; then
+              echo "[deploy] Working tree dirty — stashing local changes before sync"
+              git stash push -u -m "auto-stash before deploy $(date -u +%FT%TZ)" || true
+            fi
+            git reset --hard "origin/$DEPLOY_BRANCH"
             bash scripts/vps-safe-deploy.sh
