@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.39.3",
+  "latest": "1.39.4",
   "versions": [
+    {
+      "version": "1.39.4",
+      "date": "2026-08-17",
+      "title": "Packing Settings table now loads",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "The Assembly Lines table on Packing Settings now loads correctly, and shows a clear message when no lines have been added yet." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.39.3",
       "date": "2026-08-14",
