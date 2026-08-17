@@ -11,8 +11,76 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.38.0",
+  "latest": "1.39.3",
   "versions": [
+    {
+      "version": "1.39.3",
+      "date": "2026-08-14",
+      "title": "Login reliability & security hardening",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-check",
+          "changes": [
+            { "type": "fix", "text": "Admin login is more reliable, and an old sign-in method that could bypass the standard security checks has been removed." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.39.2",
+      "date": "2026-08-14",
+      "title": "Correct STD Weight in Supervisor Job Setup",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "fix", "text": "The Job Setup screen now shows the correct STD Weight, Cycle Time and Cavity from Mould Master instead of an older stored value." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Hardened login: removed an old duplicate sign-in path and made password checking consistent across the app." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.39.1",
+      "date": "2026-08-14",
+      "title": "Shift split in Machine Date-Wise History",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-bar-chart",
+          "changes": [
+            { "type": "feat", "text": "The Machine Date-Wise History report has a new 'Split by Day / Night' option that breaks each date into separate Day and Night shift rows." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.39.0",
+      "date": "2026-08-13",
+      "title": "New report: Machine Date-Wise History",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-bar-chart",
+          "changes": [
+            { "type": "feat", "text": "Reports has a new 'Machine Date-Wise History' report: pick any machine and see, date by date, which mould(s) ran on it with good and reject quantity. It defaults to the last 2 months, or set your own From/To dates." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.38.0",
       "date": "2026-08-13",

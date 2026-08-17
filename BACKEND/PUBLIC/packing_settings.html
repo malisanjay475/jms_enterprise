@@ -95,10 +95,20 @@
         });
 
         async function loadLines() {
+            const tbody = document.getElementById('linesTable');
             try {
                 const res = await JPSMS.api.get('/assembly/lines');
-                const tbody = document.getElementById('linesTable');
-                tbody.innerHTML = res.data.map(l => `
+                const lines = (res && Array.isArray(res.data)) ? res.data : [];
+                if (!lines.length) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="4" class="text-center text-gray-400 py-4">
+                                No assembly lines configured yet. Click "Add New Line" to create one.
+                            </td>
+                        </tr>`;
+                    return;
+                }
+                tbody.innerHTML = lines.map(l => `
                     <tr>
                         <td class="font-mono font-bold">${l.line_id}</td>
                         <td>${l.line_name}</td>
@@ -117,7 +127,15 @@
                         </td>
                     </tr>
                 `).join('');
-            } catch (e) { JPSMS.toast(e.message, 'error'); }
+            } catch (e) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4" class="text-center text-danger py-4">
+                            Failed to load assembly lines. ${e.message || ''}
+                        </td>
+                    </tr>`;
+                JPSMS.toast(e.message, 'error');
+            }
         }
 
         function openModal() {

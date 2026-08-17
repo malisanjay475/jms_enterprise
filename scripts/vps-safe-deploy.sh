@@ -187,14 +187,12 @@ fi
 
 backup_before_deploy
 
-$DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" pull app || true
-
-# Fail fast if the target image is neither freshly pulled nor already present
-# locally, instead of silently deploying a stale cached image. This is what a
-# broken/absent GHCR auth looks like: the pull above fails (swallowed by
-# `|| true`) and compose would otherwise start whatever old image is cached.
-if ! docker image inspect "$APP_IMAGE" >/dev/null 2>&1; then
-  echo "[deploy] ERROR: target image not available locally after pull: $APP_IMAGE" >&2
+# Pull the target image. A failed pull is FATAL — never fall back to whatever
+# image is cached locally. APP_IMAGE can be a mutable tag (reused sha / latest),
+# so a stale image under the same tag could otherwise be started silently,
+# deploying old code. A broken or absent GHCR auth surfaces here.
+if ! $DC -p "$DEPLOY_PROJECT" -f "$DEPLOY_COMPOSE_FILE" pull app; then
+  echo "[deploy] ERROR: failed to pull app image: $APP_IMAGE" >&2
   echo "[deploy] Check GHCR authentication — set the GHCR_PULL_TOKEN secret (PAT with read:packages)." >&2
   exit 1
 fi
