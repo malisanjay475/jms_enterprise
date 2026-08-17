@@ -31,6 +31,14 @@ services:
       - "effective_io_concurrency=${PG_EFFECTIVE_IO_CONCURRENCY:-200}"
       - "-c"
       - "max_connections=${PG_MAX_CONNECTIONS:-100}"
+      # Hard backstop against a stalled/abandoned transaction holding locks and
+      # freezing the app (root cause of the 2026-08-17 outage: a transaction sat
+      # "idle in transaction" for 14 min because the event loop was starved).
+      # Postgres auto-terminates any session idle-in-transaction past this. Set
+      # at the server level so it protects EVERY connection, independent of the
+      # app pool config or a manual `ALTER DATABASE`. 120000ms = 2 min.
+      - "-c"
+      - "idle_in_transaction_session_timeout=${PG_IDLE_IN_TXN_TIMEOUT:-120000}"
     environment:
       POSTGRES_USER: ${DB_USER:-jms_v1}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-JmsV1DbAuto9x4k2m7n1q5w8r}
