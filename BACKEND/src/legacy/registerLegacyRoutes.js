@@ -4808,6 +4808,27 @@ async function initializeLegacyRuntime() {
             WHERE table_id IS NOT NULL
             ON CONFLICT (line_id) DO NOTHING;
 
+            -- Columns the assembly routes rely on (added by older side-scripts;
+            -- ensure they exist so sync change-detection and scanning work).
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS scanned_qty INTEGER DEFAULT 0;
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS ean_number TEXT;
+
+            -- Scan log. NOTE: no serial FK to assembly_plans(id) — the serial id
+            -- diverges across MAIN/LOCAL under sync, so scans link to plans by the
+            -- stable plan_sync_id instead (resolved to a local plan_id on each
+            -- server). [[project_sync_conflict_natural_key]]
+            CREATE TABLE IF NOT EXISTS assembly_scans (
+                id SERIAL PRIMARY KEY,
+                plan_id INTEGER,
+                plan_sync_id UUID,
+                scanned_ean TEXT,
+                is_match BOOLEAN DEFAULT FALSE,
+                timestamp TIMESTAMPTZ DEFAULT NOW()
+            );
+            ALTER TABLE assembly_scans ADD COLUMN IF NOT EXISTS plan_sync_id UUID;
+            ALTER TABLE assembly_scans DROP CONSTRAINT IF EXISTS fk_plan;
+
             CREATE TABLE IF NOT EXISTS shift_teams (
                 id SERIAL PRIMARY KEY,
                 line TEXT NOT NULL,
@@ -26500,8 +26521,8 @@ table_id = $1, item_name = $2, plan_qty = $3, machine = $4,
             INSERT INTO assembly_plans(
     table_id, item_name, plan_qty, machine,
     start_time, duration_min, delay_min, end_time, ean_number,
-    created_by, created_at, updated_at
-  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+    status, created_by, created_at, updated_at
+  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PLANNED', $10, NOW(), NOW())
     `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, created_by]);
     }
 
@@ -26560,7 +26581,7 @@ app.get('/api/assembly/active', async (req, res) => {
 SELECT *,
   EXTRACT(EPOCH FROM(NOW() - COALESCE(updated_at, created_at))) as idle_seconds
           FROM assembly_plans
-WHERE(status IN('PLANNED', 'RUNNING') OR start_time:: date >= CURRENT_DATE)
+WHERE(UPPER(status) IN('PLANNED', 'RUNNING') OR start_time:: date >= CURRENT_DATE)
           ORDER BY table_id, start_time ASC
   `;
 
@@ -26653,7 +26674,11 @@ app.post('/api/assembly/scan', async (req, res) => {
     const isMatch = (targetEAN === cleanEAN);
 
     // 4. Log Scan (Store FULL STRING to track uniqueness)
-    await q(`INSERT INTO assembly_scans(plan_id, scanned_ean, is_match) VALUES($1, $2, $3)`, [plan_id, fullString, isMatch]);
+    // Store the plan's stable sync_id alongside the local plan_id so the scan's
+    // link to its plan survives cross-server sync (serial plan_id diverges).
+    await q(`INSERT INTO assembly_scans(plan_id, plan_sync_id, scanned_ean, is_match)
+             VALUES($1, (SELECT sync_id FROM assembly_plans WHERE id = $1), $2, $3)`,
+      [plan_id, fullString, isMatch]);
 
     // Broadcast Scan Event
     broadcastEvent('scan', { plan_id, table_id: plan.table_id, match: isMatch, unique_id: uniqueId });

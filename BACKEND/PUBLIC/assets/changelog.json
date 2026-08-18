@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.39.6",
+  "latest": "1.39.7",
   "versions": [
+    {
+      "version": "1.39.7",
+      "date": "2026-08-18",
+      "title": "Assembly plans no longer disappear",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "Assembly plans you create in Packing now stay put and remain visible until completed, instead of being removed when the factory server syncs with the main server." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.39.6",
       "date": "2026-08-17",
