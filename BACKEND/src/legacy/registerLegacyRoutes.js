@@ -26679,8 +26679,10 @@ app.get('/api/assembly/alerts', (req, res) => {
 // Used by the browser scan route (/api/assembly/scan) AND the headless device
 // route (/api/assembly/device-scan) so both behave identically.
 // Returns { ok, match?, new_qty?, wrong_barcode?, error? }.
-async function recordAssemblyScan(plan_id, ean) {
-  // --- UNIQUE BARCODE / QR LOGIC ---
+// Parse a scanned barcode into its parts. Handles unique-QR forms where a
+// stable EAN is followed by a per-unit id (via NUL or '-'): returns the EAN
+// used for matching plus the full string stored for de-duplication.
+function parseScanEan(ean) {
   let fullString = String(ean || '').trim();
   let cleanEAN = fullString;
   let uniqueId = null;
@@ -26695,6 +26697,13 @@ async function recordAssemblyScan(plan_id, ean) {
     cleanEAN = parts[0]; // Real EAN for matching
     uniqueId = parts[1]; // Timestamp/ID
   }
+
+  return { fullString, cleanEAN, uniqueId };
+}
+
+async function recordAssemblyScan(plan_id, ean) {
+  // --- UNIQUE BARCODE / QR LOGIC ---
+  const { fullString, cleanEAN, uniqueId } = parseScanEan(ean);
 
   // 1. DUPLICATE CHECK (Prevent double scanning same QR)
   // Only check if it's a Unique QR (has uniqueId)
@@ -26764,16 +26773,17 @@ async function recordAssemblyScan(plan_id, ean) {
   return { ok: true, match: isMatch, new_qty: newQty, wrong_barcode: !isMatch, table_id: plan.table_id };
 }
 
-// Resolve the "current" plan for a table: newest RUNNING plan, else newest
-// active plan. Mirrors the bridge's "newest RUNNING plan per table" rule.
-async function resolveActivePlanForTable(table_id) {
+// Resolve which plan on a table a scanned barcode belongs to, by matching the
+// product EAN. A headless scanner has no operator to pick a plan, so the
+// scanned product itself selects the plan. Prefer a RUNNING plan (case-
+// insensitive), else the newest by start_time.
+async function resolvePlanForTableByEan(table_id, cleanEAN) {
   const plans = await q(`
     SELECT * FROM assembly_plans
-    WHERE table_id = $1
-      AND (status IN ('PLANNED', 'RUNNING') OR start_time::date >= CURRENT_DATE)
-    ORDER BY (status = 'RUNNING') DESC, start_time DESC
+    WHERE table_id = $1 AND TRIM(ean_number) = $2
+    ORDER BY (UPPER(COALESCE(status, '')) = 'RUNNING') DESC, start_time DESC
     LIMIT 1
-  `, [table_id]);
+  `, [table_id, String(cleanEAN || '').trim()]);
   return plans.length ? plans[0] : null;
 }
 
@@ -26805,8 +26815,28 @@ app.post('/api/assembly/device-scan', async (req, res) => {
     if (!table_id) return res.status(400).json({ ok: false, error: 'table_id required' });
     if (!String(ean || '').trim()) return res.status(400).json({ ok: false, error: 'ean required' });
 
-    const plan = await resolveActivePlanForTable(table_id);
-    if (!plan) return res.json({ ok: false, error: `No active plan for ${table_id}` });
+    // The scanned product picks the plan (headless: no operator selection).
+    const { cleanEAN } = parseScanEan(ean);
+    const plan = await resolvePlanForTableByEan(table_id, cleanEAN);
+
+    if (!plan) {
+      // Unknown/unexpected product for this table — no plan expects this EAN.
+      // Surface it as an alert so a supervisor screen can flag it, but there is
+      // nothing to count against.
+      const alertObj = {
+        id: Date.now(),
+        table_id,
+        plan_id: null,
+        ean: cleanEAN,
+        expected: null,
+        type: 'UNKNOWN_BARCODE',
+        timestamp: Date.now()
+      };
+      ASSEMBLY_ALERTS.push(alertObj);
+      broadcastEvent('alert', alertObj);
+      if (ASSEMBLY_ALERTS.length > 50) ASSEMBLY_ALERTS.shift();
+      return res.json({ ok: false, match: false, error: `No plan on ${table_id} expects barcode ${cleanEAN}`, table_id });
+    }
 
     const result = await recordAssemblyScan(plan.id, ean);
     // Include plan_id so the device/log can show which plan it hit.
