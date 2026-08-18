@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.41.1",
+  "latest": "1.42.0",
   "versions": [
+    {
+      "version": "1.42.0",
+      "date": "2026-08-18",
+      "title": "Packing scanners count against the right job automatically",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "A packing scanner now counts each scan against the job that expects that product automatically, so a fixed scanner keeps working with no page open and no job to pick. An unexpected barcode is flagged instead of counted." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.41.1",
       "date": "2026-08-18",
