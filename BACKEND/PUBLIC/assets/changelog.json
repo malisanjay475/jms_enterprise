@@ -11,19 +11,20 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.39.8",
+  "latest": "1.40.0",
   "versions": [
     {
-      "version": "1.39.8",
+      "version": "1.40.0",
       "date": "2026-08-18",
-      "title": "Client & Job Card on packing plans",
+      "title": "Packing scanners stay connected on their own",
       "modules": [
         {
           "app": "packing",
           "label": "Packing",
           "icon": "bi-box2-fill",
           "changes": [
-            { "type": "feat", "text": "Packing plans now capture a Client Name and Job Card No., shown on the Packing Dashboard cards and the planning timeline." }
+            { "type": "feat", "text": "Packing barcode scanners now keep working even when the scanning page is closed — the scanner sends each scan straight to the server and counts update on their own." },
+            { "type": "improvement", "text": "A scanner counts against the table's current running plan automatically, so there is nothing to reconnect or re-select after the page is reopened." }
           ]
         }
       ]
