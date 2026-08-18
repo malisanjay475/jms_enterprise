@@ -440,6 +440,8 @@
                             <div>
                                 <div class="table-name">${p.table_id}</div>
                                 <div class="item-name">${p.item_name}</div>
+                                <div class="client-name" style="font-size:0.8rem; opacity:0.85">${p.client_name || ''}</div>
+                                <div class="jobcard-no" style="font-size:0.75rem; opacity:0.7">${p.job_card_no ? 'JC: ' + p.job_card_no : ''}</div>
                             </div>
                             <div class="status-pill ${pillClass}">
                                 <span class="lbl-status">${statusText}</span> <br>
@@ -485,6 +487,11 @@
 
                     const itemEl = card.querySelector('.item-name');
                     if (itemEl.textContent !== p.item_name) itemEl.textContent = p.item_name;
+
+                    const clientEl = card.querySelector('.client-name');
+                    if (clientEl) clientEl.textContent = p.client_name || '';
+                    const jcEl = card.querySelector('.jobcard-no');
+                    if (jcEl) jcEl.textContent = p.job_card_no ? 'JC: ' + p.job_card_no : '';
                 }
             });
 
