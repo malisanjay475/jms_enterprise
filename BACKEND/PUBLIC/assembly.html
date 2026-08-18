@@ -212,6 +212,16 @@
                 </div>
 
                 <div class="form-group">
+                    <label class="form-label">Client Name</label>
+                    <input id="p_client" class="form-control" placeholder="Enter Client Name">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Job Card No.</label>
+                    <input id="p_jobcard" class="form-control" placeholder="Enter Job Card No.">
+                </div>
+
+                <div class="form-group">
                     <label class="form-label">No of Pieces</label>
                     <input id="p_qty" type="number" class="form-control">
                 </div>
@@ -402,7 +412,10 @@
                         // Bind Full Object for Edit
                         const planData = JSON.stringify(p).replace(/"/g, '&quot;');
                         bar.onclick = (e) => { e.stopPropagation(); editPlan(p); };
-                        bar.title = `${p.item_name} (${p.plan_qty})\n${start.toLocaleTimeString()} - ${end.toLocaleTimeString()}`;
+                        bar.title = `${p.item_name} (${p.plan_qty})` +
+                            `${p.client_name ? '\nClient: ' + p.client_name : ''}` +
+                            `${p.job_card_no ? '\nJC: ' + p.job_card_no : ''}` +
+                            `\n${start.toLocaleTimeString()} - ${end.toLocaleTimeString()}`;
                         row.appendChild(bar);
                     }
                 });
@@ -420,6 +433,8 @@
             // Reset
             document.getElementById('p_id').value = '';
             document.getElementById('p_item').value = '';
+            document.getElementById('p_client').value = '';
+            document.getElementById('p_jobcard').value = '';
             document.getElementById('p_qty').value = '';
             document.getElementById('p_ean').value = '';
             document.getElementById('p_machine').value = '';
@@ -447,6 +462,8 @@
 
             document.getElementById('p_id').value = p.id;
             document.getElementById('p_item').value = p.item_name;
+            document.getElementById('p_client').value = p.client_name || '';
+            document.getElementById('p_jobcard').value = p.job_card_no || '';
             document.getElementById('p_qty').value = p.plan_qty;
             document.getElementById('p_ean').value = p.ean_number || '';
             document.getElementById('p_machine').value = p.machine || '';
@@ -485,6 +502,8 @@
                 id: document.getElementById('p_id').value || null,
                 table_id: document.getElementById('p_table_id').value,
                 item_name: document.getElementById('p_item').value,
+                client_name: document.getElementById('p_client').value,
+                job_card_no: document.getElementById('p_jobcard').value,
                 plan_qty: parseInt(document.getElementById('p_qty').value),
                 ean_number: document.getElementById('p_ean').value,
                 machine: document.getElementById('p_machine').value, // Optional text

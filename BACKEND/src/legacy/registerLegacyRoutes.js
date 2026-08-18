@@ -4813,6 +4813,8 @@ async function initializeLegacyRuntime() {
             ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
             ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS scanned_qty INTEGER DEFAULT 0;
             ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS ean_number TEXT;
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS client_name TEXT;
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS job_card_no TEXT;
 
             -- Scan log. NOTE: no serial FK to assembly_plans(id) — the serial id
             -- diverges across MAIN/LOCAL under sync, so scans link to plans by the
@@ -26503,7 +26505,7 @@ app.get('/api/assembly/grid', async (req, res) => {
 app.post('/api/assembly/plan', async (req, res) => {
   try {
     console.log('[Assembly Plan] Body:', req.body);
-    const { id, table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, created_by } = req.body;
+    const { id, table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, created_by, client_name, job_card_no } = req.body;
 
     if (id) {
       // Update
@@ -26511,19 +26513,19 @@ app.post('/api/assembly/plan', async (req, res) => {
             UPDATE assembly_plans SET
 table_id = $1, item_name = $2, plan_qty = $3, machine = $4,
   start_time = $5, duration_min = $6, delay_min = $7, end_time = $8,
-  ean_number = $9,
+  ean_number = $9, client_name = $10, job_card_no = $11,
   updated_at = NOW()
-            WHERE id = $10
-  `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, id]);
+            WHERE id = $12
+  `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, id]);
     } else {
       // Create
       await q(`
             INSERT INTO assembly_plans(
     table_id, item_name, plan_qty, machine,
     start_time, duration_min, delay_min, end_time, ean_number,
-    status, created_by, created_at, updated_at
-  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PLANNED', $10, NOW(), NOW())
-    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, created_by]);
+    client_name, job_card_no, status, created_by, created_at, updated_at
+  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PLANNED', $12, NOW(), NOW())
+    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, created_by]);
     }
 
     res.json({ ok: true });
