@@ -26635,85 +26635,133 @@ app.get('/api/assembly/alerts', (req, res) => {
   res.json({ ok: true, data: recent });
 });
 
-// 4. POST Scan Log (Capture EAN)
+// Shared scan handler — records one barcode against a known plan_id.
+// Used by the browser scan route (/api/assembly/scan) AND the headless device
+// route (/api/assembly/device-scan) so both behave identically.
+// Returns { ok, match?, new_qty?, wrong_barcode?, error? }.
+async function recordAssemblyScan(plan_id, ean) {
+  // --- UNIQUE BARCODE / QR LOGIC ---
+  let fullString = String(ean || '').trim();
+  let cleanEAN = fullString;
+  let uniqueId = null;
+
+  if (fullString.includes('\0')) {
+    const parts = fullString.split('\0');
+    cleanEAN = parts[0];
+    uniqueId = parts[1];
+    fullString = `${cleanEAN} -${uniqueId} `; // Sanitize
+  } else if (fullString.includes('-')) {
+    const parts = fullString.split('-');
+    cleanEAN = parts[0]; // Real EAN for matching
+    uniqueId = parts[1]; // Timestamp/ID
+  }
+
+  // 1. DUPLICATE CHECK (Prevent double scanning same QR)
+  // Only check if it's a Unique QR (has uniqueId)
+  if (uniqueId) {
+    const dupes = await q(`SELECT id FROM assembly_scans WHERE scanned_ean = $1`, [fullString]);
+    if (dupes.length > 0) {
+      return { ok: false, error: 'DUPLICATE: This QR was already scanned!' };
+    }
+  }
+
+  // 2. Fetch Plan Details
+  const plans = await q(`SELECT * FROM assembly_plans WHERE id = $1`, [plan_id]);
+  if (!plans.length) return { ok: false, error: 'Plan not found' };
+
+  const plan = plans[0];
+
+  // 3. Validate Match
+  const targetEAN = String(plan.ean_number || '').trim();
+  const isMatch = (targetEAN === cleanEAN);
+
+  // 4. Log Scan (Store FULL STRING to track uniqueness)
+  // Store the plan's stable sync_id alongside the local plan_id so the scan's
+  // link to its plan survives cross-server sync (serial plan_id diverges).
+  await q(`INSERT INTO assembly_scans(plan_id, plan_sync_id, scanned_ean, is_match)
+           VALUES($1, (SELECT sync_id FROM assembly_plans WHERE id = $1), $2, $3)`,
+    [plan_id, fullString, isMatch]);
+
+  // Broadcast Scan Event
+  broadcastEvent('scan', { plan_id, table_id: plan.table_id, match: isMatch, unique_id: uniqueId });
+
+  // 5. Update Qty IF Match
+  let newQty = plan.scanned_qty || 0;
+  if (isMatch) {
+    newQty += 1;
+    await q(`UPDATE assembly_plans SET scanned_qty = $1, updated_at = NOW() WHERE id = $2`, [newQty, plan_id]);
+  } else {
+    // WRONG BARCODE TRIGGER
+    const alertObj = {
+      id: Date.now(),
+      table_id: plan.table_id,
+      plan_id,
+      ean: cleanEAN,
+      expected: targetEAN,
+      type: 'WRONG_BARCODE',
+      timestamp: Date.now()
+    };
+    ASSEMBLY_ALERTS.push(alertObj);
+
+    // Broadcast Alert Immediate
+    broadcastEvent('alert', alertObj);
+
+    // Keep list small
+    if (ASSEMBLY_ALERTS.length > 50) ASSEMBLY_ALERTS.shift();
+  }
+
+  return { ok: true, match: isMatch, new_qty: newQty, wrong_barcode: !isMatch, table_id: plan.table_id };
+}
+
+// Resolve the "current" plan for a table: newest RUNNING plan, else newest
+// active plan. Mirrors the bridge's "newest RUNNING plan per table" rule.
+async function resolveActivePlanForTable(table_id) {
+  const plans = await q(`
+    SELECT * FROM assembly_plans
+    WHERE table_id = $1
+      AND (status IN ('PLANNED', 'RUNNING') OR start_time::date >= CURRENT_DATE)
+    ORDER BY (status = 'RUNNING') DESC, start_time DESC
+    LIMIT 1
+  `, [table_id]);
+  return plans.length ? plans[0] : null;
+}
+
+// 4. POST Scan Log (Capture EAN) — browser path (page already knows plan_id)
 app.post('/api/assembly/scan', async (req, res) => {
   try {
-    let { plan_id, ean } = req.body;
-
-    // --- UNIQUE BARCODE / QR LOGIC ---
-    let fullString = String(ean || '').trim();
-    let cleanEAN = fullString;
-    let uniqueId = null;
-
-    if (fullString.includes('\0')) {
-      const parts = fullString.split('\0');
-      cleanEAN = parts[0];
-      uniqueId = parts[1];
-      fullString = `${cleanEAN} -${uniqueId} `; // Sanitize
-    } else if (fullString.includes('-')) {
-      const parts = fullString.split('-');
-      cleanEAN = parts[0]; // Real EAN for matching
-      uniqueId = parts[1]; // Timestamp/ID
-    }
-
-    // 1. DUPLICATE CHECK (Prevent double scanning same QR)
-    // Only check if it's a Unique QR (has uniqueId)
-    if (uniqueId) {
-      const dupes = await q(`SELECT id FROM assembly_scans WHERE scanned_ean = $1`, [fullString]);
-      if (dupes.length > 0) {
-        return res.json({ ok: false, error: 'DUPLICATE: This QR was already scanned!' });
-      }
-    }
-
-    // 2. Fetch Plan Details
-    const plans = await q(`SELECT * FROM assembly_plans WHERE id = $1`, [plan_id]);
-    if (!plans.length) return res.json({ ok: false, error: 'Plan not found' });
-
-    const plan = plans[0];
-
-    // 3. Validate Match
-    const targetEAN = String(plan.ean_number || '').trim();
-    const isMatch = (targetEAN === cleanEAN);
-
-    // 4. Log Scan (Store FULL STRING to track uniqueness)
-    // Store the plan's stable sync_id alongside the local plan_id so the scan's
-    // link to its plan survives cross-server sync (serial plan_id diverges).
-    await q(`INSERT INTO assembly_scans(plan_id, plan_sync_id, scanned_ean, is_match)
-             VALUES($1, (SELECT sync_id FROM assembly_plans WHERE id = $1), $2, $3)`,
-      [plan_id, fullString, isMatch]);
-
-    // Broadcast Scan Event
-    broadcastEvent('scan', { plan_id, table_id: plan.table_id, match: isMatch, unique_id: uniqueId });
-
-    // 4. Update Qty IF Match
-    let newQty = plan.scanned_qty || 0;
-    if (isMatch) {
-      newQty += 1;
-      await q(`UPDATE assembly_plans SET scanned_qty = $1, updated_at = NOW() WHERE id = $2`, [newQty, plan_id]);
-    } else {
-      // WRONG BARCODE TRIGGER
-      const alertObj = {
-        id: Date.now(),
-        table_id: plan.table_id,
-        plan_id,
-        ean: cleanEAN,
-        expected: targetEAN,
-        type: 'WRONG_BARCODE',
-        timestamp: Date.now()
-      };
-      ASSEMBLY_ALERTS.push(alertObj);
-
-      // Broadcast Alert Immediate
-      broadcastEvent('alert', alertObj);
-
-      // Keep list small
-      if (ASSEMBLY_ALERTS.length > 50) ASSEMBLY_ALERTS.shift();
-    }
-
-    res.json({ ok: true, match: isMatch, new_qty: newQty, wrong_barcode: !isMatch });
-
+    const { plan_id, ean } = req.body;
+    const result = await recordAssemblyScan(plan_id, ean);
+    res.json(result);
   } catch (e) {
     console.error('Scan Error:', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// 4b. Headless DEVICE scan (ESP32 pushes directly, no browser/bridge).
+// Body: { table_id, ean, key? }. Resolves the table's active plan server-side.
+// Optional shared secret via env ASSEMBLY_DEVICE_KEY (header x-device-key or body.key).
+app.post('/api/assembly/device-scan', async (req, res) => {
+  try {
+    const deviceKey = process.env.ASSEMBLY_DEVICE_KEY;
+    if (deviceKey) {
+      const provided = req.get('x-device-key') || req.body.key;
+      if (provided !== deviceKey) return res.status(401).json({ ok: false, error: 'Unauthorized device' });
+    }
+
+    const table_id = String(req.body.table_id || '').trim();
+    const ean = req.body.ean;
+    if (!table_id) return res.status(400).json({ ok: false, error: 'table_id required' });
+    if (!String(ean || '').trim()) return res.status(400).json({ ok: false, error: 'ean required' });
+
+    const plan = await resolveActivePlanForTable(table_id);
+    if (!plan) return res.json({ ok: false, error: `No active plan for ${table_id}` });
+
+    const result = await recordAssemblyScan(plan.id, ean);
+    // Include plan_id so the device/log can show which plan it hit.
+    res.json({ ...result, plan_id: plan.id, table_id });
+  } catch (e) {
+    console.error('Device Scan Error:', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
