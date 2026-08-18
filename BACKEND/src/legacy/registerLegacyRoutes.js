@@ -26542,6 +26542,38 @@ table_id = $1, item_name = $2, plan_qty = $3, machine = $4,
   }
 });
 
+// 2b. Delete an assembly plan (and its scans). The sync-deletion triggers on
+// both tables record tombstones (keyed by sync_id) so the delete propagates to
+// MAIN/other servers instead of the plan re-appearing on the next sync.
+app.delete('/api/assembly/plan/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await q(`DELETE FROM assembly_scans WHERE plan_id = $1`, [id]);
+    await q(`DELETE FROM assembly_plans WHERE id = $1`, [id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// 2c. Mark one plan as the ACTIVE (currently-scanning) plan for its table so the
+// Dashboard shows the same job the operator selected in Production Line Scanning.
+// Demotes the table's other RUNNING plan(s) to PLANNED and promotes the chosen
+// one to RUNNING. updated_at is bumped on every touched row so the status change
+// syncs to MAIN/other servers (a status write that skips updated_at never syncs).
+app.post('/api/assembly/activate', async (req, res) => {
+  try {
+    const { table_id, plan_id } = req.body;
+    if (!table_id || !plan_id) return res.status(400).json({ ok: false, error: 'table_id and plan_id required' });
+    await q(`UPDATE assembly_plans SET status = 'PLANNED', updated_at = NOW()
+             WHERE table_id = $1 AND id <> $2 AND UPPER(status) = 'RUNNING'`, [table_id, plan_id]);
+    await q(`UPDATE assembly_plans SET status = 'RUNNING', updated_at = NOW() WHERE id = $1`, [plan_id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // --- ASSEMBLY LINES MANAGEMENT ---
 
 app.get('/api/assembly/lines', async (req, res) => {

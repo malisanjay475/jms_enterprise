@@ -546,8 +546,14 @@
                 const res = await JPSMS.api.request('/assembly/active', { skipLoader: true });
                 if (!res.data) return;
 
+                // Show the plan that is ACTIVE in Production Line Scanning for each
+                // table (the one the operator selected — marked RUNNING), not all
+                // plans and not an arbitrary first. Fall back to the first plan seen
+                // when none is marked active yet.
+                const isRunning = (p) => String(p && p.status || '').toUpperCase() === 'RUNNING';
                 const plans = Object.values(res.data.reduce((acc, p) => {
-                    if (!acc[p.table_id]) acc[p.table_id] = p;
+                    const cur = acc[p.table_id];
+                    if (!cur || (isRunning(p) && !isRunning(cur))) acc[p.table_id] = p;
                     return acc;
                 }, {}));
                 plans.sort((a, b) => String(a.table_id).localeCompare(String(b.table_id), undefined, { numeric: true }));

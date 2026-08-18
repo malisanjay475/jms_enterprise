@@ -258,9 +258,13 @@
                 </div>
             </div>
 
-            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px">
-                <button class="btn btn-outline" onclick="closePlanModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="savePlan()">Save Plan</button>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px">
+                <button class="btn btn-outline-danger" id="deletePlanBtn" onclick="deletePlan()"
+                    style="display:none"><i class="bi bi-trash"></i> Delete</button>
+                <div style="display:flex; gap:10px; margin-left:auto">
+                    <button class="btn btn-outline" onclick="closePlanModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="savePlan()">Save Plan</button>
+                </div>
             </div>
         </div>
     </div>
@@ -443,6 +447,7 @@
             document.getElementById('p_machine').value = '';
             document.getElementById('p_duration').value = '';
             document.getElementById('p_delay').value = 0;
+            document.getElementById('deletePlanBtn').style.display = 'none';
 
             // Set start based on current time or scroll position? Default to Now for simplicity
             const dateStr = document.getElementById('viewDate').value;
@@ -464,6 +469,7 @@
             document.querySelector('#planModal h3').textContent = 'Edit Packing Plan';
 
             document.getElementById('p_id').value = p.id;
+            document.getElementById('deletePlanBtn').style.display = 'inline-block';
             document.getElementById('p_item').value = p.item_name;
             document.getElementById('p_client').value = p.client_name || '';
             document.getElementById('p_jobcard').value = p.job_card_no || '';
@@ -531,6 +537,20 @@
             try {
                 await JPSMS.api.post('/assembly/plan', plan);
                 JPSMS.toast('Plan Saved');
+                closePlanModal();
+                loadPlans();
+            } catch (e) {
+                JPSMS.toast(e.message, 'error');
+            }
+        }
+
+        async function deletePlan() {
+            const id = document.getElementById('p_id').value;
+            if (!id) return;
+            if (!confirm('Delete this packing plan? This cannot be undone.')) return;
+            try {
+                await JPSMS.api.delete(`/assembly/plan/${id}`);
+                JPSMS.toast('Plan Deleted');
                 closePlanModal();
                 loadPlans();
             } catch (e) {
