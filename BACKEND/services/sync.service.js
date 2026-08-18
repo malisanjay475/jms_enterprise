@@ -203,8 +203,15 @@ const CONFLICT_KEYS = {
     wip_inventory: 'id',
     wip_outward_logs: 'id',
     assembly_lines: 'line_id',
-    assembly_plans: 'id',
-    assembly_scans: 'id',
+    // Surrogate UUID key: assembly_plans/assembly_scans have no business natural key,
+    // and the serial id is minted independently on MAIN and every LOCAL, so
+    // ON CONFLICT (id) let one server's row overwrite an unrelated same-id row on
+    // another — plans created in Packing/Assembly vanished on the next sync cycle.
+    // sync_id is UNIQUE with a gen_random_uuid() default; both tables are in
+    // SYNC_ID_REQUIRED_TABLES so pre-existing NULL sync_ids get backfilled. Same
+    // pattern as notifications/dpr_reasons. [[project_sync_conflict_natural_key]]
+    assembly_plans: 'sync_id',
+    assembly_scans: 'sync_id',
     vendors: 'id',
     app_settings: 'key',
     factories: 'id',
@@ -351,7 +358,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans'];
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
 // re-runs the full startup sweep once instead of skipping it on the cached marker.
