@@ -192,7 +192,9 @@
 
             cardsContainer.innerHTML = tables.map(tid => {
                 const plans = TABLE_PLANS[tid];
-                const activePlan = plans[0]; // Default
+                // Prefer the persisted active (RUNNING) plan so this matches the
+                // Dashboard; fall back to the first plan if none is marked active.
+                const activePlan = plans.find(p => String(p.status || '').toUpperCase() === 'RUNNING') || plans[0];
 
                 let jobSelectHtml = '';
                 if (plans.length > 1) {
