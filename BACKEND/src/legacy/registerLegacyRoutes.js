@@ -26682,9 +26682,6 @@ async function recordAssemblyScan(plan_id, ean) {
            VALUES($1, (SELECT sync_id FROM assembly_plans WHERE id = $1), $2, $3)`,
     [plan_id, fullString, isMatch]);
 
-  // Broadcast Scan Event
-  broadcastEvent('scan', { plan_id, table_id: plan.table_id, match: isMatch, unique_id: uniqueId });
-
   // 5. Update Qty IF Match
   let newQty = plan.scanned_qty || 0;
   if (isMatch) {
@@ -26709,6 +26706,20 @@ async function recordAssemblyScan(plan_id, ean) {
     // Keep list small
     if (ASSEMBLY_ALERTS.length > 50) ASSEMBLY_ALERTS.shift();
   }
+
+  // Broadcast Scan Event (after qty computed so the board can update without a refetch)
+  broadcastEvent('scan', {
+    plan_id,
+    table_id: plan.table_id,
+    item_name: plan.item_name,
+    match: isMatch,
+    unique_id: uniqueId,
+    new_qty: newQty,
+    plan_qty: plan.plan_qty,
+    scanned_ean: cleanEAN,
+    expected_ean: targetEAN,
+    ts: Date.now()
+  });
 
   return { ok: true, match: isMatch, new_qty: newQty, wrong_barcode: !isMatch, table_id: plan.table_id };
 }
