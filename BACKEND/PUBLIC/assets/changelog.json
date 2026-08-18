@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.40.0",
+  "latest": "1.40.1",
   "versions": [
+    {
+      "version": "1.40.1",
+      "date": "2026-08-18",
+      "title": "Client & Job Card on packing plans",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "feat", "text": "Packing plans now capture a Client Name and Job Card No., shown on the Packing Dashboard cards and the planning timeline." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.40.0",
       "date": "2026-08-18",
