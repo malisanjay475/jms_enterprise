@@ -26500,8 +26500,8 @@ table_id = $1, item_name = $2, plan_qty = $3, machine = $4,
             INSERT INTO assembly_plans(
     table_id, item_name, plan_qty, machine,
     start_time, duration_min, delay_min, end_time, ean_number,
-    created_by, created_at, updated_at
-  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+    status, created_by, created_at, updated_at
+  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PLANNED', $10, NOW(), NOW())
     `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, created_by]);
     }
 
@@ -26560,7 +26560,7 @@ app.get('/api/assembly/active', async (req, res) => {
 SELECT *,
   EXTRACT(EPOCH FROM(NOW() - COALESCE(updated_at, created_at))) as idle_seconds
           FROM assembly_plans
-WHERE(status IN('PLANNED', 'RUNNING') OR start_time:: date >= CURRENT_DATE)
+WHERE(UPPER(status) IN('PLANNED', 'RUNNING') OR start_time:: date >= CURRENT_DATE)
           ORDER BY table_id, start_time ASC
   `;
 
