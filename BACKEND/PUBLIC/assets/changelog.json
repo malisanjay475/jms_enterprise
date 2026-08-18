@@ -11,8 +11,71 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.39.6",
+  "latest": "1.41.0",
   "versions": [
+    {
+      "version": "1.41.0",
+      "date": "2026-08-18",
+      "title": "Live Packing Scanning Dashboard",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "feat", "text": "The Scanning Dashboard now updates live on every scan — each table's count jumps and flashes the moment a barcode is scanned, with no page refresh needed." },
+            { "type": "feat", "text": "New summary bar shows active tables, running/slow/stopped counts, total scanned today, scans-per-hour and wrong-scan totals at a glance." },
+            { "type": "improvement", "text": "Each table card now shows the machine, time window, quantity remaining, a live 'last scanned' timer and an ahead/behind-schedule badge, and celebrates when a plan is completed." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.40.1",
+      "date": "2026-08-18",
+      "title": "Client & Job Card on packing plans",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "feat", "text": "Packing plans now capture a Client Name and Job Card No., shown on the Packing Dashboard cards and the planning timeline." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.40.0",
+      "date": "2026-08-18",
+      "title": "Packing scanners stay connected on their own",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "feat", "text": "Packing barcode scanners now keep working even when the scanning page is closed — the scanner sends each scan straight to the server and counts update on their own." },
+            { "type": "improvement", "text": "A scanner counts against the table's current running plan automatically, so there is nothing to reconnect or re-select after the page is reopened." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.39.7",
+      "date": "2026-08-18",
+      "title": "Assembly plans no longer disappear",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "Assembly plans you create in Packing now stay put and remain visible until completed, instead of being removed when the factory server syncs with the main server." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.39.6",
       "date": "2026-08-17",
