@@ -4808,6 +4808,29 @@ async function initializeLegacyRuntime() {
             WHERE table_id IS NOT NULL
             ON CONFLICT (line_id) DO NOTHING;
 
+            -- Columns the assembly routes rely on (added by older side-scripts;
+            -- ensure they exist so sync change-detection and scanning work).
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS scanned_qty INTEGER DEFAULT 0;
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS ean_number TEXT;
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS client_name TEXT;
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS job_card_no TEXT;
+
+            -- Scan log. NOTE: no serial FK to assembly_plans(id) — the serial id
+            -- diverges across MAIN/LOCAL under sync, so scans link to plans by the
+            -- stable plan_sync_id instead (resolved to a local plan_id on each
+            -- server). [[project_sync_conflict_natural_key]]
+            CREATE TABLE IF NOT EXISTS assembly_scans (
+                id SERIAL PRIMARY KEY,
+                plan_id INTEGER,
+                plan_sync_id UUID,
+                scanned_ean TEXT,
+                is_match BOOLEAN DEFAULT FALSE,
+                timestamp TIMESTAMPTZ DEFAULT NOW()
+            );
+            ALTER TABLE assembly_scans ADD COLUMN IF NOT EXISTS plan_sync_id UUID;
+            ALTER TABLE assembly_scans DROP CONSTRAINT IF EXISTS fk_plan;
+
             CREATE TABLE IF NOT EXISTS shift_teams (
                 id SERIAL PRIMARY KEY,
                 line TEXT NOT NULL,
@@ -26482,7 +26505,7 @@ app.get('/api/assembly/grid', async (req, res) => {
 app.post('/api/assembly/plan', async (req, res) => {
   try {
     console.log('[Assembly Plan] Body:', req.body);
-    const { id, table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, created_by } = req.body;
+    const { id, table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, created_by, client_name, job_card_no } = req.body;
 
     if (id) {
       // Update
@@ -26490,19 +26513,19 @@ app.post('/api/assembly/plan', async (req, res) => {
             UPDATE assembly_plans SET
 table_id = $1, item_name = $2, plan_qty = $3, machine = $4,
   start_time = $5, duration_min = $6, delay_min = $7, end_time = $8,
-  ean_number = $9,
+  ean_number = $9, client_name = $10, job_card_no = $11,
   updated_at = NOW()
-            WHERE id = $10
-  `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, id]);
+            WHERE id = $12
+  `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, id]);
     } else {
       // Create
       await q(`
             INSERT INTO assembly_plans(
     table_id, item_name, plan_qty, machine,
     start_time, duration_min, delay_min, end_time, ean_number,
-    created_by, created_at, updated_at
-  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
-    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, created_by]);
+    client_name, job_card_no, status, created_by, created_at, updated_at
+  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PLANNED', $12, NOW(), NOW())
+    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, created_by]);
     }
 
     res.json({ ok: true });
@@ -26560,7 +26583,7 @@ app.get('/api/assembly/active', async (req, res) => {
 SELECT *,
   EXTRACT(EPOCH FROM(NOW() - COALESCE(updated_at, created_at))) as idle_seconds
           FROM assembly_plans
-WHERE(status IN('PLANNED', 'RUNNING') OR start_time:: date >= CURRENT_DATE)
+WHERE(UPPER(status) IN('PLANNED', 'RUNNING') OR start_time:: date >= CURRENT_DATE)
           ORDER BY table_id, start_time ASC
   `;
 
@@ -26653,7 +26676,11 @@ app.post('/api/assembly/scan', async (req, res) => {
     const isMatch = (targetEAN === cleanEAN);
 
     // 4. Log Scan (Store FULL STRING to track uniqueness)
-    await q(`INSERT INTO assembly_scans(plan_id, scanned_ean, is_match) VALUES($1, $2, $3)`, [plan_id, fullString, isMatch]);
+    // Store the plan's stable sync_id alongside the local plan_id so the scan's
+    // link to its plan survives cross-server sync (serial plan_id diverges).
+    await q(`INSERT INTO assembly_scans(plan_id, plan_sync_id, scanned_ean, is_match)
+             VALUES($1, (SELECT sync_id FROM assembly_plans WHERE id = $1), $2, $3)`,
+      [plan_id, fullString, isMatch]);
 
     // 4. Update Qty IF Match
     let newQty = plan.scanned_qty || 0;

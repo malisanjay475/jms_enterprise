@@ -268,6 +268,27 @@
             max-width: 190px;
         }
 
+        .client-name {
+            font-size: 0.82rem;
+            color: var(--muted-2);
+            margin-top: 3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+        }
+
+        .client-name:empty { display: none; }
+
+        .jobcard-no {
+            font-size: 0.72rem;
+            color: var(--accent);
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        .jobcard-no:empty { display: none; }
+
         .meta-line {
             font-size: 0.72rem;
             color: var(--muted);
@@ -882,6 +903,8 @@
                         <div>
                             <div class="table-name">${p.table_id}</div>
                             <div class="item-name" title="${p.item_name || ''}">${p.item_name || '—'}</div>
+                            <div class="client-name">${p.client_name || ''}</div>
+                            <div class="jobcard-no">${p.job_card_no ? 'JC: ' + p.job_card_no : ''}</div>
                             <div class="meta-line">${machine}${timeWin}</div>
                         </div>
                         <div class="status-pill ${pc}">
@@ -930,6 +953,8 @@
                     if (pill && !pill.className.includes(pc)) pill.className = 'status-pill ' + pc;
                     const fill = card.querySelector('.progress-fill');
                     if (fill) { fill.style.width = pct + '%'; fill.classList.toggle('complete', pct >= 100); }
+                    setCardText(card, '.client-name', p.client_name || '');
+                    setCardText(card, '.jobcard-no', p.job_card_no ? 'JC: ' + p.job_card_no : '');
                 }
             });
 
