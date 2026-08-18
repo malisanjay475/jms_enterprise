@@ -8844,12 +8844,20 @@ app.post('/api/shifting/scan-entry', async (req, res) => {
 // Fetch active plans for all tables (or specific date range)
 app.get('/api/assembly/grid', async (req, res) => {
   try {
-    const { date } = req.query; // Optional filter
-    // For now, return all active or recent plans
+    // start_time/end_time are naive TIMESTAMPs holding IST wall-clock. Serialized
+    // as ISO they shift by the viewer's timezone (a factory box on a non-IST TZ
+    // then renders bars on the wrong day and the client date filter drops them, so
+    // a saved plan shows on the Dashboard but not on the gantt). Emit
+    // start_local/end_local as plain wall-clock text so the browser parses them as
+    // local time, timezone-immune. status IS NULL is tolerated (older rows) so a
+    // missing status never hides a plan. Date selection stays client-side (overlap).
     const rows = await q(
-      `SELECT * FROM assembly_plans 
-       WHERE status != 'Archived' 
-       ORDER BY table_id, start_time`
+      `SELECT *,
+              to_char(start_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS start_local,
+              to_char(end_time,   'YYYY-MM-DD"T"HH24:MI:SS') AS end_local
+         FROM assembly_plans
+        WHERE (status IS NULL OR status <> 'Archived')
+        ORDER BY table_id, start_time`
     );
     res.json({ ok: true, data: rows });
   } catch (e) {
@@ -26528,6 +26536,38 @@ table_id = $1, item_name = $2, plan_qty = $3, machine = $4,
     `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, created_by]);
     }
 
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// 2b. Delete an assembly plan (and its scans). The sync-deletion triggers on
+// both tables record tombstones (keyed by sync_id) so the delete propagates to
+// MAIN/other servers instead of the plan re-appearing on the next sync.
+app.delete('/api/assembly/plan/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await q(`DELETE FROM assembly_scans WHERE plan_id = $1`, [id]);
+    await q(`DELETE FROM assembly_plans WHERE id = $1`, [id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// 2c. Mark one plan as the ACTIVE (currently-scanning) plan for its table so the
+// Dashboard shows the same job the operator selected in Production Line Scanning.
+// Demotes the table's other RUNNING plan(s) to PLANNED and promotes the chosen
+// one to RUNNING. updated_at is bumped on every touched row so the status change
+// syncs to MAIN/other servers (a status write that skips updated_at never syncs).
+app.post('/api/assembly/activate', async (req, res) => {
+  try {
+    const { table_id, plan_id } = req.body;
+    if (!table_id || !plan_id) return res.status(400).json({ ok: false, error: 'table_id and plan_id required' });
+    await q(`UPDATE assembly_plans SET status = 'PLANNED', updated_at = NOW()
+             WHERE table_id = $1 AND id <> $2 AND UPPER(status) = 'RUNNING'`, [table_id, plan_id]);
+    await q(`UPDATE assembly_plans SET status = 'RUNNING', updated_at = NOW() WHERE id = $1`, [plan_id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
