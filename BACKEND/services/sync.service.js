@@ -1477,12 +1477,37 @@ async function pullChanges() {
         }
     }
 
+    // Repair assembly_scans.plan_id to the LOCAL plan identified by the stable
+    // plan_sync_id. A scan pulled from another server carries that server's serial
+    // plan_id, which points at a different (or missing) plan here; plan_sync_id is
+    // the durable link, so re-resolve plan_id from it after every pull.
+    await reconcileAssemblyScanLinks();
+
     if (stats.failed === 0) {
         await setServerConfigValue('LAST_PULL', cycleWatermark);
     } else {
         console.warn(`[Sync] LAST_PULL kept at ${lastPull} because ${stats.failed} pull error(s) occurred — failed rows will retry next cycle.`);
     }
     return stats;
+}
+
+// Re-point assembly_scans.plan_id at the local plan row that shares the scan's
+// plan_sync_id. Serial ids diverge across MAIN/LOCAL, so this keeps the scan->plan
+// link locally correct after sync without a cross-server serial FK.
+async function reconcileAssemblyScanLinks() {
+    try {
+        if (!(await tableExistsPublic('assembly_scans'))) return;
+        if (!(await tableHasColumn('assembly_scans', 'plan_sync_id'))) return;
+        await pool.query(`
+            UPDATE assembly_scans s
+               SET plan_id = p.id
+              FROM assembly_plans p
+             WHERE s.plan_sync_id = p.sync_id
+               AND s.plan_id IS DISTINCT FROM p.id
+        `);
+    } catch (e) {
+        console.warn('[Sync] reconcileAssemblyScanLinks skipped:', e.message);
+    }
 }
 
 async function pullDeletionChanges() {
@@ -2394,6 +2419,91 @@ async function ensureSyncIdSchema() {
                 // repeat those four columns — failing the pull every cycle and pinning
                 // LAST_PULL. Removing it lets sync_id be the sole identity.
                 await pool.query('DROP INDEX IF EXISTS uq_sync_conflict_notifications');
+            } else if (table === 'assembly_plans') {
+                // Deterministic backfill from stable business columns so the SAME
+                // pre-existing plan on MAIN and a LOCAL derives the SAME sync_id and
+                // dedups, instead of two random ids that the new key would treat as
+                // distinct rows (duplicates). Same md5->uuid shape as notifications.
+                await pool.query(`
+                    WITH source AS (
+                        SELECT id,
+                               md5(concat_ws('|',
+                                   COALESCE(table_id, ''),
+                                   COALESCE(item_name, ''),
+                                   COALESCE(plan_qty::text, ''),
+                                   COALESCE(machine, ''),
+                                   COALESCE(start_time::text, ''),
+                                   COALESCE(created_by, ''),
+                                   COALESCE(created_at::text, '')
+                               )) AS seed
+                          FROM ${table}
+                         WHERE sync_id IS NULL
+                    )
+                    UPDATE ${table} t
+                       SET sync_id = (
+                           substr(source.seed, 1, 8) || '-' ||
+                           substr(source.seed, 9, 4) || '-' ||
+                           substr(source.seed, 13, 4) || '-' ||
+                           substr(source.seed, 17, 4) || '-' ||
+                           substr(source.seed, 21, 12)
+                       )::uuid
+                      FROM source
+                     WHERE t.id = source.id
+                `);
+                await pool.query(`
+                    WITH ranked AS (
+                        SELECT id, ROW_NUMBER() OVER (PARTITION BY sync_id ORDER BY id) AS rn
+                          FROM ${table} WHERE sync_id IS NOT NULL
+                    )
+                    UPDATE ${table} t SET sync_id = gen_random_uuid()
+                      FROM ranked r WHERE t.id = r.id AND r.rn > 1
+                `);
+            } else if (table === 'assembly_scans') {
+                // Scans link to plans by the plan's stable sync_id, not the serial
+                // plan_id (which diverges across servers). Ensure the link column,
+                // drop the invalid cross-server serial FK, backfill the link from the
+                // local plan, then derive a deterministic sync_id for the scan.
+                if (!(await tableHasColumn('assembly_scans', 'plan_sync_id'))) {
+                    await pool.query('ALTER TABLE assembly_scans ADD COLUMN plan_sync_id UUID');
+                    tableColumnCache.delete('assembly_scans');
+                }
+                await pool.query('ALTER TABLE assembly_scans DROP CONSTRAINT IF EXISTS fk_plan');
+                await pool.query(`
+                    UPDATE assembly_scans s
+                       SET plan_sync_id = p.sync_id
+                      FROM assembly_plans p
+                     WHERE s.plan_id = p.id AND s.plan_sync_id IS NULL
+                `);
+                await pool.query(`
+                    WITH source AS (
+                        SELECT id,
+                               md5(concat_ws('|',
+                                   COALESCE(plan_sync_id::text, ''),
+                                   COALESCE(scanned_ean, ''),
+                                   COALESCE(timestamp::text, '')
+                               )) AS seed
+                          FROM ${table}
+                         WHERE sync_id IS NULL
+                    )
+                    UPDATE ${table} t
+                       SET sync_id = (
+                           substr(source.seed, 1, 8) || '-' ||
+                           substr(source.seed, 9, 4) || '-' ||
+                           substr(source.seed, 13, 4) || '-' ||
+                           substr(source.seed, 17, 4) || '-' ||
+                           substr(source.seed, 21, 12)
+                       )::uuid
+                      FROM source
+                     WHERE t.id = source.id
+                `);
+                await pool.query(`
+                    WITH ranked AS (
+                        SELECT id, ROW_NUMBER() OVER (PARTITION BY sync_id ORDER BY id) AS rn
+                          FROM ${table} WHERE sync_id IS NOT NULL
+                    )
+                    UPDATE ${table} t SET sync_id = gen_random_uuid()
+                      FROM ranked r WHERE t.id = r.id AND r.rn > 1
+                `);
             } else {
                 await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
             }
