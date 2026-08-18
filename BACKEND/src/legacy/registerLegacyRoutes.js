@@ -8844,12 +8844,20 @@ app.post('/api/shifting/scan-entry', async (req, res) => {
 // Fetch active plans for all tables (or specific date range)
 app.get('/api/assembly/grid', async (req, res) => {
   try {
-    const { date } = req.query; // Optional filter
-    // For now, return all active or recent plans
+    // start_time/end_time are naive TIMESTAMPs holding IST wall-clock. Serialized
+    // as ISO they shift by the viewer's timezone (a factory box on a non-IST TZ
+    // then renders bars on the wrong day and the client date filter drops them, so
+    // a saved plan shows on the Dashboard but not on the gantt). Emit
+    // start_local/end_local as plain wall-clock text so the browser parses them as
+    // local time, timezone-immune. status IS NULL is tolerated (older rows) so a
+    // missing status never hides a plan. Date selection stays client-side (overlap).
     const rows = await q(
-      `SELECT * FROM assembly_plans 
-       WHERE status != 'Archived' 
-       ORDER BY table_id, start_time`
+      `SELECT *,
+              to_char(start_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS start_local,
+              to_char(end_time,   'YYYY-MM-DD"T"HH24:MI:SS') AS end_local
+         FROM assembly_plans
+        WHERE (status IS NULL OR status <> 'Archived')
+        ORDER BY table_id, start_time`
     );
     res.json({ ok: true, data: rows });
   } catch (e) {

@@ -358,8 +358,11 @@
                 const viewEnd = new Date(dateStr + 'T23:59:59');
 
                 plans.forEach(p => {
-                    const start = new Date(p.start_time);
-                    const end = new Date(p.end_time);
+                    // Parse the wall-clock strings (start_local/end_local) so bar
+                    // placement is timezone-immune. Fall back to the ISO field only
+                    // if the local fields are missing (older server).
+                    const start = new Date(p.start_local || p.start_time);
+                    const end = new Date(p.end_local || p.end_time);
 
                     // Basic Date Filter (Client Side if API returns all)
                     // If range overlaps with today
@@ -470,12 +473,17 @@
             document.getElementById('p_duration').value = p.duration_min;
             document.getElementById('p_delay').value = p.delay_min || 0;
 
-            // Format format for datetime-local: YYYY-MM-DDTHH:MM
-            // p.start_time is likely ISO string: 2026-01-09T07:28:00.000Z
-            // We need local time for input
-            const d = new Date(p.start_time);
-            // shift to local
-            const localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+            // datetime-local wants YYYY-MM-DDTHH:MM. Prefer the wall-clock
+            // start_local ("YYYY-MM-DDTHH:MM:SS") so the input matches what was
+            // entered regardless of the viewer's timezone; fall back to the ISO
+            // field with a manual local shift only if start_local is absent.
+            let localIso;
+            if (p.start_local) {
+                localIso = String(p.start_local).slice(0, 16);
+            } else {
+                const d = new Date(p.start_time);
+                localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+            }
             document.getElementById('p_start').value = localIso;
 
             calcEndTime();
