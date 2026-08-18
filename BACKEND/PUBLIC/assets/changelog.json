@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.40.1",
+  "latest": "1.41.0",
   "versions": [
+    {
+      "version": "1.41.0",
+      "date": "2026-08-18",
+      "title": "Live Packing Scanning Dashboard",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "feat", "text": "The Scanning Dashboard now updates live on every scan — each table's count jumps and flashes the moment a barcode is scanned, with no page refresh needed." },
+            { "type": "feat", "text": "New summary bar shows active tables, running/slow/stopped counts, total scanned today, scans-per-hour and wrong-scan totals at a glance." },
+            { "type": "improvement", "text": "Each table card now shows the machine, time window, quantity remaining, a live 'last scanned' timer and an ahead/behind-schedule badge, and celebrates when a plan is completed." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.40.1",
       "date": "2026-08-18",
