@@ -8,194 +8,457 @@
     <link rel="stylesheet" href="/assets/app.css">
     <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
     <style>
-        /* DASHBOARD OVERRIDES */
+        /* ============================================================
+           LIVE SCANNING DASHBOARD  (TV / wall-display optimized)
+           v2 — targeted SSE animation, live timers, KPI header
+           ============================================================ */
+        :root {
+            --bg: #0b1220;
+            --panel: #1e293b;
+            --panel-2: #17233a;
+            --border: #334155;
+            --muted: #64748b;
+            --muted-2: #94a3b8;
+            --text: #f1f5f9;
+            --accent: #38bdf8;
+            --green: #10b981;
+            --green-lt: #34d399;
+            --amber: #f59e0b;
+            --amber-lt: #fbbf24;
+            --red: #ef4444;
+            --red-lt: #f87171;
+            --blue: #3b82f6;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            background-color: #0f172a;
-            /* Dark Slate */
-            color: #f1f5f9;
+            background: radial-gradient(1200px 600px at 50% -10%, #16223b 0%, var(--bg) 60%);
+            color: var(--text);
             overflow: hidden;
-            /* No scroll for TV if possible */
+            margin: 0;
         }
 
         .main-content {
             height: 100vh;
-            padding: 10px;
+            padding: 12px 14px;
             display: flex;
             flex-direction: column;
+            gap: 12px;
         }
 
+        /* ---------- HEADER ---------- */
         .header {
-            background: #1e293b;
-            color: #fff;
-            padding: 15px 20px;
-            border-radius: 12px;
-            margin-bottom: 20px;
+            background: linear-gradient(180deg, #22314f 0%, var(--panel) 100%);
+            padding: 12px 20px;
+            border-radius: 14px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-            border: 1px solid #334155;
+            box-shadow: 0 10px 20px -8px rgba(0, 0, 0, 0.6);
+            border: 1px solid var(--border);
         }
 
-        .dashboard-grid {
+        .brand {
+            font-size: 1.5rem;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .conn-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--muted);
+            box-shadow: 0 0 0 0 rgba(148, 163, 184, 0.6);
+            flex: 0 0 auto;
+        }
+
+        .conn-dot.up {
+            background: var(--green);
+            animation: livePulse 2s infinite;
+        }
+
+        .conn-dot.down {
+            background: var(--amber);
+            animation: livePulse 0.8s infinite;
+        }
+
+        @keyframes livePulse {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+            70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        .clock {
+            font-size: 1.5rem;
+            font-family: 'Courier New', monospace;
+            color: var(--accent);
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        /* ---------- KPI STRIP ---------- */
+        .kpi-row {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 20px;
-            flex: 1;
-            /* Allow scrolling if absolutely needed, but try to fit */
-            overflow-y: auto;
-            align-content: start;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 12px;
         }
 
-        /* CARD DESIGN */
-        .dash-card {
-            background: #1e293b;
-            border: 2px solid #334155;
-            border-radius: 16px;
-            padding: 20px;
+        .kpi {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 10px 14px;
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
+            gap: 2px;
             position: relative;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
-            min-height: 220px;
+            overflow: hidden;
         }
 
-        /* ANIMATIONS */
-        @keyframes pulse-green {
-            0% {
-                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-                border-color: #10b981;
-            }
-
-            70% {
-                box-shadow: 0 0 0 20px rgba(16, 185, 129, 0);
-                border-color: #10b981;
-            }
-
-            100% {
-                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
-                border-color: #334155;
-            }
+        .kpi::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: var(--accent);
         }
 
-        .scan-flash {
-            animation: pulse-green 1s ease-out;
+        .kpi.k-green::before { background: var(--green); }
+        .kpi.k-amber::before { background: var(--amber); }
+        .kpi.k-red::before { background: var(--red); }
+        .kpi.k-blue::before { background: var(--blue); }
+
+        .kpi-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--muted-2);
         }
 
-        /* STATUS BORDERS */
-        .status-active {
-            border-color: #10b981;
+        .kpi-val {
+            font-size: 1.8rem;
+            font-weight: 800;
+            line-height: 1;
         }
 
-        /* < 5 mins */
-        .status-slow {
-            border-color: #f59e0b;
+        .kpi-sub {
+            font-size: 0.65rem;
+            color: var(--muted);
         }
 
-        /* > 5 mins */
-        .status-idle {
-            border-color: #ef4444;
-            opacity: 0.8;
+        /* ---------- GRID ---------- */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 16px;
+            flex: 1;
+            overflow-y: auto;
+            align-content: start;
+            padding-right: 4px;
         }
 
-        /* > 15 mins */
+        .empty-state {
+            grid-column: 1 / -1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+            padding: 60px 0;
+            gap: 12px;
+        }
+
+        .empty-state i { font-size: 4rem; opacity: 0.4; }
+
+        /* ---------- CARD ---------- */
+        .dash-card {
+            background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            position: relative;
+            overflow: hidden;
+            transition: border-color 0.3s ease, transform 0.15s ease;
+            box-shadow: 0 6px 14px -6px rgba(0, 0, 0, 0.6);
+            min-height: 230px;
+        }
+
+        .status-active { border-color: var(--green); }
+        .status-slow { border-color: var(--amber); }
+        .status-idle { border-color: var(--red); }
+        .status-done { border-color: var(--green-lt); }
+
+        /* Scan ripple overlay */
+        .scan-ripple {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            border-radius: 16px;
+            opacity: 0;
+        }
+
+        @keyframes rippleGreen {
+            0% { opacity: 0.55; box-shadow: inset 0 0 0 0 var(--green); background: radial-gradient(circle at 50% 50%, rgba(16,185,129,0.35), transparent 60%); }
+            100% { opacity: 0; box-shadow: inset 0 0 0 60px rgba(16,185,129,0); background: transparent; }
+        }
+
+        .scan-flash { animation: rippleGreen 0.9s ease-out; }
+
+        @keyframes shakeRed {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-8px); }
+            40% { transform: translateX(8px); }
+            60% { transform: translateX(-5px); }
+            80% { transform: translateX(5px); }
+        }
+
+        .scan-error { animation: shakeRed 0.5s; border-color: var(--red) !important; }
+
+        /* Floating +1 chip */
+        .float-plus {
+            position: absolute;
+            right: 22px;
+            top: 60px;
+            font-size: 2rem;
+            font-weight: 900;
+            color: var(--green-lt);
+            pointer-events: none;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+            animation: floatUp 1s ease-out forwards;
+        }
+
+        @keyframes floatUp {
+            0% { opacity: 0; transform: translateY(10px) scale(0.8); }
+            25% { opacity: 1; transform: translateY(-4px) scale(1.1); }
+            100% { opacity: 0; transform: translateY(-40px) scale(1); }
+        }
 
         .card-header-row {
             display: flex;
             justify-content: space-between;
-            align-items: start;
-            margin-bottom: 15px;
+            align-items: flex-start;
+            gap: 8px;
         }
 
         .table-name {
-            font-size: 1.8rem;
+            font-size: 1.9rem;
             font-weight: 800;
-            color: #fff;
             line-height: 1;
         }
 
         .item-name {
-            font-size: 1rem;
-            color: #94a3b8;
+            font-size: 0.95rem;
+            color: var(--muted-2);
             font-weight: 500;
-            margin-top: 5px;
+            margin-top: 6px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            max-width: 190px;
         }
+
+        .client-name {
+            font-size: 0.82rem;
+            color: var(--muted-2);
+            margin-top: 3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+        }
+
+        .client-name:empty { display: none; }
+
+        .jobcard-no {
+            font-size: 0.72rem;
+            color: var(--accent);
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        .jobcard-no:empty { display: none; }
+
+        .meta-line {
+            font-size: 0.72rem;
+            color: var(--muted);
+            margin-top: 4px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .meta-line i { margin-right: 3px; }
+
+        .status-pill {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            text-align: center;
+            line-height: 1.2;
+            flex: 0 0 auto;
+        }
+
+        .bg-active { background: #064e3b; color: var(--green-lt); }
+        .bg-slow { background: #451a03; color: var(--amber-lt); }
+        .bg-idle { background: #450a0a; color: var(--red-lt); }
+        .bg-done { background: #052e2b; color: var(--green-lt); border: 1px solid var(--green); }
+
+        .pill-time { font-size: 0.6rem; opacity: 0.85; font-weight: 600; }
 
         .stats-row {
             display: flex;
             justify-content: space-between;
             align-items: flex-end;
-            margin-bottom: 15px;
-        }
-
-        .stat-block {
-            text-align: left;
         }
 
         .stat-label {
-            font-size: 0.8rem;
-            color: #64748b;
+            font-size: 0.72rem;
+            color: var(--muted);
             text-transform: uppercase;
             letter-spacing: 1px;
         }
 
         .stat-val {
-            font-size: 2.5rem;
+            font-size: 2.6rem;
             font-weight: 800;
-            color: #fff;
             line-height: 1;
         }
 
         .stat-val-small {
             font-size: 1.5rem;
             color: #cbd5e1;
+            font-weight: 700;
         }
 
-        /* PROGRESS BAR */
+        .stat-remain {
+            font-size: 0.8rem;
+            color: var(--muted-2);
+            margin-top: 4px;
+        }
+
+        /* Progress */
         .progress-bg {
-            height: 12px;
+            height: 14px;
             background: #334155;
-            border-radius: 6px;
+            border-radius: 8px;
             overflow: hidden;
+            position: relative;
         }
 
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #3b82f6, #60a5fa);
-            border-radius: 6px;
+            width: 0;
+            background: linear-gradient(90deg, var(--blue), #60a5fa);
+            border-radius: 8px;
             transition: width 0.5s ease;
+            position: relative;
         }
 
         .progress-fill.complete {
-            background: #10b981;
+            background: linear-gradient(90deg, var(--green), var(--green-lt));
         }
 
-        .status-pill {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.75rem;
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+            transform: translateX(-100%);
+        }
+
+        .progress-fill.shimmer::after {
+            animation: shimmer 0.9s ease-out;
+        }
+
+        @keyframes shimmer {
+            to { transform: translateX(100%); }
+        }
+
+        .foot-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.72rem;
+            color: var(--muted-2);
+        }
+
+        .pace-badge {
             font-weight: 700;
-            text-transform: uppercase;
+            padding: 2px 8px;
+            border-radius: 6px;
         }
 
-        .bg-active {
-            background: #064e3b;
-            color: #34d399;
+        .pace-ahead { background: #064e3b; color: var(--green-lt); }
+        .pace-behind { background: #451a03; color: var(--amber-lt); }
+        .pace-flat { background: #1e293b; color: var(--muted-2); }
+
+        .pct-badge { font-weight: 800; color: #fff; }
+
+        /* Completion celebration glow */
+        @keyframes doneGlow {
+            0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.7); }
+            50% { box-shadow: 0 0 30px 6px rgba(52, 211, 153, 0.5); }
+            100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
         }
 
-        .bg-slow {
+        .celebrate { animation: doneGlow 1.6s ease-out; }
+
+        /* Confetti */
+        .confetti {
+            position: absolute;
+            width: 8px;
+            height: 14px;
+            top: -10px;
+            pointer-events: none;
+            opacity: 0.9;
+            animation: fall 1.4s ease-in forwards;
+        }
+
+        @keyframes fall {
+            to { transform: translateY(260px) rotate(360deg); opacity: 0; }
+        }
+
+        /* Stale watermark */
+        .stale-banner {
+            position: fixed;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
             background: #451a03;
-            color: #fbbf24;
+            color: var(--amber-lt);
+            padding: 8px 18px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            border: 1px solid var(--amber);
+            display: none;
+            z-index: 500;
         }
 
-        .bg-idle {
-            background: #450a0a;
-            color: #f87171;
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+            100% { transform: scale(1); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .scan-flash, .scan-error, .float-plus, .celebrate, .confetti,
+            .progress-fill.shimmer::after, .conn-dot.up, .conn-dot.down {
+                animation: none !important;
+            }
         }
     </style>
 </head>
@@ -203,303 +466,532 @@
 <body>
     <div class="main-content">
         <div class="header">
-            <div style="font-size:1.5rem; font-weight:700">
-                <i class="bi bi-speedometer2 me-2"></i>Live Scanning Dashboard
+            <div class="brand">
+                <span class="conn-dot" id="connDot"></span>
+                <i class="bi bi-upc-scan"></i> Live Scanning Dashboard
             </div>
-            <div id="clock" style="font-size:1.5rem; font-family:monospace; color:#38bdf8">--:--:--</div>
+            <div class="clock" id="clock">--:--:--</div>
         </div>
 
-        <div class="dashboard-grid" id="grid">
-            <!-- Cards Injected Here -->
+        <div class="kpi-row">
+            <div class="kpi k-blue">
+                <span class="kpi-label">Active Tables</span>
+                <span class="kpi-val" id="kpiActive">0</span>
+                <span class="kpi-sub">plans in progress</span>
+            </div>
+            <div class="kpi k-green">
+                <span class="kpi-label">Running</span>
+                <span class="kpi-val" id="kpiRunning">0</span>
+                <span class="kpi-sub">scanning now</span>
+            </div>
+            <div class="kpi k-amber">
+                <span class="kpi-label">Slow</span>
+                <span class="kpi-val" id="kpiSlow">0</span>
+                <span class="kpi-sub">&gt; 5 min idle</span>
+            </div>
+            <div class="kpi k-red">
+                <span class="kpi-label">Stopped</span>
+                <span class="kpi-val" id="kpiStopped">0</span>
+                <span class="kpi-sub">&gt; 15 min idle</span>
+            </div>
+            <div class="kpi k-blue">
+                <span class="kpi-label">Scanned Today</span>
+                <span class="kpi-val" id="kpiScanned">0</span>
+                <span class="kpi-sub" id="kpiThroughput">~0 / hr</span>
+            </div>
+            <div class="kpi k-red">
+                <span class="kpi-label">Wrong Scans</span>
+                <span class="kpi-val" id="kpiWrong">0</span>
+                <span class="kpi-sub">last 60 min</span>
+            </div>
         </div>
+
+        <div class="dashboard-grid" id="grid"></div>
+    </div>
+
+    <div class="stale-banner" id="staleBanner">
+        <i class="bi bi-wifi-off"></i> Live feed stalled — reconnecting…
     </div>
 
     <script src="/assets/app.min.js"></script>
     <script>
-        // State
-        let PREVIOUS_DATA = {}; // { plan_id: qty }
+        // ============================================================
+        // STATE
+        // ============================================================
+        const PREVIOUS_DATA = {};      // plan_id -> qty
+        const CARD_STATE = {};         // plan_id -> { plan_qty, item_name, machine, start, end, duration, lastScanTs, celebrated }
+        const SCAN_TIMES = [];         // rolling epoch-ms of matched scans (for throughput)
+        const WRONG_TIMES = [];        // rolling epoch-ms of wrong scans
+        let LAST_EVENT_TS = Date.now();
+        let SSE_UP = false;
 
         document.addEventListener('DOMContentLoaded', () => {
             updateClock();
             setInterval(updateClock, 1000);
-
+            setInterval(tickLive, 1000);      // live per-card timers + KPI rollups
             fetchData();
-            // setInterval(fetchData, 3000); // Remove Polling, use SSE
+            setInterval(fetchData, 20000);    // slow reconciliation poll (SSE drives real-time)
             initSSE();
         });
 
         function updateClock() {
-            const now = new Date();
-            document.getElementById('clock').textContent = now.toLocaleTimeString();
+            document.getElementById('clock').textContent = new Date().toLocaleTimeString();
         }
 
+        // ============================================================
+        // DATA FETCH (reconciliation)
+        // ============================================================
         async function fetchData() {
             try {
-                // Use generic request to pass skipLoader option
                 const res = await JPSMS.api.request('/assembly/active', { skipLoader: true });
-
-                // REMOVED: await checkAlerts(); // Handled by SSE now
-
                 if (!res.data) return;
 
-                // Group by Table (Take first active plan per table)
                 const plans = Object.values(res.data.reduce((acc, p) => {
                     if (!acc[p.table_id]) acc[p.table_id] = p;
                     return acc;
                 }, {}));
-
-                // Sort by Table ID properly
-                plans.sort((a, b) => a.table_id.localeCompare(b.table_id, undefined, { numeric: true }));
-
+                plans.sort((a, b) => String(a.table_id).localeCompare(String(b.table_id), undefined, { numeric: true }));
                 renderGrid(plans);
             } catch (e) { console.error('Poll Error:', e); }
         }
 
-        // --- SSE & ALERT SYSTEM ---
-        let LAST_ALERT_ID = 0;
+        // ============================================================
+        // SSE — real-time, targeted
+        // ============================================================
         const synth = window.speechSynthesis;
 
         function initSSE() {
             const evtSource = new EventSource('/api/assembly/events');
 
+            evtSource.onopen = () => setConn(true);
             evtSource.onmessage = (e) => {
-                const msg = JSON.parse(e.data);
-                if (msg.type === 'scan') {
-                    // Refresh Grid on any scan
-                    fetchData();
-                } else if (msg.type === 'alert') {
-                    // Immediate Alert
-                    triggerAlert(msg.data);
-                }
+                LAST_EVENT_TS = Date.now();
+                setConn(true);
+                let msg; try { msg = JSON.parse(e.data); } catch { return; }
+                if (msg.type === 'scan') handleScanEvent(msg.data);
+                else if (msg.type === 'alert') triggerAlert(msg.data);
             };
-
-            evtSource.onerror = (e) => {
-                console.log('SSE Error, reconnecting...', e);
+            evtSource.onerror = () => {
+                setConn(false);
                 evtSource.close();
-                setTimeout(initSSE, 5000);
+                setTimeout(initSSE, 4000);
             };
         }
 
+        function setConn(up) {
+            SSE_UP = up;
+            const dot = document.getElementById('connDot');
+            dot.className = 'conn-dot ' + (up ? 'up' : 'down');
+        }
+
+        // Real-time scan — animate ONLY the affected card, no full refetch
+        function handleScanEvent(d) {
+            const planId = d.plan_id;
+            const now = Date.now();
+            const card = document.getElementById(`card-${planId}`);
+
+            if (d.match) {
+                SCAN_TIMES.push(now);
+            } else {
+                // Wrong scan: only shake the card here. The KPI count is owned by
+                // the separate 'alert' event so we don't double-count.
+                if (card) {
+                    card.classList.remove('scan-error');
+                    void card.offsetWidth;   // reflow to restart animation
+                    card.classList.add('scan-error');
+                    setTimeout(() => card.classList.remove('scan-error'), 600);
+                }
+                return; // wrong scan does not increment
+            }
+
+            // Optimistic per-card update
+            if (card && d.new_qty != null) {
+                const st = CARD_STATE[planId] || {};
+                st.lastScanTs = now;
+                const planQty = d.plan_qty || st.plan_qty || 0;
+                st.plan_qty = planQty;
+                CARD_STATE[planId] = st;
+                PREVIOUS_DATA[planId] = d.new_qty;
+
+                animateCount(card.querySelector('.qty-val'), d.new_qty);
+                flashCard(card);
+                updateProgress(card, d.new_qty, planQty);
+                markActive(card);
+                maybeCelebrate(card, d.new_qty, planQty);
+            } else {
+                // Card not present yet — pull fresh list
+                fetchData();
+            }
+            recomputeKpis();
+        }
+
+        // ============================================================
+        // ANIMATIONS
+        // ============================================================
+        function flashCard(card) {
+            card.classList.remove('scan-flash');
+            void card.offsetWidth;
+            card.classList.add('scan-flash');
+            setTimeout(() => card.classList.remove('scan-flash'), 900);
+
+            const plus = document.createElement('div');
+            plus.className = 'float-plus';
+            plus.textContent = '+1';
+            card.appendChild(plus);
+            setTimeout(() => plus.remove(), 1000);
+
+            const fill = card.querySelector('.progress-fill');
+            if (fill) {
+                fill.classList.remove('shimmer');
+                void fill.offsetWidth;
+                fill.classList.add('shimmer');
+            }
+        }
+
+        function animateCount(el, target) {
+            if (!el) return;
+            const start = parseInt(el.textContent.replace(/\D/g, ''), 10) || 0;
+            if (start === target) { el.textContent = target; return; }
+            const dur = 400, t0 = performance.now();
+            el.style.color = '#22d3ee';
+            function step(t) {
+                const k = Math.min(1, (t - t0) / dur);
+                el.textContent = Math.round(start + (target - start) * k);
+                if (k < 1) requestAnimationFrame(step);
+                else { el.textContent = target; setTimeout(() => el.style.color = '#fff', 300); }
+            }
+            requestAnimationFrame(step);
+        }
+
+        function updateProgress(card, qty, planQty) {
+            const pct = planQty > 0 ? Math.min(100, Math.round((qty / planQty) * 100)) : 0;
+            const fill = card.querySelector('.progress-fill');
+            const remain = card.querySelector('.stat-remain');
+            const pctb = card.querySelector('.pct-badge');
+            if (fill) {
+                fill.style.width = pct + '%';
+                fill.classList.toggle('complete', pct >= 100);
+            }
+            if (remain) remain.textContent = `${Math.max(0, planQty - qty)} left`;
+            if (pctb) pctb.textContent = pct + '%';
+        }
+
+        function markActive(card) {
+            card.className = 'dash-card status-active';
+            const pill = card.querySelector('.status-pill');
+            if (pill) {
+                pill.className = 'status-pill bg-active';
+                const s = pill.querySelector('.lbl-status');
+                if (s) s.textContent = 'RUNNING';
+            }
+        }
+
+        function maybeCelebrate(card, qty, planQty) {
+            if (planQty <= 0 || qty < planQty) return;
+            const id = card.id;
+            if (CARD_STATE[id] && CARD_STATE[id].celebrated) return;
+            if (!CARD_STATE[id]) CARD_STATE[id] = {};
+            CARD_STATE[id].celebrated = true;
+
+            card.classList.remove('status-active', 'status-slow', 'status-idle');
+            card.classList.add('celebrate', 'status-done');
+            const pill = card.querySelector('.status-pill');
+            if (pill) { pill.className = 'status-pill bg-done'; pill.querySelector('.lbl-status').textContent = 'DONE'; }
+            const colors = ['#34d399', '#38bdf8', '#fbbf24', '#f87171', '#a78bfa'];
+            for (let i = 0; i < 24; i++) {
+                const c = document.createElement('div');
+                c.className = 'confetti';
+                c.style.left = Math.random() * 100 + '%';
+                c.style.background = colors[i % colors.length];
+                c.style.animationDelay = (Math.random() * 0.3) + 's';
+                card.appendChild(c);
+                setTimeout(() => c.remove(), 1800);
+            }
+            setTimeout(() => card.classList.remove('celebrate'), 1600);
+        }
+
+        // ============================================================
+        // WRONG BARCODE — full-screen alert (kept) + detail
+        // ============================================================
         function triggerAlert(alert) {
-            // 1. Visual
-            const alertBox = document.createElement('div');
-            alertBox.style.position = 'fixed';
-            alertBox.style.top = '0';
-            alertBox.style.left = '0';
-            alertBox.style.width = '100vw';
-            alertBox.style.height = '100vh';
-            alertBox.style.backgroundColor = 'rgba(220, 38, 38, 0.9)';
-            alertBox.style.zIndex = '9999';
-            alertBox.style.display = 'flex';
-            alertBox.style.flexDirection = 'column';
-            alertBox.style.alignItems = 'center';
-            alertBox.style.justifyContent = 'center';
-            alertBox.style.color = '#fff';
-            alertBox.innerHTML = `
-                <i class="bi bi-exclamation-octagon-fill" style="font-size:10rem; animation: pulse 0.5s infinite"></i>
+            const box = document.createElement('div');
+            Object.assign(box.style, {
+                position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+                backgroundColor: 'rgba(220,38,38,0.94)', zIndex: 9999, display: 'flex',
+                flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', gap: '10px'
+            });
+            const expected = alert.expected || alert.expected_ean || '—';
+            const scanned = alert.ean || alert.scanned_ean || '—';
+            box.innerHTML = `
+                <i class="bi bi-exclamation-octagon-fill" style="font-size:9rem; animation: pulse 0.5s infinite"></i>
                 <h1 style="font-weight:900; font-size:5rem; margin:0">WRONG BARCODE!</h1>
-                <h2 style="font-size:3rem">Table: ${alert.table_id}</h2>
-            `;
-            document.body.appendChild(alertBox);
+                <h2 style="font-size:3rem; margin:0">Table: ${alert.table_id}</h2>
+                <div style="font-size:1.6rem; margin-top:10px; background:rgba(0,0,0,0.25); padding:14px 26px; border-radius:14px; text-align:center">
+                    <div>Expected: <b>${expected}</b></div>
+                    <div>Scanned: <b>${scanned}</b></div>
+                </div>`;
+            document.body.appendChild(box);
+            setTimeout(() => box.remove(), 4000);
 
-            // Remove visual after 4s (User Request)
-            setTimeout(() => alertBox.remove(), 4000);
-
-            // 2. Audio (Siren + Multilingual Voice)
+            WRONG_TIMES.push(Date.now());
+            recomputeKpis();
             playSiren();
 
-            const tblNum = alert.table_id.replace(/[^0-9]/g, '') || alert.table_id;
-
-            // Sequence: English -> Hindi -> Gujarati
-            const enText = `Wrong Barcode Scan on Table ${tblNum}`;
-            const hiText = `Table Number ${tblNum} par, Galat Barcode Scan hua hai`; // Hindi
-            const guText = `Table Number ${tblNum} par, Khoto Barcode Scan thayo chhe`; // Gujarati
-
+            const tblNum = String(alert.table_id).replace(/[^0-9]/g, '') || alert.table_id;
             speakSequence([
-                { text: enText, lang: 'en-US' },
-                { text: hiText, lang: 'hi-IN' },
+                { text: `Wrong Barcode Scan on Table ${tblNum}`, lang: 'en-US' },
+                { text: `Table Number ${tblNum} par, Galat Barcode Scan hua hai`, lang: 'hi-IN' },
             ]);
         }
 
         function playSiren() {
-            // Web Audio API Oscillator Siren (No MP3 needed)
             try {
-                const AudioContext = window.AudioContext || window.webkitAudioContext;
-                if (!AudioContext) return;
-
-                const ctx = new AudioContext();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-
+                const AC = window.AudioContext || window.webkitAudioContext;
+                if (!AC) return;
+                const ctx = new AC(), osc = ctx.createOscillator(), gain = ctx.createGain();
+                osc.connect(gain); gain.connect(ctx.destination);
                 osc.type = 'sawtooth';
                 osc.frequency.setValueAtTime(600, ctx.currentTime);
-                osc.frequency.linearRampToValueAtTime(1200, ctx.currentTime + 0.5);
-                osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 1.0);
-                osc.frequency.linearRampToValueAtTime(1200, ctx.currentTime + 1.5);
-                osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 2.0);
-
+                [1200, 600, 1200, 600].forEach((f, i) =>
+                    osc.frequency.linearRampToValueAtTime(f, ctx.currentTime + 0.5 * (i + 1)));
                 gain.gain.setValueAtTime(0.5, ctx.currentTime);
                 gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 2.0);
-
-                osc.start();
-                osc.stop(ctx.currentTime + 2.0);
-            } catch (e) { console.error('Audio Context Error:', e); }
+                osc.start(); osc.stop(ctx.currentTime + 2.0);
+            } catch (e) { console.error('Audio Error:', e); }
         }
 
         function speakSequence(messages) {
             if (synth.speaking) synth.cancel();
-
             messages.forEach((msg) => {
-                const utter = new SpeechSynthesisUtterance(msg.text);
-                utter.rate = 0.9;
-                utter.pitch = 1.0;
-                utter.volume = 1.0;
-
-                // Get fresh list (sometimes fails if called too early)
+                const u = new SpeechSynthesisUtterance(msg.text);
+                u.rate = 0.9; u.pitch = 1.0; u.volume = 1.0;
                 const voices = synth.getVoices();
-                let voice = null;
-
+                let v = null;
                 if (msg.lang === 'hi-IN') {
-                    // Priority: Google Hindi -> Microsoft Hindi -> Any Hindi
-                    voice = voices.find(v => v.name.includes('Google') && v.lang.includes('hi')) ||
-                        voices.find(v => v.name.includes('Microsoft') && v.lang.includes('hi')) ||
-                        voices.find(v => v.lang.includes('hi'));
-                } else if (msg.lang === 'gu-IN') {
-                    // Priority: Google Gujarati -> Any Gujarati
-                    voice = voices.find(v => v.name.includes('Google') && v.lang.includes('gu')) ||
-                        voices.find(v => v.lang.includes('gu'));
+                    v = voices.find(x => x.name.includes('Google') && x.lang.includes('hi')) ||
+                        voices.find(x => x.name.includes('Microsoft') && x.lang.includes('hi')) ||
+                        voices.find(x => x.lang.includes('hi'));
                 } else {
-                    // English: Google US -> Zira -> Any English
-                    voice = voices.find(v => v.name.includes('Google US')) ||
-                        voices.find(v => v.name.includes('Zira')) ||
-                        voices.find(v => v.lang.includes('en'));
+                    v = voices.find(x => x.name.includes('Google US')) ||
+                        voices.find(x => x.name.includes('Zira')) ||
+                        voices.find(x => x.lang.includes('en'));
                 }
-
-                if (voice) {
-                    utter.voice = voice;
-                    // console.log(`Selected ${voice.name} for ${msg.lang}`);
-                }
-                // If no voice found, browser uses default (which is usually English), 
-                // but setting lang might help it switch if underlying OS supports it.
-                utter.lang = msg.lang;
-
-                synth.speak(utter);
+                if (v) u.voice = v;
+                u.lang = msg.lang;
+                synth.speak(u);
             });
         }
 
+        // ============================================================
+        // LIVE TICK — per-card "x ago", idle status, KPI throughput
+        // ============================================================
+        function tickLive() {
+            const now = Date.now();
+            Array.from(document.querySelectorAll('.dash-card')).forEach(card => {
+                const id = card.id.replace('card-', '');
+                const st = CARD_STATE[id];
+                if (!st || !st.lastScanTs) return;
+                const secs = Math.floor((now - st.lastScanTs) / 1000);
+
+                const ago = card.querySelector('.lbl-ago');
+                if (ago) ago.textContent = humanAgo(secs);
+
+                // Live idle reclassification (skip completed cards)
+                if (!(st.celebrated)) {
+                    const mins = secs / 60;
+                    let sc = 'status-active', pc = 'bg-active', txt = 'RUNNING';
+                    if (mins > 15) { sc = 'status-idle'; pc = 'bg-idle'; txt = 'STOPPED'; }
+                    else if (mins > 5) { sc = 'status-slow'; pc = 'bg-slow'; txt = 'SLOW'; }
+                    if (!card.classList.contains(sc)) card.className = 'dash-card ' + sc;
+                    const pill = card.querySelector('.status-pill');
+                    if (pill) { pill.className = 'status-pill ' + pc; pill.querySelector('.lbl-status').textContent = txt; }
+                }
+            });
+            recomputeKpis();
+        }
+
+        function humanAgo(s) {
+            if (s < 5) return 'just now';
+            if (s < 60) return s + 's ago';
+            const m = Math.floor(s / 60);
+            if (m < 60) return m + 'm ' + (s % 60) + 's ago';
+            return Math.floor(m / 60) + 'h ' + (m % 60) + 'm ago';
+        }
+
+        function recomputeKpis() {
+            const now = Date.now();
+            while (SCAN_TIMES.length && now - SCAN_TIMES[0] > 3600000) SCAN_TIMES.shift();
+            while (WRONG_TIMES.length && now - WRONG_TIMES[0] > 3600000) WRONG_TIMES.shift();
+
+            const cards = Array.from(document.querySelectorAll('.dash-card'));
+            let running = 0, slow = 0, stopped = 0;
+            cards.forEach(c => {
+                if (c.classList.contains('status-idle')) stopped++;
+                else if (c.classList.contains('status-slow')) slow++;
+                else running++;
+            });
+            let totalScanned = 0;
+            Object.values(PREVIOUS_DATA).forEach(q => totalScanned += (q || 0));
+
+            setText('kpiActive', cards.length);
+            setText('kpiRunning', running);
+            setText('kpiSlow', slow);
+            setText('kpiStopped', stopped);
+            setText('kpiScanned', totalScanned);
+            setText('kpiWrong', WRONG_TIMES.length);
+            setText('kpiThroughput', `~${SCAN_TIMES.length} / hr`);
+
+            const banner = document.getElementById('staleBanner');
+            banner.style.display = (!SSE_UP || (now - LAST_EVENT_TS > 90000)) ? 'block' : 'none';
+        }
+
+        function setText(id, v) {
+            const el = document.getElementById(id);
+            if (el && el.textContent != v) el.textContent = v;
+        }
+
+        // ============================================================
+        // RENDER GRID (from reconciliation fetch)
+        // ============================================================
         function renderGrid(plans) {
             const grid = document.getElementById('grid');
+            const existingIds = new Set(Array.from(grid.querySelectorAll('.dash-card')).map(c => c.id));
 
-            // 1. Mark existing
-            const existingIds = new Set(Array.from(grid.children).map(c => c.id));
+            if (!plans.length) {
+                grid.innerHTML = `<div class="empty-state"><i class="bi bi-inbox"></i><div>No active plans right now</div></div>`;
+                recomputeKpis();
+                return;
+            }
+            const empty = grid.querySelector('.empty-state');
+            if (empty) empty.remove();
 
             plans.forEach(p => {
                 const cardId = `card-${p.id}`;
                 existingIds.delete(cardId);
 
-                const prevQty = PREVIOUS_DATA[p.id] || 0;
                 const currQty = p.scanned_qty || 0;
-                const isFlash = (currQty > prevQty);
+                const planQty = p.plan_qty || 0;
                 PREVIOUS_DATA[p.id] = currQty;
 
-                // Status Logic
-                // Use Server-Side Idle Time (Fixed Timezone Issue)
-                let idleSec = (p.idle_seconds !== undefined && p.idle_seconds !== null) ? Number(p.idle_seconds) : 99999;
+                // Server idle seconds -> lastScanTs anchor
+                let idleSec = (p.idle_seconds != null) ? Number(p.idle_seconds) : 99999;
+                const st = CARD_STATE[p.id] || {};
+                st.plan_qty = planQty;
+                st.item_name = p.item_name;
+                // Only reset lastScanTs from server if we don't have a fresher local one
+                const serverLast = Date.now() - idleSec * 1000;
+                if (!st.lastScanTs || serverLast > st.lastScanTs) st.lastScanTs = serverLast;
+                if (planQty > 0 && currQty >= planQty) st.celebrated = true;
+                CARD_STATE[p.id] = st;
 
-                // Local Override: If we see it incrementing now, mark active
-                if (currQty > prevQty) idleSec = 0;
+                const mins = idleSec / 60;
+                let sc = 'status-active', pc = 'bg-active', txt = 'RUNNING';
+                if (planQty > 0 && currQty >= planQty) { sc = 'status-done'; pc = 'bg-done'; txt = 'DONE'; }
+                else if (mins > 15) { sc = 'status-idle'; pc = 'bg-idle'; txt = 'STOPPED'; }
+                else if (mins > 5) { sc = 'status-slow'; pc = 'bg-slow'; txt = 'SLOW'; }
 
-                const diffMins = idleSec / 60;
-
-                let statusClass = 'status-active';
-                let pillClass = 'bg-active';
-                let statusText = 'RUNNING';
-
-                if (diffMins > 15) { statusClass = 'status-idle'; pillClass = 'bg-idle'; statusText = 'STOPPED'; }
-                else if (diffMins > 5) { statusClass = 'status-slow'; pillClass = 'bg-slow'; statusText = 'SLOW'; }
-
-                // Time Display
-                let timeStr = '--:--';
-                if (p.updated_at) {
-                    try { timeStr = new Date(p.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch (e) { }
-                }
-
-                const pct = Math.min(100, Math.round((currQty / p.plan_qty) * 100));
+                const pct = planQty > 0 ? Math.min(100, Math.round((currQty / planQty) * 100)) : 0;
+                const remain = Math.max(0, planQty - currQty);
+                const paceInfo = computePace(p, currQty);
+                const timeWin = fmtWindow(p.start_time, p.end_time);
+                const machine = p.machine ? `<span><i class="bi bi-gear-fill"></i>${p.machine}</span>` : '';
 
                 let card = document.getElementById(cardId);
+                const inner = `
+                    <div class="scan-ripple"></div>
+                    <div class="card-header-row">
+                        <div>
+                            <div class="table-name">${p.table_id}</div>
+                            <div class="item-name" title="${p.item_name || ''}">${p.item_name || '—'}</div>
+                            <div class="client-name">${p.client_name || ''}</div>
+                            <div class="jobcard-no">${p.job_card_no ? 'JC: ' + p.job_card_no : ''}</div>
+                            <div class="meta-line">${machine}${timeWin}</div>
+                        </div>
+                        <div class="status-pill ${pc}">
+                            <span class="lbl-status">${txt}</span><br>
+                            <span class="pill-time lbl-ago">${humanAgo(idleSec)}</span>
+                        </div>
+                    </div>
+                    <div class="stats-row">
+                        <div>
+                            <div class="stat-label">Scanned</div>
+                            <div class="stat-val qty-val">${currQty}</div>
+                            <div class="stat-remain">${remain} left</div>
+                        </div>
+                        <div style="text-align:right">
+                            <div class="stat-label">Target</div>
+                            <div class="stat-val-small">${planQty}</div>
+                        </div>
+                    </div>
+                    <div class="progress-bg">
+                        <div class="progress-fill ${pct >= 100 ? 'complete' : ''}" style="width:${pct}%"></div>
+                    </div>
+                    <div class="foot-row">
+                        <span class="pace-badge ${paceInfo.cls}">${paceInfo.label}</span>
+                        <span class="pct-badge">${pct}%</span>
+                    </div>`;
 
                 if (!card) {
                     card = document.createElement('div');
                     card.id = cardId;
-                    card.className = `dash-card ${statusClass}`;
-                    card.innerHTML = `
-                        <div class="card-header-row">
-                            <div>
-                                <div class="table-name">${p.table_id}</div>
-                                <div class="item-name">${p.item_name}</div>
-                                <div class="client-name" style="font-size:0.8rem; opacity:0.85">${p.client_name || ''}</div>
-                                <div class="jobcard-no" style="font-size:0.75rem; opacity:0.7">${p.job_card_no ? 'JC: ' + p.job_card_no : ''}</div>
-                            </div>
-                            <div class="status-pill ${pillClass}">
-                                <span class="lbl-status">${statusText}</span> <br>
-                                <span class="lbl-time" style="font-size:0.6rem; opacity:0.8">${timeStr}</span>
-                            </div>
-                        </div>
-                        <div class="stats-row">
-                            <div class="stat-block">
-                                <div class="stat-label">Scanned</div>
-                                <div class="stat-val qty-val">${currQty}</div>
-                            </div>
-                            <div class="stat-block" style="text-align:right">
-                                <div class="stat-label">Target</div>
-                                <div class="stat-val-small">${p.plan_qty}</div>
-                            </div>
-                        </div>
-                        <div class="progress-bg">
-                            <div class="progress-fill ${pct >= 100 ? 'complete' : ''}" style="width: ${pct}%"></div>
-                        </div>
-                    `;
+                    card.className = `dash-card ${sc}`;
+                    card.innerHTML = inner;
                     grid.appendChild(card);
                 } else {
-                    // DIFF UPDATE
-                    card.className = `dash-card ${statusClass} ${isFlash ? 'scan-flash' : ''}`;
-
-                    const qtyEl = card.querySelector('.qty-val');
-                    if (qtyEl.textContent != currQty) {
-                        qtyEl.textContent = currQty;
-                        qtyEl.style.color = isFlash ? '#22d3ee' : '#fff';
-                    } else {
-                        qtyEl.style.color = '#fff';
-                    }
-
+                    // Diff-update text without clobbering running animations
+                    setCardText(card, '.table-name', p.table_id);
+                    setCardText(card, '.item-name', p.item_name || '—');
+                    setCardText(card, '.qty-val', currQty);
+                    setCardText(card, '.stat-remain', `${remain} left`);
+                    setCardText(card, '.stat-val-small', planQty);
+                    setCardText(card, '.lbl-status', txt);
+                    setCardText(card, '.pct-badge', pct + '%');
+                    const paceEl = card.querySelector('.pace-badge');
+                    if (paceEl) { paceEl.className = 'pace-badge ' + paceInfo.cls; paceEl.textContent = paceInfo.label; }
+                    if (!card.className.includes(sc)) card.className = `dash-card ${sc}`;
                     const pill = card.querySelector('.status-pill');
-                    pill.className = `status-pill ${pillClass}`;
-                    pill.querySelector('.lbl-status').textContent = statusText;
-                    pill.querySelector('.lbl-time').textContent = timeStr;
-
+                    if (pill && !pill.className.includes(pc)) pill.className = 'status-pill ' + pc;
                     const fill = card.querySelector('.progress-fill');
-                    fill.style.width = `${pct}%`;
-                    if (pct >= 100) fill.classList.add('complete');
-                    else fill.classList.remove('complete'); // Ensure removed if backlog
-
-                    const itemEl = card.querySelector('.item-name');
-                    if (itemEl.textContent !== p.item_name) itemEl.textContent = p.item_name;
-
-                    const clientEl = card.querySelector('.client-name');
-                    if (clientEl) clientEl.textContent = p.client_name || '';
-                    const jcEl = card.querySelector('.jobcard-no');
-                    if (jcEl) jcEl.textContent = p.job_card_no ? 'JC: ' + p.job_card_no : '';
+                    if (fill) { fill.style.width = pct + '%'; fill.classList.toggle('complete', pct >= 100); }
+                    setCardText(card, '.client-name', p.client_name || '');
+                    setCardText(card, '.jobcard-no', p.job_card_no ? 'JC: ' + p.job_card_no : '');
                 }
             });
 
-            // Remove Stale
             existingIds.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.remove();
             });
+            recomputeKpis();
+        }
+
+        function setCardText(card, sel, val) {
+            const el = card.querySelector(sel);
+            if (el && el.textContent != val) el.textContent = val;
+        }
+
+        // Planned rate vs actual -> ahead/behind schedule
+        function computePace(p, qty) {
+            const planQty = p.plan_qty || 0;
+            if (planQty > 0 && qty >= planQty) return { cls: 'pace-ahead', label: 'Complete' };
+            if (!p.start_time || !p.duration_min || planQty <= 0) return { cls: 'pace-flat', label: 'On track' };
+            const started = new Date(p.start_time).getTime();
+            const elapsedMin = (Date.now() - started) / 60000;
+            if (elapsedMin <= 0) return { cls: 'pace-flat', label: 'Not started' };
+            const expected = Math.min(planQty, (planQty / p.duration_min) * elapsedMin);
+            const diff = qty - expected;
+            if (diff >= planQty * 0.03) return { cls: 'pace-ahead', label: `Ahead +${Math.round(diff)}` };
+            if (diff <= -planQty * 0.03) return { cls: 'pace-behind', label: `Behind ${Math.round(diff)}` };
+            return { cls: 'pace-flat', label: 'On track' };
+        }
+
+        function fmtWindow(start, end) {
+            if (!start) return '';
+            try {
+                const s = new Date(start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const e = end ? new Date(end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                return `<span><i class="bi bi-clock"></i>${s}${e ? '–' + e : ''}</span>`;
+            } catch { return ''; }
         }
     </script>
 </body>
