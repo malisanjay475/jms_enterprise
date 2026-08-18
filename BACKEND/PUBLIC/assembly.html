@@ -141,6 +141,36 @@
             background: #ef4444;
         }
 
+        /* RUNNING plan pinned to "now" because its schedule isn't on this day */
+        .gantt-bar.status-running {
+            background: linear-gradient(180deg, #10b981, #059669);
+            border: 2px dashed #a7f3d0;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.45);
+        }
+
+        .gantt-bar.status-running::before {
+            content: 'LIVE';
+            position: absolute;
+            top: 2px;
+            right: 4px;
+            font-size: 0.55rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            background: rgba(0, 0, 0, 0.25);
+            padding: 0 4px;
+            border-radius: 4px;
+            animation: liveBlink 1.4s infinite;
+        }
+
+        @keyframes liveBlink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.35; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .gantt-bar.status-running::before { animation: none; }
+        }
+
         /* Modal Tweaks */
         .modal-body {
             display: grid;
@@ -361,16 +391,39 @@
                 const viewStart = new Date(dateStr + 'T00:00:00');
                 const viewEnd = new Date(dateStr + 'T23:59:59');
 
+                const nowDate = new Date();
+                const viewingToday = viewStart.toDateString() === nowDate.toDateString();
+
                 plans.forEach(p => {
                     // Parse the wall-clock strings (start_local/end_local) so bar
                     // placement is timezone-immune. Fall back to the ISO field only
                     // if the local fields are missing (older server).
-                    const start = new Date(p.start_local || p.start_time);
-                    const end = new Date(p.end_local || p.end_time);
+                    let start = new Date(p.start_local || p.start_time);
+                    let end = new Date(p.end_local || p.end_time);
 
-                    // Basic Date Filter (Client Side if API returns all)
-                    // If range overlaps with today
-                    if (end < viewStart || start > viewEnd) return;
+                    // A schedule counts as valid only if BOTH ends parse to real
+                    // dates. NULL/garbage schedules (Invalid Date) otherwise slip past
+                    // the overlap test and render as invisible NaN-width bars.
+                    const validSched = !isNaN(start) && !isNaN(end);
+                    const overlaps = validSched && !(end < viewStart || start > viewEnd);
+
+                    // RUNNING plans whose scheduled window isn't on the viewed day (or
+                    // that have no schedule) are still surfaced when you're looking at
+                    // today — pinned to "now" so an in-progress job is never hidden.
+                    const isRunning = String(p.status || '').toUpperCase() === 'RUNNING';
+                    let pinned = false;
+                    if (!overlaps) {
+                        if (isRunning && viewingToday) {
+                            pinned = true;
+                            const durMin = Number(p.duration_min) > 0
+                                ? Number(p.duration_min)
+                                : (validSched && end > start ? (end - start) / 60000 : 60);
+                            start = new Date(nowDate);
+                            end = new Date(nowDate.getTime() + durMin * 60000);
+                        } else {
+                            return; // schedule not on this day — keep hidden
+                        }
+                    }
 
                     // Calculate Position relative to 00:00 of View Date
                     // (Handle multi-day crossover simply by clamping or raw calc)
@@ -385,6 +438,10 @@
                         durationMins -= diff;
                     }
 
+                    // Clamp the bar so it never runs off the end of the day
+                    const maxMins = 24 * 60 - startMins;
+                    if (durationMins > maxMins) durationMins = maxMins;
+
                     // Handles Negative Duration (Data Error)
                     let isError = false;
                     if (durationMins <= 0) {
@@ -395,7 +452,7 @@
                     const left = startMins * PX_PER_MIN;
                     const width = durationMins * PX_PER_MIN;
 
-                    if (width < 5 && !isError) return; // Too small
+                    if (width < 5 && !isError && !pinned) return; // Too small
 
                     const rowId = `row-${p.table_id.replace(' ', '-')}`;
                     const row = document.getElementById(rowId);
@@ -403,7 +460,9 @@
                     if (row) {
                         const bar = document.createElement('div');
                         bar.className = 'gantt-bar';
-                        if (isError) {
+                        if (pinned) {
+                            bar.classList.add('status-running');
+                        } else if (isError) {
                             bar.classList.add('status-delayed');
                             bar.style.border = '2px solid yellow';
                         }
@@ -414,15 +473,18 @@
                         bar.innerHTML = `
                             <div style="font-weight:600">${p.item_name}</div>
                             <div style="opacity:0.9">${p.plan_qty} Pcs</div>
+                            ${pinned ? '<div style="font-size:0.6rem; color:#ecfdf5"><i class="bi bi-broadcast"></i> Running (off-schedule)</div>' : ''}
                             ${isError ? '<div style="font-size:0.6rem; color:white"><i class="bi bi-exclamation-triangle-fill"></i> Duration Error</div>' : ''}
                         `;
                         // Bind Full Object for Edit
-                        const planData = JSON.stringify(p).replace(/"/g, '&quot;');
                         bar.onclick = (e) => { e.stopPropagation(); editPlan(p); };
+                        const schedTxt = validSched
+                            ? `${new Date(p.start_local || p.start_time).toLocaleString()} - ${new Date(p.end_local || p.end_time).toLocaleString()}`
+                            : 'No schedule set';
                         bar.title = `${p.item_name} (${p.plan_qty})` +
                             `${p.client_name ? '\nClient: ' + p.client_name : ''}` +
                             `${p.job_card_no ? '\nJC: ' + p.job_card_no : ''}` +
-                            `\n${start.toLocaleTimeString()} - ${end.toLocaleTimeString()}`;
+                            (pinned ? `\nStatus: RUNNING (pinned to now — scheduled ${schedTxt})` : `\n${schedTxt}`);
                         row.appendChild(bar);
                     }
                 });
