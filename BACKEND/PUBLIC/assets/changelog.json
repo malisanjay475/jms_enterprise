@@ -23,7 +23,7 @@
           "label": "Packing",
           "icon": "bi-box2-fill",
           "changes": [
-            { "type": "fix", "text": "Assembly plans you create in Packing now stay put — they are no longer overwritten and removed when the factory server syncs with the main server. Plans also remain visible in the active list until they are completed." }
+            { "type": "fix", "text": "Assembly plans you create in Packing now stay put and remain visible until completed, instead of being removed when the factory server syncs with the main server." }
           ]
         }
       ]
