@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.41.0",
+  "latest": "1.41.1",
   "versions": [
+    {
+      "version": "1.41.1",
+      "date": "2026-08-18",
+      "title": "Assembly packing: timezone, delete, active job",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "Assembly Planning now shows plans correctly even when the PC's clock is not on India time, so saved plans no longer go missing from the timeline." },
+            { "type": "feat", "text": "You can now delete a packing plan from the Add/Edit Plan window." },
+            { "type": "improvement", "text": "The Packing Dashboard now shows the job that is currently active in Production Line Scanning for each table, instead of an unrelated one." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.41.0",
       "date": "2026-08-18",
