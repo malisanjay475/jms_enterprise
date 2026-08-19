@@ -749,7 +749,14 @@ function renderLossPanel(lineKeys, lineBundles, factory) {
     chgTbl += chgRow('FACTORY TOTAL', factory, true) + `</tbody></table>`;
 
     document.getElementById('loss-tables').innerHTML = lossTbl + chgTbl +
-        `<div class="small" style="margin-top:8px;color:#94a3b8;font-size:.68rem">Nameplate = Good + Change-over + Downtime + Speed + Quality loss. STD change-over = (mould load+unload from Machine Master) × change-overs. Overrun &gt;20% flagged red. All figures in Kg.</div>`;
+        `<div class="small" style="margin-top:10px;color:#64748b;font-size:.7rem;line-height:1.6">
+            <b>Nameplate = Good + Change-over + Downtime + Speed + Quality loss.</b> All figures in Kg.<br>
+            • <b style="color:#7c3aed">Change-over Loss</b> = Nameplate − Planned = rate × actual mould-change time (downtime code 2).<br>
+            • <b style="color:#a855f7">Downtime Loss</b> = Planned − Net Achievable = rate × all other downtime.<br>
+            • <b style="color:#c084fc">Speed Loss</b> = Net Achievable − Gross = output lost running below rated speed.<br>
+            • <b style="color:#ef4444">Quality Loss</b> = Gross − Good = reject weight.<br>
+            STD change-over = job/mould changes × (mould load + unload from Machine Master). Overrun &gt;20% flagged red.
+        </div>`;
 }
 
 /* ── Insights ── */
@@ -1060,6 +1067,19 @@ function showCalc(metric) {
             <td style="padding:5px 10px;${isSub?'color:#dc2626;padding-left:24px':'font-weight:700'};${on?'font-weight:800':''}">${lbl}</td>
             <td style="text-align:right;font-family:monospace;font-weight:700;padding:5px 10px;color:${col}">${val<0?'−':''}${f(Math.abs(val))} Kg</td></tr>`;
     }).join('');
+    // What the losses mean + their formulas (with the live factory 24h value).
+    const lossItem=(col,name,val,formula,desc)=>`<div style="border-left:3px solid ${col};background:#fafafa;padding:6px 10px;border-radius:0 6px 6px 0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:800;color:${col}">${name}</span><span style="font-family:monospace;font-weight:700;color:${val<0?'#16a34a':'#334155'}">${val<0?'−':''}${f(Math.abs(val))} Kg</span></div>
+        <div style="font-size:.72rem;color:#475569;margin-top:2px"><b>Formula:</b> ${formula}</div>
+        <div style="font-size:.72rem;color:#64748b">${desc}</div></div>`;
+    const lossLegend = `
+        <div style="font-weight:800;color:#334155;font-size:.8rem;margin:14px 0 5px"><i class="bi bi-info-circle" style="color:#7c3aed"></i> What the losses mean (factory, 24 h)</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+            ${lossItem('#7c3aed','Change-over Loss', T.targetWt-T.plannedWt, 'Nameplate − Planned Target  =  rate × actual mould-change hours', 'Output you could not make because machines were stopped to change the mould (downtime code 2).')}
+            ${lossItem('#a855f7','Downtime Loss', T.plannedWt-T.netAchWt, 'Planned Target − Net Achievable  =  rate × all OTHER downtime hours', 'Output lost to every other stoppage — breakdown, no material, power, manpower, nozzle block, etc.')}
+            ${lossItem('#c084fc','Speed Loss', T.netAchWt-T.grossWt, 'Net Achievable − Gross Production', 'Output lost because the machine ran slower than its rated cycle while it was running. A negative value means it ran faster than rated.')}
+            ${lossItem('#ef4444','Quality Loss', T.rejWt, 'Gross − Good  =  Reject weight', 'Parts that were moulded but rejected as scrap.')}
+        </div>`;
     const rejPct=(s)=>s.grossWt>0?s.rejWt/s.grossWt*100:0;
     const effPct=(s)=>s.targetWt>0?s.goodWt/s.targetWt*100:0;
     const avgTbl = `<table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-top:8px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
@@ -1084,6 +1104,7 @@ function showCalc(metric) {
                 </div>
                 <div style="font-weight:800;color:#334155;font-size:.8rem;margin:12px 0 4px"><i class="bi bi-diagram-3" style="color:#7c3aed"></i> Where it sits in the waterfall (factory, 24 h)</div>
                 <table style="width:100%;border-collapse:collapse;font-size:.84rem;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">${wfRows}</table>
+                ${lossLegend}
                 <div style="font-weight:800;color:#334155;font-size:.8rem;margin:14px 0 4px"><i class="bi bi-calculator" style="color:#7c3aed"></i> Averages — Day vs Night vs 24 Hours</div>
                 ${avgTbl}
             </div>
