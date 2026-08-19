@@ -3992,7 +3992,9 @@ app.post('/api/admin/plans/bulk-approve', async (req, res) => {
     );
     if (!userRows.length) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
     const user = userRows[0];
-    const bcrypt = require('bcrypt');
+    // Use the module-level bcryptjs (line ~27). Native `bcrypt` is NOT a
+    // dependency (only bcryptjs is installed), so require('bcrypt') here would
+    // throw at runtime. bcryptjs verifies the same $2a/$2b hashes.
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
     if (!isAdminLikeRole(user.role_code)) {
@@ -4533,8 +4535,22 @@ async function waitForDb(pool, retries = 30, delay = 2000) {
   throw new Error('[DB] Could not connect after multiple retries.');
 }
 
+// Fixed advisory-lock key that serializes the legacy DDL bootstrap below across
+// every PM2 cluster worker and container instance. Distinct from the migrations
+// lock (see runMigrations). Without it, all workers run the same idempotent
+// CREATE TABLE / ALTER block at once and deadlock competing for ACCESS EXCLUSIVE
+// locks (notably `ALTER TABLE factories`), so boot never reaches app.listen()
+// and the site serves a Traefik 404. One worker runs the DDL while the rest wait,
+// then find everything present and finish fast.
+const LEGACY_INIT_LOCK_KEY = 4715132010;
+
 async function initializeLegacyRuntime() {
+  let __initLockClient = null;
   try {
+    // Serialize the DDL bootstrap across all workers/instances (see key comment).
+    __initLockClient = await pool.connect();
+    await __initLockClient.query('SELECT pg_advisory_lock($1)', [LEGACY_INIT_LOCK_KEY]);
+
     // [FIX] Wait for DB before anything else
     await waitForDb(pool);
     await bootstrapFreshCoreTables();
@@ -4557,13 +4573,24 @@ async function initializeLegacyRuntime() {
 
     // Non-blocking index creation (resilient — ownership/permission errors are non-fatal)
     await qIdx(`
+            -- Query performance telemetry. Harmless if the shared_preload_libraries
+            -- entry isn't set yet; it starts collecting after the DB is recreated.
+            CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
             CREATE INDEX IF NOT EXISTS idx_plan_board_machine ON plan_board(machine);
             CREATE INDEX IF NOT EXISTS idx_plan_board_status ON plan_board(status);
             CREATE INDEX IF NOT EXISTS idx_std_actual_plan_id ON std_actual(plan_id);
             CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
             -- NEW MASTER PLAN OPTIMIZATION INDEXES
-            CREATE INDEX IF NOT EXISTS idx_dpr_hourly_order ON dpr_hourly(order_no);
+            -- dpr_hourly is a hot, sync-written table. It historically carried
+            -- DUPLICATE indexes (idx_dpr_hourly_order == idx_dpr_hourly_order_no,
+            -- idx_dpr_hourly_factory == idx_dpr_hourly_factory_id), which doubled
+            -- write/sync cost for zero read benefit. Standardize on the *_no / *_id
+            -- names, ensure they exist, and drop the legacy twins. (2026-08-17 perf)
+            CREATE INDEX IF NOT EXISTS idx_dpr_hourly_order_no ON dpr_hourly(order_no);
+            CREATE INDEX IF NOT EXISTS idx_dpr_hourly_factory_id ON dpr_hourly(factory_id);
+            DROP INDEX IF EXISTS idx_dpr_hourly_order;
+            DROP INDEX IF EXISTS idx_dpr_hourly_factory;
             CREATE INDEX IF NOT EXISTS idx_or_jr_report_no ON or_jr_report(or_jr_no);
             CREATE INDEX IF NOT EXISTS idx_moulds_mould_name ON moulds(mould_name);
             CREATE INDEX IF NOT EXISTS idx_or_jr_report_no_trim ON or_jr_report(TRIM(or_jr_no));
@@ -4767,6 +4794,42 @@ async function initializeLegacyRuntime() {
                 created_at TIMESTAMP DEFAULT NOW(),
                 created_by TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS assembly_lines (
+                line_id TEXT PRIMARY KEY,
+                line_name TEXT,
+                scanner_config TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            INSERT INTO assembly_lines (line_id, line_name)
+            SELECT DISTINCT table_id, table_id
+            FROM assembly_plans
+            WHERE table_id IS NOT NULL
+            ON CONFLICT (line_id) DO NOTHING;
+
+            -- Columns the assembly routes rely on (added by older side-scripts;
+            -- ensure they exist so sync change-detection and scanning work).
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS scanned_qty INTEGER DEFAULT 0;
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS ean_number TEXT;
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS client_name TEXT;
+            ALTER TABLE assembly_plans ADD COLUMN IF NOT EXISTS job_card_no TEXT;
+
+            -- Scan log. NOTE: no serial FK to assembly_plans(id) — the serial id
+            -- diverges across MAIN/LOCAL under sync, so scans link to plans by the
+            -- stable plan_sync_id instead (resolved to a local plan_id on each
+            -- server). [[project_sync_conflict_natural_key]]
+            CREATE TABLE IF NOT EXISTS assembly_scans (
+                id SERIAL PRIMARY KEY,
+                plan_id INTEGER,
+                plan_sync_id UUID,
+                scanned_ean TEXT,
+                is_match BOOLEAN DEFAULT FALSE,
+                timestamp TIMESTAMPTZ DEFAULT NOW()
+            );
+            ALTER TABLE assembly_scans ADD COLUMN IF NOT EXISTS plan_sync_id UUID;
+            ALTER TABLE assembly_scans DROP CONSTRAINT IF EXISTS fk_plan;
 
             CREATE TABLE IF NOT EXISTS shift_teams (
                 id SERIAL PRIMARY KEY,
@@ -5573,6 +5636,18 @@ async function initializeLegacyRuntime() {
     global.__JMS_DB_INIT_OK = true;
   } catch (e) {
     console.error('[DB] Indexing warning:', e.message);
+  } finally {
+    // Always release the DDL advisory lock so the next worker can proceed, even
+    // if init errored. process.exit below would drop the connection anyway, but
+    // releasing explicitly lets waiting workers continue immediately.
+    if (__initLockClient) {
+      try {
+        await __initLockClient.query('SELECT pg_advisory_unlock($1)', [LEGACY_INIT_LOCK_KEY]);
+      } catch (err) {
+        console.error('[DB] legacy init advisory unlock failed:', err.message);
+      }
+      try { __initLockClient.release(); } catch (_) {}
+    }
   }
 
   if (!global.__JMS_DB_INIT_OK) {
@@ -8769,12 +8844,20 @@ app.post('/api/shifting/scan-entry', async (req, res) => {
 // Fetch active plans for all tables (or specific date range)
 app.get('/api/assembly/grid', async (req, res) => {
   try {
-    const { date } = req.query; // Optional filter
-    // For now, return all active or recent plans
+    // start_time/end_time are naive TIMESTAMPs holding IST wall-clock. Serialized
+    // as ISO they shift by the viewer's timezone (a factory box on a non-IST TZ
+    // then renders bars on the wrong day and the client date filter drops them, so
+    // a saved plan shows on the Dashboard but not on the gantt). Emit
+    // start_local/end_local as plain wall-clock text so the browser parses them as
+    // local time, timezone-immune. status IS NULL is tolerated (older rows) so a
+    // missing status never hides a plan. Date selection stays client-side (overlap).
     const rows = await q(
-      `SELECT * FROM assembly_plans 
-       WHERE status != 'Archived' 
-       ORDER BY table_id, start_time`
+      `SELECT *,
+              to_char(start_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS start_local,
+              to_char(end_time,   'YYYY-MM-DD"T"HH24:MI:SS') AS end_local
+         FROM assembly_plans
+        WHERE (status IS NULL OR status <> 'Archived')
+        ORDER BY table_id, start_time`
     );
     res.json({ ok: true, data: rows });
   } catch (e) {
@@ -16753,6 +16836,15 @@ function startErpAutoSync() {
     console.log('[ERP AutoSync] skipped — not MAIN server.');
     return;
   }
+  // Run the scheduler in ONE PM2 worker only. NODE_APP_INSTANCE is '0' on the
+  // first cluster worker and unset under plain `node`. Running it in all workers
+  // meant N concurrent autosync cycles reading `factories`, whose locks helped
+  // deadlock boot-time DDL.
+  const inst = process.env.NODE_APP_INSTANCE;
+  if (!(inst === undefined || inst === '' || inst === '0')) {
+    console.log(`[ERP AutoSync] skipped on worker ${inst} — runs on primary worker only.`);
+    return;
+  }
   if (!ERP_AUTOSYNC_ENABLED) {
     console.log('[ERP AutoSync] disabled via ERP_AUTOSYNC_ENABLED=0.');
     return;
@@ -20006,32 +20098,11 @@ const PORT = process.env.PORT || 3000;
 
 
 
-// -------------------------------------------------------------
-// ENHANCED LOGIN (Return Role)
-// -------------------------------------------------------------
-app.post('/api/login', async (req, res) => {
-  try {
-    const { username, password } = req.body || {};
-    if (!username || !password) return res.json({ ok: false, error: 'Missing credentials' });
-
-    const rows = await q(
-      `SELECT username, line, role_code FROM users 
-       WHERE username = $1 
-         AND password = $2 
-         AND COALESCE(is_active, TRUE) = TRUE
-       LIMIT 1`,
-      [username, password]
-    );
-
-    if (!rows.length) return res.json({ ok: false, error: 'Invalid username or password' });
-
-    // Frontend expects role_code for supervisor check
-    res.json({ ok: true, data: { username: rows[0].username, line: rows[0].line, role: rows[0].role_code, role_code: rows[0].role_code } });
-  } catch (e) {
-    console.error('login error', e);
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
+// NOTE: A second, duplicate `app.post('/api/login')` used to live here. It was
+// dead code (Express matches the first-registered route at ~line 5674) AND
+// insecure — it did a plaintext `password = $2` SQL match with no bcrypt. It
+// has been removed. The real login handler with bcrypt + brute-force + geofence
+// is the one defined earlier in this file.
 
 // -------------------------------------------------------------
 // DASHBOARD APIs
@@ -26442,7 +26513,7 @@ app.get('/api/assembly/grid', async (req, res) => {
 app.post('/api/assembly/plan', async (req, res) => {
   try {
     console.log('[Assembly Plan] Body:', req.body);
-    const { id, table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, created_by } = req.body;
+    const { id, table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, created_by, client_name, job_card_no } = req.body;
 
     if (id) {
       // Update
@@ -26450,21 +26521,53 @@ app.post('/api/assembly/plan', async (req, res) => {
             UPDATE assembly_plans SET
 table_id = $1, item_name = $2, plan_qty = $3, machine = $4,
   start_time = $5, duration_min = $6, delay_min = $7, end_time = $8,
-  ean_number = $9,
+  ean_number = $9, client_name = $10, job_card_no = $11,
   updated_at = NOW()
-            WHERE id = $10
-  `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, id]);
+            WHERE id = $12
+  `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, id]);
     } else {
       // Create
       await q(`
             INSERT INTO assembly_plans(
     table_id, item_name, plan_qty, machine,
     start_time, duration_min, delay_min, end_time, ean_number,
-    created_by, created_at, updated_at
-  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
-    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, created_by]);
+    client_name, job_card_no, status, created_by, created_at, updated_at
+  ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PLANNED', $12, NOW(), NOW())
+    `, [table_id, item_name, plan_qty, machine, start_time, duration_min, delay_min, end_time, req.body.ean_number, client_name, job_card_no, created_by]);
     }
 
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// 2b. Delete an assembly plan (and its scans). The sync-deletion triggers on
+// both tables record tombstones (keyed by sync_id) so the delete propagates to
+// MAIN/other servers instead of the plan re-appearing on the next sync.
+app.delete('/api/assembly/plan/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await q(`DELETE FROM assembly_scans WHERE plan_id = $1`, [id]);
+    await q(`DELETE FROM assembly_plans WHERE id = $1`, [id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// 2c. Mark one plan as the ACTIVE (currently-scanning) plan for its table so the
+// Dashboard shows the same job the operator selected in Production Line Scanning.
+// Demotes the table's other RUNNING plan(s) to PLANNED and promotes the chosen
+// one to RUNNING. updated_at is bumped on every touched row so the status change
+// syncs to MAIN/other servers (a status write that skips updated_at never syncs).
+app.post('/api/assembly/activate', async (req, res) => {
+  try {
+    const { table_id, plan_id } = req.body;
+    if (!table_id || !plan_id) return res.status(400).json({ ok: false, error: 'table_id and plan_id required' });
+    await q(`UPDATE assembly_plans SET status = 'PLANNED', updated_at = NOW()
+             WHERE table_id = $1 AND id <> $2 AND UPPER(status) = 'RUNNING'`, [table_id, plan_id]);
+    await q(`UPDATE assembly_plans SET status = 'RUNNING', updated_at = NOW() WHERE id = $1`, [plan_id]);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
@@ -26520,7 +26623,7 @@ app.get('/api/assembly/active', async (req, res) => {
 SELECT *,
   EXTRACT(EPOCH FROM(NOW() - COALESCE(updated_at, created_at))) as idle_seconds
           FROM assembly_plans
-WHERE(status IN('PLANNED', 'RUNNING') OR start_time:: date >= CURRENT_DATE)
+WHERE(UPPER(status) IN('PLANNED', 'RUNNING') OR start_time:: date >= CURRENT_DATE)
           ORDER BY table_id, start_time ASC
   `;
 
@@ -26572,81 +26675,174 @@ app.get('/api/assembly/alerts', (req, res) => {
   res.json({ ok: true, data: recent });
 });
 
-// 4. POST Scan Log (Capture EAN)
+// Shared scan handler — records one barcode against a known plan_id.
+// Used by the browser scan route (/api/assembly/scan) AND the headless device
+// route (/api/assembly/device-scan) so both behave identically.
+// Returns { ok, match?, new_qty?, wrong_barcode?, error? }.
+// Parse a scanned barcode into its parts. Handles unique-QR forms where a
+// stable EAN is followed by a per-unit id (via NUL or '-'): returns the EAN
+// used for matching plus the full string stored for de-duplication.
+function parseScanEan(ean) {
+  let fullString = String(ean || '').trim();
+  let cleanEAN = fullString;
+  let uniqueId = null;
+
+  if (fullString.includes('\0')) {
+    const parts = fullString.split('\0');
+    cleanEAN = parts[0];
+    uniqueId = parts[1];
+    fullString = `${cleanEAN} -${uniqueId} `; // Sanitize
+  } else if (fullString.includes('-')) {
+    const parts = fullString.split('-');
+    cleanEAN = parts[0]; // Real EAN for matching
+    uniqueId = parts[1]; // Timestamp/ID
+  }
+
+  return { fullString, cleanEAN, uniqueId };
+}
+
+async function recordAssemblyScan(plan_id, ean) {
+  // --- UNIQUE BARCODE / QR LOGIC ---
+  const { fullString, cleanEAN, uniqueId } = parseScanEan(ean);
+
+  // 1. DUPLICATE CHECK (Prevent double scanning same QR)
+  // Only check if it's a Unique QR (has uniqueId)
+  if (uniqueId) {
+    const dupes = await q(`SELECT id FROM assembly_scans WHERE scanned_ean = $1`, [fullString]);
+    if (dupes.length > 0) {
+      return { ok: false, error: 'DUPLICATE: This QR was already scanned!' };
+    }
+  }
+
+  // 2. Fetch Plan Details
+  const plans = await q(`SELECT * FROM assembly_plans WHERE id = $1`, [plan_id]);
+  if (!plans.length) return { ok: false, error: 'Plan not found' };
+
+  const plan = plans[0];
+
+  // 3. Validate Match
+  const targetEAN = String(plan.ean_number || '').trim();
+  const isMatch = (targetEAN === cleanEAN);
+
+  // 4. Log Scan (Store FULL STRING to track uniqueness)
+  // Store the plan's stable sync_id alongside the local plan_id so the scan's
+  // link to its plan survives cross-server sync (serial plan_id diverges).
+  await q(`INSERT INTO assembly_scans(plan_id, plan_sync_id, scanned_ean, is_match)
+           VALUES($1, (SELECT sync_id FROM assembly_plans WHERE id = $1), $2, $3)`,
+    [plan_id, fullString, isMatch]);
+
+  // 5. Update Qty IF Match
+  let newQty = plan.scanned_qty || 0;
+  if (isMatch) {
+    newQty += 1;
+    await q(`UPDATE assembly_plans SET scanned_qty = $1, updated_at = NOW() WHERE id = $2`, [newQty, plan_id]);
+  } else {
+    // WRONG BARCODE TRIGGER
+    const alertObj = {
+      id: Date.now(),
+      table_id: plan.table_id,
+      plan_id,
+      ean: cleanEAN,
+      expected: targetEAN,
+      type: 'WRONG_BARCODE',
+      timestamp: Date.now()
+    };
+    ASSEMBLY_ALERTS.push(alertObj);
+
+    // Broadcast Alert Immediate
+    broadcastEvent('alert', alertObj);
+
+    // Keep list small
+    if (ASSEMBLY_ALERTS.length > 50) ASSEMBLY_ALERTS.shift();
+  }
+
+  // Broadcast Scan Event (after qty computed so the board can update without a refetch)
+  broadcastEvent('scan', {
+    plan_id,
+    table_id: plan.table_id,
+    item_name: plan.item_name,
+    match: isMatch,
+    unique_id: uniqueId,
+    new_qty: newQty,
+    plan_qty: plan.plan_qty,
+    scanned_ean: cleanEAN,
+    expected_ean: targetEAN,
+    ts: Date.now()
+  });
+
+  return { ok: true, match: isMatch, new_qty: newQty, wrong_barcode: !isMatch, table_id: plan.table_id };
+}
+
+// Resolve which plan on a table a scanned barcode belongs to, by matching the
+// product EAN. A headless scanner has no operator to pick a plan, so the
+// scanned product itself selects the plan. Prefer a RUNNING plan (case-
+// insensitive), else the newest by start_time.
+async function resolvePlanForTableByEan(table_id, cleanEAN) {
+  const plans = await q(`
+    SELECT * FROM assembly_plans
+    WHERE table_id = $1 AND TRIM(ean_number) = $2
+    ORDER BY (UPPER(COALESCE(status, '')) = 'RUNNING') DESC, start_time DESC
+    LIMIT 1
+  `, [table_id, String(cleanEAN || '').trim()]);
+  return plans.length ? plans[0] : null;
+}
+
+// 4. POST Scan Log (Capture EAN) — browser path (page already knows plan_id)
 app.post('/api/assembly/scan', async (req, res) => {
   try {
-    let { plan_id, ean } = req.body;
+    const { plan_id, ean } = req.body;
+    const result = await recordAssemblyScan(plan_id, ean);
+    res.json(result);
+  } catch (e) {
+    console.error('Scan Error:', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
 
-    // --- UNIQUE BARCODE / QR LOGIC ---
-    let fullString = String(ean || '').trim();
-    let cleanEAN = fullString;
-    let uniqueId = null;
-
-    if (fullString.includes('\0')) {
-      const parts = fullString.split('\0');
-      cleanEAN = parts[0];
-      uniqueId = parts[1];
-      fullString = `${cleanEAN} -${uniqueId} `; // Sanitize
-    } else if (fullString.includes('-')) {
-      const parts = fullString.split('-');
-      cleanEAN = parts[0]; // Real EAN for matching
-      uniqueId = parts[1]; // Timestamp/ID
+// 4b. Headless DEVICE scan (ESP32 pushes directly, no browser/bridge).
+// Body: { table_id, ean, key? }. Resolves the table's active plan server-side.
+// Optional shared secret via env ASSEMBLY_DEVICE_KEY (header x-device-key or body.key).
+app.post('/api/assembly/device-scan', async (req, res) => {
+  try {
+    const deviceKey = process.env.ASSEMBLY_DEVICE_KEY;
+    if (deviceKey) {
+      const provided = req.get('x-device-key') || req.body.key;
+      if (provided !== deviceKey) return res.status(401).json({ ok: false, error: 'Unauthorized device' });
     }
 
-    // 1. DUPLICATE CHECK (Prevent double scanning same QR)
-    // Only check if it's a Unique QR (has uniqueId)
-    if (uniqueId) {
-      const dupes = await q(`SELECT id FROM assembly_scans WHERE scanned_ean = $1`, [fullString]);
-      if (dupes.length > 0) {
-        return res.json({ ok: false, error: 'DUPLICATE: This QR was already scanned!' });
-      }
-    }
+    const table_id = String(req.body.table_id || '').trim();
+    const ean = req.body.ean;
+    if (!table_id) return res.status(400).json({ ok: false, error: 'table_id required' });
+    if (!String(ean || '').trim()) return res.status(400).json({ ok: false, error: 'ean required' });
 
-    // 2. Fetch Plan Details
-    const plans = await q(`SELECT * FROM assembly_plans WHERE id = $1`, [plan_id]);
-    if (!plans.length) return res.json({ ok: false, error: 'Plan not found' });
+    // The scanned product picks the plan (headless: no operator selection).
+    const { cleanEAN } = parseScanEan(ean);
+    const plan = await resolvePlanForTableByEan(table_id, cleanEAN);
 
-    const plan = plans[0];
-
-    // 3. Validate Match
-    const targetEAN = String(plan.ean_number || '').trim();
-    const isMatch = (targetEAN === cleanEAN);
-
-    // 4. Log Scan (Store FULL STRING to track uniqueness)
-    await q(`INSERT INTO assembly_scans(plan_id, scanned_ean, is_match) VALUES($1, $2, $3)`, [plan_id, fullString, isMatch]);
-
-    // Broadcast Scan Event
-    broadcastEvent('scan', { plan_id, table_id: plan.table_id, match: isMatch, unique_id: uniqueId });
-
-    // 4. Update Qty IF Match
-    let newQty = plan.scanned_qty || 0;
-    if (isMatch) {
-      newQty += 1;
-      await q(`UPDATE assembly_plans SET scanned_qty = $1, updated_at = NOW() WHERE id = $2`, [newQty, plan_id]);
-    } else {
-      // WRONG BARCODE TRIGGER
+    if (!plan) {
+      // Unknown/unexpected product for this table — no plan expects this EAN.
+      // Surface it as an alert so a supervisor screen can flag it, but there is
+      // nothing to count against.
       const alertObj = {
         id: Date.now(),
-        table_id: plan.table_id,
-        plan_id,
+        table_id,
+        plan_id: null,
         ean: cleanEAN,
-        expected: targetEAN,
-        type: 'WRONG_BARCODE',
+        expected: null,
+        type: 'UNKNOWN_BARCODE',
         timestamp: Date.now()
       };
       ASSEMBLY_ALERTS.push(alertObj);
-
-      // Broadcast Alert Immediate
       broadcastEvent('alert', alertObj);
-
-      // Keep list small
       if (ASSEMBLY_ALERTS.length > 50) ASSEMBLY_ALERTS.shift();
+      return res.json({ ok: false, match: false, error: `No plan on ${table_id} expects barcode ${cleanEAN}`, table_id });
     }
 
-    res.json({ ok: true, match: isMatch, new_qty: newQty, wrong_barcode: !isMatch });
-
+    const result = await recordAssemblyScan(plan.id, ean);
+    // Include plan_id so the device/log can show which plan it hit.
+    res.json({ ...result, plan_id: plan.id, table_id });
   } catch (e) {
-    console.error('Scan Error:', e);
+    console.error('Device Scan Error:', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });

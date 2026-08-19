@@ -9,6 +9,46 @@ services:
   db:
     image: postgres:14-alpine
     restart: unless-stopped
+    # Performance tuning — stock Postgres ships with tiny defaults (128MB
+    # shared_buffers, 4MB work_mem) that make every query slow under load.
+    # Values are conservative and safe for a ~2GB VPS; raise the PG_* env vars
+    # on a bigger box (rule of thumb: shared_buffers ≈ 25% RAM,
+    # effective_cache_size ≈ 50-75% RAM). random_page_cost/io_concurrency are
+    # set for SSD storage.
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=${PG_SHARED_BUFFERS:-256MB}"
+      - "-c"
+      - "effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-768MB}"
+      - "-c"
+      - "work_mem=${PG_WORK_MEM:-8MB}"
+      - "-c"
+      - "maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-128MB}"
+      - "-c"
+      - "random_page_cost=${PG_RANDOM_PAGE_COST:-1.1}"
+      - "-c"
+      - "effective_io_concurrency=${PG_EFFECTIVE_IO_CONCURRENCY:-200}"
+      - "-c"
+      - "max_connections=${PG_MAX_CONNECTIONS:-100}"
+      # Hard backstop against a stalled/abandoned transaction holding locks and
+      # freezing the app (root cause of the 2026-08-17 outage: a transaction sat
+      # "idle in transaction" for 14 min because the event loop was starved).
+      # Postgres auto-terminates any session idle-in-transaction past this. Set
+      # at the server level so it protects EVERY connection, independent of the
+      # app pool config or a manual `ALTER DATABASE`. 120000ms = 2 min.
+      - "-c"
+      - "idle_in_transaction_session_timeout=${PG_IDLE_IN_TXN_TIMEOUT:-120000}"
+      # Load pg_stat_statements so we can rank the slowest queries app-wide and
+      # index/optimize the real offenders instead of guessing per-page. Requires
+      # `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;` once (the app does this
+      # on boot). Takes effect on DB container recreate.
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+      - "-c"
+      - "pg_stat_statements.max=${PG_SS_MAX:-5000}"
+      - "-c"
+      - "pg_stat_statements.track=top"
     environment:
       POSTGRES_USER: ${DB_USER:-jms_v1}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-JmsV1DbAuto9x4k2m7n1q5w8r}
@@ -78,9 +118,14 @@ services:
           "require('http').get('http://127.0.0.1:3000/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
         ]
       interval: 10s
-      timeout: 5s
+      # Startup is heavy: the app runs a ~100MB DB backup dump + ERP autosync +
+      # migrations at boot, which can briefly delay even the static /health route.
+      # A tight probe here flags a healthy container as unhealthy and triggers a
+      # false rollback (v1.39.4 deploy). Give the storm room: longer start_period
+      # and a 10s per-probe timeout so the deploy waits it out instead of bailing.
+      timeout: 10s
       retries: 12
-      start_period: 90s
+      start_period: 180s
     networks: [jms_v1_net]
     # Routing for the host-level Traefik reverse proxy (project traefik-nru0).
     # Traefik runs with providers.docker + exposedbydefault=false, so the app is

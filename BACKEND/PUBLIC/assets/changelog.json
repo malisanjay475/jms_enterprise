@@ -11,8 +11,172 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.39.2",
+  "latest": "1.42.0",
   "versions": [
+    {
+      "version": "1.42.0",
+      "date": "2026-08-18",
+      "title": "Packing scanners count against the right job automatically",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "A packing scanner now counts each scan against the job that expects that product automatically, so a fixed scanner keeps working with no page open and no job to pick. An unexpected barcode is flagged instead of counted." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.41.1",
+      "date": "2026-08-18",
+      "title": "Assembly packing: timezone, delete, active job",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "Assembly Planning now shows plans correctly even when the PC's clock is not on India time, so saved plans no longer go missing from the timeline." },
+            { "type": "feat", "text": "You can now delete a packing plan from the Add/Edit Plan window." },
+            { "type": "improvement", "text": "The Packing Dashboard now shows the job that is currently active in Production Line Scanning for each table, instead of an unrelated one." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.41.0",
+      "date": "2026-08-18",
+      "title": "Live Packing Scanning Dashboard",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "feat", "text": "The Scanning Dashboard now updates live on every scan — each table's count jumps and flashes the moment a barcode is scanned, with no page refresh needed." },
+            { "type": "feat", "text": "New summary bar shows active tables, running/slow/stopped counts, total scanned today, scans-per-hour and wrong-scan totals at a glance." },
+            { "type": "improvement", "text": "Each table card now shows the machine, time window, quantity remaining, a live 'last scanned' timer and an ahead/behind-schedule badge, and celebrates when a plan is completed." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.40.1",
+      "date": "2026-08-18",
+      "title": "Client & Job Card on packing plans",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "feat", "text": "Packing plans now capture a Client Name and Job Card No., shown on the Packing Dashboard cards and the planning timeline." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.40.0",
+      "date": "2026-08-18",
+      "title": "Packing scanners stay connected on their own",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "feat", "text": "Packing barcode scanners now keep working even when the scanning page is closed — the scanner sends each scan straight to the server and counts update on their own." },
+            { "type": "improvement", "text": "A scanner counts against the table's current running plan automatically, so there is nothing to reconnect or re-select after the page is reopened." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.39.7",
+      "date": "2026-08-18",
+      "title": "Assembly plans no longer disappear",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "Assembly plans you create in Packing now stay put and remain visible until completed, instead of being removed when the factory server syncs with the main server." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.39.6",
+      "date": "2026-08-17",
+      "title": "Stability & speed hardening",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "perf", "text": "Faster, steadier system: removed duplicate database indexes on production data and streamlined how the app connects to the database, reducing load during busy periods." },
+            { "type": "fix", "text": "Hardened against the rare freeze where a stuck background task could slow the whole site — the database now clears such tasks automatically." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.39.5",
+      "date": "2026-08-17",
+      "title": "Packing Settings fixed + steadier deployments",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "Packing Settings now loads the Assembly Lines table and the Add/Edit Line form works — adding or editing a line saves correctly instead of showing an error." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-arrow-repeat",
+          "changes": [
+            { "type": "improvement", "text": "Deployments now wait longer for the app to finish starting before health checks run, so a busy start-up no longer triggers a false rollback." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.39.4",
+      "date": "2026-08-17",
+      "title": "Packing Settings table now loads",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "The Assembly Lines table on Packing Settings now loads correctly, and shows a clear message when no lines have been added yet." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.39.3",
+      "date": "2026-08-14",
+      "title": "Login reliability & security hardening",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-check",
+          "changes": [
+            { "type": "fix", "text": "Admin login is more reliable, and an old sign-in method that could bypass the standard security checks has been removed." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.39.2",
       "date": "2026-08-14",
@@ -24,6 +188,14 @@
           "icon": "bi-clipboard-check",
           "changes": [
             { "type": "fix", "text": "The Job Setup screen now shows the correct STD Weight, Cycle Time and Cavity from Mould Master instead of an older stored value." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-shield-lock",
+          "changes": [
+            { "type": "security", "text": "Hardened login: removed an old duplicate sign-in path and made password checking consistent across the app." }
           ]
         }
       ]

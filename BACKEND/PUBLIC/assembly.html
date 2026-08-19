@@ -141,6 +141,36 @@
             background: #ef4444;
         }
 
+        /* RUNNING plan pinned to "now" because its schedule isn't on this day */
+        .gantt-bar.status-running {
+            background: linear-gradient(180deg, #10b981, #059669);
+            border: 2px dashed #a7f3d0;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.45);
+        }
+
+        .gantt-bar.status-running::before {
+            content: 'LIVE';
+            position: absolute;
+            top: 2px;
+            right: 4px;
+            font-size: 0.55rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            background: rgba(0, 0, 0, 0.25);
+            padding: 0 4px;
+            border-radius: 4px;
+            animation: liveBlink 1.4s infinite;
+        }
+
+        @keyframes liveBlink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.35; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .gantt-bar.status-running::before { animation: none; }
+        }
+
         /* Modal Tweaks */
         .modal-body {
             display: grid;
@@ -212,6 +242,16 @@
                 </div>
 
                 <div class="form-group">
+                    <label class="form-label">Client Name</label>
+                    <input id="p_client" class="form-control" placeholder="Enter Client Name">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Job Card No.</label>
+                    <input id="p_jobcard" class="form-control" placeholder="Enter Job Card No.">
+                </div>
+
+                <div class="form-group">
                     <label class="form-label">No of Pieces</label>
                     <input id="p_qty" type="number" class="form-control">
                 </div>
@@ -248,9 +288,13 @@
                 </div>
             </div>
 
-            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px">
-                <button class="btn btn-outline" onclick="closePlanModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="savePlan()">Save Plan</button>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px">
+                <button class="btn btn-outline-danger" id="deletePlanBtn" onclick="deletePlan()"
+                    style="display:none"><i class="bi bi-trash"></i> Delete</button>
+                <div style="display:flex; gap:10px; margin-left:auto">
+                    <button class="btn btn-outline" onclick="closePlanModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="savePlan()">Save Plan</button>
+                </div>
             </div>
         </div>
     </div>
@@ -347,13 +391,39 @@
                 const viewStart = new Date(dateStr + 'T00:00:00');
                 const viewEnd = new Date(dateStr + 'T23:59:59');
 
-                plans.forEach(p => {
-                    const start = new Date(p.start_time);
-                    const end = new Date(p.end_time);
+                const nowDate = new Date();
+                const viewingToday = viewStart.toDateString() === nowDate.toDateString();
 
-                    // Basic Date Filter (Client Side if API returns all)
-                    // If range overlaps with today
-                    if (end < viewStart || start > viewEnd) return;
+                plans.forEach(p => {
+                    // Parse the wall-clock strings (start_local/end_local) so bar
+                    // placement is timezone-immune. Fall back to the ISO field only
+                    // if the local fields are missing (older server).
+                    let start = new Date(p.start_local || p.start_time);
+                    let end = new Date(p.end_local || p.end_time);
+
+                    // A schedule counts as valid only if BOTH ends parse to real
+                    // dates. NULL/garbage schedules (Invalid Date) otherwise slip past
+                    // the overlap test and render as invisible NaN-width bars.
+                    const validSched = !isNaN(start) && !isNaN(end);
+                    const overlaps = validSched && !(end < viewStart || start > viewEnd);
+
+                    // RUNNING plans whose scheduled window isn't on the viewed day (or
+                    // that have no schedule) are still surfaced when you're looking at
+                    // today — pinned to "now" so an in-progress job is never hidden.
+                    const isRunning = String(p.status || '').toUpperCase() === 'RUNNING';
+                    let pinned = false;
+                    if (!overlaps) {
+                        if (isRunning && viewingToday) {
+                            pinned = true;
+                            const durMin = Number(p.duration_min) > 0
+                                ? Number(p.duration_min)
+                                : (validSched && end > start ? (end - start) / 60000 : 60);
+                            start = new Date(nowDate);
+                            end = new Date(nowDate.getTime() + durMin * 60000);
+                        } else {
+                            return; // schedule not on this day — keep hidden
+                        }
+                    }
 
                     // Calculate Position relative to 00:00 of View Date
                     // (Handle multi-day crossover simply by clamping or raw calc)
@@ -368,6 +438,10 @@
                         durationMins -= diff;
                     }
 
+                    // Clamp the bar so it never runs off the end of the day
+                    const maxMins = 24 * 60 - startMins;
+                    if (durationMins > maxMins) durationMins = maxMins;
+
                     // Handles Negative Duration (Data Error)
                     let isError = false;
                     if (durationMins <= 0) {
@@ -378,7 +452,7 @@
                     const left = startMins * PX_PER_MIN;
                     const width = durationMins * PX_PER_MIN;
 
-                    if (width < 5 && !isError) return; // Too small
+                    if (width < 5 && !isError && !pinned) return; // Too small
 
                     const rowId = `row-${p.table_id.replace(' ', '-')}`;
                     const row = document.getElementById(rowId);
@@ -386,7 +460,9 @@
                     if (row) {
                         const bar = document.createElement('div');
                         bar.className = 'gantt-bar';
-                        if (isError) {
+                        if (pinned) {
+                            bar.classList.add('status-running');
+                        } else if (isError) {
                             bar.classList.add('status-delayed');
                             bar.style.border = '2px solid yellow';
                         }
@@ -397,12 +473,18 @@
                         bar.innerHTML = `
                             <div style="font-weight:600">${p.item_name}</div>
                             <div style="opacity:0.9">${p.plan_qty} Pcs</div>
+                            ${pinned ? '<div style="font-size:0.6rem; color:#ecfdf5"><i class="bi bi-broadcast"></i> Running (off-schedule)</div>' : ''}
                             ${isError ? '<div style="font-size:0.6rem; color:white"><i class="bi bi-exclamation-triangle-fill"></i> Duration Error</div>' : ''}
                         `;
                         // Bind Full Object for Edit
-                        const planData = JSON.stringify(p).replace(/"/g, '&quot;');
                         bar.onclick = (e) => { e.stopPropagation(); editPlan(p); };
-                        bar.title = `${p.item_name} (${p.plan_qty})\n${start.toLocaleTimeString()} - ${end.toLocaleTimeString()}`;
+                        const schedTxt = validSched
+                            ? `${new Date(p.start_local || p.start_time).toLocaleString()} - ${new Date(p.end_local || p.end_time).toLocaleString()}`
+                            : 'No schedule set';
+                        bar.title = `${p.item_name} (${p.plan_qty})` +
+                            `${p.client_name ? '\nClient: ' + p.client_name : ''}` +
+                            `${p.job_card_no ? '\nJC: ' + p.job_card_no : ''}` +
+                            (pinned ? `\nStatus: RUNNING (pinned to now — scheduled ${schedTxt})` : `\n${schedTxt}`);
                         row.appendChild(bar);
                     }
                 });
@@ -420,11 +502,14 @@
             // Reset
             document.getElementById('p_id').value = '';
             document.getElementById('p_item').value = '';
+            document.getElementById('p_client').value = '';
+            document.getElementById('p_jobcard').value = '';
             document.getElementById('p_qty').value = '';
             document.getElementById('p_ean').value = '';
             document.getElementById('p_machine').value = '';
             document.getElementById('p_duration').value = '';
             document.getElementById('p_delay').value = 0;
+            document.getElementById('deletePlanBtn').style.display = 'none';
 
             // Set start based on current time or scroll position? Default to Now for simplicity
             const dateStr = document.getElementById('viewDate').value;
@@ -446,19 +531,27 @@
             document.querySelector('#planModal h3').textContent = 'Edit Packing Plan';
 
             document.getElementById('p_id').value = p.id;
+            document.getElementById('deletePlanBtn').style.display = 'inline-block';
             document.getElementById('p_item').value = p.item_name;
+            document.getElementById('p_client').value = p.client_name || '';
+            document.getElementById('p_jobcard').value = p.job_card_no || '';
             document.getElementById('p_qty').value = p.plan_qty;
             document.getElementById('p_ean').value = p.ean_number || '';
             document.getElementById('p_machine').value = p.machine || '';
             document.getElementById('p_duration').value = p.duration_min;
             document.getElementById('p_delay').value = p.delay_min || 0;
 
-            // Format format for datetime-local: YYYY-MM-DDTHH:MM
-            // p.start_time is likely ISO string: 2026-01-09T07:28:00.000Z
-            // We need local time for input
-            const d = new Date(p.start_time);
-            // shift to local
-            const localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+            // datetime-local wants YYYY-MM-DDTHH:MM. Prefer the wall-clock
+            // start_local ("YYYY-MM-DDTHH:MM:SS") so the input matches what was
+            // entered regardless of the viewer's timezone; fall back to the ISO
+            // field with a manual local shift only if start_local is absent.
+            let localIso;
+            if (p.start_local) {
+                localIso = String(p.start_local).slice(0, 16);
+            } else {
+                const d = new Date(p.start_time);
+                localIso = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+            }
             document.getElementById('p_start').value = localIso;
 
             calcEndTime();
@@ -485,6 +578,8 @@
                 id: document.getElementById('p_id').value || null,
                 table_id: document.getElementById('p_table_id').value,
                 item_name: document.getElementById('p_item').value,
+                client_name: document.getElementById('p_client').value,
+                job_card_no: document.getElementById('p_jobcard').value,
                 plan_qty: parseInt(document.getElementById('p_qty').value),
                 ean_number: document.getElementById('p_ean').value,
                 machine: document.getElementById('p_machine').value, // Optional text
@@ -504,6 +599,20 @@
             try {
                 await JPSMS.api.post('/assembly/plan', plan);
                 JPSMS.toast('Plan Saved');
+                closePlanModal();
+                loadPlans();
+            } catch (e) {
+                JPSMS.toast(e.message, 'error');
+            }
+        }
+
+        async function deletePlan() {
+            const id = document.getElementById('p_id').value;
+            if (!id) return;
+            if (!confirm('Delete this packing plan? This cannot be undone.')) return;
+            try {
+                await JPSMS.api.delete(`/assembly/plan/${id}`);
+                JPSMS.toast('Plan Deleted');
                 closePlanModal();
                 loadPlans();
             } catch (e) {

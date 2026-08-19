@@ -155,6 +155,41 @@ function handleBridgeMessage(msg, renderCallback) {
             }
         }
     }
+    else if (msg.type === 'scanner-status') {
+        // Live status of a persistent (bridge-owned) scanner. Reflect it in the
+        // UI so the table shows Connected even though this tab didn't open it.
+        const tid = msg.table_id;
+        if (tid) {
+            if (msg.connected) {
+                TABLE_SCANNERS[tid] = { type: 'tcp', port: msg.path || '(persistent)', persistent: true };
+            } else if (TABLE_SCANNERS[tid] && TABLE_SCANNERS[tid].persistent) {
+                delete TABLE_SCANNERS[tid];
+            }
+            if (window.renderCards) window.renderCards();
+        }
+    }
+    else if (msg.type === 'scan-result') {
+        // The bridge already posted this scan. Just reflect it — never re-POST.
+        const tid = msg.table_id;
+        if (!tid) return;
+        if (!msg.ok) {
+            log(tid, `Scan rejected: ${msg.error || 'unknown'} (${msg.ean})`, 'error');
+            return;
+        }
+        if (msg.match) {
+            log(tid, `MATCH: ${msg.ean}`, 'success');
+            const qtyEl = document.getElementById(`scan-qty-${tid}`);
+            if (qtyEl && msg.new_qty != null) qtyEl.textContent = msg.new_qty;
+            const planList = TABLE_PLANS[tid] || [];
+            const p = planList.find(x => x.id == msg.plan_id);
+            if (p && msg.new_qty != null) p.scanned_qty = msg.new_qty;
+            flashCard(tid, '#dcfce7');
+            unlockTable(tid);
+        } else {
+            log(tid, `MISMATCH: ${msg.ean}`, 'error');
+            lockTable(tid, `WRONG BARCODE! <br> <span style="font-size:1.5rem; color:yellow">${msg.ean}</span>`);
+        }
+    }
     else if (msg.type === 'error') {
         let errText = msg.message;
         if (errText.includes('121')) {
@@ -345,6 +380,13 @@ function getDetailsHtml(p) {
 function switchPlan(tid, planId) {
     const plan = TABLE_PLANS[tid].find(p => p.id == planId);
     if (!plan) return;
+
+    // Persist the selection so the Dashboard shows the SAME active job for this
+    // table (marks this plan RUNNING, siblings PLANNED). Fire-and-forget; also
+    // reflect it locally so a refresh keeps this plan selected.
+    TABLE_PLANS[tid].forEach(p => { p.status = (p.id == planId) ? 'RUNNING' : 'PLANNED'; });
+    JPSMS.api.post('/assembly/activate', { table_id: tid, plan_id: plan.id })
+        .catch(e => console.warn('activate failed', e));
 
     // Update DOM directly if elements exist
     const card = document.getElementById(`card-${tid}`);
@@ -643,9 +685,15 @@ function flashCard(tid, color) {
     }
 }
 
-// Cleanup on Page Exit
+// Cleanup on Page Exit.
+// Only release Web Serial ports (they are owned by this tab and must be closed
+// here). Bridge/TCP scanners are owned by the always-on bridge and MUST stay
+// connected after the page closes, so we leave them running.
 window.addEventListener('beforeunload', () => {
     Object.keys(TABLE_SCANNERS).forEach(tid => {
-        disconnectScanner(tid);
+        const scanner = TABLE_SCANNERS[tid];
+        if (scanner && scanner.type === 'serial') {
+            disconnectScanner(tid);
+        }
     });
 });
