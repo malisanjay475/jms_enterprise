@@ -14003,7 +14003,7 @@ app.get('/api/planning/completed', async (req, res) => {
         sql += ` AND UPPER(TRIM(pb.plant)) = UPPER(TRIM($${params.length}))`;
       }
       if (cleanSearch) {
-        sql += ` AND (pb.order_no ILIKE $${params.length + 1} OR pb.item_name ILIKE $${params.length + 1} OR pb.mould_name ILIKE $${params.length + 1} OR o.client_name ILIKE $${params.length + 1} OR pb.machine ILIKE $${params.length + 1} OR ojr.job_card_no ILIKE $${params.length + 1})`;
+        sql += ` AND (pb.order_no ILIKE $${params.length + 1} OR pb.item_name ILIKE $${params.length + 1} OR pb.mould_name ILIKE $${params.length + 1} OR pb.mould_code ILIKE $${params.length + 1} OR o.client_name ILIKE $${params.length + 1} OR pb.machine ILIKE $${params.length + 1} OR ojr.job_card_no ILIKE $${params.length + 1})`;
         params.push(`%${cleanSearch}%`);
       }
       if (from) {
