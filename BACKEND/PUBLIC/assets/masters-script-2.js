@@ -1738,7 +1738,7 @@
           }
 
           // Date Formatting
-          if ((c.includes('date') || c.includes('dob') || c.includes('time')) && c !== 'cycle_time' && !['actions', 'plan_status'].includes(c)) {
+          if ((c.includes('date') || c.includes('dob') || c.includes('time')) && !['cycle_time', 'mould_load_time', 'mould_unload_time'].includes(c) && !['actions', 'plan_status'].includes(c)) {
             base.render = function (data, type) {
               if (type === 'sort' || type === 'type') {
                 // For sorting, return numeric timestamp if possible, or ISO string
