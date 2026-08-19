@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.43.1",
+  "latest": "1.43.2",
   "versions": [
+    {
+      "version": "1.43.2",
+      "date": "2026-08-19",
+      "title": "Mould, colour and job change counts fixed to match the DPR setup",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "fix", "text": "Mould, colour and job changes are now counted once per actual setup change — running one mould then a second mould counts as a single mould change, instead of being counted again for every hour it was logged. The standard change-over time now uses this corrected mould-change count." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.43.1",
       "date": "2026-08-19",
