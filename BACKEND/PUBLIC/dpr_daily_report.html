@@ -100,6 +100,11 @@
         .kpi-value { font-size: 1.55rem; font-weight: 900; color: var(--ink); line-height: 1.05; margin-top: 2px; }
         .kpi-value small { font-size: .72rem; font-weight: 700; color: #94a3b8; }
         .kpi-sub { font-size: .66rem; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+        .loss-total td { background:#f1f5f9 !important; font-weight:800; border-top:2px solid #cbd5e1; }
+        tr.dt-extra { display:none; }
+        tr.dt-extra.show { display:table-row; }
+        .dt-toggle { cursor:pointer; user-select:none; }
+        .dt-toggle:hover { background:#f8fafc; }
         .trend-up { color: var(--good); } .trend-down { color: var(--red); }
 
         /* ── Insights ribbon ── */
@@ -257,8 +262,54 @@
             </div>
         </div>
 
+        <!-- ── OEE Strip ── -->
+        <div class="kpi-strip" id="oee-strip" style="display:none; margin-top:12px">
+            <div class="kpi-card" id="oee-card">
+                <div class="kpi-head"><span class="kpi-label">OEE</span><span class="kpi-icon"><i class="bi bi-gear-wide-connected"></i></span></div>
+                <div class="kpi-value" id="kpi-oee">—</div>
+                <div class="kpi-sub" id="kpi-oee-sub">Availability × Performance × Quality</div>
+            </div>
+            <div class="kpi-card blue">
+                <div class="kpi-head"><span class="kpi-label">Availability</span><span class="kpi-icon"><i class="bi bi-plug-fill"></i></span></div>
+                <div class="kpi-value" id="kpi-avail">—</div>
+                <div class="kpi-sub">Run time ÷ planned time</div>
+            </div>
+            <div class="kpi-card purple">
+                <div class="kpi-head"><span class="kpi-label">Performance</span><span class="kpi-icon"><i class="bi bi-speedometer"></i></span></div>
+                <div class="kpi-value" id="kpi-perf">—</div>
+                <div class="kpi-sub">Actual ÷ achievable at rate</div>
+            </div>
+            <div class="kpi-card green">
+                <div class="kpi-head"><span class="kpi-label">Quality</span><span class="kpi-icon"><i class="bi bi-patch-check-fill"></i></span></div>
+                <div class="kpi-value" id="kpi-qual">—</div>
+                <div class="kpi-sub">Good ÷ gross</div>
+            </div>
+            <div class="kpi-card red">
+                <div class="kpi-head"><span class="kpi-label">Total Loss</span><span class="kpi-icon"><i class="bi bi-graph-down-arrow"></i></span></div>
+                <div class="kpi-value" id="kpi-loss">—</div>
+                <div class="kpi-sub" id="kpi-loss-sub">Kg below nameplate</div>
+            </div>
+            <div class="kpi-card amber">
+                <div class="kpi-head"><span class="kpi-label">Change-overs</span><span class="kpi-icon"><i class="bi bi-arrow-repeat"></i></span></div>
+                <div class="kpi-value" style="font-size:1.15rem" id="kpi-chg">—</div>
+                <div class="kpi-sub" id="kpi-chg-sub">Mould / Colour / Job</div>
+            </div>
+        </div>
+
         <!-- ── Insights ── -->
         <div class="insights" id="insights" style="display:none"></div>
+
+        <!-- ── Loss & Change-over panel ── -->
+        <div class="panel" id="loss-panel" style="display:none; margin-top:14px">
+            <div class="panel-head no-print">
+                <div class="panel-title"><i class="bi bi-cash-stack" style="color:#7c3aed"></i> Loss Account &amp; Change-over Variance (Line-wise)</div>
+                <div class="hero-sep" style="flex:1"></div>
+                <span class="small" style="font-size:.7rem;color:#94a3b8">Rate:
+                    <input type="number" id="material-rate" placeholder="₹/Kg" style="width:80px;padding:2px 6px;border:1px solid #cbd5e1;border-radius:5px" onchange="setMaterialRate(this.value)">
+                </span>
+            </div>
+            <div id="loss-tables" style="overflow-x:auto"></div>
+        </div>
 
         <!-- ── Charts ── -->
         <div class="charts-row" id="charts-section" style="display:none">
@@ -315,6 +366,77 @@ const DOWNTIME_CODES = {
     '5':'Machine Maintenance','6':'Nozzle Blockage','7':'Mould Problem','8':'Power / Heater Failure',
     '9':'Color Change','10':'Process Setting','11':'Mould Trial','12':'Crane / Loading'
 };
+
+/* ══════════════════════════════════════════════════════════════════════
+   OEE / LOSS / CHANGEOVER ENGINE  (see PRD: Target Waterfall + OEE)
+   All weight in Kg. Productive hours per shift = SHIFT_HOURS.
+   Material rate (₹/Kg) drives the money value of loss; 0 hides ₹.
+   ══════════════════════════════════════════════════════════════════════ */
+const SHIFT_HOURS   = 12;                        // productive hours per shift (matches current target math)
+const MOULD_CHANGE_CODE = '2';                   // downtime reason code for actual mould-change time
+let   MATERIAL_RATE = parseFloat(localStorage.getItem('jpsms_material_rate')) || 0;  // ₹ per Kg (config)
+
+// Build the primitive bundle for ONE machine from its Day/Night/Total metrics.
+// loadUnloadMin = std load+unload minutes per mould change (Machine Master).
+function machineBundle(m, loadUnloadMin) {
+    const t = m.Total;
+    const shiftsActive = (m.Day.runMachines ? 1 : 0) + (m.Night.runMachines ? 1 : 0);
+    const H = (shiftsActive > 0 ? shiftsActive : (t.targetWt > 0 ? 1 : 0)) * SHIFT_HOURS; // available productive hrs
+    const nameplate = t.targetWt;                                  // std rate × weight × hours (per-setup summed)
+    const R = H > 0 ? nameplate / H : 0;                           // Kg per productive hour at std rate
+    const dtHr = t.totalDtHr;
+    const actCoHrs = (t.dt[MOULD_CHANGE_CODE] || 0) / 60;          // actual mould-change time logged (code 2)
+    const changes = Math.max(t.mc || 0, t.jc || 0);               // # mould/job change-overs
+    const stdCoHrs = changes * ((loadUnloadMin || 0) / 60);        // STD allowed change-over time
+    const runHrs = Math.max(0, H - dtHr);                          // actual run time
+    const plannedHrs = Math.max(0, H - stdCoHrs);                  // planned production time (std change-over removed)
+    const netAch = R * runHrs;                                     // Net Achievable target (all downtime removed)
+    const gross = t.grossWt, good = t.goodWt, reject = t.rejWt;
+
+    // Loss buckets (Kg) — sum to Nameplate: Changeover + Downtime + Speed + Quality + Good
+    const changeoverLoss = R * actCoHrs;
+    const downtimeLoss   = R * Math.max(0, dtHr - actCoHrs);
+    const speedLoss      = Math.max(0, netAch - gross);
+    const qualityLoss    = reject;
+    const totalLoss      = Math.max(0, nameplate - good);
+
+    // OEE
+    const avail = plannedHrs > 0 ? Math.min(1, runHrs / plannedHrs) : 0;
+    const perf  = netAch > 0 ? Math.min(1, gross / netAch) : 0;
+    const qual  = gross > 0 ? good / gross : 0;
+    const oee   = avail * perf * qual;
+
+    // Change-over variance
+    const overrunHrs = Math.max(0, actCoHrs - stdCoHrs);
+    const excessKg   = R * overrunHrs;
+
+    return {
+        nameplate, netAch, gross, good, reject, H, R, dtHr, runHrs, plannedHrs,
+        changeoverLoss, downtimeLoss, speedLoss, qualityLoss, totalLoss,
+        avail, perf, qual, oee,
+        mc: t.mc || 0, cc: t.cc || 0, jc: t.jc || 0, changes,
+        stdCoHrs, actCoHrs, overrunHrs, excessKg
+    };
+}
+
+// Aggregate a list of machine bundles into a line/factory bundle (sum primitives, re-derive ratios).
+function aggBundle(bundles) {
+    const s = { nameplate:0, netAch:0, gross:0, good:0, reject:0, H:0, runHrs:0, plannedHrs:0,
+        changeoverLoss:0, downtimeLoss:0, speedLoss:0, qualityLoss:0, totalLoss:0,
+        mc:0, cc:0, jc:0, changes:0, stdCoHrs:0, actCoHrs:0, overrunHrs:0, excessKg:0, dtHr:0 };
+    bundles.forEach(b => {
+        ['nameplate','netAch','gross','good','reject','H','runHrs','plannedHrs','changeoverLoss',
+         'downtimeLoss','speedLoss','qualityLoss','totalLoss','mc','cc','jc','changes','stdCoHrs',
+         'actCoHrs','overrunHrs','excessKg','dtHr'].forEach(k => s[k] += (b[k] || 0));
+    });
+    s.avail = s.plannedHrs > 0 ? Math.min(1, s.runHrs / s.plannedHrs) : 0;
+    s.perf  = s.netAch > 0 ? Math.min(1, s.gross / s.netAch) : 0;
+    s.qual  = s.gross > 0 ? s.good / s.gross : 0;
+    s.oee   = s.avail * s.perf * s.qual;
+    return s;
+}
+const rupee = kg => MATERIAL_RATE > 0 ? '₹ ' + Math.round(kg * MATERIAL_RATE).toLocaleString('en-IN') : '—';
+const pct1  = x => (x * 100).toFixed(1) + '%';
 
 function _initPage() {
     try { if (window.JPSMS && JPSMS.auth) JPSMS.auth.requireAuth(); } catch(e) { console.error('requireAuth:', e); }
@@ -379,6 +501,11 @@ async function generateReport() {
         ]);
 
         const allowedSet = new Set((machinesRes.data||[]).map(m => m.machine));
+        // Machine Master load/unload time (minutes) → STD change-over time per machine.
+        const loadUnloadMap = {};
+        (machinesRes.data||[]).forEach(m => {
+            loadUnloadMap[m.machine] = (parseFloat(m.mould_load_time)||0) + (parseFloat(m.mould_unload_time)||0);
+        });
         const filterRes = (res) => {
             const d = res.data || {};
             const dates = {};
@@ -423,7 +550,7 @@ async function generateReport() {
                 const line = mObj ? (mObj.line||mObj.building||mObj.machine_process||'General') : null;
                 if (!line || !agg[line]) return;
 
-                if (!magg[machine]) magg[machine] = { line, name:machine, client:'', jc:'', std:0, actWt:0, Day:initMetrics(), Night:initMetrics(), Total:initMetrics() };
+                if (!magg[machine]) magg[machine] = { line, name:machine, client:'', jc:'', std:0, actWt:0, loadUnloadMin:(loadUnloadMap[machine]||0), Day:initMetrics(), Night:initMetrics(), Total:initMetrics() };
                 const mm = magg[machine][shiftName];   // per-machine per-shift metrics
                 const L  = agg[line][shiftName];        // per-line per-shift metrics
 
@@ -526,12 +653,21 @@ async function generateReport() {
         const meta = { date, dtStr, allMachines, teamDayMap, teamNightMap,
                        kpi: { psTarget, psGood, psRej, psGross, psDtHr, psEff, psRejPct, psRun:psRun.size, psTtlMc } };
         const machineList = Object.values(magg);
-        lastReport = { agg, lineKeys, machineList, reasonsMap, meta };
+
+        // ── OEE / Loss / Change-over bundles ──
+        machineList.forEach(m => { m.bundle = machineBundle(m, m.loadUnloadMin); });
+        const lineBundles = {};
+        lineKeys.forEach(l => { lineBundles[l] = aggBundle(machineList.filter(m => m.line === l).map(m => m.bundle)); });
+        const factoryBundle = aggBundle(machineList.map(m => m.bundle));
+
+        lastReport = { agg, lineKeys, machineList, reasonsMap, meta, lineBundles, factoryBundle };
 
         renderKPIs(meta.kpi);
+        renderOEE(factoryBundle);
         renderInsights(agg, lineKeys, reasonsMap, meta.kpi);
         renderCharts(agg, lineKeys, reasonsMap);
         renderGrid(agg, lineKeys, dtStr, reasonsMap, teamDayMap, teamNightMap);
+        renderLossPanel(lineKeys, lineBundles, factoryBundle);
         renderMachineView();
         document.getElementById('last-gen-badge').innerHTML =
             `<span class="live-dot"></span> Generated ${new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}`;
@@ -564,6 +700,73 @@ function renderKPIs(k) {
     document.getElementById('kpi-dt-sub').textContent = k.psTtlMc>0 ? fmtForce((k.psDtHr/(k.psTtlMc*24))*100)+'% of available hrs' : 'Hrs lost';
 }
 
+/* ── OEE strip ── */
+function oeeBand(x){ return x>=0.85?'green':x>=0.65?'amber':'red'; }
+function renderOEE(b) {
+    document.getElementById('oee-strip').style.display = 'grid';
+    document.getElementById('kpi-oee').textContent   = pct1(b.oee);
+    document.getElementById('kpi-oee-sub').textContent = b.oee>=0.85?'World-class':b.oee>=0.60?'Typical':'Needs attention';
+    document.getElementById('oee-card').className = 'kpi-card '+oeeBand(b.oee);
+    document.getElementById('kpi-avail').textContent = pct1(b.avail);
+    document.getElementById('kpi-perf').textContent  = pct1(b.perf);
+    document.getElementById('kpi-qual').textContent  = pct1(b.qual);
+    document.getElementById('kpi-loss').textContent  = fmtForce(b.totalLoss)+' Kg';
+    document.getElementById('kpi-loss-sub').textContent = MATERIAL_RATE>0 ? rupee(b.totalLoss)+' lost' : 'Kg below nameplate';
+    document.getElementById('kpi-chg').textContent   = `${b.mc} / ${b.cc} / ${b.jc}`;
+    document.getElementById('kpi-chg-sub').textContent = `${fmtForce(b.overrunHrs)}h over STD change-over`;
+}
+
+/* ── Loss & Change-over tables (line-wise) ── */
+function setMaterialRate(v){
+    MATERIAL_RATE = parseFloat(v)||0;
+    localStorage.setItem('jpsms_material_rate', MATERIAL_RATE);
+    if (lastReport) { renderOEE(lastReport.factoryBundle); renderLossPanel(lastReport.lineKeys, lastReport.lineBundles, lastReport.factoryBundle); }
+}
+function renderLossPanel(lineKeys, lineBundles, factory) {
+    document.getElementById('loss-panel').style.display = '';
+    const rateEl = document.getElementById('material-rate');
+    if (rateEl && MATERIAL_RATE>0 && !rateEl.value) rateEl.value = MATERIAL_RATE;
+    const n = (x,d=1)=>fmtForce(x,d);
+    const lossRow = (name, b, isTot=false) => `<tr class="${isTot?'loss-total':''}">
+        <td class="txt">${name}</td>
+        <td>${n(b.good)}</td>
+        <td style="font-weight:800;color:#dc2626">${n(b.totalLoss)}</td>
+        <td>${rupee(b.totalLoss)}</td>
+        <td>${n(b.changeoverLoss)}</td>
+        <td>${n(b.downtimeLoss)}</td>
+        <td>${n(b.speedLoss)}</td>
+        <td>${n(b.qualityLoss)}</td>
+        <td class="txt"><span style="font-weight:800;color:${b.oee>=0.85?'#16a34a':b.oee>=0.65?'#d97706':'#dc2626'}">${pct1(b.oee)}</span></td>
+    </tr>`;
+    let lossTbl = `<table class="mc-table"><thead><tr>
+        <th class="txt">Line</th><th>Good Kg</th><th>Total Loss Kg</th><th>Loss ₹</th>
+        <th>Change-over</th><th>Downtime</th><th>Speed</th><th>Quality</th><th class="txt">OEE</th>
+    </tr></thead><tbody>`;
+    lineKeys.forEach(l => { lossTbl += lossRow(l, lineBundles[l]); });
+    lossTbl += lossRow('FACTORY TOTAL', factory, true) + `</tbody></table>`;
+
+    // Change-over variance table
+    const flag = (over,std)=> std>0 && over/std>0.2 ? 'color:#dc2626;font-weight:800' : '';
+    const chgRow = (name,b,isTot=false)=>`<tr class="${isTot?'loss-total':''}">
+        <td class="txt">${name}</td>
+        <td>${b.mc}</td><td>${b.cc}</td><td>${b.jc}</td>
+        <td>${n(b.stdCoHrs)}</td><td>${n(b.actCoHrs)}</td>
+        <td style="${flag(b.overrunHrs,b.stdCoHrs)}">${b.overrunHrs>0?'+':''}${n(b.overrunHrs)}</td>
+        <td style="font-weight:700;color:#dc2626">${n(b.excessKg)}</td>
+        <td>${rupee(b.excessKg)}</td>
+    </tr>`;
+    let chgTbl = `<div style="font-weight:800;color:#334155;font-size:.82rem;margin:16px 0 6px"><i class="bi bi-arrow-repeat" style="color:#d97706"></i> Change-over: STD vs Actual (Overrun = avoidable loss)</div>
+        <table class="mc-table"><thead><tr>
+        <th class="txt">Line</th><th>Mould</th><th>Colour</th><th>Job</th>
+        <th>STD Hr</th><th>Actual Hr</th><th>Overrun Hr</th><th>Excess Loss Kg</th><th>Excess ₹</th>
+    </tr></thead><tbody>`;
+    lineKeys.forEach(l => { chgTbl += chgRow(l, lineBundles[l]); });
+    chgTbl += chgRow('FACTORY TOTAL', factory, true) + `</tbody></table>`;
+
+    document.getElementById('loss-tables').innerHTML = lossTbl + chgTbl +
+        `<div class="small" style="margin-top:8px;color:#94a3b8;font-size:.68rem">Nameplate = Good + Change-over + Downtime + Speed + Quality loss. STD change-over = (mould load+unload from Machine Master) × change-overs. Overrun &gt;20% flagged red. Set ₹/Kg above to value losses.</div>`;
+}
+
 /* ── Insights ── */
 function renderInsights(agg, lines, reasonsMap, k) {
     const host = document.getElementById('insights');
@@ -587,6 +790,14 @@ function renderInsights(agg, lines, reasonsMap, k) {
     if (hiRej && hiRej.r>0) html.push(chip('linear-gradient(135deg,#fb923c,#ea580c)','bi-exclamation-octagon-fill','Highest Rejection', hiRej.l, fmtForce(hiRej.r)+' Kg'));
     if (topDt) html.push(chip('linear-gradient(135deg,#a78bfa,#7c3aed)','bi-hourglass-split','Top Downtime', DOWNTIME_CODES[topDt[0]]||reasonsMap[topDt[0]]||('Code '+topDt[0]), fmtForce(topDt[1]/60)+' hrs'));
     host.innerHTML = html.join('') || '';
+}
+
+/* ── Collapsible Other Downtime ── */
+function toggleOtherDt() {
+    const rows = document.querySelectorAll('#view-line tr.dt-extra');
+    const anyHidden = [...rows].some(r => !r.classList.contains('show'));
+    rows.forEach(r => r.classList.toggle('show', anyHidden));
+    const chev = document.getElementById('dt-chev'); if (chev) chev.textContent = anyHidden ? '▾' : '▸';
 }
 
 /* ── View switch ── */
@@ -615,8 +826,8 @@ function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
     thead += `<th class="sh-day" style="font-size:.7rem">☀️ DAY</th><th class="sh-night" style="font-size:.7rem">🌙 NIGHT</th><th class="sh-total" style="font-size:.7rem">⏱ 24 HRS</th></tr>`;
 
     const row = (icon, title, fn, opts={}) => {
-        const { bold=false, color='', drillLine=false } = opts;
-        let h = `<tr><td class="metric-col" style="${bold?'font-weight:800;':''}">${icon?`<i class="bi ${icon}" style="opacity:.6;margin-right:4px;font-size:.7rem"></i>`:''}${title}</td>`;
+        const { bold=false, color='', drillLine=false, cls='', attr='' } = opts;
+        let h = `<tr class="${cls}" ${attr}><td class="metric-col" style="${bold?'font-weight:800;':''}">${icon?`<i class="bi ${icon}" style="opacity:.6;margin-right:4px;font-size:.7rem"></i>`:''}${title}</td>`;
         let tDay=0, tNight=0;
         lines.forEach(l => {
             const dv=fn(agg[l].Day,l,'Day'), nv=fn(agg[l].Night,l,'Night');
@@ -652,11 +863,24 @@ function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
     tbody += grp('bi-list-nested','Downtime Breakdown (Hrs)');
     const dtCodeSet=new Set();
     lines.forEach(l=>['Day','Night'].forEach(s=>Object.keys(agg[l][s].dt||{}).forEach(c=>{ if(c!=='8') dtCodeSet.add(c); })));
-    const knownOrder=Object.keys(DOWNTIME_CODES).filter(c=>c!=='8');
-    const dtCodes=[...knownOrder.filter(c=>dtCodeSet.has(c)), ...[...dtCodeSet].filter(c=>!knownOrder.includes(c)).sort((a,b)=>Number(a)-Number(b))];
-    dtCodes.forEach(c => { const nm=DOWNTIME_CODES[c]||reasonsMap[c]||`Reason ${c}`; tbody += row('bi-dash','  '+nm, d=>(d.dt[c]||0)/60); });
-    lines.forEach(l=>['Day','Night'].forEach(s=>{ let o=0; Object.entries(agg[l][s].dt).forEach(([c,v])=>{ if(!dtCodes.includes(c)&&c!=='8') o+=v; }); agg[l][s]._otherDtHr=o/60; }));
-    tbody += row('bi-three-dots','  Other Downtime', d=>d._otherDtHr||0);
+    // Rank reasons by total factory downtime; show top N, collapse the rest under a
+    // clickable "Other Downtime" row that expands to reveal every remaining reason.
+    const TOP_DT = 4;
+    const dtTotal = {};
+    [...dtCodeSet].forEach(c => { let s=0; lines.forEach(l=>['Day','Night'].forEach(sh=>{ s+=(agg[l][sh].dt[c]||0); })); dtTotal[c]=s; });
+    const ranked = [...dtCodeSet].sort((a,b)=>(dtTotal[b]||0)-(dtTotal[a]||0));
+    const topCodes = ranked.slice(0, TOP_DT);
+    const otherCodes = ranked.slice(TOP_DT);
+    topCodes.forEach(c => { const nm=DOWNTIME_CODES[c]||reasonsMap[c]||`Reason ${c}`; tbody += row('bi-dash','  '+nm, d=>(d.dt[c]||0)/60); });
+    // "Other Downtime" = sum of the collapsed reasons (+ any unknown codes, excl. code 8)
+    lines.forEach(l=>['Day','Night'].forEach(s=>{ let o=0; Object.entries(agg[l][s].dt).forEach(([c,v])=>{ if(!topCodes.includes(c)&&c!=='8') o+=v; }); agg[l][s]._otherDtHr=o/60; }));
+    if (otherCodes.length) {
+        tbody += row('bi-three-dots',`<span id="dt-chev">▸</span> Other Downtime (${otherCodes.length})`, d=>d._otherDtHr||0,
+                     { bold:true, cls:'dt-toggle', attr:'onclick="toggleOtherDt()"' });
+        otherCodes.forEach(c => { const nm=DOWNTIME_CODES[c]||reasonsMap[c]||`Reason ${c}`; tbody += row('bi-dot','    '+nm, d=>(d.dt[c]||0)/60, { cls:'dt-extra' }); });
+    } else {
+        tbody += row('bi-three-dots','  Other Downtime', d=>d._otherDtHr||0);
+    }
 
     document.getElementById('view-line').innerHTML = `<table class="dpr-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
 }
@@ -669,7 +893,10 @@ function machineRowMetrics(m) {
         goodPcs:t.goodPcs, rejPcs:t.rejPcs, goodWt:t.goodWt, rejWt:t.rejWt, targetWt:t.targetWt, dtHr:t.totalDtHr,
         eff: t.targetWt>0 ? (t.goodWt/t.targetWt)*100 : 0,
         rejPct: (t.goodPcs+t.rejPcs)>0 ? (t.rejPcs/(t.goodPcs+t.rejPcs))*100 : 0,
-        running: (m.Day.runMachines||m.Night.runMachines) ? 1 : 0
+        running: (m.Day.runMachines||m.Night.runMachines) ? 1 : 0,
+        oee: m.bundle ? m.bundle.oee*100 : 0,
+        totalLoss: m.bundle ? m.bundle.totalLoss : 0,
+        lossRs: m.bundle ? (MATERIAL_RATE>0 ? m.bundle.totalLoss*MATERIAL_RATE : 0) : 0
     };
 }
 function renderMachineView() {
@@ -682,10 +909,10 @@ function renderMachineView() {
         return dir*((a[k]||0)-(b[k]||0));
     });
     const th=(key,label,cls='')=>`<th class="${cls} ${machineSort.key===key?'sorted':''}" onclick="sortMachines('${key}')">${label} <span class="arw">${machineSort.key===key?(machineSort.dir==='asc'?'▲':'▼'):'⇅'}</span></th>`;
-    let head = `<tr>${th('name','Machine','txt')}${th('line','Line','txt')}${th('goodPcs','Good Pcs')}${th('rejPcs','Reject Pcs')}${th('rejPct','Rej %')}${th('goodWt','Good Kg')}${th('eff','Efficiency','txt')}${th('dtHr','Downtime Hr')}</tr>`;
+    let head = `<tr>${th('name','Machine','txt')}${th('line','Line','txt')}${th('goodPcs','Good Pcs')}${th('rejPcs','Reject Pcs')}${th('rejPct','Rej %')}${th('goodWt','Good Kg')}${th('eff','Efficiency','txt')}${th('oee','OEE','txt')}${th('totalLoss','Loss Kg')}${th('dtHr','Downtime Hr')}</tr>`;
     let body='';
     if (!rows.length) {
-        body = `<tr><td colspan="8" class="empty-state" style="text-align:center"><i class="bi bi-cpu"></i> No machine activity for this date.</td></tr>`;
+        body = `<tr><td colspan="10" class="empty-state" style="text-align:center"><i class="bi bi-cpu"></i> No machine activity for this date.</td></tr>`;
     } else {
         rows.forEach(r => {
             const rejCls = r.rejPct>5?'r':r.rejPct>2?'a':r.rejPcs>0?'g':'z';
@@ -699,6 +926,8 @@ function renderMachineView() {
                 <td><span class="pill ${rejCls}">${fmtForce(r.rejPct,1)}%</span></td>
                 <td>${fmt(r.goodWt,1)}</td>
                 <td class="txt"><span style="font-weight:800;color:${effColor};display:inline-block;min-width:44px">${r.targetWt>0?fmtForce(r.eff,1)+'%':'—'}</span> <span class="bar-mini"><i style="width:${effP}%;background:${effColor}"></i></span></td>
+                <td class="txt"><span style="font-weight:800;color:${r.oee>=85?'#16a34a':r.oee>=65?'#d97706':r.oee>0?'#dc2626':'#cbd5e1'}">${r.oee>0?fmtForce(r.oee,1)+'%':'—'}</span></td>
+                <td style="color:#dc2626;font-weight:700">${r.totalLoss>0?fmt(r.totalLoss,1):'—'}${r.lossRs>0?`<div class="mc-sub">${rupee(r.totalLoss)}</div>`:''}</td>
                 <td>${fmt(r.dtHr,1)}</td>
             </tr>`;
         });
@@ -798,13 +1027,13 @@ function exportCSV() {
     if (!lastReport) return JPSMS.toast('Generate a report first', 'warning');
     const { machineList, meta } = lastReport;
     const rows = machineList.map(machineRowMetrics);
-    const head = ['Machine','Line','Client','Job Card','Good Pcs','Reject Pcs','Rej %','Good Kg','Reject Kg','Target Kg','Efficiency %','Downtime Hr'];
+    const head = ['Machine','Line','Client','Job Card','Good Pcs','Reject Pcs','Rej %','Good Kg','Reject Kg','Target Kg','Efficiency %','OEE %','Total Loss Kg','Loss ₹','Downtime Hr'];
     const esc = v => '"' + String(v == null ? '' : v).split('"').join('""') + '"';
     const lines = [head.map(esc).join(',')];
-    rows.forEach(r => lines.push([r.name,r.line,r.client,r.jc,Math.round(r.goodPcs),Math.round(r.rejPcs),r.rejPct.toFixed(1),r.goodWt.toFixed(1),r.rejWt.toFixed(1),r.targetWt.toFixed(1),r.eff.toFixed(1),r.dtHr.toFixed(1)].map(esc).join(',')));
-    const k=meta.kpi;
+    rows.forEach(r => lines.push([r.name,r.line,r.client,r.jc,Math.round(r.goodPcs),Math.round(r.rejPcs),r.rejPct.toFixed(1),r.goodWt.toFixed(1),r.rejWt.toFixed(1),r.targetWt.toFixed(1),r.eff.toFixed(1),r.oee.toFixed(1),r.totalLoss.toFixed(1),Math.round(r.lossRs),r.dtHr.toFixed(1)].map(esc).join(',')));
+    const k=meta.kpi, fb=lastReport.factoryBundle;
     lines.push('');
-    lines.push(['FACTORY TOTAL','','','',Math.round(rows.reduce((s,r)=>s+r.goodPcs,0)),Math.round(rows.reduce((s,r)=>s+r.rejPcs,0)),k.psRejPct.toFixed(1),k.psGood.toFixed(1),k.psRej.toFixed(1),k.psTarget.toFixed(1),k.psEff.toFixed(1),k.psDtHr.toFixed(1)].map(esc).join(','));
+    lines.push(['FACTORY TOTAL','','','',Math.round(rows.reduce((s,r)=>s+r.goodPcs,0)),Math.round(rows.reduce((s,r)=>s+r.rejPcs,0)),k.psRejPct.toFixed(1),k.psGood.toFixed(1),k.psRej.toFixed(1),k.psTarget.toFixed(1),k.psEff.toFixed(1),(fb.oee*100).toFixed(1),fb.totalLoss.toFixed(1),Math.round(MATERIAL_RATE>0?fb.totalLoss*MATERIAL_RATE:0),k.psDtHr.toFixed(1)].map(esc).join(','));
     const blob = new Blob(["﻿"+lines.join('\r\n')], { type:'text/csv;charset=utf-8;' });
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
