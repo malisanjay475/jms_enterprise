@@ -441,6 +441,11 @@
             style="padding:5px 12px; background:#eff6ff; color:#2563eb; border:1px solid #bfdbfe; display:none; margin-right:5px">
             <i class="bi bi-cloud-arrow-down"></i> Auto-Fetch Orders
           </button>
+          <button id="omFullSyncBtn" class="btn-action" onclick="runFullErpSyncNow()"
+            title="Run the full pipeline now: fetch ERP → import OR-JR → rebuild Order Master for all factories"
+            style="padding:5px 12px; background:#4338ca; color:#fff; border:1px solid #3730a3; display:none; margin-right:5px">
+            <i class="bi bi-arrow-repeat"></i> Manual Fetch (Full ERP Sync)
+          </button>
           <button id="omHistoryBtn" class="btn-action" onclick="openOrderCompletionHistory()"
             style="padding:5px 12px; background:#1e293b; color:#fff; border:1px solid #0f172a; display:none; margin-right:5px">
             <i class="bi bi-clock-history"></i> Completion History
@@ -874,7 +879,7 @@
     }
   </style>
 
-  <script src="/assets/masters-script-2.js?v=release97"></script>
+  <script src="/assets/masters-script-2.js?v=release98"></script>
 
   <!-- Machine CRUD Modal -->
   <div id="machineModal" class="modal"
