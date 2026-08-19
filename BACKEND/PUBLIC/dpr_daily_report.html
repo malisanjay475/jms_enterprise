@@ -371,64 +371,42 @@ const DOWNTIME_CODES = {
 const SHIFT_HOURS   = 12;                        // productive hours per shift (matches current target math)
 const MOULD_CHANGE_CODE = '2';                   // downtime reason code for actual mould-change time
 
-// Build the primitive bundle for ONE machine from its Day/Night/Total metrics.
-// loadUnloadMin = std load+unload minutes per mould change (Machine Master).
-function machineBundle(m, loadUnloadMin) {
-    const t = m.Total;
-    const shiftsActive = (m.Day.runMachines ? 1 : 0) + (m.Night.runMachines ? 1 : 0);
-    const H = (shiftsActive > 0 ? shiftsActive : (t.targetWt > 0 ? 1 : 0)) * SHIFT_HOURS; // available productive hrs
-    const nameplate = t.targetWt;                                  // std rate × weight × hours (per-setup summed)
-    const R = H > 0 ? nameplate / H : 0;                           // Kg per productive hour at std rate
-    const dtHr = t.totalDtHr;
-    const actCoHrs = (t.dt[MOULD_CHANGE_CODE] || 0) / 60;          // actual mould-change time logged (code 2)
-    const changes = Math.max(t.mc || 0, t.jc || 0);               // # mould/job change-overs
-    const stdCoHrs = changes * ((loadUnloadMin || 0) / 60);        // STD allowed change-over time
-    const runHrs = Math.max(0, H - dtHr);                          // actual run time
-    const plannedHrs = Math.max(0, H - stdCoHrs);                  // planned production time (std change-over removed)
-    const netAch = R * runHrs;                                     // Net Achievable target (all downtime removed)
-    const gross = t.grossWt, good = t.goodWt, reject = t.rejWt;
-
-    // Loss buckets (Kg) — sum to Nameplate: Changeover + Downtime + Speed + Quality + Good
-    const changeoverLoss = R * actCoHrs;
-    const downtimeLoss   = R * Math.max(0, dtHr - actCoHrs);
-    const speedLoss      = Math.max(0, netAch - gross);
-    const qualityLoss    = reject;
-    const totalLoss      = Math.max(0, nameplate - good);
-
-    // OEE
-    const avail = plannedHrs > 0 ? Math.min(1, runHrs / plannedHrs) : 0;
-    const perf  = netAch > 0 ? Math.min(1, gross / netAch) : 0;
-    const qual  = gross > 0 ? good / gross : 0;
-    const oee   = avail * perf * qual;
-
-    // Change-over variance
-    const overrunHrs = Math.max(0, actCoHrs - stdCoHrs);
-    const excessKg   = R * overrunHrs;
-
-    return {
-        nameplate, netAch, gross, good, reject, H, R, dtHr, runHrs, plannedHrs,
-        changeoverLoss, downtimeLoss, speedLoss, qualityLoss, totalLoss,
-        avail, perf, qual, oee,
-        mc: t.mc || 0, cc: t.cc || 0, jc: t.jc || 0, changes,
-        stdCoHrs, actCoHrs, overrunHrs, excessKg
-    };
+// Derive OEE/loss ratios from the summed waterfall tiers (nameplate/planned/netAch/gross/good).
+// Used for both a single machine (its .Total) and any line/factory aggregate.
+function deriveFromTiers(o) {
+    o.changeoverLoss = Math.max(0, o.nameplate - o.planned);   // Nameplate − Planned  (actual change-over)
+    o.downtimeLoss   = Math.max(0, o.planned - o.netAch);      // Planned − Net Achievable (other downtime)
+    o.speedLoss      = Math.max(0, o.netAch - o.gross);        // Net Achievable − Gross (slow running)
+    o.qualityLoss    = o.reject;                               // Gross − Good
+    o.totalLoss      = Math.max(0, o.nameplate - o.good);
+    o.avail = o.planned > 0 ? Math.min(1, o.netAch / o.planned) : 0;
+    o.perf  = o.netAch  > 0 ? Math.min(1, o.gross  / o.netAch) : 0;
+    o.qual  = o.gross   > 0 ? o.good / o.gross : 0;
+    o.oee   = o.avail * o.perf * o.qual;
+    return o;
 }
 
-// Aggregate a list of machine bundles into a line/factory bundle (sum primitives, re-derive ratios).
-function aggBundle(bundles) {
-    const s = { nameplate:0, netAch:0, gross:0, good:0, reject:0, H:0, runHrs:0, plannedHrs:0,
-        changeoverLoss:0, downtimeLoss:0, speedLoss:0, qualityLoss:0, totalLoss:0,
-        mc:0, cc:0, jc:0, changes:0, stdCoHrs:0, actCoHrs:0, overrunHrs:0, excessKg:0, dtHr:0 };
-    bundles.forEach(b => {
-        ['nameplate','netAch','gross','good','reject','H','runHrs','plannedHrs','changeoverLoss',
-         'downtimeLoss','speedLoss','qualityLoss','totalLoss','mc','cc','jc','changes','stdCoHrs',
-         'actCoHrs','overrunHrs','excessKg','dtHr'].forEach(k => s[k] += (b[k] || 0));
+// Build the bundle for ONE machine from its accumulated Total metrics.
+function machineBundle(m) {
+    const t = m.Total;
+    return deriveFromTiers({
+        nameplate: t.targetWt, planned: t.plannedWt, netAch: t.netAchWt,
+        gross: t.grossWt, good: t.goodWt, reject: t.rejWt, dtHr: t.totalDtHr,
+        mc: t.mc||0, cc: t.cc||0, jc: t.jc||0, changes: t.jc||0,
+        stdCoHrs: t.stdCoHr, actCoHrs: (t.dt[MOULD_CHANGE_CODE]||0)/60,
+        overrunHrs: t.overrunHr, excessKg: t.excessCoWt
     });
-    s.avail = s.plannedHrs > 0 ? Math.min(1, s.runHrs / s.plannedHrs) : 0;
-    s.perf  = s.netAch > 0 ? Math.min(1, s.gross / s.netAch) : 0;
-    s.qual  = s.gross > 0 ? s.good / s.gross : 0;
-    s.oee   = s.avail * s.perf * s.qual;
-    return s;
+}
+
+// Aggregate a list of machine bundles into a line/factory bundle (sum tiers, re-derive ratios).
+function aggBundle(bundles) {
+    const s = { nameplate:0, planned:0, netAch:0, gross:0, good:0, reject:0, dtHr:0,
+        mc:0, cc:0, jc:0, changes:0, stdCoHrs:0, actCoHrs:0, overrunHrs:0, excessKg:0 };
+    bundles.forEach(b => {
+        ['nameplate','planned','netAch','gross','good','reject','dtHr','mc','cc','jc','changes',
+         'stdCoHrs','actCoHrs','overrunHrs','excessKg'].forEach(k => s[k] += (b[k] || 0));
+    });
+    return deriveFromTiers(s);
 }
 const pct1  = x => (x * 100).toFixed(1) + '%';
 
@@ -468,9 +446,9 @@ function fmt(v, dec = 1) { if (v == null || isNaN(v) || v === 0) return '—'; r
 function fmtForce(v, dec = 1) { return Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: dec }); }
 function effClass(v) { if (v >= 85) return 'eff-good'; if (v >= 65) return 'eff-mid'; return v > 0 ? 'eff-bad' : 'val-zero'; }
 function effPillClass(v) { if (v >= 85) return 'g'; if (v >= 65) return 'a'; return v > 0 ? 'r' : 'z'; }
-function initMetrics() { return { targetWt:0, goodWt:0, rejWt:0, grossWt:0, totalDtHr:0, dt:{}, rej:{}, cc:0, mc:0, jc:0, runMachines:0, totalMachines:0, goodPcs:0, rejPcs:0 }; }
+function initMetrics() { return { targetWt:0, plannedWt:0, netAchWt:0, goodWt:0, rejWt:0, grossWt:0, totalDtHr:0, stdCoHr:0, overrunHr:0, excessCoWt:0, dt:{}, rej:{}, cc:0, mc:0, jc:0, runMachines:0, totalMachines:0, goodPcs:0, rejPcs:0 }; }
 function addMetrics(dest, src) {
-    ['targetWt','goodWt','rejWt','grossWt','totalDtHr','cc','mc','jc','runMachines','totalMachines','goodPcs','rejPcs'].forEach(k => dest[k] += src[k]);
+    ['targetWt','plannedWt','netAchWt','goodWt','rejWt','grossWt','totalDtHr','stdCoHr','overrunHr','excessCoWt','cc','mc','jc','runMachines','totalMachines','goodPcs','rejPcs'].forEach(k => dest[k] += src[k]);
     Object.entries(src.dt).forEach(([c,v]) => dest.dt[c] = (dest.dt[c]||0)+v);
     Object.entries(src.rej).forEach(([c,v]) => dest.rej[c] = (dest.rej[c]||0)+v);
 }
@@ -618,6 +596,23 @@ async function generateReport() {
                 const jcCount = Math.max(0,uniqueMoulds.size-1);
                 L.jc += jcCount; mm.jc += jcCount;
 
+                // ── Target waterfall tiers (per machine-shift): Nameplate → Planned → Net Achievable ──
+                // R = Kg/hr at std rate. Planned removes actual change-over time (code 2);
+                // Net Achievable removes ALL downtime. STD change-over = mould swaps × (load+unload).
+                const Rhr = (activeWt>0 && activeStd>0) ? (activeWt*activeStd) : 0;
+                const mActCoHr = (mm.dt[MOULD_CHANGE_CODE]||0)/60;      // actual change-over hrs (this machine-shift)
+                const mDtHr    = mm.totalDtHr;                          // total downtime hrs (this machine-shift)
+                const mStdCoHr = jcCount * ((loadUnloadMap[machine]||0)/60);
+                const mPlanned = Rhr * Math.max(0, SHIFT_HOURS - mActCoHr);
+                const mNetAch  = Rhr * Math.max(0, SHIFT_HOURS - mDtHr);
+                const mOverrun = Math.max(0, mActCoHr - mStdCoHr);
+                const mExcess  = Rhr * mOverrun;
+                L.plannedWt+=mPlanned;  mm.plannedWt+=mPlanned;
+                L.netAchWt+=mNetAch;    mm.netAchWt+=mNetAch;
+                L.stdCoHr+=mStdCoHr;    mm.stdCoHr+=mStdCoHr;
+                L.overrunHr+=mOverrun;  mm.overrunHr+=mOverrun;
+                L.excessCoWt+=mExcess;  mm.excessCoWt+=mExcess;
+
                 // legacy drill store (line -> machine)
                 window._drillData[line] = window._drillData[line]||{};
                 window._drillData[line][machine] = {
@@ -649,7 +644,7 @@ async function generateReport() {
         const machineList = Object.values(magg);
 
         // ── OEE / Loss / Change-over bundles ──
-        machineList.forEach(m => { m.bundle = machineBundle(m, m.loadUnloadMin); });
+        machineList.forEach(m => { m.bundle = machineBundle(m); });
         const lineBundles = {};
         lineKeys.forEach(l => { lineBundles[l] = aggBundle(machineList.filter(m => m.line === l).map(m => m.bundle)); });
         const factoryBundle = aggBundle(machineList.map(m => m.bundle));
@@ -828,12 +823,14 @@ function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
     const grp = (icon,title)=>`<tr class="grp-row"><td class="metric-col" colspan="${totalCols}"><i class="bi ${icon}" style="margin-right:6px"></i>${title}</td></tr>`;
 
     let tbody = grp('bi-box-fill','Production Metrics');
-    tbody += row('bi-bullseye','Target Wt (Kg)', d=>d.targetWt);
+    tbody += row('bi-bullseye','Nameplate Target (Kg)', d=>d.targetWt);
+    tbody += row('bi-clipboard-check','Planned Target (Kg)', d=>d.plannedWt,{bold:true});
+    tbody += row('bi-graph-up-arrow','Net Achievable Target (Kg)', d=>d.netAchWt);
     tbody += row('bi-boxes','Gross Production Wt (Kg)', d=>d.grossWt,{bold:true});
-    tbody += row('bi-check-circle-fill','Good Production Wt (Kg)', d=>d.goodWt,{bold:true});
     tbody += row('bi-exclamation-triangle-fill','Rejection Wt (Kg)', d=>d.rejWt,{drillLine:true});
+    tbody += row('bi-check-circle-fill','Good / Net Production Wt (Kg)', d=>d.goodWt,{bold:true});
     tbody += row('bi-percent','Rejection %', d=>d.grossWt>0?(d.rejWt/d.grossWt)*100:0);
-    tbody += row('bi-speedometer2','Efficiency % (Good/Target)', d=>d.targetWt>0?(d.goodWt/d.targetWt)*100:0,{bold:true,color:'eff'});
+    tbody += row('bi-speedometer2','Efficiency % (Good/Nameplate)', d=>d.targetWt>0?(d.goodWt/d.targetWt)*100:0,{bold:true,color:'eff'});
     tbody += row('bi-plus-slash-minus','Plan vs Actual (±Kg)', d=>d.goodWt-d.targetWt);
     tbody += grp('bi-people-fill','Machines & Utilisation');
     tbody += row('bi-cpu','Running Machines', d=>d.runMachines,{bold:true});
