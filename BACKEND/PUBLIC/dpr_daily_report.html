@@ -559,7 +559,9 @@ async function generateReport() {
                 if (activeWt) magg[machine].actWt = activeWt;
 
                 const slots = entriesMap[machine];
-                const uniqueMoulds = new Set();
+                const uniqueJobs = new Set();     // distinct jobs/orders   → Job Change
+                const uniqueMoulds = new Set();   // distinct physical moulds → Mould Change (DPR-setup basis)
+                const uniqueColours = new Set();  // distinct colours       → Colour Change
                 let mHasData = false;
 
                 Object.keys(slots).forEach(slot => {
@@ -569,7 +571,10 @@ async function generateReport() {
                     slotEntries.forEach(e => {
                         if (!e) return;
                         mHasData = true;
-                        if (e.mould_no||e.order_no||e.mould_name) uniqueMoulds.add((e.order_no||e.mould_no||e.mould_name).trim().toLowerCase());
+                        // Track distinct jobs / moulds / colours for change-over counting.
+                        const jobKey=(e.order_no||e.mould_no||e.mould_name); if(jobKey) uniqueJobs.add(String(jobKey).trim().toLowerCase());
+                        const mouldKey=(e.mould_no||e.mould_name);           if(mouldKey) uniqueMoulds.add(String(mouldKey).trim().toLowerCase());
+                        if(e.colour) uniqueColours.add(String(e.colour).trim().toLowerCase());
                         if (e.job_card_no) magg[machine].jc = e.job_card_no;
                         if (e.client_name) magg[machine].client = e.client_name;
 
@@ -590,15 +595,20 @@ async function generateReport() {
                             Object.entries(e.downtime_breakup).forEach(([c,m])=>{ L.dt[c]=(L.dt[c]||0)+parseInt(m); mm.dt[c]=(mm.dt[c]||0)+parseInt(m); });
                         if (e.reject_breakup&&typeof e.reject_breakup==='object')
                             Object.entries(e.reject_breakup).forEach(([c,qv])=>{ L.rej[c]=(L.rej[c]||0)+(parseInt(qv)*ew); });
-                        if (e.entry_type==='ColourChange'||(e.downtime_breakup&&e.downtime_breakup['9'])) { L.cc++; mm.cc++; }
-                        if (e.downtime_breakup&&e.downtime_breakup['2']) { L.mc++; mm.mc++; }
                     });
                     const dtHr = Math.min(60,slotDt)/60;
                     L.totalDtHr += dtHr; mm.totalDtHr += dtHr;
                 });
 
                 if (mHasData) { L.runMachines++; mm.runMachines = 1; }
-                const jcCount = Math.max(0,uniqueMoulds.size-1);
+                // Change-overs, counted the "DPR setup" way: ONE per distinct setup transition.
+                // A machine running mould A then mould B = one mould change (distinct moulds − 1),
+                // never once per hourly row. Same basis for jobs and colours.
+                const mcCount = Math.max(0, uniqueMoulds.size - 1);   // Mould Change
+                const ccCount = Math.max(0, uniqueColours.size - 1);  // Colour Change
+                const jcCount = Math.max(0, uniqueJobs.size - 1);     // Job Change
+                L.mc += mcCount; mm.mc += mcCount;
+                L.cc += ccCount; mm.cc += ccCount;
                 L.jc += jcCount; mm.jc += jcCount;
 
                 // ── Target waterfall tiers (per machine-shift): Nameplate → Planned → Net Achievable ──
@@ -607,7 +617,7 @@ async function generateReport() {
                 const Rhr = (activeWt>0 && activeStd>0) ? (activeWt*activeStd) : 0;
                 const mActCoHr = (mm.dt[MOULD_CHANGE_CODE]||0)/60;      // actual change-over hrs (this machine-shift)
                 const mDtHr    = mm.totalDtHr;                          // total downtime hrs (this machine-shift)
-                const mStdCoHr = jcCount * ((loadUnloadMap[machine]||0)/60);
+                const mStdCoHr = mcCount * ((loadUnloadMap[machine]||0)/60);   // STD change-over ∝ mould changes
                 const mPlanned = Rhr * Math.max(0, SHIFT_HOURS - mActCoHr);
                 const mNetAch  = Rhr * Math.max(0, SHIFT_HOURS - mDtHr);
                 const mOverrun = Math.max(0, mActCoHr - mStdCoHr);
