@@ -302,11 +302,8 @@
         <!-- ── Loss & Change-over panel ── -->
         <div class="panel" id="loss-panel" style="display:none; margin-top:14px">
             <div class="panel-head no-print">
-                <div class="panel-title"><i class="bi bi-cash-stack" style="color:#7c3aed"></i> Loss Account &amp; Change-over Variance (Line-wise)</div>
+                <div class="panel-title"><i class="bi bi-graph-down-arrow" style="color:#7c3aed"></i> Loss Account &amp; Change-over Variance (Line-wise)</div>
                 <div class="hero-sep" style="flex:1"></div>
-                <span class="small" style="font-size:.7rem;color:#94a3b8">Rate:
-                    <input type="number" id="material-rate" placeholder="₹/Kg" style="width:80px;padding:2px 6px;border:1px solid #cbd5e1;border-radius:5px" onchange="setMaterialRate(this.value)">
-                </span>
             </div>
             <div id="loss-tables" style="overflow-x:auto"></div>
         </div>
@@ -370,11 +367,9 @@ const DOWNTIME_CODES = {
 /* ══════════════════════════════════════════════════════════════════════
    OEE / LOSS / CHANGEOVER ENGINE  (see PRD: Target Waterfall + OEE)
    All weight in Kg. Productive hours per shift = SHIFT_HOURS.
-   Material rate (₹/Kg) drives the money value of loss; 0 hides ₹.
    ══════════════════════════════════════════════════════════════════════ */
 const SHIFT_HOURS   = 12;                        // productive hours per shift (matches current target math)
 const MOULD_CHANGE_CODE = '2';                   // downtime reason code for actual mould-change time
-let   MATERIAL_RATE = parseFloat(localStorage.getItem('jpsms_material_rate')) || 0;  // ₹ per Kg (config)
 
 // Build the primitive bundle for ONE machine from its Day/Night/Total metrics.
 // loadUnloadMin = std load+unload minutes per mould change (Machine Master).
@@ -435,7 +430,6 @@ function aggBundle(bundles) {
     s.oee   = s.avail * s.perf * s.qual;
     return s;
 }
-const rupee = kg => MATERIAL_RATE > 0 ? '₹ ' + Math.round(kg * MATERIAL_RATE).toLocaleString('en-IN') : '—';
 const pct1  = x => (x * 100).toFixed(1) + '%';
 
 function _initPage() {
@@ -711,27 +705,19 @@ function renderOEE(b) {
     document.getElementById('kpi-perf').textContent  = pct1(b.perf);
     document.getElementById('kpi-qual').textContent  = pct1(b.qual);
     document.getElementById('kpi-loss').textContent  = fmtForce(b.totalLoss)+' Kg';
-    document.getElementById('kpi-loss-sub').textContent = MATERIAL_RATE>0 ? rupee(b.totalLoss)+' lost' : 'Kg below nameplate';
+    document.getElementById('kpi-loss-sub').textContent = 'Kg below nameplate';
     document.getElementById('kpi-chg').textContent   = `${b.mc} / ${b.cc} / ${b.jc}`;
     document.getElementById('kpi-chg-sub').textContent = `${fmtForce(b.overrunHrs)}h over STD change-over`;
 }
 
 /* ── Loss & Change-over tables (line-wise) ── */
-function setMaterialRate(v){
-    MATERIAL_RATE = parseFloat(v)||0;
-    localStorage.setItem('jpsms_material_rate', MATERIAL_RATE);
-    if (lastReport) { renderOEE(lastReport.factoryBundle); renderLossPanel(lastReport.lineKeys, lastReport.lineBundles, lastReport.factoryBundle); }
-}
 function renderLossPanel(lineKeys, lineBundles, factory) {
     document.getElementById('loss-panel').style.display = '';
-    const rateEl = document.getElementById('material-rate');
-    if (rateEl && MATERIAL_RATE>0 && !rateEl.value) rateEl.value = MATERIAL_RATE;
     const n = (x,d=1)=>fmtForce(x,d);
     const lossRow = (name, b, isTot=false) => `<tr class="${isTot?'loss-total':''}">
         <td class="txt">${name}</td>
         <td>${n(b.good)}</td>
         <td style="font-weight:800;color:#dc2626">${n(b.totalLoss)}</td>
-        <td>${rupee(b.totalLoss)}</td>
         <td>${n(b.changeoverLoss)}</td>
         <td>${n(b.downtimeLoss)}</td>
         <td>${n(b.speedLoss)}</td>
@@ -739,7 +725,7 @@ function renderLossPanel(lineKeys, lineBundles, factory) {
         <td class="txt"><span style="font-weight:800;color:${b.oee>=0.85?'#16a34a':b.oee>=0.65?'#d97706':'#dc2626'}">${pct1(b.oee)}</span></td>
     </tr>`;
     let lossTbl = `<table class="mc-table"><thead><tr>
-        <th class="txt">Line</th><th>Good Kg</th><th>Total Loss Kg</th><th>Loss ₹</th>
+        <th class="txt">Line</th><th>Good Kg</th><th>Total Loss Kg</th>
         <th>Change-over</th><th>Downtime</th><th>Speed</th><th>Quality</th><th class="txt">OEE</th>
     </tr></thead><tbody>`;
     lineKeys.forEach(l => { lossTbl += lossRow(l, lineBundles[l]); });
@@ -753,18 +739,17 @@ function renderLossPanel(lineKeys, lineBundles, factory) {
         <td>${n(b.stdCoHrs)}</td><td>${n(b.actCoHrs)}</td>
         <td style="${flag(b.overrunHrs,b.stdCoHrs)}">${b.overrunHrs>0?'+':''}${n(b.overrunHrs)}</td>
         <td style="font-weight:700;color:#dc2626">${n(b.excessKg)}</td>
-        <td>${rupee(b.excessKg)}</td>
     </tr>`;
     let chgTbl = `<div style="font-weight:800;color:#334155;font-size:.82rem;margin:16px 0 6px"><i class="bi bi-arrow-repeat" style="color:#d97706"></i> Change-over: STD vs Actual (Overrun = avoidable loss)</div>
         <table class="mc-table"><thead><tr>
         <th class="txt">Line</th><th>Mould</th><th>Colour</th><th>Job</th>
-        <th>STD Hr</th><th>Actual Hr</th><th>Overrun Hr</th><th>Excess Loss Kg</th><th>Excess ₹</th>
+        <th>STD Hr</th><th>Actual Hr</th><th>Overrun Hr</th><th>Excess Loss Kg</th>
     </tr></thead><tbody>`;
     lineKeys.forEach(l => { chgTbl += chgRow(l, lineBundles[l]); });
     chgTbl += chgRow('FACTORY TOTAL', factory, true) + `</tbody></table>`;
 
     document.getElementById('loss-tables').innerHTML = lossTbl + chgTbl +
-        `<div class="small" style="margin-top:8px;color:#94a3b8;font-size:.68rem">Nameplate = Good + Change-over + Downtime + Speed + Quality loss. STD change-over = (mould load+unload from Machine Master) × change-overs. Overrun &gt;20% flagged red. Set ₹/Kg above to value losses.</div>`;
+        `<div class="small" style="margin-top:8px;color:#94a3b8;font-size:.68rem">Nameplate = Good + Change-over + Downtime + Speed + Quality loss. STD change-over = (mould load+unload from Machine Master) × change-overs. Overrun &gt;20% flagged red. All figures in Kg.</div>`;
 }
 
 /* ── Insights ── */
@@ -895,8 +880,7 @@ function machineRowMetrics(m) {
         rejPct: (t.goodPcs+t.rejPcs)>0 ? (t.rejPcs/(t.goodPcs+t.rejPcs))*100 : 0,
         running: (m.Day.runMachines||m.Night.runMachines) ? 1 : 0,
         oee: m.bundle ? m.bundle.oee*100 : 0,
-        totalLoss: m.bundle ? m.bundle.totalLoss : 0,
-        lossRs: m.bundle ? (MATERIAL_RATE>0 ? m.bundle.totalLoss*MATERIAL_RATE : 0) : 0
+        totalLoss: m.bundle ? m.bundle.totalLoss : 0
     };
 }
 function renderMachineView() {
@@ -927,7 +911,7 @@ function renderMachineView() {
                 <td>${fmt(r.goodWt,1)}</td>
                 <td class="txt"><span style="font-weight:800;color:${effColor};display:inline-block;min-width:44px">${r.targetWt>0?fmtForce(r.eff,1)+'%':'—'}</span> <span class="bar-mini"><i style="width:${effP}%;background:${effColor}"></i></span></td>
                 <td class="txt"><span style="font-weight:800;color:${r.oee>=85?'#16a34a':r.oee>=65?'#d97706':r.oee>0?'#dc2626':'#cbd5e1'}">${r.oee>0?fmtForce(r.oee,1)+'%':'—'}</span></td>
-                <td style="color:#dc2626;font-weight:700">${r.totalLoss>0?fmt(r.totalLoss,1):'—'}${r.lossRs>0?`<div class="mc-sub">${rupee(r.totalLoss)}</div>`:''}</td>
+                <td style="color:#dc2626;font-weight:700">${r.totalLoss>0?fmt(r.totalLoss,1):'—'}</td>
                 <td>${fmt(r.dtHr,1)}</td>
             </tr>`;
         });
@@ -1027,13 +1011,13 @@ function exportCSV() {
     if (!lastReport) return JPSMS.toast('Generate a report first', 'warning');
     const { machineList, meta } = lastReport;
     const rows = machineList.map(machineRowMetrics);
-    const head = ['Machine','Line','Client','Job Card','Good Pcs','Reject Pcs','Rej %','Good Kg','Reject Kg','Target Kg','Efficiency %','OEE %','Total Loss Kg','Loss ₹','Downtime Hr'];
+    const head = ['Machine','Line','Client','Job Card','Good Pcs','Reject Pcs','Rej %','Good Kg','Reject Kg','Target Kg','Efficiency %','OEE %','Total Loss Kg','Downtime Hr'];
     const esc = v => '"' + String(v == null ? '' : v).split('"').join('""') + '"';
     const lines = [head.map(esc).join(',')];
-    rows.forEach(r => lines.push([r.name,r.line,r.client,r.jc,Math.round(r.goodPcs),Math.round(r.rejPcs),r.rejPct.toFixed(1),r.goodWt.toFixed(1),r.rejWt.toFixed(1),r.targetWt.toFixed(1),r.eff.toFixed(1),r.oee.toFixed(1),r.totalLoss.toFixed(1),Math.round(r.lossRs),r.dtHr.toFixed(1)].map(esc).join(',')));
+    rows.forEach(r => lines.push([r.name,r.line,r.client,r.jc,Math.round(r.goodPcs),Math.round(r.rejPcs),r.rejPct.toFixed(1),r.goodWt.toFixed(1),r.rejWt.toFixed(1),r.targetWt.toFixed(1),r.eff.toFixed(1),r.oee.toFixed(1),r.totalLoss.toFixed(1),r.dtHr.toFixed(1)].map(esc).join(',')));
     const k=meta.kpi, fb=lastReport.factoryBundle;
     lines.push('');
-    lines.push(['FACTORY TOTAL','','','',Math.round(rows.reduce((s,r)=>s+r.goodPcs,0)),Math.round(rows.reduce((s,r)=>s+r.rejPcs,0)),k.psRejPct.toFixed(1),k.psGood.toFixed(1),k.psRej.toFixed(1),k.psTarget.toFixed(1),k.psEff.toFixed(1),(fb.oee*100).toFixed(1),fb.totalLoss.toFixed(1),Math.round(MATERIAL_RATE>0?fb.totalLoss*MATERIAL_RATE:0),k.psDtHr.toFixed(1)].map(esc).join(','));
+    lines.push(['FACTORY TOTAL','','','',Math.round(rows.reduce((s,r)=>s+r.goodPcs,0)),Math.round(rows.reduce((s,r)=>s+r.rejPcs,0)),k.psRejPct.toFixed(1),k.psGood.toFixed(1),k.psRej.toFixed(1),k.psTarget.toFixed(1),k.psEff.toFixed(1),(fb.oee*100).toFixed(1),fb.totalLoss.toFixed(1),k.psDtHr.toFixed(1)].map(esc).join(','));
     const blob = new Blob(["﻿"+lines.join('\r\n')], { type:'text/csv;charset=utf-8;' });
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
