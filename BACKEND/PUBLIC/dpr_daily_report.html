@@ -374,11 +374,16 @@ const MOULD_CHANGE_CODE = '2';                   // downtime reason code for act
 // Derive OEE/loss ratios from the summed waterfall tiers (nameplate/planned/netAch/gross/good).
 // Used for both a single machine (its .Total) and any line/factory aggregate.
 function deriveFromTiers(o) {
-    o.changeoverLoss = Math.max(0, o.nameplate - o.planned);   // Nameplate − Planned  (actual change-over)
-    o.downtimeLoss   = Math.max(0, o.planned - o.netAch);      // Planned − Net Achievable (other downtime)
-    o.speedLoss      = Math.max(0, o.netAch - o.gross);        // Net Achievable − Gross (slow running)
-    o.qualityLoss    = o.reject;                               // Gross − Good
-    o.totalLoss      = Math.max(0, o.nameplate - o.good);
+    // The four buckets telescope to Nameplate − Good, so they ALWAYS reconcile:
+    //   (Nameplate−Planned)+(Planned−NetAch)+(NetAch−Gross)+(Gross−Good) = Nameplate−Good
+    // change-over and downtime are ≥0 (Planned≤Nameplate, NetAch≤Planned). Speed is SIGNED:
+    // a machine running above its rated speed (Gross>NetAch) yields a negative speed loss
+    // (an over-rate gain) — keeping it signed preserves the identity instead of breaking it.
+    o.changeoverLoss = o.nameplate - o.planned;   // Nameplate − Planned  (actual change-over)
+    o.downtimeLoss   = o.planned - o.netAch;      // Planned − Net Achievable (other downtime)
+    o.speedLoss      = o.netAch - o.gross;        // Net Achievable − Gross (− = ran above rate)
+    o.qualityLoss    = o.reject;                  // Gross − Good
+    o.totalLoss      = o.changeoverLoss + o.downtimeLoss + o.speedLoss + o.qualityLoss; // = Nameplate − Good
     o.avail = o.planned > 0 ? Math.min(1, o.netAch / o.planned) : 0;
     o.perf  = o.netAch  > 0 ? Math.min(1, o.gross  / o.netAch) : 0;
     o.qual  = o.gross   > 0 ? o.good / o.gross : 0;
