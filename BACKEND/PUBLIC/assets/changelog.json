@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.43.2",
+  "latest": "1.43.3",
   "versions": [
+    {
+      "version": "1.43.3",
+      "date": "2026-08-19",
+      "title": "Colour change now counts every purge, mould and job stay setup-based",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "fix", "text": "Colour change is now counted each time the colour differs from the previous hour, because a colour used again still needs a fresh purge — so a colour that comes back later in the shift is counted again. Mould and job changes stay on the setup basis (a reused mould or job is the same setup, not a new change)." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.43.2",
       "date": "2026-08-19",
