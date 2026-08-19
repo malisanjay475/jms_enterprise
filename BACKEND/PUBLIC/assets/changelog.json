@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.43.3",
+  "latest": "1.43.4",
   "versions": [
+    {
+      "version": "1.43.4",
+      "date": "2026-08-19",
+      "title": "\"Nameplate Target\" renamed to \"24 Hour Target\"",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "improvement", "text": "The top target row is now labelled \"24 Hour Target\" instead of \"Nameplate Target\", including in the live-calculation popup and the loss explanations." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.43.3",
       "date": "2026-08-19",
