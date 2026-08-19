@@ -559,22 +559,23 @@ async function generateReport() {
                 if (activeWt) magg[machine].actWt = activeWt;
 
                 const slots = entriesMap[machine];
-                const uniqueJobs = new Set();     // distinct jobs/orders   → Job Change
-                const uniqueMoulds = new Set();   // distinct physical moulds → Mould Change (DPR-setup basis)
-                const uniqueColours = new Set();  // distinct colours       → Colour Change
+                // Ordered per-hour representatives. Change-overs are counted as TRANSITIONS
+                // (mould A→B→A = 2 changes) — distinct-counting would wrongly say 1.
+                const mouldSeq=[], colourSeq=[], jobSeq=[];
                 let mHasData = false;
 
-                Object.keys(slots).forEach(slot => {
+                Object.keys(slots).sort().forEach(slot => {
                     let slotEntries = slots[slot];
                     if (!Array.isArray(slotEntries)) slotEntries=[slotEntries];
                     let slotDt=0;
+                    let slotMould=null, slotColour=null, slotJob=null;   // first non-null seen this hour
                     slotEntries.forEach(e => {
                         if (!e) return;
                         mHasData = true;
-                        // Track distinct jobs / moulds / colours for change-over counting.
-                        const jobKey=(e.order_no||e.mould_no||e.mould_name); if(jobKey) uniqueJobs.add(String(jobKey).trim().toLowerCase());
-                        const mouldKey=(e.mould_no||e.mould_name);           if(mouldKey) uniqueMoulds.add(String(mouldKey).trim().toLowerCase());
-                        if(e.colour) uniqueColours.add(String(e.colour).trim().toLowerCase());
+                        // Capture this hour's job / mould / colour (first seen) for transition counting.
+                        if(slotJob===null){ const k=(e.order_no||e.mould_no||e.mould_name); if(k) slotJob=String(k).trim().toLowerCase(); }
+                        if(slotMould===null){ const k=(e.mould_no||e.mould_name); if(k) slotMould=String(k).trim().toLowerCase(); }
+                        if(slotColour===null && e.colour) slotColour=String(e.colour).trim().toLowerCase();
                         if (e.job_card_no) magg[machine].jc = e.job_card_no;
                         if (e.client_name) magg[machine].client = e.client_name;
 
@@ -596,17 +597,22 @@ async function generateReport() {
                         if (e.reject_breakup&&typeof e.reject_breakup==='object')
                             Object.entries(e.reject_breakup).forEach(([c,qv])=>{ L.rej[c]=(L.rej[c]||0)+(parseInt(qv)*ew); });
                     });
+                    // One representative per hour → feeds transition counting below.
+                    if(slotMould) mouldSeq.push(slotMould);
+                    if(slotColour) colourSeq.push(slotColour);
+                    if(slotJob) jobSeq.push(slotJob);
                     const dtHr = Math.min(60,slotDt)/60;
                     L.totalDtHr += dtHr; mm.totalDtHr += dtHr;
                 });
 
                 if (mHasData) { L.runMachines++; mm.runMachines = 1; }
-                // Change-overs, counted the "DPR setup" way: ONE per distinct setup transition.
-                // A machine running mould A then mould B = one mould change (distinct moulds − 1),
-                // never once per hourly row. Same basis for jobs and colours.
-                const mcCount = Math.max(0, uniqueMoulds.size - 1);   // Mould Change
-                const ccCount = Math.max(0, uniqueColours.size - 1);  // Colour Change
-                const jcCount = Math.max(0, uniqueJobs.size - 1);     // Job Change
+                // Change-overs counted as TRANSITIONS across the time-ordered hours: one each time
+                // the mould/colour/job differs from the previous hour. So mould A→B→A = 2 changes,
+                // and running a single mould all shift = 0 — matching what physically happened.
+                const countTransitions = (seq)=>{ let c=0, prev=null; for(const k of seq){ if(prev!==null && k!==prev) c++; prev=k; } return c; };
+                const mcCount = countTransitions(mouldSeq);   // Mould Change
+                const ccCount = countTransitions(colourSeq);  // Colour Change
+                const jcCount = countTransitions(jobSeq);     // Job Change
                 L.mc += mcCount; mm.mc += mcCount;
                 L.cc += ccCount; mm.cc += ccCount;
                 L.jc += jcCount; mm.jc += jcCount;

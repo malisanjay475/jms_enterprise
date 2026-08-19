@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.43.2",
+  "latest": "1.43.3",
   "versions": [
+    {
+      "version": "1.43.3",
+      "date": "2026-08-19",
+      "title": "Mould change count now catches a mould that is repeated in the same shift",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "fix", "text": "Mould, colour and job changes are now counted each time they differ from the previous hour, so a mould run again later in the shift (A → B → A) correctly counts as two changes instead of one." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.43.2",
       "date": "2026-08-19",
