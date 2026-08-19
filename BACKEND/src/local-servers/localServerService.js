@@ -311,6 +311,20 @@ function buildLocalServerRow(row) {
       syncAudit.lastCycleAt
     ].some(hasMeaningfulValue);
 
+  // Per-table breakdown of stuck sync rows (from the LOCAL outbox), so the admin
+  // card can show WHY sync is failing, not just how many rows.
+  const syncFailures = Array.isArray(metadata.syncFailures)
+    ? metadata.syncFailures
+        .map((f) => ({
+          table: String((f && f.table) || '').trim(),
+          count: Number.parseInt(String((f && f.count) || '0'), 10) || 0,
+          attempts: Number.parseInt(String((f && f.attempts) || '0'), 10) || 0,
+          lastAttemptAt: parseOptionalTimestamp(f && f.lastAttemptAt),
+          error: String((f && f.error) || '').trim() || null
+        }))
+        .filter((f) => f.table)
+    : [];
+
   return {
     id: row.id,
     factoryId: row.factory_id,
@@ -347,6 +361,7 @@ function buildLocalServerRow(row) {
       lastCycleAt: parseOptionalTimestamp(syncAudit.lastCycleAt)
     },
     hasSyncAuditTelemetry,
+    syncFailures,
     isActive: row.is_active,
     isConnected: !!row.is_connected,
     metadata,
