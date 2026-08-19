@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.43.0",
+  "latest": "1.43.1",
   "versions": [
+    {
+      "version": "1.43.1",
+      "date": "2026-08-19",
+      "title": "Daily Report explains each loss type in plain language",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "improvement", "text": "The live-calculation popup and the Loss Account now spell out what Change-over Loss, Downtime Loss, Speed Loss and Quality Loss mean, each with its formula and live value." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.43.0",
       "date": "2026-08-19",
