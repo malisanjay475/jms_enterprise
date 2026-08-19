@@ -11,8 +11,26 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.42.0",
+  "latest": "1.43.0",
   "versions": [
+    {
+      "version": "1.43.0",
+      "date": "2026-08-19",
+      "title": "Daily Report now shows OEE, loss account and change-over analysis",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "feat", "text": "The Line Matrix now shows the full target waterfall — Nameplate Target, Planned Target and Net Achievable Target — above Gross, Rejection and Good/Net, so you can see exactly where planned output is lost." },
+            { "type": "feat", "text": "New OEE panel with Availability, Performance and Quality, plus a line-wise Loss Account that splits every lost kilo into change-over, downtime, speed and quality." },
+            { "type": "feat", "text": "Change-over analysis compares the standard mould-change time (from Machine Master) against the actual time taken and flags the overrun, with mould, colour and job change counts per line." },
+            { "type": "feat", "text": "Click any production row to see its live calculation, and the factory totals for Rejection % and Efficiency % now show the correct Day, Night and 24-hour averages." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.42.0",
       "date": "2026-08-18",

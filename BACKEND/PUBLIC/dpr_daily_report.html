@@ -811,8 +811,10 @@ function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
     thead += `<th class="sh-day" style="font-size:.7rem">☀️ DAY</th><th class="sh-night" style="font-size:.7rem">🌙 NIGHT</th><th class="sh-total" style="font-size:.7rem">⏱ 24 HRS</th></tr>`;
 
     const row = (icon, title, fn, opts={}) => {
-        const { bold=false, color='', drillLine=false, cls='', attr='' } = opts;
-        let h = `<tr class="${cls}" ${attr}><td class="metric-col" style="${bold?'font-weight:800;':''}">${icon?`<i class="bi ${icon}" style="opacity:.6;margin-right:4px;font-size:.7rem"></i>`:''}${title}</td>`;
+        const { bold=false, color='', drillLine=false, cls='', attr='', total=null, calc='' } = opts;
+        const mcStyle = (bold?'font-weight:800;':'') + (calc?'cursor:pointer;':'');
+        const mcClick = calc?`onclick="showCalc('${calc}')" title="Show live calculation"`:'';
+        let h = `<tr class="${cls}" ${attr}><td class="metric-col" style="${mcStyle}" ${mcClick}>${icon?`<i class="bi ${icon}" style="opacity:.6;margin-right:4px;font-size:.7rem"></i>`:''}${title}${calc?' <i class="bi bi-calculator" style="opacity:.45;font-size:.62rem;margin-left:3px"></i>':''}</td>`;
         let tDay=0, tNight=0;
         lines.forEach(l => {
             const dv=fn(agg[l].Day,l,'Day'), nv=fn(agg[l].Night,l,'Night');
@@ -821,26 +823,36 @@ function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
             const drEv=drillLine?`onclick="openDrill('${encodeURIComponent(l)}')" class="drill-link" title="Click for machine breakdown"`:'';
             h += `<td class="${dCls}" ${drEv}>${fmt(dv,1)}</td><td class="${nCls}" ${drEv}>${fmt(nv,1)}</td>`;
         });
-        const gt=tDay+tNight; const tdCls=color==='eff'?effClass(gt):'';
-        h += `<td class="td-day-total ${color==='eff'?effClass(tDay):''}">${fmt(tDay,1)}</td><td class="td-night-total ${color==='eff'?effClass(tNight):''}">${fmt(tNight,1)}</td><td class="td-grand-total ${tdCls}">${fmt(gt,1)}</td></tr>`;
+        // % rows pass a `total` fn so the factory columns show a weighted AVERAGE (Day/Night/24h),
+        // not a meaningless sum of per-line percentages.
+        let gDay=tDay, gNight=tNight, gt=tDay+tNight;
+        if (total) { gDay=total('Day'); gNight=total('Night'); gt=total('Total'); }
+        const tdCls=color==='eff'?effClass(gt):'';
+        h += `<td class="td-day-total ${color==='eff'?effClass(gDay):''}">${fmt(gDay,1)}</td><td class="td-night-total ${color==='eff'?effClass(gNight):''}">${fmt(gNight,1)}</td><td class="td-grand-total ${tdCls}">${fmt(gt,1)}</td></tr>`;
         return h;
     };
     const grp = (icon,title)=>`<tr class="grp-row"><td class="metric-col" colspan="${totalCols}"><i class="bi ${icon}" style="margin-right:6px"></i>${title}</td></tr>`;
 
+    // Weighted-average factory totals for % rows (numerator ÷ denominator across lines, per scope).
+    const wAvg = (numKey,denKey)=>(sc)=>{ let n=0,dn=0; lines.forEach(l=>{ n+=(agg[l][sc][numKey]||0); dn+=(agg[l][sc][denKey]||0); }); return dn>0?n/dn*100:0; };
+    const rejTotal  = wAvg('rejWt','grossWt');
+    const effTotal  = wAvg('goodWt','targetWt');
+    const utilTotal = (sc)=>{ let r=0,t=0; lines.forEach(l=>{ r+=agg[l][sc].runMachines; t+=agg[l][sc].totalMachines; }); return t>0?r/t*100:0; };
+
     let tbody = grp('bi-box-fill','Production Metrics');
-    tbody += row('bi-bullseye','Nameplate Target (Kg)', d=>d.targetWt);
-    tbody += row('bi-clipboard-check','Planned Target (Kg)', d=>d.plannedWt,{bold:true});
-    tbody += row('bi-graph-up-arrow','Net Achievable Target (Kg)', d=>d.netAchWt);
-    tbody += row('bi-boxes','Gross Production Wt (Kg)', d=>d.grossWt,{bold:true});
-    tbody += row('bi-exclamation-triangle-fill','Rejection Wt (Kg)', d=>d.rejWt,{drillLine:true});
-    tbody += row('bi-check-circle-fill','Good / Net Production Wt (Kg)', d=>d.goodWt,{bold:true});
-    tbody += row('bi-percent','Rejection %', d=>d.grossWt>0?(d.rejWt/d.grossWt)*100:0);
-    tbody += row('bi-speedometer2','Efficiency % (Good/Nameplate)', d=>d.targetWt>0?(d.goodWt/d.targetWt)*100:0,{bold:true,color:'eff'});
+    tbody += row('bi-bullseye','Nameplate Target (Kg)', d=>d.targetWt,{calc:'nameplate'});
+    tbody += row('bi-clipboard-check','Planned Target (Kg)', d=>d.plannedWt,{bold:true,calc:'planned'});
+    tbody += row('bi-graph-up-arrow','Net Achievable Target (Kg)', d=>d.netAchWt,{calc:'netach'});
+    tbody += row('bi-boxes','Gross Production Wt (Kg)', d=>d.grossWt,{bold:true,calc:'gross'});
+    tbody += row('bi-exclamation-triangle-fill','Rejection Wt (Kg)', d=>d.rejWt,{drillLine:true,calc:'reject'});
+    tbody += row('bi-check-circle-fill','Good / Net Production Wt (Kg)', d=>d.goodWt,{bold:true,calc:'good'});
+    tbody += row('bi-percent','Rejection % (avg)', d=>d.grossWt>0?(d.rejWt/d.grossWt)*100:0,{total:rejTotal});
+    tbody += row('bi-speedometer2','Efficiency % (Good/Nameplate, avg)', d=>d.targetWt>0?(d.goodWt/d.targetWt)*100:0,{bold:true,color:'eff',total:effTotal});
     tbody += row('bi-plus-slash-minus','Plan vs Actual (±Kg)', d=>d.goodWt-d.targetWt);
     tbody += grp('bi-people-fill','Machines & Utilisation');
     tbody += row('bi-cpu','Running Machines', d=>d.runMachines,{bold:true});
     tbody += row('bi-cpu-fill','Total Machines', d=>d.totalMachines);
-    tbody += row('bi-activity','Machine Utilisation %', d=>d.totalMachines>0?(d.runMachines/d.totalMachines)*100:0,{color:'eff'});
+    tbody += row('bi-activity','Machine Utilisation %', d=>d.totalMachines>0?(d.runMachines/d.totalMachines)*100:0,{color:'eff',total:utilTotal});
     tbody += grp('bi-clock-history','Downtime');
     tbody += row('bi-hourglass-split','Total Downtime Hrs', d=>d.totalDtHr);
     tbody += grp('bi-arrow-repeat','Changeovers');
@@ -1003,6 +1015,77 @@ function openDrill(encodedLine) {
                     <th style="text-align:right;color:#16a34a">Good Pcs</th><th style="text-align:right;color:#dc2626">Reject Pcs</th>
                     <th style="text-align:right">Rej %</th><th>Std / Act Weight</th>
                 </tr></thead><tbody>${rows}</tbody></table>
+            </div>
+        </div>
+    </div>`);
+}
+
+/* ── Live calculation modal (click a Production Metrics row) ── */
+function showCalc(metric) {
+    if (!lastReport) return;
+    const scopeSum = (sc)=>{ const s={targetWt:0,plannedWt:0,netAchWt:0,grossWt:0,goodWt:0,rejWt:0,goodPcs:0,rejPcs:0,totalDtHr:0}; lastReport.lineKeys.forEach(l=>{ const a=lastReport.agg[l][sc]||{}; Object.keys(s).forEach(k=>s[k]+=(a[k]||0)); }); return s; };
+    const T=scopeSum('Total'), D=scopeSum('Day'), N=scopeSum('Night');
+    const f=(x)=>fmtForce(x,1);
+    const meta = {
+        nameplate:{t:'Nameplate Target', ic:'bi-bullseye', formula:'Std rate (pcs/hr) × Piece weight (Kg) × 12 h — summed over every running machine, both shifts.', v:T.targetWt,
+            note:'The theoretical ceiling: if every machine ran at its rated speed for the full shift with no stops.'},
+        planned:{t:'Planned Target', ic:'bi-clipboard-check', formula:'Nameplate − (actual mould-change time × rate). Removes the time spent changing moulds (downtime code 2).', v:T.plannedWt,
+            note:'Change-over loss = Nameplate − Planned = <b>'+f(T.targetWt-T.plannedWt)+' Kg</b>.'},
+        netach:{t:'Net Achievable Target', ic:'bi-graph-up-arrow', formula:'Planned − (all remaining downtime × rate). Removes every downtime hour, so this is what the running time could have produced.', v:T.netAchWt,
+            note:'Downtime loss = Planned − Net Achievable = <b>'+f(T.plannedWt-T.netAchWt)+' Kg</b>.'},
+        gross:{t:'Gross Production', ic:'bi-boxes', formula:'(Good + Reject) pieces × piece weight. Everything the machine actually moulded.', v:T.grossWt,
+            note:'Speed loss = Net Achievable − Gross = <b>'+f(T.netAchWt-T.grossWt)+' Kg</b> (running below rated speed).'},
+        reject:{t:'Rejection', ic:'bi-exclamation-triangle-fill', formula:'Reject pieces × piece weight.', v:T.rejWt,
+            note:'Rejection % = Reject ÷ Gross = <b>'+f(T.grossWt>0?T.rejWt/T.grossWt*100:0)+'%</b>.'},
+        good:{t:'Good / Net', ic:'bi-check-circle-fill', formula:'Gross − Reject = Good pieces × piece weight. The saleable output.', v:T.goodWt,
+            note:'Efficiency = Good ÷ Nameplate = <b>'+f(T.targetWt>0?T.goodWt/T.targetWt*100:0)+'%</b>.'}
+    };
+    const m = meta[metric]; if (!m) return;
+    const wf = [
+        ['Nameplate Target', T.targetWt, false, '#4c1d95'],
+        ['− Change-over loss', -(T.targetWt-T.plannedWt), true, '#7c3aed'],
+        ['Planned Target', T.plannedWt, false, '#7c3aed'],
+        ['− Downtime loss', -(T.plannedWt-T.netAchWt), true, '#a855f7'],
+        ['Net Achievable Target', T.netAchWt, false, '#0ea5e9'],
+        ['− Speed loss', -(T.netAchWt-T.grossWt), true, '#c084fc'],
+        ['Gross Production', T.grossWt, false, '#6366f1'],
+        ['− Rejection', -(T.rejWt), true, '#ef4444'],
+        ['Good / Net', T.goodWt, false, '#22c55e']
+    ];
+    const activeLbls = { nameplate:'Nameplate Target', planned:'Planned Target', netach:'Net Achievable Target', gross:'Gross Production', reject:'− Rejection', good:'Good / Net' };
+    const hi = activeLbls[metric];
+    const wfRows = wf.map(([lbl,val,isSub,col]) => {
+        const on = lbl===hi;
+        return `<tr style="${on?'background:#faf5ff':''}">
+            <td style="padding:5px 10px;${isSub?'color:#dc2626;padding-left:24px':'font-weight:700'};${on?'font-weight:800':''}">${lbl}</td>
+            <td style="text-align:right;font-family:monospace;font-weight:700;padding:5px 10px;color:${col}">${val<0?'−':''}${f(Math.abs(val))} Kg</td></tr>`;
+    }).join('');
+    const rejPct=(s)=>s.grossWt>0?s.rejWt/s.grossWt*100:0;
+    const effPct=(s)=>s.targetWt>0?s.goodWt/s.targetWt*100:0;
+    const avgTbl = `<table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-top:8px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+        <tr style="background:#f1f5f9"><th style="text-align:left;padding:6px 10px">Average</th><th style="padding:6px 10px">☀️ Day</th><th style="padding:6px 10px">🌙 Night</th><th style="padding:6px 10px">⏱ 24 Hrs</th></tr>
+        <tr><td style="padding:6px 10px;font-weight:700"><i class="bi bi-percent" style="opacity:.5"></i> Rejection %</td><td style="text-align:center">${f(rejPct(D))}%</td><td style="text-align:center">${f(rejPct(N))}%</td><td style="text-align:center;font-weight:800;color:#dc2626">${f(rejPct(T))}%</td></tr>
+        <tr><td style="padding:6px 10px;font-weight:700"><i class="bi bi-speedometer2" style="opacity:.5"></i> Efficiency %</td><td style="text-align:center">${f(effPct(D))}%</td><td style="text-align:center">${f(effPct(N))}%</td><td style="text-align:center;font-weight:800;color:#16a34a">${f(effPct(T))}%</td></tr>
+    </table>`;
+    document.getElementById('drillModal')?.remove();
+    document.body.insertAdjacentHTML('beforeend', `
+    <div class="drill-modal-overlay" id="drillModal" onclick="if(event.target===this)this.remove()">
+        <div class="drill-modal-box" style="max-width:560px">
+            <div class="drill-modal-head">
+                <div style="font-size:1rem;font-weight:800;color:#0f172a"><i class="bi ${m.ic}" style="color:#7c3aed;margin-right:8px"></i>${m.t} — Live Calculation</div>
+                <button onclick="document.getElementById('drillModal').remove()" style="background:none;border:none;font-size:1.4rem;line-height:1;cursor:pointer;color:#94a3b8;padding:0">×</button>
+            </div>
+            <div class="drill-modal-body">
+                <div style="background:#f8fafc;border-left:4px solid #7c3aed;border-radius:0 8px 8px 0;padding:10px 12px;margin-bottom:6px">
+                    <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:#7c3aed;font-weight:800;margin-bottom:3px">Formula</div>
+                    <div style="font-size:.85rem;color:#334155">${m.formula}</div>
+                    <div style="margin-top:8px;font-size:1.1rem;font-weight:800;color:#0f172a">= ${f(m.v)} Kg <span style="font-size:.7rem;color:#94a3b8;font-weight:600">(factory, 24 h)</span></div>
+                    <div style="font-size:.76rem;color:#64748b;margin-top:4px">${m.note}</div>
+                </div>
+                <div style="font-weight:800;color:#334155;font-size:.8rem;margin:12px 0 4px"><i class="bi bi-diagram-3" style="color:#7c3aed"></i> Where it sits in the waterfall (factory, 24 h)</div>
+                <table style="width:100%;border-collapse:collapse;font-size:.84rem;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">${wfRows}</table>
+                <div style="font-weight:800;color:#334155;font-size:.8rem;margin:14px 0 4px"><i class="bi bi-calculator" style="color:#7c3aed"></i> Averages — Day vs Night vs 24 Hours</div>
+                ${avgTbl}
             </div>
         </div>
     </div>`);
