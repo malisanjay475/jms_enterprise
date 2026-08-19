@@ -1236,6 +1236,39 @@
                     const displayLastSuccessAutoUpdate = hasAutoUpdateTelemetry ? lastSuccessAutoUpdate : 'Not reported yet';
                     const displaySyncCycleAt = hasSyncAuditTelemetry ? syncCycleAt : 'Not reported yet';
 
+                    // Per-table breakdown of stuck sync rows (WHY sync is failing).
+                    const syncFailures = Array.isArray(server.syncFailures) ? server.syncFailures : [];
+                    const syncFailuresHtml = syncFailures.length
+                        ? `
+                        <div class="local-server-section">
+                            <div class="local-server-section-title">Sync Failure Reasons <span style="font-weight:600;color:#b91c1c;font-size:0.8rem;">(${syncFailures.length} table${syncFailures.length === 1 ? '' : 's'} stuck)</span></div>
+                            <div style="overflow-x:auto;">
+                            <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
+                                <thead>
+                                    <tr style="text-align:left;color:#64748b;border-bottom:1px solid #e2e8f0;">
+                                        <th style="padding:6px 10px;">Table</th>
+                                        <th style="padding:6px 10px;text-align:right;">Rows</th>
+                                        <th style="padding:6px 10px;text-align:right;">Attempts</th>
+                                        <th style="padding:6px 10px;">Last Attempt</th>
+                                        <th style="padding:6px 10px;">Sample Error</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${syncFailures.map((f) => `
+                                        <tr style="border-bottom:1px solid #f1f5f9;">
+                                            <td style="padding:6px 10px;font-weight:700;color:#0f172a;white-space:nowrap;">${escapeHtml(String(f.table || '-'))}</td>
+                                            <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;color:#b91c1c;font-weight:700;">${escapeHtml(String(f.count ?? 0))}</td>
+                                            <td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;">${escapeHtml(String(f.attempts ?? 0))}</td>
+                                            <td style="padding:6px 10px;white-space:nowrap;color:#475569;">${escapeHtml(formatDateTime(f.lastAttemptAt) || '-')}</td>
+                                            <td style="padding:6px 10px;color:#7f1d1d;font-family:ui-monospace,Menlo,monospace;font-size:0.76rem;max-width:520px;">${escapeHtml(String(f.error || '—'))}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                            </div>
+                        </div>`
+                        : '';
+
                     return `
                         <div class="local-server-row">
                             <div class="local-server-header">
@@ -1361,6 +1394,7 @@
                                         </div>
                                     </div>
                                 </div>
+                                ${syncFailuresHtml}
                             </div>
                         </div>
                     `;

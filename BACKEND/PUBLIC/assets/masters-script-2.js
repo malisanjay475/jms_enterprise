@@ -987,10 +987,15 @@
         document.getElementById('omFetchBtn').style.display = 'inline-flex';
         document.getElementById('omHistoryBtn').style.display = JPSMS.auth.isAdminLike() ? 'inline-flex' : 'none';
         document.getElementById('omLastFetch').style.display = 'inline-block';
+        // Full ERP pipeline is superadmin + MAIN only (server enforces too).
+        const _fullSyncBtn = document.getElementById('omFullSyncBtn');
+        if (_fullSyncBtn) _fullSyncBtn.style.display = JPSMS.auth.isAdminLike() ? 'inline-flex' : 'none';
       } else {
         document.getElementById('omFetchBtn').style.display = 'none';
         document.getElementById('omHistoryBtn').style.display = 'none';
         document.getElementById('omLastFetch').style.display = 'none';
+        const _fullSyncBtn = document.getElementById('omFullSyncBtn');
+        if (_fullSyncBtn) _fullSyncBtn.style.display = 'none';
       }
 
       // LOCAL factory servers are read-only for masters & imports. Everything
@@ -1001,7 +1006,7 @@
       if (!jmsIsMainServer()) {
         const _hide = (id) => { const el = document.getElementById(id); if (el) el.style.display = 'none'; };
         ['uploadFile', 'templateBtn', 'erpFetchBtn', 'orjrErpImportBtn',
-         'omFetchBtn', 'omHistoryBtn'].forEach(_hide);
+         'omFetchBtn', 'omHistoryBtn', 'omFullSyncBtn'].forEach(_hide);
         const us = document.getElementById('uploadSection');
         if (us) {
           const upBtn = us.querySelector('button[onclick="uploadMaster()"]');
@@ -2680,6 +2685,35 @@
         await JPSMS.api.request(`/machines/${encodeURIComponent(id)}`, { method: 'DELETE' });
         loadMasterData();
       } catch (e) { alert(e.message); }
+    }
+
+    // Manual "run the whole ERP pipeline now" — fetch ERP -> import OR-JR ->
+    // rebuild Order Master for every factory on MAIN. Use this when an order
+    // shows in the ERP / on MAIN but hasn't reached a factory yet, instead of
+    // waiting for the 5-minute auto-sync cycle. Superadmin + MAIN only.
+    async function runFullErpSyncNow() {
+      const btn = document.getElementById('omFullSyncBtn');
+      const original = btn ? btn.innerHTML : '';
+      if (!confirm('Run the FULL ERP sync now?\n\nThis fetches the latest ERP data, imports OR-JR, and rebuilds Order Master for all factories. It can take up to a minute.')) return;
+      try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Running full sync...'; }
+        const res = await JPSMS.api.post('/reports/erp-autosync/run-now');
+        if (res && res.ok) {
+          JPSMS.toast(res.running ? 'A sync cycle is already running — try again shortly.' : 'Full ERP sync finished. Order Master refreshed.', 'success');
+          loadMasterData();
+          const label = document.getElementById('omLastFetch');
+          if (label) {
+            label.style.display = 'inline-block';
+            label.textContent = 'Full sync: ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          }
+        } else {
+          JPSMS.toast((res && res.error) || 'Full sync failed.', 'error');
+        }
+      } catch (e) {
+        alert('Full ERP Sync Failed: ' + e.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = original || '<i class="bi bi-arrow-repeat"></i> Manual Fetch (Full ERP Sync)'; }
+      }
     }
 
     async function fetchOrdersFromORJR() {

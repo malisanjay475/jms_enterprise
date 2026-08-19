@@ -121,6 +121,38 @@ function parseInteger(value, fallback = 0) {
   return Number.isInteger(parsed) ? parsed : fallback;
 }
 
+// Summarize WHY rows are stuck: group the sync outbox (sync_failed_rows) by
+// table and surface a sample last_error + attempt count. This is what turns the
+// bare "FAILED 1501" counter in the admin card into an actionable reason.
+// Safe on old servers where the outbox table doesn't exist yet (returns []).
+async function getSyncFailureSummary(pool) {
+  try {
+    const result = await pool.query(`
+      SELECT table_name,
+             COUNT(*)::int          AS row_count,
+             MAX(attempts)::int     AS max_attempts,
+             MAX(updated_at)        AS last_attempt_at,
+             (ARRAY_AGG(last_error ORDER BY updated_at DESC NULLS LAST))[1] AS sample_error
+        FROM sync_failed_rows
+       GROUP BY table_name
+       ORDER BY row_count DESC
+       LIMIT 12
+    `);
+    return result.rows.map((r) => ({
+      table: r.table_name,
+      count: Number.parseInt(String(r.row_count || '0'), 10) || 0,
+      attempts: Number.parseInt(String(r.max_attempts || '0'), 10) || 0,
+      lastAttemptAt: r.last_attempt_at || null,
+      // Cap the error text so a giant Postgres message can't bloat the heartbeat.
+      error: String(r.sample_error || '').slice(0, 400) || null
+    }));
+  } catch (e) {
+    // relation "sync_failed_rows" does not exist, or any transient DB error —
+    // never let diagnostics collection break the heartbeat.
+    return [];
+  }
+}
+
 function pickFirst(...values) {
   for (const value of values) {
     if (value !== undefined && value !== null && String(value).trim() !== '') {
@@ -247,6 +279,7 @@ async function sendHeartbeat(pool, config, agentConfig) {
     lastPushAt: serverConfig.LAST_PUSH || null,
     lastPullAt: serverConfig.LAST_PULL || null
   };
+  const syncFailures = await getSyncFailureSummary(pool);
   await fetchJson(
     buildUrl(agentConfig.mainServerUrl, `/api/local-servers/${agentConfig.nodeId}/heartbeat`),
     {
@@ -266,7 +299,8 @@ async function sendHeartbeat(pool, config, agentConfig) {
         syncStatus: 'connected',
         metadata: {
           ...buildLocalMetadata(config, agentConfig, serverConfig),
-          lastSyncAt: syncStatus.lastSyncAt
+          lastSyncAt: syncStatus.lastSyncAt,
+          syncFailures
         }
       })
     }
@@ -280,6 +314,7 @@ async function sendSyncStatus(pool, config, agentConfig) {
     lastPushAt: serverConfig.LAST_PUSH || null,
     lastPullAt: serverConfig.LAST_PULL || null
   };
+  const syncFailures = await getSyncFailureSummary(pool);
   await fetchJson(
     buildUrl(agentConfig.mainServerUrl, `/api/local-servers/${agentConfig.nodeId}/sync-status`),
     {
@@ -299,7 +334,8 @@ async function sendSyncStatus(pool, config, agentConfig) {
         syncStatus: syncStatus.lastPushAt || syncStatus.lastPullAt ? 'active' : 'waiting_initial_sync',
         metadata: {
           ...buildLocalMetadata(config, agentConfig, serverConfig),
-          lastSyncAt: syncStatus.lastSyncAt
+          lastSyncAt: syncStatus.lastSyncAt,
+          syncFailures
         }
       })
     }
