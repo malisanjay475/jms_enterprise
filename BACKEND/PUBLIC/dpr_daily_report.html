@@ -567,8 +567,15 @@ async function generateReport() {
                 Object.keys(slots).sort().forEach(slot => {
                     let slotEntries = slots[slot];
                     if (!Array.isArray(slotEntries)) slotEntries=[slotEntries];
+                    // Deterministic within-hour order (created_at, then id) so the colour picked
+                    // for the transition sequence is stable regardless of API row order.
+                    slotEntries = slotEntries.slice().sort((a,b)=>{
+                        const ta=(a&&a.created_at)?String(a.created_at):'', tb=(b&&b.created_at)?String(b.created_at):'';
+                        if(ta!==tb) return ta<tb?-1:1;
+                        return (((a&&a.id)||0)-((b&&b.id)||0));
+                    });
                     let slotDt=0;
-                    let slotColour=null;   // this hour's colour (first seen)
+                    let slotColour=null;   // this hour's colour (first, in deterministic order)
                     slotEntries.forEach(e => {
                         if (!e) return;
                         mHasData = true;
