@@ -23663,6 +23663,42 @@ app.post('/api/extra-qty/allow', async (req, res) => {
       return res.status(403).json({ ok: false, error: 'PPC / Planner / Admin access required' });
     }
 
+    // ── Accidental-double guard ──────────────────────────────────────────
+    // A single "Allow" must never end up granting extra twice. Two failure
+    // modes seen in the field: (a) a double-click / retry re-posts the SAME
+    // colour, and (b) the same user rapidly allows a SECOND colour on the same
+    // plan by mistake (observed: +200 on two colours 17s apart). Block both
+    // inside a short window; deliberate multi-colour grants still work after a
+    // brief pause. Window is configurable via EXTRA_QTY_DEDUP_WINDOW_SECONDS.
+    const dedupWindowSec = Math.max(0, Number(process.env.EXTRA_QTY_DEDUP_WINDOW_SECONDS) || 20);
+    if (dedupWindowSec > 0) {
+      const recent = await q(
+        `SELECT id, colour, extra_qty, allowed_at
+           FROM extra_qty_allowances
+          WHERE plan_id = $1 AND allowed_by = $2 AND is_deleted = FALSE
+            AND allowed_at > NOW() - ($3 || ' seconds')::interval
+          ORDER BY allowed_at DESC
+          LIMIT 1`,
+        [String(plan_id), session.username, String(dedupWindowSec)]
+      );
+      if (recent.length) {
+        const r = recent[0];
+        const sameColour = String(r.colour || '').trim().toUpperCase() === colourName.toUpperCase();
+        if (sameColour) {
+          // Pure double-click on the same colour — idempotent, no second row.
+          console.log(`[EXTRA QTY] Deduped repeat grant for plan ${plan_id} colour ${colourName} by ${session.username} (within ${dedupWindowSec}s)`);
+          return res.json({ ok: true, id: r.id, deduped: true, message: 'Extra qty was already allowed for this colour a moment ago — not added again.' });
+        }
+        // Different colour within the window — likely an accidental double.
+        return res.json({
+          ok: false,
+          error: `You allowed extra for "${r.colour}" on this plan a few seconds ago. ` +
+                 `To also allow "${colourName}", wait a moment and click Allow again — ` +
+                 `this guard prevents accidentally doubling the extra qty.`
+        });
+      }
+    }
+
     // Resolve job context from plan_board (denormalized for the report)
     const pRows = await q(
       `SELECT order_no, machine, mould_name, factory_id
