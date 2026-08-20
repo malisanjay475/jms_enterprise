@@ -11,8 +11,53 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.43.1",
+  "latest": "1.43.4",
   "versions": [
+    {
+      "version": "1.43.4",
+      "date": "2026-08-19",
+      "title": "\"Nameplate Target\" renamed to \"24 Hour Target\"",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "improvement", "text": "The top target row is now labelled \"24 Hour Target\" instead of \"Nameplate Target\", including in the live-calculation popup and the loss explanations." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.43.3",
+      "date": "2026-08-19",
+      "title": "Colour change now counts every purge, mould and job stay setup-based",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "fix", "text": "Colour change is now counted each time the colour differs from the previous hour, because a colour used again still needs a fresh purge — so a colour that comes back later in the shift is counted again. Mould and job changes stay on the setup basis (a reused mould or job is the same setup, not a new change)." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.43.2",
+      "date": "2026-08-19",
+      "title": "Mould, colour and job change counts fixed to match the DPR setup",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "fix", "text": "Mould, colour and job changes are now counted once per actual setup change — running one mould then a second mould counts as a single mould change, instead of being counted again for every hour it was logged. The standard change-over time now uses this corrected mould-change count." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.43.1",
       "date": "2026-08-19",

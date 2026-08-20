@@ -287,7 +287,7 @@
             <div class="kpi-card red">
                 <div class="kpi-head"><span class="kpi-label">Total Loss</span><span class="kpi-icon"><i class="bi bi-graph-down-arrow"></i></span></div>
                 <div class="kpi-value" id="kpi-loss">—</div>
-                <div class="kpi-sub" id="kpi-loss-sub">Kg below nameplate</div>
+                <div class="kpi-sub" id="kpi-loss-sub">Kg below 24-hour target</div>
             </div>
             <div class="kpi-card amber">
                 <div class="kpi-head"><span class="kpi-label">Change-overs</span><span class="kpi-icon"><i class="bi bi-arrow-repeat"></i></span></div>
@@ -559,17 +559,31 @@ async function generateReport() {
                 if (activeWt) magg[machine].actWt = activeWt;
 
                 const slots = entriesMap[machine];
-                const uniqueMoulds = new Set();
+                const uniqueJobs = new Set();     // distinct jobs/orders     → Job Change (DPR-setup basis)
+                const uniqueMoulds = new Set();   // distinct physical moulds → Mould Change (DPR-setup basis)
+                const colourSeq = [];             // ordered per-hour colour  → Colour Change (each purge)
                 let mHasData = false;
 
-                Object.keys(slots).forEach(slot => {
+                Object.keys(slots).sort().forEach(slot => {
                     let slotEntries = slots[slot];
                     if (!Array.isArray(slotEntries)) slotEntries=[slotEntries];
+                    // Deterministic within-hour order (created_at, then id) so the colour picked
+                    // for the transition sequence is stable regardless of API row order.
+                    slotEntries = slotEntries.slice().sort((a,b)=>{
+                        const ta=(a&&a.created_at)?String(a.created_at):'', tb=(b&&b.created_at)?String(b.created_at):'';
+                        if(ta!==tb) return ta<tb?-1:1;
+                        return (((a&&a.id)||0)-((b&&b.id)||0));
+                    });
                     let slotDt=0;
+                    let slotColour=null;   // this hour's colour (first, in deterministic order)
                     slotEntries.forEach(e => {
                         if (!e) return;
                         mHasData = true;
-                        if (e.mould_no||e.order_no||e.mould_name) uniqueMoulds.add((e.order_no||e.mould_no||e.mould_name).trim().toLowerCase());
+                        // Jobs & moulds counted as DISTINCT (a reused setup is not a new change).
+                        const jobKey=(e.order_no||e.mould_no||e.mould_name); if(jobKey) uniqueJobs.add(String(jobKey).trim().toLowerCase());
+                        const mouldKey=(e.mould_no||e.mould_name);           if(mouldKey) uniqueMoulds.add(String(mouldKey).trim().toLowerCase());
+                        // Colour captured per hour → counted as TRANSITIONS below (each switch = a purge).
+                        if(slotColour===null && e.colour) slotColour=String(e.colour).trim().toLowerCase();
                         if (e.job_card_no) magg[machine].jc = e.job_card_no;
                         if (e.client_name) magg[machine].client = e.client_name;
 
@@ -590,15 +604,23 @@ async function generateReport() {
                             Object.entries(e.downtime_breakup).forEach(([c,m])=>{ L.dt[c]=(L.dt[c]||0)+parseInt(m); mm.dt[c]=(mm.dt[c]||0)+parseInt(m); });
                         if (e.reject_breakup&&typeof e.reject_breakup==='object')
                             Object.entries(e.reject_breakup).forEach(([c,qv])=>{ L.rej[c]=(L.rej[c]||0)+(parseInt(qv)*ew); });
-                        if (e.entry_type==='ColourChange'||(e.downtime_breakup&&e.downtime_breakup['9'])) { L.cc++; mm.cc++; }
-                        if (e.downtime_breakup&&e.downtime_breakup['2']) { L.mc++; mm.mc++; }
                     });
+                    if(slotColour) colourSeq.push(slotColour);   // one colour per hour, in time order
                     const dtHr = Math.min(60,slotDt)/60;
                     L.totalDtHr += dtHr; mm.totalDtHr += dtHr;
                 });
 
                 if (mHasData) { L.runMachines++; mm.runMachines = 1; }
-                const jcCount = Math.max(0,uniqueMoulds.size-1);
+                // Mould & Job change = distinct setups − 1 (a reused mould/job is the SAME setup,
+                // not a new change). Colour change = TRANSITIONS: one each time the colour differs
+                // from the previous hour, because a colour used again still needs a fresh purge
+                // (so Gray→Green→Brown→Gray = 3 colour changes, not 2).
+                const mcCount = Math.max(0, uniqueMoulds.size - 1);   // Mould Change
+                const jcCount = Math.max(0, uniqueJobs.size - 1);     // Job Change
+                let ccCount = 0, prevCol = null;                     // Colour Change (each purge)
+                for (const c of colourSeq) { if (prevCol !== null && c !== prevCol) ccCount++; prevCol = c; }
+                L.mc += mcCount; mm.mc += mcCount;
+                L.cc += ccCount; mm.cc += ccCount;
                 L.jc += jcCount; mm.jc += jcCount;
 
                 // ── Target waterfall tiers (per machine-shift): Nameplate → Planned → Net Achievable ──
@@ -607,7 +629,7 @@ async function generateReport() {
                 const Rhr = (activeWt>0 && activeStd>0) ? (activeWt*activeStd) : 0;
                 const mActCoHr = (mm.dt[MOULD_CHANGE_CODE]||0)/60;      // actual change-over hrs (this machine-shift)
                 const mDtHr    = mm.totalDtHr;                          // total downtime hrs (this machine-shift)
-                const mStdCoHr = jcCount * ((loadUnloadMap[machine]||0)/60);
+                const mStdCoHr = mcCount * ((loadUnloadMap[machine]||0)/60);   // STD change-over ∝ mould changes
                 const mPlanned = Rhr * Math.max(0, SHIFT_HOURS - mActCoHr);
                 const mNetAch  = Rhr * Math.max(0, SHIFT_HOURS - mDtHr);
                 const mOverrun = Math.max(0, mActCoHr - mStdCoHr);
@@ -705,7 +727,7 @@ function renderOEE(b) {
     document.getElementById('kpi-perf').textContent  = pct1(b.perf);
     document.getElementById('kpi-qual').textContent  = pct1(b.qual);
     document.getElementById('kpi-loss').textContent  = fmtForce(b.totalLoss)+' Kg';
-    document.getElementById('kpi-loss-sub').textContent = 'Kg below nameplate';
+    document.getElementById('kpi-loss-sub').textContent = 'Kg below 24-hour target';
     document.getElementById('kpi-chg').textContent   = `${b.mc} / ${b.cc} / ${b.jc}`;
     document.getElementById('kpi-chg-sub').textContent = `${fmtForce(b.overrunHrs)}h over STD change-over`;
 }
@@ -750,8 +772,8 @@ function renderLossPanel(lineKeys, lineBundles, factory) {
 
     document.getElementById('loss-tables').innerHTML = lossTbl + chgTbl +
         `<div class="small" style="margin-top:10px;color:#64748b;font-size:.7rem;line-height:1.6">
-            <b>Nameplate = Good + Change-over + Downtime + Speed + Quality loss.</b> All figures in Kg.<br>
-            • <b style="color:#7c3aed">Change-over Loss</b> = Nameplate − Planned = rate × actual mould-change time (downtime code 2).<br>
+            <b>24 Hour Target = Good + Change-over + Downtime + Speed + Quality loss.</b> All figures in Kg.<br>
+            • <b style="color:#7c3aed">Change-over Loss</b> = 24 Hour Target − Planned = rate × actual mould-change time (downtime code 2).<br>
             • <b style="color:#a855f7">Downtime Loss</b> = Planned − Net Achievable = rate × all other downtime.<br>
             • <b style="color:#c084fc">Speed Loss</b> = Net Achievable − Gross = output lost running below rated speed.<br>
             • <b style="color:#ef4444">Quality Loss</b> = Gross − Good = reject weight.<br>
@@ -847,14 +869,14 @@ function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
     const utilTotal = (sc)=>{ let r=0,t=0; lines.forEach(l=>{ r+=agg[l][sc].runMachines; t+=agg[l][sc].totalMachines; }); return t>0?r/t*100:0; };
 
     let tbody = grp('bi-box-fill','Production Metrics');
-    tbody += row('bi-bullseye','Nameplate Target (Kg)', d=>d.targetWt,{calc:'nameplate'});
+    tbody += row('bi-bullseye','24 Hour Target (Kg)', d=>d.targetWt,{calc:'nameplate'});
     tbody += row('bi-clipboard-check','Planned Target (Kg)', d=>d.plannedWt,{bold:true,calc:'planned'});
     tbody += row('bi-graph-up-arrow','Net Achievable Target (Kg)', d=>d.netAchWt,{calc:'netach'});
     tbody += row('bi-boxes','Gross Production Wt (Kg)', d=>d.grossWt,{bold:true,calc:'gross'});
     tbody += row('bi-exclamation-triangle-fill','Rejection Wt (Kg)', d=>d.rejWt,{drillLine:true,calc:'reject'});
     tbody += row('bi-check-circle-fill','Good / Net Production Wt (Kg)', d=>d.goodWt,{bold:true,calc:'good'});
     tbody += row('bi-percent','Rejection % (avg)', d=>d.grossWt>0?(d.rejWt/d.grossWt)*100:0,{total:rejTotal});
-    tbody += row('bi-speedometer2','Efficiency % (Good/Nameplate, avg)', d=>d.targetWt>0?(d.goodWt/d.targetWt)*100:0,{bold:true,color:'eff',total:effTotal});
+    tbody += row('bi-speedometer2','Efficiency % (Good/24h Target, avg)', d=>d.targetWt>0?(d.goodWt/d.targetWt)*100:0,{bold:true,color:'eff',total:effTotal});
     tbody += row('bi-plus-slash-minus','Plan vs Actual (±Kg)', d=>d.goodWt-d.targetWt);
     tbody += grp('bi-people-fill','Machines & Utilisation');
     tbody += row('bi-cpu','Running Machines', d=>d.runMachines,{bold:true});
@@ -1034,10 +1056,10 @@ function showCalc(metric) {
     const T=scopeSum('Total'), D=scopeSum('Day'), N=scopeSum('Night');
     const f=(x)=>fmtForce(x,1);
     const meta = {
-        nameplate:{t:'Nameplate Target', ic:'bi-bullseye', formula:'Std rate (pcs/hr) × Piece weight (Kg) × 12 h — summed over every running machine, both shifts.', v:T.targetWt,
+        nameplate:{t:'24 Hour Target', ic:'bi-bullseye', formula:'Std rate (pcs/hr) × Piece weight (Kg) × 12 h per shift — summed over every running machine, both shifts (24 h).', v:T.targetWt,
             note:'The theoretical ceiling: if every machine ran at its rated speed for the full shift with no stops.'},
-        planned:{t:'Planned Target', ic:'bi-clipboard-check', formula:'Nameplate − (actual mould-change time × rate). Removes the time spent changing moulds (downtime code 2).', v:T.plannedWt,
-            note:'Change-over loss = Nameplate − Planned = <b>'+f(T.targetWt-T.plannedWt)+' Kg</b>.'},
+        planned:{t:'Planned Target', ic:'bi-clipboard-check', formula:'24 Hour Target − (actual mould-change time × rate). Removes the time spent changing moulds (downtime code 2).', v:T.plannedWt,
+            note:'Change-over loss = 24 Hour Target − Planned = <b>'+f(T.targetWt-T.plannedWt)+' Kg</b>.'},
         netach:{t:'Net Achievable Target', ic:'bi-graph-up-arrow', formula:'Planned − (all remaining downtime × rate). Removes every downtime hour, so this is what the running time could have produced.', v:T.netAchWt,
             note:'Downtime loss = Planned − Net Achievable = <b>'+f(T.plannedWt-T.netAchWt)+' Kg</b>.'},
         gross:{t:'Gross Production', ic:'bi-boxes', formula:'(Good + Reject) pieces × piece weight. Everything the machine actually moulded.', v:T.grossWt,
@@ -1045,11 +1067,11 @@ function showCalc(metric) {
         reject:{t:'Rejection', ic:'bi-exclamation-triangle-fill', formula:'Reject pieces × piece weight.', v:T.rejWt,
             note:'Rejection % = Reject ÷ Gross = <b>'+f(T.grossWt>0?T.rejWt/T.grossWt*100:0)+'%</b>.'},
         good:{t:'Good / Net', ic:'bi-check-circle-fill', formula:'Gross − Reject = Good pieces × piece weight. The saleable output.', v:T.goodWt,
-            note:'Efficiency = Good ÷ Nameplate = <b>'+f(T.targetWt>0?T.goodWt/T.targetWt*100:0)+'%</b>.'}
+            note:'Efficiency = Good ÷ 24 Hour Target = <b>'+f(T.targetWt>0?T.goodWt/T.targetWt*100:0)+'%</b>.'}
     };
     const m = meta[metric]; if (!m) return;
     const wf = [
-        ['Nameplate Target', T.targetWt, false, '#4c1d95'],
+        ['24 Hour Target', T.targetWt, false, '#4c1d95'],
         ['− Change-over loss', -(T.targetWt-T.plannedWt), true, '#7c3aed'],
         ['Planned Target', T.plannedWt, false, '#7c3aed'],
         ['− Downtime loss', -(T.plannedWt-T.netAchWt), true, '#a855f7'],
@@ -1059,7 +1081,7 @@ function showCalc(metric) {
         ['− Rejection', -(T.rejWt), true, '#ef4444'],
         ['Good / Net', T.goodWt, false, '#22c55e']
     ];
-    const activeLbls = { nameplate:'Nameplate Target', planned:'Planned Target', netach:'Net Achievable Target', gross:'Gross Production', reject:'− Rejection', good:'Good / Net' };
+    const activeLbls = { nameplate:'24 Hour Target', planned:'Planned Target', netach:'Net Achievable Target', gross:'Gross Production', reject:'− Rejection', good:'Good / Net' };
     const hi = activeLbls[metric];
     const wfRows = wf.map(([lbl,val,isSub,col]) => {
         const on = lbl===hi;
@@ -1075,7 +1097,7 @@ function showCalc(metric) {
     const lossLegend = `
         <div style="font-weight:800;color:#334155;font-size:.8rem;margin:14px 0 5px"><i class="bi bi-info-circle" style="color:#7c3aed"></i> What the losses mean (factory, 24 h)</div>
         <div style="display:flex;flex-direction:column;gap:6px">
-            ${lossItem('#7c3aed','Change-over Loss', T.targetWt-T.plannedWt, 'Nameplate − Planned Target  =  rate × actual mould-change hours', 'Output you could not make because machines were stopped to change the mould (downtime code 2).')}
+            ${lossItem('#7c3aed','Change-over Loss', T.targetWt-T.plannedWt, '24 Hour Target − Planned Target  =  rate × actual mould-change hours', 'Output you could not make because machines were stopped to change the mould (downtime code 2).')}
             ${lossItem('#a855f7','Downtime Loss', T.plannedWt-T.netAchWt, 'Planned Target − Net Achievable  =  rate × all OTHER downtime hours', 'Output lost to every other stoppage — breakdown, no material, power, manpower, nozzle block, etc.')}
             ${lossItem('#c084fc','Speed Loss', T.netAchWt-T.grossWt, 'Net Achievable − Gross Production', 'Output lost because the machine ran slower than its rated cycle while it was running. A negative value means it ran faster than rated.')}
             ${lossItem('#ef4444','Quality Loss', T.rejWt, 'Gross − Good  =  Reject weight', 'Parts that were moulded but rejected as scrap.')}
