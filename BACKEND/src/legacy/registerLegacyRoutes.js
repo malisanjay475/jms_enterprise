@@ -7994,6 +7994,59 @@ app.get('/api/debug/or-status', async (req, res) => {
   }
 });
 
+// DEBUG: Inspect extra-qty allowances for a plan — reveals WHY one "Allow" can
+// look doubled (duplicate rows, cross-colour rows, resurrected soft-deletes).
+// Pass ?plan_id=PLN-... (or a numeric plan_board id). Read-only.
+app.get('/api/debug/extra-qty', async (req, res) => {
+  try {
+    const planId = String(req.query.plan_id || '').trim();
+    if (!planId) return res.json({ ok: false, error: 'Pass ?plan_id=PLN_ID' });
+
+    // Match both the string plan_id and the numeric plan_board id form.
+    const rows = await q(
+      `SELECT id, plan_id, order_no, jc_no, machine, mould_name, colour,
+              extra_qty, remarks, allowed_by, allowed_role, allowed_at,
+              factory_id, is_deleted
+         FROM extra_qty_allowances
+        WHERE plan_id = $1
+           OR plan_id IN (SELECT plan_id FROM plan_board WHERE CAST(id AS TEXT) = $1)
+        ORDER BY colour, allowed_at`,
+      [planId]
+    );
+
+    // Group by colour so a doubled colour is obvious at a glance.
+    const byColour = {};
+    for (const r of rows) {
+      const k = String(r.colour || '').trim().toUpperCase() || '(blank)';
+      if (!byColour[k]) byColour[k] = { rows: 0, active_rows: 0, total_extra: 0, active_extra: 0 };
+      byColour[k].rows += 1;
+      byColour[k].total_extra += Number(r.extra_qty || 0);
+      if (!r.is_deleted) {
+        byColour[k].active_rows += 1;
+        byColour[k].active_extra += Number(r.extra_qty || 0);
+      }
+    }
+    // Flag colours that have more than one ACTIVE grant row (the doubling signature).
+    const doubled = Object.entries(byColour)
+      .filter(([, v]) => v.active_rows > 1)
+      .map(([colour, v]) => ({ colour, active_rows: v.active_rows, active_extra: v.active_extra }));
+
+    res.json({
+      ok: true,
+      searched_for: planId,
+      total_rows: rows.length,
+      rows,
+      by_colour: byColour,
+      doubled_colours: doubled,
+      note: doubled.length
+        ? 'One or more colours have >1 ACTIVE grant row — that is the doubling.'
+        : 'No colour has more than one active grant row.'
+    });
+  } catch (e) {
+    res.json({ ok: false, error: String(e) });
+  }
+});
+
 // DEBUG: Inspect IDs for Shifting Mismatch
 app.get('/api/debug/ids', async (req, res) => {
   try {
