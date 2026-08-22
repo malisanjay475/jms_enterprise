@@ -8047,6 +8047,87 @@ app.get('/api/debug/extra-qty', async (req, res) => {
   }
 });
 
+// DEBUG: Per-MACHINE (and shift) DPR production for a plan/order.
+// Explains why the Colour × Shift Breakdown (cross-machine, /api/dpr/plan-drilldown)
+// and the hourly Shift Total (single-machine, /api/dpr/recent) disagree: the same
+// plan ran on more than one machine, so its pieces split across machines.
+// Pass ?plan_id=PLN-... (or numeric plan_board id) OR ?or=OR_JR_NO.
+// Optional ?date=YYYY-MM-DD & ?shift=Day|Night to narrow to one cell. Read-only.
+app.get('/api/debug/dpr-by-machine', async (req, res) => {
+  try {
+    const planId = String(req.query.plan_id || '').trim();
+    const orNo   = String(req.query.or || '').trim();
+    const date   = String(req.query.date || '').trim();
+    const shift  = String(req.query.shift || '').trim();
+    if (!planId && !orNo) return res.json({ ok: false, error: 'Pass ?plan_id=PLN_ID or ?or=OR_JR_NO' });
+
+    const params = [];
+    const where  = ['is_deleted = false'];
+
+    if (planId) {
+      params.push(planId);
+      where.push(`(plan_id = $${params.length}
+                   OR CAST(plan_id AS TEXT) = $${params.length}
+                   OR plan_id = (SELECT id::text FROM plan_board WHERE plan_id = $${params.length} LIMIT 1))`);
+    } else {
+      params.push(`%${orNo}%`);
+      where.push(`TRIM(order_no) ILIKE $${params.length}`);
+    }
+    if (date)  { params.push(date);  where.push(`dpr_date = $${params.length}`); }
+    if (shift) { params.push(shift); where.push(`shift = $${params.length}`); }
+
+    // Per machine × shift × date rollup
+    const byMachine = await q(
+      `SELECT machine,
+              shift,
+              to_char(dpr_date, 'YYYY-MM-DD') AS dpr_date,
+              COUNT(*)          AS entries,
+              SUM(good_qty)     AS good_qty,
+              SUM(reject_qty)   AS reject_qty
+         FROM dpr_hourly
+        WHERE ${where.join(' AND ')}
+        GROUP BY machine, shift, dpr_date
+        ORDER BY dpr_date, shift, machine`,
+      params
+    );
+
+    // Totals across everything matched (this is what the Breakdown shows)
+    const totals = await q(
+      `SELECT COALESCE(SUM(good_qty),0)   AS good_qty,
+              COALESCE(SUM(reject_qty),0) AS reject_qty,
+              COUNT(*)                    AS entries
+         FROM dpr_hourly
+        WHERE ${where.join(' AND ')}`,
+      params
+    );
+
+    // Machine-level summary (across all shifts/dates matched)
+    const machineSummary = {};
+    for (const r of byMachine) {
+      const m = r.machine || '(blank)';
+      if (!machineSummary[m]) machineSummary[m] = { good_qty: 0, reject_qty: 0, entries: 0 };
+      machineSummary[m].good_qty   += Number(r.good_qty   || 0);
+      machineSummary[m].reject_qty += Number(r.reject_qty || 0);
+      machineSummary[m].entries    += Number(r.entries    || 0);
+    }
+
+    res.json({
+      ok: true,
+      searched_for: { plan_id: planId || null, or: orNo || null, date: date || null, shift: shift || null },
+      total_good: Number(totals[0]?.good_qty || 0),
+      total_reject: Number(totals[0]?.reject_qty || 0),
+      machine_count: Object.keys(machineSummary).length,
+      by_machine_summary: machineSummary,
+      rows: byMachine,
+      note: Object.keys(machineSummary).length > 1
+        ? 'This plan has DPR entries on MORE THAN ONE machine — the Breakdown sums all of them, the hourly view shows one machine only.'
+        : 'All DPR entries are on a single machine for the given filters.'
+    });
+  } catch (e) {
+    res.json({ ok: false, error: String(e) });
+  }
+});
+
 // DEBUG: Inspect IDs for Shifting Mismatch
 app.get('/api/debug/ids', async (req, res) => {
   try {
@@ -16446,6 +16527,15 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     });
     ws.getRow(HROW).height = 20;
 
+    // Per-column number format: percents show a "%", cycle/weight keep decimals.
+    const numFmtFor = (key) => {
+      if (key === 'efficiency' || key === 'rejectPct') return '0.0"%"';
+      if (key === 'avgCycle' || key === 'stdCycle') return '#,##0.00';
+      if (key === 'stdWeight') return '#,##0.000';
+      return '#,##0';
+    };
+    const idxOf = key => cols.findIndex(c => c.key === key) + 1;   // 0 = not present
+
     // Data
     let r = HROW + 1;
     let bandToggle = 0;
@@ -16463,25 +16553,43 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
           cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle', wrapText: c.key === 'downtimeReason' };
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: band } };
           cell.border = box;
-          if (c.num && typeof cell.value === 'number') cell.numFmt = '#,##0';
+          if (c.num && typeof cell.value === 'number') cell.numFmt = numFmtFor(c.key);
         });
         r++; bandToggle++;
       }
-      // Per-mould subtotal row (Total column summed).
-      const totalColIdx = cols.findIndex(c => c.key === 'total') + 1;
-      const dayColIdx = cols.findIndex(c => c.key === 'day') + 1;
-      const nightColIdx = cols.findIndex(c => c.key === 'night') + 1;
+      // Per-mould total/average row:
+      //   sum   -> Day, Night, Total, Prod (STD), Reject Qty
+      //   avg   -> Avg Cycle Time (over rows that ran), Reject % (over produced days)
+      const totalColIdx = idxOf('total'), dayColIdx = idxOf('day'), nightColIdx = idxOf('night');
+      const stdProdIdx = idxOf('stdProd'), rejectQtyIdx = idxOf('rejectQty');
+      const avgCycleIdx = idxOf('avgCycle'), rejectPctIdx = idxOf('rejectPct');
       for (let ci = 1; ci <= NCOL; ci++) {
         const cell = ws.getCell(r, ci);
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUBFILL } };
         cell.border = box;
         cell.font = { name: FONT, size: 10, bold: true, color: { argb: BLUE } };
       }
-      ws.getCell(r, 1).value = `Total — ${g.mouldName || g.mouldNo}`;
-      if (dayColIdx) ws.getCell(r, dayColIdx).value = { formula: `SUM(${colLetter(dayColIdx)}${groupStart}:${colLetter(dayColIdx)}${r - 1})`, result: g.rows.reduce((s, x) => s + x.day, 0) };
-      if (nightColIdx) ws.getCell(r, nightColIdx).value = { formula: `SUM(${colLetter(nightColIdx)}${groupStart}:${colLetter(nightColIdx)}${r - 1})`, result: g.rows.reduce((s, x) => s + x.night, 0) };
-      if (totalColIdx) ws.getCell(r, totalColIdx).value = { formula: `SUM(${colLetter(totalColIdx)}${groupStart}:${colLetter(totalColIdx)}${r - 1})`, result: g.grandTotal };
-      [dayColIdx, nightColIdx, totalColIdx].forEach(ci => { if (ci) { ws.getCell(r, ci).numFmt = '#,##0'; ws.getCell(r, ci).alignment = { horizontal: 'right' }; } });
+      ws.getCell(r, 1).value = `Total / Avg — ${g.mouldName || g.mouldNo}`;
+
+      const sumCol = (idx, key) => {
+        if (!idx) return;
+        ws.getCell(r, idx).value = { formula: `SUM(${colLetter(idx)}${groupStart}:${colLetter(idx)}${r - 1})`, result: g.rows.reduce((s, x) => s + (Number(x[key]) || 0), 0) };
+        ws.getCell(r, idx).numFmt = numFmtFor(key); ws.getCell(r, idx).alignment = { horizontal: 'right' };
+      };
+      sumCol(dayColIdx, 'day'); sumCol(nightColIdx, 'night');
+      if (totalColIdx) { ws.getCell(r, totalColIdx).value = { formula: `SUM(${colLetter(totalColIdx)}${groupStart}:${colLetter(totalColIdx)}${r - 1})`, result: g.grandTotal }; ws.getCell(r, totalColIdx).numFmt = '#,##0'; ws.getCell(r, totalColIdx).alignment = { horizontal: 'right' }; }
+      sumCol(stdProdIdx, 'stdProd'); sumCol(rejectQtyIdx, 'rejectQty');
+
+      const avgCol = (idx, key, filter) => {
+        if (!idx) return;
+        const rows = g.rows.filter(filter);
+        const avg = rows.length ? rows.reduce((a, x) => a + (Number(x[key]) || 0), 0) / rows.length : 0;
+        ws.getCell(r, idx).value = rows.length ? Math.round(avg * 100) / 100 : '';
+        ws.getCell(r, idx).numFmt = numFmtFor(key); ws.getCell(r, idx).alignment = { horizontal: 'right' };
+      };
+      avgCol(avgCycleIdx, 'avgCycle', x => Number(x.avgCycle) > 0);
+      avgCol(rejectPctIdx, 'rejectPct', x => Number(x.total) > 0);
+
       r++; bandToggle = 0;
     }
 
@@ -23971,6 +24079,46 @@ app.get('/api/extra-qty', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('api/extra-qty', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// DELETE /api/extra-qty/:id — soft-delete an extra-qty grant (Admin / Superadmin only).
+// Removing a grant lowers the colour cap back by that grant's qty, so it is
+// restricted to admin-like roles even though PPC/Planner can CREATE grants.
+// Soft-delete (is_deleted=TRUE) + updated_at bump so the removal syncs to MAIN
+// as a last-write-wins tombstone. [[project_completed_plan_resurrection]]
+app.delete('/api/extra-qty/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) return res.json({ ok: false, error: 'Valid grant id required' });
+
+    // Role check against DB — never trust a client-sent role. Only admin/superadmin.
+    const username = getRequestUsername(req) || (req.body && req.body.session && req.body.session.username);
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    const u = await q('SELECT role_code FROM users WHERE username=$1', [username]);
+    if (!u.length) return res.status(403).json({ ok: false, error: 'User not found' });
+    if (!isAdminLikeRole(u[0])) {
+      return res.status(403).json({ ok: false, error: 'Only Admin / Superadmin can delete an extra-qty allowance' });
+    }
+
+    const del = await q(
+      `UPDATE extra_qty_allowances
+          SET is_deleted = TRUE,
+              deleted_by = $2,
+              deleted_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $1 AND is_deleted = FALSE
+        RETURNING id, plan_id, colour, extra_qty`,
+      [id, username]
+    );
+    if (!del.length) return res.json({ ok: false, error: 'Grant not found or already deleted' });
+
+    const r = del[0];
+    console.log(`[EXTRA QTY] ${username} (${String(u[0].role_code || '').toLowerCase()}) DELETED grant #${id} (-${r.extra_qty} for plan ${r.plan_id} colour ${r.colour})`);
+    res.json({ ok: true, deleted: r });
+  } catch (e) {
+    console.error('api/extra-qty delete', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });

@@ -748,6 +748,28 @@
     function _eqaCanAllow() {
         return EQA_ROLES.includes(String(_eqaUser().role_code || '').toLowerCase());
     }
+    // Only Admin / Superadmin may DELETE an allowance (removing it lowers the cap).
+    function _eqaCanDelete() {
+        const role = String(_eqaUser().role_code || '').toLowerCase();
+        return role === 'admin' || role === 'superadmin';
+    }
+    // Soft-delete one grant, then refresh the modal + colour table.
+    window._eqaDeleteGrant = async function (id, colourIdx) {
+        if (!id) return;
+        if (!confirm('Delete this extra-qty allowance? This lowers the colour cap by that amount.')) return;
+        try {
+            const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+            const res = await api.delete('/extra-qty/' + encodeURIComponent(id));
+            if (!res || !res.ok) throw new Error(res?.error || 'Delete failed');
+            const planId = window._ddState.data?.planId || window._ddState.planId;
+            window._ddState.grants = await _eqaFetchGrants(planId);
+            _ddRenderColours(window._ddState.data);
+            // Re-open the modal so the updated history is visible immediately.
+            if (typeof colourIdx === 'number') window.openExtraQtyModal(colourIdx);
+        } catch (e) {
+            alert(e.message || 'Delete failed');
+        }
+    };
     // Returns { COLOUR_UPPER: { extra, grants:[...] } }
     async function _eqaFetchGrants(planId) {
         if (!planId) return {};
@@ -783,11 +805,15 @@
         m.id = 'eqa-modal';
         m.className = 'om-backdrop active';
         m.style.cssText = 'display:flex;z-index:100001';
+        const canDelete = _eqaCanDelete();
         const histRows = g.grants.map(x =>
             `<tr><td>+${Number(x.extra_qty).toLocaleString()}</td>
                  <td>${_eqaEsc(x.allowed_by)} <span style="color:#94a3b8">(${_eqaEsc(x.allowed_role)})</span></td>
                  <td>${x.allowed_at ? new Date(x.allowed_at).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '–'}</td>
-                 <td style="max-width:180px;word-wrap:break-word">${_eqaEsc(x.remarks)}</td></tr>`).join('');
+                 <td style="max-width:180px;word-wrap:break-word">${_eqaEsc(x.remarks)}</td>
+                 ${canDelete ? `<td style="text-align:center"><button onclick="window._eqaDeleteGrant(${Number(x.id)}, ${colourIdx})" title="Delete this allowance"
+                       style="border:1px solid #fecaca;background:#fef2f2;color:#dc2626;border-radius:6px;padding:3px 7px;font-size:0.72rem;font-weight:800;cursor:pointer;white-space:nowrap">
+                       <i class="bi bi-trash"></i> Delete</button></td>` : ''}</tr>`).join('');
         m.innerHTML = `
           <div style="background:#fff;border-radius:14px;max-width:520px;width:94%;max-height:88vh;overflow:auto;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -816,7 +842,7 @@
             ${g.grants.length ? `
             <div style="margin-top:14px;border-top:1px solid #e2e8f0;padding-top:10px">
               <div style="font-size:0.78rem;font-weight:800;color:#64748b;margin-bottom:6px">Previous allowances for this colour</div>
-              <table class="dd-table" style="font-size:0.8rem"><thead><tr><th>Qty</th><th>Allowed By</th><th>When</th><th>Why</th></tr></thead>
+              <table class="dd-table" style="font-size:0.8rem"><thead><tr><th>Qty</th><th>Allowed By</th><th>When</th><th>Why</th>${canDelete ? '<th>Action</th>' : ''}</tr></thead>
               <tbody>${histRows}</tbody></table>
             </div>` : ''}
           </div>`;

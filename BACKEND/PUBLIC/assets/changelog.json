@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.44.1",
+  "latest": "1.45.0",
   "versions": [
+    {
+      "version": "1.45.0",
+      "date": "2026-08-22",
+      "title": "Delete an Extra Allowed Qty grant, Mould-Wise total row",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "Admins and Superadmins can now delete an Extra Allowed Qty entry from the Machine Timeline — removing it lowers that colour's cap back automatically. Only Admin/Superadmin see the Delete button." }
+          ]
+        },
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "feat", "text": "The Mould-Wise report now shows a total row that sums the counts and averages the rates." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.44.1",
       "date": "2026-08-22",
