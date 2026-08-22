@@ -812,12 +812,12 @@
       const metricCols = [];
       if (on.has('std_prod'))   metricCols.push({ label: 'Prod (STD)',  get: r => r.stdProd, num: true, sum: true });
       if (on.has('std_cycle'))  metricCols.push({ label: 'STD Cycle (s)', get: r => r.stdCycle || '', num: true });
-      if (on.has('avg_cycle'))  metricCols.push({ label: 'Avg Cycle (s)', get: r => r.avgCycle || '', num: true });
+      if (on.has('avg_cycle'))  metricCols.push({ label: 'Avg Cycle (s)', get: r => r.avgCycle || '', num: true, avg: true, rawKey: 'avgCycle' });
       if (on.has('std_weight')) metricCols.push({ label: 'STD Wt (kg)',  get: r => r.stdWeight || '', num: true });
       if (on.has('efficiency')) metricCols.push({ label: 'Eff %',       get: r => r.efficiency + '%', num: true });
       if (on.has('downtime'))   metricCols.push({ label: 'Downtime',    get: r => (r.downtimeMin ? r.downtimeMin + 'm' : '') + (r.downtimeReason ? ' — ' + r.downtimeReason : ''), num: false });
       if (on.has('reject_qty')) metricCols.push({ label: 'Reject Qty',  get: r => r.rejectQty, num: true, sum: true });
-      if (on.has('reject_pct')) metricCols.push({ label: 'Reject %',    get: r => r.rejectPct + '%', num: true });
+      if (on.has('reject_pct')) metricCols.push({ label: 'Reject %',    get: r => r.rejectPct + '%', num: true, avg: true, rawKey: 'rejectPct', pct: true });
 
       const totalCols = leadCols.length + 4 + metricCols.length;
 
@@ -841,12 +841,27 @@
           ...metricCols.map(c => `<td class="mr-colhead">${esc(c.label)}</td>`)
         ].join('');
 
-        // Grand-total row: blanks up to the Total column, then column sums.
+        // Grand-total row: blanks up to the Total column, then per-column
+        // aggregates — sum for counts (Prod STD, Reject Qty), average for rates
+        // (Reject %, Avg Cycle Time).
         const grandLead = leadCols.map(() => '<td></td>').join('') + '<td></td><td></td><td></td>';
         const grandMetrics = metricCols.map(c => {
-          if (!c.sum) return '<td></td>';
-          const s = g.rows.reduce((acc, r) => acc + (Number(c.get(r)) || 0), 0);
-          return `<td>${s}</td>`;
+          if (c.sum) {
+            const s = g.rows.reduce((acc, r) => acc + (Number(c.get(r)) || 0), 0);
+            return `<td>${s}</td>`;
+          }
+          if (c.avg) {
+            // Average over meaningful rows: Reject % over produced days; Avg
+            // Cycle over rows that actually ran (cycle > 0).
+            const src = g.rows.filter(r => c.rawKey === 'rejectPct'
+              ? Number(r.total) > 0
+              : Number(r[c.rawKey]) > 0);
+            if (!src.length) return '<td></td>';
+            const avg = src.reduce((a, r) => a + Number(r[c.rawKey] || 0), 0) / src.length;
+            const val = Math.round(avg * 100) / 100;
+            return `<td>${c.pct ? val + '%' : val}</td>`;
+          }
+          return '<td></td>';
         }).join('');
 
         const title = esc(g.mouldName || g.mouldNo || 'Unknown Mould');
