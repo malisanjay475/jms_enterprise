@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.43.4",
+  "latest": "1.44.0",
   "versions": [
+    {
+      "version": "1.44.0",
+      "date": "2026-08-22",
+      "title": "Mould-Wise report: factory filter, tonnage filter & Excel",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "fix", "text": "Mould Wise Item QTY report now respects the Factory filter — picking a factory shows only that factory's data." },
+            { "type": "feat", "text": "New Machine Tonnage filter on the Mould-Wise report: tick the tonnages you want (all selected by default)." },
+            { "type": "feat", "text": "Download the Mould-Wise report as a coloured Excel file, with the report name, applied filters, and who generated it and when." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.43.4",
       "date": "2026-08-19",
