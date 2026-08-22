@@ -11,8 +11,181 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.39.6",
+  "latest": "1.43.4",
   "versions": [
+    {
+      "version": "1.43.4",
+      "date": "2026-08-19",
+      "title": "\"Nameplate Target\" renamed to \"24 Hour Target\"",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "improvement", "text": "The top target row is now labelled \"24 Hour Target\" instead of \"Nameplate Target\", including in the live-calculation popup and the loss explanations." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.43.3",
+      "date": "2026-08-19",
+      "title": "Colour change now counts every purge, mould and job stay setup-based",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "fix", "text": "Colour change is now counted each time the colour differs from the previous hour, because a colour used again still needs a fresh purge — so a colour that comes back later in the shift is counted again. Mould and job changes stay on the setup basis (a reused mould or job is the same setup, not a new change)." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.43.2",
+      "date": "2026-08-19",
+      "title": "Mould, colour and job change counts fixed to match the DPR setup",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "fix", "text": "Mould, colour and job changes are now counted once per actual setup change — running one mould then a second mould counts as a single mould change, instead of being counted again for every hour it was logged. The standard change-over time now uses this corrected mould-change count." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.43.1",
+      "date": "2026-08-19",
+      "title": "Daily Report explains each loss type in plain language",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "improvement", "text": "The live-calculation popup and the Loss Account now spell out what Change-over Loss, Downtime Loss, Speed Loss and Quality Loss mean, each with its formula and live value." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.43.0",
+      "date": "2026-08-19",
+      "title": "Daily Report now shows OEE, loss account and change-over analysis",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "Daily Production Report",
+          "icon": "bi-clipboard2-data-fill",
+          "changes": [
+            { "type": "feat", "text": "The Line Matrix now shows the full target waterfall — Nameplate Target, Planned Target and Net Achievable Target — above Gross, Rejection and Good/Net, so you can see exactly where planned output is lost." },
+            { "type": "feat", "text": "New OEE panel with Availability, Performance and Quality, plus a line-wise Loss Account that splits every lost kilo into change-over, downtime, speed and quality." },
+            { "type": "feat", "text": "Change-over analysis compares the standard mould-change time (from Machine Master) against the actual time taken and flags the overrun, with mould, colour and job change counts per line." },
+            { "type": "feat", "text": "Click any production row to see its live calculation, and the factory totals for Rejection % and Efficiency % now show the correct Day, Night and 24-hour averages." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.42.0",
+      "date": "2026-08-18",
+      "title": "Packing scanners count against the right job automatically",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "A packing scanner now counts each scan against the job that expects that product automatically, so a fixed scanner keeps working with no page open and no job to pick. An unexpected barcode is flagged instead of counted." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.41.1",
+      "date": "2026-08-18",
+      "title": "Assembly packing: timezone, delete, active job",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "Assembly Planning now shows plans correctly even when the PC's clock is not on India time, so saved plans no longer go missing from the timeline." },
+            { "type": "feat", "text": "You can now delete a packing plan from the Add/Edit Plan window." },
+            { "type": "improvement", "text": "The Packing Dashboard now shows the job that is currently active in Production Line Scanning for each table, instead of an unrelated one." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.41.0",
+      "date": "2026-08-18",
+      "title": "Live Packing Scanning Dashboard",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "feat", "text": "The Scanning Dashboard now updates live on every scan — each table's count jumps and flashes the moment a barcode is scanned, with no page refresh needed." },
+            { "type": "feat", "text": "New summary bar shows active tables, running/slow/stopped counts, total scanned today, scans-per-hour and wrong-scan totals at a glance." },
+            { "type": "improvement", "text": "Each table card now shows the machine, time window, quantity remaining, a live 'last scanned' timer and an ahead/behind-schedule badge, and celebrates when a plan is completed." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.40.1",
+      "date": "2026-08-18",
+      "title": "Client & Job Card on packing plans",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "feat", "text": "Packing plans now capture a Client Name and Job Card No., shown on the Packing Dashboard cards and the planning timeline." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.40.0",
+      "date": "2026-08-18",
+      "title": "Packing scanners stay connected on their own",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "feat", "text": "Packing barcode scanners now keep working even when the scanning page is closed — the scanner sends each scan straight to the server and counts update on their own." },
+            { "type": "improvement", "text": "A scanner counts against the table's current running plan automatically, so there is nothing to reconnect or re-select after the page is reopened." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.39.7",
+      "date": "2026-08-18",
+      "title": "Assembly plans no longer disappear",
+      "modules": [
+        {
+          "app": "packing",
+          "label": "Packing",
+          "icon": "bi-box2-fill",
+          "changes": [
+            { "type": "fix", "text": "Assembly plans you create in Packing now stay put and remain visible until completed, instead of being removed when the factory server syncs with the main server." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.39.6",
       "date": "2026-08-17",

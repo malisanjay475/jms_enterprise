@@ -7994,6 +7994,140 @@ app.get('/api/debug/or-status', async (req, res) => {
   }
 });
 
+// DEBUG: Inspect extra-qty allowances for a plan — reveals WHY one "Allow" can
+// look doubled (duplicate rows, cross-colour rows, resurrected soft-deletes).
+// Pass ?plan_id=PLN-... (or a numeric plan_board id). Read-only.
+app.get('/api/debug/extra-qty', async (req, res) => {
+  try {
+    const planId = String(req.query.plan_id || '').trim();
+    if (!planId) return res.json({ ok: false, error: 'Pass ?plan_id=PLN_ID' });
+
+    // Match both the string plan_id and the numeric plan_board id form.
+    const rows = await q(
+      `SELECT id, plan_id, order_no, jc_no, machine, mould_name, colour,
+              extra_qty, remarks, allowed_by, allowed_role, allowed_at,
+              factory_id, is_deleted
+         FROM extra_qty_allowances
+        WHERE plan_id = $1
+           OR plan_id IN (SELECT plan_id FROM plan_board WHERE CAST(id AS TEXT) = $1)
+        ORDER BY colour, allowed_at`,
+      [planId]
+    );
+
+    // Group by colour so a doubled colour is obvious at a glance.
+    const byColour = {};
+    for (const r of rows) {
+      const k = String(r.colour || '').trim().toUpperCase() || '(blank)';
+      if (!byColour[k]) byColour[k] = { rows: 0, active_rows: 0, total_extra: 0, active_extra: 0 };
+      byColour[k].rows += 1;
+      byColour[k].total_extra += Number(r.extra_qty || 0);
+      if (!r.is_deleted) {
+        byColour[k].active_rows += 1;
+        byColour[k].active_extra += Number(r.extra_qty || 0);
+      }
+    }
+    // Flag colours that have more than one ACTIVE grant row (the doubling signature).
+    const doubled = Object.entries(byColour)
+      .filter(([, v]) => v.active_rows > 1)
+      .map(([colour, v]) => ({ colour, active_rows: v.active_rows, active_extra: v.active_extra }));
+
+    res.json({
+      ok: true,
+      searched_for: planId,
+      total_rows: rows.length,
+      rows,
+      by_colour: byColour,
+      doubled_colours: doubled,
+      note: doubled.length
+        ? 'One or more colours have >1 ACTIVE grant row — that is the doubling.'
+        : 'No colour has more than one active grant row.'
+    });
+  } catch (e) {
+    res.json({ ok: false, error: String(e) });
+  }
+});
+
+// DEBUG: Per-MACHINE (and shift) DPR production for a plan/order.
+// Explains why the Colour × Shift Breakdown (cross-machine, /api/dpr/plan-drilldown)
+// and the hourly Shift Total (single-machine, /api/dpr/recent) disagree: the same
+// plan ran on more than one machine, so its pieces split across machines.
+// Pass ?plan_id=PLN-... (or numeric plan_board id) OR ?or=OR_JR_NO.
+// Optional ?date=YYYY-MM-DD & ?shift=Day|Night to narrow to one cell. Read-only.
+app.get('/api/debug/dpr-by-machine', async (req, res) => {
+  try {
+    const planId = String(req.query.plan_id || '').trim();
+    const orNo   = String(req.query.or || '').trim();
+    const date   = String(req.query.date || '').trim();
+    const shift  = String(req.query.shift || '').trim();
+    if (!planId && !orNo) return res.json({ ok: false, error: 'Pass ?plan_id=PLN_ID or ?or=OR_JR_NO' });
+
+    const params = [];
+    const where  = ['is_deleted = false'];
+
+    if (planId) {
+      params.push(planId);
+      where.push(`(plan_id = $${params.length}
+                   OR CAST(plan_id AS TEXT) = $${params.length}
+                   OR plan_id = (SELECT id::text FROM plan_board WHERE plan_id = $${params.length} LIMIT 1))`);
+    } else {
+      params.push(`%${orNo}%`);
+      where.push(`TRIM(order_no) ILIKE $${params.length}`);
+    }
+    if (date)  { params.push(date);  where.push(`dpr_date = $${params.length}`); }
+    if (shift) { params.push(shift); where.push(`shift = $${params.length}`); }
+
+    // Per machine × shift × date rollup
+    const byMachine = await q(
+      `SELECT machine,
+              shift,
+              to_char(dpr_date, 'YYYY-MM-DD') AS dpr_date,
+              COUNT(*)          AS entries,
+              SUM(good_qty)     AS good_qty,
+              SUM(reject_qty)   AS reject_qty
+         FROM dpr_hourly
+        WHERE ${where.join(' AND ')}
+        GROUP BY machine, shift, dpr_date
+        ORDER BY dpr_date, shift, machine`,
+      params
+    );
+
+    // Totals across everything matched (this is what the Breakdown shows)
+    const totals = await q(
+      `SELECT COALESCE(SUM(good_qty),0)   AS good_qty,
+              COALESCE(SUM(reject_qty),0) AS reject_qty,
+              COUNT(*)                    AS entries
+         FROM dpr_hourly
+        WHERE ${where.join(' AND ')}`,
+      params
+    );
+
+    // Machine-level summary (across all shifts/dates matched)
+    const machineSummary = {};
+    for (const r of byMachine) {
+      const m = r.machine || '(blank)';
+      if (!machineSummary[m]) machineSummary[m] = { good_qty: 0, reject_qty: 0, entries: 0 };
+      machineSummary[m].good_qty   += Number(r.good_qty   || 0);
+      machineSummary[m].reject_qty += Number(r.reject_qty || 0);
+      machineSummary[m].entries    += Number(r.entries    || 0);
+    }
+
+    res.json({
+      ok: true,
+      searched_for: { plan_id: planId || null, or: orNo || null, date: date || null, shift: shift || null },
+      total_good: Number(totals[0]?.good_qty || 0),
+      total_reject: Number(totals[0]?.reject_qty || 0),
+      machine_count: Object.keys(machineSummary).length,
+      by_machine_summary: machineSummary,
+      rows: byMachine,
+      note: Object.keys(machineSummary).length > 1
+        ? 'This plan has DPR entries on MORE THAN ONE machine — the Breakdown sums all of them, the hourly view shows one machine only.'
+        : 'All DPR entries are on a single machine for the given filters.'
+    });
+  } catch (e) {
+    res.json({ ok: false, error: String(e) });
+  }
+});
+
 // DEBUG: Inspect IDs for Shifting Mismatch
 app.get('/api/debug/ids', async (req, res) => {
   try {
@@ -14003,7 +14137,7 @@ app.get('/api/planning/completed', async (req, res) => {
         sql += ` AND UPPER(TRIM(pb.plant)) = UPPER(TRIM($${params.length}))`;
       }
       if (cleanSearch) {
-        sql += ` AND (pb.order_no ILIKE $${params.length + 1} OR pb.item_name ILIKE $${params.length + 1} OR pb.mould_name ILIKE $${params.length + 1} OR o.client_name ILIKE $${params.length + 1} OR pb.machine ILIKE $${params.length + 1} OR ojr.job_card_no ILIKE $${params.length + 1})`;
+        sql += ` AND (pb.order_no ILIKE $${params.length + 1} OR pb.item_name ILIKE $${params.length + 1} OR pb.mould_name ILIKE $${params.length + 1} OR pb.mould_code ILIKE $${params.length + 1} OR o.client_name ILIKE $${params.length + 1} OR pb.machine ILIKE $${params.length + 1} OR ojr.job_card_no ILIKE $${params.length + 1})`;
         params.push(`%${cleanSearch}%`);
       }
       if (from) {
@@ -23853,6 +23987,42 @@ app.post('/api/extra-qty/allow', async (req, res) => {
       return res.status(403).json({ ok: false, error: 'PPC / Planner / Admin access required' });
     }
 
+    // ── Accidental-double guard ──────────────────────────────────────────
+    // A single "Allow" must never end up granting extra twice. Two failure
+    // modes seen in the field: (a) a double-click / retry re-posts the SAME
+    // colour, and (b) the same user rapidly allows a SECOND colour on the same
+    // plan by mistake (observed: +200 on two colours 17s apart). Block both
+    // inside a short window; deliberate multi-colour grants still work after a
+    // brief pause. Window is configurable via EXTRA_QTY_DEDUP_WINDOW_SECONDS.
+    const dedupWindowSec = Math.max(0, Number(process.env.EXTRA_QTY_DEDUP_WINDOW_SECONDS) || 20);
+    if (dedupWindowSec > 0) {
+      const recent = await q(
+        `SELECT id, colour, extra_qty, allowed_at
+           FROM extra_qty_allowances
+          WHERE plan_id = $1 AND allowed_by = $2 AND is_deleted = FALSE
+            AND allowed_at > NOW() - ($3 || ' seconds')::interval
+          ORDER BY allowed_at DESC
+          LIMIT 1`,
+        [String(plan_id), session.username, String(dedupWindowSec)]
+      );
+      if (recent.length) {
+        const r = recent[0];
+        const sameColour = String(r.colour || '').trim().toUpperCase() === colourName.toUpperCase();
+        if (sameColour) {
+          // Pure double-click on the same colour — idempotent, no second row.
+          console.log(`[EXTRA QTY] Deduped repeat grant for plan ${plan_id} colour ${colourName} by ${session.username} (within ${dedupWindowSec}s)`);
+          return res.json({ ok: true, id: r.id, deduped: true, message: 'Extra qty was already allowed for this colour a moment ago — not added again.' });
+        }
+        // Different colour within the window — likely an accidental double.
+        return res.json({
+          ok: false,
+          error: `You allowed extra for "${r.colour}" on this plan a few seconds ago. ` +
+                 `To also allow "${colourName}", wait a moment and click Allow again — ` +
+                 `this guard prevents accidentally doubling the extra qty.`
+        });
+      }
+    }
+
     // Resolve job context from plan_board (denormalized for the report)
     const pRows = await q(
       `SELECT order_no, machine, mould_name, factory_id
@@ -23909,6 +24079,46 @@ app.get('/api/extra-qty', async (req, res) => {
     res.json({ ok: true, data: rows });
   } catch (e) {
     console.error('api/extra-qty', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// DELETE /api/extra-qty/:id — soft-delete an extra-qty grant (Admin / Superadmin only).
+// Removing a grant lowers the colour cap back by that grant's qty, so it is
+// restricted to admin-like roles even though PPC/Planner can CREATE grants.
+// Soft-delete (is_deleted=TRUE) + updated_at bump so the removal syncs to MAIN
+// as a last-write-wins tombstone. [[project_completed_plan_resurrection]]
+app.delete('/api/extra-qty/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) return res.json({ ok: false, error: 'Valid grant id required' });
+
+    // Role check against DB — never trust a client-sent role. Only admin/superadmin.
+    const username = getRequestUsername(req) || (req.body && req.body.session && req.body.session.username);
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    const u = await q('SELECT role_code FROM users WHERE username=$1', [username]);
+    if (!u.length) return res.status(403).json({ ok: false, error: 'User not found' });
+    if (!isAdminLikeRole(u[0])) {
+      return res.status(403).json({ ok: false, error: 'Only Admin / Superadmin can delete an extra-qty allowance' });
+    }
+
+    const del = await q(
+      `UPDATE extra_qty_allowances
+          SET is_deleted = TRUE,
+              deleted_by = $2,
+              deleted_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $1 AND is_deleted = FALSE
+        RETURNING id, plan_id, colour, extra_qty`,
+      [id, username]
+    );
+    if (!del.length) return res.json({ ok: false, error: 'Grant not found or already deleted' });
+
+    const r = del[0];
+    console.log(`[EXTRA QTY] ${username} (${String(u[0].role_code || '').toLowerCase()}) DELETED grant #${id} (-${r.extra_qty} for plan ${r.plan_id} colour ${r.colour})`);
+    res.json({ ok: true, deleted: r });
+  } catch (e) {
+    console.error('api/extra-qty delete', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
