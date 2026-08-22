@@ -7994,6 +7994,59 @@ app.get('/api/debug/or-status', async (req, res) => {
   }
 });
 
+// DEBUG: Inspect extra-qty allowances for a plan — reveals WHY one "Allow" can
+// look doubled (duplicate rows, cross-colour rows, resurrected soft-deletes).
+// Pass ?plan_id=PLN-... (or a numeric plan_board id). Read-only.
+app.get('/api/debug/extra-qty', async (req, res) => {
+  try {
+    const planId = String(req.query.plan_id || '').trim();
+    if (!planId) return res.json({ ok: false, error: 'Pass ?plan_id=PLN_ID' });
+
+    // Match both the string plan_id and the numeric plan_board id form.
+    const rows = await q(
+      `SELECT id, plan_id, order_no, jc_no, machine, mould_name, colour,
+              extra_qty, remarks, allowed_by, allowed_role, allowed_at,
+              factory_id, is_deleted
+         FROM extra_qty_allowances
+        WHERE plan_id = $1
+           OR plan_id IN (SELECT plan_id FROM plan_board WHERE CAST(id AS TEXT) = $1)
+        ORDER BY colour, allowed_at`,
+      [planId]
+    );
+
+    // Group by colour so a doubled colour is obvious at a glance.
+    const byColour = {};
+    for (const r of rows) {
+      const k = String(r.colour || '').trim().toUpperCase() || '(blank)';
+      if (!byColour[k]) byColour[k] = { rows: 0, active_rows: 0, total_extra: 0, active_extra: 0 };
+      byColour[k].rows += 1;
+      byColour[k].total_extra += Number(r.extra_qty || 0);
+      if (!r.is_deleted) {
+        byColour[k].active_rows += 1;
+        byColour[k].active_extra += Number(r.extra_qty || 0);
+      }
+    }
+    // Flag colours that have more than one ACTIVE grant row (the doubling signature).
+    const doubled = Object.entries(byColour)
+      .filter(([, v]) => v.active_rows > 1)
+      .map(([colour, v]) => ({ colour, active_rows: v.active_rows, active_extra: v.active_extra }));
+
+    res.json({
+      ok: true,
+      searched_for: planId,
+      total_rows: rows.length,
+      rows,
+      by_colour: byColour,
+      doubled_colours: doubled,
+      note: doubled.length
+        ? 'One or more colours have >1 ACTIVE grant row — that is the doubling.'
+        : 'No colour has more than one active grant row.'
+    });
+  } catch (e) {
+    res.json({ ok: false, error: String(e) });
+  }
+});
+
 // DEBUG: Inspect IDs for Shifting Mismatch
 app.get('/api/debug/ids', async (req, res) => {
   try {
@@ -14003,7 +14056,7 @@ app.get('/api/planning/completed', async (req, res) => {
         sql += ` AND UPPER(TRIM(pb.plant)) = UPPER(TRIM($${params.length}))`;
       }
       if (cleanSearch) {
-        sql += ` AND (pb.order_no ILIKE $${params.length + 1} OR pb.item_name ILIKE $${params.length + 1} OR pb.mould_name ILIKE $${params.length + 1} OR o.client_name ILIKE $${params.length + 1} OR pb.machine ILIKE $${params.length + 1} OR ojr.job_card_no ILIKE $${params.length + 1})`;
+        sql += ` AND (pb.order_no ILIKE $${params.length + 1} OR pb.item_name ILIKE $${params.length + 1} OR pb.mould_name ILIKE $${params.length + 1} OR pb.mould_code ILIKE $${params.length + 1} OR o.client_name ILIKE $${params.length + 1} OR pb.machine ILIKE $${params.length + 1} OR ojr.job_card_no ILIKE $${params.length + 1})`;
         params.push(`%${cleanSearch}%`);
       }
       if (from) {
@@ -23820,6 +23873,42 @@ app.post('/api/extra-qty/allow', async (req, res) => {
     const role = String(u[0].role_code || '').toLowerCase();
     if (!canGrantExtraQty(role)) {
       return res.status(403).json({ ok: false, error: 'PPC / Planner / Admin access required' });
+    }
+
+    // ── Accidental-double guard ──────────────────────────────────────────
+    // A single "Allow" must never end up granting extra twice. Two failure
+    // modes seen in the field: (a) a double-click / retry re-posts the SAME
+    // colour, and (b) the same user rapidly allows a SECOND colour on the same
+    // plan by mistake (observed: +200 on two colours 17s apart). Block both
+    // inside a short window; deliberate multi-colour grants still work after a
+    // brief pause. Window is configurable via EXTRA_QTY_DEDUP_WINDOW_SECONDS.
+    const dedupWindowSec = Math.max(0, Number(process.env.EXTRA_QTY_DEDUP_WINDOW_SECONDS) || 20);
+    if (dedupWindowSec > 0) {
+      const recent = await q(
+        `SELECT id, colour, extra_qty, allowed_at
+           FROM extra_qty_allowances
+          WHERE plan_id = $1 AND allowed_by = $2 AND is_deleted = FALSE
+            AND allowed_at > NOW() - ($3 || ' seconds')::interval
+          ORDER BY allowed_at DESC
+          LIMIT 1`,
+        [String(plan_id), session.username, String(dedupWindowSec)]
+      );
+      if (recent.length) {
+        const r = recent[0];
+        const sameColour = String(r.colour || '').trim().toUpperCase() === colourName.toUpperCase();
+        if (sameColour) {
+          // Pure double-click on the same colour — idempotent, no second row.
+          console.log(`[EXTRA QTY] Deduped repeat grant for plan ${plan_id} colour ${colourName} by ${session.username} (within ${dedupWindowSec}s)`);
+          return res.json({ ok: true, id: r.id, deduped: true, message: 'Extra qty was already allowed for this colour a moment ago — not added again.' });
+        }
+        // Different colour within the window — likely an accidental double.
+        return res.json({
+          ok: false,
+          error: `You allowed extra for "${r.colour}" on this plan a few seconds ago. ` +
+                 `To also allow "${colourName}", wait a moment and click Allow again — ` +
+                 `this guard prevents accidentally doubling the extra qty.`
+        });
+      }
     }
 
     // Resolve job context from plan_board (denormalized for the report)
