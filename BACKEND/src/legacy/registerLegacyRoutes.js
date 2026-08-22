@@ -16355,7 +16355,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     const requested = String(req.query.fields || '')
       .split(',').map(s => s.trim()).filter(Boolean);
 
-    const { fields, data } = await buildMouldWiseReport({
+    const { data } = await buildMouldWiseReport({
       requestFactoryId,
       from, to,
       search: normalizePlanningText(req.query.q),
@@ -16374,7 +16374,11 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
       ? String(req.query.tonnages).trim().split(',').map(t => t + 'T').join(', ')
       : 'All';
 
-    const on = new Set(fields.map(f => f.alias || f));
+    // Column selection is driven by ALL requested fields (dimensions AND
+    // metrics). `fields` returned by the builder only carries the dimensions,
+    // so metric columns (Prod STD, Efficiency, Reject…) would be dropped —
+    // build the set from the raw requested list instead.
+    const on = new Set(requested);
     // Column plan mirrors the on-screen report.
     const cols = [
       { key: 'mould', label: 'Mould Name', w: 34 },

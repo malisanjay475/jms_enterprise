@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.44.0",
+  "latest": "1.44.1",
   "versions": [
+    {
+      "version": "1.44.1",
+      "date": "2026-08-22",
+      "title": "Mould-Wise Excel now includes all selected columns",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "fix", "text": "The Mould-Wise Excel download now includes every column you tick (Production As Per STD, Efficiency, Reject, cycle times, etc.), matching what's shown on screen." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.44.0",
       "date": "2026-08-22",
