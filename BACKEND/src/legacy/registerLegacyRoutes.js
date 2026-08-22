@@ -16393,6 +16393,15 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     });
     ws.getRow(HROW).height = 20;
 
+    // Per-column number format: percents show a "%", cycle/weight keep decimals.
+    const numFmtFor = (key) => {
+      if (key === 'efficiency' || key === 'rejectPct') return '0.0"%"';
+      if (key === 'avgCycle' || key === 'stdCycle') return '#,##0.00';
+      if (key === 'stdWeight') return '#,##0.000';
+      return '#,##0';
+    };
+    const idxOf = key => cols.findIndex(c => c.key === key) + 1;   // 0 = not present
+
     // Data
     let r = HROW + 1;
     let bandToggle = 0;
@@ -16410,25 +16419,43 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
           cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle', wrapText: c.key === 'downtimeReason' };
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: band } };
           cell.border = box;
-          if (c.num && typeof cell.value === 'number') cell.numFmt = '#,##0';
+          if (c.num && typeof cell.value === 'number') cell.numFmt = numFmtFor(c.key);
         });
         r++; bandToggle++;
       }
-      // Per-mould subtotal row (Total column summed).
-      const totalColIdx = cols.findIndex(c => c.key === 'total') + 1;
-      const dayColIdx = cols.findIndex(c => c.key === 'day') + 1;
-      const nightColIdx = cols.findIndex(c => c.key === 'night') + 1;
+      // Per-mould total/average row:
+      //   sum   -> Day, Night, Total, Prod (STD), Reject Qty
+      //   avg   -> Avg Cycle Time (over rows that ran), Reject % (over produced days)
+      const totalColIdx = idxOf('total'), dayColIdx = idxOf('day'), nightColIdx = idxOf('night');
+      const stdProdIdx = idxOf('stdProd'), rejectQtyIdx = idxOf('rejectQty');
+      const avgCycleIdx = idxOf('avgCycle'), rejectPctIdx = idxOf('rejectPct');
       for (let ci = 1; ci <= NCOL; ci++) {
         const cell = ws.getCell(r, ci);
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUBFILL } };
         cell.border = box;
         cell.font = { name: FONT, size: 10, bold: true, color: { argb: BLUE } };
       }
-      ws.getCell(r, 1).value = `Total — ${g.mouldName || g.mouldNo}`;
-      if (dayColIdx) ws.getCell(r, dayColIdx).value = { formula: `SUM(${colLetter(dayColIdx)}${groupStart}:${colLetter(dayColIdx)}${r - 1})`, result: g.rows.reduce((s, x) => s + x.day, 0) };
-      if (nightColIdx) ws.getCell(r, nightColIdx).value = { formula: `SUM(${colLetter(nightColIdx)}${groupStart}:${colLetter(nightColIdx)}${r - 1})`, result: g.rows.reduce((s, x) => s + x.night, 0) };
-      if (totalColIdx) ws.getCell(r, totalColIdx).value = { formula: `SUM(${colLetter(totalColIdx)}${groupStart}:${colLetter(totalColIdx)}${r - 1})`, result: g.grandTotal };
-      [dayColIdx, nightColIdx, totalColIdx].forEach(ci => { if (ci) { ws.getCell(r, ci).numFmt = '#,##0'; ws.getCell(r, ci).alignment = { horizontal: 'right' }; } });
+      ws.getCell(r, 1).value = `Total / Avg — ${g.mouldName || g.mouldNo}`;
+
+      const sumCol = (idx, key) => {
+        if (!idx) return;
+        ws.getCell(r, idx).value = { formula: `SUM(${colLetter(idx)}${groupStart}:${colLetter(idx)}${r - 1})`, result: g.rows.reduce((s, x) => s + (Number(x[key]) || 0), 0) };
+        ws.getCell(r, idx).numFmt = numFmtFor(key); ws.getCell(r, idx).alignment = { horizontal: 'right' };
+      };
+      sumCol(dayColIdx, 'day'); sumCol(nightColIdx, 'night');
+      if (totalColIdx) { ws.getCell(r, totalColIdx).value = { formula: `SUM(${colLetter(totalColIdx)}${groupStart}:${colLetter(totalColIdx)}${r - 1})`, result: g.grandTotal }; ws.getCell(r, totalColIdx).numFmt = '#,##0'; ws.getCell(r, totalColIdx).alignment = { horizontal: 'right' }; }
+      sumCol(stdProdIdx, 'stdProd'); sumCol(rejectQtyIdx, 'rejectQty');
+
+      const avgCol = (idx, key, filter) => {
+        if (!idx) return;
+        const rows = g.rows.filter(filter);
+        const avg = rows.length ? rows.reduce((a, x) => a + (Number(x[key]) || 0), 0) / rows.length : 0;
+        ws.getCell(r, idx).value = rows.length ? Math.round(avg * 100) / 100 : '';
+        ws.getCell(r, idx).numFmt = numFmtFor(key); ws.getCell(r, idx).alignment = { horizontal: 'right' };
+      };
+      avgCol(avgCycleIdx, 'avgCycle', x => Number(x.avgCycle) > 0);
+      avgCol(rejectPctIdx, 'rejectPct', x => Number(x.total) > 0);
+
       r++; bandToggle = 0;
     }
 
