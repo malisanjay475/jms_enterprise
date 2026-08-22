@@ -16,7 +16,7 @@
     {
       "version": "1.45.0",
       "date": "2026-08-22",
-      "title": "Delete an Extra Allowed Qty grant, Mould-Wise total row",
+      "title": "Delete an Extra Allowed Qty grant",
       "modules": [
         {
           "app": "planning",
@@ -25,13 +25,20 @@
           "changes": [
             { "type": "feat", "text": "Admins and Superadmins can now delete an Extra Allowed Qty entry from the Machine Timeline — removing it lowers that colour's cap back automatically. Only Admin/Superadmin see the Delete button." }
           ]
-        },
+        }
+      ]
+    },
+    {
+      "version": "1.44.2",
+      "date": "2026-08-22",
+      "title": "Mould-Wise report: totals & averages row",
+      "modules": [
         {
           "app": "reports",
           "label": "Reports",
           "icon": "bi-file-earmark-bar-graph",
           "changes": [
-            { "type": "feat", "text": "The Mould-Wise report now shows a total row that sums the counts and averages the rates." }
+            { "type": "feat", "text": "The Mould-Wise report now shows a total row that sums Production As Per STD and Reject Qty, and averages Reject % and Avg Cycle Time — on screen and in the Excel download." }
           ]
         }
       ]
