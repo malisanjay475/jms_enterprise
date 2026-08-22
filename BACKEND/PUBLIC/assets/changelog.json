@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.44.1",
+  "latest": "1.44.2",
   "versions": [
+    {
+      "version": "1.44.2",
+      "date": "2026-08-22",
+      "title": "Mould-Wise report: totals & averages row",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "feat", "text": "The Mould-Wise report now shows a total row that sums Production As Per STD and Reject Qty, and averages Reject % and Avg Cycle Time — on screen and in the Excel download." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.44.1",
       "date": "2026-08-22",
