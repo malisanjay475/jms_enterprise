@@ -16088,147 +16088,359 @@ function mouldReasonName(code) {
   return MOULD_DOWNTIME_REASONS[key] || key;
 }
 
+// Factory scope for the Reports page: honour the explicit ?factory_id= the
+// filter dropdown sends (empty / "all" => all factories) so selecting a factory
+// actually restricts the data. LOCAL servers stay pinned to their own factory
+// regardless, and with no query param we fall back to the request header.
+function resolveReportFactoryId(req) {
+  if (process.env.LOCAL_FACTORY_ID) return parseInt(process.env.LOCAL_FACTORY_ID, 10) || null;
+  if (Object.prototype.hasOwnProperty.call(req.query, 'factory_id')) {
+    const v = String(req.query.factory_id == null ? '' : req.query.factory_id).trim();
+    if (v === '' || v.toLowerCase() === 'all' || v === '*') return null;
+    const n = parseInt(v, 10);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  }
+  return getFactoryId(req);
+}
+
+// Shared builder for the Mould Wise Item QTY report. Used by the JSON endpoint
+// and the styled Excel download so both return identical data.
+async function buildMouldWiseReport({ requestFactoryId, from, to, search, requested, tonnages }) {
+  // Whitelist of grouping dimensions -> SQL expression (safe, not user text).
+  const DIMS = {
+    or_no:  { expr: "TRIM(COALESCE(d.order_no, ''))",   alias: 'or_no' },
+    jc_no:  { expr: "TRIM(COALESCE(d.jobcard_no, ''))", alias: 'jc_no' },
+    machine:{ expr: "TRIM(COALESCE(d.machine, ''))",    alias: 'machine' },
+    colour: { expr: "TRIM(COALESCE(d.colour, ''))",     alias: 'colour' }
+  };
+  const activeDims = (requested || []).filter(f => DIMS[f]);
+
+  const dimSelect = activeDims.map(f => `${DIMS[f].expr} AS ${DIMS[f].alias}`);
+  const dimGroup = activeDims.map(f => DIMS[f].expr);
+
+  const selectParts = [
+    "TRIM(COALESCE(d.mould_no, '')) AS mould_no",
+    "COALESCE(m.mould_name, '') AS mould_name",
+    "d.dpr_date::text AS dpr_date",
+    ...dimSelect,
+    "SUM(CASE WHEN d.shift = 'Day'   THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS day_qty",
+    "SUM(CASE WHEN d.shift = 'Night' THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS night_qty",
+    "SUM(COALESCE(d.reject_qty, 0)) AS reject_qty",
+    "SUM(COALESCE(d.downtime_min, 0)) AS downtime_min",
+    "jsonb_agg(d.downtime_breakup) FILTER (WHERE d.downtime_breakup IS NOT NULL) AS downtime_breakups",
+    "MAX(COALESCE(m.pcs_per_hour, 0)) AS pcs_per_hour",
+    "MAX(COALESCE(m.cycle_time, 0)) AS std_cycle",
+    "MAX(COALESCE(m.std_wt_kg, 0)) AS std_weight",
+    // Actual cycle time = productive run seconds / shots, aggregated over the
+    // hourly slots in this group. Each dpr_hourly row is a 60-min slot; run
+    // seconds = (60 - downtime_min) minutes * 60. Matches the act_cycle formula
+    // used by the cycle-prediction query.
+    "SUM(GREATEST(0, 60 - COALESCE(d.downtime_min, 0)) * 60.0) AS run_seconds",
+    "SUM(COALESCE(d.shots, 0)) AS shots"
+  ];
+
+  const groupParts = [
+    "TRIM(COALESCE(d.mould_no, ''))",
+    "COALESCE(m.mould_name, '')",
+    "d.dpr_date",
+    ...dimGroup
+  ];
+
+  // Machine-tonnage filter: comma list of tonnages. Applied via EXISTS (not a
+  // JOIN) so a machine name shared across factories can't fan out and double the
+  // aggregated quantities. Empty/absent => no filter (i.e. "all tonnages").
+  const tonnageCsv = String(tonnages || '').trim();
+
+  const rows = await q(`
+    SELECT
+      ${selectParts.join(',\n        ')}
+    FROM dpr_hourly d
+    LEFT JOIN moulds m
+      ON TRIM(COALESCE(m.mould_number, '')) = TRIM(COALESCE(d.mould_no, ''))
+     AND ($4::int IS NULL OR m.factory_id = $4 OR m.factory_id IS NULL)
+    WHERE COALESCE(d.is_deleted, false) = false
+      AND TRIM(COALESCE(d.mould_no, '')) <> ''
+      AND ($1::date IS NULL OR d.dpr_date >= $1::date)
+      AND ($2::date IS NULL OR d.dpr_date <= $2::date)
+      AND ($4::int IS NULL OR d.factory_id = $4)
+      AND (
+        $3::text IS NULL OR $3 = ''
+        OR TRIM(COALESCE(d.mould_no, '')) ILIKE '%' || $3 || '%'
+        OR COALESCE(m.mould_name, '') ILIKE '%' || $3 || '%'
+      )
+      AND (
+        $5::text IS NULL OR $5 = ''
+        OR EXISTS (
+          SELECT 1 FROM machines mac
+          WHERE TRIM(LOWER(mac.machine)) = TRIM(LOWER(d.machine))
+            AND ($4::int IS NULL OR mac.factory_id = $4 OR mac.factory_id IS NULL)
+            AND mac.tonnage = ANY((string_to_array($5, ','))::numeric[])
+        )
+      )
+    GROUP BY ${groupParts.join(', ')}
+    ORDER BY COALESCE(m.mould_name, ''), TRIM(COALESCE(d.mould_no, '')), d.dpr_date
+  `, [from || null, to || null, search || null, requestFactoryId, tonnageCsv || null]);
+
+  // Group flat rows into one entry per mould.
+  const byMould = new Map();
+  for (const r of rows) {
+    const mouldName = r.mould_name || r.mould_no;
+    const key = `${r.mould_no}||${mouldName}`;
+    if (!byMould.has(key)) {
+      byMould.set(key, { mouldNo: r.mould_no, mouldName, rows: [], grandTotal: 0 });
+    }
+    const entry = byMould.get(key);
+    const day = Number(r.day_qty) || 0;
+    const night = Number(r.night_qty) || 0;
+    const total = day + night;
+
+    // STD production per shift = pcs_per_hour * 11.5, counted per shift present.
+    // 11.5 productive hours/shift = 23 productive hours/day, matching the
+    // Mould Master Target PCS/DAY = PCS/HOUR * 23 standard (KAN-112); the
+    // remaining ~1h/shift covers breaks, mould changes and startup.
+    const pcsPerHour = Number(r.pcs_per_hour) || 0;
+    const shiftsPresent = (day > 0 ? 1 : 0) + (night > 0 ? 1 : 0) || 1;
+    const stdProd = pcsPerHour * 11.5 * shiftsPresent;
+    const efficiency = stdProd > 0 ? (total / stdProd) * 100 : 0;
+
+    const rejectQty = Number(r.reject_qty) || 0;
+    const rejectPct = (total + rejectQty) > 0
+      ? (rejectQty / (total + rejectQty)) * 100 : 0;
+
+    // STD Cycle Time / STD Weight come from the mould master. Average (actual)
+    // cycle time = total productive run seconds / total shots for this group.
+    const stdCycle = Number(r.std_cycle) || 0;
+    const stdWeight = Number(r.std_weight) || 0;
+    const shots = Number(r.shots) || 0;
+    const runSeconds = Number(r.run_seconds) || 0;
+    const avgCycle = shots > 0 ? runSeconds / shots : 0;
+
+    // Merge per-slot downtime maps -> { reasonCode: minutes }.
+    const dtTotals = {};
+    const breakups = Array.isArray(r.downtime_breakups) ? r.downtime_breakups : [];
+    for (const bk of breakups) {
+      if (!bk || typeof bk !== 'object') continue;
+      for (const code of Object.keys(bk)) {
+        const min = Number(bk[code]);
+        if (min > 0) dtTotals[code] = (dtTotals[code] || 0) + min;
+      }
+    }
+    const downtimeReason = Object.keys(dtTotals)
+      .map(code => `${mouldReasonName(code)} (${dtTotals[code]}m)`)
+      .join(', ');
+
+    entry.rows.push({
+      date: r.dpr_date,
+      day, night, total,
+      orNo: r.or_no || '',
+      jcNo: r.jc_no || '',
+      machine: r.machine || '',
+      colour: r.colour || '',
+      stdProd: Math.round(stdProd),
+      efficiency: Math.round(efficiency * 10) / 10,
+      downtimeMin: Number(r.downtime_min) || 0,
+      downtimeReason,
+      rejectQty,
+      rejectPct: Math.round(rejectPct * 10) / 10,
+      stdCycle: Math.round(stdCycle * 100) / 100,
+      avgCycle: Math.round(avgCycle * 100) / 100,
+      stdWeight: Math.round(stdWeight * 1000) / 1000
+    });
+    entry.grandTotal += total;
+  }
+
+  return { fields: activeDims, data: Array.from(byMould.values()) };
+}
+
 app.get('/api/reports/mould-wise-qty', async (req, res) => {
   try {
-    const requestFactoryId = getFactoryId(req);
-    const from = normalizePlanningText(req.query.from);
-    const to = normalizePlanningText(req.query.to);
-    const search = normalizePlanningText(req.query.q);
-
-    // Whitelist of grouping dimensions -> SQL expression (safe, not user text).
-    const DIMS = {
-      or_no:  { expr: "TRIM(COALESCE(d.order_no, ''))",   alias: 'or_no' },
-      jc_no:  { expr: "TRIM(COALESCE(d.jobcard_no, ''))", alias: 'jc_no' },
-      machine:{ expr: "TRIM(COALESCE(d.machine, ''))",    alias: 'machine' },
-      colour: { expr: "TRIM(COALESCE(d.colour, ''))",     alias: 'colour' }
-    };
     const requested = String(req.query.fields || '')
       .split(',').map(s => s.trim()).filter(Boolean);
-    const activeDims = requested.filter(f => DIMS[f]);
-
-    const dimSelect = activeDims.map(f => `${DIMS[f].expr} AS ${DIMS[f].alias}`);
-    const dimGroup = activeDims.map(f => DIMS[f].expr);
-
-    const selectParts = [
-      "TRIM(COALESCE(d.mould_no, '')) AS mould_no",
-      "COALESCE(m.mould_name, '') AS mould_name",
-      "d.dpr_date::text AS dpr_date",
-      ...dimSelect,
-      "SUM(CASE WHEN d.shift = 'Day'   THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS day_qty",
-      "SUM(CASE WHEN d.shift = 'Night' THEN COALESCE(d.good_qty, 0) ELSE 0 END) AS night_qty",
-      "SUM(COALESCE(d.reject_qty, 0)) AS reject_qty",
-      "SUM(COALESCE(d.downtime_min, 0)) AS downtime_min",
-      "jsonb_agg(d.downtime_breakup) FILTER (WHERE d.downtime_breakup IS NOT NULL) AS downtime_breakups",
-      "MAX(COALESCE(m.pcs_per_hour, 0)) AS pcs_per_hour",
-      "MAX(COALESCE(m.cycle_time, 0)) AS std_cycle",
-      "MAX(COALESCE(m.std_wt_kg, 0)) AS std_weight",
-      // Actual cycle time = productive run seconds / shots, aggregated over the
-      // hourly slots in this group. Each dpr_hourly row is a 60-min slot; run
-      // seconds = (60 - downtime_min) minutes * 60. Matches the act_cycle formula
-      // used by the cycle-prediction query.
-      "SUM(GREATEST(0, 60 - COALESCE(d.downtime_min, 0)) * 60.0) AS run_seconds",
-      "SUM(COALESCE(d.shots, 0)) AS shots"
-    ];
-
-    const groupParts = [
-      "TRIM(COALESCE(d.mould_no, ''))",
-      "COALESCE(m.mould_name, '')",
-      "d.dpr_date",
-      ...dimGroup
-    ];
-
-    const rows = await q(`
-      SELECT
-        ${selectParts.join(',\n        ')}
-      FROM dpr_hourly d
-      LEFT JOIN moulds m
-        ON TRIM(COALESCE(m.mould_number, '')) = TRIM(COALESCE(d.mould_no, ''))
-       AND ($4::int IS NULL OR m.factory_id = $4 OR m.factory_id IS NULL)
-      WHERE COALESCE(d.is_deleted, false) = false
-        AND TRIM(COALESCE(d.mould_no, '')) <> ''
-        AND ($1::date IS NULL OR d.dpr_date >= $1::date)
-        AND ($2::date IS NULL OR d.dpr_date <= $2::date)
-        AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
-        AND (
-          $3::text IS NULL OR $3 = ''
-          OR TRIM(COALESCE(d.mould_no, '')) ILIKE '%' || $3 || '%'
-          OR COALESCE(m.mould_name, '') ILIKE '%' || $3 || '%'
-        )
-      GROUP BY ${groupParts.join(', ')}
-      ORDER BY COALESCE(m.mould_name, ''), TRIM(COALESCE(d.mould_no, '')), d.dpr_date
-    `, [from || null, to || null, search || null, requestFactoryId]);
-
-    // Group flat rows into one entry per mould.
-    const byMould = new Map();
-    for (const r of rows) {
-      const mouldName = r.mould_name || r.mould_no;
-      const key = `${r.mould_no}||${mouldName}`;
-      if (!byMould.has(key)) {
-        byMould.set(key, { mouldNo: r.mould_no, mouldName, rows: [], grandTotal: 0 });
-      }
-      const entry = byMould.get(key);
-      const day = Number(r.day_qty) || 0;
-      const night = Number(r.night_qty) || 0;
-      const total = day + night;
-
-      // STD production per shift = pcs_per_hour * 11.5, counted per shift present.
-      // 11.5 productive hours/shift = 23 productive hours/day, matching the
-      // Mould Master Target PCS/DAY = PCS/HOUR * 23 standard (KAN-112); the
-      // remaining ~1h/shift covers breaks, mould changes and startup.
-      const pcsPerHour = Number(r.pcs_per_hour) || 0;
-      const shiftsPresent = (day > 0 ? 1 : 0) + (night > 0 ? 1 : 0) || 1;
-      const stdProd = pcsPerHour * 11.5 * shiftsPresent;
-      const efficiency = stdProd > 0 ? (total / stdProd) * 100 : 0;
-
-      const rejectQty = Number(r.reject_qty) || 0;
-      const rejectPct = (total + rejectQty) > 0
-        ? (rejectQty / (total + rejectQty)) * 100 : 0;
-
-      // STD Cycle Time / STD Weight come from the mould master. Average (actual)
-      // cycle time = total productive run seconds / total shots for this group.
-      const stdCycle = Number(r.std_cycle) || 0;
-      const stdWeight = Number(r.std_weight) || 0;
-      const shots = Number(r.shots) || 0;
-      const runSeconds = Number(r.run_seconds) || 0;
-      const avgCycle = shots > 0 ? runSeconds / shots : 0;
-
-      // Merge per-slot downtime maps -> { reasonCode: minutes }.
-      const dtTotals = {};
-      const breakups = Array.isArray(r.downtime_breakups) ? r.downtime_breakups : [];
-      for (const bk of breakups) {
-        if (!bk || typeof bk !== 'object') continue;
-        for (const code of Object.keys(bk)) {
-          const min = Number(bk[code]);
-          if (min > 0) dtTotals[code] = (dtTotals[code] || 0) + min;
-        }
-      }
-      const downtimeReason = Object.keys(dtTotals)
-        .map(code => `${mouldReasonName(code)} (${dtTotals[code]}m)`)
-        .join(', ');
-
-      entry.rows.push({
-        date: r.dpr_date,
-        day, night, total,
-        orNo: r.or_no || '',
-        jcNo: r.jc_no || '',
-        machine: r.machine || '',
-        colour: r.colour || '',
-        stdProd: Math.round(stdProd),
-        efficiency: Math.round(efficiency * 10) / 10,
-        downtimeMin: Number(r.downtime_min) || 0,
-        downtimeReason,
-        rejectQty,
-        rejectPct: Math.round(rejectPct * 10) / 10,
-        stdCycle: Math.round(stdCycle * 100) / 100,
-        avgCycle: Math.round(avgCycle * 100) / 100,
-        stdWeight: Math.round(stdWeight * 1000) / 1000
-      });
-      entry.grandTotal += total;
-    }
-
-    res.json({ ok: true, fields: activeDims, data: Array.from(byMould.values()) });
+    const out = await buildMouldWiseReport({
+      requestFactoryId: resolveReportFactoryId(req),
+      from: normalizePlanningText(req.query.from),
+      to: normalizePlanningText(req.query.to),
+      search: normalizePlanningText(req.query.q),
+      requested,
+      tonnages: req.query.tonnages
+    });
+    res.json({ ok: true, fields: out.fields, data: out.data });
   } catch (e) {
     console.error('/api/reports/mould-wise-qty', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// Distinct machine tonnages for the report's "Machine Tonnage" checkbox filter.
+// Factory-scoped so a factory view only offers its own machines' tonnages.
+app.get('/api/reports/machine-tonnages', async (req, res) => {
+  try {
+    const factoryId = resolveReportFactoryId(req);
+    const rows = await q(`
+      SELECT DISTINCT tonnage
+      FROM machines
+      WHERE tonnage IS NOT NULL
+        AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+      ORDER BY tonnage
+    `, [factoryId]);
+    res.json({ ok: true, data: rows.map(r => Number(r.tonnage)) });
+  } catch (e) {
+    console.error('/api/reports/machine-tonnages', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// Styled Excel download of the Mould Wise Item QTY report. Same data as the
+// JSON endpoint; adds a titled, coloured header with the report name, the
+// applied filters, and who generated it + when.
+app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const requestFactoryId = resolveReportFactoryId(req);
+    const from = normalizePlanningText(req.query.from);
+    const to = normalizePlanningText(req.query.to);
+    const requested = String(req.query.fields || '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+
+    const { fields, data } = await buildMouldWiseReport({
+      requestFactoryId,
+      from, to,
+      search: normalizePlanningText(req.query.q),
+      requested,
+      tonnages: req.query.tonnages
+    });
+
+    // Factory label for the header line.
+    let factoryLabel = 'All Factories';
+    if (requestFactoryId) {
+      const fr = await q('SELECT name FROM factories WHERE id = $1', [requestFactoryId]);
+      factoryLabel = (fr[0] && fr[0].name) ? fr[0].name : `Factory ${requestFactoryId}`;
+    }
+    const username = getRequestUsername(req) || 'Unknown';
+    const tonnageLabel = String(req.query.tonnages || '').trim()
+      ? String(req.query.tonnages).trim().split(',').map(t => t + 'T').join(', ')
+      : 'All';
+
+    const on = new Set(fields.map(f => f.alias || f));
+    // Column plan mirrors the on-screen report.
+    const cols = [
+      { key: 'mould', label: 'Mould Name', w: 34 },
+      { key: 'mouldNo', label: 'Mould No', w: 16 },
+    ];
+    if (on.has('or_no'))  cols.push({ key: 'orNo', label: 'OR No', w: 14 });
+    if (on.has('jc_no'))  cols.push({ key: 'jcNo', label: 'JC No', w: 14 });
+    if (on.has('colour')) cols.push({ key: 'colour', label: 'Colour', w: 14 });
+    if (on.has('machine'))cols.push({ key: 'machine', label: 'Machine', w: 14 });
+    cols.push({ key: 'date', label: 'Date', w: 13 });
+    cols.push({ key: 'day', label: 'Day', w: 10, num: true });
+    cols.push({ key: 'night', label: 'Night', w: 10, num: true });
+    cols.push({ key: 'total', label: 'Total', w: 11, num: true });
+    if (on.has('std_prod'))   cols.push({ key: 'stdProd', label: 'Prod (STD)', w: 12, num: true });
+    if (on.has('std_cycle'))  cols.push({ key: 'stdCycle', label: 'STD Cycle (s)', w: 12, num: true });
+    if (on.has('avg_cycle'))  cols.push({ key: 'avgCycle', label: 'Avg Cycle (s)', w: 12, num: true });
+    if (on.has('std_weight')) cols.push({ key: 'stdWeight', label: 'STD Wt (kg)', w: 12, num: true });
+    if (on.has('efficiency')) cols.push({ key: 'efficiency', label: 'Eff %', w: 10, num: true });
+    if (on.has('downtime'))   cols.push({ key: 'downtimeReason', label: 'Downtime', w: 30 });
+    if (on.has('reject_qty')) cols.push({ key: 'rejectQty', label: 'Reject Qty', w: 12, num: true });
+    if (on.has('reject_pct')) cols.push({ key: 'rejectPct', label: 'Reject %', w: 10, num: true });
+
+    const NCOL = cols.length;
+    const BLUE = 'FF1E4E79', BLUE_MID = 'FF2E6CA4', HEADFILL = 'FF2E6CA4';
+    const BAND = 'FFEFF4FA', SUBFILL = 'FFDCE7F3', WHITE = 'FFFFFFFF', INK = 'FF1F2937', GREY = 'FF64748B';
+    const FONT = 'Calibri';
+    const thin = { style: 'thin', color: { argb: 'FFD5DEEA' } };
+    const box = { top: thin, left: thin, right: thin, bottom: thin };
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = username;
+    const ws = wb.addWorksheet('Mould Wise QTY', { views: [{ state: 'frozen', ySplit: 5 }] });
+    ws.columns = cols.map(c => ({ width: c.w }));
+    const colLetter = n => ws.getColumn(n).letter;
+
+    // Title
+    ws.mergeCells(1, 1, 1, NCOL);
+    const t = ws.getCell(1, 1);
+    t.value = 'MOULD WISE ITEM QTY — REPORT';
+    t.font = { name: FONT, size: 14, bold: true, color: { argb: WHITE } };
+    t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLUE } };
+    t.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 30;
+
+    // Meta line 1: factory + range + tonnage
+    ws.mergeCells(2, 1, 2, NCOL);
+    ws.getCell(2, 1).value =
+      `Factory: ${factoryLabel}    |    Period: ${from || '—'} to ${to || '—'}    |    Machine Tonnage: ${tonnageLabel}`;
+    ws.getCell(2, 1).font = { name: FONT, size: 10, color: { argb: INK } };
+    // Meta line 2: generated by / at
+    ws.mergeCells(3, 1, 3, NCOL);
+    ws.getCell(3, 1).value =
+      `Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}    |    By: ${username}`;
+    ws.getCell(3, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+
+    // Header row (row 5)
+    const HROW = 5;
+    cols.forEach((c, i) => {
+      const cell = ws.getCell(HROW, i + 1);
+      cell.value = c.label;
+      cell.font = { name: FONT, size: 10, bold: true, color: { argb: WHITE } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADFILL } };
+      cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle' };
+      cell.border = box;
+    });
+    ws.getRow(HROW).height = 20;
+
+    // Data
+    let r = HROW + 1;
+    let bandToggle = 0;
+    for (const g of data) {
+      const groupStart = r;
+      for (const row of g.rows) {
+        const src = { mould: g.mouldName || g.mouldNo, mouldNo: g.mouldNo, ...row };
+        const band = bandToggle % 2 ? BAND : WHITE;
+        cols.forEach((c, i) => {
+          const cell = ws.getCell(r, i + 1);
+          let v = src[c.key];
+          if (c.key === 'efficiency' || c.key === 'rejectPct') v = (v === '' || v == null) ? '' : Number(v);
+          cell.value = (v === undefined || v === null) ? '' : v;
+          cell.font = { name: FONT, size: 10, color: { argb: INK } };
+          cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle', wrapText: c.key === 'downtimeReason' };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: band } };
+          cell.border = box;
+          if (c.num && typeof cell.value === 'number') cell.numFmt = '#,##0';
+        });
+        r++; bandToggle++;
+      }
+      // Per-mould subtotal row (Total column summed).
+      const totalColIdx = cols.findIndex(c => c.key === 'total') + 1;
+      const dayColIdx = cols.findIndex(c => c.key === 'day') + 1;
+      const nightColIdx = cols.findIndex(c => c.key === 'night') + 1;
+      for (let ci = 1; ci <= NCOL; ci++) {
+        const cell = ws.getCell(r, ci);
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUBFILL } };
+        cell.border = box;
+        cell.font = { name: FONT, size: 10, bold: true, color: { argb: BLUE } };
+      }
+      ws.getCell(r, 1).value = `Total — ${g.mouldName || g.mouldNo}`;
+      if (dayColIdx) ws.getCell(r, dayColIdx).value = { formula: `SUM(${colLetter(dayColIdx)}${groupStart}:${colLetter(dayColIdx)}${r - 1})`, result: g.rows.reduce((s, x) => s + x.day, 0) };
+      if (nightColIdx) ws.getCell(r, nightColIdx).value = { formula: `SUM(${colLetter(nightColIdx)}${groupStart}:${colLetter(nightColIdx)}${r - 1})`, result: g.rows.reduce((s, x) => s + x.night, 0) };
+      if (totalColIdx) ws.getCell(r, totalColIdx).value = { formula: `SUM(${colLetter(totalColIdx)}${groupStart}:${colLetter(totalColIdx)}${r - 1})`, result: g.grandTotal };
+      [dayColIdx, nightColIdx, totalColIdx].forEach(ci => { if (ci) { ws.getCell(r, ci).numFmt = '#,##0'; ws.getCell(r, ci).alignment = { horizontal: 'right' }; } });
+      r++; bandToggle = 0;
+    }
+
+    if (!data.length) {
+      ws.mergeCells(HROW + 1, 1, HROW + 1, NCOL);
+      ws.getCell(HROW + 1, 1).value = 'No production found for this mould / date range / filters.';
+      ws.getCell(HROW + 1, 1).font = { name: FONT, italic: true, color: { argb: GREY } };
+    }
+
+    const buf = await wb.xlsx.writeBuffer();
+    const fname = `Mould_Wise_Item_QTY_${(from || 'all')}_${(to || 'all')}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+    res.end(Buffer.from(buf));
+  } catch (e) {
+    console.error('/api/reports/mould-wise-qty.xlsx', e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
