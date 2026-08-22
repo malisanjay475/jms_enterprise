@@ -28,7 +28,6 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-    "esbuild": "^0.28.1",
     "@sentry/node": "^10.51.0",
     "adm-zip": "^0.5.16",
     "bcryptjs": "^3.0.3",
@@ -36,6 +35,8 @@
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "esbuild": "^0.28.1",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.0",
     "helmet": "^8.1.0",
