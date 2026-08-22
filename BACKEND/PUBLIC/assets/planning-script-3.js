@@ -685,7 +685,7 @@
                <strong style="color:#0369a1; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; font-size:.9rem; flex:0 0 218px;"><i class="bi bi-check-circle-fill"></i> Complete Production Plan Report</strong>
                <div style="flex:1 1 230px; min-width:210px; max-width:320px; position:relative;">
                   <i class="bi bi-search" style="position:absolute; left:13px; top:50%; transform:translateY(-50%); color:#64748b; pointer-events:none"></i>
-                  <input type="text" id="pcrSearch" class="input" placeholder="Search Machine, OR No, Job Card, Mould, Client..."
+                  <input type="text" id="pcrSearch" class="input" placeholder="Search Machine, OR No, Job Card, Mould, Mould No, Client..."
                          style="width:100%; height:38px; padding-left:38px; padding-right:34px; border-radius:999px; background:#fff; border:1px solid #bfdbfe; font-weight:700; box-shadow:inset 0 1px 0 rgba(255,255,255,.95);"
                          list="pcrSuggestions"
                          onkeyup="window.pcrDebounceSearch()">

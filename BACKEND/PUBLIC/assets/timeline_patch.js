@@ -3,7 +3,41 @@
 // This script overrides the timeline logic and improves filtering with robust matching.
 
 (function () {
-    console.log('[TimelinePatch] Initializing v56 (Reorder Ripple + Load)...');
+    console.log('[TimelinePatch] Initializing v57 (Persist Line/Building Filter)...');
+
+    // --- PERSIST LINE/BUILDING FILTER SELECTION (survives timeline refresh) ---
+    // Keyed by current process so Moulding/Printing/etc. keep independent selections.
+    const TL_FILTER_STORE_KEY = 'tl_filters_v1';
+    const tlCurrentProcessKey = () => {
+        try {
+            return (typeof window.getPlanningProcessFilter === 'function')
+                ? (window.getPlanningProcessFilter() || 'Moulding')
+                : 'Moulding';
+        } catch (_) { return 'Moulding'; }
+    };
+    window.tlSaveFilterSelection = function () {
+        try {
+            const store = JSON.parse(localStorage.getItem(TL_FILTER_STORE_KEY) || '{}');
+            store[tlCurrentProcessKey()] = {
+                bldg: (document.getElementById('filt-bldg')?.value) || '',
+                line: (document.getElementById('filt-line')?.value) || ''
+            };
+            localStorage.setItem(TL_FILTER_STORE_KEY, JSON.stringify(store));
+        } catch (_) { /* storage unavailable — ignore */ }
+    };
+    window.tlReadFilterSelection = function () {
+        try {
+            const store = JSON.parse(localStorage.getItem(TL_FILTER_STORE_KEY) || '{}');
+            return store[tlCurrentProcessKey()] || { bldg: '', line: '' };
+        } catch (_) { return { bldg: '', line: '' }; }
+    };
+    window.tlClearFilterSelection = function () {
+        try {
+            const store = JSON.parse(localStorage.getItem(TL_FILTER_STORE_KEY) || '{}');
+            delete store[tlCurrentProcessKey()];
+            localStorage.setItem(TL_FILTER_STORE_KEY, JSON.stringify(store));
+        } catch (_) { /* ignore */ }
+    };
 
     // --- SHARED: is a plan still awaiting PPC / Moulding approval? ---
     // PENDING (or NULL) => waiting on PPC (and then Moulding); PPC_APPROVED => waiting on Moulding.
@@ -1841,8 +1875,28 @@
                 [...lines].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).forEach(l => lSel.add(new Option(l === 'MACHINES' ? 'Machines' : ('Line ' + l), l)));
             }
 
-            con.innerHTML = ''; window.superRenderTimelineRows(window.timelineMachines);
-            if (document.getElementById('filter-count')) document.getElementById('filter-count').textContent = window.timelineMachines.length + ' machines';
+            // --- RESTORE PERSISTED LINE/BUILDING SELECTION (survives refresh) ---
+            const saved = window.tlReadFilterSelection();
+            let restored = false;
+            if (bSel && saved.bldg && [...bldgs].includes(saved.bldg)) {
+                bSel.value = saved.bldg;
+                // Rebuild line options for the restored building before restoring the line.
+                if (typeof window.superUpdateLineOptions === 'function') window.superUpdateLineOptions();
+                restored = true;
+            }
+            if (lSel && saved.line) {
+                const lineOpt = Array.from(lSel.options).some(o => o.value === saved.line);
+                if (lineOpt) { lSel.value = saved.line; restored = true; }
+            }
+
+            con.innerHTML = '';
+            if (restored) {
+                // Apply the persisted filter (also refreshes the machine count).
+                window.superFilterTimeline();
+            } else {
+                window.superRenderTimelineRows(window.timelineMachines);
+                if (document.getElementById('filter-count')) document.getElementById('filter-count').textContent = window.timelineMachines.length + ' machines';
+            }
         } catch (e) {
             console.error(e); con.innerHTML = '<div class="text-danger p-5">Error Loading: ' + e.message + '</div>';
         }
@@ -1871,6 +1925,9 @@
         const approvalPendingOnly = document.getElementById('filt-approval-pending')?.checked;
 
         const norm = (v) => String(v || '').trim().toUpperCase();
+
+        // Remember Line/Building selection so it survives a timeline refresh.
+        if (typeof window.tlSaveFilterSelection === 'function') window.tlSaveFilterSelection();
 
         const now = Date.now();
         const cutoffTime = f ? (now + parseInt(f) * 3600000) : 0;
@@ -1956,6 +2013,7 @@
         const overEl = document.getElementById('filt-overproduced'); if (overEl) overEl.checked = false;
         const apprEl = document.getElementById('filt-approval-pending'); if (apprEl) apprEl.checked = false;
         const prioEl = document.getElementById('filt-priority-view'); if (prioEl) prioEl.checked = false;
+        if (typeof window.tlClearFilterSelection === 'function') window.tlClearFilterSelection();
         window.superUpdateLineOptions(); window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
