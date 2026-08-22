@@ -100,6 +100,11 @@
         .kpi-value { font-size: 1.55rem; font-weight: 900; color: var(--ink); line-height: 1.05; margin-top: 2px; }
         .kpi-value small { font-size: .72rem; font-weight: 700; color: #94a3b8; }
         .kpi-sub { font-size: .66rem; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+        .loss-total td { background:#f1f5f9 !important; font-weight:800; border-top:2px solid #cbd5e1; }
+        tr.dt-extra { display:none; }
+        tr.dt-extra.show { display:table-row; }
+        .dt-toggle { cursor:pointer; user-select:none; }
+        .dt-toggle:hover { background:#f8fafc; }
         .trend-up { color: var(--good); } .trend-down { color: var(--red); }
 
         /* ── Insights ribbon ── */
@@ -257,8 +262,51 @@
             </div>
         </div>
 
+        <!-- ── OEE Strip ── -->
+        <div class="kpi-strip" id="oee-strip" style="display:none; margin-top:12px">
+            <div class="kpi-card" id="oee-card">
+                <div class="kpi-head"><span class="kpi-label">OEE</span><span class="kpi-icon"><i class="bi bi-gear-wide-connected"></i></span></div>
+                <div class="kpi-value" id="kpi-oee">—</div>
+                <div class="kpi-sub" id="kpi-oee-sub">Availability × Performance × Quality</div>
+            </div>
+            <div class="kpi-card blue">
+                <div class="kpi-head"><span class="kpi-label">Availability</span><span class="kpi-icon"><i class="bi bi-plug-fill"></i></span></div>
+                <div class="kpi-value" id="kpi-avail">—</div>
+                <div class="kpi-sub">Run time ÷ planned time</div>
+            </div>
+            <div class="kpi-card purple">
+                <div class="kpi-head"><span class="kpi-label">Performance</span><span class="kpi-icon"><i class="bi bi-speedometer"></i></span></div>
+                <div class="kpi-value" id="kpi-perf">—</div>
+                <div class="kpi-sub">Actual ÷ achievable at rate</div>
+            </div>
+            <div class="kpi-card green">
+                <div class="kpi-head"><span class="kpi-label">Quality</span><span class="kpi-icon"><i class="bi bi-patch-check-fill"></i></span></div>
+                <div class="kpi-value" id="kpi-qual">—</div>
+                <div class="kpi-sub">Good ÷ gross</div>
+            </div>
+            <div class="kpi-card red">
+                <div class="kpi-head"><span class="kpi-label">Total Loss</span><span class="kpi-icon"><i class="bi bi-graph-down-arrow"></i></span></div>
+                <div class="kpi-value" id="kpi-loss">—</div>
+                <div class="kpi-sub" id="kpi-loss-sub">Kg below 24-hour target</div>
+            </div>
+            <div class="kpi-card amber">
+                <div class="kpi-head"><span class="kpi-label">Change-overs</span><span class="kpi-icon"><i class="bi bi-arrow-repeat"></i></span></div>
+                <div class="kpi-value" style="font-size:1.15rem" id="kpi-chg">—</div>
+                <div class="kpi-sub" id="kpi-chg-sub">Mould / Colour / Job</div>
+            </div>
+        </div>
+
         <!-- ── Insights ── -->
         <div class="insights" id="insights" style="display:none"></div>
+
+        <!-- ── Loss & Change-over panel ── -->
+        <div class="panel" id="loss-panel" style="display:none; margin-top:14px">
+            <div class="panel-head no-print">
+                <div class="panel-title"><i class="bi bi-graph-down-arrow" style="color:#7c3aed"></i> Loss Account &amp; Change-over Variance (Line-wise)</div>
+                <div class="hero-sep" style="flex:1"></div>
+            </div>
+            <div id="loss-tables" style="overflow-x:auto"></div>
+        </div>
 
         <!-- ── Charts ── -->
         <div class="charts-row" id="charts-section" style="display:none">
@@ -316,6 +364,57 @@ const DOWNTIME_CODES = {
     '9':'Color Change','10':'Process Setting','11':'Mould Trial','12':'Crane / Loading'
 };
 
+/* ══════════════════════════════════════════════════════════════════════
+   OEE / LOSS / CHANGEOVER ENGINE  (see PRD: Target Waterfall + OEE)
+   All weight in Kg. Productive hours per shift = SHIFT_HOURS.
+   ══════════════════════════════════════════════════════════════════════ */
+const SHIFT_HOURS   = 12;                        // productive hours per shift (matches current target math)
+const MOULD_CHANGE_CODE = '2';                   // downtime reason code for actual mould-change time
+
+// Derive OEE/loss ratios from the summed waterfall tiers (nameplate/planned/netAch/gross/good).
+// Used for both a single machine (its .Total) and any line/factory aggregate.
+function deriveFromTiers(o) {
+    // The four buckets telescope to Nameplate − Good, so they ALWAYS reconcile:
+    //   (Nameplate−Planned)+(Planned−NetAch)+(NetAch−Gross)+(Gross−Good) = Nameplate−Good
+    // change-over and downtime are ≥0 (Planned≤Nameplate, NetAch≤Planned). Speed is SIGNED:
+    // a machine running above its rated speed (Gross>NetAch) yields a negative speed loss
+    // (an over-rate gain) — keeping it signed preserves the identity instead of breaking it.
+    o.changeoverLoss = o.nameplate - o.planned;   // Nameplate − Planned  (actual change-over)
+    o.downtimeLoss   = o.planned - o.netAch;      // Planned − Net Achievable (other downtime)
+    o.speedLoss      = o.netAch - o.gross;        // Net Achievable − Gross (− = ran above rate)
+    o.qualityLoss    = o.reject;                  // Gross − Good
+    o.totalLoss      = o.changeoverLoss + o.downtimeLoss + o.speedLoss + o.qualityLoss; // = Nameplate − Good
+    o.avail = o.planned > 0 ? Math.min(1, o.netAch / o.planned) : 0;
+    o.perf  = o.netAch  > 0 ? Math.min(1, o.gross  / o.netAch) : 0;
+    o.qual  = o.gross   > 0 ? o.good / o.gross : 0;
+    o.oee   = o.avail * o.perf * o.qual;
+    return o;
+}
+
+// Build the bundle for ONE machine from its accumulated Total metrics.
+function machineBundle(m) {
+    const t = m.Total;
+    return deriveFromTiers({
+        nameplate: t.targetWt, planned: t.plannedWt, netAch: t.netAchWt,
+        gross: t.grossWt, good: t.goodWt, reject: t.rejWt, dtHr: t.totalDtHr,
+        mc: t.mc||0, cc: t.cc||0, jc: t.jc||0, changes: t.jc||0,
+        stdCoHrs: t.stdCoHr, actCoHrs: (t.dt[MOULD_CHANGE_CODE]||0)/60,
+        overrunHrs: t.overrunHr, excessKg: t.excessCoWt
+    });
+}
+
+// Aggregate a list of machine bundles into a line/factory bundle (sum tiers, re-derive ratios).
+function aggBundle(bundles) {
+    const s = { nameplate:0, planned:0, netAch:0, gross:0, good:0, reject:0, dtHr:0,
+        mc:0, cc:0, jc:0, changes:0, stdCoHrs:0, actCoHrs:0, overrunHrs:0, excessKg:0 };
+    bundles.forEach(b => {
+        ['nameplate','planned','netAch','gross','good','reject','dtHr','mc','cc','jc','changes',
+         'stdCoHrs','actCoHrs','overrunHrs','excessKg'].forEach(k => s[k] += (b[k] || 0));
+    });
+    return deriveFromTiers(s);
+}
+const pct1  = x => (x * 100).toFixed(1) + '%';
+
 function _initPage() {
     try { if (window.JPSMS && JPSMS.auth) JPSMS.auth.requireAuth(); } catch(e) { console.error('requireAuth:', e); }
     try { if (window.JPSMS && JPSMS.renderShell) JPSMS.renderShell('dpr'); } catch(e) { console.error('renderShell:', e); }
@@ -352,9 +451,9 @@ function fmt(v, dec = 1) { if (v == null || isNaN(v) || v === 0) return '—'; r
 function fmtForce(v, dec = 1) { return Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: dec }); }
 function effClass(v) { if (v >= 85) return 'eff-good'; if (v >= 65) return 'eff-mid'; return v > 0 ? 'eff-bad' : 'val-zero'; }
 function effPillClass(v) { if (v >= 85) return 'g'; if (v >= 65) return 'a'; return v > 0 ? 'r' : 'z'; }
-function initMetrics() { return { targetWt:0, goodWt:0, rejWt:0, grossWt:0, totalDtHr:0, dt:{}, rej:{}, cc:0, mc:0, jc:0, runMachines:0, totalMachines:0, goodPcs:0, rejPcs:0 }; }
+function initMetrics() { return { targetWt:0, plannedWt:0, netAchWt:0, goodWt:0, rejWt:0, grossWt:0, totalDtHr:0, stdCoHr:0, overrunHr:0, excessCoWt:0, dt:{}, rej:{}, cc:0, mc:0, jc:0, runMachines:0, totalMachines:0, goodPcs:0, rejPcs:0 }; }
 function addMetrics(dest, src) {
-    ['targetWt','goodWt','rejWt','grossWt','totalDtHr','cc','mc','jc','runMachines','totalMachines','goodPcs','rejPcs'].forEach(k => dest[k] += src[k]);
+    ['targetWt','plannedWt','netAchWt','goodWt','rejWt','grossWt','totalDtHr','stdCoHr','overrunHr','excessCoWt','cc','mc','jc','runMachines','totalMachines','goodPcs','rejPcs'].forEach(k => dest[k] += src[k]);
     Object.entries(src.dt).forEach(([c,v]) => dest.dt[c] = (dest.dt[c]||0)+v);
     Object.entries(src.rej).forEach(([c,v]) => dest.rej[c] = (dest.rej[c]||0)+v);
 }
@@ -379,6 +478,11 @@ async function generateReport() {
         ]);
 
         const allowedSet = new Set((machinesRes.data||[]).map(m => m.machine));
+        // Machine Master load/unload time (minutes) → STD change-over time per machine.
+        const loadUnloadMap = {};
+        (machinesRes.data||[]).forEach(m => {
+            loadUnloadMap[m.machine] = (parseFloat(m.mould_load_time)||0) + (parseFloat(m.mould_unload_time)||0);
+        });
         const filterRes = (res) => {
             const d = res.data || {};
             const dates = {};
@@ -423,7 +527,7 @@ async function generateReport() {
                 const line = mObj ? (mObj.line||mObj.building||mObj.machine_process||'General') : null;
                 if (!line || !agg[line]) return;
 
-                if (!magg[machine]) magg[machine] = { line, name:machine, client:'', jc:'', std:0, actWt:0, Day:initMetrics(), Night:initMetrics(), Total:initMetrics() };
+                if (!magg[machine]) magg[machine] = { line, name:machine, client:'', jc:'', std:0, actWt:0, loadUnloadMin:(loadUnloadMap[machine]||0), Day:initMetrics(), Night:initMetrics(), Total:initMetrics() };
                 const mm = magg[machine][shiftName];   // per-machine per-shift metrics
                 const L  = agg[line][shiftName];        // per-line per-shift metrics
 
@@ -455,17 +559,31 @@ async function generateReport() {
                 if (activeWt) magg[machine].actWt = activeWt;
 
                 const slots = entriesMap[machine];
-                const uniqueMoulds = new Set();
+                const uniqueJobs = new Set();     // distinct jobs/orders     → Job Change (DPR-setup basis)
+                const uniqueMoulds = new Set();   // distinct physical moulds → Mould Change (DPR-setup basis)
+                const colourSeq = [];             // ordered per-hour colour  → Colour Change (each purge)
                 let mHasData = false;
 
-                Object.keys(slots).forEach(slot => {
+                Object.keys(slots).sort().forEach(slot => {
                     let slotEntries = slots[slot];
                     if (!Array.isArray(slotEntries)) slotEntries=[slotEntries];
+                    // Deterministic within-hour order (created_at, then id) so the colour picked
+                    // for the transition sequence is stable regardless of API row order.
+                    slotEntries = slotEntries.slice().sort((a,b)=>{
+                        const ta=(a&&a.created_at)?String(a.created_at):'', tb=(b&&b.created_at)?String(b.created_at):'';
+                        if(ta!==tb) return ta<tb?-1:1;
+                        return (((a&&a.id)||0)-((b&&b.id)||0));
+                    });
                     let slotDt=0;
+                    let slotColour=null;   // this hour's colour (first, in deterministic order)
                     slotEntries.forEach(e => {
                         if (!e) return;
                         mHasData = true;
-                        if (e.mould_no||e.order_no||e.mould_name) uniqueMoulds.add((e.order_no||e.mould_no||e.mould_name).trim().toLowerCase());
+                        // Jobs & moulds counted as DISTINCT (a reused setup is not a new change).
+                        const jobKey=(e.order_no||e.mould_no||e.mould_name); if(jobKey) uniqueJobs.add(String(jobKey).trim().toLowerCase());
+                        const mouldKey=(e.mould_no||e.mould_name);           if(mouldKey) uniqueMoulds.add(String(mouldKey).trim().toLowerCase());
+                        // Colour captured per hour → counted as TRANSITIONS below (each switch = a purge).
+                        if(slotColour===null && e.colour) slotColour=String(e.colour).trim().toLowerCase();
                         if (e.job_card_no) magg[machine].jc = e.job_card_no;
                         if (e.client_name) magg[machine].client = e.client_name;
 
@@ -486,16 +604,41 @@ async function generateReport() {
                             Object.entries(e.downtime_breakup).forEach(([c,m])=>{ L.dt[c]=(L.dt[c]||0)+parseInt(m); mm.dt[c]=(mm.dt[c]||0)+parseInt(m); });
                         if (e.reject_breakup&&typeof e.reject_breakup==='object')
                             Object.entries(e.reject_breakup).forEach(([c,qv])=>{ L.rej[c]=(L.rej[c]||0)+(parseInt(qv)*ew); });
-                        if (e.entry_type==='ColourChange'||(e.downtime_breakup&&e.downtime_breakup['9'])) { L.cc++; mm.cc++; }
-                        if (e.downtime_breakup&&e.downtime_breakup['2']) { L.mc++; mm.mc++; }
                     });
+                    if(slotColour) colourSeq.push(slotColour);   // one colour per hour, in time order
                     const dtHr = Math.min(60,slotDt)/60;
                     L.totalDtHr += dtHr; mm.totalDtHr += dtHr;
                 });
 
                 if (mHasData) { L.runMachines++; mm.runMachines = 1; }
-                const jcCount = Math.max(0,uniqueMoulds.size-1);
+                // Mould & Job change = distinct setups − 1 (a reused mould/job is the SAME setup,
+                // not a new change). Colour change = TRANSITIONS: one each time the colour differs
+                // from the previous hour, because a colour used again still needs a fresh purge
+                // (so Gray→Green→Brown→Gray = 3 colour changes, not 2).
+                const mcCount = Math.max(0, uniqueMoulds.size - 1);   // Mould Change
+                const jcCount = Math.max(0, uniqueJobs.size - 1);     // Job Change
+                let ccCount = 0, prevCol = null;                     // Colour Change (each purge)
+                for (const c of colourSeq) { if (prevCol !== null && c !== prevCol) ccCount++; prevCol = c; }
+                L.mc += mcCount; mm.mc += mcCount;
+                L.cc += ccCount; mm.cc += ccCount;
                 L.jc += jcCount; mm.jc += jcCount;
+
+                // ── Target waterfall tiers (per machine-shift): Nameplate → Planned → Net Achievable ──
+                // R = Kg/hr at std rate. Planned removes actual change-over time (code 2);
+                // Net Achievable removes ALL downtime. STD change-over = mould swaps × (load+unload).
+                const Rhr = (activeWt>0 && activeStd>0) ? (activeWt*activeStd) : 0;
+                const mActCoHr = (mm.dt[MOULD_CHANGE_CODE]||0)/60;      // actual change-over hrs (this machine-shift)
+                const mDtHr    = mm.totalDtHr;                          // total downtime hrs (this machine-shift)
+                const mStdCoHr = mcCount * ((loadUnloadMap[machine]||0)/60);   // STD change-over ∝ mould changes
+                const mPlanned = Rhr * Math.max(0, SHIFT_HOURS - mActCoHr);
+                const mNetAch  = Rhr * Math.max(0, SHIFT_HOURS - mDtHr);
+                const mOverrun = Math.max(0, mActCoHr - mStdCoHr);
+                const mExcess  = Rhr * mOverrun;
+                L.plannedWt+=mPlanned;  mm.plannedWt+=mPlanned;
+                L.netAchWt+=mNetAch;    mm.netAchWt+=mNetAch;
+                L.stdCoHr+=mStdCoHr;    mm.stdCoHr+=mStdCoHr;
+                L.overrunHr+=mOverrun;  mm.overrunHr+=mOverrun;
+                L.excessCoWt+=mExcess;  mm.excessCoWt+=mExcess;
 
                 // legacy drill store (line -> machine)
                 window._drillData[line] = window._drillData[line]||{};
@@ -526,12 +669,21 @@ async function generateReport() {
         const meta = { date, dtStr, allMachines, teamDayMap, teamNightMap,
                        kpi: { psTarget, psGood, psRej, psGross, psDtHr, psEff, psRejPct, psRun:psRun.size, psTtlMc } };
         const machineList = Object.values(magg);
-        lastReport = { agg, lineKeys, machineList, reasonsMap, meta };
+
+        // ── OEE / Loss / Change-over bundles ──
+        machineList.forEach(m => { m.bundle = machineBundle(m); });
+        const lineBundles = {};
+        lineKeys.forEach(l => { lineBundles[l] = aggBundle(machineList.filter(m => m.line === l).map(m => m.bundle)); });
+        const factoryBundle = aggBundle(machineList.map(m => m.bundle));
+
+        lastReport = { agg, lineKeys, machineList, reasonsMap, meta, lineBundles, factoryBundle };
 
         renderKPIs(meta.kpi);
+        renderOEE(factoryBundle);
         renderInsights(agg, lineKeys, reasonsMap, meta.kpi);
         renderCharts(agg, lineKeys, reasonsMap);
         renderGrid(agg, lineKeys, dtStr, reasonsMap, teamDayMap, teamNightMap);
+        renderLossPanel(lineKeys, lineBundles, factoryBundle);
         renderMachineView();
         document.getElementById('last-gen-badge').innerHTML =
             `<span class="live-dot"></span> Generated ${new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}`;
@@ -564,6 +716,71 @@ function renderKPIs(k) {
     document.getElementById('kpi-dt-sub').textContent = k.psTtlMc>0 ? fmtForce((k.psDtHr/(k.psTtlMc*24))*100)+'% of available hrs' : 'Hrs lost';
 }
 
+/* ── OEE strip ── */
+function oeeBand(x){ return x>=0.85?'green':x>=0.65?'amber':'red'; }
+function renderOEE(b) {
+    document.getElementById('oee-strip').style.display = 'grid';
+    document.getElementById('kpi-oee').textContent   = pct1(b.oee);
+    document.getElementById('kpi-oee-sub').textContent = b.oee>=0.85?'World-class':b.oee>=0.60?'Typical':'Needs attention';
+    document.getElementById('oee-card').className = 'kpi-card '+oeeBand(b.oee);
+    document.getElementById('kpi-avail').textContent = pct1(b.avail);
+    document.getElementById('kpi-perf').textContent  = pct1(b.perf);
+    document.getElementById('kpi-qual').textContent  = pct1(b.qual);
+    document.getElementById('kpi-loss').textContent  = fmtForce(b.totalLoss)+' Kg';
+    document.getElementById('kpi-loss-sub').textContent = 'Kg below 24-hour target';
+    document.getElementById('kpi-chg').textContent   = `${b.mc} / ${b.cc} / ${b.jc}`;
+    document.getElementById('kpi-chg-sub').textContent = `${fmtForce(b.overrunHrs)}h over STD change-over`;
+}
+
+/* ── Loss & Change-over tables (line-wise) ── */
+function renderLossPanel(lineKeys, lineBundles, factory) {
+    document.getElementById('loss-panel').style.display = '';
+    const n = (x,d=1)=>fmtForce(x,d);
+    const lossRow = (name, b, isTot=false) => `<tr class="${isTot?'loss-total':''}">
+        <td class="txt">${name}</td>
+        <td>${n(b.good)}</td>
+        <td style="font-weight:800;color:#dc2626">${n(b.totalLoss)}</td>
+        <td>${n(b.changeoverLoss)}</td>
+        <td>${n(b.downtimeLoss)}</td>
+        <td>${n(b.speedLoss)}</td>
+        <td>${n(b.qualityLoss)}</td>
+        <td class="txt"><span style="font-weight:800;color:${b.oee>=0.85?'#16a34a':b.oee>=0.65?'#d97706':'#dc2626'}">${pct1(b.oee)}</span></td>
+    </tr>`;
+    let lossTbl = `<table class="mc-table"><thead><tr>
+        <th class="txt">Line</th><th>Good Kg</th><th>Total Loss Kg</th>
+        <th>Change-over</th><th>Downtime</th><th>Speed</th><th>Quality</th><th class="txt">OEE</th>
+    </tr></thead><tbody>`;
+    lineKeys.forEach(l => { lossTbl += lossRow(l, lineBundles[l]); });
+    lossTbl += lossRow('FACTORY TOTAL', factory, true) + `</tbody></table>`;
+
+    // Change-over variance table
+    const flag = (over,std)=> std>0 && over/std>0.2 ? 'color:#dc2626;font-weight:800' : '';
+    const chgRow = (name,b,isTot=false)=>`<tr class="${isTot?'loss-total':''}">
+        <td class="txt">${name}</td>
+        <td>${b.mc}</td><td>${b.cc}</td><td>${b.jc}</td>
+        <td>${n(b.stdCoHrs)}</td><td>${n(b.actCoHrs)}</td>
+        <td style="${flag(b.overrunHrs,b.stdCoHrs)}">${b.overrunHrs>0?'+':''}${n(b.overrunHrs)}</td>
+        <td style="font-weight:700;color:#dc2626">${n(b.excessKg)}</td>
+    </tr>`;
+    let chgTbl = `<div style="font-weight:800;color:#334155;font-size:.82rem;margin:16px 0 6px"><i class="bi bi-arrow-repeat" style="color:#d97706"></i> Change-over: STD vs Actual (Overrun = avoidable loss)</div>
+        <table class="mc-table"><thead><tr>
+        <th class="txt">Line</th><th>Mould</th><th>Colour</th><th>Job</th>
+        <th>STD Hr</th><th>Actual Hr</th><th>Overrun Hr</th><th>Excess Loss Kg</th>
+    </tr></thead><tbody>`;
+    lineKeys.forEach(l => { chgTbl += chgRow(l, lineBundles[l]); });
+    chgTbl += chgRow('FACTORY TOTAL', factory, true) + `</tbody></table>`;
+
+    document.getElementById('loss-tables').innerHTML = lossTbl + chgTbl +
+        `<div class="small" style="margin-top:10px;color:#64748b;font-size:.7rem;line-height:1.6">
+            <b>24 Hour Target = Good + Change-over + Downtime + Speed + Quality loss.</b> All figures in Kg.<br>
+            • <b style="color:#7c3aed">Change-over Loss</b> = 24 Hour Target − Planned = rate × actual mould-change time (downtime code 2).<br>
+            • <b style="color:#a855f7">Downtime Loss</b> = Planned − Net Achievable = rate × all other downtime.<br>
+            • <b style="color:#c084fc">Speed Loss</b> = Net Achievable − Gross = output lost running below rated speed.<br>
+            • <b style="color:#ef4444">Quality Loss</b> = Gross − Good = reject weight.<br>
+            STD change-over = job/mould changes × (mould load + unload from Machine Master). Overrun &gt;20% flagged red.
+        </div>`;
+}
+
 /* ── Insights ── */
 function renderInsights(agg, lines, reasonsMap, k) {
     const host = document.getElementById('insights');
@@ -587,6 +804,14 @@ function renderInsights(agg, lines, reasonsMap, k) {
     if (hiRej && hiRej.r>0) html.push(chip('linear-gradient(135deg,#fb923c,#ea580c)','bi-exclamation-octagon-fill','Highest Rejection', hiRej.l, fmtForce(hiRej.r)+' Kg'));
     if (topDt) html.push(chip('linear-gradient(135deg,#a78bfa,#7c3aed)','bi-hourglass-split','Top Downtime', DOWNTIME_CODES[topDt[0]]||reasonsMap[topDt[0]]||('Code '+topDt[0]), fmtForce(topDt[1]/60)+' hrs'));
     host.innerHTML = html.join('') || '';
+}
+
+/* ── Collapsible Other Downtime ── */
+function toggleOtherDt() {
+    const rows = document.querySelectorAll('#view-line tr.dt-extra');
+    const anyHidden = [...rows].some(r => !r.classList.contains('show'));
+    rows.forEach(r => r.classList.toggle('show', anyHidden));
+    const chev = document.getElementById('dt-chev'); if (chev) chev.textContent = anyHidden ? '▾' : '▸';
 }
 
 /* ── View switch ── */
@@ -615,8 +840,10 @@ function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
     thead += `<th class="sh-day" style="font-size:.7rem">☀️ DAY</th><th class="sh-night" style="font-size:.7rem">🌙 NIGHT</th><th class="sh-total" style="font-size:.7rem">⏱ 24 HRS</th></tr>`;
 
     const row = (icon, title, fn, opts={}) => {
-        const { bold=false, color='', drillLine=false } = opts;
-        let h = `<tr><td class="metric-col" style="${bold?'font-weight:800;':''}">${icon?`<i class="bi ${icon}" style="opacity:.6;margin-right:4px;font-size:.7rem"></i>`:''}${title}</td>`;
+        const { bold=false, color='', drillLine=false, cls='', attr='', total=null, calc='' } = opts;
+        const mcStyle = (bold?'font-weight:800;':'') + (calc?'cursor:pointer;':'');
+        const mcClick = calc?`onclick="showCalc('${calc}')" title="Show live calculation"`:'';
+        let h = `<tr class="${cls}" ${attr}><td class="metric-col" style="${mcStyle}" ${mcClick}>${icon?`<i class="bi ${icon}" style="opacity:.6;margin-right:4px;font-size:.7rem"></i>`:''}${title}${calc?' <i class="bi bi-calculator" style="opacity:.45;font-size:.62rem;margin-left:3px"></i>':''}</td>`;
         let tDay=0, tNight=0;
         lines.forEach(l => {
             const dv=fn(agg[l].Day,l,'Day'), nv=fn(agg[l].Night,l,'Night');
@@ -625,24 +852,36 @@ function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
             const drEv=drillLine?`onclick="openDrill('${encodeURIComponent(l)}')" class="drill-link" title="Click for machine breakdown"`:'';
             h += `<td class="${dCls}" ${drEv}>${fmt(dv,1)}</td><td class="${nCls}" ${drEv}>${fmt(nv,1)}</td>`;
         });
-        const gt=tDay+tNight; const tdCls=color==='eff'?effClass(gt):'';
-        h += `<td class="td-day-total ${color==='eff'?effClass(tDay):''}">${fmt(tDay,1)}</td><td class="td-night-total ${color==='eff'?effClass(tNight):''}">${fmt(tNight,1)}</td><td class="td-grand-total ${tdCls}">${fmt(gt,1)}</td></tr>`;
+        // % rows pass a `total` fn so the factory columns show a weighted AVERAGE (Day/Night/24h),
+        // not a meaningless sum of per-line percentages.
+        let gDay=tDay, gNight=tNight, gt=tDay+tNight;
+        if (total) { gDay=total('Day'); gNight=total('Night'); gt=total('Total'); }
+        const tdCls=color==='eff'?effClass(gt):'';
+        h += `<td class="td-day-total ${color==='eff'?effClass(gDay):''}">${fmt(gDay,1)}</td><td class="td-night-total ${color==='eff'?effClass(gNight):''}">${fmt(gNight,1)}</td><td class="td-grand-total ${tdCls}">${fmt(gt,1)}</td></tr>`;
         return h;
     };
     const grp = (icon,title)=>`<tr class="grp-row"><td class="metric-col" colspan="${totalCols}"><i class="bi ${icon}" style="margin-right:6px"></i>${title}</td></tr>`;
 
+    // Weighted-average factory totals for % rows (numerator ÷ denominator across lines, per scope).
+    const wAvg = (numKey,denKey)=>(sc)=>{ let n=0,dn=0; lines.forEach(l=>{ n+=(agg[l][sc][numKey]||0); dn+=(agg[l][sc][denKey]||0); }); return dn>0?n/dn*100:0; };
+    const rejTotal  = wAvg('rejWt','grossWt');
+    const effTotal  = wAvg('goodWt','targetWt');
+    const utilTotal = (sc)=>{ let r=0,t=0; lines.forEach(l=>{ r+=agg[l][sc].runMachines; t+=agg[l][sc].totalMachines; }); return t>0?r/t*100:0; };
+
     let tbody = grp('bi-box-fill','Production Metrics');
-    tbody += row('bi-bullseye','Target Wt (Kg)', d=>d.targetWt);
-    tbody += row('bi-boxes','Gross Production Wt (Kg)', d=>d.grossWt,{bold:true});
-    tbody += row('bi-check-circle-fill','Good Production Wt (Kg)', d=>d.goodWt,{bold:true});
-    tbody += row('bi-exclamation-triangle-fill','Rejection Wt (Kg)', d=>d.rejWt,{drillLine:true});
-    tbody += row('bi-percent','Rejection %', d=>d.grossWt>0?(d.rejWt/d.grossWt)*100:0);
-    tbody += row('bi-speedometer2','Efficiency % (Good/Target)', d=>d.targetWt>0?(d.goodWt/d.targetWt)*100:0,{bold:true,color:'eff'});
+    tbody += row('bi-bullseye','24 Hour Target (Kg)', d=>d.targetWt,{calc:'nameplate'});
+    tbody += row('bi-clipboard-check','Planned Target (Kg)', d=>d.plannedWt,{bold:true,calc:'planned'});
+    tbody += row('bi-graph-up-arrow','Net Achievable Target (Kg)', d=>d.netAchWt,{calc:'netach'});
+    tbody += row('bi-boxes','Gross Production Wt (Kg)', d=>d.grossWt,{bold:true,calc:'gross'});
+    tbody += row('bi-exclamation-triangle-fill','Rejection Wt (Kg)', d=>d.rejWt,{drillLine:true,calc:'reject'});
+    tbody += row('bi-check-circle-fill','Good / Net Production Wt (Kg)', d=>d.goodWt,{bold:true,calc:'good'});
+    tbody += row('bi-percent','Rejection % (avg)', d=>d.grossWt>0?(d.rejWt/d.grossWt)*100:0,{total:rejTotal});
+    tbody += row('bi-speedometer2','Efficiency % (Good/24h Target, avg)', d=>d.targetWt>0?(d.goodWt/d.targetWt)*100:0,{bold:true,color:'eff',total:effTotal});
     tbody += row('bi-plus-slash-minus','Plan vs Actual (±Kg)', d=>d.goodWt-d.targetWt);
     tbody += grp('bi-people-fill','Machines & Utilisation');
     tbody += row('bi-cpu','Running Machines', d=>d.runMachines,{bold:true});
     tbody += row('bi-cpu-fill','Total Machines', d=>d.totalMachines);
-    tbody += row('bi-activity','Machine Utilisation %', d=>d.totalMachines>0?(d.runMachines/d.totalMachines)*100:0,{color:'eff'});
+    tbody += row('bi-activity','Machine Utilisation %', d=>d.totalMachines>0?(d.runMachines/d.totalMachines)*100:0,{color:'eff',total:utilTotal});
     tbody += grp('bi-clock-history','Downtime');
     tbody += row('bi-hourglass-split','Total Downtime Hrs', d=>d.totalDtHr);
     tbody += grp('bi-arrow-repeat','Changeovers');
@@ -652,11 +891,24 @@ function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
     tbody += grp('bi-list-nested','Downtime Breakdown (Hrs)');
     const dtCodeSet=new Set();
     lines.forEach(l=>['Day','Night'].forEach(s=>Object.keys(agg[l][s].dt||{}).forEach(c=>{ if(c!=='8') dtCodeSet.add(c); })));
-    const knownOrder=Object.keys(DOWNTIME_CODES).filter(c=>c!=='8');
-    const dtCodes=[...knownOrder.filter(c=>dtCodeSet.has(c)), ...[...dtCodeSet].filter(c=>!knownOrder.includes(c)).sort((a,b)=>Number(a)-Number(b))];
-    dtCodes.forEach(c => { const nm=DOWNTIME_CODES[c]||reasonsMap[c]||`Reason ${c}`; tbody += row('bi-dash','  '+nm, d=>(d.dt[c]||0)/60); });
-    lines.forEach(l=>['Day','Night'].forEach(s=>{ let o=0; Object.entries(agg[l][s].dt).forEach(([c,v])=>{ if(!dtCodes.includes(c)&&c!=='8') o+=v; }); agg[l][s]._otherDtHr=o/60; }));
-    tbody += row('bi-three-dots','  Other Downtime', d=>d._otherDtHr||0);
+    // Rank reasons by total factory downtime; show top N, collapse the rest under a
+    // clickable "Other Downtime" row that expands to reveal every remaining reason.
+    const TOP_DT = 4;
+    const dtTotal = {};
+    [...dtCodeSet].forEach(c => { let s=0; lines.forEach(l=>['Day','Night'].forEach(sh=>{ s+=(agg[l][sh].dt[c]||0); })); dtTotal[c]=s; });
+    const ranked = [...dtCodeSet].sort((a,b)=>(dtTotal[b]||0)-(dtTotal[a]||0));
+    const topCodes = ranked.slice(0, TOP_DT);
+    const otherCodes = ranked.slice(TOP_DT);
+    topCodes.forEach(c => { const nm=DOWNTIME_CODES[c]||reasonsMap[c]||`Reason ${c}`; tbody += row('bi-dash','  '+nm, d=>(d.dt[c]||0)/60); });
+    // "Other Downtime" = sum of the collapsed reasons (+ any unknown codes, excl. code 8)
+    lines.forEach(l=>['Day','Night'].forEach(s=>{ let o=0; Object.entries(agg[l][s].dt).forEach(([c,v])=>{ if(!topCodes.includes(c)&&c!=='8') o+=v; }); agg[l][s]._otherDtHr=o/60; }));
+    if (otherCodes.length) {
+        tbody += row('bi-three-dots',`<span id="dt-chev">▸</span> Other Downtime (${otherCodes.length})`, d=>d._otherDtHr||0,
+                     { bold:true, cls:'dt-toggle', attr:'onclick="toggleOtherDt()"' });
+        otherCodes.forEach(c => { const nm=DOWNTIME_CODES[c]||reasonsMap[c]||`Reason ${c}`; tbody += row('bi-dot','    '+nm, d=>(d.dt[c]||0)/60, { cls:'dt-extra' }); });
+    } else {
+        tbody += row('bi-three-dots','  Other Downtime', d=>d._otherDtHr||0);
+    }
 
     document.getElementById('view-line').innerHTML = `<table class="dpr-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
 }
@@ -669,7 +921,9 @@ function machineRowMetrics(m) {
         goodPcs:t.goodPcs, rejPcs:t.rejPcs, goodWt:t.goodWt, rejWt:t.rejWt, targetWt:t.targetWt, dtHr:t.totalDtHr,
         eff: t.targetWt>0 ? (t.goodWt/t.targetWt)*100 : 0,
         rejPct: (t.goodPcs+t.rejPcs)>0 ? (t.rejPcs/(t.goodPcs+t.rejPcs))*100 : 0,
-        running: (m.Day.runMachines||m.Night.runMachines) ? 1 : 0
+        running: (m.Day.runMachines||m.Night.runMachines) ? 1 : 0,
+        oee: m.bundle ? m.bundle.oee*100 : 0,
+        totalLoss: m.bundle ? m.bundle.totalLoss : 0
     };
 }
 function renderMachineView() {
@@ -682,10 +936,10 @@ function renderMachineView() {
         return dir*((a[k]||0)-(b[k]||0));
     });
     const th=(key,label,cls='')=>`<th class="${cls} ${machineSort.key===key?'sorted':''}" onclick="sortMachines('${key}')">${label} <span class="arw">${machineSort.key===key?(machineSort.dir==='asc'?'▲':'▼'):'⇅'}</span></th>`;
-    let head = `<tr>${th('name','Machine','txt')}${th('line','Line','txt')}${th('goodPcs','Good Pcs')}${th('rejPcs','Reject Pcs')}${th('rejPct','Rej %')}${th('goodWt','Good Kg')}${th('eff','Efficiency','txt')}${th('dtHr','Downtime Hr')}</tr>`;
+    let head = `<tr>${th('name','Machine','txt')}${th('line','Line','txt')}${th('goodPcs','Good Pcs')}${th('rejPcs','Reject Pcs')}${th('rejPct','Rej %')}${th('goodWt','Good Kg')}${th('eff','Efficiency','txt')}${th('oee','OEE','txt')}${th('totalLoss','Loss Kg')}${th('dtHr','Downtime Hr')}</tr>`;
     let body='';
     if (!rows.length) {
-        body = `<tr><td colspan="8" class="empty-state" style="text-align:center"><i class="bi bi-cpu"></i> No machine activity for this date.</td></tr>`;
+        body = `<tr><td colspan="10" class="empty-state" style="text-align:center"><i class="bi bi-cpu"></i> No machine activity for this date.</td></tr>`;
     } else {
         rows.forEach(r => {
             const rejCls = r.rejPct>5?'r':r.rejPct>2?'a':r.rejPcs>0?'g':'z';
@@ -699,6 +953,8 @@ function renderMachineView() {
                 <td><span class="pill ${rejCls}">${fmtForce(r.rejPct,1)}%</span></td>
                 <td>${fmt(r.goodWt,1)}</td>
                 <td class="txt"><span style="font-weight:800;color:${effColor};display:inline-block;min-width:44px">${r.targetWt>0?fmtForce(r.eff,1)+'%':'—'}</span> <span class="bar-mini"><i style="width:${effP}%;background:${effColor}"></i></span></td>
+                <td class="txt"><span style="font-weight:800;color:${r.oee>=85?'#16a34a':r.oee>=65?'#d97706':r.oee>0?'#dc2626':'#cbd5e1'}">${r.oee>0?fmtForce(r.oee,1)+'%':'—'}</span></td>
+                <td style="color:#dc2626;font-weight:700">${r.totalLoss>0?fmt(r.totalLoss,1):'—'}</td>
                 <td>${fmt(r.dtHr,1)}</td>
             </tr>`;
         });
@@ -793,18 +1049,103 @@ function openDrill(encodedLine) {
     </div>`);
 }
 
+/* ── Live calculation modal (click a Production Metrics row) ── */
+function showCalc(metric) {
+    if (!lastReport) return;
+    const scopeSum = (sc)=>{ const s={targetWt:0,plannedWt:0,netAchWt:0,grossWt:0,goodWt:0,rejWt:0,goodPcs:0,rejPcs:0,totalDtHr:0}; lastReport.lineKeys.forEach(l=>{ const a=lastReport.agg[l][sc]||{}; Object.keys(s).forEach(k=>s[k]+=(a[k]||0)); }); return s; };
+    const T=scopeSum('Total'), D=scopeSum('Day'), N=scopeSum('Night');
+    const f=(x)=>fmtForce(x,1);
+    const meta = {
+        nameplate:{t:'24 Hour Target', ic:'bi-bullseye', formula:'Std rate (pcs/hr) × Piece weight (Kg) × 12 h per shift — summed over every running machine, both shifts (24 h).', v:T.targetWt,
+            note:'The theoretical ceiling: if every machine ran at its rated speed for the full shift with no stops.'},
+        planned:{t:'Planned Target', ic:'bi-clipboard-check', formula:'24 Hour Target − (actual mould-change time × rate). Removes the time spent changing moulds (downtime code 2).', v:T.plannedWt,
+            note:'Change-over loss = 24 Hour Target − Planned = <b>'+f(T.targetWt-T.plannedWt)+' Kg</b>.'},
+        netach:{t:'Net Achievable Target', ic:'bi-graph-up-arrow', formula:'Planned − (all remaining downtime × rate). Removes every downtime hour, so this is what the running time could have produced.', v:T.netAchWt,
+            note:'Downtime loss = Planned − Net Achievable = <b>'+f(T.plannedWt-T.netAchWt)+' Kg</b>.'},
+        gross:{t:'Gross Production', ic:'bi-boxes', formula:'(Good + Reject) pieces × piece weight. Everything the machine actually moulded.', v:T.grossWt,
+            note:'Speed loss = Net Achievable − Gross = <b>'+f(T.netAchWt-T.grossWt)+' Kg</b> (running below rated speed).'},
+        reject:{t:'Rejection', ic:'bi-exclamation-triangle-fill', formula:'Reject pieces × piece weight.', v:T.rejWt,
+            note:'Rejection % = Reject ÷ Gross = <b>'+f(T.grossWt>0?T.rejWt/T.grossWt*100:0)+'%</b>.'},
+        good:{t:'Good / Net', ic:'bi-check-circle-fill', formula:'Gross − Reject = Good pieces × piece weight. The saleable output.', v:T.goodWt,
+            note:'Efficiency = Good ÷ 24 Hour Target = <b>'+f(T.targetWt>0?T.goodWt/T.targetWt*100:0)+'%</b>.'}
+    };
+    const m = meta[metric]; if (!m) return;
+    const wf = [
+        ['24 Hour Target', T.targetWt, false, '#4c1d95'],
+        ['− Change-over loss', -(T.targetWt-T.plannedWt), true, '#7c3aed'],
+        ['Planned Target', T.plannedWt, false, '#7c3aed'],
+        ['− Downtime loss', -(T.plannedWt-T.netAchWt), true, '#a855f7'],
+        ['Net Achievable Target', T.netAchWt, false, '#0ea5e9'],
+        ['− Speed loss', -(T.netAchWt-T.grossWt), true, '#c084fc'],
+        ['Gross Production', T.grossWt, false, '#6366f1'],
+        ['− Rejection', -(T.rejWt), true, '#ef4444'],
+        ['Good / Net', T.goodWt, false, '#22c55e']
+    ];
+    const activeLbls = { nameplate:'24 Hour Target', planned:'Planned Target', netach:'Net Achievable Target', gross:'Gross Production', reject:'− Rejection', good:'Good / Net' };
+    const hi = activeLbls[metric];
+    const wfRows = wf.map(([lbl,val,isSub,col]) => {
+        const on = lbl===hi;
+        return `<tr style="${on?'background:#faf5ff':''}">
+            <td style="padding:5px 10px;${isSub?'color:#dc2626;padding-left:24px':'font-weight:700'};${on?'font-weight:800':''}">${lbl}</td>
+            <td style="text-align:right;font-family:monospace;font-weight:700;padding:5px 10px;color:${col}">${val<0?'−':''}${f(Math.abs(val))} Kg</td></tr>`;
+    }).join('');
+    // What the losses mean + their formulas (with the live factory 24h value).
+    const lossItem=(col,name,val,formula,desc)=>`<div style="border-left:3px solid ${col};background:#fafafa;padding:6px 10px;border-radius:0 6px 6px 0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:800;color:${col}">${name}</span><span style="font-family:monospace;font-weight:700;color:${val<0?'#16a34a':'#334155'}">${val<0?'−':''}${f(Math.abs(val))} Kg</span></div>
+        <div style="font-size:.72rem;color:#475569;margin-top:2px"><b>Formula:</b> ${formula}</div>
+        <div style="font-size:.72rem;color:#64748b">${desc}</div></div>`;
+    const lossLegend = `
+        <div style="font-weight:800;color:#334155;font-size:.8rem;margin:14px 0 5px"><i class="bi bi-info-circle" style="color:#7c3aed"></i> What the losses mean (factory, 24 h)</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+            ${lossItem('#7c3aed','Change-over Loss', T.targetWt-T.plannedWt, '24 Hour Target − Planned Target  =  rate × actual mould-change hours', 'Output you could not make because machines were stopped to change the mould (downtime code 2).')}
+            ${lossItem('#a855f7','Downtime Loss', T.plannedWt-T.netAchWt, 'Planned Target − Net Achievable  =  rate × all OTHER downtime hours', 'Output lost to every other stoppage — breakdown, no material, power, manpower, nozzle block, etc.')}
+            ${lossItem('#c084fc','Speed Loss', T.netAchWt-T.grossWt, 'Net Achievable − Gross Production', 'Output lost because the machine ran slower than its rated cycle while it was running. A negative value means it ran faster than rated.')}
+            ${lossItem('#ef4444','Quality Loss', T.rejWt, 'Gross − Good  =  Reject weight', 'Parts that were moulded but rejected as scrap.')}
+        </div>`;
+    const rejPct=(s)=>s.grossWt>0?s.rejWt/s.grossWt*100:0;
+    const effPct=(s)=>s.targetWt>0?s.goodWt/s.targetWt*100:0;
+    const avgTbl = `<table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-top:8px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+        <tr style="background:#f1f5f9"><th style="text-align:left;padding:6px 10px">Average</th><th style="padding:6px 10px">☀️ Day</th><th style="padding:6px 10px">🌙 Night</th><th style="padding:6px 10px">⏱ 24 Hrs</th></tr>
+        <tr><td style="padding:6px 10px;font-weight:700"><i class="bi bi-percent" style="opacity:.5"></i> Rejection %</td><td style="text-align:center">${f(rejPct(D))}%</td><td style="text-align:center">${f(rejPct(N))}%</td><td style="text-align:center;font-weight:800;color:#dc2626">${f(rejPct(T))}%</td></tr>
+        <tr><td style="padding:6px 10px;font-weight:700"><i class="bi bi-speedometer2" style="opacity:.5"></i> Efficiency %</td><td style="text-align:center">${f(effPct(D))}%</td><td style="text-align:center">${f(effPct(N))}%</td><td style="text-align:center;font-weight:800;color:#16a34a">${f(effPct(T))}%</td></tr>
+    </table>`;
+    document.getElementById('drillModal')?.remove();
+    document.body.insertAdjacentHTML('beforeend', `
+    <div class="drill-modal-overlay" id="drillModal" onclick="if(event.target===this)this.remove()">
+        <div class="drill-modal-box" style="max-width:560px">
+            <div class="drill-modal-head">
+                <div style="font-size:1rem;font-weight:800;color:#0f172a"><i class="bi ${m.ic}" style="color:#7c3aed;margin-right:8px"></i>${m.t} — Live Calculation</div>
+                <button onclick="document.getElementById('drillModal').remove()" style="background:none;border:none;font-size:1.4rem;line-height:1;cursor:pointer;color:#94a3b8;padding:0">×</button>
+            </div>
+            <div class="drill-modal-body">
+                <div style="background:#f8fafc;border-left:4px solid #7c3aed;border-radius:0 8px 8px 0;padding:10px 12px;margin-bottom:6px">
+                    <div style="font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:#7c3aed;font-weight:800;margin-bottom:3px">Formula</div>
+                    <div style="font-size:.85rem;color:#334155">${m.formula}</div>
+                    <div style="margin-top:8px;font-size:1.1rem;font-weight:800;color:#0f172a">= ${f(m.v)} Kg <span style="font-size:.7rem;color:#94a3b8;font-weight:600">(factory, 24 h)</span></div>
+                    <div style="font-size:.76rem;color:#64748b;margin-top:4px">${m.note}</div>
+                </div>
+                <div style="font-weight:800;color:#334155;font-size:.8rem;margin:12px 0 4px"><i class="bi bi-diagram-3" style="color:#7c3aed"></i> Where it sits in the waterfall (factory, 24 h)</div>
+                <table style="width:100%;border-collapse:collapse;font-size:.84rem;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">${wfRows}</table>
+                ${lossLegend}
+                <div style="font-weight:800;color:#334155;font-size:.8rem;margin:14px 0 4px"><i class="bi bi-calculator" style="color:#7c3aed"></i> Averages — Day vs Night vs 24 Hours</div>
+                ${avgTbl}
+            </div>
+        </div>
+    </div>`);
+}
+
 /* ── CSV Export ── */
 function exportCSV() {
     if (!lastReport) return JPSMS.toast('Generate a report first', 'warning');
     const { machineList, meta } = lastReport;
     const rows = machineList.map(machineRowMetrics);
-    const head = ['Machine','Line','Client','Job Card','Good Pcs','Reject Pcs','Rej %','Good Kg','Reject Kg','Target Kg','Efficiency %','Downtime Hr'];
+    const head = ['Machine','Line','Client','Job Card','Good Pcs','Reject Pcs','Rej %','Good Kg','Reject Kg','Target Kg','Efficiency %','OEE %','Total Loss Kg','Downtime Hr'];
     const esc = v => '"' + String(v == null ? '' : v).split('"').join('""') + '"';
     const lines = [head.map(esc).join(',')];
-    rows.forEach(r => lines.push([r.name,r.line,r.client,r.jc,Math.round(r.goodPcs),Math.round(r.rejPcs),r.rejPct.toFixed(1),r.goodWt.toFixed(1),r.rejWt.toFixed(1),r.targetWt.toFixed(1),r.eff.toFixed(1),r.dtHr.toFixed(1)].map(esc).join(',')));
-    const k=meta.kpi;
+    rows.forEach(r => lines.push([r.name,r.line,r.client,r.jc,Math.round(r.goodPcs),Math.round(r.rejPcs),r.rejPct.toFixed(1),r.goodWt.toFixed(1),r.rejWt.toFixed(1),r.targetWt.toFixed(1),r.eff.toFixed(1),r.oee.toFixed(1),r.totalLoss.toFixed(1),r.dtHr.toFixed(1)].map(esc).join(',')));
+    const k=meta.kpi, fb=lastReport.factoryBundle;
     lines.push('');
-    lines.push(['FACTORY TOTAL','','','',Math.round(rows.reduce((s,r)=>s+r.goodPcs,0)),Math.round(rows.reduce((s,r)=>s+r.rejPcs,0)),k.psRejPct.toFixed(1),k.psGood.toFixed(1),k.psRej.toFixed(1),k.psTarget.toFixed(1),k.psEff.toFixed(1),k.psDtHr.toFixed(1)].map(esc).join(','));
+    lines.push(['FACTORY TOTAL','','','',Math.round(rows.reduce((s,r)=>s+r.goodPcs,0)),Math.round(rows.reduce((s,r)=>s+r.rejPcs,0)),k.psRejPct.toFixed(1),k.psGood.toFixed(1),k.psRej.toFixed(1),k.psTarget.toFixed(1),k.psEff.toFixed(1),(fb.oee*100).toFixed(1),fb.totalLoss.toFixed(1),k.psDtHr.toFixed(1)].map(esc).join(','));
     const blob = new Blob(["﻿"+lines.join('\r\n')], { type:'text/csv;charset=utf-8;' });
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
