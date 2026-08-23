@@ -955,6 +955,24 @@
         return `<tr>${lead}${grid}</tr>`;
       }).join('');
 
+      // Grand totals row: per-date Day/Night sums across all machine+mould rows,
+      // plus totals for the additive metric columns (Prod STD, Reject Qty). The
+      // rate/constant columns (STD Cycle, Avg Cycle, STD Wt, Eff %, Reject %) are
+      // left blank since a column-wide sum of them is not meaningful.
+      const sumKey = key => rows.reduce((a, r) => a + (Number(r[key]) || 0), 0);
+      const ADDITIVE = new Set(['prodStd', 'rejectQty']);
+      const totLead = leftCols.map((c, i) => {
+        if (i === 0) return `<td class="mr-label" style="font-weight:800">TOTAL</td>`;
+        if (ADDITIVE.has(c.key)) return `<td class="mr-num" style="font-weight:800">${num(sumKey(c.key))}</td>`;
+        return `<td></td>`;
+      }).join('');
+      const totGrid = dates.map(d => {
+        const ds = rows.reduce((a, r) => a + (((r.cells && r.cells[d.date]) || {}).day || 0), 0);
+        const ns = rows.reduce((a, r) => a + (((r.cells && r.cells[d.date]) || {}).night || 0), 0);
+        return `<td class="mr-num" style="font-weight:800">${num(ds)}</td><td class="mr-num" style="font-weight:800">${num(ns)}</td>`;
+      }).join('');
+      const totalsRow = `<tr class="mr-grand">${totLead}${totGrid}</tr>`;
+
       body.innerHTML = `
         <div style="overflow-x:auto">
           <table class="mould-report-table" style="white-space:nowrap">
@@ -963,7 +981,7 @@
               <tr>${head2}</tr>
               <tr>${head3}</tr>
             </thead>
-            <tbody>${bodyRows}</tbody>
+            <tbody>${bodyRows}${totalsRow}</tbody>
           </table>
         </div>`;
     }

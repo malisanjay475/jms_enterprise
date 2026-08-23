@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.46.0",
+  "latest": "1.46.1",
   "versions": [
+    {
+      "version": "1.46.1",
+      "date": "2026-08-23",
+      "title": "Mould Wise Detail — totals row + Machine Master order",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "improvement", "text": "The Mould Wise Item QTY Detail view now has a TOTAL row at the bottom (Day/Night totals for every date, plus Prod STD and Reject Qty totals), on screen and in the Excel download." },
+            { "type": "improvement", "text": "Machines in the Detail view are now listed in the same order as the Machine Master / DPR Compliance Summary (by building, line, machine)." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.46.0",
       "date": "2026-08-23",

@@ -16401,10 +16401,29 @@ function mouldWiseDateAxis(from, to, data) {
   return out;
 }
 
+// Normalised machine key so the ">" prefix form ("B -L1>HYD-300-6") and the
+// healed dash form ("B -L1-HYD-300-6") map to the same Machine Master entry.
+function normMachineKey(s) {
+  return String(s || '').toUpperCase().replace(/>/g, '-').replace(/\s+/g, ' ').trim();
+}
+
+// Machine Master ordering: machines listed by (building, line, machine) exactly
+// like the Machine Master / DPR Compliance Summary. Returns Map(normKey -> rank).
+async function loadMachineMasterOrder(factoryId) {
+  const rows = await q(
+    `SELECT machine FROM machines
+      WHERE ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+      ORDER BY building, line, machine`, [factoryId]);
+  const map = new Map();
+  rows.forEach((r, i) => { const k = normMachineKey(r.machine); if (!map.has(k)) map.set(k, i); });
+  return map;
+}
+
 // Pivot the mould-wise report into the Detail matrix: one row per Machine+Mould,
 // dates as Day/Night column pairs, with per-row metric aggregates. `data` must
-// have been built with the `machine` dimension on.
-function buildMouldWiseDetailPivot(data, { from, to }) {
+// have been built with the `machine` dimension on. `machineOrder` (from
+// loadMachineMasterOrder) sorts rows in Machine Master order.
+function buildMouldWiseDetailPivot(data, { from, to, machineOrder }) {
   const dates = mouldWiseDateAxis(from, to, data);
   const r2 = n => Math.round(n * 100) / 100;
   const r1 = n => Math.round(n * 10) / 10;
@@ -16452,8 +16471,16 @@ function buildMouldWiseDetailPivot(data, { from, to }) {
     cells: rec.cells
   }));
 
+  // Order machines exactly like Machine Master (building, line, machine). Machines
+  // not found in the master fall to the end, in the same text order Machine Master
+  // uses. Within a machine, group by mould name.
+  const rank = m => {
+    const r = machineOrder ? machineOrder.get(normMachineKey(m)) : undefined;
+    return (r === undefined || r === null) ? Number.MAX_SAFE_INTEGER : r;
+  };
   rows.sort((a, b) =>
-    String(a.machine).localeCompare(String(b.machine), undefined, { numeric: true, sensitivity: 'base' })
+    (rank(a.machine) - rank(b.machine))
+    || String(a.machine).localeCompare(String(b.machine))
     || String(a.mouldName).localeCompare(String(b.mouldName)));
 
   return { dates, rows };
@@ -16468,15 +16495,17 @@ app.get('/api/reports/mould-wise-qty', async (req, res) => {
     if (view === 'detail' && !requested.includes('machine')) requested.push('machine');
     const from = normalizePlanningText(req.query.from);
     const to = normalizePlanningText(req.query.to);
+    const reportFactoryId = resolveReportFactoryId(req);
     const out = await buildMouldWiseReport({
-      requestFactoryId: resolveReportFactoryId(req),
+      requestFactoryId: reportFactoryId,
       from, to,
       search: normalizePlanningText(req.query.q),
       requested,
       tonnages: req.query.tonnages
     });
     if (view === 'detail') {
-      const pivot = buildMouldWiseDetailPivot(out.data, { from, to });
+      const machineOrder = await loadMachineMasterOrder(reportFactoryId);
+      const pivot = buildMouldWiseDetailPivot(out.data, { from, to, machineOrder });
       return res.json({ ok: true, view: 'detail', fields: out.fields, pivot });
     }
     res.json({ ok: true, view: 'summary', fields: out.fields, data: out.data });
@@ -16542,7 +16571,8 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     //      column pairs, with a merged Date / day-number / Day-Night header. ----
     if (view === 'detail') {
       const onD = new Set(requested);
-      const pivot = buildMouldWiseDetailPivot(data, { from, to });
+      const machineOrder = await loadMachineMasterOrder(requestFactoryId);
+      const pivot = buildMouldWiseDetailPivot(data, { from, to, machineOrder });
       const leftCols = [
         { key: 'machine', label: 'Machine', w: 16 },
         { key: 'mouldNo', label: 'Mould No', w: 16 },
@@ -16650,7 +16680,36 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
         });
         rr++; band++;
       }
-      if (!pivot.rows.length) {
+
+      // Grand totals row: per-date Day/Night sums + additive metric totals
+      // (Prod STD, Reject Qty). Rate/constant columns left blank.
+      if (pivot.rows.length) {
+        const SUBFILL = 'FFDCE7F3';
+        const ADD = new Set(['prodStd', 'rejectQty']);
+        const styleTot = (cell, val, isNum) => {
+          cell.value = val;
+          cell.font = { name: FONT, size: 10, bold: true, color: { argb: BLUE } };
+          cell.alignment = { horizontal: isNum ? 'right' : 'left', vertical: 'middle' };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUBFILL } };
+          cell.border = box;
+        };
+        leftCols.forEach((c, i) => {
+          const cell = ws.getCell(rr, i + 1);
+          if (i === 0) styleTot(cell, 'TOTAL', false);
+          else if (ADD.has(c.key)) {
+            const s = pivot.rows.reduce((a, r) => a + (Number(r[c.key]) || 0), 0);
+            styleTot(cell, s, true); cell.numFmt = '#,##0';
+          } else styleTot(cell, '', true);
+        });
+        dates.forEach((d, j) => {
+          const col = dStart + j * 2;
+          const ds = pivot.rows.reduce((a, r) => a + ((r.cells[d.date] || {}).day || 0), 0);
+          const ns = pivot.rows.reduce((a, r) => a + ((r.cells[d.date] || {}).night || 0), 0);
+          const cd = ws.getCell(rr, col); styleTot(cd, ds || '', true); if (ds) cd.numFmt = '#,##0';
+          const cn = ws.getCell(rr, col + 1); styleTot(cn, ns || '', true); if (ns) cn.numFmt = '#,##0';
+        });
+        rr++;
+      } else {
         ws.mergeCells(HR3 + 1, 1, HR3 + 1, NCOL);
         ws.getCell(HR3 + 1, 1).value = 'No production found for this mould / date range / filters.';
         ws.getCell(HR3 + 1, 1).font = { name: FONT, italic: true, color: { argb: GREY } };
