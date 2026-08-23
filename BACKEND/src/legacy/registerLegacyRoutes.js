@@ -24378,7 +24378,14 @@ app.get('/api/std-actual/status', async (req, res) => {
         LIMIT 1
       ) m ON TRUE
       WHERE pb.plan_id = $1
-      ORDER BY (m.no_of_cav IS NOT NULL) DESC NULLS LAST
+      -- plan_id / mps can fan out to multiple candidate rows: one carrying the
+      -- specific planning mould_no (e.g. "5272-BODY 2", cav 2) and one falling
+      -- back to pb.mould_code (coarse "5272-BODY", cav 1). Prefer the specific
+      -- planning-summary mould first (this is the code the card shows), then a
+      -- resolved master row.
+      ORDER BY (mps.mould_no IS NOT NULL) DESC,
+               (m.no_of_cav IS NOT NULL) DESC NULLS LAST,
+               m.updated_at DESC NULLS LAST, m.id DESC
       LIMIT 1
     `, [planId]);
 

@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.45.2",
+  "latest": "1.45.3",
   "versions": [
     {
-      "version": "1.45.2",
+      "version": "1.45.3",
       "date": "2026-08-23",
       "title": "DPR setup STD picks the exact mould variant",
       "modules": [
