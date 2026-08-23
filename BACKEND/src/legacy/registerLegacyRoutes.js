@@ -16364,7 +16364,10 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
       rejectPct: Math.round(rejectPct * 10) / 10,
       stdCycle: Math.round(stdCycle * 100) / 100,
       avgCycle: Math.round(avgCycle * 100) / 100,
-      stdWeight: Math.round(stdWeight * 1000) / 1000
+      stdWeight: Math.round(stdWeight * 1000) / 1000,
+      // Raw pcs/hour so the Detail (pivot) view can show Prod (STD)/day = pcs/hr x 24.
+      pcsPerHour,
+      shots, runSeconds
     });
     entry.grandTotal += total;
   }
@@ -16372,19 +16375,111 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
   return { fields: activeDims, data: Array.from(byMould.values()) };
 }
 
+// Enumerate the calendar dates (YYYY-MM-DD) in [from, to] inclusive, UTC-safe.
+// Falls back to the min/max date present in the data when from/to are missing.
+// Capped at 400 days so a bad range can't explode the column count.
+function mouldWiseDateAxis(from, to, data) {
+  let start = from, end = to;
+  if (!start || !end) {
+    const all = [];
+    for (const g of data) for (const r of g.rows) if (r.date) all.push(String(r.date).slice(0, 10));
+    all.sort();
+    if (!all.length) return [];
+    start = start || all[0];
+    end = end || all[all.length - 1];
+  }
+  const parse = s => { const [y, m, d] = String(s).slice(0, 10).split('-').map(Number); return Date.UTC(y, m - 1, d); };
+  let t = parse(start); const e = parse(end);
+  const out = [];
+  let guard = 0;
+  while (t <= e && guard < 400) {
+    const d = new Date(t);
+    const iso = d.toISOString().slice(0, 10);
+    out.push({ date: iso, dayNum: d.getUTCDate() });
+    t += 86400000; guard++;
+  }
+  return out;
+}
+
+// Pivot the mould-wise report into the Detail matrix: one row per Machine+Mould,
+// dates as Day/Night column pairs, with per-row metric aggregates. `data` must
+// have been built with the `machine` dimension on.
+function buildMouldWiseDetailPivot(data, { from, to }) {
+  const dates = mouldWiseDateAxis(from, to, data);
+  const r2 = n => Math.round(n * 100) / 100;
+  const r1 = n => Math.round(n * 10) / 10;
+  const r3 = n => Math.round(n * 1000) / 1000;
+
+  const byRow = new Map();
+  for (const g of data) {
+    for (const row of g.rows) {
+      const machine = row.machine || '-';
+      const key = `${machine}||${g.mouldNo}||${g.mouldName}`;
+      let rec = byRow.get(key);
+      if (!rec) {
+        rec = { machine, mouldNo: g.mouldNo, mouldName: g.mouldName || g.mouldNo, cells: {},
+          _pcs: 0, _stdCycle: 0, _stdWt: 0, _shots: 0, _run: 0, _total: 0, _std: 0, _rej: 0 };
+        byRow.set(key, rec);
+      }
+      const date = String(row.date).slice(0, 10);
+      const cell = rec.cells[date] || (rec.cells[date] = { day: 0, night: 0 });
+      cell.day += Number(row.day) || 0;
+      cell.night += Number(row.night) || 0;
+      rec._pcs = Math.max(rec._pcs, Number(row.pcsPerHour) || 0);
+      rec._stdCycle = Math.max(rec._stdCycle, Number(row.stdCycle) || 0);
+      rec._stdWt = Math.max(rec._stdWt, Number(row.stdWeight) || 0);
+      rec._shots += Number(row.shots) || 0;
+      rec._run += Number(row.runSeconds) || 0;
+      rec._total += Number(row.total) || 0;
+      rec._std += Number(row.stdProd) || 0;   // 23-based STD, for Efficiency
+      rec._rej += Number(row.rejectQty) || 0;
+    }
+  }
+
+  const rows = Array.from(byRow.values()).map(rec => ({
+    machine: rec.machine,
+    mouldNo: rec.mouldNo,
+    mouldName: rec.mouldName,
+    // Prod (STD)/day = pcs/hour x 24 (per user spec for this column).
+    prodStd: Math.round(rec._pcs * 24),
+    stdCycle: r2(rec._stdCycle),
+    avgCycle: rec._shots > 0 ? r2(rec._run / rec._shots) : 0,
+    stdWeight: r3(rec._stdWt),
+    efficiency: rec._std > 0 ? r1((rec._total / rec._std) * 100) : 0,
+    rejectQty: rec._rej,
+    rejectPct: (rec._total + rec._rej) > 0 ? r1((rec._rej / (rec._total + rec._rej)) * 100) : 0,
+    total: rec._total,
+    cells: rec.cells
+  }));
+
+  rows.sort((a, b) =>
+    String(a.machine).localeCompare(String(b.machine), undefined, { numeric: true, sensitivity: 'base' })
+    || String(a.mouldName).localeCompare(String(b.mouldName)));
+
+  return { dates, rows };
+}
+
 app.get('/api/reports/mould-wise-qty', async (req, res) => {
   try {
+    const view = String(req.query.view || 'summary').toLowerCase() === 'detail' ? 'detail' : 'summary';
     const requested = String(req.query.fields || '')
       .split(',').map(s => s.trim()).filter(Boolean);
+    // Detail is a per-machine pivot, so the machine dimension must be on.
+    if (view === 'detail' && !requested.includes('machine')) requested.push('machine');
+    const from = normalizePlanningText(req.query.from);
+    const to = normalizePlanningText(req.query.to);
     const out = await buildMouldWiseReport({
       requestFactoryId: resolveReportFactoryId(req),
-      from: normalizePlanningText(req.query.from),
-      to: normalizePlanningText(req.query.to),
+      from, to,
       search: normalizePlanningText(req.query.q),
       requested,
       tonnages: req.query.tonnages
     });
-    res.json({ ok: true, fields: out.fields, data: out.data });
+    if (view === 'detail') {
+      const pivot = buildMouldWiseDetailPivot(out.data, { from, to });
+      return res.json({ ok: true, view: 'detail', fields: out.fields, pivot });
+    }
+    res.json({ ok: true, view: 'summary', fields: out.fields, data: out.data });
   } catch (e) {
     console.error('/api/reports/mould-wise-qty', e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
@@ -16419,8 +16514,10 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     const requestFactoryId = resolveReportFactoryId(req);
     const from = normalizePlanningText(req.query.from);
     const to = normalizePlanningText(req.query.to);
+    const view = String(req.query.view || 'summary').toLowerCase() === 'detail' ? 'detail' : 'summary';
     const requested = String(req.query.fields || '')
       .split(',').map(s => s.trim()).filter(Boolean);
+    if (view === 'detail' && !requested.includes('machine')) requested.push('machine');
 
     const { data } = await buildMouldWiseReport({
       requestFactoryId,
@@ -16440,6 +16537,132 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     const tonnageLabel = String(req.query.tonnages || '').trim()
       ? String(req.query.tonnages).trim().split(',').map(t => t + 'T').join(', ')
       : 'All';
+
+    // ---- DETAIL (pivot) workbook: one row per Machine+Mould, dates as Day/Night
+    //      column pairs, with a merged Date / day-number / Day-Night header. ----
+    if (view === 'detail') {
+      const onD = new Set(requested);
+      const pivot = buildMouldWiseDetailPivot(data, { from, to });
+      const leftCols = [
+        { key: 'machine', label: 'Machine', w: 16 },
+        { key: 'mouldNo', label: 'Mould No', w: 16 },
+        { key: 'mouldName', label: 'Mould Name', w: 34 }
+      ];
+      const METRIC_DEFS = [
+        ['std_prod', { key: 'prodStd', label: 'Prod (STD)', w: 12 }],
+        ['std_cycle', { key: 'stdCycle', label: 'STD Cycle (s)', w: 12 }],
+        ['avg_cycle', { key: 'avgCycle', label: 'Avg Cycle (s)', w: 12 }],
+        ['std_weight', { key: 'stdWeight', label: 'STD Wt (kg)', w: 12 }],
+        ['efficiency', { key: 'efficiency', label: 'Eff %', w: 10, pct: true }],
+        ['reject_qty', { key: 'rejectQty', label: 'Reject Qty', w: 12 }],
+        ['reject_pct', { key: 'rejectPct', label: 'Reject %', w: 10, pct: true }]
+      ];
+      for (const [f, def] of METRIC_DEFS) if (onD.has(f)) leftCols.push({ ...def, num: true });
+
+      const dates = pivot.dates;
+      const NLEFT = leftCols.length;
+      const NCOL = NLEFT + dates.length * 2;
+      const BLUE = 'FF1E4E79', HEADFILL = 'FF2E6CA4', BAND = 'FFEFF4FA', WHITE = 'FFFFFFFF', INK = 'FF1F2937', GREY = 'FF64748B';
+      const FONT = 'Calibri';
+      const thin = { style: 'thin', color: { argb: 'FFD5DEEA' } };
+      const box = { top: thin, left: thin, right: thin, bottom: thin };
+
+      const wb = new ExcelJS.Workbook();
+      wb.creator = username;
+      const ws = wb.addWorksheet('Mould Wise Detail', { views: [{ state: 'frozen', xSplit: NLEFT, ySplit: 7 }] });
+      ws.columns = [...leftCols.map(c => ({ width: c.w })), ...dates.flatMap(() => [{ width: 8 }, { width: 8 }])];
+
+      // Title + meta
+      ws.mergeCells(1, 1, 1, NCOL);
+      const tc = ws.getCell(1, 1);
+      tc.value = 'MOULD WISE ITEM QTY — DETAIL (Day / Night by date)';
+      tc.font = { name: FONT, size: 14, bold: true, color: { argb: WHITE } };
+      tc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLUE } };
+      tc.alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(1).height = 30;
+      ws.mergeCells(2, 1, 2, NCOL);
+      ws.getCell(2, 1).value = `Factory: ${factoryLabel}    |    Period: ${from || '—'} to ${to || '—'}    |    Machine Tonnage: ${tonnageLabel}`;
+      ws.getCell(2, 1).font = { name: FONT, size: 10, color: { argb: INK } };
+      ws.mergeCells(3, 1, 3, NCOL);
+      ws.getCell(3, 1).value = `Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}    |    By: ${username}`;
+      ws.getCell(3, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+
+      const HR1 = 5, HR2 = 6, HR3 = 7;
+      const styleHead = cell => {
+        cell.font = { name: FONT, size: 10, bold: true, color: { argb: WHITE } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADFILL } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = box;
+      };
+      // Left columns: label merged across the 3 header rows.
+      leftCols.forEach((c, i) => {
+        ws.mergeCells(HR1, i + 1, HR3, i + 1);
+        const cell = ws.getCell(HR1, i + 1);
+        cell.value = c.label;
+        styleHead(cell);
+      });
+      // Date region: "Date" over everything, then day number over each pair, then Day/Night.
+      const dStart = NLEFT + 1;
+      if (dates.length) {
+        ws.mergeCells(HR1, dStart, HR1, dStart + dates.length * 2 - 1);
+        const dcell = ws.getCell(HR1, dStart);
+        dcell.value = 'Date';
+        styleHead(dcell);
+      }
+      dates.forEach((d, j) => {
+        const col = dStart + j * 2;
+        ws.mergeCells(HR2, col, HR2, col + 1);
+        const nc = ws.getCell(HR2, col); nc.value = d.dayNum; styleHead(nc);
+        const dc = ws.getCell(HR3, col); dc.value = 'Day'; styleHead(dc);
+        const ni = ws.getCell(HR3, col + 1); ni.value = 'Night'; styleHead(ni);
+      });
+      [HR1, HR2, HR3].forEach(rn => { ws.getRow(rn).height = 18; });
+
+      const numFmtD = key => key === 'efficiency' || key === 'rejectPct' ? '0.0"%"'
+        : key === 'avgCycle' || key === 'stdCycle' ? '#,##0.00'
+          : key === 'stdWeight' ? '#,##0.000' : '#,##0';
+
+      let rr = HR3 + 1;
+      let band = 0;
+      for (const row of pivot.rows) {
+        const fill = band % 2 ? BAND : WHITE;
+        leftCols.forEach((c, i) => {
+          const cell = ws.getCell(rr, i + 1);
+          cell.value = row[c.key] === undefined || row[c.key] === null ? '' : row[c.key];
+          cell.font = { name: FONT, size: 10, color: { argb: INK } };
+          cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle' };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+          cell.border = box;
+          if (c.num && typeof cell.value === 'number') cell.numFmt = numFmtD(c.key);
+        });
+        dates.forEach((d, j) => {
+          const col = dStart + j * 2;
+          const cc = row.cells[d.date] || { day: 0, night: 0 };
+          [[col, cc.day], [col + 1, cc.night]].forEach(([ci, val]) => {
+            const cell = ws.getCell(rr, ci);
+            cell.value = val ? val : '';
+            cell.font = { name: FONT, size: 10, color: { argb: INK } };
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+            cell.border = box;
+            if (typeof cell.value === 'number') cell.numFmt = '#,##0';
+          });
+        });
+        rr++; band++;
+      }
+      if (!pivot.rows.length) {
+        ws.mergeCells(HR3 + 1, 1, HR3 + 1, NCOL);
+        ws.getCell(HR3 + 1, 1).value = 'No production found for this mould / date range / filters.';
+        ws.getCell(HR3 + 1, 1).font = { name: FONT, italic: true, color: { argb: GREY } };
+      }
+
+      const bufD = await wb.xlsx.writeBuffer();
+      const fnameD = `Mould_Wise_Detail_${(from || 'all')}_${(to || 'all')}.xlsx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${fnameD}"`);
+      res.end(Buffer.from(bufD));
+      return;
+    }
 
     // Column selection is driven by ALL requested fields (dimensions AND
     // metrics). `fields` returned by the builder only carries the dimensions,

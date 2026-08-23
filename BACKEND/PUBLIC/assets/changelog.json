@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.45.6",
+  "latest": "1.46.0",
   "versions": [
+    {
+      "version": "1.46.0",
+      "date": "2026-08-23",
+      "title": "Mould Wise Item QTY — new Detail (date-wise grid) view",
+      "summary": "The Mould Wise Item QTY report now has a Summary / Detail switch. Summary is the report you already have. Detail shows a date-wise grid: one row per Machine + Mould, with Prod (STD), STD Cycle and Avg Cycle, and then every date in the range split into Day and Night production columns. Tick more boxes in Include Columns (STD Weight, Efficiency, Reject Qty, Reject %) and they are added as columns. Downloads to a matching Excel with merged date headers.",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Mould Wise Item QTY report has a new Detail view: one row per Machine + Mould with a date-wise Day/Night production grid, plus Prod (STD) = pcs/hour x 24, STD Cycle and Avg Cycle."
+            },
+            {
+              "type": "improvement",
+              "text": "In Detail, the Include Columns tick boxes (STD Weight, Efficiency, Reject Qty, Reject %) add matching columns, and the Excel download mirrors the on-screen grid with merged Date / Day / Night headers."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.45.6",
       "date": "2026-08-23",
