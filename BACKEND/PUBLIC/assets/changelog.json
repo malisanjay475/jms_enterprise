@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.45.5",
+  "latest": "1.45.6",
   "versions": [
+    {
+      "version": "1.45.6",
+      "date": "2026-08-23",
+      "title": "Accurate Mould/Colour/Job change counts in DPR Compliance",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The Compliance Summary now counts Mould Change (MC), Colour Change (CC) and Job Change (JC) once per actual change instead of once per downtime hour, so a changeover that took several hours is counted as one — and quick-action mould changeovers are included." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.45.5",
       "date": "2026-08-23",

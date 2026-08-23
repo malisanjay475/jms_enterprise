@@ -1465,7 +1465,7 @@
 
                                 shiftsToRender.forEach(rowShift => {
                                     // Per-shift-row change counters for the machine label badge strip (MC / CC / JC)
-                                    let rowShiftCC = 0, rowShiftMC = 0;
+                                    let rowShiftCC = 0, rowShiftMC = 0, machineJC = 0;
                                     // Select Data Source
                                     const source = (rowShift === 'Day') ? dayData : nightData;
                                     const rowEntries = source.entries || {};
@@ -1481,6 +1481,44 @@
                                         if (!mData[cleanSlot]) mData[cleanSlot] = [];
                                         mData[cleanSlot] = mData[cleanSlot].concat(rawMachineData[rawSlot]);
                                     });
+
+                                    // Change-event counts for this machine + shift, counted ONCE per event
+                                    // (not per downtime hour). A change spanning several hours is a single
+                                    // event; separate changes each count. (DPR Compliance accuracy fix.)
+                                    //  MC = mould changeover: a contiguous block of Mould-Change downtime
+                                    //       (code 2) OR a quick-action Mould Change / Changeover entry.
+                                    //  CC = colour change: a ColourChange entry OR a contiguous block of
+                                    //       Colour-Change downtime (code 9).
+                                    //  JC = job change: distinct orders/jobs that actually produced, minus 1
+                                    //       (setup-only moulds and mould-name spelling variants excluded).
+                                    {
+                                        let prevMc = false, prevCc = false;
+                                        const jobKeys = new Set();
+                                        slots.forEach(slotName => {
+                                            const list = mData[slotName] || [];
+                                            let mcActive = false, ccActive = false;
+                                            list.forEach(e => {
+                                                const dt = e.downtime_breakup || {};
+                                                const et = e.entry_type || '';
+                                                if ((Number(dt['2']) || 0) > 0 || et === 'MouldChange' || et === 'MouldChangeover') mcActive = true;
+                                                if (et === 'ColourChange' || (Number(dt['9']) || 0) > 0) ccActive = true;
+                                                const produced = (Number(e.good_qty) || 0) > 0 || (Number(e.shots) || 0) > 0;
+                                                if (produced) {
+                                                    const job = (e.order_no && String(e.order_no).trim())
+                                                        || (e.mould_no && String(e.mould_no).trim().toUpperCase())
+                                                        || (e.mould_name && String(e.mould_name).trim().toUpperCase());
+                                                    if (job) jobKeys.add(job);
+                                                }
+                                            });
+                                            if (mcActive && !prevMc) rowShiftMC++;
+                                            if (ccActive && !prevCc) rowShiftCC++;
+                                            prevMc = mcActive;
+                                            prevCc = ccActive;
+                                        });
+                                        lineTotalMC += rowShiftMC;
+                                        lineTotalCC += rowShiftCC;
+                                        machineJC = Math.max(0, jobKeys.size - 1);
+                                    }
 
                                     // --- 1. Identify Distinct Moulds FIRST (v57 Deduplication) ---
                                     const distinctMoulds = [];
@@ -1621,11 +1659,10 @@
                                         distinctMoulds.push({ name: '', code: '', std: '', start_time: null, is_dummy: true });
                                     }
 
-                                    // Count JC
+                                    // Count JC — machineJC (distinct producing jobs − 1) is computed in the
+                                    // per-shift change-event block above. realMoulds is still used for rendering.
                                     const realMoulds = distinctMoulds.filter(m => !m.is_dummy);
-                                    if (realMoulds.length > 1) {
-                                        lineTotalJC += (realMoulds.length - 1);
-                                    }
+                                    lineTotalJC += machineJC;
 
                                     const firstMould = distinctMoulds[0] || {};
 
@@ -1636,7 +1673,6 @@
                                     const closure = rowClosed.find(c => c.plant === building || c.plant === machineLine || c.plant === 'All');
 
                                     // [NEW] Machine-wise JC Highlight Detection (Trigger on 1 or more Job Changes)
-                                    const machineJC = realMoulds.length - 1;
                                     const isHighJC = (machineJC >= 1);
 
                                     distinctMoulds.forEach((m, mIdx) => {
@@ -2200,10 +2236,8 @@
                                                         slotShots += (parseInt(entry.shots) || 0);
                                                         sumShots += (parseInt(entry.shots) || 0); // row total → Avg CT (KAN-65)
 
-                                                        // Counters
-                                                        const dtMap = entry.downtime_breakup || {};
-                                                        if (entry.entry_type === 'ColourChange' || dtMap['9'] > 0) { lineTotalCC++; rowShiftCC++; }
-                                                        if (dtMap['2'] > 0) { lineTotalMC++; rowShiftMC++; }
+                                                        // MC/CC change events are counted once per event in the
+                                                        // per-shift block above (not per downtime hour).
 
                                                         let entryWeight = 0;
                                                         if (entry.plan_id) {
