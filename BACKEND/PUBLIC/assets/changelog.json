@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.45.0",
+  "latest": "1.45.1",
   "versions": [
+    {
+      "version": "1.45.1",
+      "date": "2026-08-23",
+      "title": "Correct STD values on DPR setup",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The One-time Setup STD values (cavity, cycle, pcs/hr, weight, manpower) now come from the Mould Master matched by Mould No. instead of mould name, so moulds like double-cavity variants show the correct standards." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.45.0",
       "date": "2026-08-22",
