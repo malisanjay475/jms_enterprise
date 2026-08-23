@@ -8129,6 +8129,35 @@ app.get('/api/debug/dpr-by-machine', async (req, res) => {
 });
 
 // DEBUG: Inspect IDs for Shifting Mismatch
+// TEMP diagnostic (KAN-141): show every plan_board row + mps match + resolved
+// mould for a plan_id, to explain wrong DPR setup STD. Read-only.
+app.get('/api/debug/std-resolve', async (req, res) => {
+  try {
+    const { planId } = req.query;
+    if (!planId) return res.json({ ok: false, error: 'planId required' });
+    const rows = await q(`
+      SELECT pb.id, pb.factory_id, pb.order_no, pb.mould_name, pb.mould_code,
+             mps.mould_no AS mps_mould_no,
+             COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),'')) AS resolved_code,
+             m.id AS mould_id, m.mould_number, m.no_of_cav, m.cycle_time, m.std_wt_kg, m.pcs_per_hour
+      FROM plan_board pb
+      LEFT JOIN mould_planning_summary mps
+        ON mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name
+      LEFT JOIN LATERAL (
+        SELECT mm.* FROM moulds mm
+        WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')))
+          AND TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')) <> ''
+        ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC LIMIT 1
+      ) m ON TRUE
+      WHERE pb.plan_id = $1
+      ORDER BY pb.factory_id, pb.id
+    `, [planId]);
+    res.json({ ok: true, count: rows.length, rows });
+  } catch (e) {
+    res.json({ ok: false, error: String(e) });
+  }
+});
+
 app.get('/api/debug/ids', async (req, res) => {
   try {
     const plans = await q(`SELECT id, plan_id, machine, order_no, status FROM plan_board WHERE status IN ('RUNNING','Running')`);
