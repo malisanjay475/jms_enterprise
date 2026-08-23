@@ -24356,33 +24356,43 @@ app.get('/api/std-actual/status', async (req, res) => {
     const { planId, shift, date, machine } = req.query;
     if (!planId) return res.json({ ok: false, error: 'Missing planId' });
 
-    // 1. Fetch Plan Details to get the Mould No. (code) and name
-    const plans = await q('SELECT mould_name, mould_code FROM plan_board WHERE plan_id=$1', [planId]);
-    const mouldName = plans.length ? plans[0].mould_name : null;
-    const mouldCode = plans.length ? plans[0].mould_code : null;
+    // 1+2. Resolve the plan's Mould Master standards the SAME way the queue/board
+    // does (line ~23588): prefer the planning summary's specific mould_no
+    // (e.g. "5272-BODY 2") over plan_board.mould_code, which can hold a COARSER
+    // base code (e.g. "5272-BODY") that resolves to a different mould's row —
+    // that was the bug: cavity showed 1 instead of 2. Match EXACTLY on
+    // moulds.mould_number and align with the "Mould Code" shown on the card.
+    const planRows = await q(`
+      SELECT
+        m.std_wt_kg, m.runner_weight, m.no_of_cav, m.cycle_time,
+        m.pcs_per_hour, m.manpower, m.std_volume_cap
+      FROM plan_board pb
+      LEFT JOIN mould_planning_summary mps
+        ON mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name
+      LEFT JOIN LATERAL (
+        SELECT mm.*
+        FROM moulds mm
+        WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')))
+          AND TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')) <> ''
+        ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
+        LIMIT 1
+      ) m ON TRUE
+      WHERE pb.plan_id = $1
+      ORDER BY (m.no_of_cav IS NOT NULL) DESC NULLS LAST
+      LIMIT 1
+    `, [planId]);
 
-    // 2. Fetch Standards from MOULDS table (Mould Master).
-    // Resolve by Mould No. FIRST (moulds.mould_number = plan_board.mould_code),
-    // the same key used everywhere else. Only fall back to mould_name when the
-    // plan has no code, because names are not unique / can hit the wrong row
-    // (e.g. "5272-BODY 2" double-cavity resolving to a single-cavity row).
     let std = null;
-    let m = [];
-    if (mouldCode && String(mouldCode).trim()) {
-      m = await q('SELECT * FROM moulds WHERE TRIM(mould_number) = TRIM($1) ORDER BY id LIMIT 1', [mouldCode]);
-    }
-    if (!m.length && mouldName) {
-      m = await q('SELECT * FROM moulds WHERE TRIM(mould_name) = TRIM($1) ORDER BY id LIMIT 1', [mouldName]);
-    }
-    if (m.length) {
+    const r0 = planRows.length ? planRows[0] : null;
+    if (r0 && (r0.std_wt_kg != null || r0.no_of_cav != null || r0.cycle_time != null)) {
       std = {
-        article_std: m[0].std_wt_kg,
-        runner_std: m[0].runner_weight,
-        cavity_std: m[0].no_of_cav,
-        cycle_std: m[0].cycle_time,
-        pcshr_std: m[0].pcs_per_hour,
-        man_std: m[0].manpower,
-        sfgqty_std: m[0].std_volume_cap
+        article_std: r0.std_wt_kg,
+        runner_std: r0.runner_weight,
+        cavity_std: r0.no_of_cav,
+        cycle_std: r0.cycle_time,
+        pcshr_std: r0.pcs_per_hour,
+        man_std: r0.manpower,
+        sfgqty_std: r0.std_volume_cap
       };
     }
 
