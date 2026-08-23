@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.45.1",
+  "latest": "1.45.2",
   "versions": [
+    {
+      "version": "1.45.2",
+      "date": "2026-08-23",
+      "title": "DPR setup STD picks the exact mould variant",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The One-time Setup STD now matches the exact mould variant shown on the job (e.g. a double-cavity BODY 2), so cavity, cycle and pcs/hr are correct even when a plan's stored code is the shorter base code." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.45.1",
       "date": "2026-08-23",
