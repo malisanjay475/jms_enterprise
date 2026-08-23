@@ -24356,26 +24356,34 @@ app.get('/api/std-actual/status', async (req, res) => {
     const { planId, shift, date, machine } = req.query;
     if (!planId) return res.json({ ok: false, error: 'Missing planId' });
 
-    // 1. Fetch Plan Details to get Mould Name
-    const plans = await q('SELECT mould_name FROM plan_board WHERE plan_id=$1', [planId]);
+    // 1. Fetch Plan Details to get the Mould No. (code) and name
+    const plans = await q('SELECT mould_name, mould_code FROM plan_board WHERE plan_id=$1', [planId]);
     const mouldName = plans.length ? plans[0].mould_name : null;
+    const mouldCode = plans.length ? plans[0].mould_code : null;
 
-    // 2. Fetch Standards from MOULDS table (Mould Master)
+    // 2. Fetch Standards from MOULDS table (Mould Master).
+    // Resolve by Mould No. FIRST (moulds.mould_number = plan_board.mould_code),
+    // the same key used everywhere else. Only fall back to mould_name when the
+    // plan has no code, because names are not unique / can hit the wrong row
+    // (e.g. "5272-BODY 2" double-cavity resolving to a single-cavity row).
     let std = null;
-    if (mouldName) {
-      // Try exact match on mould_name (mould_name in plan_board)
-      const m = await q('SELECT * FROM moulds WHERE mould_name = $1', [mouldName]);
-      if (m.length) {
-        std = {
-          article_std: m[0].std_wt_kg,
-          runner_std: m[0].runner_weight,
-          cavity_std: m[0].no_of_cav,
-          cycle_std: m[0].cycle_time,
-          pcshr_std: m[0].pcs_per_hour,
-          man_std: m[0].manpower,
-          sfgqty_std: m[0].std_volume_cap
-        };
-      }
+    let m = [];
+    if (mouldCode && String(mouldCode).trim()) {
+      m = await q('SELECT * FROM moulds WHERE TRIM(mould_number) = TRIM($1) ORDER BY id LIMIT 1', [mouldCode]);
+    }
+    if (!m.length && mouldName) {
+      m = await q('SELECT * FROM moulds WHERE TRIM(mould_name) = TRIM($1) ORDER BY id LIMIT 1', [mouldName]);
+    }
+    if (m.length) {
+      std = {
+        article_std: m[0].std_wt_kg,
+        runner_std: m[0].runner_weight,
+        cavity_std: m[0].no_of_cav,
+        cycle_std: m[0].cycle_time,
+        pcshr_std: m[0].pcs_per_hour,
+        man_std: m[0].manpower,
+        sfgqty_std: m[0].std_volume_cap
+      };
     }
 
     // 3. Fetch Existing Setup (ACTUALS)
