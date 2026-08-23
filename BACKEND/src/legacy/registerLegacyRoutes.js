@@ -6641,61 +6641,47 @@ app.get('/api/std-actual/status', async (req, res) => {
       );
     }
 
-    // NEW: Fetch Standards from Mould Master (User Req: Fetch by Matching ERP ITEM CODE)
+    // Fetch Standards from the Mould Master, resolved the SAME way the queue/board
+    // does (line ~23588). The previous logic joined mould_planning_summary on
+    // or_jr_no ONLY (not mould_name) and then picked a row with a loose
+    // planName.includes(summaryName) substring match — so a plan named
+    // "...BODY DOUBLE CAVITY" matched the shorter "...BODY" (single cavity) first,
+    // showing CAVITY STD 1 instead of 2 (KAN-141). Now: join the summary on
+    // or_jr_no AND mould_name (exact), resolve moulds by EXACT mould_number,
+    // preferring the summary's specific mould_no over plan_board.mould_code.
     let std = {};
     if (planId) {
-      // STRICT MOULD NO LOGIC (Plan -> Order -> Summary -> Master)
       try {
-        // 1. Get Linkage info
-        const linkRes = await q(`
-          SELECT 
-            p.order_no, 
-            p.mould_name as plan_mould_name,
-            s.mould_no, 
-            s.mould_name as summary_mould_name
-          FROM plan_board p
-          LEFT JOIN mould_planning_summary s ON s.or_jr_no = p.order_no
-          WHERE p.plan_id = $1
+        const planRows = await q(`
+          SELECT m.std_wt_kg, m.runner_weight, m.no_of_cav, m.cycle_time,
+                 m.pcs_per_hour, m.manpower, m.std_volume_cap
+          FROM plan_board pb
+          LEFT JOIN mould_planning_summary mps
+            ON mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name
+          LEFT JOIN LATERAL (
+            SELECT mm.* FROM moulds mm
+            WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')))
+              AND TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')) <> ''
+            ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
+            LIMIT 1
+          ) m ON TRUE
+          WHERE pb.plan_id = $1
+          ORDER BY (mps.mould_no IS NOT NULL) DESC,
+                   (m.no_of_cav IS NOT NULL) DESC NULLS LAST,
+                   m.updated_at DESC NULLS LAST, m.id DESC
+          LIMIT 1
         `, [planId]);
-
-        if (linkRes.length) {
-          // We might have multiple rows if one Order has multiple Moulds in summary
-          // Filter to find the BEST match using Mould Name
-          let best = linkRes[0];
-          if (linkRes.length > 1) {
-            const planName = (linkRes[0].plan_mould_name || '').toLowerCase().trim();
-
-            const match = linkRes.find(r => {
-              const sumName = (r.summary_mould_name || '').toLowerCase().trim();
-              return sumName && planName.includes(sumName); // or vice versa
-            });
-            if (match) best = match;
-          }
-
-          const mouldNo = best.mould_no;
-          if (mouldNo) {
-            // 2. Fetch Master strictly by Mould No
-            // First try exact match
-            let mRows = await q(`SELECT * FROM moulds WHERE mould_number = $1`, [mouldNo]);
-
-            // Fallback: case-insensitive / trim-tolerant exact match if strict fails
-            if (!mRows.length) {
-              mRows = await q(`SELECT * FROM moulds WHERE UPPER(TRIM(mould_number)) = UPPER(TRIM($1)) LIMIT 1`, [mouldNo]);
-            }
-
-            if (mRows.length) {
-              const m = mRows[0];
-              std = {
-                article_std: m.std_wt_kg,
-                runner_std: m.runner_weight,
-                cavity_std: m.no_of_cav,
-                cycle_std: m.cycle_time,
-                pcshr_std: m.pcs_per_hour,
-                man_std: m.manpower,
-                sfgqty_std: m.sfg_std_packing
-              };
-            }
-          }
+        const r0 = planRows.length ? planRows[0] : null;
+        if (r0) {
+          std = {
+            article_std: r0.std_wt_kg,
+            runner_std: r0.runner_weight,
+            cavity_std: r0.no_of_cav,
+            cycle_std: r0.cycle_time,
+            pcshr_std: r0.pcs_per_hour,
+            man_std: r0.manpower,
+            sfgqty_std: r0.std_volume_cap
+          };
         }
       } catch (err) {
         console.error('Error fetching standards (MouldNo Logic)', err);
@@ -8129,35 +8115,6 @@ app.get('/api/debug/dpr-by-machine', async (req, res) => {
 });
 
 // DEBUG: Inspect IDs for Shifting Mismatch
-// TEMP diagnostic (KAN-141): show every plan_board row + mps match + resolved
-// mould for a plan_id, to explain wrong DPR setup STD. Read-only.
-app.get('/api/debug/std-resolve', async (req, res) => {
-  try {
-    const { planId } = req.query;
-    if (!planId) return res.json({ ok: false, error: 'planId required' });
-    const rows = await q(`
-      SELECT pb.id, pb.factory_id, pb.order_no, pb.mould_name, pb.mould_code,
-             mps.mould_no AS mps_mould_no,
-             COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),'')) AS resolved_code,
-             m.id AS mould_id, m.mould_number, m.no_of_cav, m.cycle_time, m.std_wt_kg, m.pcs_per_hour
-      FROM plan_board pb
-      LEFT JOIN mould_planning_summary mps
-        ON mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name
-      LEFT JOIN LATERAL (
-        SELECT mm.* FROM moulds mm
-        WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')))
-          AND TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')) <> ''
-        ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC LIMIT 1
-      ) m ON TRUE
-      WHERE pb.plan_id = $1
-      ORDER BY pb.factory_id, pb.id
-    `, [planId]);
-    res.json({ ok: true, count: rows.length, rows });
-  } catch (e) {
-    res.json({ ok: false, error: String(e) });
-  }
-});
-
 app.get('/api/debug/ids', async (req, res) => {
   try {
     const plans = await q(`SELECT id, plan_id, machine, order_no, status FROM plan_board WHERE status IN ('RUNNING','Running')`);
