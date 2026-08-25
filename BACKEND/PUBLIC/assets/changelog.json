@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.46.1",
+  "latest": "1.47.0",
   "versions": [
+    {
+      "version": "1.47.0",
+      "date": "2026-08-23",
+      "title": "ERP auto-sync now imports Summary & Details too (every 3 min)",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-database",
+          "changes": [
+            { "type": "improvement", "text": "The automatic ERP sync now runs every 3 minutes and, after fetching from the ERP, also imports OR-JR Wise Summary and OR-JR Wise Details per factory (into the planning tables) — not just OR-JR Status. So factory (LOCAL) servers receive the new planning data on their next sync, with no manual Import needed. The manual Fetch/Import buttons still work." }
+          ]
+        },
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "fix", "text": "In the Mould Wise Item QTY Detail view, machines are now listed in true ascending order (e.g. …-300-6, -7, -8, -9, -10, -11) with each machine family kept together, instead of text order that put -10 and -11 before -6." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.46.1",
       "date": "2026-08-23",

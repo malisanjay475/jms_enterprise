@@ -16401,29 +16401,11 @@ function mouldWiseDateAxis(from, to, data) {
   return out;
 }
 
-// Normalised machine key so the ">" prefix form ("B -L1>HYD-300-6") and the
-// healed dash form ("B -L1-HYD-300-6") map to the same Machine Master entry.
-function normMachineKey(s) {
-  return String(s || '').toUpperCase().replace(/>/g, '-').replace(/\s+/g, ' ').trim();
-}
-
-// Machine Master ordering: machines listed by (building, line, machine) exactly
-// like the Machine Master / DPR Compliance Summary. Returns Map(normKey -> rank).
-async function loadMachineMasterOrder(factoryId) {
-  const rows = await q(
-    `SELECT machine FROM machines
-      WHERE ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
-      ORDER BY building, line, machine`, [factoryId]);
-  const map = new Map();
-  rows.forEach((r, i) => { const k = normMachineKey(r.machine); if (!map.has(k)) map.set(k, i); });
-  return map;
-}
-
 // Pivot the mould-wise report into the Detail matrix: one row per Machine+Mould,
 // dates as Day/Night column pairs, with per-row metric aggregates. `data` must
-// have been built with the `machine` dimension on. `machineOrder` (from
-// loadMachineMasterOrder) sorts rows in Machine Master order.
-function buildMouldWiseDetailPivot(data, { from, to, machineOrder }) {
+// have been built with the `machine` dimension on. Machines are ordered with the
+// same naturalCompare the DPR Compliance Summary uses.
+function buildMouldWiseDetailPivot(data, { from, to }) {
   const dates = mouldWiseDateAxis(from, to, data);
   const r2 = n => Math.round(n * 100) / 100;
   const r1 = n => Math.round(n * 10) / 10;
@@ -16471,16 +16453,12 @@ function buildMouldWiseDetailPivot(data, { from, to, machineOrder }) {
     cells: rec.cells
   }));
 
-  // Order machines exactly like Machine Master (building, line, machine). Machines
-  // not found in the master fall to the end, in the same text order Machine Master
-  // uses. Within a machine, group by mould name.
-  const rank = m => {
-    const r = machineOrder ? machineOrder.get(normMachineKey(m)) : undefined;
-    return (r === undefined || r === null) ? Number.MAX_SAFE_INTEGER : r;
-  };
+  // Order machines in true ascending (numeric-aware) order on the full machine
+  // name, so a family stays together and its numbers sort 6,7,8,9,10,11 (not the
+  // text order 10,11,6,7). Within a machine, group by mould name.
+  const mcmp = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
   rows.sort((a, b) =>
-    (rank(a.machine) - rank(b.machine))
-    || String(a.machine).localeCompare(String(b.machine))
+    mcmp(a.machine, b.machine)
     || String(a.mouldName).localeCompare(String(b.mouldName)));
 
   return { dates, rows };
@@ -16504,8 +16482,7 @@ app.get('/api/reports/mould-wise-qty', async (req, res) => {
       tonnages: req.query.tonnages
     });
     if (view === 'detail') {
-      const machineOrder = await loadMachineMasterOrder(reportFactoryId);
-      const pivot = buildMouldWiseDetailPivot(out.data, { from, to, machineOrder });
+      const pivot = buildMouldWiseDetailPivot(out.data, { from, to });
       return res.json({ ok: true, view: 'detail', fields: out.fields, pivot });
     }
     res.json({ ok: true, view: 'summary', fields: out.fields, data: out.data });
@@ -16571,8 +16548,7 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     //      column pairs, with a merged Date / day-number / Day-Night header. ----
     if (view === 'detail') {
       const onD = new Set(requested);
-      const machineOrder = await loadMachineMasterOrder(requestFactoryId);
-      const pivot = buildMouldWiseDetailPivot(data, { from, to, machineOrder });
+      const pivot = buildMouldWiseDetailPivot(data, { from, to });
       const leftCols = [
         { key: 'machine', label: 'Machine', w: 16 },
         { key: 'mouldNo', label: 'Mould No', w: 16 },
@@ -17345,7 +17321,7 @@ app.post('/api/reports/erp-mould-item/sync', (req, res) => handleErpSync('mouldI
    Every run is written to erp_autosync_history so it can be reviewed.
    ============================================================ */
 const ERP_AUTOSYNC_INTERVAL_MS = Math.max(
-  60000, Number(process.env.ERP_AUTOSYNC_INTERVAL_MS) || 5 * 60 * 1000
+  60000, Number(process.env.ERP_AUTOSYNC_INTERVAL_MS) || 3 * 60 * 1000
 );
 const ERP_AUTOSYNC_ENABLED = String(process.env.ERP_AUTOSYNC_ENABLED ?? '1') !== '0';
 let _erpAutoSyncRunning = false;
@@ -17447,6 +17423,24 @@ async function runErpAutoSyncCycle(trigger = 'auto') {
           throw e;
         } finally {
           client.release();
+        }
+
+        // Also import OR-JR Wise Summary + Details from the fetched ERP snapshot
+        // into the planning tables, per factory, so LOCAL servers receive the new
+        // planning data on the next sync (same path as the manual Import buttons).
+        for (const pk of ['summary', 'detail']) {
+          try {
+            const r = await runErpPlanningImportForFactory(pk, f.id);
+            fs[`planning_${pk}_imported`] = r.wrote;
+          } catch (e) {
+            if (e.code === 'NO_SNAPSHOT' || e.code === 'NO_LINKAGE') {
+              fs[`planning_${pk}_skipped`] = e.code;
+            } else {
+              hadError = true;
+              fs[`planning_${pk}_error`] = String(e.message || e);
+              console.warn(`[ERP AutoSync] factory ${f.id} ${pk} import failed:`, e.message);
+            }
+          }
         }
       } catch (e) {
         // NO_SNAPSHOT means nobody has fetched yet (ERP empty on first boot) — not a hard error.
@@ -18170,6 +18164,38 @@ function registerErpPlanningConfirm(cfgKey, routePath) {
 
 registerErpPlanningConfirm('summary', '/api/upload/orjr-wise-summary-erp-confirm');
 registerErpPlanningConfirm('detail', '/api/upload/orjr-wise-detail-erp-confirm');
+
+// Headless per-factory ERP import for OR-JR Wise Summary / Details, used by the
+// ERP auto-sync scheduler (same projection + write as the manual Import buttons,
+// so behaviour can't drift). One call writes up to OR_JR_ERP_PREVIEW_ROW_CAP
+// actionable rows; loops (bounded) until nothing changed remains so a big first
+// import completes across a single cycle. Returns { wrote }.
+async function runErpPlanningImportForFactory(cfgKey, factoryId, { maxIterations = 30 } = {}) {
+  const cfg = ERP_PLANNING_IMPORTS[cfgKey];
+  let wrote = 0;
+  for (let it = 0; it < maxIterations; it++) {
+    const built = await buildErpPlanningRows(cfgKey, factoryId);
+    const { preview } = await buildErpPlanningPreview(cfgKey, built.rows, factoryId);
+    if (!preview.length) break;
+    assertUploadRowsMatchFactory(preview, factoryId, `${cfg.label} ERP import`);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      if (cfgKey === 'summary') await writeErpPlanningSummary(client, preview, factoryId);
+      else await writeErpPlanningDetail(client, preview, factoryId);
+      await client.query('COMMIT');
+    } catch (e) {
+      try { await client.query('ROLLBACK'); } catch (_) { }
+      throw e;
+    } finally {
+      client.release();
+    }
+    wrote += preview.length;
+    // Fewer than a full cap means we caught up; avoid an extra scan.
+    if (preview.length < OR_JR_ERP_PREVIEW_ROW_CAP) break;
+  }
+  return { wrote };
+}
 
 // POST /api/upload/excel (Mock - requires 'xlsx' library for real parsing)
 app.post('/api/upload/excel', async (req, res) => {
