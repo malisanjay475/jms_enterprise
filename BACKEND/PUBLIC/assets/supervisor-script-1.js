@@ -1259,6 +1259,30 @@
       el('act-cavity').classList.remove('input-error');
     }
 
+    /* Article weight ±10% check — WARN ONLY (does not block the save; article
+       weight is intentionally saved as-is). Shows a warning when the actual
+       article weight deviates more than 10% from STD (either lighter or heavier). */
+    function validateActWeight() {
+      const warn = el('wt-warn');
+      const act = el('act-article');
+      if (!warn) return;
+      const stdW = parseFloat((el('std-article') && el('std-article').value) || 0);
+      const actW = parseFloat((act && act.value) || 0);
+      if (stdW > 0 && actW > 0) {
+        const devPct = Math.abs(actW - stdW) / stdW * 100;
+        if (devPct > 10) {
+          const lo = (stdW * 0.9), hi = (stdW * 1.1);
+          warn.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> Weight ${devPct.toFixed(1)}% off STD (${actW} vs ${stdW}). Expected ${lo.toFixed(3)}–${hi.toFixed(3)}. You can still save.`;
+          warn.style.display = 'block';
+          if (act) act.classList.add('input-warn');
+          return;
+        }
+      }
+      warn.style.display = 'none';
+      warn.innerHTML = '';
+      if (act) act.classList.remove('input-warn');
+    }
+
     function saveStdActual() {
       const job = session.activeJob;
       if (!job) {
@@ -1506,6 +1530,7 @@
           el('act-cycle').value = String(cyc ?? '');
           el('act-pcshr').value = String(pcs ?? '');
           el('act-man').value = String(man ?? '');
+          if (typeof validateActWeight === 'function') validateActWeight();
           // el('act-name').value = String(ent ?? ''); // REMOVED
           el('act-sfgqty').value = String(sfg ?? '');
           // Backwards Compat Logic: Try Parse JSON, else String

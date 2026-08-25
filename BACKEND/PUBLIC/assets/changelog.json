@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.47.0",
+  "latest": "1.47.1",
   "versions": [
+    {
+      "version": "1.47.1",
+      "date": "2026-08-25",
+      "title": "Supervisor: Article weight ±10% warning",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "improvement", "text": "In the STD vs Actual setup, if the actual Article weight is more than 10% away from STD (lighter or heavier), a warning now appears showing the expected range. It is a warning only — the value is still saved as entered." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.47.0",
       "date": "2026-08-23",
