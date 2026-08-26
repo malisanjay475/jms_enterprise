@@ -1267,7 +1267,11 @@
       const act = el('act-article');
       if (!warn) return;
       const stdW = parseFloat((el('std-article') && el('std-article').value) || 0);
-      const actW = parseFloat((act && act.value) || 0);
+      // Article ACT may be typed in grams: the save treats a value >= 10 as grams
+      // and stores kg (value / 1000). Normalise the same way before comparing to
+      // the kg-based STD, or a grams entry would always look wildly off.
+      let actW = parseFloat((act && act.value) || 0);
+      if (!isNaN(actW) && actW >= 10) actW = actW / 1000;
       if (stdW > 0 && actW > 0) {
         const devPct = Math.abs(actW - stdW) / stdW * 100;
         if (devPct > 10) {
@@ -1508,6 +1512,7 @@
             el('std-msg').innerHTML =
               '<span class="warn">No setup saved — enter ACT values and Save.</span>';
             setupDone = false;
+            if (typeof validateActWeight === 'function') validateActWeight(); // clear any stale weight warning
             validateForm();
             return;
           }
