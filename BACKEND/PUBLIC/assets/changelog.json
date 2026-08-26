@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.47.1",
+  "latest": "1.47.2",
   "versions": [
+    {
+      "version": "1.47.2",
+      "date": "2026-08-26",
+      "title": "DPR Job Detail: correct Actual Weight, OR Qty & Plan Date",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The DPR Job Detail popup showed a wrong Actual Weight (it could borrow another mould's setup from the same OR). It now always uses this plan's own supervisor setup, matching the QC 'Supervisor' weight." },
+            { "type": "fix", "text": "OR Qty now shows the real quantity from OR-JR Status instead of 0." },
+            { "type": "fix", "text": "Plan Date now shows the date the plan was actually created in JMS, instead of an old/stale date." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.47.1",
       "date": "2026-08-25",

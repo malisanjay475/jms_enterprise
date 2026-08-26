@@ -10718,6 +10718,7 @@ async function buildDprOrderAnalysis(req) {
       pb.consumption_ratio_qty,
       pb.colour_details,
       pb.start_date,
+      pb.created_at AS plan_created_at,
       pb.end_date,
       pb.item_code,
       pb.item_name,
@@ -10726,7 +10727,9 @@ async function buildDprOrderAnalysis(req) {
       COALESCE(o.client_name, ojr.client_name) as client_name,
       o.priority,
       COALESCE(o.item_name, ojr.product_name, pb.item_name) as product_name,
-      COALESCE(o.qty, ojr.or_qty, pb.plan_qty) as or_qty,
+      -- OR Qty comes from OR-JR Status (or_jr_report). A 0 in the orders table is
+      -- non-NULL and would win a plain COALESCE, so skip zeros with NULLIF.
+      COALESCE(NULLIF(ojr.or_qty, 0), NULLIF(o.qty, 0), pb.plan_qty) as or_qty,
       ojr.or_jr_date,
       ojr.job_card_no,
       ojr.job_card_date,
@@ -10754,7 +10757,12 @@ async function buildDprOrderAnalysis(req) {
         OR sa.plan_id = pb.id::text
         OR TRIM(COALESCE(sa.order_no, '')) = TRIM(pb.order_no)
       )
-      ORDER BY sa.created_at DESC NULLS LAST, sa.id DESC
+      -- Always prefer THIS plan's own setup (article weight, cavity, cycle). The
+      -- order_no match is only a legacy fallback: without this ranking it could
+      -- borrow another mould's setup from the same OR and show a wrong Actual weight.
+      ORDER BY
+        (CASE WHEN sa.plan_id = pb.plan_id OR sa.plan_id = pb.id::text THEN 0 ELSE 1 END),
+        sa.created_at DESC NULLS LAST, sa.id DESC
       LIMIT 1
     ) std ON true
     LEFT JOIN moulds m ON TRIM(m.mould_name) = TRIM(pb.mould_name)
