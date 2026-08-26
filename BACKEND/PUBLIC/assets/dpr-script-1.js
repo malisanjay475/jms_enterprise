@@ -1588,19 +1588,22 @@
                                             if (existingWeak) return; // Already have this Mould Row
                                         }
 
-                                        // STD & Weight Fallback Logic
+                                        // STD pcs/hr — prefer Mould Master (std cycle × std cavity). Fall back
+                                        // to the supervisor's one-time setup (its own cycle, then its recorded
+                                        // pcs/hr) so STD never shows 0 when the Mould-Master cycle can't be
+                                        // resolved (mould_code/name mismatch) but a valid setup exists.
                                         const d = fullDetails || {};
-                                        let finalStd = parseFloat(std || 0);
-
-                                        if (!finalStd && d.pcshr_act) finalStd = parseFloat(d.pcshr_act);
-
+                                        let finalStd = 0;
+                                        const _mmCt = parseFloat(d.std_cycle_time || 0);
+                                        const _mmCav = parseFloat(d.std_cavity || 0);
+                                        if (_mmCt > 0) finalStd = Math.round((3600 / _mmCt) * (_mmCav > 0 ? _mmCav : 1));
                                         if (!finalStd) {
-                                            const ct = parseFloat(d.cycle_act || d.std_cycle_time || 0);
-                                            const cav = parseFloat(d.cavity_act || d.std_cavity || 1);
-                                            if (ct > 0) {
-                                                finalStd = Math.round((3600 / ct) * cav);
-                                            }
+                                            const _suCt = parseFloat(d.cycle_act || 0);
+                                            const _suCav = parseFloat(d.act_cavity || d.cavity_act || 0);
+                                            if (_suCt > 0) finalStd = Math.round((3600 / _suCt) * (_suCav > 0 ? _suCav : 1));
                                         }
+                                        if (!finalStd && d.pcshr_act) finalStd = parseFloat(d.pcshr_act);
+                                        if (!finalStd && std) finalStd = parseFloat(std);
 
                                         // STD pcs/hr from Mould Master (std cavity)
                                         // ACT pcs/hr from supervisor's one-time setup (cavity_act in std_actual)
@@ -1627,6 +1630,7 @@
 
                                         distinctMoulds.push({
                                             name: name || code, code, std: finalStd,
+                                            plan_id: d.plan_id || null,
                                             stdCavPcsHr, actCavPcsHr,
                                             start_time: startTime, order_no: order, end_time: endTime,
                                             first_activity_ts: activityTs,
@@ -1774,7 +1778,14 @@
                                                 const mCode = (m.code || '').trim(), mName = (m.name || '').trim(), mOrder = (m.order_no || '').trim().toLowerCase();
                                                 return list.some(e => {
                                                     let eNo = (e.mould_no || '').trim(), eName = (e.mould_name || '').trim(), eOrder = (e.order_no || '').trim().toLowerCase();
-                                                    if (mOrder && eOrder) return (mOrder === eOrder);
+                                                    // Same order — for multi-component orders (many moulds share one
+                                                    // order_no) require the mould to match too, so the active mould is
+                                                    // the right component, not just the first row of that order.
+                                                    if (mOrder && eOrder && mOrder === eOrder) {
+                                                        if (mCode && eNo) return mCode.toLowerCase() === eNo.toLowerCase();
+                                                        if (mName && eName) return mName.toLowerCase() === eName.toLowerCase();
+                                                        return true;
+                                                    }
                                                     if (mCode && eNo && mCode === eNo) return true;
                                                     if (mName && eName && mName === eName) return true;
                                                     return false;
@@ -2147,7 +2158,14 @@
                                                     // Use shared variables instead of re-declaring them
                                                     const sMCode = (m.code || '').trim(), sMName = (m.name || '').trim(), sMOrder = (m.order_no || '').trim().toLowerCase();
 
-                                                    if (mOrder && eOrder) return (mOrder === eOrder);
+                                                    // Same order — for multi-component orders (many moulds share one
+                                                    // order_no) require the mould to match too, so each component's
+                                                    // entries attach to its own row instead of piling onto the first.
+                                                    if (mOrder && eOrder && mOrder === eOrder) {
+                                                        if (mCode && eNo) return mCode === eNo.toLowerCase();
+                                                        if (mName && eName) return mName === eName.toLowerCase();
+                                                        return true;
+                                                    }
 
                                                     // Fallback: If Row has Order but Entry has None, OR Row has None
                                                     if (mCode && eNo && mCode === eNo) return true;
