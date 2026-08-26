@@ -20912,6 +20912,11 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         COALESCE(m.cycle_time, m2.cycle_time, m4.cycle_time, m3.cycle_time, 0) as std_cycle_time,
         COALESCE(m.std_wt_kg, m2.std_wt_kg, m4.std_wt_kg, m3.std_wt_kg, 0) as std_weight,
         s.article_act,
+        -- Setup's own cycle / pcs-hr, so the row's STD can fall back to what the
+        -- supervisor actually entered when the Mould-Master cycle can't be resolved
+        -- (mould_code/name mismatch) — otherwise STD shows 0 despite a valid setup.
+        s.cycle_act,
+        s.pcshr_act,
 
         --SUMMARY STATS(Plan vs Actual)
         COALESCE(ojr.plan_qty, pb.plan_qty, 0) as plan_qty,
