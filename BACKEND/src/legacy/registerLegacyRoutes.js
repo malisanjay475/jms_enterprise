@@ -11359,9 +11359,18 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       COALESCE(pb_sum.planned_qty, 0)::numeric AS existing_planned_qty,
       COALESCE(pb_sum.plan_count, 0)::int AS existing_plan_count
     FROM r
-    LEFT JOIN orders o
-      ON TRIM(o.order_no) = r.or_jr_no
-     AND ($2::int IS NULL OR o.factory_id = $2 OR o.factory_id IS NULL)
+    -- LATERAL + LIMIT 1 (not a plain JOIN): orders can also hold this JR under
+    -- more than one factory_id, and a plain join would re-double every mould row.
+    LEFT JOIN LATERAL (
+      SELECT o0.item_name, o0.client_name
+      FROM orders o0
+      WHERE TRIM(o0.order_no) = r.or_jr_no
+        AND ($2::int IS NULL OR o0.factory_id = $2 OR o0.factory_id IS NULL)
+      ORDER BY (o0.factory_id = $2) DESC NULLS LAST,
+               (o0.factory_id IS NOT NULL) DESC,
+               o0.factory_id ASC
+      LIMIT 1
+    ) o ON true
     LEFT JOIN LATERAL (
       SELECT
         mm.id,

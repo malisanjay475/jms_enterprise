@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.47.3",
+  "latest": "1.47.4",
   "versions": [
     {
-      "version": "1.47.3",
+      "version": "1.47.4",
       "date": "2026-08-27",
       "title": "Create Plan mould quantity no longer doubles",
       "modules": [
