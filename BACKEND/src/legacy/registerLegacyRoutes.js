@@ -11292,9 +11292,16 @@ function applyPlanningFamilyCoverage(rows) {
 async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
   const rawRows = await queryFn(`
     -- Pre-aggregate mould_planning_summary by (or_jr_no, mould_no) so that
-    -- multiple rows for the same mould with different plan_dates are combined
-    -- into one row with SUMmed mould_item_qty (colour-wise same mould totalled).
-    WITH r AS (
+    -- multiple rows for the same mould with different plan_dates/colours are
+    -- combined into one row with SUMmed mould_item_qty (colour-wise totalled).
+    --
+    -- per_factory sums WITHIN each factory (correct — colours total per factory).
+    -- Then r picks EXACTLY ONE factory per (or_jr_no, mould_no) so that a JR that
+    -- was duplicated across factory_id in the summary (a sync/import artifact)
+    -- can never double the Mould Item Qty when viewed unscoped / all-factories.
+    -- Preference: the requested factory ($2) first, then any real (non-null)
+    -- factory, then lowest id — deterministic.
+    WITH per_factory AS (
       SELECT
         TRIM(or_jr_no)                                         AS or_jr_no,
         MIN(or_jr_date)                                        AS or_jr_date,
@@ -11312,6 +11319,16 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM($1)
         AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
       GROUP BY TRIM(or_jr_no), TRIM(mould_no), factory_id
+    ),
+    r AS (
+      SELECT DISTINCT ON (or_jr_no, mould_no)
+        or_jr_no, or_jr_date, item_code, mould_no, mould_name, mould_item_qty,
+        product_name, tonnage, cycle_time, cavity, machine_name, factory_id
+      FROM per_factory
+      ORDER BY or_jr_no, mould_no,
+        (factory_id = $2) DESC NULLS LAST,
+        (factory_id IS NOT NULL) DESC,
+        factory_id ASC
     )
     SELECT
       r.or_jr_no,
