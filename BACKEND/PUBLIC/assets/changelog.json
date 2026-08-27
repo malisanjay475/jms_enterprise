@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.47.2",
+  "latest": "1.47.3",
   "versions": [
+    {
+      "version": "1.47.3",
+      "date": "2026-08-27",
+      "title": "Create Plan mould quantity no longer doubles",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "Create Plan now shows each mould's Item Qty once. Orders whose planning data was duplicated across factories no longer show double quantities when viewed across all factories." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.47.2",
       "date": "2026-08-26",
