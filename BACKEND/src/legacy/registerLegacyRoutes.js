@@ -12308,6 +12308,91 @@ app.get('/api/planning/orders/:orderNo/job-cards', async (req, res) => {
 
 
 
+// TEMP one-off correction (KAN-142): plans created before the qty-doubling fix
+// saved plan_qty at exactly 2x the mould target. This corrects an order's
+// over-planned plans in place (keeps the plan + its DPR production) by scaling
+// the clean x2 back to 1x. Dry-run by default; ?apply=1&token=... writes.
+// REMOVE after use.
+app.get('/api/planning/fix-doubled-qty', async (req, res) => {
+  try {
+    const orderNo = String(req.query.order || '').trim();
+    const apply = String(req.query.apply || '') === '1';
+    const token = String(req.query.token || '');
+    if (!orderNo) return res.json({ ok: false, error: 'order required' });
+    if (apply && token !== 'JMS-FIX-2826-a7f3') {
+      return res.status(403).json({ ok: false, error: 'bad token' });
+    }
+
+    // Plans for this order, with the correct mould target and produced pieces.
+    const rows = await q(`
+      SELECT pb.id, pb.plan_id, pb.mould_name, pb.mould_code, pb.factory_id,
+             COALESCE(pb.plan_qty,0)::numeric      AS plan_qty,
+             COALESCE(pb.bal_qty,0)::numeric       AS bal_qty,
+             COALESCE(pb.mould_item_qty,0)::numeric AS mould_item_qty,
+             pb.colour_details,
+             (SELECT COALESCE(MAX(mould_item_qty),0)::numeric
+                FROM mould_planning_summary mps
+               WHERE TRIM(COALESCE(mps.or_jr_no,'')) = TRIM(pb.order_no)
+                 AND TRIM(COALESCE(mps.mould_name,'')) = TRIM(pb.mould_name)) AS target,
+             (SELECT COALESCE(SUM(good_qty),0)::numeric
+                FROM dpr_hourly dh
+               WHERE (dh.plan_id = pb.plan_id OR CAST(dh.plan_id AS TEXT) = CAST(pb.id AS TEXT))
+                 AND (dh.factory_id = pb.factory_id OR dh.factory_id IS NULL OR pb.factory_id IS NULL)
+                 AND dh.is_deleted = false) AS produced
+      FROM plan_board pb
+      WHERE TRIM(COALESCE(pb.order_no,'')) = TRIM($1)
+      ORDER BY pb.mould_name
+    `, [orderNo]);
+
+    const preview = [];
+    for (const r of rows) {
+      const target = Number(r.target) || 0;
+      const planQty = Number(r.plan_qty) || 0;
+      const produced = Number(r.produced) || 0;
+      // Only touch EXACT doubles (guard against unrelated data).
+      const isDouble = target > 0 && planQty === target * 2;
+      if (!isDouble) {
+        preview.push({ plan_id: r.plan_id, mould: r.mould_code, plan_qty: planQty, target, produced, action: 'skip' });
+        continue;
+      }
+      const newPlan = target;
+      const newBal = Math.max(0, target - produced);
+      const newMiq = target;
+      let colour = r.colour_details;
+      try {
+        const arr = typeof colour === 'string' ? JSON.parse(colour) : colour;
+        if (Array.isArray(arr)) {
+          const scaled = arr.map(c => ({
+            ...c,
+            planQty: Math.round((Number(c.planQty) || 0) / 2),
+            batchQty: Math.round((Number(c.batchQty) || 0) / 2)
+          }));
+          colour = JSON.stringify(scaled);
+        } else {
+          colour = null;
+        }
+      } catch { colour = null; }
+
+      if (apply) {
+        await q(`UPDATE plan_board
+                    SET plan_qty = $2, bal_qty = $3, mould_item_qty = $4,
+                        colour_details = COALESCE($5::jsonb, colour_details),
+                        updated_at = NOW()
+                  WHERE id = $1`,
+          [r.id, newPlan, newBal, newMiq, colour]);
+        await q(`INSERT INTO plan_audit_logs (plan_id, action, details, user_name)
+                 VALUES ($1, 'FIX_DOUBLED_QTY', $2, 'System')`,
+          [r.id, JSON.stringify({ from_plan_qty: planQty, to_plan_qty: newPlan, produced, order: orderNo })]);
+      }
+      preview.push({ plan_id: r.plan_id, mould: r.mould_code, from: planQty, to: newPlan, newBal, produced, action: apply ? 'FIXED' : 'would-fix' });
+    }
+    res.json({ ok: true, applied: apply, order: orderNo, count: preview.length, preview });
+  } catch (e) {
+    console.error('fix-doubled-qty', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // POST /api/planning/update body: { rowId, planQty, startDate, endDate, status, balQty }
 app.post('/api/planning/update', async (req, res) => {
   try {
