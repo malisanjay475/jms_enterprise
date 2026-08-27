@@ -870,7 +870,8 @@ function renderGrid(agg, lines, dateStr, reasonsMap, teamDayMap, teamNightMap) {
 
     let tbody = grp('bi-box-fill','Production Metrics');
     tbody += row('bi-bullseye','Planned Target @24h (Kg)', d=>d.targetWt,{calc:'nameplate'});
-    tbody += row('bi-clipboard-check','Planned Achievable (Kg)', d=>d.plannedWt,{bold:true,calc:'planned'});
+    tbody += row('bi-clipboard-check','Planned Estimated (Kg)', d=>d.plannedWt,{bold:true,calc:'planned'});
+    tbody += row('bi-graph-up-arrow','Planned Achievable Target (Kg)', d=>d.plannedWt*0.95,{calc:'netach'});
     tbody += row('bi-boxes','Gross Production Wt (Kg)', d=>d.grossWt,{bold:true,calc:'gross'});
     tbody += row('bi-exclamation-triangle-fill','Rejection Wt (Kg)', d=>d.rejWt,{drillLine:true,calc:'reject'});
     tbody += row('bi-check-circle-fill','Good Production Wt (Kg)', d=>d.goodWt,{bold:true,calc:'good'});
@@ -1055,16 +1056,20 @@ function showCalc(metric) {
     const T=scopeSum('Total'), D=scopeSum('Day'), N=scopeSum('Night');
     const f=(x)=>fmtForce(x,1);
     const mcCount = (lastReport.factoryBundle && lastReport.factoryBundle.mc) || 0; // factory mould changes
-    const dtSpeed = T.plannedWt - T.grossWt;   // Downtime + Speed loss (combined)
+    const ACHV_BUFFER_PCT = 0.05;                                  // 5% Planned Achievable allowance
+    const plannedEstimated  = T.plannedWt;                          // after Std Mould Changeover
+    const achvBuffer        = plannedEstimated * ACHV_BUFFER_PCT;   // 5% deduction
+    const plannedAchievable = plannedEstimated - achvBuffer;        // = Planned Estimated × 0.95
+    const downtimeLoss      = plannedAchievable - T.grossWt;        // Planned Achievable − Gross
     const meta = {
         nameplate:{t:'Planned Target @24h', ic:'bi-bullseye', formula:'Std rate (pcs/hr) × Piece weight (Kg) × 12 h per shift — summed over every running machine, both shifts (24 h).', v:T.targetWt,
             note:'The theoretical ceiling: if every machine ran at its rated speed for the full shift with no stops.'},
-        planned:{t:'Planned Achievable', ic:'bi-clipboard-check', formula:'Planned Target @24h − Std Mould Changeover (mould changes × machine load + unload time × rate).', v:T.plannedWt,
-            note:'Std Mould Changeover ('+mcCount+' change'+(mcCount===1?'':'s')+') = Planned Target @24h − Planned Achievable = <b>'+f(T.targetWt-T.plannedWt)+' Kg</b>.'},
-        netach:{t:'Planned Achievable', ic:'bi-clipboard-check', formula:'Planned Target @24h − Std Mould Changeover. This is the achievable output after the standard mould-change allowance.', v:T.plannedWt,
-            note:'Std Mould Changeover ('+mcCount+' change'+(mcCount===1?'':'s')+') = <b>'+f(T.targetWt-T.plannedWt)+' Kg</b>.'},
+        planned:{t:'Planned Estimated', ic:'bi-clipboard-check', formula:'Planned Target @24h − Std Mould Changeover (mould changes × machine load + unload time × rate).', v:plannedEstimated,
+            note:'Std Mould Changeover ('+mcCount+' change'+(mcCount===1?'':'s')+') = Planned Target @24h − Planned Estimated = <b>'+f(T.targetWt-plannedEstimated)+' Kg</b>.'},
+        netach:{t:'Planned Achievable Target', ic:'bi-graph-up-arrow', formula:'Planned Estimated − 5% allowance. The realistic achievable target after a standard 5% buffer.', v:plannedAchievable,
+            note:'5% Planned Achievable allowance = <b>'+f(achvBuffer)+' Kg</b>.'},
         gross:{t:'Gross Production', ic:'bi-boxes', formula:'(Good + Reject) pieces × piece weight. Everything the machine actually moulded.', v:T.grossWt,
-            note:'Downtime + Speed loss = Planned Achievable − Gross = <b>'+f(dtSpeed)+' Kg</b> (all stoppages plus running below rated speed).'},
+            note:'Downtime Loss = Planned Achievable Target − Gross = <b>'+f(downtimeLoss)+' Kg</b> (all stoppages plus running below rated speed).'},
         reject:{t:'Rejection', ic:'bi-exclamation-triangle-fill', formula:'Reject pieces × piece weight.', v:T.rejWt,
             note:'Rejection % = Reject ÷ Gross = <b>'+f(T.grossWt>0?T.rejWt/T.grossWt*100:0)+'%</b>.'},
         good:{t:'Good Production', ic:'bi-check-circle-fill', formula:'Gross − Reject = Good pieces × piece weight. The saleable output.', v:T.goodWt,
@@ -1073,14 +1078,16 @@ function showCalc(metric) {
     const m = meta[metric]; if (!m) return;
     const wf = [
         ['Planned Target @24h', T.targetWt, false, '#4c1d95'],
-        ['− Std Mould Changeover ('+mcCount+' change'+(mcCount===1?'':'s')+')', -(T.targetWt-T.plannedWt), true, '#7c3aed'],
-        ['= Planned Achievable', T.plannedWt, false, '#7c3aed'],
-        ['− Downtime + Speed loss', -dtSpeed, true, '#a855f7'],
+        ['− Std Mould Changeover ('+mcCount+' change'+(mcCount===1?'':'s')+')', -(T.targetWt-plannedEstimated), true, '#7c3aed'],
+        ['= Planned Estimated', plannedEstimated, false, '#7c3aed'],
+        ['− Planned Achievable Allowance (5%)', -achvBuffer, true, '#a855f7'],
+        ['= Planned Achievable Target', plannedAchievable, false, '#0ea5e9'],
+        ['− Downtime Loss', -downtimeLoss, true, '#a855f7'],
         ['= Gross Production', T.grossWt, false, '#6366f1'],
         ['− Rejection', -(T.rejWt), true, '#ef4444'],
         ['= Good Production', T.goodWt, false, '#22c55e']
     ];
-    const activeLbls = { nameplate:'Planned Target @24h', planned:'= Planned Achievable', netach:'= Planned Achievable', gross:'= Gross Production', reject:'− Rejection', good:'= Good Production' };
+    const activeLbls = { nameplate:'Planned Target @24h', planned:'= Planned Estimated', netach:'= Planned Achievable Target', gross:'= Gross Production', reject:'− Rejection', good:'= Good Production' };
     const hi = activeLbls[metric];
     const wfRows = wf.map(([lbl,val,isSub,col]) => {
         const on = lbl===hi;
@@ -1096,8 +1103,9 @@ function showCalc(metric) {
     const lossLegend = `
         <div style="font-weight:800;color:#334155;font-size:.8rem;margin:14px 0 5px"><i class="bi bi-info-circle" style="color:#7c3aed"></i> What the losses mean (factory, 24 h)</div>
         <div style="display:flex;flex-direction:column;gap:6px">
-            ${lossItem('#7c3aed','Std Mould Changeover', T.targetWt-T.plannedWt, 'Planned Target @24h − Planned Achievable  =  mould changes × (machine load + unload time) × rate', 'The standard time to swap moulds, from Machine Master load + unload time. '+mcCount+' change'+(mcCount===1?'':'s')+' this period.')}
-            ${lossItem('#a855f7','Downtime + Speed Loss', dtSpeed, 'Planned Achievable − Gross Production', 'Everything between what the machine could achieve and what it actually moulded: all stoppages (breakdown, no material, power, manpower, etc.) plus running slower than the rated cycle.')}
+            ${lossItem('#7c3aed','Std Mould Changeover', T.targetWt-plannedEstimated, 'Planned Target @24h − Planned Estimated  =  mould changes × (machine load + unload time) × rate', 'The standard time to swap moulds, from Machine Master load + unload time. '+mcCount+' change'+(mcCount===1?'':'s')+' this period.')}
+            ${lossItem('#a855f7','Planned Achievable Allowance (5%)', achvBuffer, 'Planned Estimated × 5%', 'A standard 5% buffer taken off the Planned Estimated to give a realistic Planned Achievable Target.')}
+            ${lossItem('#a855f7','Downtime Loss', downtimeLoss, 'Planned Achievable Target − Gross Production', 'Everything between the achievable target and what the machine actually moulded: all stoppages (breakdown, no material, power, manpower, etc.) plus running slower than the rated cycle.')}
             ${lossItem('#ef4444','Rejection (Quality) Loss', T.rejWt, 'Gross − Good  =  Reject weight', 'Parts that were moulded but rejected as scrap.')}
         </div>`;
     const rejPct=(s)=>s.grossWt>0?s.rejWt/s.grossWt*100:0;
