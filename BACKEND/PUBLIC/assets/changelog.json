@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.49.2",
+  "latest": "1.49.4",
   "versions": [
+    {
+      "version": "1.49.4",
+      "date": "2026-08-27",
+      "title": "Planned Achievable Target (5%) in DPR waterfall",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "The Daily Report Live Calculation now shows Planned Estimated → minus a 5% allowance → Planned Achievable Target before the losses, and the combined loss line is now labelled simply 'Downtime Loss'." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.49.2",
       "date": "2026-08-27",
