@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.48.0",
+  "latest": "1.49.0",
   "versions": [
+    {
+      "version": "1.49.0",
+      "date": "2026-08-27",
+      "title": "Daily Report production waterfall",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The Daily Production Report now shows a production waterfall in tons: Planned Target @24h → minus Std Mould Changeover (from machine load + unload time) → Planned Achievable → minus Downtime & Speed loss → Gross → minus Rejection → Good weight, per machine and factory total, with Full Day / Day / Night views." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.48.0",
       "date": "2026-08-27",
