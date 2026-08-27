@@ -83,6 +83,7 @@ function escHtml(value) {
         { id: 'dpr', label: 'DPR', href: 'dpr.html?view=summary' },
         { id: 'purchase', label: 'Purchase', href: 'purchase_orders.html' },
         { id: 'masters', label: 'Masters', href: 'masters.html' },
+        { id: 'maintenance', label: 'Maintenance', href: 'maintenance.html?type=machine' },
         { id: 'quality', label: 'Quality', href: 'Quality.html' },
         { id: 'hr', label: 'HR', href: 'hr.html' },
         { id: 'shifting_module', label: 'Shifting Module', href: 'shifting_reports.html' },
@@ -114,6 +115,7 @@ function escHtml(value) {
         'purchase_vendors.html': 'purchase',
         'purchase_grn.html': 'purchase',
         'masters.html': 'masters',
+        'maintenance.html': 'maintenance',
         'quality.html': 'quality',
         'hr.html': 'hr',
         'hr_performance.html': 'hr',
@@ -1302,6 +1304,16 @@ function escHtml(value) {
                 { id: 'master_wip_stock', label: 'WIP Stock', icon: 'bi-box-seam-fill', href: 'masters.html?type=wipstock' },
                 { id: 'master_mould', label: 'Mould Master', icon: 'bi-gem', href: 'masters.html?type=moulds' },
                 { id: 'master_labour_parties', label: 'Labour Parties', icon: 'bi-people-fill', href: 'masters.html?type=labour-parties' }
+            ]
+        },
+        {
+            id: 'maintenance',
+            label: 'Maintenance',
+            icon: 'bi-wrench-adjustable-circle',
+            href: 'maintenance.html?type=machine',
+            items: [
+                { id: 'maint_machine', label: 'Machine Maintenance', icon: 'bi-gear-wide-connected', href: 'maintenance.html?type=machine' },
+                { id: 'maint_mould', label: 'Mould Maintenance', icon: 'bi-gem', href: 'maintenance.html?type=mould' }
             ]
         },
         {
