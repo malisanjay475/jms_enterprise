@@ -296,21 +296,6 @@
             </div>
         </div>
 
-        <!-- ── Daily Report waterfall (Planned Target @24 → Good weight, in tons) ── -->
-        <div class="card" id="daily-waterfall" style="display:none; margin-top:12px; background:#fff; border:1px solid var(--line); border-radius:14px; padding:16px 18px">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px">
-                <div style="font-weight:800; font-size:1.05rem; color:#0f172a">
-                    <i class="bi bi-bar-chart-steps" style="color:#2563eb"></i> Daily Report — Production Waterfall <span style="font-weight:600; color:#64748b; font-size:.85rem">(tons)</span>
-                </div>
-                <div style="display:flex; gap:6px" id="dw-shift-tabs">
-                    <button class="dw-shift-btn" data-shift="all">Full Day</button>
-                    <button class="dw-shift-btn" data-shift="Day">Day</button>
-                    <button class="dw-shift-btn" data-shift="Night">Night</button>
-                </div>
-            </div>
-            <div id="dw-body"></div>
-        </div>
-
         <!-- ── Insights ── -->
         <div class="insights" id="insights" style="display:none"></div>
 
@@ -439,7 +424,6 @@ function _initPage() {
         const dateEl = document.getElementById('report-date');
         if (dateEl) dateEl.value = today.toISOString().split('T')[0];
         renderProcessButtons();
-        _initDwShiftTabs();
         generateReport();
     } catch(e) { console.error('init render:', e); }
 }
@@ -701,7 +685,6 @@ async function generateReport() {
         renderGrid(agg, lineKeys, dtStr, reasonsMap, teamDayMap, teamNightMap);
         renderLossPanel(lineKeys, lineBundles, factoryBundle);
         renderMachineView();
-        renderDailyWaterfall(date, DW_SHIFT);
         document.getElementById('last-gen-badge').innerHTML =
             `<span class="live-dot"></span> Generated ${new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}`;
     } catch(e) {
@@ -709,106 +692,6 @@ async function generateReport() {
         if (window.JPSMS && JPSMS.toast) JPSMS.toast('Error: '+e.message, 'error');
     } finally {
         if (window.JPSMS && JPSMS.toggleLoader) JPSMS.toggleLoader(false);
-    }
-}
-
-/* ── Daily Report waterfall (Planned Target @24 → Good weight) ── */
-let DW_SHIFT = 'all';
-function _initDwShiftTabs() {
-    document.querySelectorAll('.dw-shift-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            DW_SHIFT = btn.dataset.shift;
-            const date = document.getElementById('report-date').value;
-            if (date) renderDailyWaterfall(date, DW_SHIFT);
-        });
-    });
-}
-const _fmtT = (v) => (Number(v)||0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-async function renderDailyWaterfall(date, shift) {
-    const card = document.getElementById('daily-waterfall');
-    const body = document.getElementById('dw-body');
-    if (!date) { card.style.display='none'; return; }
-    card.style.display='block';
-    // active shift button
-    document.querySelectorAll('.dw-shift-btn').forEach(b => {
-        const on = b.dataset.shift === (shift||'all');
-        b.style.cssText = `padding:5px 12px; border-radius:8px; font-size:.78rem; font-weight:700; cursor:pointer; border:1px solid ${on?'#2563eb':'#cbd5e1'}; background:${on?'#2563eb':'#fff'}; color:${on?'#fff':'#475569'}`;
-    });
-    body.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8">Loading…</div>';
-    try {
-        const sq = (shift && shift !== 'all') ? `&shift=${shift}` : '';
-        const res = await JPSMS.api.get(`/reports/dpr-daily?date=${date}${sq}`);
-        const t = (res && res.total) || {};
-        const machines = (res && res.machines) || [];
-        if (!machines.length) { body.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8">No production data for this date.</div>'; return; }
-
-        // Waterfall steps (factory total)
-        const steps = [
-            { label: 'Planned Target @24h',        val: t.planned_target_24,   kind: 'base' },
-            { label: '− Std Mould Changeover',     val: -t.std_changeover_loss, kind: 'loss' },
-            { label: '= Planned Achievable Target', val: t.planned_achievable,  kind: 'sub'  },
-            { label: '− Downtime + Speed Loss',    val: -t.downtime_speed_loss, kind: 'loss' },
-            { label: '= Gross Production',          val: t.gross_production,     kind: 'sub'  },
-            { label: '− Rejection',                val: -t.rejection,           kind: 'loss' },
-            { label: '= Good Production',           val: t.good_production,      kind: 'good' }
-        ];
-        const maxV = Math.max(t.planned_target_24 || 0, 0.001);
-        const barColor = { base:'#3b82f6', sub:'#64748b', loss:'#ef4444', good:'#10b981' };
-        const rowsHtml = steps.map(s => {
-            const pct = Math.min(100, Math.abs(s.val) / maxV * 100);
-            const isLoss = s.kind === 'loss';
-            const c = barColor[s.kind];
-            return `<div style="display:flex; align-items:center; gap:10px; margin:6px 0">
-                <div style="width:210px; font-size:.82rem; font-weight:${s.kind==='sub'||s.kind==='good'?'800':'600'}; color:${isLoss?'#b91c1c':'#0f172a'}">${s.label}</div>
-                <div style="flex:1; background:#f1f5f9; border-radius:6px; height:22px; position:relative; overflow:hidden">
-                    <div style="width:${pct}%; height:100%; background:${c}; opacity:${isLoss?0.85:1}; border-radius:6px"></div>
-                </div>
-                <div style="width:90px; text-align:right; font-weight:800; font-size:.9rem; color:${isLoss?'#b91c1c':'#0f172a'}">${isLoss?'−':''}${_fmtT(Math.abs(s.val))}</div>
-            </div>`;
-        }).join('');
-
-        // Per-machine table
-        const mRows = machines.map(m => `<tr>
-            <td class="txt" style="font-weight:700">${m.machine}</td>
-            <td>${_fmtT(m.planned_target_24)}</td>
-            <td style="color:#b91c1c">${_fmtT(m.std_changeover_loss)} <span style="color:#94a3b8; font-weight:600">(${m.mould_changes})</span></td>
-            <td style="font-weight:700">${_fmtT(m.planned_achievable)}</td>
-            <td style="color:#b91c1c">${_fmtT(m.downtime_speed_loss)}</td>
-            <td style="font-weight:700">${_fmtT(m.gross_production)}</td>
-            <td style="color:#b91c1c">${_fmtT(m.rejection)}</td>
-            <td style="font-weight:800; color:#047857">${_fmtT(m.good_production)}</td>
-        </tr>`).join('');
-
-        body.innerHTML = `
-            <div style="max-width:760px; margin-bottom:18px">${rowsHtml}</div>
-            <div style="overflow-x:auto">
-              <table class="mc-table" style="min-width:720px">
-                <thead><tr>
-                    <th class="txt">Machine</th>
-                    <th>Target @24</th>
-                    <th>Std C/O (chgs)</th>
-                    <th>Achievable</th>
-                    <th>DT+Speed</th>
-                    <th>Gross</th>
-                    <th>Rejection</th>
-                    <th>Good</th>
-                </tr></thead>
-                <tbody>${mRows}</tbody>
-                <tfoot><tr style="font-weight:800; background:#f8fafc; border-top:2px solid #e2e8f0">
-                    <td class="txt">TOTAL (${machines.length} m/c)</td>
-                    <td>${_fmtT(t.planned_target_24)}</td>
-                    <td style="color:#b91c1c">${_fmtT(t.std_changeover_loss)} <span style="color:#94a3b8">(${t.mould_changes})</span></td>
-                    <td>${_fmtT(t.planned_achievable)}</td>
-                    <td style="color:#b91c1c">${_fmtT(t.downtime_speed_loss)}</td>
-                    <td>${_fmtT(t.gross_production)}</td>
-                    <td style="color:#b91c1c">${_fmtT(t.rejection)}</td>
-                    <td style="color:#047857">${_fmtT(t.good_production)}</td>
-                </tr></tfoot>
-              </table>
-            </div>`;
-    } catch (e) {
-        body.innerHTML = `<div style="padding:20px; text-align:center; color:#ef4444">Error: ${e.message}</div>`;
     }
 }
 
