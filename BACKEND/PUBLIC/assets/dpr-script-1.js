@@ -1005,6 +1005,9 @@
                     // Prepare Requests based on Shift Mode
                     const promises = [];
                     const scopedMachinesPromise = J.api.get(`/masters/machines?process=${encodeURIComponent(dprProcess)}`);
+                    // Open machine maintenance tickets → chip on the machine's summary cell
+                    // (remarks + "Available by" ETA) so everyone sees it's down & when it returns.
+                    const maintPromise = J.api.get('/maintenance/tickets?open=1&type=machine').catch(() => ({ ok: false, data: [] }));
                     if (shiftMode === 'Both') {
                         promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}`));
                         promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}`));
@@ -1022,10 +1025,17 @@
                         promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night`));
                     }
 
-                    Promise.all([...promises, scopedMachinesPromise]).then(([resDayMat, resNightMat, resDayTeam, resNightTeam, scopedMachinesRes]) => {
+                    Promise.all([...promises, scopedMachinesPromise, maintPromise]).then(([resDayMat, resNightMat, resDayTeam, resNightTeam, scopedMachinesRes, maintRes]) => {
                         // Error Check
                         if (!resDayMat.ok) throw new Error(resDayMat.error || 'Day Fetch Failed');
                         if (!resNightMat.ok) throw new Error(resNightMat.error || 'Night Fetch Failed');
+
+                        // Map of open maintenance tickets by machine (latest wins).
+                        const maintByMachine = {};
+                        ((maintRes && maintRes.ok && maintRes.data) || []).forEach(t => {
+                            if (t && t.machine) maintByMachine[String(t.machine)] = t;
+                        });
+                        window._dprMaintByMachine = maintByMachine;
 
                         let scopedMachinesList = scopedMachinesRes.data || [];
                         if (selectedFactory) {
@@ -1588,19 +1598,22 @@
                                             if (existingWeak) return; // Already have this Mould Row
                                         }
 
-                                        // STD & Weight Fallback Logic
+                                        // STD pcs/hr — prefer Mould Master (std cycle × std cavity). Fall back
+                                        // to the supervisor's one-time setup (its own cycle, then its recorded
+                                        // pcs/hr) so STD never shows 0 when the Mould-Master cycle can't be
+                                        // resolved (mould_code/name mismatch) but a valid setup exists.
                                         const d = fullDetails || {};
-                                        let finalStd = parseFloat(std || 0);
-
-                                        if (!finalStd && d.pcshr_act) finalStd = parseFloat(d.pcshr_act);
-
+                                        let finalStd = 0;
+                                        const _mmCt = parseFloat(d.std_cycle_time || 0);
+                                        const _mmCav = parseFloat(d.std_cavity || 0);
+                                        if (_mmCt > 0) finalStd = Math.round((3600 / _mmCt) * (_mmCav > 0 ? _mmCav : 1));
                                         if (!finalStd) {
-                                            const ct = parseFloat(d.cycle_act || d.std_cycle_time || 0);
-                                            const cav = parseFloat(d.cavity_act || d.std_cavity || 1);
-                                            if (ct > 0) {
-                                                finalStd = Math.round((3600 / ct) * cav);
-                                            }
+                                            const _suCt = parseFloat(d.cycle_act || 0);
+                                            const _suCav = parseFloat(d.act_cavity || d.cavity_act || 0);
+                                            if (_suCt > 0) finalStd = Math.round((3600 / _suCt) * (_suCav > 0 ? _suCav : 1));
                                         }
+                                        if (!finalStd && d.pcshr_act) finalStd = parseFloat(d.pcshr_act);
+                                        if (!finalStd && std) finalStd = parseFloat(std);
 
                                         // STD pcs/hr from Mould Master (std cavity)
                                         // ACT pcs/hr from supervisor's one-time setup (cavity_act in std_actual)
@@ -1627,6 +1640,7 @@
 
                                         distinctMoulds.push({
                                             name: name || code, code, std: finalStd,
+                                            plan_id: d.plan_id || null,
                                             stdCavPcsHr, actCavPcsHr,
                                             start_time: startTime, order_no: order, end_time: endTime,
                                             first_activity_ts: activityTs,
@@ -1774,7 +1788,14 @@
                                                 const mCode = (m.code || '').trim(), mName = (m.name || '').trim(), mOrder = (m.order_no || '').trim().toLowerCase();
                                                 return list.some(e => {
                                                     let eNo = (e.mould_no || '').trim(), eName = (e.mould_name || '').trim(), eOrder = (e.order_no || '').trim().toLowerCase();
-                                                    if (mOrder && eOrder) return (mOrder === eOrder);
+                                                    // Same order — for multi-component orders (many moulds share one
+                                                    // order_no) require the mould to match too, so the active mould is
+                                                    // the right component, not just the first row of that order.
+                                                    if (mOrder && eOrder && mOrder === eOrder) {
+                                                        if (mCode && eNo) return mCode.toLowerCase() === eNo.toLowerCase();
+                                                        if (mName && eName) return mName.toLowerCase() === eName.toLowerCase();
+                                                        return true;
+                                                    }
                                                     if (mCode && eNo && mCode === eNo) return true;
                                                     if (mName && eName && mName === eName) return true;
                                                     return false;
@@ -2147,7 +2168,14 @@
                                                     // Use shared variables instead of re-declaring them
                                                     const sMCode = (m.code || '').trim(), sMName = (m.name || '').trim(), sMOrder = (m.order_no || '').trim().toLowerCase();
 
-                                                    if (mOrder && eOrder) return (mOrder === eOrder);
+                                                    // Same order — for multi-component orders (many moulds share one
+                                                    // order_no) require the mould to match too, so each component's
+                                                    // entries attach to its own row instead of piling onto the first.
+                                                    if (mOrder && eOrder && mOrder === eOrder) {
+                                                        if (mCode && eNo) return mCode === eNo.toLowerCase();
+                                                        if (mName && eName) return mName === eName.toLowerCase();
+                                                        return true;
+                                                    }
 
                                                     // Fallback: If Row has Order but Entry has None, OR Row has None
                                                     if (mCode && eNo && mCode === eNo) return true;
@@ -2411,7 +2439,23 @@
                                         machineEstNet += estPcsNet;
 
                                         const _summaryBlink = (rowEff > 0 && rowEff < 85 && !m.is_dummy) ? ' blink-alert' : '';
-                                        machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${summaryH}</td></tr>`;
+                                        // Maintenance chip: if this machine has an OPEN ticket, show it's under
+                                        // maintenance + the remarks + "Available by" ETA the maintenance team set.
+                                        let _maintChip = '';
+                                        try {
+                                            const _mt = (window._dprMaintByMachine || {})[String(machine)];
+                                            if (_mt) {
+                                                const _eta = _mt.expected_ready_date
+                                                    ? `Available by ${new Date(_mt.expected_ready_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}${_mt.expected_ready_time ? ' ' + String(_mt.expected_ready_time).slice(0, 5) : ''}`
+                                                    : 'ETA not set';
+                                                const _rm = dprEscHtml(_mt.problem_desc || 'Under maintenance');
+                                                _maintChip = `<div title="${_rm}" style="margin-bottom:5px;padding:4px 7px;border-radius:6px;background:#fdf0dc;border:1px solid #f59e0b;line-height:1.25">
+                                                    <div style="font-weight:800;color:#b45309;font-size:0.66rem;text-transform:uppercase;letter-spacing:.03em">🔧 Under Maintenance</div>
+                                                    <div style="color:#92400e;font-weight:600;font-size:0.66rem">${_eta}</div>
+                                                </div>`;
+                                            }
+                                        } catch (_e) {}
+                                        machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${_maintChip}${summaryH}</td></tr>`;
 
                                         // Row-level "clear quick entries" button (replaces this row's placeholder).
                                         // Allowed: admin/superadmin + planner, ppc_ass_manager, ppc_manager.

@@ -11,8 +11,33 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.47.4",
+  "latest": "1.48.0",
   "versions": [
+    {
+      "version": "1.48.0",
+      "date": "2026-08-27",
+      "title": "New Maintenance module — Machine & Mould",
+      "modules": [
+        {
+          "app": "maintenance",
+          "label": "Maintenance",
+          "icon": "bi-wrench-adjustable-circle",
+          "changes": [
+            { "type": "feat", "text": "New Maintenance app with Machine and Mould sub-menus: raise a ticket when a machine or mould goes down, and the Maintenance/Toolroom manager (plus PPC and anyone you allow in User Management) is alerted." },
+            { "type": "feat", "text": "Track each repair with a live time — down since, work started, and handed back — plus a dashboard of what's under maintenance, in progress, or overdue for multiple days." },
+            { "type": "feat", "text": "A manager can reject a machine wrongly put in maintenance, and it returns to the DPR Compliance Summary as a producing machine." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary now shows an \"Under Maintenance — Available by\" note on any machine that is under maintenance, so everyone can see when it will be back." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.47.4",
       "date": "2026-08-27",
