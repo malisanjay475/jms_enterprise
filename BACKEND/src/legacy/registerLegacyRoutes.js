@@ -25030,6 +25030,162 @@ app.get('/api/reports/tonnage', async (req, res) => {
   }
 });
 
+// GET /api/reports/dpr-daily — "Daily Report" production waterfall (in tons),
+// per machine + factory total, for one date (optionally one shift).
+//   Planned Target @24        = run-time-weighted (std_pcs_hr x std_wt) x 24h
+//   - Std Mould Changeover     = (machine load+unload mins / 60) x mould-changes x rate
+//   = Planned Achievable Target
+//   - Downtime + Speed loss    = Planned Achievable - Gross (reconciling residual)
+//   = Gross Production weight  = measured (good + reject) tonnage
+//   - Rejection weight         = measured reject tonnage
+//   = Good Production weight   = measured good tonnage
+// Mould-change count mirrors the DPR "MC" rule (dpr-script-1.js): one contiguous
+// block of Mould-Change downtime (code 2) OR a MouldChange/MouldChangeover entry.
+app.get('/api/reports/dpr-daily', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.json({ ok: false, error: 'date required' });
+    const round3 = (v) => Number((Number(v) || 0).toFixed(3));
+    const shift = ['Day', 'Night'].includes(String(req.query.shift)) ? String(req.query.shift) : null;
+    const factoryId = getFactoryId(req);
+
+    const params = [date];
+    let cond = '';
+    if (factoryId) { params.push(factoryId); cond += ` AND (h.factory_id = $${params.length} OR h.factory_id IS NULL)`; }
+    if (shift) { params.push(shift); cond += ` AND h.shift = $${params.length}`; }
+
+    const rows = await q(`
+      SELECT
+        COALESCE(NULLIF(TRIM(h.machine), ''), 'Unassigned') AS machine,
+        h.shift, h.hour_slot,
+        TRIM(COALESCE(h.mould_no, ''))   AS mould_no,
+        TRIM(COALESCE(h.mould_name, '')) AS mould_name,
+        COALESCE(h.good_qty, 0)     AS good_qty,
+        COALESCE(h.reject_qty, 0)   AS reject_qty,
+        COALESCE(h.shots, 0)        AS shots,
+        COALESCE(h.downtime_min, 0) AS downtime_min,
+        h.downtime_breakup, h.entry_type,
+        COALESCE(m.std_wt_kg, pm.std_wt_kg, 0)       AS std_wt,
+        COALESCE(m.pcs_per_hour, pm.pcs_per_hour, 0) AS pcs_hr,
+        COALESCE(mc.mould_load_time, 0)   AS load_t,
+        COALESCE(mc.mould_unload_time, 0) AS unload_t
+      FROM dpr_hourly h
+      LEFT JOIN moulds m  ON m.mould_number = h.mould_no
+        AND (m.factory_id = h.factory_id OR m.factory_id IS NULL)
+      LEFT JOIN plan_board pb ON pb.id::TEXT = h.plan_id OR pb.plan_id = h.plan_id
+      LEFT JOIN moulds pm ON pm.mould_number = pb.item_code
+        AND (pm.factory_id = h.factory_id OR pm.factory_id IS NULL)
+      LEFT JOIN machines mc ON TRIM(mc.machine) = TRIM(h.machine)
+        AND (mc.factory_id = h.factory_id OR mc.factory_id IS NULL)
+      WHERE h.is_deleted = false
+        AND h.dpr_date = $1::date${cond}
+      ORDER BY machine, (h.shift = 'Night'), h.hour_slot ASC
+    `, params);
+
+    // --- aggregate per machine in JS (MC contiguous-block rule needs slot order) ---
+    const byMachine = new Map();
+    for (const r of rows) {
+      let a = byMachine.get(r.machine);
+      if (!a) {
+        a = {
+          machine: r.machine,
+          load_t: Number(r.load_t) || 0,
+          unload_t: Number(r.unload_t) || 0,
+          good_tons: 0, reject_tons: 0,
+          downtime_min_other: 0,       // downtime excluding mould-changeover (code 2)
+          mc_count: 0,
+          _slots: [],                  // ordered {mcActive}
+          _mould: new Map()            // mould_no -> {slots, pcs_hr, std_wt}
+        };
+        byMachine.set(r.machine, a);
+      }
+      // machine-level std times (take a non-zero value if seen)
+      if (!a.load_t && Number(r.load_t)) a.load_t = Number(r.load_t);
+      if (!a.unload_t && Number(r.unload_t)) a.unload_t = Number(r.unload_t);
+
+      const wt = Number(r.std_wt) || 0;
+      a.good_tons   += (Number(r.good_qty) || 0)   * wt / 1000;
+      a.reject_tons += (Number(r.reject_qty) || 0) * wt / 1000;
+
+      const dt = r.downtime_breakup || {};
+      const isMouldChange = (Number(dt['2']) || 0) > 0
+        || r.entry_type === 'MouldChange' || r.entry_type === 'MouldChangeover';
+      // downtime that is NOT the standard mould changeover (that is accounted for
+      // via the Std Changeover line, so exclude it here to avoid double-counting)
+      a.downtime_min_other += Math.max(0, (Number(r.downtime_min) || 0) - (isMouldChange ? (Number(dt['2']) || Number(r.downtime_min) || 0) : 0));
+
+      a._slots.push({ mcActive: isMouldChange });
+
+      // per-mould productive slots (for run-time weighting of the 24h target)
+      const produced = (Number(r.good_qty) || 0) > 0 || (Number(r.shots) || 0) > 0;
+      if (produced && (Number(r.pcs_hr) || 0) > 0) {
+        const key = r.mould_no || r.mould_name || '?';
+        let mm = a._mould.get(key);
+        if (!mm) { mm = { slots: 0, pcs_hr: Number(r.pcs_hr) || 0, std_wt: wt }; a._mould.set(key, mm); }
+        mm.slots += 1;
+      }
+    }
+
+    const machines = [];
+    for (const a of byMachine.values()) {
+      // MC = rising edges of contiguous mould-change blocks (matches DPR MC rule)
+      let prev = false;
+      for (const s of a._slots) { if (s.mcActive && !prev) a.mc_count++; prev = s.mcActive; }
+
+      // run-time-weighted blended rate (kg/hr) across the day's moulds
+      let totalSlots = 0;
+      for (const mm of a._mould.values()) totalSlots += mm.slots;
+      let blendedRateWt = 0; // pcs/hr * kg = kg/hr
+      if (totalSlots > 0) {
+        for (const mm of a._mould.values()) {
+          blendedRateWt += (mm.slots / totalSlots) * (mm.pcs_hr * mm.std_wt);
+        }
+      }
+
+      const target = blendedRateWt * 24 / 1000;                                   // tons @24h
+      const changeover = (a.load_t + a.unload_t) / 60 * a.mc_count * blendedRateWt / 1000; // tons
+      const achievable = Math.max(0, target - changeover);
+      const gross = a.good_tons + a.reject_tons;
+      const dtSpeedLoss = Math.max(0, achievable - gross);                        // reconciling residual
+      // informational split (downtime measured; speed = remainder)
+      const downtimeTons = a.downtime_min_other / 60 * blendedRateWt / 1000;
+
+      machines.push({
+        machine: a.machine,
+        mould_changes: a.mc_count,
+        std_changeover_min: Math.round((a.load_t + a.unload_t) * 10) / 10,
+        planned_target_24:   round3(target),
+        std_changeover_loss: round3(changeover),
+        planned_achievable:  round3(achievable),
+        downtime_speed_loss: round3(dtSpeedLoss),
+        downtime_loss:       round3(Math.min(dtSpeedLoss, downtimeTons)),
+        speed_loss:          round3(Math.max(0, dtSpeedLoss - Math.min(dtSpeedLoss, downtimeTons))),
+        gross_production:    round3(gross),
+        rejection:           round3(a.reject_tons),
+        good_production:     round3(a.good_tons)
+      });
+    }
+    machines.sort((x, y) => String(x.machine).localeCompare(String(y.machine), undefined, { numeric: true }));
+
+    const sum = (k) => round3(machines.reduce((s, m) => s + (Number(m[k]) || 0), 0));
+    const total = {
+      planned_target_24:   sum('planned_target_24'),
+      std_changeover_loss: sum('std_changeover_loss'),
+      planned_achievable:  sum('planned_achievable'),
+      downtime_speed_loss: sum('downtime_speed_loss'),
+      gross_production:    sum('gross_production'),
+      rejection:           sum('rejection'),
+      good_production:     sum('good_production'),
+      mould_changes:       machines.reduce((s, m) => s + (Number(m.mould_changes) || 0), 0)
+    };
+
+    res.json({ ok: true, date, shift: shift || 'all', machines, total });
+  } catch (e) {
+    console.error('api/reports/dpr-daily', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // GET /api/reports/extra-qty-allowed — audit report of all grants
 app.get('/api/reports/extra-qty-allowed', async (req, res) => {
   try {
