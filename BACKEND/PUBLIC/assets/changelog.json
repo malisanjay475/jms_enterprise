@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.49.1",
+  "latest": "1.49.2",
   "versions": [
+    {
+      "version": "1.49.2",
+      "date": "2026-08-27",
+      "title": "Simpler 24-hour target waterfall",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "The Daily Report 'Live Calculation' now reads as a single clear waterfall: Planned Target @24h → minus Std Mould Changeover (with the number of mould changes) → Planned Achievable → minus Downtime + Speed loss (one line) → Gross Production → minus Rejection → Good Production." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.49.1",
       "date": "2026-08-27",
