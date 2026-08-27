@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Maintenance - JMS OCEAN</title>
+  <link rel="stylesheet" href="assets/app.css">
+  <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+  <style>
+    body { background:#f6f7f9; }
+    .mnt-head { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:18px; }
+    .mnt-title { font-size:1.7rem; font-weight:800; color:#1b2333; letter-spacing:-.5px; margin:0; display:flex; align-items:center; gap:10px; }
+    .mnt-sub { color:#64748b; font-size:.92rem; }
+    .mnt-tabs { display:inline-flex; background:#eef1f5; border-radius:10px; padding:4px; gap:4px; }
+    .mnt-tab { border:none; background:transparent; padding:7px 16px; border-radius:8px; font-weight:700; font-size:.85rem; color:#64748b; cursor:pointer; }
+    .mnt-tab.active { background:#fff; color:#b45309; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+    .tiles { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:20px; }
+    @media(max-width:640px){ .tiles{ grid-template-columns:1fr; } }
+    .tile { background:#fff; border:1px solid #e2e6ec; border-left:4px solid var(--c,#b45309); border-radius:12px; padding:16px 18px; box-shadow:0 1px 2px rgba(20,28,44,.04); }
+    .tile .n { font-size:1.9rem; font-weight:800; color:#1b2333; font-variant-numeric:tabular-nums; }
+    .tile .l { font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:#64748b; }
+    .card { background:#fff; border:1px solid #e2e6ec; border-radius:12px; box-shadow:0 1px 2px rgba(20,28,44,.04); }
+    table.mnt { width:100%; border-collapse:collapse; font-size:.86rem; }
+    table.mnt th, table.mnt td { text-align:left; padding:10px 14px; border-bottom:1px solid #eef1f5; vertical-align:middle; }
+    table.mnt th { background:#f1f3f6; font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color:#5c6676; font-weight:700; }
+    table.mnt tr:hover td { background:#fbfcfe; }
+    .st { font-size:.68rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; padding:3px 9px; border-radius:20px; display:inline-block; white-space:nowrap; }
+    .st.reported{ background:#fdf0dc; color:#b45309; } .st.acknowledged{ background:#e6eefc; color:#2563eb; }
+    .st.in_progress{ background:#fef3e2; color:#d97706; } .st.handover{ background:#e7f4ec; color:#15803d; }
+    .st.closed{ background:#eef1f5; color:#5c6676; } .st.rejected{ background:#f1f3f6; color:#94a3b8; text-decoration:line-through; }
+    .ovd { background:#fce8e8; color:#dc2626; font-size:.62rem; font-weight:800; padding:2px 7px; border-radius:6px; margin-left:6px; }
+    .btn2 { border:1px solid #cbd5e1; background:#fff; border-radius:8px; padding:7px 13px; font-weight:700; font-size:.82rem; cursor:pointer; }
+    .btn2.p { background:#d97706; border-color:#d97706; color:#fff; } .btn2.g { background:#15803d; border-color:#15803d; color:#fff; }
+    .btn2.r { background:#fff; border-color:#fecaca; color:#dc2626; } .btn2.b { background:#2563eb; border-color:#2563eb; color:#fff; }
+    .backdrop { position:fixed; inset:0; background:rgba(15,23,42,.45); display:none; align-items:center; justify-content:center; z-index:1000; padding:16px; }
+    .backdrop.on { display:flex; }
+    .modal { background:#fff; border-radius:14px; width:560px; max-width:96%; max-height:90vh; overflow:auto; padding:22px; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+    .modal h3 { margin:0 0 4px; font-size:1.15rem; color:#1b2333; }
+    .fld { display:block; font-size:.75rem; font-weight:700; color:#475569; margin:12px 0 4px; }
+    .inp { width:100%; padding:9px 11px; border:1px solid #cbd5e1; border-radius:8px; font-size:.9rem; }
+    .row2 { display:flex; gap:10px; } .row2 > div { flex:1; }
+    .wl { border-left:2px solid #e2e6ec; padding:6px 0 6px 14px; margin-left:4px; }
+    .wl .t { font-size:.7rem; color:#94a3b8; }
+    .empty { text-align:center; color:#94a3b8; padding:30px; font-size:.9rem; }
+  </style>
+</head>
+
+<body>
+  <div class="main-content" id="pageContent" style="max-width:1400px; margin:0 auto;">
+    <div class="mnt-head">
+      <div>
+        <h2 class="mnt-title"><i class="bi bi-wrench-adjustable-circle" style="color:#d97706"></i> <span id="pgTitle">Machine Maintenance</span></h2>
+        <div class="mnt-sub" id="pgSub">Live repair tickets — raise, track, and hand back</div>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <div class="mnt-tabs">
+          <button class="mnt-tab" id="tabMachine" onclick="switchType('machine')">Machine</button>
+          <button class="mnt-tab" id="tabMould" onclick="switchType('mould')">Mould</button>
+        </div>
+        <button class="btn2" onclick="loadAll()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+        <button class="btn2 p" onclick="openNew()"><i class="bi bi-plus-lg"></i> New Ticket</button>
+      </div>
+    </div>
+
+    <div class="tiles">
+      <div class="tile" style="--c:#b45309"><div class="n" id="tUnder">–</div><div class="l">Under Maintenance</div></div>
+      <div class="tile" style="--c:#d97706"><div class="n" id="tProg">–</div><div class="l">Work In Progress</div></div>
+      <div class="tile" style="--c:#dc2626"><div class="n" id="tOvd">–</div><div class="l">Overdue / Multi-day</div></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #eef1f5;">
+        <div style="font-weight:800; color:#1b2333;">Tickets</div>
+        <select id="fStatus" class="inp" style="width:180px" onchange="renderList()">
+          <option value="open">Open only</option>
+          <option value="all">All</option>
+          <option value="reported">Reported</option>
+          <option value="acknowledged">Acknowledged</option>
+          <option value="in_progress">In Progress</option>
+          <option value="handover">Handed back</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="mnt">
+          <thead><tr>
+            <th>Ticket</th><th id="thAsset">Machine</th><th>Problem</th><th>Status</th>
+            <th>Down since</th><th>Days</th><th>Available by</th><th>Assigned</th><th></th>
+          </tr></thead>
+          <tbody id="listBody"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- New ticket modal -->
+  <div class="backdrop" id="newBd">
+    <div class="modal">
+      <h3>New Maintenance Ticket</h3>
+      <div class="mnt-sub" id="newSub">Machine</div>
+      <label class="fld" id="lblAsset">Machine *</label>
+      <select id="nAsset" class="inp"></select>
+      <label class="fld">Problem / reason *</label>
+      <textarea id="nProblem" class="inp" rows="3" placeholder="Describe the issue"></textarea>
+      <div class="row2">
+        <div><label class="fld">Priority</label>
+          <select id="nPriority" class="inp"><option value="normal">Normal</option><option value="low">Low</option><option value="high">High</option><option value="breakdown">Breakdown</option></select></div>
+        <div><label class="fld">Expected ready date</label><input id="nEtaDate" class="inp" type="date"></div>
+        <div><label class="fld">Time</label><input id="nEtaTime" class="inp" type="time"></div>
+      </div>
+      <div id="newErr" style="color:#dc2626; font-size:.8rem; font-weight:700; min-height:18px; margin-top:8px;"></div>
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
+        <button class="btn2" onclick="closeBd('newBd')">Cancel</button>
+        <button class="btn2 p" id="nSave" onclick="submitNew()">Open Ticket</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ticket detail modal -->
+  <div class="backdrop" id="detBd">
+    <div class="modal" id="detModal"></div>
+  </div>
+
+  <script src="assets/app.min.js"></script>
+  <script>
+    const JPSMS = window.JPSMS, api = JPSMS.api, toast = JPSMS.toast;
+    const MANAGE_ROLES = { machine: ['maintenance_manager','maintenance_tech'], mould: ['toolroom_manager','maintenance_tech'] };
+    let curType = 'machine', tickets = [], curTicket = null;
+
+    function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function user(){ try { return JPSMS.auth.getUser() || {}; } catch(_) { return {}; } }
+    function canManage(){ const r=String(user().role_code||'').toLowerCase(); return r==='admin'||r==='superadmin'||(MANAGE_ROLES[curType]||[]).includes(r); }
+    function fmtDT(v){ return v ? new Date(v).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '–'; }
+    function fmtETA(t){ if(!t.expected_ready_date) return '<span style="color:#94a3b8">–</span>'; const d=new Date(t.expected_ready_date).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}); return d+(t.expected_ready_time?' '+String(t.expected_ready_time).slice(0,5):''); }
+
+    function switchType(t){ curType=t; localStorage.setItem('mnt_type',t); applyType(); loadAll(); }
+    function applyType(){
+      document.getElementById('tabMachine').classList.toggle('active', curType==='machine');
+      document.getElementById('tabMould').classList.toggle('active', curType==='mould');
+      document.getElementById('pgTitle').textContent = curType==='mould' ? 'Mould Maintenance' : 'Machine Maintenance';
+      document.getElementById('thAsset').textContent = curType==='mould' ? 'Mould' : 'Machine';
+      document.getElementById('lblAsset').textContent = (curType==='mould'?'Mould':'Machine')+' *';
+      document.getElementById('newSub').textContent = curType==='mould'?'Mould':'Machine';
+    }
+
+    async function loadAll(){
+      try {
+        const [dash, list] = await Promise.all([
+          api.get('/maintenance/dashboard?type='+curType),
+          api.get('/maintenance/tickets?type='+curType)
+        ]);
+        const c = (dash.ok && dash.data.counts) || {};
+        document.getElementById('tUnder').textContent = c.under_maintenance || 0;
+        document.getElementById('tProg').textContent = c.in_progress || 0;
+        document.getElementById('tOvd').textContent = c.overdue || 0;
+        tickets = (list.ok && list.data) || [];
+        renderList();
+      } catch(e){ toast(e.message||'Load failed','error'); }
+    }
+
+    function renderList(){
+      const f = document.getElementById('fStatus').value;
+      let rows = tickets.slice();
+      if (f==='open') rows = rows.filter(t=>['reported','acknowledged','in_progress'].includes(t.status));
+      else if (f!=='all') rows = rows.filter(t=>t.status===f);
+      const body = document.getElementById('listBody');
+      if (!rows.length){ body.innerHTML = '<tr><td colspan="9" class="empty">No tickets.</td></tr>'; return; }
+      body.innerHTML = rows.map(t=>{
+        const asset = curType==='mould' ? (t.mould_name||t.mould_code||'–') : (t.machine||'–');
+        return `<tr>
+          <td style="font-family:monospace;font-weight:700">${esc(t.ticket_no||'')}</td>
+          <td style="font-weight:700">${esc(asset)}</td>
+          <td style="max-width:220px">${esc(t.problem_desc||'')}</td>
+          <td><span class="st ${t.status}">${t.status.replace('_',' ')}</span>${t.is_overdue?'<span class="ovd">OVERDUE</span>':''}</td>
+          <td>${fmtDT(t.down_at)}</td>
+          <td style="text-align:center;font-weight:700">${t.days_open||0}</td>
+          <td>${fmtETA(t)}</td>
+          <td>${esc(t.assigned_to||'–')}</td>
+          <td><button class="btn2" onclick="openDetail('${t.sync_id}')">Open</button></td>
+        </tr>`;
+      }).join('');
+    }
+
+    // ---- New ticket ----
+    async function openNew(){
+      document.getElementById('newErr').textContent='';
+      document.getElementById('nProblem').value=''; document.getElementById('nEtaDate').value=''; document.getElementById('nEtaTime').value='';
+      const sel = document.getElementById('nAsset'); sel.innerHTML = '<option>Loading…</option>';
+      try {
+        if (curType==='machine'){
+          const r = await api.get('/machines?line=all'); const arr=(r.data||[]);
+          sel.innerHTML = arr.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('') || '<option value="">No machines</option>';
+        } else {
+          const r = await api.get('/masters/moulds'); const arr=(r.data||[]);
+          sel.innerHTML = arr.map(m=>`<option value="${esc(m.mould_number||m.mould_name||m.name||'')}">${esc(m.mould_number||m.mould_name||m.name||'')}</option>`).join('') || '<option value="">No moulds</option>';
+        }
+      } catch(_) { sel.innerHTML='<option value="">Load failed</option>'; }
+      document.getElementById('newBd').classList.add('on');
+    }
+    async function submitNew(){
+      const err=document.getElementById('newErr'); err.textContent='';
+      const asset=document.getElementById('nAsset').value;
+      const problem=document.getElementById('nProblem').value.trim();
+      if(!asset){ err.textContent='Select a '+(curType==='mould'?'mould':'machine')+'.'; return; }
+      if(!problem){ err.textContent='Describe the problem.'; return; }
+      const body={ asset_type:curType, problem_desc:problem, priority:document.getElementById('nPriority').value,
+        expected_ready_date:document.getElementById('nEtaDate').value||null, expected_ready_time:document.getElementById('nEtaTime').value||null };
+      if(curType==='mould') body.mould_name=asset; else body.machine=asset;
+      const btn=document.getElementById('nSave'); btn.disabled=true; btn.textContent='Saving…';
+      try {
+        const r=await api.post('/maintenance/tickets', body);
+        if(!r.ok) throw new Error(r.error||'Failed');
+        closeBd('newBd'); toast('Ticket opened','success'); loadAll();
+      } catch(e){ err.textContent=e.message||'Failed'; }
+      finally { btn.disabled=false; btn.textContent='Open Ticket'; }
+    }
+
+    // ---- Detail ----
+    async function openDetail(syncId){
+      try {
+        const r=await api.get('/maintenance/tickets/'+encodeURIComponent(syncId));
+        if(!r.ok) throw new Error(r.error||'Not found');
+        curTicket=r.data; renderDetail();
+        document.getElementById('detBd').classList.add('on');
+      } catch(e){ toast(e.message||'Failed','error'); }
+    }
+    function renderDetail(){
+      const t=curTicket, m=canManage();
+      const asset=curType==='mould'?(t.mould_name||t.mould_code||'–'):(t.machine||'–');
+      const stamp=(l,v)=>v?`<div style="font-size:.78rem;color:#475569"><b>${l}:</b> ${fmtDT(v)}</div>`:'';
+      const wl=(t.worklogs||[]).map(w=>`<div class="wl"><div class="t">${fmtDT(w.logged_at)} · ${esc(w.logged_by||'')}${w.minutes?' · '+w.minutes+'m':''}</div><div>${esc(w.note)}</div></div>`).join('') || '<div style="color:#94a3b8;font-size:.82rem">No worklog yet.</div>';
+      const open = ['reported','acknowledged','in_progress'].includes(t.status);
+      let actions='';
+      if(m && open){
+        if(t.status==='reported') actions+=`<button class="btn2 b" onclick="doAck()">Acknowledge / Assign</button>`;
+        if(['reported','acknowledged'].includes(t.status)) actions+=`<button class="btn2 r" onclick="doReject()">Reject (not maintenance)</button>`;
+        if(t.status!=='in_progress') actions+=`<button class="btn2 p" onclick="doStart()">Start Job</button>`;
+        actions+=`<button class="btn2" onclick="doEta()">Set Available Time</button>`;
+        actions+=`<button class="btn2 g" onclick="doHandover()">Hand Back</button>`;
+      }
+      document.getElementById('detModal').innerHTML=`
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h3>${esc(t.ticket_no||'')} · <span style="color:#d97706">${esc(asset)}</span></h3>
+          <button class="btn2" onclick="closeBd('detBd')">✕</button>
+        </div>
+        <div style="margin:6px 0 12px"><span class="st ${t.status}">${t.status.replace('_',' ')}</span>${t.is_overdue?'<span class="ovd">OVERDUE</span>':''} <span style="color:#94a3b8;font-size:.8rem;margin-left:6px">Priority: ${esc(t.priority||'normal')}</span></div>
+        <div style="background:#f8fafc;border:1px solid #eef1f5;border-radius:10px;padding:12px 14px;margin-bottom:12px">
+          <div style="font-size:.82rem;color:#1b2333;margin-bottom:6px"><b>Problem:</b> ${esc(t.problem_desc||'–')}</div>
+          ${t.fix_desc?`<div style="font-size:.82rem;color:#15803d;margin-bottom:6px"><b>Fix:</b> ${esc(t.fix_desc)}</div>`:''}
+          ${t.rejected_reason?`<div style="font-size:.82rem;color:#dc2626;margin-bottom:6px"><b>Rejected:</b> ${esc(t.rejected_reason)}</div>`:''}
+          <div style="font-size:.78rem;color:#475569"><b>Available by:</b> ${fmtETA(t)}</div>
+          ${stamp('Down since',t.down_at)}${stamp('Acknowledged',t.ack_at)}${stamp('Work started',t.work_started_at)}${stamp('Handed back',t.handover_at)}
+          <div style="font-size:.78rem;color:#475569"><b>Reported by:</b> ${esc(t.reported_by||'–')} &nbsp; <b>Assigned:</b> ${esc(t.assigned_to||'–')}</div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">${actions||'<span style="color:#94a3b8;font-size:.82rem">No actions available for your role / this status.</span>'}</div>
+        <div style="font-weight:800;color:#1b2333;font-size:.85rem;margin-bottom:6px">Worklog</div>
+        ${m&&open?`<div class="row2" style="margin-bottom:10px"><div><input id="wNote" class="inp" placeholder="Add a progress note"></div><div style="max-width:90px"><input id="wMin" class="inp" type="number" placeholder="min"></div><button class="btn2" onclick="addWorklog()">Add</button></div>`:''}
+        ${wl}`;
+    }
+    async function act(path, body, okMsg){
+      try { const r=await api.request('/maintenance/tickets/'+encodeURIComponent(curTicket.sync_id)+path,{method:'POST',body:JSON.stringify(body||{})});
+        if(!r.ok) throw new Error(r.error||'Failed'); toast(okMsg||'Done','success');
+        await openDetail(curTicket.sync_id); loadAll(); } catch(e){ toast(e.message||'Failed','error'); }
+    }
+    function doAck(){ const a=prompt('Assign to (username, optional):','')||''; act('/ack',{assigned_to:a.trim()},'Acknowledged'); }
+    function doStart(){ act('/start',{},'Job started'); }
+    function doEta(){ const d=prompt('Available date (YYYY-MM-DD):', curTicket.expected_ready_date? String(curTicket.expected_ready_date).slice(0,10):''); if(d===null)return; const tm=prompt('Time (HH:MM, optional):','')||''; act('/eta',{expected_ready_date:d||null,expected_ready_time:tm.trim()||null},'ETA updated'); }
+    function doHandover(){ const f=prompt('Describe the problem & what was done (required):',''); if(f===null)return; if(!f.trim()){ toast('Fix description required','error'); return; } act('/handover',{fix_desc:f.trim()},'Machine handed back'); }
+    function doReject(){ const r=prompt('Why is this NOT a maintenance issue? (required):',''); if(r===null)return; if(!r.trim()){ toast('Reason required','error'); return; } act('/reject',{rejected_reason:r.trim()},'Rejected — back to production'); }
+    function addWorklog(){ const n=document.getElementById('wNote').value.trim(); if(!n){ toast('Enter a note','error'); return; } const min=Number(document.getElementById('wMin').value); act('/worklog',{note:n,minutes:Number.isFinite(min)&&min>0?min:null},'Note added'); }
+
+    function closeBd(id){ document.getElementById(id).classList.remove('on'); }
+
+    async function init(){
+      JPSMS.renderShell('maintenance');
+      const q=new URLSearchParams(location.search).get('type');
+      curType = (q==='mould'||q==='machine') ? q : (localStorage.getItem('mnt_type')||'machine');
+      applyType(); await loadAll();
+      const tk=new URLSearchParams(location.search).get('ticket'); if(tk) openDetail(tk);
+    }
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

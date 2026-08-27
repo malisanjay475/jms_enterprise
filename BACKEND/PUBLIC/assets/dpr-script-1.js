@@ -1005,6 +1005,9 @@
                     // Prepare Requests based on Shift Mode
                     const promises = [];
                     const scopedMachinesPromise = J.api.get(`/masters/machines?process=${encodeURIComponent(dprProcess)}`);
+                    // Open machine maintenance tickets → chip on the machine's summary cell
+                    // (remarks + "Available by" ETA) so everyone sees it's down & when it returns.
+                    const maintPromise = J.api.get('/maintenance/tickets?open=1&type=machine').catch(() => ({ ok: false, data: [] }));
                     if (shiftMode === 'Both') {
                         promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}`));
                         promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}`));
@@ -1022,10 +1025,17 @@
                         promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night`));
                     }
 
-                    Promise.all([...promises, scopedMachinesPromise]).then(([resDayMat, resNightMat, resDayTeam, resNightTeam, scopedMachinesRes]) => {
+                    Promise.all([...promises, scopedMachinesPromise, maintPromise]).then(([resDayMat, resNightMat, resDayTeam, resNightTeam, scopedMachinesRes, maintRes]) => {
                         // Error Check
                         if (!resDayMat.ok) throw new Error(resDayMat.error || 'Day Fetch Failed');
                         if (!resNightMat.ok) throw new Error(resNightMat.error || 'Night Fetch Failed');
+
+                        // Map of open maintenance tickets by machine (latest wins).
+                        const maintByMachine = {};
+                        ((maintRes && maintRes.ok && maintRes.data) || []).forEach(t => {
+                            if (t && t.machine) maintByMachine[String(t.machine)] = t;
+                        });
+                        window._dprMaintByMachine = maintByMachine;
 
                         let scopedMachinesList = scopedMachinesRes.data || [];
                         if (selectedFactory) {
@@ -2429,7 +2439,23 @@
                                         machineEstNet += estPcsNet;
 
                                         const _summaryBlink = (rowEff > 0 && rowEff < 85 && !m.is_dummy) ? ' blink-alert' : '';
-                                        machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${summaryH}</td></tr>`;
+                                        // Maintenance chip: if this machine has an OPEN ticket, show it's under
+                                        // maintenance + the remarks + "Available by" ETA the maintenance team set.
+                                        let _maintChip = '';
+                                        try {
+                                            const _mt = (window._dprMaintByMachine || {})[String(machine)];
+                                            if (_mt) {
+                                                const _eta = _mt.expected_ready_date
+                                                    ? `Available by ${new Date(_mt.expected_ready_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}${_mt.expected_ready_time ? ' ' + String(_mt.expected_ready_time).slice(0, 5) : ''}`
+                                                    : 'ETA not set';
+                                                const _rm = dprEscHtml(_mt.problem_desc || 'Under maintenance');
+                                                _maintChip = `<div title="${_rm}" style="margin-bottom:5px;padding:4px 7px;border-radius:6px;background:#fdf0dc;border:1px solid #f59e0b;line-height:1.25">
+                                                    <div style="font-weight:800;color:#b45309;font-size:0.66rem;text-transform:uppercase;letter-spacing:.03em">🔧 Under Maintenance</div>
+                                                    <div style="color:#92400e;font-weight:600;font-size:0.66rem">${_eta}</div>
+                                                </div>`;
+                                            }
+                                        } catch (_e) {}
+                                        machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${_maintChip}${summaryH}</td></tr>`;
 
                                         // Row-level "clear quick entries" button (replaces this row's placeholder).
                                         // Allowed: admin/superadmin + planner, ppc_ass_manager, ppc_manager.

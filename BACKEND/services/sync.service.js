@@ -85,6 +85,8 @@ const SYNC_ALL = [
     'machine_operators',
     'machine_status_logs',
     'machines',
+    'maintenance_tickets',
+    'maintenance_worklogs',
     'mould_audit_logs',
     'mould_planning_report',
     'mould_planning_summary',
@@ -219,6 +221,11 @@ const CONFLICT_KEYS = {
     shift_teams: 'line, shift_date, shift',
     closed_plants: 'factory_id, dpr_date, plant, shift',
     machine_audit_logs: 'sync_id',
+    // Maintenance module: sync identity is sync_id (UNIQUE with gen_random_uuid()
+    // default; both tables in SYNC_ID_REQUIRED_TABLES so pre-existing NULLs backfill).
+    // Worklogs link to their ticket by ticket_sync_id, never the serial id.
+    maintenance_tickets: 'sync_id',
+    maintenance_worklogs: 'sync_id',
     // notifications sync identity is sync_id (backed by uq_sync_id_notifications,
     // built in ensureSyncIdSchema). The old 4-column natural key emitted
     // ON CONFLICT (target_user, type, title, created_at) which matched no index
@@ -358,7 +365,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs'];
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
 // re-runs the full startup sweep once instead of skipping it on the cached marker.

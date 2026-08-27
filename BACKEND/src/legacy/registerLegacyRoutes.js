@@ -4616,6 +4616,9 @@ async function initializeLegacyRuntime() {
             ('quality', 'Quality Manager'),
             ('qc_supervisor', 'QC Supervisor'),
             ('shifting_supervisor', 'Shifting Supervisor'),
+            ('maintenance_manager', 'Maintenance Manager'),
+            ('toolroom_manager', 'Toolroom Manager'),
+            ('maintenance_tech', 'Maintenance Technician'),
             ('admin', 'Admin')
             ON CONFLICT (code) DO NOTHING;
 
@@ -7138,6 +7141,48 @@ app.post('/api/dpr/submit', async (req, res) => {
         await q('UPDATE machine_status_logs SET is_active=false, end_date=$2, end_slot=$3 WHERE machine=$1 AND is_active=true',
           [Machine, Date, HourSlot]);
       } catch (_) { }
+    }
+
+    // [MAINTENANCE MODULE] When a supervisor saves a Maintenance / MouldMaintenance
+    // quick-action, ALSO open a maintenance ticket and alert the maintenance/toolroom
+    // team (+ PPC/planner + opt-in users). Deduped: skip if this machine/mould already
+    // has an OPEN ticket, so continuity auto-fills don't spawn duplicates.
+    try {
+      const et = String(EntryType || '');
+      if (et === 'Maintenance' || et === 'MouldMaintenance') {
+        const assetType = et === 'MouldMaintenance' ? 'mould' : 'machine';
+        const assetCol = assetType === 'mould' ? 'mould_name' : 'machine';
+        const assetVal = assetType === 'mould' ? (MouldNo || Machine) : Machine;
+        if (assetVal) {
+          const openRows = await q(
+            `SELECT sync_id FROM maintenance_tickets
+              WHERE asset_type = $1 AND ${assetCol} = $2
+                AND status IN ('reported','acknowledged','in_progress') AND is_deleted = FALSE
+                AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL) LIMIT 1`,
+            [assetType, assetVal, factoryId]
+          );
+          if (!openRows.length) {
+            const ticketNo = await nextMaintenanceTicketNo(factoryId);
+            const ins = await q(
+              `INSERT INTO maintenance_tickets
+                 (ticket_no, asset_type, machine, mould_name, plan_id, order_no,
+                  status, priority, problem_desc, reported_by, factory_id)
+               VALUES ($1,$2,$3,$4,$5,$6,'reported','normal',$7,$8,$9)
+               RETURNING *`,
+              [ticketNo, assetType,
+               assetType === 'machine' ? assetVal : (Machine || null),
+               assetType === 'mould' ? assetVal : null,
+               PlanID || null, OrderNo || null,
+               Remarks || (assetType === 'mould' ? 'Mould maintenance' : 'Machine maintenance'),
+               (session && session.username) || Supervisor || 'supervisor', factoryId || null]
+            );
+            await notifyMaintenance(ins[0], factoryId, (session && session.username) || 'supervisor', 'opened');
+            console.log(`[MAINTENANCE] auto-opened ${ticketNo} from ${et} quick-action (${assetVal})`);
+          }
+        }
+      }
+    } catch (mErr) {
+      console.error('dpr/submit maintenance-ticket', mErr.message);
     }
 
     if (typeof syncService.triggerSync === 'function') {
@@ -24125,6 +24170,358 @@ app.delete('/api/extra-qty/:id', async (req, res) => {
   } catch (e) {
     console.error('api/extra-qty delete', e);
     res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// ============================================================
+//  MAINTENANCE MODULE — machine & mould maintenance tickets
+//  One code path for both sub-menus (asset_type = 'machine' | 'mould').
+//  Tickets are the single source of truth; the DPR Compliance Summary READS
+//  open tickets to show "Under Maintenance + Available by" (see dpr summary).
+// ============================================================
+
+// Roles alerted per asset type, in addition to: admin/superadmin, PPC/Planner
+// (MAINT_ALWAYS_ROLES), and any user with the `maintenance_alerts` permission
+// toggle set in User Management. [[project_users_companywide_sync]]
+const MAINT_ALERT_ROLES = {
+  machine: ['maintenance_manager', 'maintenance_tech'],
+  mould:   ['toolroom_manager', 'maintenance_tech']
+};
+const MAINT_ALWAYS_ROLES = ['ppc_manager', 'ppc_ass_manager', 'planner'];
+
+function maintAssetType(v) { return String(v || '').toLowerCase() === 'mould' ? 'mould' : 'machine'; }
+
+// Who may acknowledge / reject / start / handover a ticket.
+function canManageMaintenance(actor, assetType) {
+  if (!actor) return false;
+  if (isAdminLikeRole(actor)) return true;
+  const role = String(actor.role_code || '').toLowerCase();
+  return (MAINT_ALERT_ROLES[maintAssetType(assetType)] || []).includes(role);
+}
+
+// Factory-scoped active recipients for an alert (same scoping as approval fan-out).
+async function getMaintenanceAlertUsers(assetType, factoryId) {
+  const roleSet = new Set([
+    ...(MAINT_ALERT_ROLES[maintAssetType(assetType)] || []),
+    ...MAINT_ALWAYS_ROLES
+  ]);
+  const rows = await q(
+    `SELECT DISTINCT u.username, u.role_code, u.global_access, u.permissions
+       FROM users u
+       LEFT JOIN user_factories uf ON uf.user_id = u.id
+      WHERE COALESCE(u.is_active, TRUE) = TRUE
+        AND ($1::int IS NULL OR u.global_access = TRUE OR uf.factory_id = $1
+             OR LOWER(COALESCE(u.role_code,'')) IN ('admin','superadmin'))`,
+    [factoryId || null]
+  );
+  return rows.filter((u) => {
+    const role = String(u.role_code || '').toLowerCase();
+    if (role === 'admin' || role === 'superadmin') return true;
+    if (roleSet.has(role)) return true;
+    const perms = (u.permissions && typeof u.permissions === 'object') ? u.permissions : {};
+    return perms.maintenance_alerts === true;   // per-user opt-in from User Management
+  });
+}
+
+// kind: 'opened' | 'overdue' → managers/PPC/opt-in ; 'handover' | 'rejected' → the supervisor who raised it
+async function notifyMaintenance(ticket, factoryId, createdBy, kind) {
+  try {
+    const assetType = maintAssetType(ticket.asset_type);
+    const asset = assetType === 'mould'
+      ? (ticket.mould_name || ticket.mould_code || '-')
+      : (ticket.machine || '-');
+    const link = `maintenance.html?type=${assetType}&ticket=${encodeURIComponent(ticket.sync_id || '')}`;
+    let title, message, targets;
+    if (kind === 'handover' || kind === 'rejected') {
+      title = `${asset}: ${kind === 'rejected' ? 'maintenance rejected' : 'handed back'}`;
+      message = (kind === 'rejected'
+        ? `Maintenance rejected — ${ticket.rejected_reason || 'not a maintenance issue'}. Machine returns to production.`
+        : `Maintenance complete. ${ticket.fix_desc || ''}`).trim();
+      targets = ticket.reported_by ? [{ username: ticket.reported_by }] : [];
+    } else {
+      const users = await getMaintenanceAlertUsers(assetType, factoryId);
+      if (kind === 'overdue') {
+        title = `Maintenance OVERDUE: ${asset}`;
+        message = `Ticket ${ticket.ticket_no || ''} for ${asset} is still open past its expected ready date.`;
+      } else {
+        title = `Maintenance: ${asset} in maintenance`;
+        message = [`Asset: ${asset}`, `Priority: ${ticket.priority || 'normal'}`,
+                   `Problem: ${ticket.problem_desc || '-'}`, `By: ${createdBy || '-'}`].join(' | ');
+      }
+      targets = users;
+    }
+    let count = 0;
+    for (const u of targets) {
+      await q(`INSERT INTO notifications (target_user, type, title, message, link, created_by)
+               VALUES ($1,$2,$3,$4,$5,$6)`,
+        [u.username, 'maintenance', title, message, link, createdBy || 'System']);
+      count += 1;
+    }
+    return count;
+  } catch (e) { console.warn('[Maintenance] notify skipped:', e.message || e); return 0; }
+}
+
+// Generate a factory-scoped human ticket number MNT-YY-NNNN.
+async function nextMaintenanceTicketNo(factoryId) {
+  const yy = new Date().getFullYear().toString().slice(-2);
+  const rows = await q(
+    `SELECT COUNT(*)::int AS n FROM maintenance_tickets
+      WHERE ($1::int IS NULL OR factory_id = $1)
+        AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM NOW())`,
+    [factoryId || null]
+  );
+  const seq = (rows[0]?.n || 0) + 1;
+  return `MNT-${yy}-${String(seq).padStart(4, '0')}`;
+}
+
+// POST /api/maintenance/tickets — open a ticket (any authenticated user; supervisors raise).
+app.post('/api/maintenance/tickets', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    if (!actor) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    const b = req.body || {};
+    const assetType = maintAssetType(b.asset_type);
+    const machine = String(b.machine || '').trim();
+    const mouldName = String(b.mould_name || '').trim();
+    if (assetType === 'machine' && !machine) return res.json({ ok: false, error: 'machine required' });
+    if (assetType === 'mould' && !mouldName) return res.json({ ok: false, error: 'mould_name required' });
+    const problem = String(b.problem_desc || '').trim();
+    if (!problem) return res.json({ ok: false, error: 'problem_desc required — describe the issue' });
+    const priority = ['low', 'normal', 'high', 'breakdown'].includes(String(b.priority || '').toLowerCase())
+      ? String(b.priority).toLowerCase() : 'normal';
+    const factoryId = getFactoryId(req) || null;
+    const ticketNo = await nextMaintenanceTicketNo(factoryId);
+
+    const ins = await q(
+      `INSERT INTO maintenance_tickets
+         (ticket_no, asset_type, machine, mould_name, mould_code, plan_id, order_no,
+          status, priority, problem_desc, reported_by,
+          expected_ready_date, expected_ready_time, factory_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'reported',$8,$9,$10,$11,$12,$13)
+       RETURNING *`,
+      [ticketNo, assetType, machine || null, mouldName || null, b.mould_code || null,
+       b.plan_id || null, b.order_no || null, priority, problem, actor.username,
+       b.expected_ready_date || null, b.expected_ready_time || null, factoryId]
+    );
+    const ticket = ins[0];
+    await notifyMaintenance(ticket, factoryId, actor.username, 'opened');
+    console.log(`[MAINTENANCE] ${actor.username} opened ${ticketNo} (${assetType}: ${machine || mouldName})`);
+    res.json({ ok: true, data: ticket });
+  } catch (e) {
+    console.error('api/maintenance/tickets POST', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/maintenance/tickets — list/filter (factory-scoped).
+app.get('/api/maintenance/tickets', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const params = [];
+    const where = ['is_deleted = FALSE'];
+    if (factoryId) { params.push(factoryId); where.push(`(factory_id = $${params.length} OR factory_id IS NULL)`); }
+    if (req.query.type) { params.push(maintAssetType(req.query.type)); where.push(`asset_type = $${params.length}`); }
+    if (req.query.status) { params.push(String(req.query.status).toLowerCase()); where.push(`status = $${params.length}`); }
+    if (req.query.machine) { params.push(String(req.query.machine)); where.push(`machine = $${params.length}`); }
+    if (req.query.open === '1') where.push(`status IN ('reported','acknowledged','in_progress')`);
+    const rows = await q(
+      `SELECT *,
+              GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (COALESCE(handover_at, NOW()) - down_at)) / 86400))::int AS days_open,
+              (status IN ('reported','acknowledged','in_progress')
+               AND expected_ready_date IS NOT NULL
+               AND expected_ready_date < CURRENT_DATE) AS is_overdue
+         FROM maintenance_tickets
+        WHERE ${where.join(' AND ')}
+        ORDER BY (status IN ('reported','acknowledged','in_progress')) DESC, down_at DESC`,
+      params
+    );
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('api/maintenance/tickets GET', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/maintenance/tickets/:sync_id — one ticket + its worklogs.
+app.get('/api/maintenance/tickets/:sync_id', async (req, res) => {
+  try {
+    const rows = await q(`SELECT * FROM maintenance_tickets WHERE sync_id = $1 AND is_deleted = FALSE`, [req.params.sync_id]);
+    if (!rows.length) return res.json({ ok: false, error: 'Ticket not found' });
+    const logs = await q(
+      `SELECT * FROM maintenance_worklogs WHERE ticket_sync_id = $1 AND is_deleted = FALSE ORDER BY logged_at ASC`,
+      [req.params.sync_id]
+    );
+    res.json({ ok: true, data: { ...rows[0], worklogs: logs } });
+  } catch (e) {
+    console.error('api/maintenance/ticket GET', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Shared helper for the lifecycle transitions below.
+async function maintenanceTransition(req, res, { requireManage, build, kind }) {
+  const actor = await getRequestActor(req);
+  if (!actor) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+  const rows = await q(`SELECT * FROM maintenance_tickets WHERE sync_id = $1 AND is_deleted = FALSE`, [req.params.sync_id]);
+  if (!rows.length) return res.json({ ok: false, error: 'Ticket not found' });
+  const ticket = rows[0];
+  if (requireManage && !canManageMaintenance(actor, ticket.asset_type)) {
+    return res.status(403).json({ ok: false, error: 'Maintenance/Toolroom manager (or admin) access required' });
+  }
+  const { setSql, params } = build(ticket, actor, req.body || {});
+  const upd = await q(
+    `UPDATE maintenance_tickets SET ${setSql}, updated_at = NOW()
+      WHERE sync_id = $1 AND is_deleted = FALSE RETURNING *`,
+    [req.params.sync_id, ...params]
+  );
+  if (!upd.length) return res.json({ ok: false, error: 'Update failed' });
+  return upd[0];
+}
+
+// POST /api/maintenance/tickets/:sync_id/ack — manager acknowledges + optionally assigns.
+app.post('/api/maintenance/tickets/:sync_id/ack', async (req, res) => {
+  try {
+    const t = await maintenanceTransition(req, res, {
+      requireManage: true, kind: 'ack',
+      build: (ticket, actor, b) => ({
+        setSql: `status = 'acknowledged', ack_at = COALESCE(ack_at, NOW()), assigned_to = $2`,
+        params: [b.assigned_to ? String(b.assigned_to).trim() : (ticket.assigned_to || null)]
+      })
+    });
+    if (t && t.sync_id) res.json({ ok: true, data: t });
+  } catch (e) { console.error('maintenance ack', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+// POST /api/maintenance/tickets/:sync_id/start — Start Job (stamp work_started_at).
+app.post('/api/maintenance/tickets/:sync_id/start', async (req, res) => {
+  try {
+    const t = await maintenanceTransition(req, res, {
+      requireManage: true, kind: 'start',
+      build: () => ({ setSql: `status = 'in_progress', work_started_at = COALESCE(work_started_at, NOW())`, params: [] })
+    });
+    if (t && t.sync_id) res.json({ ok: true, data: t });
+  } catch (e) { console.error('maintenance start', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+// POST /api/maintenance/tickets/:sync_id/eta — set/update expected ready (shown in Compliance Summary).
+app.post('/api/maintenance/tickets/:sync_id/eta', async (req, res) => {
+  try {
+    const t = await maintenanceTransition(req, res, {
+      requireManage: true, kind: 'eta',
+      build: (ticket, actor, b) => ({
+        setSql: `expected_ready_date = $2, expected_ready_time = $3`,
+        params: [b.expected_ready_date || null, b.expected_ready_time || null]
+      })
+    });
+    if (t && t.sync_id) res.json({ ok: true, data: t });
+  } catch (e) { console.error('maintenance eta', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+// POST /api/maintenance/tickets/:sync_id/handover — Hand Back with fix description.
+app.post('/api/maintenance/tickets/:sync_id/handover', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req) || null;
+    const t = await maintenanceTransition(req, res, {
+      requireManage: true, kind: 'handover',
+      build: (ticket, actor, b) => {
+        const fix = String(b.fix_desc || '').trim();
+        if (!fix) throw new Error('fix_desc required — describe the problem & what was done');
+        return { setSql: `status = 'handover', handover_at = NOW(), fix_desc = $2`, params: [fix] };
+      }
+    });
+    if (t && t.sync_id) {
+      await notifyMaintenance(t, factoryId, (await getRequestActor(req))?.username, 'handover');
+      res.json({ ok: true, data: t });
+    }
+  } catch (e) {
+    if (String(e.message || '').includes('fix_desc')) return res.json({ ok: false, error: e.message });
+    console.error('maintenance handover', e); res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/maintenance/tickets/:sync_id/reject — "not a maintenance issue".
+// Sets rejected; ticket is no longer open, so the machine returns to the DPR
+// Compliance Summary as a normal producing machine (the summary reads OPEN tickets).
+app.post('/api/maintenance/tickets/:sync_id/reject', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req) || null;
+    const t = await maintenanceTransition(req, res, {
+      requireManage: true, kind: 'rejected',
+      build: (ticket, actor, b) => {
+        const reason = String(b.rejected_reason || '').trim();
+        if (!reason) throw new Error('rejected_reason required — state why this is not a maintenance issue');
+        return {
+          setSql: `status = 'rejected', rejected_at = NOW(), rejected_by = $2, rejected_reason = $3`,
+          params: [actor.username, reason]
+        };
+      }
+    });
+    if (t && t.sync_id) {
+      await notifyMaintenance(t, factoryId, (await getRequestActor(req))?.username, 'rejected');
+      res.json({ ok: true, data: t });
+    }
+  } catch (e) {
+    if (String(e.message || '').includes('rejected_reason')) return res.json({ ok: false, error: e.message });
+    console.error('maintenance reject', e); res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/maintenance/tickets/:sync_id/worklog — add a dated progress note.
+app.post('/api/maintenance/tickets/:sync_id/worklog', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    if (!actor) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    const rows = await q(`SELECT asset_type, factory_id FROM maintenance_tickets WHERE sync_id = $1 AND is_deleted = FALSE`, [req.params.sync_id]);
+    if (!rows.length) return res.json({ ok: false, error: 'Ticket not found' });
+    if (!canManageMaintenance(actor, rows[0].asset_type)) {
+      return res.status(403).json({ ok: false, error: 'Maintenance/Toolroom manager (or admin) access required' });
+    }
+    const note = String((req.body || {}).note || '').trim();
+    if (!note) return res.json({ ok: false, error: 'note required' });
+    const minutes = Number((req.body || {}).minutes);
+    const ins = await q(
+      `INSERT INTO maintenance_worklogs (ticket_sync_id, note, minutes, logged_by, factory_id)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [req.params.sync_id, note, Number.isFinite(minutes) && minutes > 0 ? Math.floor(minutes) : null, actor.username, rows[0].factory_id || null]
+    );
+    // touch the parent so the change syncs
+    await q(`UPDATE maintenance_tickets SET updated_at = NOW() WHERE sync_id = $1`, [req.params.sync_id]);
+    res.json({ ok: true, data: ins[0] });
+  } catch (e) {
+    console.error('maintenance worklog', e); res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/maintenance/dashboard — live counts + open rows (per sub-menu).
+app.get('/api/maintenance/dashboard', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const params = [];
+    const scope = [];
+    if (factoryId) { params.push(factoryId); scope.push(`(factory_id = $${params.length} OR factory_id IS NULL)`); }
+    if (req.query.type) { params.push(maintAssetType(req.query.type)); scope.push(`asset_type = $${params.length}`); }
+    const scopeSql = scope.length ? `AND ${scope.join(' AND ')}` : '';
+    const counts = await q(
+      `SELECT
+         COUNT(*) FILTER (WHERE status IN ('reported','acknowledged')) AS under_maintenance,
+         COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress,
+         COUNT(*) FILTER (WHERE status IN ('reported','acknowledged','in_progress')
+                            AND expected_ready_date IS NOT NULL AND expected_ready_date < CURRENT_DATE) AS overdue
+       FROM maintenance_tickets WHERE is_deleted = FALSE ${scopeSql}`,
+      params
+    );
+    const openRows = await q(
+      `SELECT *,
+              GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - down_at)) / 86400))::int AS days_open,
+              (expected_ready_date IS NOT NULL AND expected_ready_date < CURRENT_DATE) AS is_overdue
+         FROM maintenance_tickets
+        WHERE is_deleted = FALSE AND status IN ('reported','acknowledged','in_progress') ${scopeSql}
+        ORDER BY is_overdue DESC, down_at ASC`,
+      params
+    );
+    res.json({ ok: true, data: { counts: counts[0] || {}, open: openRows } });
+  } catch (e) {
+    console.error('api/maintenance/dashboard', e); res.status(500).json({ ok: false, error: String(e) });
   }
 });
 
