@@ -1144,7 +1144,14 @@
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right" title="Planned Target for the selected shift: std rate × piece weight × scheduled hours, summed machine-wise.">
+                                    <div style="text-align:right" title="Full plant capacity: every PLANNED machine at its best mould rate × full shift hours (includes machines that had a plan but sat idle). Machines with no plan at all can't be counted (no mould assigned).">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#334155; text-transform:uppercase">Capacity</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#334155">
+                                            <span id="grand-total-capacity">0.00</span> <span style="font-size:0.9rem">Kg</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="Planned Target for the selected shift: std rate × piece weight × the hours each running machine was active, summed machine-wise.">
                                         <div style="font-size:0.75rem; font-weight:600; color:#4c1d95; text-transform:uppercase">Planned Target</div>
                                         <div style="font-size:1.4rem; font-weight:800; color:#4c1d95">
                                             <span id="grand-total-plantarget">0.00</span> <span style="font-size:0.9rem">Kg</span>
@@ -1405,7 +1412,7 @@
                             
                             let lineTotalTonnage = 0, lineTotalRejTonnage = 0, lineTotalGoodPcs = 0, lineTotalEstPcs = 0, lineTotalEstPcsNet = 0;
                             let lineTotalPredKg = 0, lineTotalPredQty = 0;
-                            let lineTotalPlannedKg = 0, lineTotalChangeoverKg = 0; // Planned Target @shift & Std changeover (Kg)
+                            let lineTotalPlannedKg = 0, lineTotalChangeoverKg = 0, lineTotalCapacityKg = 0; // Planned Target @shift, Std changeover, full-shift Capacity (Kg)
                             let lineTotalDt = 0, lineTotalAutoDt = 0, lineTotalCC = 0, lineTotalMC = 0, lineTotalJC = 0;
 
                             // Shift Team Display
@@ -1491,6 +1498,7 @@
                             lines[lineName].forEach(machine => {
                                 let machineRowHtml = ''; // Shadow inner HTML for buffering
                                 let machineGood = 0, machineEst = 0, machineEstNet = 0;
+                                let machineCapRate = 0; // best (std rate × piece wt) across this machine's planned moulds → full-shift capacity
                                 const machineEntryTypes = new Set(); // track special entry_types for View Filter
                                 let machineMissingSlots = 0; // count of past unfilled slots (for Pending filter)
                                 let machineBalComplete = false; // true when any mould's plan is met/exceeded (bal <= 0) → blink
@@ -2466,6 +2474,9 @@
                                         // Std Mould Changeover (Kg) = mould changes × (load+unload min)/60 × std rate × piece weight.
                                         lineTotalPlannedKg += estPcs * stdWeightKg;
                                         lineTotalChangeoverKg += rowShiftMC * ((loadUnloadMap[machine] || 0) / 60) * (parseFloat(m.std) || 0) * stdWeightKg;
+                                        // Capacity uses the machine's best planned mould at FULL shift hours,
+                                        // so planned-but-idle machines still count toward plant potential.
+                                        if (!m.is_dummy) machineCapRate = Math.max(machineCapRate, (parseFloat(m.std) || 0) * stdWeightKg);
 
                                         const _summaryBlink = (rowEff > 0 && rowEff < 85 && !m.is_dummy) ? ' blink-alert' : '';
                                         // Maintenance chip: if this machine has an OPEN ticket, show it's under
@@ -2518,6 +2529,9 @@
                                     }
                                 }); // End shiftsToRender loop
 
+                                // Full-shift capacity for this machine (best planned mould × shift hours).
+                                lineTotalCapacityKg += machineCapRate * slots.length;
+
                                 // Push to Buffer
                                 let mEff = (machineEstNet > 0) ? (machineGood / machineEstNet) * 100 : 0;
                                 let mOee = (machineEst > 0) ? (machineGood / machineEst) * 100 : 0;
@@ -2548,6 +2562,7 @@
                             t.predQty = (t.predQty || 0) + lineTotalPredQty;
                             t.plannedKg    = (t.plannedKg    || 0) + lineTotalPlannedKg;
                             t.changeoverKg = (t.changeoverKg || 0) + lineTotalChangeoverKg;
+                            t.capacityKg   = (t.capacityKg   || 0) + lineTotalCapacityKg;
                             t.effGood += lineTotalGoodPcs;
                             t.effEst += lineTotalEstPcs;
                             t.netEst  = (t.netEst || 0) + lineTotalEstPcsNet;
@@ -2897,7 +2912,7 @@
                             let grandTotalEstPcs = 0;
                             let grandTotalNetPcs  = 0;
                             let grandTotalPredKg  = 0;
-                            let grandTotalPlannedKg = 0, grandTotalChangeoverKg = 0;
+                            let grandTotalPlannedKg = 0, grandTotalChangeoverKg = 0, grandTotalCapacityKg = 0;
 
                             Object.entries(window.lineTheTonnages).forEach(([name, data]) => {
                                 const goodVal = (typeof data === 'number') ? data : (data.good || 0);
@@ -2960,6 +2975,7 @@
                                 grandTotalPredKg += (data.predKg || 0);
                                 grandTotalPlannedKg += (data.plannedKg || 0);
                                 grandTotalChangeoverKg += (data.changeoverKg || 0);
+                                grandTotalCapacityKg += (data.capacityKg || 0);
                             });
 
                             // Planned Target @shift → − Std Mould Changeover → Planned Estimated → −5% → Planned Achievable Target
@@ -2967,6 +2983,7 @@
                             const plannedEstimatedKg = Math.max(0, plannedTargetKg - grandTotalChangeoverKg);
                             const plannedAchievableKg = plannedEstimatedKg * 0.95;
                             const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+                            setTxt('grand-total-capacity',   grandTotalCapacityKg.toFixed(2));
                             setTxt('grand-total-plantarget', plannedTargetKg.toFixed(2));
                             setTxt('grand-total-planest',    plannedEstimatedKg.toFixed(2));
                             setTxt('grand-total-planach',    plannedAchievableKg.toFixed(2));
