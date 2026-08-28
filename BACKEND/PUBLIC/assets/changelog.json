@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.49.4",
+  "latest": "1.49.5",
   "versions": [
+    {
+      "version": "1.49.5",
+      "date": "2026-08-28",
+      "title": "Target tiles on DPR Compliance Summary",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary top strip now shows Planned Target, Planned Estimated (after Std Mould Changeover) and Plan Achievable (Estimated − 5%) in Kg, for the selected shift, alongside the existing tonnage figures." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.49.4",
       "date": "2026-08-27",
