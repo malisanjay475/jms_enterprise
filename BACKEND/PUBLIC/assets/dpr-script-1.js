@@ -1042,6 +1042,9 @@
                             scopedMachinesList = scopedMachinesList.filter(m => String(m.factory_id) === String(selectedFactory));
                         }
                         const allowedMachines = new Set(scopedMachinesList.map(machine => machine.machine));
+                        // Machine Master load + unload time (minutes) → STD mould-changeover time per machine.
+                        const loadUnloadMap = {};
+                        scopedMachinesList.forEach(mm => { loadUnloadMap[mm.machine] = (parseFloat(mm.mould_load_time) || 0) + (parseFloat(mm.mould_unload_time) || 0); });
                         const filterMatrixResponse = (matrixRes) => {
                             const matrixData = matrixRes.data || {};
                             const filteredDates = {};
@@ -1119,7 +1122,7 @@
                                     Plant Total (${new Date(fromDate).toLocaleDateString('en-GB')})
                                     <span style="font-size:0.8rem; font-weight:400; color:#64748b; margin-left:8px">(Combined Summary)</span>
                                 </div>
-                                <div style="display:flex; gap:24px">
+                                <div style="display:flex; gap:20px; flex-wrap:wrap; row-gap:12px; justify-content:flex-end; align-items:center">
                                     <div style="text-align:right">
                                         <div style="font-size:0.75rem; font-weight:600; color:#7c3aed; text-transform:uppercase">Overall Tonnage</div>
                                         <div style="font-size:1.4rem; font-weight:800; color:#7c3aed">
@@ -1138,6 +1141,27 @@
                                         <div style="font-size:0.75rem; font-weight:600; color:#0891b2; text-transform:uppercase">Pred. Tonnage</div>
                                         <div style="font-size:1.4rem; font-weight:800; color:#0891b2">
                                             <span id="grand-total-pred">0.00</span> <span style="font-size:0.9rem">Kg</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="Planned Target for the selected shift: std rate × piece weight × scheduled hours, summed machine-wise.">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#4c1d95; text-transform:uppercase">Planned Target</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#4c1d95">
+                                            <span id="grand-total-plantarget">0.00</span> <span style="font-size:0.9rem">Kg</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="Planned Estimated = Planned Target − Std Mould Changeover (mould changes × machine load + unload time × rate).">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#7c3aed; text-transform:uppercase">Planned Estimated</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#7c3aed">
+                                            <span id="grand-total-planest">0.00</span> <span style="font-size:0.9rem">Kg</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="Planned Achievable Target = Planned Estimated − 5% allowance.">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#0ea5e9; text-transform:uppercase">Plan Achievable</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#0ea5e9">
+                                            <span id="grand-total-planach">0.00</span> <span style="font-size:0.9rem">Kg</span>
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
@@ -1381,6 +1405,7 @@
                             
                             let lineTotalTonnage = 0, lineTotalRejTonnage = 0, lineTotalGoodPcs = 0, lineTotalEstPcs = 0, lineTotalEstPcsNet = 0;
                             let lineTotalPredKg = 0, lineTotalPredQty = 0;
+                            let lineTotalPlannedKg = 0, lineTotalChangeoverKg = 0; // Planned Target @shift & Std changeover (Kg)
                             let lineTotalDt = 0, lineTotalAutoDt = 0, lineTotalCC = 0, lineTotalMC = 0, lineTotalJC = 0;
 
                             // Shift Team Display
@@ -2437,6 +2462,10 @@
                                         machineGood += sumGood;
                                         machineEst += estPcs;
                                         machineEstNet += estPcsNet;
+                                        // Planned Target @shift (Kg) = std scheduled pieces × piece weight.
+                                        // Std Mould Changeover (Kg) = mould changes × (load+unload min)/60 × std rate × piece weight.
+                                        lineTotalPlannedKg += estPcs * stdWeightKg;
+                                        lineTotalChangeoverKg += rowShiftMC * ((loadUnloadMap[machine] || 0) / 60) * (parseFloat(m.std) || 0) * stdWeightKg;
 
                                         const _summaryBlink = (rowEff > 0 && rowEff < 85 && !m.is_dummy) ? ' blink-alert' : '';
                                         // Maintenance chip: if this machine has an OPEN ticket, show it's under
@@ -2517,6 +2546,8 @@
                             t.rej += lineTotalRejTonnage;
                             t.predKg  = (t.predKg  || 0) + lineTotalPredKg;
                             t.predQty = (t.predQty || 0) + lineTotalPredQty;
+                            t.plannedKg    = (t.plannedKg    || 0) + lineTotalPlannedKg;
+                            t.changeoverKg = (t.changeoverKg || 0) + lineTotalChangeoverKg;
                             t.effGood += lineTotalGoodPcs;
                             t.effEst += lineTotalEstPcs;
                             t.netEst  = (t.netEst || 0) + lineTotalEstPcsNet;
@@ -2866,6 +2897,7 @@
                             let grandTotalEstPcs = 0;
                             let grandTotalNetPcs  = 0;
                             let grandTotalPredKg  = 0;
+                            let grandTotalPlannedKg = 0, grandTotalChangeoverKg = 0;
 
                             Object.entries(window.lineTheTonnages).forEach(([name, data]) => {
                                 const goodVal = (typeof data === 'number') ? data : (data.good || 0);
@@ -2926,7 +2958,18 @@
                                 grandTotalGoodPcs += eGood;
                                 grandTotalEstPcs += eEst;
                                 grandTotalPredKg += (data.predKg || 0);
+                                grandTotalPlannedKg += (data.plannedKg || 0);
+                                grandTotalChangeoverKg += (data.changeoverKg || 0);
                             });
+
+                            // Planned Target @shift → − Std Mould Changeover → Planned Estimated → −5% → Planned Achievable Target
+                            const plannedTargetKg    = grandTotalPlannedKg;
+                            const plannedEstimatedKg = Math.max(0, plannedTargetKg - grandTotalChangeoverKg);
+                            const plannedAchievableKg = plannedEstimatedKg * 0.95;
+                            const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+                            setTxt('grand-total-plantarget', plannedTargetKg.toFixed(2));
+                            setTxt('grand-total-planest',    plannedEstimatedKg.toFixed(2));
+                            setTxt('grand-total-planach',    plannedAchievableKg.toFixed(2));
 
                             const gtOverallEl = document.getElementById('grand-total-overall');
                             if (gtOverallEl) gtOverallEl.textContent = (grandTotal + grandTotalRej).toFixed(2);
