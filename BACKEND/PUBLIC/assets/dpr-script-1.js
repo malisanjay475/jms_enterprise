@@ -2545,7 +2545,9 @@
                                 }); // End shiftsToRender loop
 
                                 // Full-shift capacity for this machine (best planned mould × shift hours).
-                                lineTotalCapacityKg += machineCapRate * slots.length;
+                                // Full-shift capacity across ALL rendered shifts (Both = 24 h, not 12 h),
+                                // so Capacity is a true ceiling ≥ Planned Target.
+                                lineTotalCapacityKg += machineCapRate * slots.length * shiftsToRender.length;
 
                                 // Push to Buffer
                                 let mEff = (machineEstNet > 0) ? (machineGood / machineEstNet) * 100 : 0;
