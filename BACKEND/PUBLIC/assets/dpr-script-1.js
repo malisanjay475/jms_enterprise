@@ -2309,6 +2309,14 @@
                                                             }
                                                         }
                                                         if (!entryWeight && rowSetupWeight > 0) entryWeight = rowSetupWeight;
+                                                        // Real production: if no setup/actual weight was recorded, fall back
+                                                        // to the mould-master STD weight so this production is still counted
+                                                        // (was previously dropped, under-counting tonnage).
+                                                        if (!entryWeight) {
+                                                            let _sw = parseFloat(m.details?.std_weight || 0);
+                                                            if (_sw >= 10) _sw = _sw / 1000;
+                                                            if (_sw > 0) entryWeight = _sw;
+                                                        }
 
                                                         if (gQty > 0 && entryWeight > 0) sumTonnage += (gQty * entryWeight);
                                                         const eRQty = parseInt(entry.reject_qty) || 0;
