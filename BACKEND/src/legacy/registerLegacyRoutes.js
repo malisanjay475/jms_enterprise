@@ -6757,11 +6757,16 @@ async function assertDateEntryAllowed(session, entryDate) {
   if (!entryDate) return { ok: false, error: 'Missing entry date.' };
   if (!username) return { ok: false, error: 'Missing session. Please log in again.' };
 
-  const rows = await q('SELECT line, global_access FROM users WHERE username=$1 LIMIT 1', [username]);
+  const rows = await q('SELECT line, global_access, role_code FROM users WHERE username=$1 LIMIT 1', [username]);
   if (!rows.length) return { ok: false, error: 'User not found. Please log in again.' };
 
   const uLine = String(rows[0].line || '').trim().toLowerCase();
-  const allAccess = uLine === 'all' || rows[0].global_access === true;
+  // Roles allowed to back-date entries (up to 30 days) regardless of line access,
+  // so PPC/Planner/Admin can complete pending back-dated entries. Keep in sync with
+  // BACKDATE_ROLES in supervisor-script-1.js.
+  const BACKDATE_ROLES = new Set(['ppc_manager', 'ppc_ass_manager', 'planner', 'admin', 'superadmin']);
+  const uRole = String(rows[0].role_code || '').trim().toLowerCase();
+  const allAccess = uLine === 'all' || rows[0].global_access === true || BACKDATE_ROLES.has(uRole);
 
   const now = new Date();
   const today = new Date(now); today.setHours(0, 0, 0, 0);
