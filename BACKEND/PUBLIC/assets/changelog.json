@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.49.6",
+  "latest": "1.49.15",
   "versions": [
+    {
+      "version": "1.49.15",
+      "date": "2026-08-29",
+      "title": "PPC / Planner / Admin can back-date supervisor entries",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Moulding Supervisor App",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "feat", "text": "PPC Manager, PPC Ass. Manager, Planner and Admin can now pick a back-date (up to 30 days) in the Supervisor app to complete pending entries, the same as all-lines users." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.49.6",
       "date": "2026-08-28",

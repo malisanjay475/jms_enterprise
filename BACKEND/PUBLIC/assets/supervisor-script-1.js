@@ -747,6 +747,15 @@
       return ln === 'all' || session.global_access === true;
     }
 
+    /* Roles that may back-date entries (up to 30 days) even without all-line access,
+       so PPC/Planner/Admin can complete pending back-dated entries. Keep in sync with
+       BACKDATE_ROLES in registerLegacyRoutes.js assertDateEntryAllowed(). */
+    const BACKDATE_ROLES = ['ppc_manager', 'ppc_ass_manager', 'planner', 'admin', 'superadmin'];
+    function canBackDate() {
+      if (isAllLineAccess()) return true;
+      return BACKDATE_ROLES.includes(String(session.role_code || '').trim().toLowerCase());
+    }
+
     /* Refresh line access + global_access from the server so a stale cached session
        (e.g. logged in before the feature shipped) still unlocks the date picker
        without forcing a re-login. Fire-and-forget; rebuilds the date select on change. */
@@ -756,7 +765,7 @@
         const r = await apiFetch(`/api/user/access?username=${encodeURIComponent(session.username)}`);
         const j = await r.json();
         if (!j || !j.ok || !j.data) return;
-        const wasAll = isAllLineAccess();
+        const wasAll = canBackDate();
         session.line = j.data.line || session.line;
         session.role_code = j.data.role_code || session.role_code;
         session.global_access = j.data.global_access === true;
@@ -768,7 +777,7 @@
           localStorage.setItem('jpsmsSession', JSON.stringify(raw));
         } catch (_) { }
         // If access changed and the date select is present, rebuild so the picker appears/hides.
-        if (isAllLineAccess() !== wasAll && el('d-date')) buildDateSelect();
+        if (canBackDate() !== wasAll && el('d-date')) buildDateSelect();
       } catch (_) { }
     }
 
@@ -923,9 +932,9 @@
       selDate.add(new Option('Today (' + fmtD(today) + ')', isoDate(today)));
       selDate.add(new Option('Yesterday (' + fmtD(yest) + ')', isoDate(yest)));
 
-      // All-lines users may back-date up to 30 days. Partial-line users only see Today/Yesterday.
+      // All-lines users + PPC/Planner/Admin may back-date up to 30 days. Others: Today/Yesterday only.
       const custom = el('d-date-custom');
-      if (isAllLineAccess()) {
+      if (canBackDate()) {
         // Re-attach a previously picked custom back-date so it survives shift/job changes.
         if (customDateChoice && customDateChoice !== isoDate(today) && customDateChoice !== isoDate(yest)) {
           const cd = new Date(customDateChoice + 'T00:00:00');
