@@ -11,10 +11,10 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.49.14",
+  "latest": "1.49.15",
   "versions": [
     {
-      "version": "1.49.14",
+      "version": "1.49.15",
       "date": "2026-08-29",
       "title": "PPC / Planner / Admin can back-date supervisor entries",
       "modules": [
