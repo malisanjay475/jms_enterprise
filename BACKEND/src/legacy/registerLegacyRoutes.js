@@ -25144,7 +25144,7 @@ app.get('/api/reports/dpr-daily', async (req, res) => {
     let cond = '';
     if (factoryId) { params.push(factoryId); cond += ` AND (h.factory_id = $${params.length} OR h.factory_id IS NULL)`; }
     if (shift) { params.push(shift); cond += ` AND h.shift = $${params.length}`; }
-    if (process) { params.push(process); cond += ` AND (mc.machine_process = $${params.length} OR mc.machine_process IS NULL)`; }
+    if (process) { params.push(process); cond += ` AND mc.machine_process = $${params.length}`; }
 
     const rows = await q(`
       SELECT
