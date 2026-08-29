@@ -25154,20 +25154,29 @@ app.get('/api/reports/dpr-daily', async (req, res) => {
         COALESCE(h.good_qty, 0)   AS good_qty,
         COALESCE(h.reject_qty, 0) AS reject_qty,
         COALESCE(h.shots, 0)      AS shots,
-        COALESCE(m.pcs_per_hour, pm.pcs_per_hour, 0) AS pcs_hr,
-        COALESCE(m.std_wt_kg, pm.std_wt_kg, 0)       AS std_wt,
-        COALESCE(sa.article_act, m.std_wt_kg, pm.std_wt_kg, 0) AS act_wt,
+        COALESCE(m.pcs_per_hour, 0) AS pcs_hr,
+        COALESCE(m.std_wt_kg, 0)    AS std_wt,
+        COALESCE(sa.article_act, m.std_wt_kg, 0) AS act_wt,
         COALESCE(mc.mould_load_time, 0)   AS load_t,
         COALESCE(mc.mould_unload_time, 0) AS unload_t
       FROM dpr_hourly h
-      LEFT JOIN moulds m  ON m.mould_number = h.mould_no
-        AND (m.factory_id = h.factory_id OR m.factory_id IS NULL)
-      LEFT JOIN plan_board pb ON pb.id::TEXT = h.plan_id OR pb.plan_id = h.plan_id
-      LEFT JOIN moulds pm ON pm.mould_number = pb.item_code
-        AND (pm.factory_id = h.factory_id OR pm.factory_id IS NULL)
-      LEFT JOIN std_actual sa ON sa.plan_id = h.plan_id
-      LEFT JOIN machines mc ON TRIM(mc.machine) = TRIM(h.machine)
-        AND (mc.factory_id = h.factory_id OR mc.factory_id IS NULL)
+      -- All lookups are LATERAL LIMIT 1 so a plan/mould with several setup or
+      -- master rows can NEVER fan out and multiply the quantities.
+      LEFT JOIN LATERAL (
+        SELECT pcs_per_hour, std_wt_kg FROM moulds mm
+        WHERE mm.mould_number = h.mould_no AND (mm.factory_id = h.factory_id OR mm.factory_id IS NULL)
+        ORDER BY (mm.factory_id = h.factory_id) DESC NULLS LAST, mm.id DESC LIMIT 1
+      ) m ON true
+      LEFT JOIN LATERAL (
+        SELECT article_act FROM std_actual sa0
+        WHERE sa0.plan_id = h.plan_id AND COALESCE(sa0.article_act, 0) > 0
+        ORDER BY sa0.id DESC LIMIT 1
+      ) sa ON true
+      LEFT JOIN LATERAL (
+        SELECT mould_load_time, mould_unload_time, machine_process FROM machines mc0
+        WHERE TRIM(mc0.machine) = TRIM(h.machine) AND (mc0.factory_id = h.factory_id OR mc0.factory_id IS NULL)
+        ORDER BY (mc0.factory_id = h.factory_id) DESC NULLS LAST LIMIT 1
+      ) mc ON true
       WHERE h.is_deleted = false
         AND h.dpr_date = $1::date${cond}
       ORDER BY machine, h.shift, h.hour_slot
