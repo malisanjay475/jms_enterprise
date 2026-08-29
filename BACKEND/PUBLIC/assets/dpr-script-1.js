@@ -1151,6 +1151,13 @@
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="Downtime Loss = Planned Achievable Target − Gross Production. Output lost to all stoppages plus running below rated speed.">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#db2777; text-transform:uppercase">Downtime Loss</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#db2777">
+                                            <span id="grand-total-dtloss">0.00</span> <span style="font-size:0.9rem">Kg</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
                                     <div style="text-align:right" title="Gross Production = Good + Rejection (Overall Tonnage).">
                                         <div style="font-size:0.75rem; font-weight:600; color:#7c3aed; text-transform:uppercase">Overall Tonnage</div>
                                         <div style="font-size:1.4rem; font-weight:800; color:#7c3aed">
@@ -2998,6 +3005,10 @@
 
                             const gtOverallEl = document.getElementById('grand-total-overall');
                             if (gtOverallEl) gtOverallEl.textContent = (grandTotal + grandTotalRej).toFixed(2);
+
+                            // Downtime Loss = Planned Achievable − Gross (residual of the waterfall)
+                            const _grossKg = grandTotal + grandTotalRej;
+                            setTxt('grand-total-dtloss', Math.max(0, plannedAchievableKg - _grossKg).toFixed(2));
 
                             const gtEl = document.getElementById('grand-total-tonnage');
                             if (gtEl) gtEl.textContent = grandTotal.toFixed(2);
