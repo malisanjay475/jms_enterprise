@@ -25115,6 +25115,135 @@ app.get('/api/reports/tonnage', async (req, res) => {
   }
 });
 
+// GET /api/reports/dpr-daily — the SINGLE source-of-truth production waterfall.
+// Both the DPR Compliance Summary strip and the Daily Report "Live Calculation"
+// read this so they can never diverge. All values in Kg.
+//   Capacity            = every PLANNED machine's best mould rate × full shift hrs
+//   Planned Target      = std rate × STD weight × shift hours (machines that ran)
+//   - Std Changeover    = (distinct moulds − 1) × (load+unload min)/60 × rate
+//   = Planned Estimated
+//   - 5% allowance
+//   = Planned Achievable
+//   - Downtime Loss     = Planned Achievable − Gross
+//   = Gross Production   = (good + reject) × ACTUAL piece weight
+//   - Rejection         = reject × ACTUAL weight
+//   = Good Production    = good × ACTUAL weight
+// shift = Day|Night → 12 h; anything else (Both) → 24 h.
+app.get('/api/reports/dpr-daily', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.json({ ok: false, error: 'date required' });
+    const round2 = (v) => Number((Number(v) || 0).toFixed(2));
+    const wkg = (w) => { const n = Number(w) || 0; return n >= 10 ? n / 1000 : n; }; // grams→kg tolerant
+    const shift = ['Day', 'Night'].includes(String(req.query.shift)) ? String(req.query.shift) : null;
+    const shiftHours = shift ? 12 : 24;
+    const process = req.query.process ? String(req.query.process) : null;
+    const factoryId = getFactoryId(req);
+
+    const params = [date];
+    let cond = '';
+    if (factoryId) { params.push(factoryId); cond += ` AND (h.factory_id = $${params.length} OR h.factory_id IS NULL)`; }
+    if (shift) { params.push(shift); cond += ` AND h.shift = $${params.length}`; }
+    if (process) { params.push(process); cond += ` AND (mc.machine_process = $${params.length} OR mc.machine_process IS NULL)`; }
+
+    const rows = await q(`
+      SELECT
+        COALESCE(NULLIF(TRIM(h.machine), ''), 'Unassigned') AS machine,
+        h.shift, h.hour_slot,
+        TRIM(COALESCE(h.mould_no, '')) AS mould_no,
+        COALESCE(h.good_qty, 0)   AS good_qty,
+        COALESCE(h.reject_qty, 0) AS reject_qty,
+        COALESCE(h.shots, 0)      AS shots,
+        COALESCE(m.pcs_per_hour, pm.pcs_per_hour, 0) AS pcs_hr,
+        COALESCE(m.std_wt_kg, pm.std_wt_kg, 0)       AS std_wt,
+        COALESCE(sa.article_act, m.std_wt_kg, pm.std_wt_kg, 0) AS act_wt,
+        COALESCE(mc.mould_load_time, 0)   AS load_t,
+        COALESCE(mc.mould_unload_time, 0) AS unload_t
+      FROM dpr_hourly h
+      LEFT JOIN moulds m  ON m.mould_number = h.mould_no
+        AND (m.factory_id = h.factory_id OR m.factory_id IS NULL)
+      LEFT JOIN plan_board pb ON pb.id::TEXT = h.plan_id OR pb.plan_id = h.plan_id
+      LEFT JOIN moulds pm ON pm.mould_number = pb.item_code
+        AND (pm.factory_id = h.factory_id OR pm.factory_id IS NULL)
+      LEFT JOIN std_actual sa ON sa.plan_id = h.plan_id
+      LEFT JOIN machines mc ON TRIM(mc.machine) = TRIM(h.machine)
+        AND (mc.factory_id = h.factory_id OR mc.factory_id IS NULL)
+      WHERE h.is_deleted = false
+        AND h.dpr_date = $1::date${cond}
+      ORDER BY machine, h.shift, h.hour_slot
+    `, params);
+
+    const byMachine = new Map();
+    for (const r of rows) {
+      let a = byMachine.get(r.machine);
+      if (!a) { a = { machine: r.machine, load_t: Number(r.load_t) || 0, unload_t: Number(r.unload_t) || 0,
+        good_kg: 0, reject_kg: 0, moulds: new Set(), _mould: new Map() }; byMachine.set(r.machine, a); }
+      if (!a.load_t && Number(r.load_t)) a.load_t = Number(r.load_t);
+      if (!a.unload_t && Number(r.unload_t)) a.unload_t = Number(r.unload_t);
+
+      const stdWt = wkg(r.std_wt);
+      const actWt = wkg(r.act_wt) || stdWt;
+      a.good_kg   += (Number(r.good_qty) || 0)   * actWt;
+      a.reject_kg += (Number(r.reject_qty) || 0) * actWt;
+
+      const produced = (Number(r.good_qty) || 0) > 0 || (Number(r.shots) || 0) > 0;
+      if (r.mould_no && produced) {
+        a.moulds.add(r.mould_no);
+        const rate = Number(r.pcs_hr) || 0;
+        if (rate > 0) {
+          let mm = a._mould.get(r.mould_no);
+          if (!mm) { mm = { slots: new Set(), rateWt: rate * stdWt }; a._mould.set(r.mould_no, mm); }
+          mm.slots.add(`${r.shift}|${r.hour_slot}`);
+        }
+      }
+    }
+
+    const machines = [];
+    let T = { capacity: 0, planned_target: 0, std_changeover: 0, planned_estimated: 0,
+      planned_achievable: 0, downtime_speed_loss: 0, gross: 0, rejection: 0, good: 0, mould_changes: 0 };
+    for (const a of byMachine.values()) {
+      // run-time-weighted std rate×wt (kg/hr) across the machine's moulds
+      let totalSlots = 0, bestRateWt = 0;
+      a._mould.forEach(mm => { totalSlots += mm.slots.size; if (mm.rateWt > bestRateWt) bestRateWt = mm.rateWt; });
+      let blendedRateWt = 0;
+      if (totalSlots > 0) a._mould.forEach(mm => { blendedRateWt += (mm.slots.size / totalSlots) * mm.rateWt; });
+
+      const mc = Math.max(0, a.moulds.size - 1);                       // distinct moulds − 1
+      const target = blendedRateWt * shiftHours;
+      const changeover = mc * ((a.load_t + a.unload_t) / 60) * blendedRateWt;
+      const estimated = Math.max(0, target - changeover);
+      const achievable = estimated * 0.95;
+      const gross = a.good_kg + a.reject_kg;
+      const dtLoss = Math.max(0, achievable - gross);
+      const capacity = bestRateWt * shiftHours;
+
+      machines.push({ machine: a.machine, mould_changes: mc,
+        capacity: round2(capacity), planned_target: round2(target), std_changeover: round2(changeover),
+        planned_estimated: round2(estimated), planned_achievable: round2(achievable),
+        downtime_speed_loss: round2(dtLoss), gross_production: round2(gross),
+        rejection: round2(a.reject_kg), good_production: round2(a.good_kg) });
+
+      T.capacity += capacity; T.planned_target += target; T.std_changeover += changeover;
+      T.planned_estimated += estimated; T.planned_achievable += achievable;
+      T.downtime_speed_loss += dtLoss; T.gross += gross; T.rejection += a.reject_kg;
+      T.good += a.good_kg; T.mould_changes += mc;
+    }
+    machines.sort((x, y) => String(x.machine).localeCompare(String(y.machine), undefined, { numeric: true }));
+
+    const total = {
+      capacity: round2(T.capacity), planned_target: round2(T.planned_target),
+      std_changeover: round2(T.std_changeover), planned_estimated: round2(T.planned_estimated),
+      planned_achievable: round2(T.planned_achievable), downtime_speed_loss: round2(T.downtime_speed_loss),
+      gross_production: round2(T.gross), rejection: round2(T.rejection), good_production: round2(T.good),
+      mould_changes: T.mould_changes
+    };
+    res.json({ ok: true, date, shift: shift || 'all', shift_hours: shiftHours, machines, total });
+  } catch (e) {
+    console.error('api/reports/dpr-daily', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // GET /api/reports/extra-qty-allowed — audit report of all grants
 app.get('/api/reports/extra-qty-allowed', async (req, res) => {
   try {
