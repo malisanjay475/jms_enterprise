@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.47.2",
+  "latest": "1.47.3",
   "versions": [
+    {
+      "version": "1.47.3",
+      "date": "2026-08-26",
+      "title": "DPR Job Detail Plan Date now refreshes correctly",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The DPR Job Detail popup now reliably shows the JMS plan creation date as Plan Date — the browser was still running a cached older script, now refreshed." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.47.2",
       "date": "2026-08-26",
