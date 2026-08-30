@@ -11,8 +11,31 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.49.15",
+  "latest": "1.49.16",
   "versions": [
+    {
+      "version": "1.49.16",
+      "date": "2026-08-26",
+      "title": "Master Plan shows Plan ID & creator; DPR Plan Date refresh",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "The Master Plan list now shows each plan's Plan ID and who created it, under the OR number." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The DPR Job Detail Plan Date now reliably shows the JMS plan creation date; the page was still loading a cached older script." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.49.15",
       "date": "2026-08-29",
