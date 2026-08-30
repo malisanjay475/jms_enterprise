@@ -9621,6 +9621,7 @@ app.get('/api/planning/board', async (req, res) => {
       SELECT DISTINCT ON (pb.id)
         pb.id,
         pb.plan_id      AS "planId",
+        COALESCE(NULLIF(TRIM(pb.created_by), ''), 'System') AS "createdBy",
         pb.plant,
         COALESCE(NULLIF(TRIM(pb.building), ''), NULLIF(TRIM(planMachine.building), ''), NULLIF(TRIM(planMachine.machine_process), ''), 'General') AS building,
         COALESCE(NULLIF(TRIM(pb.line), ''), NULLIF(TRIM(planMachine.line), ''), CASE WHEN COALESCE(NULLIF(TRIM(planMachine.machine_process), ''), 'Moulding') = 'Moulding' THEN '1' ELSE 'Machines' END) AS line,
