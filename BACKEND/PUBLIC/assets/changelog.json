@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.49.16",
+  "latest": "1.49.17",
   "versions": [
+    {
+      "version": "1.49.17",
+      "date": "2026-08-26",
+      "title": "Fixed false 'OVER PRODUCTION' on split-batch colours",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "fix", "text": "The Colour & QTY panel counted a colour's production once per batch, so a colour split into two batches showed double the produced quantity and a false 'OVER PRODUCTION' alert. Produced is now counted once per colour, matching the colour-shift breakdown." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.49.16",
       "date": "2026-08-26",

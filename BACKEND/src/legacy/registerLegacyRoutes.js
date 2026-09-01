@@ -24087,7 +24087,13 @@ app.get('/api/job/colors', async (req, res) => {
             if (k) prodMap[k] = (prodMap[k] || 0) + Number(p.total || 0);
           });
 
-          // Build result: plan qty from colour_details, produced from dpr_hourly
+          // Build result: plan qty from colour_details, produced from dpr_hourly.
+          // A colour can appear in several colour_details rows (batch splits), so
+          // SUM the plan qty across those rows — but the produced figure in prodMap
+          // is ALREADY the full per-colour total, so it must be assigned ONCE per
+          // colour, not added per row (adding per row double-counted production and
+          // caused a false "OVER PRODUCTION" — e.g. two "SM White" batches showed
+          // 2x the produced qty).
           const grouped = {};
           cd.forEach(row => {
             const name = String(
@@ -24097,8 +24103,11 @@ app.get('/api/job/colors', async (req, res) => {
             const qty = Number(row.planQty ?? row.batchQty ?? row.useQty ?? row.qty ?? 0) || 0;
             if (!grouped[name]) grouped[name] = { target: 0, produced: 0 };
             grouped[name].target += qty;
+          });
+          // Produced: one lookup per unique colour (prodMap already holds the total).
+          Object.keys(grouped).forEach(name => {
             const k = name.toUpperCase();
-            if (prodMap[k]) grouped[name].produced += prodMap[k];
+            if (prodMap[k]) grouped[name].produced = prodMap[k];
           });
 
           const result = Object.entries(grouped)
