@@ -52,12 +52,12 @@ class FpaViewModel : ViewModel() {
 
     private fun checkStatus() {
         val job = _state.value.job
-        if (job?.JobCardNo.isNullOrBlank()) {
+        if (job == null || (job.PlanID.isNullOrBlank() && job.JobCardNo.isNullOrBlank())) {
             _state.update { it.copy(checking = false, error = "No active job selected.") }
             return
         }
         viewModelScope.launch {
-            repo.fpaStatusFull(job!!.JobCardNo!!, session.machine)
+            repo.fpaStatusFull(job.PlanID ?: "", job.JobCardNo ?: "")
                 .onSuccess { st ->
                     if (st.ok && st.done) applySaved(st)
                     else _state.update { it.copy(checking = false, alreadyDone = false) }
@@ -126,7 +126,7 @@ class FpaViewModel : ViewModel() {
             ).onSuccess {
                 _state.update { it.copy(submitting = false, submitted = true, alreadyDone = true) }
                 // reload from server so the saved images render in view mode
-                repo.fpaStatusFull(job.JobCardNo ?: "", s.machine)
+                repo.fpaStatusFull(job.PlanID ?: "", job.JobCardNo ?: "")
                     .onSuccess { st -> if (st.ok && st.done) applySaved(st) }
             }.onFailure { e ->
                 _state.update { it.copy(submitting = false, error = e.message ?: "Upload failed") }

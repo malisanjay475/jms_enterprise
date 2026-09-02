@@ -119,16 +119,34 @@ class QcRepository(private val session: SessionStore) {
         arr.map { json.decodeFromJsonElement(QueueJob.serializer(), it) }
     }
 
-    /** Has FPA already been captured for this job card? (matched by JC, any machine) */
-    suspend fun fpaStatus(jobCardNo: String, machine: String): Result<Boolean> = runCatching {
-        val r = api.fpaStatus(jobCardNo = jobCardNo, machine = null)
-        r.ok && r.done
+    /**
+     * FPA status keyed on planId (falls back to job card). Reads qc_job_checks
+     * via /api/qc/job-checks and looks for a row with fpa_status='Done', so it
+     * works even when the job has no job-card number.
+     */
+    suspend fun fpaStatusFull(planId: String, jobCardNo: String): Result<FpaStatus> = runCatching {
+        val env = when {
+            planId.isNotBlank() -> api.jobChecks(planId = planId)
+            jobCardNo.isNotBlank() -> api.jobChecks(jobCardNo = jobCardNo)
+            else -> return@runCatching FpaStatus(ok = true, done = false)
+        }
+        if (!env.ok) error(env.error ?: "Status check failed")
+        val arr = env.data as? JsonArray ?: JsonArray(emptyList())
+        val doneRow = arr.map { it.jsonObject }.firstOrNull { row ->
+            row["fpa_status"]?.jsonPrimitive?.contentOrNull?.equals("Done", ignoreCase = true) == true
+        } ?: return@runCatching FpaStatus(ok = true, done = false)
+        FpaStatus(
+            ok = true, done = true,
+            done_by = doneRow["fpa_done_by"]?.jsonPrimitive?.contentOrNull,
+            done_at = doneRow["fpa_done_at"]?.jsonPrimitive?.contentOrNull,
+            form_url = doneRow["fpa_form_url"]?.jsonPrimitive?.contentOrNull,
+            product_images = doneRow["product_images"]
+        )
     }
 
-    /** Full FPA status incl. saved image URLs, for the read-only view. */
-    suspend fun fpaStatusFull(jobCardNo: String, machine: String): Result<FpaStatus> = runCatching {
-        api.fpaStatus(jobCardNo = jobCardNo, machine = null)
-    }
+    /** Convenience boolean form used by the QC-entry FPA gate. */
+    suspend fun fpaStatus(planId: String, jobCardNo: String): Result<Boolean> =
+        fpaStatusFull(planId, jobCardNo).map { it.ok && it.done }
 
     /**
      * Submit FPA with the physical-form photo + product reference photos.

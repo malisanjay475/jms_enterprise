@@ -80,12 +80,12 @@ class QcEntryViewModel : ViewModel() {
 
     private fun checkFpa() {
         val job = _state.value.job
-        if (job?.JobCardNo.isNullOrBlank()) {
+        if (job == null || (job.PlanID.isNullOrBlank() && job.JobCardNo.isNullOrBlank())) {
             _state.update { it.copy(checkingFpa = false, error = "No active job.") }
             return
         }
         viewModelScope.launch {
-            repo.fpaStatus(job!!.JobCardNo!!, session.machine)
+            repo.fpaStatus(job.PlanID ?: "", job.JobCardNo ?: "")
                 .onSuccess { done -> _state.update { it.copy(checkingFpa = false, fpaDone = done) } }
                 .onFailure { _state.update { it.copy(checkingFpa = false, fpaDone = false) } }
         }

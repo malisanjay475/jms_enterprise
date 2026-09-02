@@ -47,6 +47,14 @@ interface ApiService {
         @Query("machine") machine: String? = null
     ): FpaStatus
 
+    // Robust FPA lookup keyed on planId (always present, unlike job card).
+    @GET("api/qc/job-checks")
+    suspend fun jobChecks(
+        @Query("planId") planId: String? = null,
+        @Query("jobCardNo") jobCardNo: String? = null,
+        @Query("limit") limit: Int = 20
+    ): ApiEnvelope
+
     @GET("api/qc/verify/pending")
     suspend fun verifyPending(
         @Query("machine") machine: String,
