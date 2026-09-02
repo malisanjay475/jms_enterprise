@@ -81,5 +81,9 @@ dependencies {
     // Image loading for captured-photo previews
     implementation("io.coil-kt:coil-compose:2.7.0")
 
+    // Location — geofence login gate (server requires GPS at /api/login)
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

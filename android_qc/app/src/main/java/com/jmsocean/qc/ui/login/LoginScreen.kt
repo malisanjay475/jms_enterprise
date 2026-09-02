@@ -1,5 +1,8 @@
 package com.jmsocean.qc.ui.login
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.KeyboardType
@@ -29,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.jmsocean.qc.data.LocationProvider
 import com.jmsocean.qc.ui.theme.Accent
 
 @Composable
@@ -37,6 +42,17 @@ fun LoginScreen(
     vm: LoginViewModel = viewModel()
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
+    val ctx = LocalContext.current
+
+    // Ask for location, then log in — the server geofence requires a GPS fix.
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> vm.login(locationPermitted = granted) }
+
+    fun attemptLogin() {
+        if (LocationProvider.hasPermission(ctx)) vm.login(locationPermitted = true)
+        else permLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
 
     LaunchedEffect(s.success) { if (s.success) onLoggedIn() }
 
@@ -60,6 +76,12 @@ fun LoginScreen(
                 Text(
                     "Secure entry · DPR & Queue",
                     fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Location is required — you can only sign in from inside the factory.",
+                    fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(20.dp))
@@ -90,10 +112,18 @@ fun LoginScreen(
                         fontSize = 13.sp
                     )
                 }
+                if (s.statusLine != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        s.statusLine!!,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp
+                    )
+                }
 
                 Spacer(Modifier.height(20.dp))
                 Button(
-                    onClick = vm::login,
+                    onClick = { attemptLogin() },
                     enabled = !s.loading,
                     modifier = Modifier.fillMaxWidth().height(50.dp)
                 ) {

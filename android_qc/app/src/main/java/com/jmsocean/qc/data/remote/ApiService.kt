@@ -2,6 +2,7 @@ package com.jmsocean.qc.data.remote
 
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
+import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Multipart
@@ -12,8 +13,9 @@ import retrofit2.http.Query
 
 interface ApiService {
 
+    // Returns the full Response so 4xx error bodies (geofence, app access) are readable.
     @POST("api/login")
-    suspend fun login(@Body req: LoginRequest): ApiEnvelope
+    suspend fun login(@Body req: LoginRequest): Response<ApiEnvelope>
 
     @GET("api/machines")
     suspend fun machines(

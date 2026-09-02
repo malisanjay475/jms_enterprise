@@ -30,9 +30,29 @@ class QcRepository(private val session: SessionStore) {
     /** The job the supervisor tapped FPA/QC on — carries context between screens. */
     var activeJob: QueueJob? = null
 
-    suspend fun login(username: String, password: String): Result<SessionData> = runCatching {
-        val env: ApiEnvelope = api.login(LoginRequest(username = username, password = password))
-        if (!env.ok) error(env.error ?: "Login failed")
+    suspend fun login(
+        username: String,
+        password: String,
+        geo: Geo? = null
+    ): Result<SessionData> = runCatching {
+        val resp = api.login(
+            LoginRequest(
+                username = username,
+                password = password,
+                geo_lat = geo?.lat,
+                geo_lng = geo?.lng,
+                geo_acc = geo?.acc
+            )
+        )
+        // Parse both success and error bodies so the server's real message
+        // (geofence / app-access / wrong password) reaches the user.
+        val env: ApiEnvelope = resp.body()
+            ?: resp.errorBody()?.string()?.takeIf { it.isNotBlank() }
+                ?.let { runCatching { json.decodeFromString(ApiEnvelope.serializer(), it) }.getOrNull() }
+            ?: error("Server error (HTTP ${resp.code()})")
+
+        if (!env.ok) error(env.error ?: "Login failed (HTTP ${resp.code()})")
+
         val data = env.data?.let { json.decodeFromJsonElement(SessionData.serializer(), it) }
             ?: SessionData(username = username, line = "")
         session.username = data.username.ifBlank { username }

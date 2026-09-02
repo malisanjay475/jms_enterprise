@@ -3,6 +3,7 @@ package com.jmsocean.qc.ui.login
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmsocean.qc.QcApp
+import com.jmsocean.qc.data.LocationProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,6 +14,7 @@ data class LoginUiState(
     val username: String = "",
     val password: String = "",
     val loading: Boolean = false,
+    val statusLine: String? = null,
     val error: String? = null,
     val success: Boolean = false
 )
@@ -26,19 +28,29 @@ class LoginViewModel : ViewModel() {
     fun onUsername(v: String) = _state.update { it.copy(username = v, error = null) }
     fun onPassword(v: String) = _state.update { it.copy(password = v, error = null) }
 
-    fun login() {
+    /** @param locationPermitted whether the user granted location (drives the GPS fetch). */
+    fun login(locationPermitted: Boolean) {
         val s = _state.value
         if (s.username.isBlank() || s.password.isBlank()) {
             _state.update { it.copy(error = "Enter username & password.") }
             return
         }
-        _state.update { it.copy(loading = true, error = null) }
+        _state.update { it.copy(loading = true, error = null, statusLine = "Getting location…") }
         viewModelScope.launch {
-            repo.login(s.username.trim(), s.password)
-                .onSuccess { _state.update { st -> st.copy(loading = false, success = true) } }
+            val geo = if (locationPermitted) LocationProvider.current(QcApp.instance) else null
+            _state.update {
+                it.copy(
+                    statusLine = when {
+                        geo != null -> "Location acquired · signing in…"
+                        else -> "Signing in…"
+                    }
+                )
+            }
+            repo.login(s.username.trim(), s.password, geo)
+                .onSuccess { _state.update { st -> st.copy(loading = false, statusLine = null, success = true) } }
                 .onFailure { e ->
                     _state.update {
-                        it.copy(loading = false, error = e.message ?: "Login failed")
+                        it.copy(loading = false, statusLine = null, error = e.message ?: "Login failed")
                     }
                 }
         }
