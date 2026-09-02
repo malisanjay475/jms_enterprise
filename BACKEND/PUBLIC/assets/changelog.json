@@ -11,8 +11,32 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.49.19",
+  "latest": "1.50.0",
   "versions": [
+    {
+      "version": "1.50.0",
+      "date": "2026-09-02",
+      "title": "QC Supervisor native Android app + verified ticks",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "When a QC verifies an hourly entry in the QC app, that hour slot now shows a green verified tick in the DPR Compliance Summary." }
+          ]
+        },
+        {
+          "app": "supervisor_app",
+          "label": "QC Supervisor",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "feat", "text": "New native Android QC app covering Job Queue, First Piece Approval with camera, hourly QC entry, Verify & Hold, Material Issues, Quality Dashboard and Compliance — with offline entry that syncs when the network returns." },
+            { "type": "feat", "text": "QC Entry now shows a live colour balance (planned, produced and pending per colour)." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.49.19",
       "date": "2026-08-26",
