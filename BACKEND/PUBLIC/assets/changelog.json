@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.49.17",
+  "latest": "1.49.18",
   "versions": [
+    {
+      "version": "1.49.18",
+      "date": "2026-09-02",
+      "title": "Fill DPR no longer auto-scrolls to colour",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Moulding Supervisor App",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "fix", "text": "Tapping Fill DPR opens the entry form without automatically scrolling down to the colour breakdown." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.49.17",
       "date": "2026-08-26",
