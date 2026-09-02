@@ -51,7 +51,7 @@ data class QueueJob(
     val productName: String
         get() = item_name ?: ItemName ?: SFG_Name ?: "Job"
 
-    val orderNo: String
+    val orderNumber: String
         get() = OrderNo ?: order_no ?: ""
 }
 

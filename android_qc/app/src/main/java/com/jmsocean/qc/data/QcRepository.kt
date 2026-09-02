@@ -98,7 +98,7 @@ class QcRepository(private val session: SessionStore) {
             "machine" to text(machine),
             "plan_id" to text(job.PlanID ?: ""),
             "job_card_no" to text(job.JobCardNo ?: ""),
-            "order_no" to text(job.orderNo),
+            "order_no" to text(job.orderNumber),
             "item_name" to text(job.productName),
             "mould_name" to text(job.Mould ?: ""),
             "remarks" to text(remarks),
