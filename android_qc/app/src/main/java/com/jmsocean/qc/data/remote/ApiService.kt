@@ -29,11 +29,29 @@ interface ApiService {
         @Query("machine") machine: String
     ): ApiEnvelope
 
+    // Self-update feed (static file on the LOCAL server). Response<> so a
+    // missing feed (404, before the first publish) is handled as "no update".
+    @GET("qc-app/version.json")
+    suspend fun appVersion(): Response<AppVersion>
+
     @GET("api/qc/fpa/status")
     suspend fun fpaStatus(
         @Query("job_card_no") jobCardNo: String,
         @Query("machine") machine: String
     ): FpaStatus
+
+    @GET("api/qc/verify/pending")
+    suspend fun verifyPending(
+        @Query("machine") machine: String,
+        @Query("date") date: String,
+        @Query("shift") shift: String
+    ): ApiEnvelope
+
+    @POST("api/qc/verify/submit")
+    suspend fun verifySubmit(@Body body: VerifySubmitRequest): ApiEnvelope
+
+    @POST("api/qc/hold")
+    suspend fun hold(@Body body: HoldRequest): ApiEnvelope
 
     // multipart/form-data — field names must match the backend multer config
     @Multipart

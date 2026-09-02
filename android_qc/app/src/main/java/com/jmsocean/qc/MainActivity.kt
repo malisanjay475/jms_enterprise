@@ -16,6 +16,7 @@ import com.jmsocean.qc.ui.fpa.FpaScreen
 import com.jmsocean.qc.ui.login.LoginScreen
 import com.jmsocean.qc.ui.queue.QueueScreen
 import com.jmsocean.qc.ui.theme.QcTheme
+import com.jmsocean.qc.ui.verify.VerifyScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,6 +36,7 @@ private object Routes {
     const val LOGIN = "login"
     const val QUEUE = "queue"
     const val FPA = "fpa"
+    const val VERIFY = "verify"
 }
 
 @Composable
@@ -60,11 +62,15 @@ fun QcNavHost() {
                         popUpTo(Routes.QUEUE) { inclusive = true }
                     }
                 },
-                onOpenFpa = { nav.navigate(Routes.FPA) }
+                onOpenFpa = { nav.navigate(Routes.FPA) },
+                onOpenVerify = { nav.navigate(Routes.VERIFY) }
             )
         }
         composable(Routes.FPA) {
             FpaScreen(onBack = { nav.popBackStack() })
+        }
+        composable(Routes.VERIFY) {
+            VerifyScreen(onBack = { nav.popBackStack() })
         }
     }
 }

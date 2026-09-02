@@ -47,6 +47,24 @@ const uploadQC = multer({
   }
 });
 
+// QC Android app self-update feed — the APK + version.json are served statically
+// from PUBLIC/qc-app/ (see express.static). Admins publish new builds here so all
+// factory phones auto-update. Fixed filename keeps the download URL stable.
+const _qcAppDir = path.join(STATIC_PUBLIC_DIR, 'qc-app');
+fs.mkdirSync(_qcAppDir, { recursive: true });
+const uploadQcApk = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, _qcAppDir),
+    filename: (_req, _file, cb) => cb(null, 'jms-qc.apk')
+  }),
+  limits: { fileSize: 200 * 1024 * 1024, files: 1 },
+  fileFilter(_req, file, cb) {
+    if (/\.apk$/i.test(file.originalname) ||
+        file.mimetype === 'application/vnd.android.package-archive') return cb(null, true);
+    cb(new Error('Only .apk files allowed'), false);
+  }
+});
+
 const {
   getFinancialYearInfo,
   getFinancialYearPrefix,
@@ -68,6 +86,49 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
   aiService.init(config.geminiApiKey);
   const hrPerformanceRuntime = registerHrPerformanceRoutes({ app, pool, config, services }) || {};
   const interviewPanelRuntime = registerInterviewPanelRoutes({ app, pool, config, services }) || {};
+
+  /* ============================================================
+     QC ANDROID APP — SELF-UPDATE PUBLISH
+     Admin uploads a new APK; server stores it + writes version.json.
+     The app reads /qc-app/version.json (static) and installs /qc-app/jms-qc.apk.
+     Additive + isolated: no existing behaviour changes.
+     ============================================================ */
+  app.post('/api/qc-app/publish', uploadQcApk.single('apk'), async (req, res) => {
+    try {
+      const { username, password, versionCode, versionName, notes } = req.body || {};
+      if (!username || !password) {
+        return res.status(400).json({ ok: false, error: 'username and password required' });
+      }
+      const rows = await q(
+        `SELECT id, COALESCE(password_hash, password) AS pw, role_code
+           FROM users WHERE username = $1 LIMIT 1`,
+        [username]
+      );
+      if (!rows.length) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      const valid = await bcrypt.compare(password, rows[0].pw || '');
+      if (!valid) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      const role = String(rows[0].role_code || '').toLowerCase();
+      if (role !== 'admin' && role !== 'superadmin') {
+        return res.status(403).json({ ok: false, error: 'Admin access required' });
+      }
+      if (!req.file) return res.status(400).json({ ok: false, error: 'APK file required (field "apk")' });
+      const vc = parseInt(versionCode, 10);
+      if (!Number.isFinite(vc)) {
+        return res.status(400).json({ ok: false, error: 'versionCode (integer) required' });
+      }
+      const meta = {
+        versionCode: vc,
+        versionName: String(versionName || vc),
+        apk: 'jms-qc.apk',
+        notes: String(notes || ''),
+        publishedAt: new Date().toISOString()
+      };
+      fs.writeFileSync(path.join(_qcAppDir, 'version.json'), JSON.stringify(meta, null, 2));
+      res.json({ ok: true, ...meta });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
 
 /* ============================================================
    HELPER: MACHINE SERIES SORT (Suffix Priority)

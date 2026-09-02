@@ -53,10 +53,12 @@ import com.jmsocean.qc.ui.theme.Warn
 fun QueueScreen(
     onLogout: () -> Unit,
     onOpenFpa: () -> Unit,
+    onOpenVerify: () -> Unit,
     vm: QueueViewModel = viewModel()
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
     var menuOpen by remember { mutableStateOf(false) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -77,6 +79,9 @@ fun QueueScreen(
                     }
                 },
                 actions = {
+                    TextButton(onClick = onOpenVerify) {
+                        Text("Verify", color = MaterialTheme.colorScheme.primary)
+                    }
                     IconButton(onClick = { vm.loadJobs() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
@@ -94,6 +99,49 @@ fun QueueScreen(
                 .padding(horizontal = 16.dp)
         ) {
             Spacer(Modifier.height(12.dp))
+
+            // Self-update banner
+            s.update?.let { v ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Accent),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                ) {
+                    Row(
+                        Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Update available · v${v.versionName}",
+                                color = androidx.compose.ui.graphics.Color.White,
+                                fontWeight = FontWeight.Bold, fontSize = 14.sp
+                            )
+                            Text(
+                                v.notes?.takeIf { it.isNotBlank() } ?: "A newer version is ready to install.",
+                                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.9f),
+                                fontSize = 12.sp
+                            )
+                            if (s.updateError != null) {
+                                Text(s.updateError!!, color = androidx.compose.ui.graphics.Color.White, fontSize = 12.sp)
+                            }
+                        }
+                        Spacer(Modifier.size(10.dp))
+                        if (s.downloadingUpdate) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.dp,
+                                color = androidx.compose.ui.graphics.Color.White
+                            )
+                        } else {
+                            OutlinedButton(onClick = { vm.installUpdate(ctx) }) {
+                                Text("Update", color = androidx.compose.ui.graphics.Color.White)
+                            }
+                        }
+                    }
+                }
+            }
 
             // Machine picker
             Box {

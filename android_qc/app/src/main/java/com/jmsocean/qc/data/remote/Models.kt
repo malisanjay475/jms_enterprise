@@ -62,3 +62,58 @@ data class FpaStatus(
     val done: Boolean = false,
     val error: String? = null
 )
+
+// ── Verify + Hold (Phase 3) ─────────────────────────────────────────────────
+
+@Serializable
+data class SessionRef(val username: String, val line: String)
+
+/** A slot row from GET /api/qc/verify/pending — field names match the JSON. */
+@Serializable
+data class VerifySlot(
+    val hour_slot: String = "",
+    val qc_verified: Boolean = false,
+    val verify_status: String? = null,
+    val sup_good_qty: Int? = null,
+    val sup_reject_qty: Int? = null,
+    val qc_good_qty: Int? = null,
+    val qc_reject_qty: Int? = null,
+    val verified_by: String? = null,
+    val verified_at: String? = null,
+    val job_card_no: String? = null
+)
+
+@Serializable
+data class VerifySubmitRequest(
+    val session: SessionRef,
+    val machine: String,
+    val dpr_date: String,
+    val shift: String,
+    val hour_slot: String,
+    val qc_good_qty: Int,
+    val qc_reject_qty: Int,
+    val remarks: String = "",
+    val status_override: String? = null
+)
+
+@Serializable
+data class HoldRequest(
+    val session: SessionRef,
+    val machine: String,
+    val dpr_date: String,
+    val shift: String,
+    val slot: String,
+    val job_card_no: String = "",
+    val qty_on_hold: Int? = null,
+    val reason: String,
+    val remarks: String = ""
+)
+
+/** The self-update feed hosted on the LOCAL server: /qc-app/version.json */
+@Serializable
+data class AppVersion(
+    val versionCode: Int = 0,
+    val versionName: String = "",
+    val apk: String = "",          // filename under /qc-app/, e.g. "jms-qc.apk"
+    val notes: String? = null
+)

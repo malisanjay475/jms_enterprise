@@ -138,6 +138,72 @@ class QcRepository(private val session: SessionStore) {
         if (!env.ok) error(env.error ?: "Upload failed")
     }
 
+    // ── Verify + Hold ───────────────────────────────────────────────────────
+
+    private fun sessionRef() =
+        com.jmsocean.qc.data.remote.SessionRef(session.username, session.line)
+
+    suspend fun verifyPending(
+        machine: String,
+        date: String,
+        shift: String
+    ): Result<List<com.jmsocean.qc.data.remote.VerifySlot>> = runCatching {
+        val env = api.verifyPending(machine = machine, date = date, shift = shift)
+        if (!env.ok) error(env.error ?: "Could not load slots")
+        val arr = env.data as? JsonArray ?: JsonArray(emptyList())
+        arr.map { json.decodeFromJsonElement(com.jmsocean.qc.data.remote.VerifySlot.serializer(), it) }
+    }
+
+    suspend fun verifySubmit(
+        machine: String,
+        date: String,
+        shift: String,
+        hourSlot: String,
+        good: Int,
+        reject: Int,
+        remarks: String
+    ): Result<Unit> = runCatching {
+        val env = api.verifySubmit(
+            com.jmsocean.qc.data.remote.VerifySubmitRequest(
+                session = sessionRef(),
+                machine = machine,
+                dpr_date = date,
+                shift = shift,
+                hour_slot = hourSlot,
+                qc_good_qty = good,
+                qc_reject_qty = reject,
+                remarks = remarks
+            )
+        )
+        if (!env.ok) error(env.error ?: "Verify failed")
+    }
+
+    suspend fun placeHold(
+        machine: String,
+        date: String,
+        shift: String,
+        slot: String,
+        jobCardNo: String,
+        qtyOnHold: Int?,
+        reason: String,
+        remarks: String
+    ): Result<Unit> = runCatching {
+        val env = api.hold(
+            com.jmsocean.qc.data.remote.HoldRequest(
+                session = sessionRef(),
+                machine = machine,
+                dpr_date = date,
+                shift = shift,
+                slot = slot,
+                job_card_no = jobCardNo,
+                qty_on_hold = qtyOnHold,
+                reason = reason,
+                remarks = remarks
+            )
+        )
+        if (!env.ok) error(env.error ?: "Hold failed")
+    }
+
     fun logout() {
         session.clear()
         Network.cookieJar.clear()

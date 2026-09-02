@@ -1,8 +1,11 @@
 package com.jmsocean.qc.ui.queue
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmsocean.qc.QcApp
+import com.jmsocean.qc.data.AppUpdater
+import com.jmsocean.qc.data.remote.AppVersion
 import com.jmsocean.qc.data.remote.QueueJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +20,11 @@ data class QueueUiState(
     val jobs: List<QueueJob> = emptyList(),
     val loadingMachines: Boolean = false,
     val loadingJobs: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    // self-updater
+    val update: AppVersion? = null,
+    val downloadingUpdate: Boolean = false,
+    val updateError: String? = null
 )
 
 class QueueViewModel : ViewModel() {
@@ -27,7 +34,36 @@ class QueueViewModel : ViewModel() {
     private val _state = MutableStateFlow(QueueUiState(line = session.line))
     val state: StateFlow<QueueUiState> = _state.asStateFlow()
 
-    init { loadMachines() }
+    init {
+        loadMachines()
+        checkForUpdate()
+    }
+
+    private fun checkForUpdate() {
+        viewModelScope.launch {
+            val v = AppUpdater.checkForUpdate()
+            if (v != null) _state.update { it.copy(update = v) }
+        }
+    }
+
+    /** Download the newer APK and hand it to the system installer. */
+    fun installUpdate(ctx: Context) {
+        val v = _state.value.update ?: return
+        _state.update { it.copy(downloadingUpdate = true, updateError = null) }
+        viewModelScope.launch {
+            val apk = AppUpdater.download(ctx, v)
+            if (apk != null) {
+                _state.update { it.copy(downloadingUpdate = false) }
+                AppUpdater.install(ctx, apk)
+            } else {
+                _state.update {
+                    it.copy(downloadingUpdate = false, updateError = "Download failed. Check the factory network.")
+                }
+            }
+        }
+    }
+
+    fun dismissUpdate() = _state.update { it.copy(update = null) }
 
     fun loadMachines() {
         _state.update { it.copy(loadingMachines = true, error = null) }

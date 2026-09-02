@@ -8,8 +8,10 @@ import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -64,4 +66,17 @@ object Network {
         .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
         .build()
         .create(ApiService::class.java)
+
+    val baseUrl: String get() = BuildConfig.BASE_URL
+
+    /** Streams a URL to a file. Used by the self-updater to fetch the new APK. */
+    fun downloadTo(url: String, dest: File): Boolean {
+        val req = Request.Builder().url(url).build()
+        client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return false
+            val body = resp.body ?: return false
+            dest.outputStream().use { out -> body.byteStream().copyTo(out) }
+        }
+        return true
+    }
 }

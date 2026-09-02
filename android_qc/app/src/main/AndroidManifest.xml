@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- FPA camera (Phase 2) -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Self-updater: install the downloaded APK -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".QcApp"
