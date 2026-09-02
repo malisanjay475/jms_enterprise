@@ -8,16 +8,27 @@ import com.jmsocean.qc.data.remote.SessionData
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.File
 
 /** Single source of truth for the UI. Wraps the API + session. */
 class QcRepository(private val session: SessionStore) {
 
     private val api get() = Network.api
     private val json: Json get() = Network.json
+
+    /** The job the supervisor tapped FPA/QC on — carries context between screens. */
+    var activeJob: QueueJob? = null
 
     suspend fun login(username: String, password: String): Result<SessionData> = runCatching {
         val env: ApiEnvelope = api.login(LoginRequest(username = username, password = password))
@@ -53,8 +64,63 @@ class QcRepository(private val session: SessionStore) {
         arr.map { json.decodeFromJsonElement(QueueJob.serializer(), it) }
     }
 
+    /** Has FPA already been captured for this job on this machine? */
+    suspend fun fpaStatus(jobCardNo: String, machine: String): Result<Boolean> = runCatching {
+        val r = api.fpaStatus(jobCardNo = jobCardNo, machine = machine)
+        r.ok && r.done
+    }
+
+    /**
+     * Submit FPA with the physical-form photo + product reference photos.
+     * Field names mirror the web multipart body exactly.
+     */
+    suspend fun submitFpa(
+        job: QueueJob,
+        formImage: File,
+        productImages: List<File>,
+        remarks: String,
+        machine: String
+    ): Result<Unit> = runCatching {
+        val sessionJson = buildJsonObject {
+            put("username", session.username)
+            put("line", session.line)
+        }.toString()
+
+        fun text(v: String): RequestBody =
+            v.toRequestBody("text/plain".toMediaTypeOrNull())
+
+        val fields = mapOf(
+            "session" to text(sessionJson),
+            "date" to text(Ist.date()),
+            "shift" to text(Ist.shift()),
+            "hour_slot" to text(""),
+            "line" to text(session.line),
+            "machine" to text(machine),
+            "plan_id" to text(job.PlanID ?: ""),
+            "job_card_no" to text(job.JobCardNo ?: ""),
+            "order_no" to text(job.orderNo),
+            "item_name" to text(job.productName),
+            "mould_name" to text(job.Mould ?: ""),
+            "remarks" to text(remarks),
+            "supervisor" to text(session.username)
+        )
+
+        fun part(field: String, file: File): MultipartBody.Part {
+            val body = file.asRequestBody("image/jpeg".toMediaTypeOrNull())
+            return MultipartBody.Part.createFormData(field, file.name, body)
+        }
+
+        val env = api.submitFpa(
+            fields = fields,
+            formImage = part("fpa_form_image", formImage),
+            productImages = productImages.map { part("fpa_product_images", it) }
+        )
+        if (!env.ok) error(env.error ?: "Upload failed")
+    }
+
     fun logout() {
         session.clear()
         Network.cookieJar.clear()
+        activeJob = null
     }
 }

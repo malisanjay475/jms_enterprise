@@ -18,6 +18,10 @@ class SessionStore(context: Context) {
         get() = prefs.getString("line", "") ?: ""
         set(v) = prefs.edit().putString("line", v).apply()
 
+    var machine: String
+        get() = prefs.getString("machine", "") ?: ""
+        set(v) = prefs.edit().putString("machine", v).apply()
+
     val isLoggedIn: Boolean get() = username.isNotBlank()
 
     fun clear() = prefs.edit().clear().apply()

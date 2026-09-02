@@ -46,8 +46,14 @@ class QueueViewModel : ViewModel() {
     }
 
     fun selectMachine(machine: String) {
+        session.machine = machine
         _state.update { it.copy(selectedMachine = machine) }
         loadJobs(machine)
+    }
+
+    /** Called when the supervisor taps FPA on a job — stashes it for the FPA screen. */
+    fun openFpa(job: com.jmsocean.qc.data.remote.QueueJob) {
+        QcApp.instance.repository.activeJob = job
     }
 
     fun loadJobs(machine: String? = null) {

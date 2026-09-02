@@ -52,6 +52,7 @@ import com.jmsocean.qc.ui.theme.Warn
 @Composable
 fun QueueScreen(
     onLogout: () -> Unit,
+    onOpenFpa: () -> Unit,
     vm: QueueViewModel = viewModel()
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -127,7 +128,9 @@ fun QueueScreen(
                     modifier = Modifier.padding(top = 24.dp)
                 )
                 else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(s.jobs) { job -> JobCard(job) }
+                    items(s.jobs) { job ->
+                        JobCard(job, onFpa = { vm.openFpa(job); onOpenFpa() })
+                    }
                 }
             }
         }
@@ -142,7 +145,7 @@ private fun CenterLoader() {
 }
 
 @Composable
-private fun JobCard(job: QueueJob) {
+private fun JobCard(job: QueueJob, onFpa: () -> Unit) {
     val fpaDone = job.fpa_status?.equals("done", ignoreCase = true) == true
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -177,7 +180,7 @@ private fun JobCard(job: QueueJob) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssistChip(onClick = {}, label = { Text("📋 QC") }, enabled = fpaDone)
                 AssistChip(
-                    onClick = {},
+                    onClick = onFpa,
                     label = { Text(if (fpaDone) "📷 FPA ✓" else "📷 FPA") }
                 )
             }

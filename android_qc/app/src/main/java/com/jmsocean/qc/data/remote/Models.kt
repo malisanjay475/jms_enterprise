@@ -43,8 +43,22 @@ data class QueueJob(
     // common alternates the API may use for the product name
     val item_name: String? = null,
     val ItemName: String? = null,
-    val SFG_Name: String? = null
+    val SFG_Name: String? = null,
+    // order number, again under a few possible keys
+    val OrderNo: String? = null,
+    val order_no: String? = null
 ) {
     val productName: String
         get() = item_name ?: ItemName ?: SFG_Name ?: "Job"
+
+    val orderNo: String
+        get() = OrderNo ?: order_no ?: ""
 }
+
+/** Response of GET /api/qc/fpa/status. */
+@Serializable
+data class FpaStatus(
+    val ok: Boolean = false,
+    val done: Boolean = false,
+    val error: String? = null
+)

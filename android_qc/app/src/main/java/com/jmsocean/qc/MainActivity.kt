@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.jmsocean.qc.ui.fpa.FpaScreen
 import com.jmsocean.qc.ui.login.LoginScreen
 import com.jmsocean.qc.ui.queue.QueueScreen
 import com.jmsocean.qc.ui.theme.QcTheme
@@ -33,6 +34,7 @@ class MainActivity : ComponentActivity() {
 private object Routes {
     const val LOGIN = "login"
     const val QUEUE = "queue"
+    const val FPA = "fpa"
 }
 
 @Composable
@@ -57,8 +59,12 @@ fun QcNavHost() {
                     nav.navigate(Routes.LOGIN) {
                         popUpTo(Routes.QUEUE) { inclusive = true }
                     }
-                }
+                },
+                onOpenFpa = { nav.navigate(Routes.FPA) }
             )
+        }
+        composable(Routes.FPA) {
+            FpaScreen(onBack = { nav.popBackStack() })
         }
     }
 }
