@@ -27,7 +27,9 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import kotlinx.serialization.KSerializer
 import java.io.File
+import java.io.IOException
 
 /** Single source of truth for the UI. Wraps the API + session. */
 class QcRepository(private val session: SessionStore) {
@@ -37,6 +39,29 @@ class QcRepository(private val session: SessionStore) {
 
     /** The job the supervisor tapped FPA/QC on — carries context between screens. */
     var activeJob: QueueJob? = null
+
+    /**
+     * Send a JSON write; if the network is unreachable, persist it to the
+     * offline queue so it syncs later. Server-side validation errors still fail.
+     */
+    private suspend fun <T> submitOrQueue(
+        path: String,
+        serializer: KSerializer<T>,
+        obj: T,
+        label: String
+    ): Result<Unit> {
+        val bodyJson = json.encodeToString(serializer, obj)
+        return try {
+            val env = api.postJson(path, bodyJson.toRequestBody("application/json".toMediaTypeOrNull()))
+            if (env.ok) Result.success(Unit) else Result.failure(Exception(env.error ?: "Failed"))
+        } catch (_: IOException) {
+            OfflineQueue.enqueue(path, bodyJson, label)
+            SyncManager.refreshCount()
+            Result.success(Unit)   // queued — will sync when back online
+        } catch (e: Exception) {
+            Result.failure(e)      // server reachable but errored (e.g. HTTP 4xx)
+        }
+    }
 
     suspend fun login(
         username: String,
@@ -177,21 +202,21 @@ class QcRepository(private val session: SessionStore) {
         good: Int,
         reject: Int,
         remarks: String
-    ): Result<Unit> = runCatching {
-        val env = api.verifySubmit(
-            com.jmsocean.qc.data.remote.VerifySubmitRequest(
-                session = sessionRef(),
-                machine = machine,
-                dpr_date = date,
-                shift = shift,
-                hour_slot = hourSlot,
-                qc_good_qty = good,
-                qc_reject_qty = reject,
-                remarks = remarks
-            )
-        )
-        if (!env.ok) error(env.error ?: "Verify failed")
-    }
+    ): Result<Unit> = submitOrQueue(
+        "api/qc/verify/submit",
+        com.jmsocean.qc.data.remote.VerifySubmitRequest.serializer(),
+        com.jmsocean.qc.data.remote.VerifySubmitRequest(
+            session = sessionRef(),
+            machine = machine,
+            dpr_date = date,
+            shift = shift,
+            hour_slot = hourSlot,
+            qc_good_qty = good,
+            qc_reject_qty = reject,
+            remarks = remarks
+        ),
+        "Verify $machine $hourSlot"
+    )
 
     suspend fun placeHold(
         machine: String,
@@ -202,22 +227,22 @@ class QcRepository(private val session: SessionStore) {
         qtyOnHold: Int?,
         reason: String,
         remarks: String
-    ): Result<Unit> = runCatching {
-        val env = api.hold(
-            com.jmsocean.qc.data.remote.HoldRequest(
-                session = sessionRef(),
-                machine = machine,
-                dpr_date = date,
-                shift = shift,
-                slot = slot,
-                job_card_no = jobCardNo,
-                qty_on_hold = qtyOnHold,
-                reason = reason,
-                remarks = remarks
-            )
-        )
-        if (!env.ok) error(env.error ?: "Hold failed")
-    }
+    ): Result<Unit> = submitOrQueue(
+        "api/qc/hold",
+        com.jmsocean.qc.data.remote.HoldRequest.serializer(),
+        com.jmsocean.qc.data.remote.HoldRequest(
+            session = sessionRef(),
+            machine = machine,
+            dpr_date = date,
+            shift = shift,
+            slot = slot,
+            job_card_no = jobCardNo,
+            qty_on_hold = qtyOnHold,
+            reason = reason,
+            remarks = remarks
+        ),
+        "Hold $machine $slot"
+    )
 
     // ── Issues ──────────────────────────────────────────────────────────────
 
@@ -286,9 +311,11 @@ class QcRepository(private val session: SessionStore) {
         downtimeMin: Int,
         colour: String,
         remarks: String
-    ): Result<Unit> = runCatching {
+    ): Result<Unit> {
         val good = (shots - reject).coerceAtLeast(0)
-        val env = api.submitDpr(
+        return submitOrQueue(
+            "api/dpr/submit",
+            com.jmsocean.qc.data.remote.DprSubmitRequest.serializer(),
             com.jmsocean.qc.data.remote.DprSubmitRequest(
                 session = sessionRef(),
                 entry = com.jmsocean.qc.data.remote.DprEntry(
@@ -301,9 +328,9 @@ class QcRepository(private val session: SessionStore) {
                     rejectBreakup = if (reject > 0 && colour.isNotBlank()) "$colour:$reject" else "",
                     downtimeBreakup = ""
                 )
-            )
+            ),
+            "QC $hourSlot"
         )
-        if (!env.ok) error(env.error ?: "Save failed")
     }
 
     // ── Colour produced / pending balance ───────────────────────────────────

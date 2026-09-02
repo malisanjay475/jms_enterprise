@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmsocean.qc.QcApp
 import com.jmsocean.qc.data.AppUpdater
+import com.jmsocean.qc.data.SyncManager
 import com.jmsocean.qc.data.remote.AppVersion
 import com.jmsocean.qc.data.remote.QueueJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,10 +35,16 @@ class QueueViewModel : ViewModel() {
     private val _state = MutableStateFlow(QueueUiState(line = session.line))
     val state: StateFlow<QueueUiState> = _state.asStateFlow()
 
+    /** Count of writes waiting to sync (offline backlog). */
+    val pendingSync: StateFlow<Int> = SyncManager.pending
+
     init {
         loadMachines()
         checkForUpdate()
+        SyncManager.drain()
     }
+
+    fun syncNow() = SyncManager.drain()
 
     private fun checkForUpdate() {
         viewModelScope.launch {

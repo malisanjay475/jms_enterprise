@@ -64,6 +64,7 @@ fun QueueScreen(
     vm: QueueViewModel = viewModel()
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
+    val pendingSync by vm.pendingSync.collectAsStateWithLifecycle()
     var menuOpen by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
 
@@ -105,6 +106,28 @@ fun QueueScreen(
                 .padding(horizontal = 16.dp)
         ) {
             Spacer(Modifier.height(12.dp))
+
+            // Offline backlog banner
+            if (pendingSync > 0) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Warn.copy(alpha = 0.15f)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                ) {
+                    Row(
+                        Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "$pendingSync entr${if (pendingSync == 1) "y" else "ies"} waiting to sync",
+                            fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Warn,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = { vm.syncNow() }) { Text("Sync now") }
+                    }
+                }
+            }
 
             // Self-update banner
             s.update?.let { v ->

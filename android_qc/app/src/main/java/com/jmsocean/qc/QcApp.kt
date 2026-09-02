@@ -1,8 +1,10 @@
 package com.jmsocean.qc
 
 import android.app.Application
+import com.jmsocean.qc.data.OfflineQueue
 import com.jmsocean.qc.data.QcRepository
 import com.jmsocean.qc.data.SessionStore
+import com.jmsocean.qc.data.SyncManager
 
 /**
  * App entry + tiny service locator. Hilt replaces this in a later phase;
@@ -20,6 +22,11 @@ class QcApp : Application() {
         session = SessionStore(this)
         repository = QcRepository(session)
         instance = this
+
+        // Offline queue: load persisted writes and try to sync any backlog.
+        OfflineQueue.init(this)
+        SyncManager.refreshCount()
+        SyncManager.drain()
     }
 
     companion object {

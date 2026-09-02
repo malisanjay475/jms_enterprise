@@ -10,8 +10,13 @@ import retrofit2.http.POST
 import retrofit2.http.Part
 import retrofit2.http.PartMap
 import retrofit2.http.Query
+import retrofit2.http.Url
 
 interface ApiService {
+
+    // Generic JSON POST used to replay queued offline writes.
+    @POST
+    suspend fun postJson(@Url url: String, @Body body: RequestBody): ApiEnvelope
 
     // Returns the full Response so 4xx error bodies (geofence, app access) are readable.
     @POST("api/login")
