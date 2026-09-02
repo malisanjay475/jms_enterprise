@@ -50,10 +50,11 @@ class QueueViewModel : ViewModel() {
         loadJobs(machine)
     }
 
-    fun loadJobs(machine: String = _state.value.selectedMachine ?: return) {
+    fun loadJobs(machine: String? = null) {
+        val target = machine ?: _state.value.selectedMachine ?: return
         _state.update { it.copy(loadingJobs = true, error = null) }
         viewModelScope.launch {
-            repo.queue(machine)
+            repo.queue(target)
                 .onSuccess { jobs -> _state.update { it.copy(loadingJobs = false, jobs = jobs) } }
                 .onFailure { e -> _state.update { it.copy(loadingJobs = false, error = e.message) } }
         }
