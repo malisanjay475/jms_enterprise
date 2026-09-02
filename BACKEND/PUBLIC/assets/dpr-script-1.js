@@ -1123,13 +1123,6 @@
                                     <span style="font-size:0.8rem; font-weight:400; color:#64748b; margin-left:8px">(Combined Summary)</span>
                                 </div>
                                 <div style="display:flex; gap:20px; flex-wrap:wrap; row-gap:12px; justify-content:flex-end; align-items:center">
-                                    <div style="text-align:right" title="Full plant capacity: every PLANNED machine at its best mould rate × full shift hours (includes machines that had a plan but sat idle). Machines with no plan at all can't be counted (no mould assigned).">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#334155; text-transform:uppercase">Capacity</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#334155">
-                                            <span id="grand-total-capacity">0.00</span> <span style="font-size:0.9rem">Kg</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
                                     <div style="text-align:right" title="Planned Target for the selected shift: std rate × piece weight × the hours each running machine was active, summed machine-wise.">
                                         <div style="font-size:0.75rem; font-weight:600; color:#4c1d95; text-transform:uppercase">Planned Target</div>
                                         <div style="font-size:1.4rem; font-weight:800; color:#4c1d95">
@@ -1159,7 +1152,7 @@
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
                                     <div style="text-align:right" title="Gross Production = Good + Rejection (Overall Tonnage).">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#7c3aed; text-transform:uppercase">Overall Tonnage</div>
+                                        <div style="font-size:0.75rem; font-weight:600; color:#7c3aed; text-transform:uppercase">Gross Production</div>
                                         <div style="font-size:1.4rem; font-weight:800; color:#7c3aed">
                                             <span id="grand-total-overall">0.00</span> <span style="font-size:0.9rem">Kg</span>
                                         </div>
@@ -1173,16 +1166,9 @@
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
                                     <div style="text-align:right" title="Good Production = Gross − Rejection.">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Tonnage</div>
+                                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Good Production</div>
                                         <div style="font-size:1.4rem; font-weight:800; color:#2563eb">
                                             <span id="grand-total-tonnage">0.00</span> <span style="font-size:0.9rem">Kg</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right" title="Predicted tonnage by end of the selected shift — current pace (or STD rate) × remaining hours, summed machine-wise">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#0891b2; text-transform:uppercase">Pred. Tonnage</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#0891b2">
-                                            <span id="grand-total-pred">0.00</span> <span style="font-size:0.9rem">Kg</span>
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
