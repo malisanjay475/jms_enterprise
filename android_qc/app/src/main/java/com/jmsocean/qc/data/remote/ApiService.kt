@@ -75,6 +75,16 @@ interface ApiService {
         @Query("machine") machine: String?
     ): ApiEnvelope
 
+    @GET("api/qc/colour-balance")
+    suspend fun colourBalance(@Query("plan_id") planId: String): ApiEnvelope
+
+    @GET("api/qc/compliance")
+    suspend fun compliance(
+        @Query("date") date: String,
+        @Query("shift") shift: String,
+        @Query("machine") machine: String?
+    ): ApiEnvelope
+
     // multipart/form-data — field names must match the backend multer config
     @Multipart
     @POST("api/qc/fpa")

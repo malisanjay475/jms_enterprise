@@ -64,6 +64,20 @@ data class QueueJob(
 /** One colour line from a job's ColourDetails: name + planned qty. */
 data class ColourLine(val colour: String, val planQty: Int)
 
+/** Per-colour produced/pending from GET /api/qc/colour-balance. */
+@Serializable
+data class ColourBalance(
+    val colour: String = "",
+    val planQty: Int = 0,
+    val produced: Int = 0,
+    val balance: Int = 0
+)
+
+// Compliance grid (parsed from GET /api/qc/compliance) — plain holders.
+data class ComplianceGrid(val slots: List<String>, val lines: List<ComplianceLine>)
+data class ComplianceLine(val name: String, val rows: List<ComplianceRow>)
+data class ComplianceRow(val machine: String, val cells: Map<String, String>)
+
 /** Response of GET /api/qc/fpa/status. */
 @Serializable
 data class FpaStatus(

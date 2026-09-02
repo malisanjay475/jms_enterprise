@@ -15,6 +15,10 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import com.jmsocean.qc.data.remote.ColourBalance
+import com.jmsocean.qc.data.remote.ComplianceGrid
+import com.jmsocean.qc.data.remote.ComplianceLine
+import com.jmsocean.qc.data.remote.ComplianceRow
 import com.jmsocean.qc.data.remote.FpaStatus
 import com.jmsocean.qc.data.remote.Kpis
 import com.jmsocean.qc.data.remote.MaterialIssue
@@ -300,6 +304,43 @@ class QcRepository(private val session: SessionStore) {
             )
         )
         if (!env.ok) error(env.error ?: "Save failed")
+    }
+
+    // ── Colour produced / pending balance ───────────────────────────────────
+
+    suspend fun colourBalance(planId: String): Result<List<ColourBalance>> = runCatching {
+        if (planId.isBlank()) return@runCatching emptyList()
+        val env = api.colourBalance(planId)
+        if (!env.ok) error(env.error ?: "Could not load colour balance")
+        val arr = env.data as? JsonArray ?: JsonArray(emptyList())
+        arr.map { json.decodeFromJsonElement(ColourBalance.serializer(), it) }
+    }
+
+    // ── Compliance grid ─────────────────────────────────────────────────────
+
+    suspend fun compliance(date: String, shift: String, machine: String?): Result<ComplianceGrid> = runCatching {
+        val env = api.compliance(date, shift, machine?.ifBlank { null })
+        if (!env.ok) error(env.error ?: "Could not load compliance")
+        val obj = env.data as? JsonObject ?: JsonObject(emptyMap())
+        val slots = (obj["slots"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
+        val linesObj = obj["lines"] as? JsonObject ?: JsonObject(emptyMap())
+        val lines = linesObj.entries.map { (lineName, arr) ->
+            val rows = (arr as? JsonArray)?.mapNotNull { rowEl ->
+                val ro = rowEl as? JsonObject ?: return@mapNotNull null
+                val machineName = ro["machine"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                val slotsObj = ro["slots"] as? JsonObject ?: JsonObject(emptyMap())
+                val cells = slots.associateWith { s ->
+                    when (val cell = slotsObj[s]) {
+                        is JsonObject -> cell["status"]?.jsonPrimitive?.contentOrNull ?: "MISSING"
+                        is JsonPrimitive -> cell.contentOrNull ?: "MISSING"
+                        else -> "PENDING"
+                    }
+                }
+                ComplianceRow(machineName, cells)
+            } ?: emptyList()
+            ComplianceLine(lineName, rows)
+        }.sortedBy { it.name }
+        ComplianceGrid(slots, lines)
     }
 
     fun logout() {

@@ -88,6 +88,55 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
   const interviewPanelRuntime = registerInterviewPanelRoutes({ app, pool, config, services }) || {};
 
   /* ============================================================
+     QC ANDROID APP — COLOUR PRODUCED / PENDING BALANCE
+     Per-colour planned (plan_board.colour_details) vs produced
+     (SUM good_qty from dpr_hourly). Read-only, additive.
+     ============================================================ */
+  app.get('/api/qc/colour-balance', async (req, res) => {
+    try {
+      const planId = String(req.query.plan_id || '').trim();
+      if (!planId) return res.json({ ok: true, data: [] });
+      const factoryId = getFactoryId(req);
+
+      const planRows = await q(
+        `SELECT COALESCE(colour_details, '[]'::jsonb) AS colour_details
+           FROM plan_board
+          WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+          LIMIT 1`,
+        [planId, factoryId || null]
+      );
+      let details = [];
+      try {
+        const raw = planRows[0] && planRows[0].colour_details;
+        details = Array.isArray(raw) ? raw : (raw ? JSON.parse(raw) : []);
+      } catch (_) { details = []; }
+
+      const prodRows = await q(
+        `SELECT COALESCE(NULLIF(TRIM(colour), ''), '(none)') AS colour,
+                COALESCE(SUM(good_qty), 0) AS produced
+           FROM dpr_hourly
+          WHERE plan_id = $1 AND COALESCE(is_deleted, false) = false
+          GROUP BY 1`,
+        [planId]
+      );
+      const producedByColour = {};
+      for (const r of prodRows) {
+        producedByColour[String(r.colour).toLowerCase()] = Number(r.produced || 0);
+      }
+
+      const data = details.map((d) => {
+        const name = String(d.colour || d.color || d.name || d.shade || '').trim() || '(none)';
+        const planQty = Number(d.planQty || d.plan_qty || d.qty || d.quantity || d.planned || 0);
+        const produced = producedByColour[name.toLowerCase()] || 0;
+        return { colour: name, planQty, produced, balance: Math.max(0, planQty - produced) };
+      });
+      res.json({ ok: true, data });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  /* ============================================================
      QC ANDROID APP — SELF-UPDATE PUBLISH
      Admin uploads a new APK; server stores it + writes version.json.
      The app reads /qc-app/version.json (static) and installs /qc-app/jms-qc.apk.

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.DrawerValue
@@ -35,6 +36,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.jmsocean.qc.ui.compliance.ComplianceScreen
 import com.jmsocean.qc.ui.dashboard.DashboardScreen
 import com.jmsocean.qc.ui.fpa.FpaScreen
 import com.jmsocean.qc.ui.issues.IssuesScreen
@@ -67,6 +69,7 @@ private object Routes {
     const val VERIFY = "verify"
     const val ISSUES = "issues"
     const val DASHBOARD = "dashboard"
+    const val COMPLIANCE = "compliance"
 }
 
 @Composable
@@ -78,7 +81,7 @@ fun QcApp_Root() {
 
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
-    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD)
+    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.COMPLIANCE)
 
     val start = if (app.session.isLoggedIn) Routes.QUEUE else Routes.LOGIN
     val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
@@ -129,6 +132,13 @@ fun QcApp_Root() {
                     onClick = { go(Routes.DASHBOARD) },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
+                NavigationDrawerItem(
+                    label = { Text("Compliance") },
+                    icon = { Icon(Icons.Default.GridOn, null) },
+                    selected = current == Routes.COMPLIANCE,
+                    onClick = { go(Routes.COMPLIANCE) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider()
                 NavigationDrawerItem(
@@ -161,6 +171,7 @@ fun QcApp_Root() {
             composable(Routes.VERIFY) { VerifyScreen(onMenu = openDrawer) }
             composable(Routes.ISSUES) { IssuesScreen(onMenu = openDrawer) }
             composable(Routes.DASHBOARD) { DashboardScreen(onMenu = openDrawer) }
+            composable(Routes.COMPLIANCE) { ComplianceScreen(onMenu = openDrawer) }
             composable(Routes.FPA) { FpaScreen(onBack = { nav.popBackStack() }) }
             composable(Routes.QC) {
                 QcEntryScreen(

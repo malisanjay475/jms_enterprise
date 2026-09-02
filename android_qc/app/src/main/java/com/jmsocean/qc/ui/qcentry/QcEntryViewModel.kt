@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.jmsocean.qc.QcApp
 import com.jmsocean.qc.data.Ist
 import com.jmsocean.qc.data.parseColourLines
+import com.jmsocean.qc.data.remote.ColourBalance
 import com.jmsocean.qc.data.remote.ColourLine
 import com.jmsocean.qc.data.remote.QueueJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,7 @@ data class QcEntryUiState(
     val downtime: String = "",
     val colours: List<ColourLine> = emptyList(),
     val colour: String = "",
+    val balances: List<ColourBalance> = emptyList(),
     val remarks: String = "",
     val checkingFpa: Boolean = true,
     val fpaDone: Boolean = false,
@@ -59,7 +61,22 @@ class QcEntryViewModel : ViewModel() {
     )
     val state: StateFlow<QcEntryUiState> = _state.asStateFlow()
 
-    init { checkFpa() }
+    init {
+        checkFpa()
+        loadBalances()
+    }
+
+    private fun loadBalances() {
+        val planId = _state.value.job?.PlanID ?: return
+        viewModelScope.launch {
+            repo.colourBalance(planId).onSuccess { list ->
+                _state.update { it.copy(balances = list) }
+            }
+        }
+    }
+
+    /** Re-pull balances after a successful save so produced/pending update live. */
+    private fun refreshBalances() = loadBalances()
 
     private fun checkFpa() {
         val job = _state.value.job
@@ -105,6 +122,7 @@ class QcEntryViewModel : ViewModel() {
                         shots = "", reject = "", downtime = "", remarks = ""
                     )
                 }
+                refreshBalances()
             }.onFailure { e ->
                 _state.update { it.copy(submitting = false, error = e.message ?: "Save failed") }
             }

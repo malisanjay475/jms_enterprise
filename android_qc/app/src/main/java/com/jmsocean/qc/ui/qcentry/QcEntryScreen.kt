@@ -91,6 +91,34 @@ fun QcEntryScreen(
                 }
             }
 
+            if (s.balances.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Colour balance", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Spacer(Modifier.height(6.dp))
+                        Row(Modifier.fillMaxWidth()) {
+                            Text("Colour", Modifier.weight(1.4f), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Plan", Modifier.weight(1f), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Made", Modifier.weight(1f), fontSize = 11.sp, color = Good)
+                            Text("Pend", Modifier.weight(1f), fontSize = 11.sp, color = Warn)
+                        }
+                        s.balances.forEach { b ->
+                            Spacer(Modifier.height(4.dp))
+                            Row(Modifier.fillMaxWidth()) {
+                                Text(b.colour, Modifier.weight(1.4f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Text("${b.planQty}", Modifier.weight(1f), fontSize = 12.sp)
+                                Text("${b.produced}", Modifier.weight(1f), fontSize = 12.sp, color = Good, fontWeight = FontWeight.SemiBold)
+                                Text("${b.balance}", Modifier.weight(1f), fontSize = 12.sp, color = Warn, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(12.dp))
 
             when {
