@@ -2564,12 +2564,8 @@
         loadUsedSlots();
         show('dpr-form');
         showPage('sec-dpr', el('tab-dpr'));
-        // [KAN-83] Scroll to the Colour Breakdown (colour picker) so the writer picks a
-        // colour first, instead of jumping straight to the entry inputs.
-        setTimeout(() => {
-          const _colourBlock = el('color-picker-btn') || el('dpr-form') || el('d-slot') || el('sec-dpr');
-          if (_colourBlock) _colourBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 80);
+        // (Removed the auto-scroll to the Colour Breakdown on Fill DPR per request —
+        // the form just opens without jumping the page.)
       } catch (e) { alert('Error opening DPR Form: ' + e.message); console.error(e); }
     }
 
