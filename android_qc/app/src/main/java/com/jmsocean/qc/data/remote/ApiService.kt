@@ -39,10 +39,12 @@ interface ApiService {
     @GET("qc-app/version.json")
     suspend fun appVersion(): Response<AppVersion>
 
+    // machine is nullable: passing null omits the query param so the server
+    // matches by job_card_no only (its documented "any machine" behavior).
     @GET("api/qc/fpa/status")
     suspend fun fpaStatus(
         @Query("job_card_no") jobCardNo: String,
-        @Query("machine") machine: String
+        @Query("machine") machine: String? = null
     ): FpaStatus
 
     @GET("api/qc/verify/pending")

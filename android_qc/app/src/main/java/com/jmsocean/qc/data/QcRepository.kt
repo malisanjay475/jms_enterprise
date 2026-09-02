@@ -119,15 +119,15 @@ class QcRepository(private val session: SessionStore) {
         arr.map { json.decodeFromJsonElement(QueueJob.serializer(), it) }
     }
 
-    /** Has FPA already been captured for this job on this machine? */
+    /** Has FPA already been captured for this job card? (matched by JC, any machine) */
     suspend fun fpaStatus(jobCardNo: String, machine: String): Result<Boolean> = runCatching {
-        val r = api.fpaStatus(jobCardNo = jobCardNo, machine = machine)
+        val r = api.fpaStatus(jobCardNo = jobCardNo, machine = null)
         r.ok && r.done
     }
 
     /** Full FPA status incl. saved image URLs, for the read-only view. */
     suspend fun fpaStatusFull(jobCardNo: String, machine: String): Result<FpaStatus> = runCatching {
-        api.fpaStatus(jobCardNo = jobCardNo, machine = machine)
+        api.fpaStatus(jobCardNo = jobCardNo, machine = null)
     }
 
     /**
