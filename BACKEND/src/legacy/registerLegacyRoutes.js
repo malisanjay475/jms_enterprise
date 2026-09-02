@@ -21313,7 +21313,14 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         COALESCE(TRIM(d.order_no), TRIM(pb.order_no), TRIM(mps.or_jr_no)) as order_no,
         TRIM(COALESCE(pb.mould_name, mps.mould_name)) as mould_name,
         ojr.job_card_no,
-        COALESCE(ojr.client_name, o.client_name) as client_name
+        COALESCE(ojr.client_name, o.client_name) as client_name,
+        -- QC verified this hour slot in the QC app? (fan-out-safe EXISTS;
+        -- qc_verifications is UNIQUE per machine/date/shift/hour_slot)
+        EXISTS (
+          SELECT 1 FROM qc_verifications qv
+          WHERE qv.machine = d.machine AND qv.dpr_date = d.dpr_date
+            AND qv.shift = d.shift AND qv.hour_slot = d.hour_slot
+        ) AS qc_verified
       FROM (
         SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
         FROM dpr_hourly

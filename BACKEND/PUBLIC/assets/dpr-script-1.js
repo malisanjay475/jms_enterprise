@@ -2050,10 +2050,11 @@
                                                     content += `
                                                         <div onclick='showEntryDetails(${JSON.stringify(entry).replace(/'/g, "&apos;")})' style="cursor:pointer;flex:1;min-width:0;width:100%;background:${blockBg};${separator}padding:3px 4px;display:flex;flex-direction:column;gap:2px;transition:background 0.2s" onmouseover="this.style.filter='brightness(0.94)'" onmouseout="this.style.filter='none'">
 
-                                                            <!-- Row 1: 90 | 10  (good green | rej red, no label) -->
+                                                            <!-- Row 1: 90 | 10  (good green | rej red, no label) + QC verified tick -->
                                                             <div style="display:flex;align-items:baseline;gap:3px;line-height:1;min-width:0">
                                                                 <span style="font-weight:800;font-size:0.95rem;color:#15803d;line-height:1">${entry.good_qty}</span>
                                                                 ${rejQty > 0 ? `<span style="font-size:0.78rem;color:#9ca3af;font-weight:600;line-height:1">|</span><span style="font-weight:800;font-size:0.85rem;color:#dc2626;line-height:1">${rejQty}</span>` : ''}
+                                                                ${entry.qc_verified ? `<span title="QC Verified" aria-label="QC Verified" style="margin-left:auto;color:#16a34a;font-size:0.85rem;line-height:1;flex:0 0 auto"><i class="bi bi-patch-check-fill"></i></span>` : ''}
                                                             </div>
 
                                                             <!-- Row 2: Time -->
