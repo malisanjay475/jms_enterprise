@@ -53,6 +53,25 @@ interface ApiService {
     @POST("api/qc/hold")
     suspend fun hold(@Body body: HoldRequest): ApiEnvelope
 
+    @GET("api/qc/material-issues")
+    suspend fun materialIssues(
+        @Query("machine") machine: String?,
+        @Query("status") status: String?
+    ): ApiEnvelope
+
+    // multipart because the backend route runs multer (media_file optional)
+    @Multipart
+    @POST("api/qc/material-issues")
+    suspend fun createIssue(
+        @PartMap fields: Map<String, @JvmSuppressWildcards RequestBody>
+    ): ApiEnvelope
+
+    @GET("api/qc/dashboard/kpis")
+    suspend fun dashboardKpis(
+        @Query("date") date: String?,
+        @Query("machine") machine: String?
+    ): ApiEnvelope
+
     // multipart/form-data — field names must match the backend multer config
     @Multipart
     @POST("api/qc/fpa")

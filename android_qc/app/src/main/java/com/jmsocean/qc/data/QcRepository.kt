@@ -7,6 +7,7 @@ import com.jmsocean.qc.data.remote.QueueJob
 import com.jmsocean.qc.data.remote.SessionData
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -14,6 +15,9 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import com.jmsocean.qc.data.remote.FpaStatus
+import com.jmsocean.qc.data.remote.Kpis
+import com.jmsocean.qc.data.remote.MaterialIssue
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
@@ -88,6 +92,11 @@ class QcRepository(private val session: SessionStore) {
     suspend fun fpaStatus(jobCardNo: String, machine: String): Result<Boolean> = runCatching {
         val r = api.fpaStatus(jobCardNo = jobCardNo, machine = machine)
         r.ok && r.done
+    }
+
+    /** Full FPA status incl. saved image URLs, for the read-only view. */
+    suspend fun fpaStatusFull(jobCardNo: String, machine: String): Result<FpaStatus> = runCatching {
+        api.fpaStatus(jobCardNo = jobCardNo, machine = machine)
     }
 
     /**
@@ -202,6 +211,61 @@ class QcRepository(private val session: SessionStore) {
             )
         )
         if (!env.ok) error(env.error ?: "Hold failed")
+    }
+
+    // ── Issues ──────────────────────────────────────────────────────────────
+
+    suspend fun issues(machine: String, status: String?): Result<List<MaterialIssue>> = runCatching {
+        val env = api.materialIssues(machine.ifBlank { null }, status)
+        if (!env.ok) error(env.error ?: "Could not load issues")
+        val arr = env.data as? JsonArray ?: JsonArray(emptyList())
+        arr.map { json.decodeFromJsonElement(MaterialIssue.serializer(), it) }
+    }
+
+    suspend fun createIssue(
+        machine: String,
+        description: String,
+        severity: String,
+        assignedRole: String,
+        assignedName: String,
+        jobCardNo: String
+    ): Result<Unit> = runCatching {
+        fun text(v: String): RequestBody = v.toRequestBody("text/plain".toMediaTypeOrNull())
+        val sessionJson = buildJsonObject {
+            put("username", session.username); put("line", session.line)
+        }.toString()
+        val env = api.createIssue(
+            mapOf(
+                "session" to text(sessionJson),
+                "machine" to text(machine),
+                "issue_description" to text(description),
+                "severity" to text(severity),
+                "assigned_to_role" to text(assignedRole),
+                "assigned_to_name" to text(assignedName),
+                "job_card_no" to text(jobCardNo)
+            )
+        )
+        if (!env.ok) error(env.error ?: "Could not raise issue")
+    }
+
+    // ── Dashboard ───────────────────────────────────────────────────────────
+
+    suspend fun dashboardKpis(date: String?, machine: String): Result<Kpis> = runCatching {
+        val env = api.dashboardKpis(date, machine.ifBlank { null })
+        if (!env.ok) error(env.error ?: "Could not load KPIs")
+        val o = env.data as? JsonObject ?: JsonObject(emptyMap())
+        fun num(k: String): Int =
+            o[k]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()?.toInt() ?: 0
+        Kpis(
+            production = num("production"),
+            accepted = num("accepted"),
+            rejected = num("rejected"),
+            rejectionRate = o["rejection_rate"]?.jsonPrimitive?.contentOrNull ?: "0",
+            activeIssues = num("active_issues"),
+            fpaDone = num("fpa_done"),
+            activeHolds = num("active_holds"),
+            heldMachines = num("held_machines")
+        )
     }
 
     fun logout() {

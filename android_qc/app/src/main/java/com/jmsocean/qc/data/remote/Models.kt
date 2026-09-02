@@ -60,7 +60,41 @@ data class QueueJob(
 data class FpaStatus(
     val ok: Boolean = false,
     val done: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val done_by: String? = null,
+    val done_at: String? = null,
+    val date: String? = null,
+    val shift: String? = null,
+    val form_url: String? = null,
+    val product_images: JsonElement? = null
+)
+
+/** A row from GET /api/qc/material-issues (qc_material_issues), tolerant of nulls. */
+@Serializable
+data class MaterialIssue(
+    val id: Int? = null,
+    val machine: String? = null,
+    val job_card_no: String? = null,
+    val issue_description: String? = null,
+    val severity: String? = null,
+    val status: String? = null,
+    val assigned_to_role: String? = null,
+    val assigned_to_name: String? = null,
+    val created_by: String? = null,
+    val created_at: String? = null,
+    val media_url: String? = null
+)
+
+/** Parsed KPI tile values from GET /api/qc/dashboard/kpis (data object). */
+data class Kpis(
+    val production: Int = 0,
+    val accepted: Int = 0,
+    val rejected: Int = 0,
+    val rejectionRate: String = "0",
+    val activeIssues: Int = 0,
+    val fpaDone: Int = 0,
+    val activeHolds: Int = 0,
+    val heldMachines: Int = 0
 )
 
 // ── Verify + Hold (Phase 3) ─────────────────────────────────────────────────

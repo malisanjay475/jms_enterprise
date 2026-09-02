@@ -14,7 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -53,7 +53,7 @@ import com.jmsocean.qc.ui.theme.Warn
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VerifyScreen(
-    onBack: () -> Unit,
+    onMenu: () -> Unit,
     vm: VerifyViewModel = viewModel()
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -78,8 +78,8 @@ fun VerifyScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    IconButton(onClick = onMenu) {
+                        Icon(Icons.Default.Menu, contentDescription = "Menu")
                     }
                 }
             )

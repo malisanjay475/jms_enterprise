@@ -143,7 +143,53 @@ fun FpaScreen(
                     CircularProgressIndicator(color = Accent)
                 }
 
-                s.alreadyDone -> DoneBanner(submittedNow = s.submitted)
+                s.alreadyDone -> Column {
+                    DoneBanner(submittedNow = s.submitted, by = s.doneBy, at = s.doneAt)
+                    Spacer(Modifier.height(14.dp))
+                    if (s.savedFormUrl != null) {
+                        SectionLabel("📋 Saved FPA form")
+                        AsyncImage(
+                            model = s.savedFormUrl,
+                            contentDescription = "Saved FPA form",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surface)
+                        )
+                        Spacer(Modifier.height(14.dp))
+                    }
+                    if (s.savedProductUrls.isNotEmpty()) {
+                        SectionLabel("🖼 Saved product photos")
+                        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                            columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(3),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height((((s.savedProductUrls.size + 2) / 3) * 116).dp)
+                        ) {
+                            androidx.compose.foundation.lazy.grid.items(s.savedProductUrls) { url ->
+                                AsyncImage(
+                                    model = url,
+                                    contentDescription = "Product",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surface)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                    }
+                    Button(
+                        onClick = onBack,
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    ) { Text("Back to Queue", color = MaterialTheme.colorScheme.onPrimary) }
+                    Spacer(Modifier.height(24.dp))
+                }
 
                 else -> {
                     if (s.error != null) {
@@ -223,7 +269,7 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun DoneBanner(submittedNow: Boolean) {
+private fun DoneBanner(submittedNow: Boolean, by: String?, at: String?) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(12.dp),
@@ -237,8 +283,12 @@ private fun DoneBanner(submittedNow: Boolean) {
                     if (submittedNow) "FPA submitted" else "FPA already submitted",
                     fontWeight = FontWeight.Bold, color = Good
                 )
+                val meta = buildString {
+                    if (!by.isNullOrBlank()) append("By $by")
+                    if (!at.isNullOrBlank()) append(if (isEmpty()) at else " · $at")
+                }
                 Text(
-                    "This job's first piece approval is on record.",
+                    meta.ifBlank { "This job's first piece approval is on record." },
                     fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

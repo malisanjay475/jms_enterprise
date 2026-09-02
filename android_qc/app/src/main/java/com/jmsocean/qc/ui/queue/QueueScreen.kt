@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
@@ -52,9 +53,8 @@ import com.jmsocean.qc.ui.theme.Warn
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QueueScreen(
-    onLogout: () -> Unit,
+    onMenu: () -> Unit,
     onOpenFpa: () -> Unit,
-    onOpenVerify: () -> Unit,
     vm: QueueViewModel = viewModel()
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -79,15 +79,14 @@ fun QueueScreen(
                         )
                     }
                 },
-                actions = {
-                    TextButton(onClick = onOpenVerify) {
-                        Text("Verify", color = MaterialTheme.colorScheme.primary)
+                navigationIcon = {
+                    IconButton(onClick = onMenu) {
+                        Icon(Icons.Default.Menu, contentDescription = "Menu")
                     }
+                },
+                actions = {
                     IconButton(onClick = { vm.loadJobs() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                    }
-                    TextButton(onClick = { vm.logout(); onLogout() }) {
-                        Text("Log out", color = MaterialTheme.colorScheme.error)
                     }
                 }
             )

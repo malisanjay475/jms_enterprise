@@ -3,12 +3,18 @@ package com.jmsocean.qc.ui.fpa
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmsocean.qc.QcApp
+import com.jmsocean.qc.data.remote.FpaStatus
+import com.jmsocean.qc.data.remote.Network
 import com.jmsocean.qc.data.remote.QueueJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import java.io.File
 
 data class FpaUiState(
@@ -21,7 +27,12 @@ data class FpaUiState(
     val remarks: String = "",
     val submitting: Boolean = false,
     val error: String? = null,
-    val submitted: Boolean = false
+    val submitted: Boolean = false,
+    // saved (view mode)
+    val savedFormUrl: String? = null,
+    val savedProductUrls: List<String> = emptyList(),
+    val doneBy: String? = null,
+    val doneAt: String? = null
 ) {
     val canSubmit: Boolean
         get() = !submitting && formImage != null && productImages.size >= 2
@@ -46,10 +57,42 @@ class FpaViewModel : ViewModel() {
             return
         }
         viewModelScope.launch {
-            repo.fpaStatus(job!!.JobCardNo!!, session.machine)
-                .onSuccess { done -> _state.update { it.copy(checking = false, alreadyDone = done) } }
+            repo.fpaStatusFull(job!!.JobCardNo!!, session.machine)
+                .onSuccess { st ->
+                    if (st.ok && st.done) applySaved(st)
+                    else _state.update { it.copy(checking = false, alreadyDone = false) }
+                }
                 .onFailure { _state.update { it.copy(checking = false) } } // treat unknown as not-done
         }
+    }
+
+    private fun applySaved(st: FpaStatus) {
+        _state.update {
+            it.copy(
+                checking = false,
+                alreadyDone = true,
+                savedFormUrl = absUrl(st.form_url),
+                savedProductUrls = parseUrls(st.product_images).map { u -> absUrl(u) ?: u },
+                doneBy = st.done_by,
+                doneAt = st.done_at
+            )
+        }
+    }
+
+    private fun absUrl(u: String?): String? {
+        if (u.isNullOrBlank()) return null
+        return if (u.startsWith("http")) u else Network.baseUrl.trimEnd('/') + "/" + u.trimStart('/')
+    }
+
+    private fun parseUrls(el: kotlinx.serialization.json.JsonElement?): List<String> = when (el) {
+        is JsonArray -> el.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+        is JsonPrimitive -> {
+            val s = el.contentOrNull ?: return emptyList()
+            runCatching { Json.parseToJsonElement(s) }.getOrNull()?.let { p ->
+                (p as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            } ?: if (s.startsWith("http") || s.startsWith("/")) listOf(s) else emptyList()
+        }
+        else -> emptyList()
     }
 
     fun setFormImage(file: File) = _state.update { it.copy(formImage = file, error = null) }
@@ -82,6 +125,9 @@ class FpaViewModel : ViewModel() {
                 machine = s.machine
             ).onSuccess {
                 _state.update { it.copy(submitting = false, submitted = true, alreadyDone = true) }
+                // reload from server so the saved images render in view mode
+                repo.fpaStatusFull(job.JobCardNo ?: "", s.machine)
+                    .onSuccess { st -> if (st.ok && st.done) applySaved(st) }
             }.onFailure { e ->
                 _state.update { it.copy(submitting = false, error = e.message ?: "Upload failed") }
             }
