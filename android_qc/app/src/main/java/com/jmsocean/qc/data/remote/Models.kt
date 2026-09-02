@@ -1,5 +1,6 @@
 package com.jmsocean.qc.data.remote
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
@@ -32,28 +33,36 @@ data class SessionData(
     val line: String = ""
 )
 
-/** A queue row, tolerant of the API's mixed field names. */
+/** A queue row — field names mirror the /api/queue response exactly. */
 @Serializable
 data class QueueJob(
-    val PlanID: String? = null,
-    val JobCardNo: String? = null,
-    val Mould: String? = null,
-    val machine_priority: String? = null,
-    val fpa_status: String? = null,
-    // common alternates the API may use for the product name
-    val item_name: String? = null,
-    val ItemName: String? = null,
-    val SFG_Name: String? = null,
-    // order number, again under a few possible keys
-    val OrderNo: String? = null,
-    val order_no: String? = null
+    @SerialName("PlanID") val PlanID: String? = null,
+    @SerialName("JobCardNo") val JobCardNo: String? = null,
+    @SerialName("OrderNo") val OrderNo: String? = null,
+    @SerialName("Machine") val Machine: String? = null,
+    @SerialName("Mould") val Mould: String? = null,
+    @SerialName("Mould No") val mouldNo: String? = null,
+    @SerialName("machinePriority") val machinePriority: String? = null,
+    @SerialName("Client Name") val clientName: String? = null,
+    @SerialName("product_name") val product_name: String? = null,
+    @SerialName("SFG Name") val sfgName: String? = null,
+    @SerialName("PlanQty") val planQty: Int? = null,
+    @SerialName("Status") val Status: String? = null,
+    @SerialName("ColourDetails") val colourDetails: JsonElement? = null,
+    val fpa_status: String? = null
 ) {
     val productName: String
-        get() = item_name ?: ItemName ?: SFG_Name ?: "Job"
+        get() = product_name ?: sfgName ?: "Job"
 
     val orderNumber: String
-        get() = OrderNo ?: order_no ?: ""
+        get() = OrderNo ?: ""
+
+    val mouldForEntry: String
+        get() = mouldNo ?: Mould ?: ""
 }
+
+/** One colour line from a job's ColourDetails: name + planned qty. */
+data class ColourLine(val colour: String, val planQty: Int)
 
 /** Response of GET /api/qc/fpa/status. */
 @Serializable
@@ -128,6 +137,35 @@ data class VerifySubmitRequest(
     val qc_reject_qty: Int,
     val remarks: String = "",
     val status_override: String? = null
+)
+
+// ── QC hourly filling (DPR submit) ──────────────────────────────────────────
+
+@Serializable
+data class DprEntry(
+    @SerialName("Date") val date: String,
+    @SerialName("Shift") val shift: String,
+    @SerialName("HourSlot") val hourSlot: String,
+    @SerialName("Shots") val shots: Int,
+    @SerialName("GoodQty") val goodQty: Int,
+    @SerialName("RejectQty") val rejectQty: Int,
+    @SerialName("DowntimeMin") val downtimeMin: Int,
+    @SerialName("Remarks") val remarks: String,
+    @SerialName("PlanID") val planId: String,
+    @SerialName("Machine") val machine: String,
+    @SerialName("OrderNo") val orderNo: String,
+    @SerialName("MouldNo") val mouldNo: String,
+    @SerialName("JobCardNo") val jobCardNo: String,
+    @SerialName("Colour") val colour: String,
+    @SerialName("RejectBreakup") val rejectBreakup: String = "",
+    @SerialName("DowntimeBreakup") val downtimeBreakup: String = "",
+    @SerialName("EntryType") val entryType: String = "Main"
+)
+
+@Serializable
+data class DprSubmitRequest(
+    val session: SessionRef,
+    val entry: DprEntry
 )
 
 @Serializable

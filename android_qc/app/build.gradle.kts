@@ -13,8 +13,8 @@ android {
         applicationId = "com.jmsocean.qc"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
 
         // Base URL of the JMS API. Change here to point at LOCAL / staging / prod.
         //  - LOCAL factory server (no geofence, shop-floor): http://192.168.1.173:3001/  ← active

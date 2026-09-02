@@ -39,6 +39,7 @@ import com.jmsocean.qc.ui.dashboard.DashboardScreen
 import com.jmsocean.qc.ui.fpa.FpaScreen
 import com.jmsocean.qc.ui.issues.IssuesScreen
 import com.jmsocean.qc.ui.login.LoginScreen
+import com.jmsocean.qc.ui.qcentry.QcEntryScreen
 import com.jmsocean.qc.ui.queue.QueueScreen
 import com.jmsocean.qc.ui.theme.QcTheme
 import com.jmsocean.qc.ui.verify.VerifyScreen
@@ -62,6 +63,7 @@ private object Routes {
     const val LOGIN = "login"
     const val QUEUE = "queue"
     const val FPA = "fpa"
+    const val QC = "qc"
     const val VERIFY = "verify"
     const val ISSUES = "issues"
     const val DASHBOARD = "dashboard"
@@ -150,12 +152,22 @@ fun QcApp_Root() {
                 })
             }
             composable(Routes.QUEUE) {
-                QueueScreen(onMenu = openDrawer, onOpenFpa = { nav.navigate(Routes.FPA) })
+                QueueScreen(
+                    onMenu = openDrawer,
+                    onOpenFpa = { nav.navigate(Routes.FPA) },
+                    onOpenQc = { nav.navigate(Routes.QC) }
+                )
             }
             composable(Routes.VERIFY) { VerifyScreen(onMenu = openDrawer) }
             composable(Routes.ISSUES) { IssuesScreen(onMenu = openDrawer) }
             composable(Routes.DASHBOARD) { DashboardScreen(onMenu = openDrawer) }
             composable(Routes.FPA) { FpaScreen(onBack = { nav.popBackStack() }) }
+            composable(Routes.QC) {
+                QcEntryScreen(
+                    onBack = { nav.popBackStack() },
+                    onDoFpa = { nav.navigate(Routes.FPA) }
+                )
+            }
         }
     }
 }

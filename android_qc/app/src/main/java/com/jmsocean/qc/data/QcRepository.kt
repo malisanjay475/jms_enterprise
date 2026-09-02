@@ -79,6 +79,8 @@ class QcRepository(private val session: SessionStore) {
                 }
             }
         }.filter { it.isNotBlank() }
+            .distinct()
+            .sortedWith(naturalMachineComparator)
     }
 
     suspend fun queue(machine: String): Result<List<QueueJob>> = runCatching {
@@ -266,6 +268,38 @@ class QcRepository(private val session: SessionStore) {
             activeHolds = num("active_holds"),
             heldMachines = num("held_machines")
         )
+    }
+
+    // ── QC hourly filling (DPR submit) ──────────────────────────────────────
+
+    suspend fun submitDpr(
+        job: QueueJob,
+        date: String,
+        shift: String,
+        hourSlot: String,
+        shots: Int,
+        reject: Int,
+        downtimeMin: Int,
+        colour: String,
+        remarks: String
+    ): Result<Unit> = runCatching {
+        val good = (shots - reject).coerceAtLeast(0)
+        val env = api.submitDpr(
+            com.jmsocean.qc.data.remote.DprSubmitRequest(
+                session = sessionRef(),
+                entry = com.jmsocean.qc.data.remote.DprEntry(
+                    date = date, shift = shift, hourSlot = hourSlot,
+                    shots = shots, goodQty = good, rejectQty = reject,
+                    downtimeMin = downtimeMin, remarks = remarks,
+                    planId = job.PlanID ?: "", machine = job.Machine ?: session.machine,
+                    orderNo = job.orderNumber, mouldNo = job.mouldForEntry,
+                    jobCardNo = job.JobCardNo ?: "", colour = colour,
+                    rejectBreakup = if (reject > 0 && colour.isNotBlank()) "$colour:$reject" else "",
+                    downtimeBreakup = ""
+                )
+            )
+        )
+        if (!env.ok) error(env.error ?: "Save failed")
     }
 
     fun logout() {

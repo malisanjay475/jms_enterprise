@@ -20,6 +20,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -91,6 +93,43 @@ fun VerifyScreen(
                 .padding(pad)
                 .padding(horizontal = 16.dp)
         ) {
+            Spacer(Modifier.size(12.dp))
+
+            // Machine picker
+            var menuOpen by remember { mutableStateOf(false) }
+            Box {
+                OutlinedButton(onClick = { menuOpen = true }) {
+                    Text(s.machine.ifBlank { "Select machine ▾" })
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    if (s.machines.isEmpty()) DropdownMenuItem(text = { Text("No machines") }, onClick = {})
+                    s.machines.forEach { m ->
+                        DropdownMenuItem(text = { Text(m) }, onClick = { menuOpen = false; vm.selectMachine(m) })
+                    }
+                }
+            }
+
+            // Job context header
+            s.jobContext?.let { j ->
+                Spacer(Modifier.size(10.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(j.productName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(
+                            buildString {
+                                j.clientName?.let { append(it) }
+                                j.orderNumber.takeIf { it.isNotBlank() }?.let { append(if (isEmpty()) "OR $it" else " · OR $it") }
+                                j.JobCardNo?.let { append(" · JC $it") }
+                            },
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
             Spacer(Modifier.size(12.dp))
 
             // Shift toggle

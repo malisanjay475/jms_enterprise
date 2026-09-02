@@ -50,6 +50,9 @@ interface ApiService {
     @POST("api/qc/verify/submit")
     suspend fun verifySubmit(@Body body: VerifySubmitRequest): ApiEnvelope
 
+    @POST("api/dpr/submit")
+    suspend fun submitDpr(@Body body: DprSubmitRequest): ApiEnvelope
+
     @POST("api/qc/hold")
     suspend fun hold(@Body body: HoldRequest): ApiEnvelope
 

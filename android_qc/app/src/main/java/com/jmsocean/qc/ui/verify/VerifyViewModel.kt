@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmsocean.qc.QcApp
 import com.jmsocean.qc.data.Ist
+import com.jmsocean.qc.data.remote.QueueJob
 import com.jmsocean.qc.data.remote.VerifySlot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,6 +14,8 @@ import kotlinx.coroutines.launch
 
 data class VerifyUiState(
     val machine: String = "",
+    val machines: List<String> = emptyList(),
+    val jobContext: QueueJob? = null,
     val date: String = Ist.date(),
     val shift: String = Ist.shift(),
     val slots: List<VerifySlot> = emptyList(),
@@ -31,7 +34,34 @@ class VerifyViewModel : ViewModel() {
     private val _state = MutableStateFlow(VerifyUiState(machine = session.machine))
     val state: StateFlow<VerifyUiState> = _state.asStateFlow()
 
-    init { load() }
+    init {
+        loadMachines()
+        loadContext()
+        load()
+    }
+
+    private fun loadMachines() {
+        viewModelScope.launch {
+            repo.machines().onSuccess { list -> _state.update { it.copy(machines = list) } }
+        }
+    }
+
+    private fun loadContext() {
+        val m = _state.value.machine
+        if (m.isBlank()) return
+        viewModelScope.launch {
+            repo.queue(m).onSuccess { jobs ->
+                _state.update { it.copy(jobContext = jobs.firstOrNull()) }
+            }
+        }
+    }
+
+    fun selectMachine(m: String) {
+        session.machine = m
+        _state.update { it.copy(machine = m) }
+        loadContext()
+        load()
+    }
 
     fun setShift(shift: String) {
         _state.update { it.copy(shift = shift) }
