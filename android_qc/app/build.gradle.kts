@@ -17,10 +17,11 @@ android {
         versionName = "0.1.0"
 
         // Base URL of the JMS API. Change here to point at LOCAL / staging / prod.
-        //  - Production (https, reachable anywhere): https://jmsocean.cloud/
-        //  - Staging (http, VPN/office):             http://72.62.228.195:9093/
-        //  - LOCAL factory server:                   http://192.168.1.173:3001/
-        buildConfigField("String", "BASE_URL", "\"https://jmsocean.cloud/\"")
+        //  - LOCAL factory server (no geofence, shop-floor): http://192.168.1.173:3001/  ← active
+        //  - Production (https, reachable anywhere):          https://jmsocean.cloud/
+        //  - Staging (http, VPN/office):                      http://72.62.228.195:9093/
+        // NOTE: the phone must be on the same factory Wi-Fi/LAN as the LOCAL server.
+        buildConfigField("String", "BASE_URL", "\"http://192.168.1.173:3001/\"")
     }
 
     buildTypes {
