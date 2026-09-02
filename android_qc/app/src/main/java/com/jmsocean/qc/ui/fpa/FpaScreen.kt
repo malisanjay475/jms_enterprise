@@ -162,15 +162,15 @@ fun FpaScreen(
                     }
                     if (s.savedProductUrls.isNotEmpty()) {
                         SectionLabel("🖼 Saved product photos")
-                        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                            columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(3),
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height((((s.savedProductUrls.size + 2) / 3) * 116).dp)
                         ) {
-                            androidx.compose.foundation.lazy.grid.items(s.savedProductUrls) { url ->
+                            items(s.savedProductUrls) { url ->
                                 AsyncImage(
                                     model = url,
                                     contentDescription = "Product",
