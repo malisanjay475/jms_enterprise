@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Production (jmsocean.cloud) is https and needs no exception.
+  Cleartext is permitted only for the staging IP and the LOCAL factory
+  subnet, so you can repoint BASE_URL there for testing without a rebuild
+  of the security policy. Remove these before a Play Store release.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">72.62.228.195</domain>
+        <domain includeSubdomains="true">192.168.1.173</domain>
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

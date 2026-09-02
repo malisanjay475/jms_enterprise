@@ -47,6 +47,24 @@ const uploadQC = multer({
   }
 });
 
+// QC Android app self-update feed — the APK + version.json are served statically
+// from PUBLIC/qc-app/ (see express.static). Admins publish new builds here so all
+// factory phones auto-update. Fixed filename keeps the download URL stable.
+const _qcAppDir = path.join(STATIC_PUBLIC_DIR, 'qc-app');
+fs.mkdirSync(_qcAppDir, { recursive: true });
+const uploadQcApk = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, _qcAppDir),
+    filename: (_req, _file, cb) => cb(null, 'jms-qc.apk')
+  }),
+  limits: { fileSize: 200 * 1024 * 1024, files: 1 },
+  fileFilter(_req, file, cb) {
+    if (/\.apk$/i.test(file.originalname) ||
+        file.mimetype === 'application/vnd.android.package-archive') return cb(null, true);
+    cb(new Error('Only .apk files allowed'), false);
+  }
+});
+
 const {
   getFinancialYearInfo,
   getFinancialYearPrefix,
@@ -68,6 +86,98 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
   aiService.init(config.geminiApiKey);
   const hrPerformanceRuntime = registerHrPerformanceRoutes({ app, pool, config, services }) || {};
   const interviewPanelRuntime = registerInterviewPanelRoutes({ app, pool, config, services }) || {};
+
+  /* ============================================================
+     QC ANDROID APP — COLOUR PRODUCED / PENDING BALANCE
+     Per-colour planned (plan_board.colour_details) vs produced
+     (SUM good_qty from dpr_hourly). Read-only, additive.
+     ============================================================ */
+  app.get('/api/qc/colour-balance', async (req, res) => {
+    try {
+      const planId = String(req.query.plan_id || '').trim();
+      if (!planId) return res.json({ ok: true, data: [] });
+      const factoryId = getFactoryId(req);
+
+      const planRows = await q(
+        `SELECT COALESCE(colour_details, '[]'::jsonb) AS colour_details
+           FROM plan_board
+          WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+          LIMIT 1`,
+        [planId, factoryId || null]
+      );
+      let details = [];
+      try {
+        const raw = planRows[0] && planRows[0].colour_details;
+        details = Array.isArray(raw) ? raw : (raw ? JSON.parse(raw) : []);
+      } catch (_) { details = []; }
+
+      const prodRows = await q(
+        `SELECT COALESCE(NULLIF(TRIM(colour), ''), '(none)') AS colour,
+                COALESCE(SUM(good_qty), 0) AS produced
+           FROM dpr_hourly
+          WHERE plan_id = $1 AND COALESCE(is_deleted, false) = false
+          GROUP BY 1`,
+        [planId]
+      );
+      const producedByColour = {};
+      for (const r of prodRows) {
+        producedByColour[String(r.colour).toLowerCase()] = Number(r.produced || 0);
+      }
+
+      const data = details.map((d) => {
+        const name = String(d.colour || d.color || d.name || d.shade || '').trim() || '(none)';
+        const planQty = Number(d.planQty || d.plan_qty || d.qty || d.quantity || d.planned || 0);
+        const produced = producedByColour[name.toLowerCase()] || 0;
+        return { colour: name, planQty, produced, balance: Math.max(0, planQty - produced) };
+      });
+      res.json({ ok: true, data });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  /* ============================================================
+     QC ANDROID APP — SELF-UPDATE PUBLISH
+     Admin uploads a new APK; server stores it + writes version.json.
+     The app reads /qc-app/version.json (static) and installs /qc-app/jms-qc.apk.
+     Additive + isolated: no existing behaviour changes.
+     ============================================================ */
+  app.post('/api/qc-app/publish', uploadQcApk.single('apk'), async (req, res) => {
+    try {
+      const { username, password, versionCode, versionName, notes } = req.body || {};
+      if (!username || !password) {
+        return res.status(400).json({ ok: false, error: 'username and password required' });
+      }
+      const rows = await q(
+        `SELECT id, COALESCE(password_hash, password) AS pw, role_code
+           FROM users WHERE username = $1 LIMIT 1`,
+        [username]
+      );
+      if (!rows.length) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      const valid = await bcrypt.compare(password, rows[0].pw || '');
+      if (!valid) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      const role = String(rows[0].role_code || '').toLowerCase();
+      if (role !== 'admin' && role !== 'superadmin') {
+        return res.status(403).json({ ok: false, error: 'Admin access required' });
+      }
+      if (!req.file) return res.status(400).json({ ok: false, error: 'APK file required (field "apk")' });
+      const vc = parseInt(versionCode, 10);
+      if (!Number.isFinite(vc)) {
+        return res.status(400).json({ ok: false, error: 'versionCode (integer) required' });
+      }
+      const meta = {
+        versionCode: vc,
+        versionName: String(versionName || vc),
+        apk: 'jms-qc.apk',
+        notes: String(notes || ''),
+        publishedAt: new Date().toISOString()
+      };
+      fs.writeFileSync(path.join(_qcAppDir, 'version.json'), JSON.stringify(meta, null, 2));
+      res.json({ ok: true, ...meta });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
 
 /* ============================================================
    HELPER: MACHINE SERIES SORT (Suffix Priority)
@@ -21203,7 +21313,14 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         COALESCE(TRIM(d.order_no), TRIM(pb.order_no), TRIM(mps.or_jr_no)) as order_no,
         TRIM(COALESCE(pb.mould_name, mps.mould_name)) as mould_name,
         ojr.job_card_no,
-        COALESCE(ojr.client_name, o.client_name) as client_name
+        COALESCE(ojr.client_name, o.client_name) as client_name,
+        -- QC verified this hour slot in the QC app? (fan-out-safe EXISTS;
+        -- qc_verifications is UNIQUE per machine/date/shift/hour_slot)
+        EXISTS (
+          SELECT 1 FROM qc_verifications qv
+          WHERE qv.machine = d.machine AND qv.dpr_date = d.dpr_date
+            AND qv.shift = d.shift AND qv.hour_slot = d.hour_slot
+        ) AS qc_verified
       FROM (
         SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
         FROM dpr_hourly

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Publish QC App</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#f7f5f1;color:#1a2332;margin:0;padding:24px}
+  .card{max-width:520px;margin:24px auto;background:#fff;border:1px solid #e5e1d8;border-radius:14px;padding:22px;box-shadow:0 8px 24px rgba(26,35,50,.06)}
+  h1{font-size:20px;margin:0 0 4px}
+  p.sub{color:#5b6472;font-size:13px;margin:0 0 18px}
+  label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
+  input,textarea{width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #e5e1d8;border-radius:8px;font-size:14px}
+  button{margin-top:18px;width:100%;padding:12px;border:0;border-radius:8px;background:#e2571c;color:#fff;font-weight:700;font-size:15px;cursor:pointer}
+  button:disabled{opacity:.6}
+  #msg{margin-top:14px;font-size:14px}
+  .ok{color:#0f8a5f}.err{color:#c22d2d}
+  code{background:#fbebe1;color:#b8410f;padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Publish QC App update</h1>
+    <p class="sub">Admin only. Uploads the new APK to this server and updates the feed so every factory phone auto-updates.</p>
+
+    <label>Admin username</label>
+    <input id="u" autocomplete="username" placeholder="admin">
+    <label>Admin password</label>
+    <input id="p" type="password" autocomplete="current-password" placeholder="••••••">
+
+    <label>Version code (integer — must be higher than the last)</label>
+    <input id="vc" type="number" inputmode="numeric" placeholder="3">
+    <label>Version name</label>
+    <input id="vn" placeholder="0.3.0">
+    <label>Release notes (optional)</label>
+    <textarea id="notes" rows="2" placeholder="Verify + Hold, auto-update"></textarea>
+
+    <label>APK file</label>
+    <input id="apk" type="file" accept=".apk,application/vnd.android.package-archive">
+
+    <button id="go" onclick="publish()">Publish update</button>
+    <div id="msg"></div>
+  </div>
+
+<script>
+async function publish(){
+  const msg = document.getElementById('msg');
+  const btn = document.getElementById('go');
+  const file = document.getElementById('apk').files[0];
+  if(!file){ msg.className='err'; msg.textContent='Choose an APK file.'; return; }
+  const fd = new FormData();
+  fd.append('username', document.getElementById('u').value.trim());
+  fd.append('password', document.getElementById('p').value);
+  fd.append('versionCode', document.getElementById('vc').value.trim());
+  fd.append('versionName', document.getElementById('vn').value.trim());
+  fd.append('notes', document.getElementById('notes').value.trim());
+  fd.append('apk', file);
+  btn.disabled = true; msg.className=''; msg.textContent='Uploading…';
+  try{
+    const r = await fetch('/api/qc-app/publish', { method:'POST', body: fd });
+    const d = await r.json();
+    if(d.ok){ msg.className='ok'; msg.textContent='✓ Published v'+d.versionName+' (code '+d.versionCode+'). Phones will update on next launch.'; }
+    else { msg.className='err'; msg.textContent='Error: '+(d.error||'failed'); }
+  }catch(e){ msg.className='err'; msg.textContent='Cannot reach server: '+e.message; }
+  finally{ btn.disabled = false; }
+}
+</script>
+</body>
+</html>
