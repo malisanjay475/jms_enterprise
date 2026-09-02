@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.49.18",
+  "latest": "1.49.19",
   "versions": [
+    {
+      "version": "1.49.19",
+      "date": "2026-08-26",
+      "title": "DPR Compliance Summary — cleaner Plant Total labels",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "In the DPR Compliance Summary Plant Total, removed the Capacity and Predicted Tonnage figures, and renamed Overall Tonnage to Gross Production and Tonnage to Good Production." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.49.18",
       "date": "2026-09-02",
