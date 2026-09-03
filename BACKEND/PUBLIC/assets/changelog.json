@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.50.0",
+  "latest": "1.50.1",
   "versions": [
+    {
+      "version": "1.50.1",
+      "date": "2026-09-02",
+      "title": "Manpower Excel report in Create Priority",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "In Excel View Timeline → Create Priority, a new 'Manpower Excel' button generates a machine-wise report of the running plan with STD Manpower and a blank Actual Manpower column to fill in — shown on screen and downloadable to Excel." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.50.0",
       "date": "2026-09-02",
