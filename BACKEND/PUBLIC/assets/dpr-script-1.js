@@ -1042,6 +1042,9 @@
                             scopedMachinesList = scopedMachinesList.filter(m => String(m.factory_id) === String(selectedFactory));
                         }
                         const allowedMachines = new Set(scopedMachinesList.map(machine => machine.machine));
+                        // Machine Master load + unload time (minutes) → STD mould-changeover time per machine.
+                        const loadUnloadMap = {};
+                        scopedMachinesList.forEach(mm => { loadUnloadMap[mm.machine] = (parseFloat(mm.mould_load_time) || 0) + (parseFloat(mm.mould_unload_time) || 0); });
                         const filterMatrixResponse = (matrixRes) => {
                             const matrixData = matrixRes.data || {};
                             const filteredDates = {};
@@ -1119,25 +1122,39 @@
                                     Plant Total (${new Date(fromDate).toLocaleDateString('en-GB')})
                                     <span style="font-size:0.8rem; font-weight:400; color:#64748b; margin-left:8px">(Combined Summary)</span>
                                 </div>
-                                <div style="display:flex; gap:24px">
-                                    <div style="text-align:right">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#7c3aed; text-transform:uppercase">Overall Tonnage</div>
+                                <div style="display:flex; gap:20px; flex-wrap:wrap; row-gap:12px; justify-content:flex-end; align-items:center">
+                                    <div style="text-align:right" title="Planned Target for the selected shift: std rate × piece weight × the hours each running machine was active, summed machine-wise.">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#4c1d95; text-transform:uppercase">Planned Target</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#4c1d95">
+                                            <span id="grand-total-plantarget">0.00</span> <span style="font-size:0.9rem">Kg</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="Planned Estimated = Planned Target − Std Mould Changeover (mould changes × machine load + unload time × rate).">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#7c3aed; text-transform:uppercase">Planned Estimated</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#7c3aed">
+                                            <span id="grand-total-planest">0.00</span> <span style="font-size:0.9rem">Kg</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="Planned Achievable Target = Planned Estimated − 5% allowance.">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#0ea5e9; text-transform:uppercase">Plan Achievable</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#0ea5e9">
+                                            <span id="grand-total-planach">0.00</span> <span style="font-size:0.9rem">Kg</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="Downtime Loss = Planned Achievable Target − Gross Production. Output lost to all stoppages plus running below rated speed.">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#db2777; text-transform:uppercase">Downtime Loss</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#db2777">
+                                            <span id="grand-total-dtloss">0.00</span> <span style="font-size:0.9rem">Kg</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="Gross Production = Good + Rejection (Overall Tonnage).">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#7c3aed; text-transform:uppercase">Gross Production</div>
                                         <div style="font-size:1.4rem; font-weight:800; color:#7c3aed">
                                             <span id="grand-total-overall">0.00</span> <span style="font-size:0.9rem">Kg</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Tonnage</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#2563eb">
-                                            <span id="grand-total-tonnage">0.00</span> <span style="font-size:0.9rem">Kg</span>
-                                        </div>
-                                    </div>
-                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
-                                    <div style="text-align:right" title="Predicted tonnage by end of the selected shift — current pace (or STD rate) × remaining hours, summed machine-wise">
-                                        <div style="font-size:0.75rem; font-weight:600; color:#0891b2; text-transform:uppercase">Pred. Tonnage</div>
-                                        <div style="font-size:1.4rem; font-weight:800; color:#0891b2">
-                                            <span id="grand-total-pred">0.00</span> <span style="font-size:0.9rem">Kg</span>
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
@@ -1145,6 +1162,13 @@
                                         <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Rejection</div>
                                         <div style="font-size:1.4rem; font-weight:800; color:#dc2626">
                                             <span id="grand-total-rej">0.00</span> <span style="font-size:0.9rem">Kg</span>
+                                        </div>
+                                    </div>
+                                    <div style="height:40px; border-right:1px solid #e2e8f0"></div>
+                                    <div style="text-align:right" title="Good Production = Gross − Rejection.">
+                                        <div style="font-size:0.75rem; font-weight:600; color:#64748b; text-transform:uppercase">Good Production</div>
+                                        <div style="font-size:1.4rem; font-weight:800; color:#2563eb">
+                                            <span id="grand-total-tonnage">0.00</span> <span style="font-size:0.9rem">Kg</span>
                                         </div>
                                     </div>
                                     <div style="height:40px; border-right:1px solid #e2e8f0"></div>
@@ -1381,6 +1405,7 @@
                             
                             let lineTotalTonnage = 0, lineTotalRejTonnage = 0, lineTotalGoodPcs = 0, lineTotalEstPcs = 0, lineTotalEstPcsNet = 0;
                             let lineTotalPredKg = 0, lineTotalPredQty = 0;
+                            let lineTotalPlannedKg = 0, lineTotalChangeoverKg = 0, lineTotalCapacityKg = 0; // Planned Target @shift, Std changeover, full-shift Capacity (Kg)
                             let lineTotalDt = 0, lineTotalAutoDt = 0, lineTotalCC = 0, lineTotalMC = 0, lineTotalJC = 0;
 
                             // Shift Team Display
@@ -1466,6 +1491,7 @@
                             lines[lineName].forEach(machine => {
                                 let machineRowHtml = ''; // Shadow inner HTML for buffering
                                 let machineGood = 0, machineEst = 0, machineEstNet = 0;
+                                let machineCapRate = 0; // best (std rate × piece wt) across this machine's planned moulds → full-shift capacity
                                 const machineEntryTypes = new Set(); // track special entry_types for View Filter
                                 let machineMissingSlots = 0; // count of past unfilled slots (for Pending filter)
                                 let machineBalComplete = false; // true when any mould's plan is met/exceeded (bal <= 0) → blink
@@ -2010,10 +2036,11 @@
                                                     content += `
                                                         <div onclick='showEntryDetails(${JSON.stringify(entry).replace(/'/g, "&apos;")})' style="cursor:pointer;flex:1;min-width:0;width:100%;background:${blockBg};${separator}padding:3px 4px;display:flex;flex-direction:column;gap:2px;transition:background 0.2s" onmouseover="this.style.filter='brightness(0.94)'" onmouseout="this.style.filter='none'">
 
-                                                            <!-- Row 1: 90 | 10  (good green | rej red, no label) -->
+                                                            <!-- Row 1: 90 | 10  (good green | rej red, no label) + QC verified tick -->
                                                             <div style="display:flex;align-items:baseline;gap:3px;line-height:1;min-width:0">
                                                                 <span style="font-weight:800;font-size:0.95rem;color:#15803d;line-height:1">${entry.good_qty}</span>
                                                                 ${rejQty > 0 ? `<span style="font-size:0.78rem;color:#9ca3af;font-weight:600;line-height:1">|</span><span style="font-weight:800;font-size:0.85rem;color:#dc2626;line-height:1">${rejQty}</span>` : ''}
+                                                                ${entry.qc_verified ? `<span title="QC Verified" aria-label="QC Verified" style="margin-left:auto;color:#16a34a;font-size:0.85rem;line-height:1;flex:0 0 auto"><i class="bi bi-patch-check-fill"></i></span>` : ''}
                                                             </div>
 
                                                             <!-- Row 2: Time -->
@@ -2276,6 +2303,14 @@
                                                             }
                                                         }
                                                         if (!entryWeight && rowSetupWeight > 0) entryWeight = rowSetupWeight;
+                                                        // Real production: if no setup/actual weight was recorded, fall back
+                                                        // to the mould-master STD weight so this production is still counted
+                                                        // (was previously dropped, under-counting tonnage).
+                                                        if (!entryWeight) {
+                                                            let _sw = parseFloat(m.details?.std_weight || 0);
+                                                            if (_sw >= 10) _sw = _sw / 1000;
+                                                            if (_sw > 0) entryWeight = _sw;
+                                                        }
 
                                                         if (gQty > 0 && entryWeight > 0) sumTonnage += (gQty * entryWeight);
                                                         const eRQty = parseInt(entry.reject_qty) || 0;
@@ -2437,6 +2472,13 @@
                                         machineGood += sumGood;
                                         machineEst += estPcs;
                                         machineEstNet += estPcsNet;
+                                        // Planned Target @shift (Kg) = std scheduled pieces × piece weight.
+                                        // Std Mould Changeover (Kg) = mould changes × (load+unload min)/60 × std rate × piece weight.
+                                        lineTotalPlannedKg += estPcs * stdWeightKg;
+                                        lineTotalChangeoverKg += rowShiftMC * ((loadUnloadMap[machine] || 0) / 60) * (parseFloat(m.std) || 0) * stdWeightKg;
+                                        // Capacity uses the machine's best planned mould at FULL shift hours,
+                                        // so planned-but-idle machines still count toward plant potential.
+                                        if (!m.is_dummy) machineCapRate = Math.max(machineCapRate, (parseFloat(m.std) || 0) * stdWeightKg);
 
                                         const _summaryBlink = (rowEff > 0 && rowEff < 85 && !m.is_dummy) ? ' blink-alert' : '';
                                         // Maintenance chip: if this machine has an OPEN ticket, show it's under
@@ -2489,6 +2531,11 @@
                                     }
                                 }); // End shiftsToRender loop
 
+                                // Full-shift capacity for this machine (best planned mould × shift hours).
+                                // Full-shift capacity across ALL rendered shifts (Both = 24 h, not 12 h),
+                                // so Capacity is a true ceiling ≥ Planned Target.
+                                lineTotalCapacityKg += machineCapRate * slots.length * shiftsToRender.length;
+
                                 // Push to Buffer
                                 let mEff = (machineEstNet > 0) ? (machineGood / machineEstNet) * 100 : 0;
                                 let mOee = (machineEst > 0) ? (machineGood / machineEst) * 100 : 0;
@@ -2517,6 +2564,9 @@
                             t.rej += lineTotalRejTonnage;
                             t.predKg  = (t.predKg  || 0) + lineTotalPredKg;
                             t.predQty = (t.predQty || 0) + lineTotalPredQty;
+                            t.plannedKg    = (t.plannedKg    || 0) + lineTotalPlannedKg;
+                            t.changeoverKg = (t.changeoverKg || 0) + lineTotalChangeoverKg;
+                            t.capacityKg   = (t.capacityKg   || 0) + lineTotalCapacityKg;
                             t.effGood += lineTotalGoodPcs;
                             t.effEst += lineTotalEstPcs;
                             t.netEst  = (t.netEst || 0) + lineTotalEstPcsNet;
@@ -2866,6 +2916,7 @@
                             let grandTotalEstPcs = 0;
                             let grandTotalNetPcs  = 0;
                             let grandTotalPredKg  = 0;
+                            let grandTotalPlannedKg = 0, grandTotalChangeoverKg = 0, grandTotalCapacityKg = 0;
 
                             Object.entries(window.lineTheTonnages).forEach(([name, data]) => {
                                 const goodVal = (typeof data === 'number') ? data : (data.good || 0);
@@ -2926,10 +2977,27 @@
                                 grandTotalGoodPcs += eGood;
                                 grandTotalEstPcs += eEst;
                                 grandTotalPredKg += (data.predKg || 0);
+                                grandTotalPlannedKg += (data.plannedKg || 0);
+                                grandTotalChangeoverKg += (data.changeoverKg || 0);
+                                grandTotalCapacityKg += (data.capacityKg || 0);
                             });
+
+                            // Planned Target @shift → − Std Mould Changeover → Planned Estimated → −5% → Planned Achievable Target
+                            const plannedTargetKg    = grandTotalPlannedKg;
+                            const plannedEstimatedKg = Math.max(0, plannedTargetKg - grandTotalChangeoverKg);
+                            const plannedAchievableKg = plannedEstimatedKg * 0.95;
+                            const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+                            setTxt('grand-total-capacity',   grandTotalCapacityKg.toFixed(2));
+                            setTxt('grand-total-plantarget', plannedTargetKg.toFixed(2));
+                            setTxt('grand-total-planest',    plannedEstimatedKg.toFixed(2));
+                            setTxt('grand-total-planach',    plannedAchievableKg.toFixed(2));
 
                             const gtOverallEl = document.getElementById('grand-total-overall');
                             if (gtOverallEl) gtOverallEl.textContent = (grandTotal + grandTotalRej).toFixed(2);
+
+                            // Downtime Loss = Planned Achievable − Gross (residual of the waterfall)
+                            const _grossKg = grandTotal + grandTotalRej;
+                            setTxt('grand-total-dtloss', Math.max(0, plannedAchievableKg - _grossKg).toFixed(2));
 
                             const gtEl = document.getElementById('grand-total-tonnage');
                             if (gtEl) gtEl.textContent = grandTotal.toFixed(2);

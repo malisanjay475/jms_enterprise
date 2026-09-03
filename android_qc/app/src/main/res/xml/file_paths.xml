@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Captured FPA photos live in cacheDir/images -->
+    <cache-path name="images" path="images/" />
+    <!-- Downloaded update APKs live in cacheDir/apk -->
+    <cache-path name="apk" path="apk/" />
+</paths>

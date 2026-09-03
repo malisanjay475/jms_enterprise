@@ -359,6 +359,14 @@
           <input type="text" id="mouldSearch" class="form-input" placeholder="e.g. MULTI LOOP BASKET">
         </div>
 
+        <div class="control-group" id="mouldViewGroup" style="display:none">
+          <label class="control-label">View</label>
+          <select id="mouldView" class="form-input" onchange="onMouldViewChange()">
+            <option value="summary" selected>Summary (per date)</option>
+            <option value="detail">Detail (date-wise grid)</option>
+          </select>
+        </div>
+
         <div class="control-group">
           <label class="control-label">From Date</label>
           <input type="date" id="dateFrom" class="form-input">
@@ -521,6 +529,7 @@
       const type = document.getElementById('reportType').value;
       const isMould = type === 'mould-wise-qty';
       document.getElementById('mouldSearchGroup').style.display = isMould ? 'flex' : 'none';
+      document.getElementById('mouldViewGroup').style.display = isMould ? 'flex' : 'none';
       document.getElementById('mouldFieldStrip').style.display = isMould ? 'block' : 'none';
       document.getElementById('tonnageStrip').style.display = isMould ? 'block' : 'none';
       if (isMould) loadTonnages();
@@ -679,7 +688,8 @@
       const search = encodeURIComponent(document.getElementById('mouldSearch').value.trim());
       const fields = encodeURIComponent(getSelectedMouldFields().join(','));
       const tonnages = encodeURIComponent(getTonnagesParam());
-      const url = `/api/reports/mould-wise-qty.xlsx?factory_id=${factoryId}&from=${from}&to=${to}&q=${search}&fields=${fields}&tonnages=${tonnages}`;
+      const view = (document.getElementById('mouldView') || {}).value || 'summary';
+      const url = `/api/reports/mould-wise-qty.xlsx?factory_id=${factoryId}&from=${from}&to=${to}&q=${search}&fields=${fields}&tonnages=${tonnages}&view=${view}`;
       const headers = {};
       const token = localStorage.getItem('token');
       if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -714,7 +724,8 @@
           const search = encodeURIComponent(document.getElementById('mouldSearch').value.trim());
           const fields = getSelectedMouldFields().join(',');
           const tonnages = encodeURIComponent(getTonnagesParam());
-          endpoint = `/reports/mould-wise-qty?factory_id=${factoryId}&from=${from}&to=${to}&q=${search}&fields=${encodeURIComponent(fields)}&tonnages=${tonnages}`;
+          const mouldView = document.getElementById('mouldView').value || 'summary';
+          endpoint = `/reports/mould-wise-qty?factory_id=${factoryId}&from=${from}&to=${to}&q=${search}&fields=${encodeURIComponent(fields)}&tonnages=${tonnages}&view=${mouldView}`;
         } else if (type === 'extra-qty-allowed') {
           endpoint = `/reports/extra-qty-allowed?from=${from}&to=${to}`;
         } else if (type === 'machine-maintenance') {
@@ -746,7 +757,8 @@
 
         if (res.ok) {
           if (type === 'mould-wise-qty') {
-            renderMouldReport(res.data, getSelectedMouldFields());
+            if (res.view === 'detail') renderMouldDetail(res.pivot, getSelectedMouldFields());
+            else renderMouldReport(res.data, getSelectedMouldFields());
           } else if (type === 'tonnage') {
             window._tonnageGroup = res.group || 'monthly';
             window._tonnageShift = res.shift || 'all';
@@ -878,6 +890,100 @@
             </tr>
           </table>`;
       }).join('');
+    }
+
+    function onMouldViewChange() {
+      // Detail forces the Machine dimension (server does too); the field strip
+      // stays available so ticking more boxes adds leading metric columns.
+    }
+
+    // DETAIL view of Mould Wise Item QTY — pivot: one row per Machine+Mould,
+    // dates as Day/Night column pairs, matching the printed grid layout.
+    function renderMouldDetail(pivot, fields) {
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('tableCard').style.display = 'none';
+      document.getElementById('mwScheduleCard').style.display = 'none';
+      const card = document.getElementById('mouldReportCard');
+      const body = document.getElementById('mouldReportBody');
+      card.style.display = 'block';
+
+      const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const num = v => (v == null || v === '' || Number(v) === 0) ? '' : Number(v).toLocaleString('en-IN');
+
+      const dates = (pivot && pivot.dates) || [];
+      const rows = (pivot && pivot.rows) || [];
+      if (!rows.length) {
+        body.innerHTML = '<p style="color:var(--text-light)">No production found for this mould / date range.</p>';
+        return;
+      }
+
+      const on = new Set(fields || []);
+      const leftCols = [
+        { key: 'machine', label: 'Machine' },
+        { key: 'mouldNo', label: 'Mould No' },
+        { key: 'mouldName', label: 'Mould Name' }
+      ];
+      const METRICS = [
+        ['std_prod', { key: 'prodStd', label: 'Prod (STD)', fmt: v => num(v) }],
+        ['std_cycle', { key: 'stdCycle', label: 'STD Cycle (s)', fmt: v => v ? Number(v).toFixed(2) : '' }],
+        ['avg_cycle', { key: 'avgCycle', label: 'Avg Cycle (s)', fmt: v => v ? Number(v).toFixed(2) : '' }],
+        ['std_weight', { key: 'stdWeight', label: 'STD Wt (kg)', fmt: v => v ? Number(v).toFixed(3) : '' }],
+        ['efficiency', { key: 'efficiency', label: 'Eff %', fmt: v => (v || v === 0) ? v + '%' : '' }],
+        ['reject_qty', { key: 'rejectQty', label: 'Reject Qty', fmt: v => num(v) }],
+        ['reject_pct', { key: 'rejectPct', label: 'Reject %', fmt: v => (v || v === 0) ? v + '%' : '' }]
+      ];
+      for (const [f, def] of METRICS) if (on.has(f)) leftCols.push(def);
+
+      const th = (txt, attrs = '') => `<th class="mr-colhead" ${attrs}>${esc(txt)}</th>`;
+      const head1 = leftCols.map(c => th(c.label, 'rowspan="3" style="vertical-align:middle"')).join('')
+        + (dates.length ? `<th class="mr-colhead" colspan="${dates.length * 2}" style="text-align:center">Date</th>` : '');
+      const head2 = dates.map(d => `<th class="mr-colhead" colspan="2" style="text-align:center">${esc(d.dayNum)}</th>`).join('');
+      const head3 = dates.map(() => '<th class="mr-colhead">Day</th><th class="mr-colhead">Night</th>').join('');
+
+      const bodyRows = rows.map(r => {
+        const lead = leftCols.map(c => {
+          const raw = r[c.key];
+          const val = c.fmt ? c.fmt(raw) : esc(raw);
+          const isNum = c.key !== 'machine' && c.key !== 'mouldNo' && c.key !== 'mouldName';
+          return `<td class="${isNum ? 'mr-num' : 'mr-label'}">${c.fmt ? val : esc(raw)}</td>`;
+        }).join('');
+        const grid = dates.map(d => {
+          const cell = (r.cells && r.cells[d.date]) || { day: 0, night: 0 };
+          return `<td class="mr-num">${num(cell.day)}</td><td class="mr-num">${num(cell.night)}</td>`;
+        }).join('');
+        return `<tr>${lead}${grid}</tr>`;
+      }).join('');
+
+      // Grand totals row: per-date Day/Night sums across all machine+mould rows,
+      // plus totals for the additive metric columns (Prod STD, Reject Qty). The
+      // rate/constant columns (STD Cycle, Avg Cycle, STD Wt, Eff %, Reject %) are
+      // left blank since a column-wide sum of them is not meaningful.
+      const sumKey = key => rows.reduce((a, r) => a + (Number(r[key]) || 0), 0);
+      const ADDITIVE = new Set(['prodStd', 'rejectQty']);
+      const totLead = leftCols.map((c, i) => {
+        if (i === 0) return `<td class="mr-label" style="font-weight:800">TOTAL</td>`;
+        if (ADDITIVE.has(c.key)) return `<td class="mr-num" style="font-weight:800">${num(sumKey(c.key))}</td>`;
+        return `<td></td>`;
+      }).join('');
+      const totGrid = dates.map(d => {
+        const ds = rows.reduce((a, r) => a + (((r.cells && r.cells[d.date]) || {}).day || 0), 0);
+        const ns = rows.reduce((a, r) => a + (((r.cells && r.cells[d.date]) || {}).night || 0), 0);
+        return `<td class="mr-num" style="font-weight:800">${num(ds)}</td><td class="mr-num" style="font-weight:800">${num(ns)}</td>`;
+      }).join('');
+      const totalsRow = `<tr class="mr-grand">${totLead}${totGrid}</tr>`;
+
+      body.innerHTML = `
+        <div style="overflow-x:auto">
+          <table class="mould-report-table" style="white-space:nowrap">
+            <thead>
+              <tr>${head1}</tr>
+              <tr>${head2}</tr>
+              <tr>${head3}</tr>
+            </thead>
+            <tbody>${bodyRows}${totalsRow}</tbody>
+          </table>
+        </div>`;
     }
 
     function renderEqaSummary(summary) {

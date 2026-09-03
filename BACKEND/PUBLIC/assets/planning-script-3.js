@@ -7883,7 +7883,9 @@
                   <div class="master-cell-title is-mono is-wrap" title="${esc(p.orderNo)}">${esc(p.orderNo)}</div>
                   <div class="master-report-meta">
                     <span class="master-mini-chip master-priority-chip">${esc(p.priority || '-')}</span>
+                    <span class="master-mini-chip is-mono" title="Plan ID">${esc(p.planId || p.plan_id || '-')}</span>
                   </div>
+                  <div class="master-cell-sub" style="font-size:0.68rem; color:#64748b" title="Created By">By: ${esc(p.createdBy || p.created_by || 'System')}</div>
                </div>
                 
                <div class="master-cell-stack compact" title="${esc(p.mouldName)}">
