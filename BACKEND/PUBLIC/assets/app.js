@@ -1245,7 +1245,8 @@ function escHtml(value) {
                 { id: 'ana_mould', label: 'Mould Analyze', icon: 'bi-diagram-3', href: 'analyze.html?view=mould' },
                 { id: 'ana_sup', label: 'Supervisor Analyze', icon: 'bi-person-badge', href: 'analyze.html?view=supervisor' },
                 { id: 'ana_plant', label: 'Plant Analyze', icon: 'bi-building', href: 'analyze.html?view=plant' },
-                { id: 'ana_machine', label: 'Machine Analyze', icon: 'bi-cpu', href: 'analyze.html?view=machine' }
+                { id: 'ana_machine', label: 'Machine Analyze', icon: 'bi-cpu', href: 'analyze.html?view=machine' },
+                { id: 'ana_downtime', label: 'Downtime Analyze', icon: 'bi-hourglass-split', href: 'analyze.html?view=downtime' }
             ]
         },
         {
