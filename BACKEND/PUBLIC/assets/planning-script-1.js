@@ -1280,7 +1280,7 @@
           <div class="pp-total"><span>Total Manpower</span><strong>${total}</strong></div>
           <button class="pp-btn savepdf" ${items.length?'':'disabled'} onclick="window.etvPrioritySave(true)"><i class="bi bi-file-earmark-pdf"></i> Save &amp; Generate PDF</button>
           <button class="pp-btn save" ${items.length?'':'disabled'} onclick="window.etvPrioritySave(false)"><i class="bi bi-save"></i> Save MC/MP SCH</button>
-          <button class="pp-btn manp" ${items.length?'':'disabled'} onclick="window.etvManpowerReport()" style="background:#0f766e;color:#fff;border-color:#0f766e"><i class="bi bi-file-earmark-spreadsheet"></i> Manpower Excel</button>
+          <button class="pp-btn manp" onclick="window.etvManpowerReport()" style="background:#0f766e;color:#fff;border-color:#0f766e" title="Auto-lists every machine's running plan with STD manpower + blank Actual"><i class="bi bi-file-earmark-spreadsheet"></i> Running Plan Manpower</button>
           <button class="pp-btn cancel" onclick="window.etvPriorityCancel()">Cancel</button>
         </div>`;
       requestAnimationFrame(() => panel.classList.add('open'));
@@ -1362,13 +1362,32 @@
     /* Manpower report (Create Priority): running plan machine-wise with STD
        Manpower and a blank Actual column for manual fill. Shows on screen and
        downloads an Excel-openable file. */
-    window.etvManpowerReport = function () {
-      const ctx = window.etvPriorityCtx || { items: [], date: '', shift: '' };
-      const items = ctx.items || [];
-      if (!items.length) { alert('Add machines to the priority list first.'); return; }
+    window.etvManpowerReport = async function () {
+      // Auto-collect EVERY machine's currently-running plan — no manual selection.
+      let items = [];
+      try {
+        const api = getApi();
+        const proc = (typeof getProcFilter === 'function' ? getProcFilter() : '');
+        const res = await api.get(`/planning/board${proc ? ('?process=' + encodeURIComponent(proc)) : ''}`);
+        const plans = (res && res.data && res.data.plans) ? res.data.plans : [];
+        items = plans
+          .filter(p => String(p.status || '').trim().toLowerCase() === 'running')
+          .map(p => ({
+            machine: p.machine || '-',
+            mouldName: p.mouldName || p.mould_name || '-',
+            mouldNo: p.mouldNo || p.mould_code || '',
+            manpower: (typeof window.etvManpowerFor === 'function') ? window.etvManpowerFor(p) : null
+          }))
+          .sort((a, b) => String(a.machine).localeCompare(String(b.machine), undefined, { numeric: true, sensitivity: 'base' }));
+      } catch (e) {
+        console.error('[Manpower Report] board fetch failed', e);
+        alert('Could not load running plans: ' + (e && e.message ? e.message : e));
+        return;
+      }
+      if (!items.length) { alert('No running plans found on any machine right now.'); return; }
       const totalStd = items.reduce((s, it) => s + (Number.isFinite(it.manpower) ? it.manpower : 0), 0);
-      const dateTxt = ctx.date ? new Date(ctx.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
-      const title = ('Manpower Report — ' + (ctx.shift || '') + ' Shift' + (dateTxt ? (' · ' + dateTxt) : '')).trim();
+      const dateTxt = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      const title = ('Running Plan Manpower — ' + dateTxt).trim();
 
       const rowsHtml = items.map((it, i) => `
         <tr>
