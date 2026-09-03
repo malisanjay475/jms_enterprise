@@ -28828,6 +28828,335 @@ app.get('/api/analyze/compare', async (req, res) => {
 });
 
 // ============================================================
+// DOWNTIME ANALYZE  (analyze.html?view=downtime)
+// Machine-wise / date-wise / reason-wise / plant-wise downtime,
+// sourced from dpr_hourly.downtime_breakup (JSON {reasonKey: minutes}).
+// ============================================================
+// Reason key -> human label. Mirrors DOWNTIME_CODES + QUICK_ACTION_META
+// in BACKEND/PUBLIC/assets/dpr-script-1.js (single source of truth for labels).
+const ANALYZE_DOWNTIME_CODES = {
+  '1': 'Manpower Shortage', '2': 'Mould Change', '3': 'Accessories Issue',
+  '4': 'No Material', '5': 'Machine Maintenance', '6': 'Nozzle Blockage',
+  '7': 'Mould Problem', '8': 'Power / Heater Failure', '9': 'Color Change',
+  '10': 'Process Setting', '11': 'Mould Trial', '12': 'Crane / Loading', '13': 'No Plan'
+};
+const ANALYZE_DOWNTIME_QUICK = {
+  ManPowerShortage: 'Manpower Shortage', MouldChangeover: 'Mould Change',
+  MouldChange: 'Mould Change', Maintenance: 'Machine Maintenance',
+  MouldMaintenance: 'Mould Maintenance', PowerCut: 'Power / Heater Failure',
+  MouldTrial: 'Mould Trial', NoPlan: 'No Plan'
+};
+function analyzeDowntimeReasonLabel(key) {
+  const k = String(key == null ? '' : key).trim();
+  if (ANALYZE_DOWNTIME_CODES[k]) return ANALYZE_DOWNTIME_CODES[k];
+  if (ANALYZE_DOWNTIME_QUICK[k]) return ANALYZE_DOWNTIME_QUICK[k];
+  return k || 'Other';
+}
+// Parse a downtime_breakup value (JSONB object, or a JSON string) into {label: minutes}.
+function analyzeParseDowntimeBreakup(raw) {
+  let db = raw;
+  if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
+  const out = {};
+  if (db && typeof db === 'object') {
+    for (const [k, v] of Object.entries(db)) {
+      const min = toNum(v);
+      if (!min) continue;
+      const label = analyzeDowntimeReasonLabel(k);
+      out[label] = (out[label] || 0) + min;
+    }
+  }
+  return out;
+}
+// Build the factory-access WHERE clause shared by the downtime endpoints.
+// Returns { where:[], params:[], blocked:bool } — blocked = user has no access at all.
+async function analyzeDowntimeScope(req, { requireAllForNoFactory = false } = {}) {
+  const username = getRequestUsername(req);
+  const access = await getAccessibleFactoriesForUser(username);
+  const accessibleIds = access.factories.map(f => Number(f.id));
+  const canAll = access.canSelectAllFactories;
+  const params = [];
+  const where = ['COALESCE(dh.is_deleted, false) = false'];
+
+  const reqFactory = Number(req.query.factory);
+  if (reqFactory) {
+    if (!canAll && !accessibleIds.includes(reqFactory)) return { blocked: true, forbidden: true };
+    params.push(reqFactory); where.push(`dh.factory_id = $${params.length}`);
+  } else if (!canAll) {
+    if (!accessibleIds.length) return { blocked: true };
+    params.push(accessibleIds); where.push(`dh.factory_id = ANY($${params.length}::int[])`);
+  }
+  if (req.query.from) { params.push(req.query.from); where.push(`dh.dpr_date >= $${params.length}`); }
+  if (req.query.to) { params.push(req.query.to); where.push(`dh.dpr_date <= $${params.length}`); }
+  if (req.query.shift) { params.push(req.query.shift); where.push(`dh.shift = $${params.length}`); }
+
+  return { where, params, access, accessibleIds, canAll, blocked: false };
+}
+
+// GET /api/analyze/downtime
+// Machine-wise downtime + company-wide reason Pareto over the range.
+app.get('/api/analyze/downtime', async (req, res) => {
+  try {
+    const scope = await analyzeDowntimeScope(req);
+    if (scope.forbidden) return res.status(403).json({ ok: false, error: 'No access to that factory' });
+    if (scope.blocked) return res.json({ ok: true, data: { machines: [], reasons: [], totals: {} } });
+
+    const logs = await q(`
+      SELECT dh.machine, dh.line, dh.dpr_date::text AS date, dh.shift, dh.hour_slot,
+             dh.downtime_min, dh.downtime_breakup
+        FROM dpr_hourly dh
+       WHERE ${scope.where.join(' AND ')}
+    `, scope.params);
+
+    const byMc = {};          // machine -> { good... } we only need downtime here
+    const reasonTotals = {};  // label -> minutes (company-wide Pareto)
+    let totalDt = 0, totalEvents = 0;
+
+    logs.forEach(l => {
+      const mc = l.machine || 'Unassigned';
+      const dt = toNum(l.downtime_min);
+      const reasons = analyzeParseDowntimeBreakup(l.downtime_breakup);
+      if (!byMc[mc]) byMc[mc] = { machine: mc, line: l.line || '-', totalDowntimeMin: 0, events: 0, runSlots: new Set(), byReason: {} };
+      const a = byMc[mc];
+      a.runSlots.add(`${l.date}|${l.shift}|${l.hour_slot}`);
+      // Prefer the itemised breakup; fall back to the scalar downtime_min if no breakup.
+      const reasonSum = Object.values(reasons).reduce((s, v) => s + v, 0);
+      const effMin = reasonSum > 0 ? reasonSum : dt;
+      if (effMin > 0) { a.events += 1; totalEvents += 1; }
+      a.totalDowntimeMin += effMin;
+      totalDt += effMin;
+      if (reasonSum > 0) {
+        for (const [label, min] of Object.entries(reasons)) {
+          a.byReason[label] = (a.byReason[label] || 0) + min;
+          reasonTotals[label] = (reasonTotals[label] || 0) + min;
+        }
+      } else if (dt > 0) {
+        a.byReason['Unspecified'] = (a.byReason['Unspecified'] || 0) + dt;
+        reasonTotals['Unspecified'] = (reasonTotals['Unspecified'] || 0) + dt;
+      }
+    });
+
+    const machines = Object.values(byMc).map(a => {
+      const runHours = a.runSlots.size;
+      const downHours = a.totalDowntimeMin / 60;
+      const availableHours = runHours + downHours;
+      const topReason = Object.entries(a.byReason).sort((x, y) => y[1] - x[1])[0];
+      return {
+        machine: a.machine, line: a.line,
+        totalDowntimeMin: Math.round(a.totalDowntimeMin),
+        events: a.events,
+        byReason: Object.fromEntries(Object.entries(a.byReason).map(([k, v]) => [k, Math.round(v)])),
+        topReason: topReason ? topReason[0] : null,
+        downtimePct: availableHours > 0 ? Number(((downHours / availableHours) * 100).toFixed(1)) : 0
+      };
+    }).sort((a, b) => b.totalDowntimeMin - a.totalDowntimeMin);
+
+    // Company-wide reason Pareto (desc + cumulative %)
+    let cum = 0;
+    const reasons = Object.entries(reasonTotals)
+      .map(([reason, min]) => ({ reason, min: Math.round(min) }))
+      .sort((a, b) => b.min - a.min)
+      .map(r => {
+        const share = totalDt > 0 ? (r.min / totalDt) * 100 : 0;
+        cum += share;
+        return { ...r, share: Number(share.toFixed(1)), cumulative: Number(cum.toFixed(1)) };
+      });
+
+    const worstMachine = machines[0] || null;
+    res.json({
+      ok: true,
+      data: {
+        machines, reasons,
+        totals: {
+          totalDowntimeMin: Math.round(totalDt),
+          totalDowntimeHrs: Number((totalDt / 60).toFixed(1)),
+          totalEvents,
+          machineCount: machines.length,
+          avgDowntimePerMachine: machines.length ? Math.round(totalDt / machines.length) : 0,
+          worstMachine: worstMachine ? worstMachine.machine : null,
+          worstReason: reasons[0] ? reasons[0].reason : null
+        }
+      }
+    });
+  } catch (e) {
+    console.error('analyze/downtime', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// GET /api/analyze/downtime/daily
+// Date-wise downtime trend: per day totals, reason split, shift split.
+app.get('/api/analyze/downtime/daily', async (req, res) => {
+  try {
+    const scope = await analyzeDowntimeScope(req);
+    if (scope.forbidden) return res.status(403).json({ ok: false, error: 'No access to that factory' });
+    if (scope.blocked) return res.json({ ok: true, data: { days: [], reasonKeys: [] } });
+
+    const logs = await q(`
+      SELECT dh.dpr_date::text AS date, dh.shift, dh.downtime_min, dh.downtime_breakup
+        FROM dpr_hourly dh
+       WHERE ${scope.where.join(' AND ')}
+    `, scope.params);
+
+    const byDate = {};
+    const reasonSeen = {};
+    logs.forEach(l => {
+      const d = l.date || 'Unknown';
+      const shift = /night/i.test(l.shift || '') ? 'Night' : 'Day';
+      const reasons = analyzeParseDowntimeBreakup(l.downtime_breakup);
+      const reasonSum = Object.values(reasons).reduce((s, v) => s + v, 0);
+      const effMin = reasonSum > 0 ? reasonSum : toNum(l.downtime_min);
+      if (!byDate[d]) byDate[d] = { date: d, totalMin: 0, Day: 0, Night: 0, byReason: {} };
+      const a = byDate[d];
+      a.totalMin += effMin; a[shift] += effMin;
+      if (reasonSum > 0) {
+        for (const [label, min] of Object.entries(reasons)) {
+          a.byReason[label] = (a.byReason[label] || 0) + min;
+          reasonSeen[label] = (reasonSeen[label] || 0) + min;
+        }
+      } else if (effMin > 0) {
+        a.byReason['Unspecified'] = (a.byReason['Unspecified'] || 0) + effMin;
+        reasonSeen['Unspecified'] = (reasonSeen['Unspecified'] || 0) + effMin;
+      }
+    });
+
+    const days = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)).map(d => ({
+      date: d.date, totalMin: Math.round(d.totalMin),
+      Day: Math.round(d.Day), Night: Math.round(d.Night),
+      byReason: Object.fromEntries(Object.entries(d.byReason).map(([k, v]) => [k, Math.round(v)]))
+    }));
+    const reasonKeys = Object.entries(reasonSeen).sort((a, b) => b[1] - a[1]).map(([k]) => k);
+    const worstDay = days.slice().sort((a, b) => b.totalMin - a.totalMin)[0] || null;
+
+    res.json({ ok: true, data: { days, reasonKeys, worstDay: worstDay ? worstDay.date : null } });
+  } catch (e) {
+    console.error('analyze/downtime/daily', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// GET /api/analyze/downtime/detail?machine=&reason=&date=
+// Raw contributing hour-slots for a drill (machine / reason / date all optional).
+app.get('/api/analyze/downtime/detail', async (req, res) => {
+  try {
+    const scope = await analyzeDowntimeScope(req);
+    if (scope.forbidden) return res.status(403).json({ ok: false, error: 'No access to that factory' });
+    if (scope.blocked) return res.json({ ok: true, data: { rows: [] } });
+
+    const where = scope.where.slice();
+    const params = scope.params.slice();
+    const drillMachine = String(req.query.machine || '').trim();
+    if (drillMachine) { params.push(drillMachine); where.push(`TRIM(COALESCE(dh.machine,'')) = TRIM($${params.length})`); }
+    if (req.query.date) { params.push(req.query.date); where.push(`dh.dpr_date = $${params.length}`); }
+
+    const logs = await q(`
+      SELECT dh.dpr_date::text AS date, dh.shift, dh.hour_slot, dh.machine, dh.line,
+             dh.mould_no, dh.order_no, dh.plan_id, dh.colour,
+             dh.good_qty, dh.reject_qty, dh.downtime_min, dh.downtime_breakup,
+             COALESCE(dh.supervisor, dh.created_by) AS entered_by
+        FROM dpr_hourly dh
+       WHERE ${where.join(' AND ')}
+       ORDER BY dh.dpr_date DESC, dh.shift, dh.hour_slot, dh.machine
+    `, params);
+
+    const reasonFilter = String(req.query.reason || '').trim();
+    const rows = [];
+    logs.forEach(l => {
+      const reasons = analyzeParseDowntimeBreakup(l.downtime_breakup);
+      const reasonSum = Object.values(reasons).reduce((s, v) => s + v, 0);
+      if (reasonSum > 0) {
+        for (const [label, min] of Object.entries(reasons)) {
+          if (reasonFilter && label !== reasonFilter) continue;
+          rows.push({
+            date: l.date, shift: l.shift, hour: l.hour_slot, machine: l.machine, line: l.line,
+            mould: l.mould_no, order: l.order_no, plan: l.plan_id, colour: l.colour,
+            reason: label, minutes: Math.round(min),
+            good: toNum(l.good_qty), reject: toNum(l.reject_qty), enteredBy: l.entered_by
+          });
+        }
+      } else if (toNum(l.downtime_min) > 0 && (!reasonFilter || reasonFilter === 'Unspecified')) {
+        rows.push({
+          date: l.date, shift: l.shift, hour: l.hour_slot, machine: l.machine, line: l.line,
+          mould: l.mould_no, order: l.order_no, plan: l.plan_id, colour: l.colour,
+          reason: 'Unspecified', minutes: Math.round(toNum(l.downtime_min)),
+          good: toNum(l.good_qty), reject: toNum(l.reject_qty), enteredBy: l.entered_by
+        });
+      }
+    });
+
+    res.json({ ok: true, data: { rows, count: rows.length } });
+  } catch (e) {
+    console.error('analyze/downtime/detail', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// GET /api/analyze/downtime/plant
+// Plant-wise (factory comparison) downtime. ONLY for users with all-factory
+// access (or >1 accessible factory); single-factory users get an empty set.
+app.get('/api/analyze/downtime/plant', async (req, res) => {
+  try {
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
+    if (!canAll && accessibleIds.length <= 1) {
+      return res.json({ ok: true, data: { factories: [], gated: true } });
+    }
+    const nameById = {};
+    access.factories.forEach(f => { nameById[Number(f.id)] = f.name || f.code || ('Factory ' + f.id); });
+
+    const params = [];
+    const where = ['COALESCE(dh.is_deleted, false) = false', 'dh.factory_id IS NOT NULL'];
+    if (!canAll) { params.push(accessibleIds); where.push(`dh.factory_id = ANY($${params.length}::int[])`); }
+    if (req.query.from) { params.push(req.query.from); where.push(`dh.dpr_date >= $${params.length}`); }
+    if (req.query.to) { params.push(req.query.to); where.push(`dh.dpr_date <= $${params.length}`); }
+
+    const logs = await q(`
+      SELECT dh.factory_id, dh.dpr_date::text AS date, dh.shift, dh.hour_slot,
+             dh.downtime_min, dh.downtime_breakup
+        FROM dpr_hourly dh
+       WHERE ${where.join(' AND ')}
+    `, params);
+
+    const acc = {};
+    logs.forEach(l => {
+      const fid = Number(l.factory_id);
+      if (!acc[fid]) acc[fid] = { factory_id: fid, name: nameById[fid] || ('Factory ' + fid), totalMin: 0, events: 0, runSlots: new Set(), byReason: {} };
+      const a = acc[fid];
+      const reasons = analyzeParseDowntimeBreakup(l.downtime_breakup);
+      const reasonSum = Object.values(reasons).reduce((s, v) => s + v, 0);
+      const effMin = reasonSum > 0 ? reasonSum : toNum(l.downtime_min);
+      a.runSlots.add(`${l.date}|${l.shift}|${l.hour_slot}`);
+      if (effMin > 0) a.events += 1;
+      a.totalMin += effMin;
+      if (reasonSum > 0) for (const [label, min] of Object.entries(reasons)) a.byReason[label] = (a.byReason[label] || 0) + min;
+      else if (effMin > 0) a.byReason['Unspecified'] = (a.byReason['Unspecified'] || 0) + effMin;
+    });
+
+    const factories = Object.values(acc).map(a => {
+      const runHours = a.runSlots.size;
+      const downHours = a.totalMin / 60;
+      const availableHours = runHours + downHours;
+      const top = Object.entries(a.byReason).sort((x, y) => y[1] - x[1])[0];
+      return {
+        factory_id: a.factory_id, name: a.name,
+        totalDowntimeMin: Math.round(a.totalMin),
+        totalDowntimeHrs: Number((a.totalMin / 60).toFixed(1)),
+        events: a.events,
+        topReason: top ? top[0] : null,
+        byReason: Object.fromEntries(Object.entries(a.byReason).map(([k, v]) => [k, Math.round(v)])),
+        downtimePct: availableHours > 0 ? Number(((downHours / availableHours) * 100).toFixed(1)) : 0
+      };
+    }).sort((a, b) => b.totalDowntimeMin - a.totalDowntimeMin);
+
+    res.json({ ok: true, data: { factories, gated: false } });
+  } catch (e) {
+    console.error('analyze/downtime/plant', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// ============================================================
 // ADMIN DATABASE TOOLS (Backup / Restore)
 // ============================================================
 // ============================================================

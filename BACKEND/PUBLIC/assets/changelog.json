@@ -11,8 +11,34 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.50.2",
+  "latest": "1.51.0",
   "versions": [
+    {
+      "version": "1.51.0",
+      "date": "2026-09-03",
+      "title": "Downtime Analyze — machine, date & factory-wise losses",
+      "modules": [
+        {
+          "app": "analyze",
+          "label": "Analyze",
+          "icon": "bi-bar-chart-fill",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New 'Downtime Analyze' screen under Analyze shows where machine time is being lost — a reason Pareto (80/20), machine-wise, date-wise and reason-wise views, a daily downtime trend, and click any row to drill into every contributing hour with mould, order, shift and who entered it."
+            },
+            {
+              "type": "feat",
+              "text": "Pick a period with one tap (Today, Last 7 Days, This Month, or a custom date range) and download the whole downtime report to Excel or CSV."
+            },
+            {
+              "type": "feat",
+              "text": "Staff with access to more than one factory get an extra plant-wise view comparing downtime across factories; single-factory users only ever see their own plant."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.50.2",
       "date": "2026-09-03",
