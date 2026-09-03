@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.50.1",
+  "latest": "1.50.2",
   "versions": [
+    {
+      "version": "1.50.2",
+      "date": "2026-09-03",
+      "title": "Running Plan Manpower — auto for all machines",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "The Manpower report in Create Priority no longer needs manual selection — clicking 'Running Plan Manpower' now auto-lists every machine's currently-running plan with STD Manpower and a blank Actual column, shown on screen and downloadable to Excel." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.50.1",
       "date": "2026-09-02",
