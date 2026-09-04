@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.52.2",
+  "latest": "1.52.3",
   "versions": [
+    {
+      "version": "1.52.3",
+      "date": "2026-09-04",
+      "title": "Go to top button on DPR Compliance Summary",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "A small 'go to top' button now appears when you scroll down the DPR Compliance Summary, so you can jump back to the top quickly." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.52.2",
       "date": "2026-09-04",
