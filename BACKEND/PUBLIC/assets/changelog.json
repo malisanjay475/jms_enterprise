@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.51.2",
+  "latest": "1.52.0",
   "versions": [
+    {
+      "version": "1.52.0",
+      "date": "2026-09-04",
+      "title": "User Management — deactivate users",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "feat", "text": "User Management now has an Active toggle — clear it to deactivate a user so they can no longer log in, and switch it back on to restore access." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.51.2",
       "date": "2026-09-03",

@@ -6191,6 +6191,8 @@ app.post('/api/users/save', async (req, res) => {
 
     // Permissions should be JSON string or object
     const permJson = typeof permissions === 'object' ? JSON.stringify(permissions) : (permissions || '{}');
+    // Active flag: explicit boolean applies; omitted keeps the existing value (null).
+    const isActiveParam = (typeof payload.is_active === 'boolean') ? payload.is_active : null;
     let userId = normalizeFactoryId(payload.id);
     let existingUser = null;
 
@@ -6229,6 +6231,11 @@ app.post('/api/users/save', async (req, res) => {
         return res.status(403).json({ ok: false, error: 'Only superadmin can create, edit, or assign the superadmin role' });
       }
 
+      // Guard: don't let an admin lock themselves out by deactivating their own account.
+      if (isActiveParam === false && actor && actor.id != null && Number(actor.id) === Number(userId)) {
+        return res.status(400).json({ ok: false, error: 'You cannot deactivate your own account.' });
+      }
+
       // UPDATE
       let hash = '';
       if (password) {
@@ -6236,16 +6243,17 @@ app.post('/api/users/save', async (req, res) => {
       }
 
       await q(
-        `UPDATE users 
-            SET username=$1, 
-                line=$2, 
-                role_code=$3, 
+        `UPDATE users
+            SET username=$1,
+                line=$2,
+                role_code=$3,
                 permissions=$4::jsonb,
                 password = CASE WHEN $5::text = '' THEN password ELSE $5 END,
                 updated_at=NOW(),
-                global_access=$7
+                global_access=$7,
+                is_active = COALESCE($8, is_active)
           WHERE id=$6`,
-        [username, line || '', requestedRoleCode, permJson, hash, userId, payload.global_access || false]
+        [username, line || '', requestedRoleCode, permJson, hash, userId, payload.global_access || false, isActiveParam]
       );
     } else {
       if (requestedRoleCode === 'superadmin' && !isSuperadminRole(actor)) {
@@ -6259,9 +6267,9 @@ app.post('/api/users/save', async (req, res) => {
 
       const resInsert = await pool.query( // Use pool.query to get RETURNING id
         `INSERT INTO users (username, password, line, role_code, permissions, is_active, global_access)
-         VALUES ($1, $2, $3, $4, $5::jsonb, TRUE, $6)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $7, $6)
          RETURNING id`,
-        [username, hash, line || '', requestedRoleCode, permJson, payload.global_access || false]
+        [username, hash, line || '', requestedRoleCode, permJson, payload.global_access || false, isActiveParam !== false]
       );
       userId = resInsert.rows[0].id;
     }
