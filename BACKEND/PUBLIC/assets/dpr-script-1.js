@@ -1995,7 +1995,12 @@
                                                     // Same order — for multi-component orders (many moulds share one
                                                     // order_no) require the mould to match too, so the active mould is
                                                     // the right component, not just the first row of that order.
-                                                    if (mOrder && eOrder && mOrder === eOrder) {
+                                                    if (mOrder && eOrder) {
+                                                        // Entry belongs to a specific order — ONLY that order's row may
+                                                        // claim it. Never fall through to a mould-code/name match against
+                                                        // a different order, or two plans of the same mould on one machine
+                                                        // cross-attribute (wrong active slot -> false red cross).
+                                                        if (mOrder !== eOrder) return false;
                                                         if (mCode && eNo) return mCode.toLowerCase() === eNo.toLowerCase();
                                                         if (mName && eName) return mName.toLowerCase() === eName.toLowerCase();
                                                         return true;
@@ -2376,7 +2381,12 @@
                                                     // Same order — for multi-component orders (many moulds share one
                                                     // order_no) require the mould to match too, so each component's
                                                     // entries attach to its own row instead of piling onto the first.
-                                                    if (mOrder && eOrder && mOrder === eOrder) {
+                                                    if (mOrder && eOrder) {
+                                                        // Entry belongs to a specific order — ONLY that order's row may
+                                                        // claim it. Never fall through to a mould-code/name match against
+                                                        // a different order, or two plans of the same mould on one machine
+                                                        // cross-attribute (entries land on the wrong plan's row).
+                                                        if (mOrder !== eOrder) return false;
                                                         if (mCode && eNo) return mCode === eNo.toLowerCase();
                                                         if (mName && eName) return mName === eName.toLowerCase();
                                                         return true;

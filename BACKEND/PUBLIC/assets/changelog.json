@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.54.0",
+  "latest": "1.54.1",
   "versions": [
+    {
+      "version": "1.54.1",
+      "date": "2026-09-04",
+      "title": "Correct hourly cells when a machine runs two plans of one mould",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "In the Compliance Summary, when the same mould runs on one machine under two different orders (e.g. one order earlier and another later in the day), each plan's hourly entries now stay on its own row — no more false red-cross on a row where an entry was actually made." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.54.0",
       "date": "2026-09-04",
