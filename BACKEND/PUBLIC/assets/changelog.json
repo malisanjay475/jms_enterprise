@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.51.1",
+  "latest": "1.51.2",
   "versions": [
+    {
+      "version": "1.51.2",
+      "date": "2026-09-03",
+      "title": "DPR Compliance Summary — Machines Stopped alert",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "A red banner at the top of the DPR Compliance Summary now shows machines that are stopped — no production for over an hour, for any reason. Click it to see every stopped machine with its running plan, how long it has been stopped, and the reason. Stoppages that carried over from a previous day are included and flagged." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.51.1",
       "date": "2026-09-04",
