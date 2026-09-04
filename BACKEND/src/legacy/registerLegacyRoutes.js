@@ -16710,6 +16710,172 @@ app.get('/api/reports/machine-downtime.xlsx', async (req, res) => {
   }
 });
 
+// ============================================================
+//  MANAGEMENT — Organisation Structure (SUPERADMIN ONLY)
+//  Joyo Plastics org: units -> departments/grades/designations -> people, with a
+//  reports_to hierarchy. Every /api/org/* route is superadmin-gated server-side.
+// ============================================================
+
+// Resolve the actor and confirm superadmin (role_code OR username = superadmin,
+// since the seed superadmin account has role_code 'admin'). Sends 401/403 and
+// returns null when not allowed. [[project_superadmin_gating]]
+async function orgRequireSuperadmin(req, res) {
+  const actor = await getRequestActor(req);
+  if (!actor) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return null; }
+  const isSuper = isSuperadminRole(actor) || String(actor.username || '').toLowerCase() === 'superadmin';
+  if (!isSuper) { res.status(403).json({ ok: false, error: 'Management is restricted to Superadmin.' }); return null; }
+  return actor;
+}
+
+// Column whitelist per org setup table (never trust client keys).
+const ORG_TABLES = {
+  units:        { table: 'org_units',        cols: ['name', 'code', 'unit_type', 'factory_id', 'location', 'sort_order', 'is_active'] },
+  departments:  { table: 'org_departments',  cols: ['name', 'code', 'sort_order', 'is_active'] },
+  grades:       { table: 'org_grades',       cols: ['band_name', 'level_code', 'rank_order', 'is_active'] },
+  designations: { table: 'org_designations', cols: ['title', 'grade_id', 'department_id', 'is_active'] }
+};
+
+// GET /api/org/bootstrap — everything the Management app needs in one call.
+app.get('/api/org/bootstrap', async (req, res) => {
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    const [units, departments, grades, designations, people] = await Promise.all([
+      q(`SELECT * FROM org_units WHERE is_deleted=FALSE ORDER BY sort_order, name`),
+      q(`SELECT * FROM org_departments WHERE is_deleted=FALSE ORDER BY sort_order, name`),
+      q(`SELECT * FROM org_grades WHERE is_deleted=FALSE ORDER BY rank_order, level_code`),
+      q(`SELECT * FROM org_designations WHERE is_deleted=FALSE ORDER BY title`),
+      q(`SELECT * FROM org_people WHERE is_deleted=FALSE ORDER BY sort_order, full_name`)
+    ]);
+    res.json({ ok: true, data: { units, departments, grades, designations, people } });
+  } catch (e) { console.error('api/org/bootstrap', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+// Generic CRUD for the four setup lists: /api/org/:kind (POST), /:kind/:id (PUT/DELETE).
+app.post('/api/org/:kind', async (req, res) => {
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    const cfg = ORG_TABLES[req.params.kind];
+    if (!cfg) return res.json({ ok: false, error: 'Unknown list' });
+    const b = req.body || {};
+    const keys = cfg.cols.filter(c => b[c] !== undefined);
+    if (!keys.length) return res.json({ ok: false, error: 'No fields' });
+    const vals = keys.map(k => b[k] === '' ? null : b[k]);
+    const ph = keys.map((_, i) => `$${i + 1}`).join(',');
+    const ins = await q(`INSERT INTO ${cfg.table} (${keys.join(',')}) VALUES (${ph}) RETURNING *`, vals);
+    res.json({ ok: true, data: ins[0] });
+  } catch (e) { console.error('api/org POST', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+app.put('/api/org/:kind/:id', async (req, res) => {
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    const cfg = ORG_TABLES[req.params.kind];
+    if (!cfg) return res.json({ ok: false, error: 'Unknown list' });
+    const b = req.body || {};
+    const keys = cfg.cols.filter(c => b[c] !== undefined);
+    if (!keys.length) return res.json({ ok: false, error: 'No fields' });
+    const sets = keys.map((k, i) => `${k}=$${i + 2}`).join(', ');
+    const vals = keys.map(k => b[k] === '' ? null : b[k]);
+    const upd = await q(`UPDATE ${cfg.table} SET ${sets}, updated_at=NOW() WHERE id=$1 AND is_deleted=FALSE RETURNING *`, [req.params.id, ...vals]);
+    if (!upd.length) return res.json({ ok: false, error: 'Not found' });
+    res.json({ ok: true, data: upd[0] });
+  } catch (e) { console.error('api/org PUT', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+app.delete('/api/org/:kind/:id', async (req, res) => {
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    const cfg = ORG_TABLES[req.params.kind];
+    if (!cfg) return res.json({ ok: false, error: 'Unknown list' });
+    const del = await q(`UPDATE ${cfg.table} SET is_deleted=TRUE, updated_at=NOW() WHERE id=$1 AND is_deleted=FALSE RETURNING id`, [req.params.id]);
+    if (!del.length) return res.json({ ok: false, error: 'Not found' });
+    res.json({ ok: true });
+  } catch (e) { console.error('api/org DELETE', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+// ---- People ----
+const ORG_PERSON_COLS = ['emp_code', 'full_name', 'unit_id', 'department_id', 'designation_id', 'grade_id', 'reports_to_id', 'user_id', 'phone', 'email', 'doj', 'status', 'notes', 'sort_order'];
+function orgPersonPayload(b) {
+  const keys = ORG_PERSON_COLS.filter(c => b[c] !== undefined);
+  const vals = keys.map(k => (b[k] === '' ? null : b[k]));
+  return { keys, vals };
+}
+// Guard against a reporting loop: walk up from managerId; fail if we reach personId.
+async function orgWouldLoop(personId, managerId) {
+  if (!managerId) return false;
+  let cur = Number(managerId), guard = 0;
+  while (cur && guard++ < 200) {
+    if (Number(cur) === Number(personId)) return true;
+    const r = await q(`SELECT reports_to_id FROM org_people WHERE id=$1 AND is_deleted=FALSE`, [cur]);
+    cur = r.length ? r[0].reports_to_id : null;
+  }
+  return false;
+}
+
+app.post('/api/org/people', async (req, res) => {
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    const b = req.body || {};
+    if (!String(b.full_name || '').trim()) return res.json({ ok: false, error: 'full_name required' });
+    const { keys, vals } = orgPersonPayload(b);
+    const ph = keys.map((_, i) => `$${i + 1}`).join(',');
+    const ins = await q(`INSERT INTO org_people (${keys.join(',')}) VALUES (${ph}) RETURNING *`, vals);
+    res.json({ ok: true, data: ins[0] });
+  } catch (e) { console.error('api/org/people POST', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+app.put('/api/org/people/:id', async (req, res) => {
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    const b = req.body || {};
+    if (b.reports_to_id && await orgWouldLoop(req.params.id, b.reports_to_id)) {
+      return res.json({ ok: false, error: 'That would make a reporting loop (a person cannot report to their own subordinate).' });
+    }
+    const { keys, vals } = orgPersonPayload(b);
+    if (!keys.length) return res.json({ ok: false, error: 'No fields' });
+    const sets = keys.map((k, i) => `${k}=$${i + 2}`).join(', ');
+    const upd = await q(`UPDATE org_people SET ${sets}, updated_at=NOW() WHERE id=$1 AND is_deleted=FALSE RETURNING *`, [req.params.id, ...vals]);
+    if (!upd.length) return res.json({ ok: false, error: 'Not found' });
+    res.json({ ok: true, data: upd[0] });
+  } catch (e) { console.error('api/org/people PUT', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+app.delete('/api/org/people/:id', async (req, res) => {
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    // Re-point anyone reporting to this person up to this person's own manager, so
+    // deleting a mid-level person doesn't orphan their team.
+    const who = await q(`SELECT reports_to_id FROM org_people WHERE id=$1 AND is_deleted=FALSE`, [req.params.id]);
+    if (!who.length) return res.json({ ok: false, error: 'Not found' });
+    await q(`UPDATE org_people SET reports_to_id=$2, updated_at=NOW() WHERE reports_to_id=$1 AND is_deleted=FALSE`, [req.params.id, who[0].reports_to_id]);
+    await q(`UPDATE org_people SET is_deleted=TRUE, updated_at=NOW() WHERE id=$1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { console.error('api/org/people DELETE', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+// POST /api/org/people/insert-between — create a NEW person under `manager_id` and
+// move the chosen existing reports (move_report_ids) down under the new person.
+app.post('/api/org/people/insert-between', async (req, res) => {
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    const b = req.body || {};
+    if (!String(b.full_name || '').trim()) return res.json({ ok: false, error: 'full_name required' });
+    const managerId = b.manager_id || null;
+    const moveIds = Array.isArray(b.move_report_ids) ? b.move_report_ids.map(Number).filter(Boolean) : [];
+    const payload = { ...b, reports_to_id: managerId };
+    const { keys, vals } = orgPersonPayload(payload);
+    const ph = keys.map((_, i) => `$${i + 1}`).join(',');
+    const ins = await q(`INSERT INTO org_people (${keys.join(',')}) VALUES (${ph}) RETURNING *`, vals);
+    const newId = ins[0].id;
+    if (moveIds.length) {
+      // Only move reports that currently report to the manager (safety) and aren't the new person.
+      await q(
+        `UPDATE org_people SET reports_to_id=$1, updated_at=NOW()
+          WHERE id = ANY($2::int[]) AND id <> $1 AND is_deleted=FALSE
+            AND ($3::int IS NULL OR reports_to_id = $3)`,
+        [newId, moveIds, managerId]
+      );
+    }
+    res.json({ ok: true, data: ins[0], moved: moveIds.length });
+  } catch (e) { console.error('api/org/people/insert-between', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
 // Shared builder for the Mould Wise Item QTY report. Used by the JSON endpoint
 // and the styled Excel download so both return identical data.
 async function buildMouldWiseReport({ requestFactoryId, from, to, search, requested, tonnages }) {

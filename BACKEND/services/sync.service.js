@@ -93,6 +93,11 @@ const SYNC_ALL = [
     'moulds',
     'notifications',
     'operator_history',
+    'org_units',
+    'org_departments',
+    'org_grades',
+    'org_designations',
+    'org_people',
     'order_completion_history',
     'or_jr_report',
     'orders',
@@ -226,6 +231,15 @@ const CONFLICT_KEYS = {
     // Worklogs link to their ticket by ticket_sync_id, never the serial id.
     maintenance_tickets: 'sync_id',
     maintenance_worklogs: 'sync_id',
+    // Management org tables — sync identity is sync_id (gen_random_uuid default;
+    // all in SYNC_ID_REQUIRED_TABLES). org_people.reports_to_id/user_id are serial
+    // FKs that diverge across servers, but the org tree is superadmin-managed on a
+    // single source (MAIN) so cross-server relink is not needed for v1.
+    org_units: 'sync_id',
+    org_departments: 'sync_id',
+    org_grades: 'sync_id',
+    org_designations: 'sync_id',
+    org_people: 'sync_id',
     // notifications sync identity is sync_id (backed by uq_sync_id_notifications,
     // built in ensureSyncIdSchema). The old 4-column natural key emitted
     // ON CONFLICT (target_user, type, title, created_at) which matched no index
@@ -365,7 +379,7 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people'];
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
 // re-runs the full startup sweep once instead of skipping it on the cached marker.
