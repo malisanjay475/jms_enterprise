@@ -16,14 +16,14 @@
     {
       "version": "1.52.3",
       "date": "2026-09-04",
-      "title": "Go to top button on DPR Compliance Summary",
+      "title": "Job detail balance now excludes deleted entries",
       "modules": [
         {
           "app": "dpr",
           "label": "DPR",
           "icon": "bi-clipboard-data",
           "changes": [
-            { "type": "improvement", "text": "A small 'go to top' button now appears when you scroll down the DPR Compliance Summary, so you can jump back to the top quickly." }
+            { "type": "fix", "text": "The DPR job detail (Compliance) was counting soft-deleted / corrected production entries, so produced was higher and balance lower than the Machine Timeline. It now excludes deleted entries and matches the plan exactly, for all jobs." }
           ]
         }
       ]
