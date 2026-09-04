@@ -16426,6 +16426,109 @@ function resolveReportFactoryId(req) {
   return getFactoryId(req);
 }
 
+// GET /api/dpr/stopped-machines
+// Machines that HAVE an active plan but have produced NOTHING (good_qty=0 AND
+// shots=0) for more than 1 hour — "machine stopped for any reason". Looks back
+// several days so a machine stopped since a previous day is still reported, and
+// returns the stop reason (latest downtime/quick-action entry) for each.
+// Powers the "Machines Stopped" alert at the top of the DPR Compliance Summary.
+app.get('/api/dpr/stopped-machines', async (req, res) => {
+  try {
+    const factoryId = resolveReportFactoryId(req);
+    const STOP_MIN = Math.max(15, Number(req.query.minutes) || 60);
+    const WINDOW_DAYS = Math.max(1, Math.min(15, Number(req.query.days) || 5));
+    const now = Date.now();
+    const normMach = s => String(s || '').toUpperCase().replace(/>/g, '-').replace(/\s+/g, ' ').trim();
+
+    // 1. Machines that currently hold an active plan (Running/queued). Prefer the
+    //    RUNNING plan's mould as the "running plan"; else the most recent one.
+    const plans = await q(`
+      SELECT machine, mould_name, plan_id, order_no, status, updated_at
+        FROM plan_board
+       WHERE status NOT IN ('COMPLETED','REJECTED')
+         AND UPPER(COALESCE(jc_approval_status,'')) <> 'REJECTED'
+         AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+    `, [factoryId]);
+    const planByMach = new Map();
+    for (const p of plans) {
+      const k = normMach(p.machine);
+      if (!k) continue;
+      const cur = planByMach.get(k);
+      const rank = String(p.status || '').toUpperCase() === 'RUNNING' ? 0 : 1;
+      if (!cur || rank < cur._rank || (rank === cur._rank && new Date(p.updated_at || 0) > new Date(cur.updated_at || 0))) {
+        planByMach.set(k, { machine: p.machine, mould_name: p.mould_name, plan_id: p.plan_id, order_no: p.order_no, status: p.status, updated_at: p.updated_at, _rank: rank });
+      }
+    }
+    if (!planByMach.size) return res.json({ ok: true, data: [], stopMinutes: STOP_MIN });
+
+    // 2. Recent dpr_hourly for those machines over the lookback window.
+    const dpr = await q(`
+      SELECT machine, good_qty, shots, downtime_breakup, entry_type, created_at
+        FROM dpr_hourly
+       WHERE is_deleted = false
+         AND dpr_date >= (CURRENT_DATE - $2::int)
+         AND ($1::int IS NULL OR factory_id = $1)
+    `, [factoryId, WINDOW_DAYS]);
+
+    const QUICK_CODES = ['1','2','3','4','5','6','7','8','9','10','11','12','13'];
+    const reasonFromEntry = (e) => {
+      const brk = (e && e.downtime_breakup && typeof e.downtime_breakup === 'object') ? e.downtime_breakup : {};
+      const names = QUICK_CODES.filter(c => Number(brk[c]) > 0).map(c => mouldReasonName(c));
+      if (names.length) return [...new Set(names)].join(', ');
+      const et = String(e && e.entry_type || '').trim();
+      if (et && et !== 'Main') return et.replace(/([a-z])([A-Z])/g, '$1 $2');
+      return '';
+    };
+
+    // Group per machine → last production time + latest entry (for the reason).
+    const byMach = new Map();
+    for (const e of dpr) {
+      const k = normMach(e.machine);
+      if (!planByMach.has(k)) continue;
+      const t = new Date(e.created_at).getTime();
+      if (!byMach.has(k)) byMach.set(k, { lastProd: 0, latest: null, latestT: 0 });
+      const rec = byMach.get(k);
+      const produced = Number(e.good_qty || 0) > 0 || Number(e.shots || 0) > 0;
+      if (produced && t > rec.lastProd) rec.lastProd = t;
+      if (t > rec.latestT) { rec.latestT = t; rec.latest = e; }
+    }
+
+    const windowStart = now - WINDOW_DAYS * 86400000;
+    const out = [];
+    for (const [k, plan] of planByMach) {
+      const rec = byMach.get(k) || { lastProd: 0, latest: null };
+      const lastProd = rec.lastProd || 0;
+      const silentSince = lastProd || windowStart;   // never produced in window → from window start
+      const silentMin = Math.round((now - silentSince) / 60000);
+      if (silentMin <= STOP_MIN) continue;           // still producing within the last hour
+
+      // Reason = the latest entry after last production (or the latest entry at all).
+      let reason = '';
+      if (rec.latest && (!lastProd || rec.latestT >= lastProd)) reason = reasonFromEntry(rec.latest);
+      const stoppedSince = new Date(silentSince);
+      const carried = lastProd ? (stoppedSince.toDateString() !== new Date(now).toDateString()) : true;
+
+      out.push({
+        machine: plan.machine,
+        mould: plan.mould_name || '-',
+        planId: plan.plan_id || '',
+        orderNo: plan.order_no || '',
+        status: plan.status || '',
+        stoppedSince: lastProd ? stoppedSince.toISOString() : null,
+        silentHrs: Math.floor(silentMin / 60),
+        silentMin,
+        reason: reason || (lastProd ? 'No entry / unknown' : 'No production recorded'),
+        carried
+      });
+    }
+    out.sort((a, b) => b.silentMin - a.silentMin);
+    res.json({ ok: true, data: out, stopMinutes: STOP_MIN, windowDays: WINDOW_DAYS });
+  } catch (e) {
+    console.error('/api/dpr/stopped-machines', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 // Shared builder for the Mould Wise Item QTY report. Used by the JSON endpoint
 // and the styled Excel download so both return identical data.
 async function buildMouldWiseReport({ requestFactoryId, from, to, search, requested, tonnages }) {
