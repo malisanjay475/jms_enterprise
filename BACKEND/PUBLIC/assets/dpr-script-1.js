@@ -136,9 +136,9 @@
             }
         }
 
-        // --- MACHINE STOPPED (no production > 1h, any reason) ALERT ---
+        // --- MACHINE STOPPED (no production > 2h, any reason) ALERT ---
         // A machine that holds an active plan but has produced nothing (good=0 &
-        // shots=0) for over an hour is "stopped" — including stoppages carried over
+        // shots=0) for over two hours is "stopped" — including stoppages carried over
         // from a previous day. Backend: GET /api/dpr/stopped-machines.
         async function dprRenderStoppedBanner(container) {
             const old = document.getElementById('dprStoppedBanner');
@@ -157,7 +157,7 @@
                 banner.innerHTML = `
                     <span style="font-weight:900;color:#b91c1c;font-size:0.9rem">
                       <i class="bi bi-exclamation-octagon-fill"></i>
-                      ${list.length} machine${list.length === 1 ? '' : 's'} STOPPED — no production for 1 hr+${carried ? ` <span style="font-weight:700;color:#9a3412">(${carried} since a previous day)</span>` : ''}
+                      ${list.length} machine${list.length === 1 ? '' : 's'} STOPPED — no production for 2 hr+${carried ? ` <span style="font-weight:700;color:#9a3412">(${carried} since a previous day)</span>` : ''}
                     </span>
                     <button id="dprStoppedViewBtn" style="border:1px solid #dc2626;background:#dc2626;color:#fff;border-radius:8px;padding:5px 14px;font-weight:800;font-size:0.78rem;cursor:pointer;white-space:nowrap">
                       <i class="bi bi-list-ul"></i> View stopped machines
@@ -191,7 +191,7 @@
             host.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
             host.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:820px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.3)">
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e2e8f0;position:sticky;top:0;background:#fff">
-                  <h3 style="margin:0;font-size:1rem;font-weight:800;color:#b91c1c"><i class="bi bi-exclamation-octagon-fill"></i> Stopped Machines — no production 1 hr+ (${list.length})</h3>
+                  <h3 style="margin:0;font-size:1rem;font-weight:800;color:#b91c1c"><i class="bi bi-exclamation-octagon-fill"></i> Stopped Machines — no production 2 hr+ (${list.length})</h3>
                   <button onclick="document.getElementById('dprStoppedModal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;line-height:1">&times;</button>
                 </div>
                 <div style="padding:14px 18px">
@@ -208,7 +208,7 @@
                       <tbody>${rows}</tbody>
                     </table>
                   </div>
-                  <div style="margin-top:10px;font-size:0.72rem;color:#64748b">"Stopped" = the machine has an active plan but recorded no production (0 pcs) for over an hour, for any reason. Rows shaded orange carried over from a previous day.</div>
+                  <div style="margin-top:10px;font-size:0.72rem;color:#64748b">"Stopped" = the machine has an active plan but recorded no production (0 pcs) for over two hours, for any reason. Rows shaded orange carried over from a previous day.</div>
                 </div></div>`;
             host.addEventListener('click', e => { if (e.target === host) host.remove(); });
             document.body.appendChild(host);

@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.52.0",
+  "latest": "1.52.1",
   "versions": [
+    {
+      "version": "1.52.1",
+      "date": "2026-09-04",
+      "title": "Machines Stopped alert now triggers at 2 hours",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "The DPR Compliance Summary 'Machines Stopped' alert now flags a machine after 2 hours with no production (was 1 hour), reducing noise from short pauses." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.52.0",
       "date": "2026-09-04",

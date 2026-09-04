@@ -16428,14 +16428,14 @@ function resolveReportFactoryId(req) {
 
 // GET /api/dpr/stopped-machines
 // Machines that HAVE an active plan but have produced NOTHING (good_qty=0 AND
-// shots=0) for more than 1 hour — "machine stopped for any reason". Looks back
+// shots=0) for more than 2 hours — "machine stopped for any reason". Looks back
 // several days so a machine stopped since a previous day is still reported, and
 // returns the stop reason (latest downtime/quick-action entry) for each.
 // Powers the "Machines Stopped" alert at the top of the DPR Compliance Summary.
 app.get('/api/dpr/stopped-machines', async (req, res) => {
   try {
     const factoryId = resolveReportFactoryId(req);
-    const STOP_MIN = Math.max(15, Number(req.query.minutes) || 60);
+    const STOP_MIN = Math.max(15, Number(req.query.minutes) || 120);
     const WINDOW_DAYS = Math.max(1, Math.min(15, Number(req.query.days) || 5));
     const now = Date.now();
     const normMach = s => String(s || '').toUpperCase().replace(/>/g, '-').replace(/\s+/g, ' ').trim();
@@ -16500,7 +16500,7 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
       const lastProd = rec.lastProd || 0;
       const silentSince = lastProd || windowStart;   // never produced in window → from window start
       const silentMin = Math.round((now - silentSince) / 60000);
-      if (silentMin <= STOP_MIN) continue;           // still producing within the last hour
+      if (silentMin <= STOP_MIN) continue;           // still producing within the threshold (2h)
 
       // Reason = the latest entry after last production (or the latest entry at all).
       let reason = '';
