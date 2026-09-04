@@ -134,8 +134,15 @@ INSERT INTO org_designations (title) VALUES
   ('Packing Incharge'), ('Packing Staff'), ('Data Entry')
 ON CONFLICT DO NOTHING;
 
--- Link units to existing factories by name where an obvious match exists (best-effort).
-UPDATE org_units u SET factory_id = f.id
-  FROM factories f
- WHERE u.factory_id IS NULL
-   AND LOWER(TRIM(f.name)) = LOWER(TRIM(u.name));
+-- Link units to existing factories by name where an obvious match exists
+-- (best-effort). Guarded: on a fresh DB the `factories` table may not exist yet
+-- when this migration runs, so only attempt the link when it's present.
+DO $$
+BEGIN
+  IF to_regclass('public.factories') IS NOT NULL THEN
+    UPDATE org_units u SET factory_id = f.id
+      FROM factories f
+     WHERE u.factory_id IS NULL
+       AND LOWER(TRIM(f.name)) = LOWER(TRIM(u.name));
+  END IF;
+END $$;
