@@ -64,7 +64,8 @@
             toast.style.display = 'block';
         }
 
-        function renderStaleMachineAlerts(container, staleMachines) {
+        function renderStaleMachineAlerts(container, staleMachines, opts) {
+            const noBanner = !!(opts && opts.noBanner);
             // Cleanup previous render
             if (dprStaleObserver) { dprStaleObserver.disconnect(); dprStaleObserver = null; }
             const oldToast = document.getElementById('dprStaleToast');
@@ -89,7 +90,9 @@
                 staleCells.push({ cell, info: s });
             });
 
-            // 2. Alert banner at the very top of the summary
+            // 2. Alert banner at the very top of the summary (skipped when the
+            //    caller supplies its own banner, e.g. the Stopped-machines alert).
+            if (noBanner) return;
             const chips = staleMachines.map((s, i) => `<button data-stale-idx="${i}" style="border:1px solid #fecaca; background:#fff; color:#b91c1c; border-radius:999px; padding:3px 12px; font-weight:900; font-size:0.75rem; cursor:pointer; white-space:nowrap">${dprEscHtml(stripMachPfx(s.machine))} · ${s.silentHrs}h</button>`).join('');
             const banner = document.createElement('div');
             banner.id = 'dprStaleBanner';
@@ -131,6 +134,84 @@
                 }, { threshold: 0.3 });
                 staleCells.forEach(c => dprStaleObserver.observe(c.cell));
             }
+        }
+
+        // --- MACHINE STOPPED (no production > 1h, any reason) ALERT ---
+        // A machine that holds an active plan but has produced nothing (good=0 &
+        // shots=0) for over an hour is "stopped" — including stoppages carried over
+        // from a previous day. Backend: GET /api/dpr/stopped-machines.
+        async function dprRenderStoppedBanner(container) {
+            const old = document.getElementById('dprStoppedBanner');
+            if (old) old.remove();
+            if (!container) return;
+            try {
+                const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+                const res = await api.get('/dpr/stopped-machines');
+                const list = (res && res.ok && Array.isArray(res.data)) ? res.data : [];
+                window.__dprStoppedMachines = list;
+                if (!list.length) return;
+                const carried = list.filter(s => s.carried).length;
+                const banner = document.createElement('div');
+                banner.id = 'dprStoppedBanner';
+                banner.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#fef2f2;border:1px solid #fca5a5;border-left:5px solid #dc2626;border-radius:12px;padding:10px 14px;margin-bottom:14px';
+                banner.innerHTML = `
+                    <span style="font-weight:900;color:#b91c1c;font-size:0.9rem">
+                      <i class="bi bi-exclamation-octagon-fill"></i>
+                      ${list.length} machine${list.length === 1 ? '' : 's'} STOPPED — no production for 1 hr+${carried ? ` <span style="font-weight:700;color:#9a3412">(${carried} since a previous day)</span>` : ''}
+                    </span>
+                    <button id="dprStoppedViewBtn" style="border:1px solid #dc2626;background:#dc2626;color:#fff;border-radius:8px;padding:5px 14px;font-weight:800;font-size:0.78rem;cursor:pointer;white-space:nowrap">
+                      <i class="bi bi-list-ul"></i> View stopped machines
+                    </button>`;
+                banner.querySelector('#dprStoppedViewBtn').onclick = () => dprShowStoppedModal(list);
+                container.prepend(banner);
+            } catch (e) { console.warn('Stopped-machine banner failed (non-fatal):', e); }
+        }
+
+        function dprShowStoppedModal(list) {
+            const esc = (typeof dprEscHtml === 'function') ? dprEscHtml : (s => String(s == null ? '' : s));
+            const strip = (typeof stripMachPfx === 'function') ? stripMachPfx : (s => s);
+            const fmtSince = iso => {
+                if (!iso) return '—';
+                const d = new Date(iso); if (isNaN(d.getTime())) return '—';
+                const p = n => String(n).padStart(2, '0');
+                return `${p(d.getDate())}-${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]} ${p(d.getHours())}:${p(d.getMinutes())}`;
+            };
+            const dur = s => (s.silentHrs >= 1 ? s.silentHrs + 'h' : (s.silentMin || 0) + 'm');
+            const rows = list.map((s, i) => `
+                <tr${s.carried ? ' style="background:#fff7ed"' : ''}>
+                  <td style="border:1px solid #e2e8f0;padding:6px 10px;text-align:center">${i + 1}</td>
+                  <td style="border:1px solid #e2e8f0;padding:6px 10px;font-weight:700">${esc(strip(s.machine))}</td>
+                  <td style="border:1px solid #e2e8f0;padding:6px 10px">${esc(s.mould || '-')}</td>
+                  <td style="border:1px solid #e2e8f0;padding:6px 10px;text-align:center">${fmtSince(s.stoppedSince)}${s.carried ? ' <span style="font-size:0.62rem;font-weight:800;color:#9a3412;background:#ffedd5;border-radius:6px;padding:1px 5px">PREV DAY</span>' : ''}</td>
+                  <td style="border:1px solid #e2e8f0;padding:6px 10px;text-align:center;font-weight:800;color:#b91c1c">${dur(s)}</td>
+                  <td style="border:1px solid #e2e8f0;padding:6px 10px;color:#9a3412;font-weight:700">${esc(s.reason || '-')}</td>
+                </tr>`).join('');
+            const host = document.createElement('div');
+            host.id = 'dprStoppedModal';
+            host.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+            host.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:820px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e2e8f0;position:sticky;top:0;background:#fff">
+                  <h3 style="margin:0;font-size:1rem;font-weight:800;color:#b91c1c"><i class="bi bi-exclamation-octagon-fill"></i> Stopped Machines — no production 1 hr+ (${list.length})</h3>
+                  <button onclick="document.getElementById('dprStoppedModal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;line-height:1">&times;</button>
+                </div>
+                <div style="padding:14px 18px">
+                  <div style="overflow-x:auto">
+                    <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+                      <thead><tr style="background:#b91c1c;color:#fff">
+                        <th style="border:1px solid #e2e8f0;padding:6px 10px">#</th>
+                        <th style="border:1px solid #e2e8f0;padding:6px 10px;text-align:left">Machine</th>
+                        <th style="border:1px solid #e2e8f0;padding:6px 10px;text-align:left">Running Plan</th>
+                        <th style="border:1px solid #e2e8f0;padding:6px 10px">Stopped Since</th>
+                        <th style="border:1px solid #e2e8f0;padding:6px 10px">Duration</th>
+                        <th style="border:1px solid #e2e8f0;padding:6px 10px;text-align:left">Reason (Why)</th>
+                      </tr></thead>
+                      <tbody>${rows}</tbody>
+                    </table>
+                  </div>
+                  <div style="margin-top:10px;font-size:0.72rem;color:#64748b">"Stopped" = the machine has an active plan but recorded no production (0 pcs) for over an hour, for any reason. Rows shaded orange carried over from a previous day.</div>
+                </div></div>`;
+            host.addEventListener('click', e => { if (e.target === host) host.remove(); });
+            document.body.appendChild(host);
         }
 
         // --- CODE MAPPINGS ---
@@ -2873,7 +2954,11 @@
                             }
 
                             window.__dprStaleMachines = staleMachines;
-                            renderStaleMachineAlerts(container, staleMachines);
+                            // Keep the per-row highlight/badge for stale (no-entry) machines,
+                            // but suppress its own banner — the single top banner is now the
+                            // ">1h no-production, with reason (+carryover)" alert.
+                            renderStaleMachineAlerts(container, staleMachines, { noBanner: true });
+                            dprRenderStoppedBanner(container);
                         } catch (staleErr) {
                             console.warn('Stale-machine alert failed (non-fatal):', staleErr);
                         }
