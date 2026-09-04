@@ -335,6 +335,11 @@
                                 <label for="u_global" style="font-weight:600; cursor:pointer">Global Access (Remote Login)</label>
                             </div>
 
+                            <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:0">
+                                <input type="checkbox" id="u_active" style="width:18px; height:18px" checked>
+                                <label for="u_active" style="font-weight:600; cursor:pointer">Active (can log in)</label>
+                            </div>
+
                             <div class="form-group" style="margin-bottom:0">
                                 <label class="form-label">Assigned Factories</label>
                                 <div id="factoryChecks"
@@ -800,6 +805,7 @@
 
             // Checks
             document.getElementById('u_global').checked = false;
+            document.getElementById('u_active').checked = true; // new users active by default
             document.querySelectorAll('.factory-chk').forEach(c => c.checked = false);
 
             populateCopyFromDropdown(null);
@@ -829,6 +835,9 @@
 
             // Global
             document.getElementById('u_global').checked = !!user.global_access;
+
+            // Active (default true when unset)
+            document.getElementById('u_active').checked = user.is_active !== false;
 
             // Factories
             const fList = user.assigned_factories || [];
@@ -871,6 +880,7 @@
                 line: document.getElementById('u_line').value,
                 permissions,
                 global_access: document.getElementById('u_global').checked,
+                is_active: document.getElementById('u_active').checked,
                 factories: Array.from(document.querySelectorAll('.factory-chk:checked')).map(c => parseInt(c.value))
             };
 
