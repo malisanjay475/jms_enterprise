@@ -10999,7 +10999,15 @@ async function buildDprOrderAnalysis(req) {
       u.username as "userName",
       u.role_code as "userRole"
     FROM dpr_hourly dh
-    LEFT JOIN users u ON LOWER(TRIM(u.username)) = LOWER(TRIM(COALESCE(dh.created_by, '')))
+    -- LATERAL LIMIT 1: a username can appear MORE THAN ONCE in users (multi-factory
+    -- / synced accounts). A plain join then duplicates every production row for that
+    -- person, double-counting good/reject and inflating the job total vs the Machine
+    -- Timeline. LIMIT 1 guarantees one user row per entry so totals are accurate.
+    LEFT JOIN LATERAL (
+      SELECT username, role_code FROM users
+      WHERE LOWER(TRIM(username)) = LOWER(TRIM(COALESCE(dh.created_by, '')))
+      ORDER BY id LIMIT 1
+    ) u ON true
     WHERE ${where.join(' AND ')}
     ORDER BY dh.dpr_date ASC NULLS LAST, dh.shift ASC NULLS LAST, dh.hour_slot ASC NULLS LAST, dh.created_at ASC NULLS LAST
   `, logParams);
@@ -21457,7 +21465,11 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         FROM mould_planning_summary
         GROUP BY or_jr_no, mould_name
       ) mps ON mps.or_jr_no = d.order_no AND mps.mould_name = pb.mould_name
-      LEFT JOIN users u ON u.username = d.created_by
+      -- LATERAL LIMIT 1: duplicate usernames (multi-factory/synced accounts) would
+      -- otherwise fan out each hourly entry and double-count good/reject in the matrix.
+      LEFT JOIN LATERAL (
+        SELECT line FROM users WHERE username = d.created_by ORDER BY id LIMIT 1
+      ) u ON true
       LEFT JOIN LATERAL(
         SELECT * FROM or_jr_report rpt
         WHERE TRIM(rpt.or_jr_no) = TRIM(COALESCE(d.order_no, pb.order_no))
@@ -28607,8 +28619,13 @@ app.get('/api/analyze/supervisor', async (req, res) => {
         dh.good_qty, dh.reject_qty, dh.downtime_min,
         u.username AS user_name, u.role_code AS user_role
       FROM dpr_hourly dh
-      LEFT JOIN users u
-        ON LOWER(TRIM(u.username)) = LOWER(TRIM(COALESCE(NULLIF(TRIM(dh.supervisor), ''), dh.created_by, '')))
+      -- LATERAL LIMIT 1: duplicate usernames would fan out entries and inflate the
+      -- per-owner good/reject/downtime totals.
+      LEFT JOIN LATERAL (
+        SELECT username, role_code FROM users
+        WHERE LOWER(TRIM(username)) = LOWER(TRIM(COALESCE(NULLIF(TRIM(dh.supervisor), ''), dh.created_by, '')))
+        ORDER BY id LIMIT 1
+      ) u ON true
       WHERE ${where.join(' AND ')}
     `, params);
 
