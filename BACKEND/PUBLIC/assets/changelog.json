@@ -11,8 +11,30 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.51.0",
+  "latest": "1.51.1",
   "versions": [
+    {
+      "version": "1.51.1",
+      "date": "2026-09-04",
+      "title": "Analyze — real reason names + cleaner look",
+      "modules": [
+        {
+          "app": "analyze",
+          "label": "Analyze",
+          "icon": "bi-bar-chart-fill",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Downtime and rejection charts across all Analyze screens (Order, Mould, Plant, Machine, Downtime) now show the real reason names — e.g. 'Manpower Shortage' and 'Short Shot' — instead of internal codes like 1, 2 or A, B."
+            },
+            {
+              "type": "improvement",
+              "text": "Refreshed the whole Analyze look with cleaner, consistent metric cards, chart headers and tables so every view reads clearly at a glance."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.51.0",
       "date": "2026-09-03",
