@@ -348,6 +348,29 @@
             };
         })();
     </script>
+
+    <!-- Floating "go to top" button — scrolls the DPR view back up. -->
+    <button id="dprGoTop" title="Go to top" aria-label="Go to top"
+        style="display:none; position:fixed; right:18px; bottom:18px; z-index:1300; width:42px; height:42px; border-radius:50%; border:1px solid #cbd5e1; background:#2563eb; color:#fff; box-shadow:0 6px 18px rgba(15,23,42,0.28); cursor:pointer; font-size:1.1rem; line-height:1; padding:0;">
+        <i class="bi bi-arrow-up"></i>
+    </button>
+    <script>
+        (function () {
+            var btn = document.getElementById('dprGoTop');
+            if (!btn) return;
+            // The DPR page scrolls inside .main-content (overflow-y:auto); fall back to window.
+            var scroller = document.querySelector('.main-content') || document.scrollingElement || document.documentElement;
+            function curTop() { return (scroller && scroller.scrollTop) || window.pageYOffset || 0; }
+            function toggle() { btn.style.display = curTop() > 300 ? 'flex' : 'none'; btn.style.alignItems = 'center'; btn.style.justifyContent = 'center'; }
+            (scroller === window ? window : scroller).addEventListener('scroll', toggle, { passive: true });
+            window.addEventListener('scroll', toggle, { passive: true });
+            btn.addEventListener('click', function () {
+                try { scroller.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) { scroller.scrollTop = 0; }
+                try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) { }
+            });
+            toggle();
+        })();
+    </script>
 </body>
 
   <script src="/assets/dpr-script-2.js?v=release76"></script>
