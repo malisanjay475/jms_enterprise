@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.53.0",
+  "latest": "1.54.0",
   "versions": [
+    {
+      "version": "1.54.0",
+      "date": "2026-09-04",
+      "title": "Compliance Summary: multi-line filter + date range",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary Line filter is now a checkbox dropdown — tick several lines at once to see just those, or leave it on 'All Lines'." },
+            { "type": "feat", "text": "The Compliance Summary date picker is now a From–To range: pick a span of days and the summary shows each day separately, with the shift labelled on every day's block." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.53.0",
       "date": "2026-09-04",

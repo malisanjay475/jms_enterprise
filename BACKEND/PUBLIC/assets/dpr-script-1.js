@@ -691,8 +691,12 @@
                 card.innerHTML = `
                   <div id="sticky-dpr-filter" style="position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:10px; margin-bottom:15px; align-items:flex-end; padding:15px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
                     <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Date</label>
+                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">From Date</label>
                       <input type="date" id="s-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px" value="${today}">
+                    </div>
+                    <div>
+                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">To Date</label>
+                      <input type="date" id="s-date-to" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px" value="${today}">
                     </div>
                     <div>
                       <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Process</label>
@@ -712,11 +716,12 @@
                         <option value="">All Factories</option>
                       </select>
                     </div>
-                    <div>
+                    <div style="position:relative">
                       <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Line Filter</label>
-                      <select id="s-line" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:130px">
-                        <option value="">All Lines</option>
-                      </select>
+                      <button type="button" id="s-line-btn" class="form-control" style="padding:7px 10px; border:1px solid #cbd5e1; border-radius:4px; min-width:150px; text-align:left; background:#fff; cursor:pointer; font-size:0.85rem; display:flex; justify-content:space-between; align-items:center; gap:8px">
+                        <span id="s-line-label">All Lines</span><span style="color:#94a3b8">▾</span>
+                      </button>
+                      <div id="s-line-menu" style="display:none; position:absolute; z-index:30; top:100%; left:0; margin-top:4px; background:#fff; border:1px solid #cbd5e1; border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,0.15); max-height:280px; overflow:auto; min-width:210px; padding:6px 4px"></div>
                     </div>
                     <div>
                       <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">View Filter</label>
@@ -755,6 +760,63 @@
 
                 // Set default shift
                 document.getElementById('s-shift').value = defaultShift;
+
+                // ---- Multi-select Line Filter (checkbox dropdown) ----
+                // selLines = [] means "All Lines"; otherwise the list of chosen line keys.
+                let selLines = [];
+                const dprLineBtn = document.getElementById('s-line-btn');
+                const dprLineMenu = document.getElementById('s-line-menu');
+                const dprLineLabel = document.getElementById('s-line-label');
+                const updateLineLabel = () => {
+                    if (!dprLineLabel) return;
+                    dprLineLabel.textContent = !selLines.length
+                        ? 'All Lines'
+                        : (selLines.length === 1 ? selLines[0] : `${selLines.length} lines`);
+                };
+                // Rebuild the checkbox list from the current set of line keys. Called by
+                // loadSummary once the machine list (and thus the real lines) is known.
+                const renderLineMenu = (lineKeys) => {
+                    if (!dprLineMenu) return;
+                    // Drop any previously-selected lines that no longer exist.
+                    selLines = selLines.filter(l => lineKeys.includes(l));
+                    const allChecked = selLines.length === 0;
+                    const rows = lineKeys.map(lk => {
+                        const checked = selLines.includes(lk) ? 'checked' : '';
+                        return `<label style="display:flex; align-items:center; gap:8px; padding:5px 8px; font-size:0.82rem; cursor:pointer; border-radius:4px" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
+                                  <input type="checkbox" class="s-line-cb" value="${String(lk).replace(/"/g,'&quot;')}" ${checked} style="cursor:pointer"> ${lk}
+                                </label>`;
+                    }).join('');
+                    dprLineMenu.innerHTML = `
+                        <label style="display:flex; align-items:center; gap:8px; padding:5px 8px; font-size:0.82rem; font-weight:700; cursor:pointer; border-bottom:1px solid #e2e8f0; margin-bottom:2px">
+                          <input type="checkbox" id="s-line-all" ${allChecked ? 'checked' : ''} style="cursor:pointer"> All Lines
+                        </label>
+                        ${rows}`;
+                    const allCb = dprLineMenu.querySelector('#s-line-all');
+                    const itemCbs = Array.from(dprLineMenu.querySelectorAll('.s-line-cb'));
+                    const syncFromItems = () => {
+                        selLines = itemCbs.filter(cb => cb.checked).map(cb => cb.value);
+                        if (allCb) allCb.checked = selLines.length === 0;
+                        updateLineLabel();
+                    };
+                    if (allCb) allCb.onchange = () => {
+                        if (allCb.checked) { itemCbs.forEach(cb => cb.checked = false); selLines = []; }
+                        else { allCb.checked = true; } // can't uncheck "All" directly; pick a line to narrow
+                        updateLineLabel();
+                    };
+                    itemCbs.forEach(cb => cb.onchange = syncFromItems);
+                    updateLineLabel();
+                };
+                if (dprLineBtn) dprLineBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (dprLineMenu) dprLineMenu.style.display = dprLineMenu.style.display === 'none' ? 'block' : 'none';
+                };
+                // Close the menu on outside click; re-run the summary so the picked lines apply.
+                document.addEventListener('click', (e) => {
+                    if (!dprLineMenu || dprLineMenu.style.display === 'none') return;
+                    if (dprLineMenu.contains(e.target) || (dprLineBtn && dprLineBtn.contains(e.target))) return;
+                    dprLineMenu.style.display = 'none';
+                    loadSummary();
+                });
 
                 const renderDprProcessButtons = () => {
                     const host = document.getElementById('s-process');
@@ -1103,8 +1165,10 @@
                 // ---- End Labour DPR Summary ----
 
                 const loadSummary = async () => {
-                    const fromDate = document.getElementById('s-date').value;
-                    const toDate = fromDate; // single date selector
+                    let fromDate = document.getElementById('s-date').value;
+                    let toDate = document.getElementById('s-date-to')?.value || fromDate;
+                    // Tolerate a reversed range — swap so From is always the earlier day.
+                    if (toDate && fromDate && toDate < fromDate) { const t = fromDate; fromDate = toDate; toDate = t; }
                     const shiftMode = document.getElementById('s-shift').value; // 'Day', 'Night', 'Both'
                     const container = document.getElementById('summary-container');
                     const selectedFactory = document.getElementById('s-factory')?.value || '';
@@ -1116,7 +1180,7 @@
                     }
 
                     const processQuery = `&process=${encodeURIComponent(dprProcess)}`;
-                    const selectedLine = document.getElementById('s-line')?.value || '';
+                    const selectedLines = selLines.slice(); // [] = all lines
                     const filterMode = document.getElementById('s-eff-filter')?.value || '';
 
                     localStorage.setItem('jpsms_dpr_process', dprProcess);
@@ -1217,18 +1281,7 @@
                         // Populate Lines dropdown from machine data
                         const allLineKeys = new Set();
                         (machines || []).forEach(m => allLineKeys.add(m.line || m.building || m.machine_process || 'General'));
-                        const lineDropdown = document.getElementById('s-line');
-                        if (lineDropdown) {
-                            const prevLineVal = lineDropdown.value;
-                            lineDropdown.innerHTML = '<option value="">All Lines</option>';
-                            Array.from(allLineKeys).sort().forEach(lk => {
-                                const opt = document.createElement('option');
-                                opt.value = lk;
-                                opt.textContent = lk;
-                                if (lk === prevLineVal) opt.selected = true;
-                                lineDropdown.appendChild(opt);
-                            });
-                        }
+                        renderLineMenu(Array.from(allLineKeys).sort());
 
                         if (allDates.length === 0) {
                             container.innerHTML = '<div style="padding:40px; text-align:center; color:#64748b">No data found for this range.</div>';
@@ -1244,7 +1297,7 @@
                         masterHtml += `
                             <div id="sticky-plant-total" style="position:relative; z-index:1; background:white; border:1px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
                                 <div style="font-size:1.1rem; font-weight:700; color:#0f172a">
-                                    Plant Total (${new Date(fromDate).toLocaleDateString('en-GB')})
+                                    Plant Total (${new Date(fromDate).toLocaleDateString('en-GB')}${toDate && toDate !== fromDate ? ' – ' + new Date(toDate).toLocaleDateString('en-GB') : ''})
                                     <span style="font-size:0.8rem; font-weight:400; color:#64748b; margin-left:8px">(Combined Summary)</span>
                                 </div>
                                 <div style="display:flex; gap:20px; flex-wrap:wrap; row-gap:12px; justify-content:flex-end; align-items:center">
@@ -1395,10 +1448,10 @@
                             });
                         });
 
-                        // Apply line filter — only keep the selected line
-                        if (selectedLine) {
+                        // Apply line filter — keep only the selected line(s); [] = all lines
+                        if (selectedLines.length) {
                             Object.keys(lines).forEach(k => {
-                                if (k !== selectedLine) delete lines[k];
+                                if (!selectedLines.includes(k)) delete lines[k];
                             });
                         }
 
