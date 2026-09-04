@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.52.1",
+  "latest": "1.52.2",
   "versions": [
+    {
+      "version": "1.52.2",
+      "date": "2026-09-04",
+      "title": "Accurate balance — fix double-counted production",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Fixed produced/balance quantities that were over-counted when a production entry's operator name existed more than once in the user list (multi-factory accounts). The DPR Compliance job detail, summary matrix and per-operator report now match the Machine Timeline exactly." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.52.1",
       "date": "2026-09-04",
