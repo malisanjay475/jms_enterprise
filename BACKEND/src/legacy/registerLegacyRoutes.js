@@ -10954,10 +10954,16 @@ async function buildDprOrderAnalysis(req) {
   }
 
   const logParams = [decodedOrder];
-  const where = ['TRIM(dh.order_no) = $1'];
+  // is_deleted filter was missing → the job detail counted SOFT-DELETED (corrected)
+  // entries, so produced/balance came out higher than the Machine Timeline, which
+  // excludes deleted rows. Exclude them here so every view agrees.
+  const where = ['TRIM(dh.order_no) = $1', 'COALESCE(dh.is_deleted, false) = false'];
   if (planId) {
     logParams.push(planId);
-    where.push(`(dh.plan_id = $${logParams.length} OR dh.plan_id = (SELECT pb.plan_id FROM plan_board pb WHERE pb.id::text = $${logParams.length} LIMIT 1))`);
+    // Match the plan robustly: dpr_hourly.plan_id may hold the canonical string
+    // plan_id OR the numeric plan_board.id (as text). The old subquery was reversed
+    // (looked plan_board up by id = the string) and never matched.
+    where.push(`(CAST(dh.plan_id AS TEXT) = $${logParams.length} OR dh.plan_id = (SELECT CAST(pb.id AS TEXT) FROM plan_board pb WHERE pb.plan_id = $${logParams.length} ORDER BY pb.id DESC LIMIT 1))`);
   }
   // When no explicit plan is requested, include EVERY log for the order (all plans/moulds)
   // so totals and breakdowns reflect the whole order, not just one plan.
