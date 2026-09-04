@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.52.3",
+  "latest": "1.53.0",
   "versions": [
+    {
+      "version": "1.53.0",
+      "date": "2026-09-04",
+      "title": "Machine downtime Excel report (shift-wise)",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary 'Machines Stopped' popup now has a Download Excel button: pick a date and shift (Day / Night / Full Day) to get a machine-wise report with each machine's running plan, total shift time, available time, downtime and reasons." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.52.3",
       "date": "2026-09-04",

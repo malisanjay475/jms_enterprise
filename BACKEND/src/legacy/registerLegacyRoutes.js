@@ -16543,6 +16543,173 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
   }
 });
 
+// Excel: per-machine downtime report for a selected date + shift (Day/Night/Full).
+// Lists ALL machines that hold an active plan, with total shift time, available
+// (uptime) time, total downtime and the downtime reasons. Powers the "Download
+// Report" button on the DPR Compliance Summary "Machines Stopped" alert.
+//   GET /api/reports/machine-downtime.xlsx?date=YYYY-MM-DD&shift=Day|Night|Full
+app.get('/api/reports/machine-downtime.xlsx', async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const factoryId = resolveReportFactoryId(req);
+    const dateStr = String(req.query.date || '').trim() || new Date().toISOString().slice(0, 10);
+    const shiftRaw = String(req.query.shift || 'Full').trim();
+    const shift = /^night$/i.test(shiftRaw) ? 'Night' : /^day$/i.test(shiftRaw) ? 'Day' : 'Full';
+    const shifts = shift === 'Full' ? ['Day', 'Night'] : [shift];
+    const HOURS_PER_SHIFT = 12;                         // clock length of one shift (12 slots)
+    const totalHours = HOURS_PER_SHIFT * shifts.length; // 12 (single) or 24 (full day)
+    const totalMin = totalHours * 60;
+    const normMach = s => String(s || '').toUpperCase().replace(/>/g, '-').replace(/\s+/g, ' ').trim();
+    const QUICK_STOP = new Set(['Maintenance', 'ManPowerShortage', 'MouldChangeover', 'MouldTrial', 'MouldMaintenance', 'NoPlan', 'PowerCut', 'MouldChange']);
+    const QUICK_CODES = ['1','2','3','4','5','6','7','8','9','10','11','12','13'];
+
+    // 1. All machines holding an active plan (prefer the RUNNING plan's mould).
+    const plans = await q(`
+      SELECT machine, mould_name, plan_id, order_no, status, updated_at
+        FROM plan_board
+       WHERE status NOT IN ('COMPLETED','REJECTED')
+         AND UPPER(COALESCE(jc_approval_status,'')) <> 'REJECTED'
+         AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+    `, [factoryId]);
+    const planByMach = new Map();
+    for (const p of plans) {
+      const k = normMach(p.machine);
+      if (!k) continue;
+      const cur = planByMach.get(k);
+      const rank = String(p.status || '').toUpperCase() === 'RUNNING' ? 0 : 1;
+      if (!cur || rank < cur._rank || (rank === cur._rank && new Date(p.updated_at || 0) > new Date(cur.updated_at || 0))) {
+        planByMach.set(k, { machine: p.machine, mould_name: p.mould_name, plan_id: p.plan_id, order_no: p.order_no, status: p.status, updated_at: p.updated_at, _rank: rank });
+      }
+    }
+
+    // 2. dpr_hourly for the date + shift(s): per-machine downtime minutes + reasons.
+    const dpr = await q(`
+      SELECT machine, good_qty, shots, downtime_min, downtime_breakup, entry_type
+        FROM dpr_hourly
+       WHERE is_deleted = false
+         AND dpr_date = $1::date
+         AND shift = ANY($2::text[])
+         AND ($3::int IS NULL OR factory_id = $3)
+    `, [dateStr, shifts, factoryId]);
+
+    const agg = new Map(); // machineKey -> { dtMin, reasons:Set }
+    for (const e of dpr) {
+      const k = normMach(e.machine);
+      if (!agg.has(k)) agg.set(k, { dtMin: 0, reasons: new Set() });
+      const rec = agg.get(k);
+      const brk = (e.downtime_breakup && typeof e.downtime_breakup === 'object') ? e.downtime_breakup : {};
+      let breakMin = 0;
+      for (const c of QUICK_CODES) {
+        const mins = Number(brk[c] || 0);
+        if (mins > 0) { breakMin += mins; rec.reasons.add(mouldReasonName(c)); }
+      }
+      const et = String(e.entry_type || '').trim();
+      const isQuickStop = QUICK_STOP.has(et) && Number(e.good_qty || 0) === 0 && Number(e.shots || 0) === 0;
+      let slotDt = Math.max(Number(e.downtime_min || 0), breakMin);
+      if (isQuickStop) {
+        slotDt = Math.max(slotDt, 60);                 // a full stopped hour-slot
+        rec.reasons.add(et.replace(/([a-z])([A-Z])/g, '$1 $2'));
+      }
+      rec.dtMin += slotDt;
+    }
+
+    // 3. Rows: every machine with a plan (0 downtime if it had none).
+    const rows = [];
+    for (const [k, plan] of planByMach) {
+      const rec = agg.get(k) || { dtMin: 0, reasons: new Set() };
+      const dtMin = Math.min(rec.dtMin, totalMin);
+      const availMin = Math.max(0, totalMin - dtMin);
+      rows.push({
+        machine: plan.machine,
+        plan: plan.mould_name ? `${plan.mould_name}${plan.plan_id ? ' (' + plan.plan_id + ')' : ''}` : (plan.plan_id || '-'),
+        totalHrs: totalHours,
+        availHrs: Math.round((availMin / 60) * 10) / 10,
+        downHrs: Math.round((dtMin / 60) * 10) / 10,
+        reason: [...rec.reasons].filter(Boolean).join(', ') || '-'
+      });
+    }
+    rows.sort((a, b) => b.downHrs - a.downHrs || String(a.machine).localeCompare(String(b.machine), undefined, { numeric: true }));
+
+    // 4. Build the workbook.
+    const factoryLabel = await (async () => {
+      if (!factoryId) return 'All Factories';
+      try { const f = await q('SELECT name FROM factories WHERE id=$1', [factoryId]); return f[0]?.name || `Factory ${factoryId}`; } catch (_) { return `Factory ${factoryId}`; }
+    })();
+    const username = getRequestUsername(req) || 'System';
+    const BLUE = 'FF1E4E79', HEADFILL = 'FF2E6CA4', BAND = 'FFEFF4FA', WHITE = 'FFFFFFFF', INK = 'FF1F2937', GREY = 'FF64748B', REDINK = 'FFB91C1C';
+    const FONT = 'Calibri';
+    const thin = { style: 'thin', color: { argb: 'FFD5DEEA' } };
+    const box = { top: thin, left: thin, right: thin, bottom: thin };
+    const cols = [
+      { label: 'Machine', w: 22, key: 'machine' },
+      { label: 'Running Plan', w: 34, key: 'plan' },
+      { label: 'Total Time (hrs)', w: 15, key: 'totalHrs', num: true },
+      { label: 'Available Time (hrs)', w: 18, key: 'availHrs', num: true },
+      { label: 'Downtime (hrs)', w: 15, key: 'downHrs', num: true },
+      { label: 'Reason', w: 46, key: 'reason' }
+    ];
+    const NCOL = cols.length;
+    const wb = new ExcelJS.Workbook();
+    wb.creator = username;
+    const ws = wb.addWorksheet('Machine Downtime', { views: [{ state: 'frozen', ySplit: 5 }] });
+    ws.columns = cols.map(c => ({ width: c.w }));
+
+    ws.mergeCells(1, 1, 1, NCOL);
+    const t = ws.getCell(1, 1);
+    t.value = 'MACHINE DOWNTIME — SHIFT REPORT';
+    t.font = { name: FONT, size: 14, bold: true, color: { argb: WHITE } };
+    t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLUE } };
+    t.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 30;
+
+    ws.mergeCells(2, 1, 2, NCOL);
+    ws.getCell(2, 1).value = `Factory: ${factoryLabel}    |    Date: ${dateStr}    |    Shift: ${shift}    |    Total shift time: ${totalHours} hrs`;
+    ws.getCell(2, 1).font = { name: FONT, size: 10, color: { argb: INK } };
+    ws.mergeCells(3, 1, 3, NCOL);
+    ws.getCell(3, 1).value = `Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}    |    By: ${username}`;
+    ws.getCell(3, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+
+    const HROW = 5;
+    cols.forEach((c, i) => {
+      const cell = ws.getCell(HROW, i + 1);
+      cell.value = c.label;
+      cell.font = { name: FONT, size: 10, bold: true, color: { argb: WHITE } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADFILL } };
+      cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle' };
+      cell.border = box;
+    });
+    ws.getRow(HROW).height = 20;
+
+    let r = HROW + 1;
+    rows.forEach((row, idx) => {
+      cols.forEach((c, i) => {
+        const cell = ws.getCell(r, i + 1);
+        cell.value = row[c.key];
+        cell.font = { name: FONT, size: 10, color: { argb: c.key === 'downHrs' && Number(row.downHrs) > 0 ? REDINK : INK } };
+        cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle', wrapText: c.key === 'reason' };
+        cell.border = box;
+        if (c.num) cell.numFmt = '#,##0.0';
+        if (idx % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND } };
+      });
+      r += 1;
+    });
+    if (!rows.length) {
+      ws.mergeCells(r, 1, r, NCOL);
+      ws.getCell(r, 1).value = 'No machines with an active plan for the selected date / shift.';
+      ws.getCell(r, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+    }
+
+    const buf = await wb.xlsx.writeBuffer();
+    const fname = `Machine_Downtime_${dateStr}_${shift}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${fname}`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    console.error('/api/reports/machine-downtime.xlsx', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 // Shared builder for the Mould Wise Item QTY report. Used by the JSON endpoint
 // and the styled Excel download so both return identical data.
 async function buildMouldWiseReport({ requestFactoryId, from, to, search, requested, tonnages }) {

@@ -195,6 +195,16 @@
                   <button onclick="document.getElementById('dprStoppedModal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;line-height:1">&times;</button>
                 </div>
                 <div style="padding:14px 18px">
+                  <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;margin-bottom:12px;padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px">
+                    <span style="font-size:0.74rem;font-weight:700;color:#475569;margin-right:auto"><i class="bi bi-file-earmark-excel" style="color:#166534"></i> Download machine-wise downtime report</span>
+                    <input id="dprDtDate" type="date" value="${new Date().toISOString().slice(0,10)}" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:7px;font-size:0.78rem">
+                    <select id="dprDtShift" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:7px;font-size:0.78rem">
+                      <option value="Full">Full Day</option>
+                      <option value="Day">Day</option>
+                      <option value="Night">Night</option>
+                    </select>
+                    <button onclick="window.dprDownloadDowntimeReport()" style="border:1px solid #166534;background:#166534;color:#fff;border-radius:7px;padding:5px 12px;font-weight:800;font-size:0.76rem;cursor:pointer;white-space:nowrap"><i class="bi bi-download"></i> Excel</button>
+                  </div>
                   <div style="overflow-x:auto">
                     <table style="width:100%;border-collapse:collapse;font-size:.82rem">
                       <thead><tr style="background:#b91c1c;color:#fff">
@@ -213,6 +223,40 @@
             host.addEventListener('click', e => { if (e.target === host) host.remove(); });
             document.body.appendChild(host);
         }
+
+        // Download the machine-wise downtime Excel report for the chosen date + shift.
+        // Server-generated xlsx (ExcelJS); sends auth + factory headers like the other
+        // report downloads. Columns: Machine, Running Plan, Total Time, Available Time,
+        // Downtime, Reason — for every machine holding an active plan.
+        window.dprDownloadDowntimeReport = async function () {
+            const date = (document.getElementById('dprDtDate') || {}).value || new Date().toISOString().slice(0, 10);
+            const shift = (document.getElementById('dprDtShift') || {}).value || 'Full';
+            let factoryId = '';
+            try { factoryId = localStorage.getItem('jpsms_factory_id') || ''; } catch (_) {}
+            const url = `/api/reports/machine-downtime.xlsx?date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}${factoryId ? `&factory_id=${encodeURIComponent(factoryId)}` : ''}`;
+            const headers = {};
+            try {
+                const token = localStorage.getItem('token');
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                const u = JSON.parse(localStorage.getItem('user') || '{}');
+                if (u && u.username) headers['X-User-Name'] = u.username;
+                if (factoryId) headers['X-Factory-ID'] = factoryId;
+            } catch (_) {}
+            try {
+                if (window.JPSMS && JPSMS.toast) JPSMS.toast('Preparing Excel…', 'info');
+                const res = await fetch(url, { headers });
+                if (!res.ok) throw new Error(`Download failed (${res.status})`);
+                const blob = await res.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `Machine_Downtime_${date}_${shift}.xlsx`;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+            } catch (e) {
+                if (window.JPSMS && JPSMS.toast) JPSMS.toast(e.message || 'Excel download failed', 'error');
+                else alert(e.message || 'Excel download failed');
+            }
+        };
 
         // --- CODE MAPPINGS ---
         const REJECTION_CODES = {
