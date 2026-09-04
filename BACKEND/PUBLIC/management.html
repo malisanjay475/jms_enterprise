@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Management - JMS OCEAN</title>
+  <link rel="stylesheet" href="assets/app.css">
+  <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+  <style>
+    body { background:#f5f6f8; }
+    .mg-head { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+    .mg-title { font-size:1.65rem; font-weight:800; color:#141a2e; letter-spacing:-.5px; margin:0; display:flex; align-items:center; gap:10px; }
+    .mg-tabs { display:inline-flex; background:#eef1f6; border-radius:10px; padding:4px; gap:4px; }
+    .mg-tab { border:none; background:transparent; padding:8px 16px; border-radius:8px; font-weight:700; font-size:.85rem; color:#5c6580; cursor:pointer; }
+    .mg-tab.active { background:#fff; color:#303f9f; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+    .card { background:#fff; border:1px solid #e0e4ec; border-radius:12px; box-shadow:0 1px 2px rgba(20,26,46,.05); }
+    .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:12px 14px; border-bottom:1px solid #eef1f6; }
+    .inp { padding:8px 11px; border:1px solid #cbd5e1; border-radius:8px; font-size:.86rem; }
+    .btn2 { border:1px solid #cbd5e1; background:#fff; border-radius:8px; padding:8px 13px; font-weight:700; font-size:.82rem; cursor:pointer; }
+    .btn2.p { background:#303f9f; border-color:#303f9f; color:#fff; } .btn2.r { background:#fff; border-color:#fecaca; color:#dc2626; } .btn2.g{background:#0f766e;border-color:#0f766e;color:#fff;}
+    table.mg { width:100%; border-collapse:collapse; font-size:.85rem; }
+    table.mg th, table.mg td { text-align:left; padding:9px 13px; border-bottom:1px solid #eef1f6; vertical-align:middle; }
+    table.mg th { background:#f1f3f6; font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:#5c6580; font-weight:700; }
+    .unit-h { background:#e8eaf6; color:#283593; font-weight:800; font-size:.8rem; padding:8px 13px; }
+    .chip { font-size:.64rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; padding:2px 7px; border-radius:5px; background:#eef1f6; color:#5c6580; }
+    .chip.login { background:#e2f2f0; color:#0f766e; }
+    .backdrop { position:fixed; inset:0; background:rgba(15,20,40,.5); display:none; align-items:center; justify-content:center; z-index:1000; padding:16px; }
+    .backdrop.on { display:flex; }
+    .modal { background:#fff; border-radius:14px; width:620px; max-width:96%; max-height:92vh; overflow:auto; padding:22px; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+    .modal h3 { margin:0 0 10px; font-size:1.12rem; color:#141a2e; }
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    @media(max-width:560px){ .grid2{ grid-template-columns:1fr; } }
+    .fld { display:block; font-size:.72rem; font-weight:700; color:#475569; margin:8px 0 3px; }
+    .fld + .inp, .fld + select { width:100%; }
+    select.inp { width:100%; }
+    .tree ul { list-style:none; margin:0 0 0 18px; padding:0; border-left:1px solid #d6dbe8; }
+    .tree li { margin:6px 0; padding-left:12px; position:relative; }
+    .tree li::before { content:""; position:absolute; left:0; top:14px; width:10px; height:1px; background:#d6dbe8; }
+    .pnode { display:inline-flex; flex-direction:column; background:#fff; border:1px solid #e0e4ec; border-left:3px solid #3949ab; border-radius:8px; padding:6px 11px; box-shadow:0 1px 2px rgba(20,26,46,.05); }
+    .pnode b { color:#141a2e; font-size:.84rem; } .pnode small { color:#5c6580; font-size:.7rem; }
+    .empty { text-align:center; color:#94a3b8; padding:34px; font-size:.9rem; }
+    .restricted { text-align:center; padding:60px 20px; color:#5c6580; }
+  </style>
+</head>
+
+<body>
+  <div class="main-content" id="pageContent" style="max-width:1300px; margin:0 auto;">
+    <div class="mg-head">
+      <h2 class="mg-title"><i class="bi bi-diagram-3-fill" style="color:#303f9f"></i> Management <span style="font-size:.8rem;font-weight:700;color:#8a6d1a;background:#f6efdb;border:1px solid #e6d9a8;border-radius:6px;padding:2px 8px;margin-left:4px">🔒 Superadmin</span></h2>
+      <div class="mg-tabs">
+        <button class="mg-tab" id="tab-people" onclick="switchTab('people')">People</button>
+        <button class="mg-tab" id="tab-chart" onclick="switchTab('chart')">Org Chart</button>
+        <button class="mg-tab" id="tab-setup" onclick="switchTab('setup')">Setup</button>
+      </div>
+    </div>
+    <div id="mgBody"></div>
+  </div>
+
+  <div class="backdrop" id="mgModal"><div class="modal" id="mgModalInner"></div></div>
+
+  <script src="assets/app.min.js"></script>
+  <script>
+    const JPSMS = window.JPSMS, api = JPSMS.api, toast = JPSMS.toast;
+    let D = { units: [], departments: [], grades: [], designations: [], people: [] };
+    let curTab = 'people';
+
+    function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function user(){ try { return JPSMS.auth.getUser() || {}; } catch(_) { return {}; } }
+    function isSuper(){ const u=user(); return String(u.role_code||'').toLowerCase()==='superadmin' || String(u.username||'').toLowerCase()==='superadmin'; }
+    const byId = (arr) => { const m={}; (arr||[]).forEach(x=>m[x.id]=x); return m; };
+    let U,DEP,G,DES,P;
+    function reindex(){ U=byId(D.units); DEP=byId(D.departments); G=byId(D.grades); DES=byId(D.designations); P=byId(D.people); }
+    function desigLabel(id){ const d=DES[id]; return d?d.title:''; }
+    function gradeLabel(id){ const g=G[id]; return g?`${g.band_name}${g.level_code?' ('+g.level_code+')':''}`:''; }
+
+    async function loadAll(){
+      const r = await api.get('/org/bootstrap');
+      if(!r.ok) throw new Error(r.error||'Load failed');
+      D = r.data; reindex();
+    }
+
+    function switchTab(t){ curTab=t; try{ history.replaceState(null,'', '?tab='+t); }catch(_){}
+      ['people','chart','setup'].forEach(x=>document.getElementById('tab-'+x).classList.toggle('active', x===t));
+      render();
+    }
+
+    function render(){
+      if(curTab==='people') renderPeople();
+      else if(curTab==='chart') renderChart();
+      else renderSetup();
+    }
+
+    /* ---------- PEOPLE (factory-wise) ---------- */
+    function renderPeople(){
+      const q = (document.getElementById('mgSearch')||{}).value || '';
+      const body = document.getElementById('mgBody');
+      const search = q.trim().toLowerCase();
+      let html = `<div class="card">
+        <div class="bar">
+          <strong style="margin-right:auto;color:#141a2e">People — Factory-wise</strong>
+          <input id="mgSearch" class="inp" placeholder="Search name / emp code / designation" style="width:260px" value="${esc(q)}" oninput="renderPeople()">
+          <button class="btn2 p" onclick="openPerson(null)"><i class="bi bi-person-plus"></i> Add Employee</button>
+        </div>`;
+      const units = D.units.slice().sort((a,b)=>(a.sort_order-b.sort_order)||a.name.localeCompare(b.name));
+      // people with no unit go into an "Unassigned" bucket at the end
+      const groups = units.map(u=>({unit:u, people:[]}));
+      const unassigned = {unit:{id:null,name:'Unassigned'}, people:[]};
+      const gmap = {}; groups.forEach(g=>gmap[g.unit.id]=g);
+      D.people.forEach(p=>{
+        if(search){ const hay=`${p.full_name} ${p.emp_code||''} ${desigLabel(p.designation_id)}`.toLowerCase(); if(!hay.includes(search)) return; }
+        (gmap[p.unit_id] || unassigned).people.push(p);
+      });
+      const allGroups = groups.concat(unassigned.people.length?[unassigned]:[]);
+      let total=0;
+      allGroups.forEach(g=>{
+        if(!g.people.length && search) return;
+        total += g.people.length;
+        html += `<div class="unit-h">${esc(g.unit.name)} <span style="font-weight:600;color:#5c6cae">· ${g.people.length}</span></div>`;
+        if(!g.people.length){ html += `<div style="padding:10px 14px;color:#94a3b8;font-size:.8rem">No employees.</div>`; return; }
+        html += `<div style="overflow-x:auto"><table class="mg"><thead><tr><th>Name</th><th>Emp Code</th><th>Designation</th><th>Department</th><th>Grade</th><th>Reports To</th><th></th></tr></thead><tbody>`;
+        g.people.sort((a,b)=>(a.sort_order-b.sort_order)||a.full_name.localeCompare(b.full_name)).forEach(p=>{
+          html += `<tr>
+            <td style="font-weight:700">${esc(p.full_name)} ${p.user_id?'<span class="chip login">login</span>':''} ${p.status==='left'?'<span class="chip">left</span>':''}</td>
+            <td>${esc(p.emp_code||'-')}</td>
+            <td>${esc(desigLabel(p.designation_id)||'-')}</td>
+            <td>${esc((DEP[p.department_id]||{}).name||'-')}</td>
+            <td>${esc(gradeLabel(p.grade_id)||'-')}</td>
+            <td>${esc((P[p.reports_to_id]||{}).full_name||'-')}</td>
+            <td style="white-space:nowrap">
+              <button class="btn2" onclick="openPerson(${p.id})" title="Edit"><i class="bi bi-pencil"></i></button>
+              <button class="btn2" onclick="openInsert(${p.id})" title="Insert someone under this person"><i class="bi bi-node-plus"></i></button>
+              <button class="btn2 r" onclick="delPerson(${p.id})" title="Delete"><i class="bi bi-trash"></i></button>
+            </td></tr>`;
+        });
+        html += `</tbody></table></div>`;
+      });
+      if(!total) html += `<div class="empty">No employees${search?' match your search':' yet — click Add Employee'}.</div>`;
+      html += `</div>`;
+      body.innerHTML = html;
+    }
+
+    function personForm(p, opts){
+      opts = opts || {};
+      const desigOpts = D.designations.slice().sort((a,b)=>a.title.localeCompare(b.title))
+        .map(d=>`<option value="${d.id}" ${p&&p.designation_id==d.id?'selected':''}>${esc(d.title)}</option>`).join('');
+      const unitOpts = D.units.map(u=>`<option value="${u.id}" ${p&&p.unit_id==u.id?'selected':''}>${esc(u.name)}</option>`).join('');
+      const depOpts = D.departments.map(d=>`<option value="${d.id}" ${p&&p.department_id==d.id?'selected':''}>${esc(d.name)}</option>`).join('');
+      const gradeOpts = D.grades.map(g=>`<option value="${g.id}" ${p&&p.grade_id==g.id?'selected':''}>${esc(gradeLabel(g.id))}</option>`).join('');
+      const mgrOpts = D.people.filter(x=>!p||x.id!==p.id).sort((a,b)=>a.full_name.localeCompare(b.full_name))
+        .map(x=>`<option value="${x.id}" ${p&&p.reports_to_id==x.id?'selected':(opts.managerId==x.id?'selected':'')}>${esc(x.full_name)}${x.designation_id?' — '+esc(desigLabel(x.designation_id)):''}</option>`).join('');
+      return `
+        <label class="fld">Full name *</label><input id="f_name" class="inp" value="${p?esc(p.full_name):''}">
+        <div class="grid2">
+          <div><label class="fld">Emp code</label><input id="f_emp" class="inp" value="${p?esc(p.emp_code||''):''}"></div>
+          <div><label class="fld">Unit (Factory)</label><select id="f_unit" class="inp"><option value="">—</option>${unitOpts}</select></div>
+          <div><label class="fld">Department</label><select id="f_dep" class="inp"><option value="">—</option>${depOpts}</select></div>
+          <div><label class="fld">Designation / Role</label><select id="f_desig" class="inp" onchange="if(this.value==='__new')createRoleInline(this)"><option value="">—</option>${desigOpts}<option value="__new">➕ Create new role…</option></select></div>
+          <div><label class="fld">Grade</label><select id="f_grade" class="inp"><option value="">—</option>${gradeOpts}</select></div>
+          <div><label class="fld">Reports to</label><select id="f_mgr" class="inp"><option value="">— (top)</option>${mgrOpts}</select></div>
+          <div><label class="fld">Phone</label><input id="f_phone" class="inp" value="${p?esc(p.phone||''):''}"></div>
+          <div><label class="fld">Email</label><input id="f_email" class="inp" value="${p?esc(p.email||''):''}"></div>
+          <div><label class="fld">Date of joining</label><input id="f_doj" type="date" class="inp" value="${p&&p.doj?String(p.doj).slice(0,10):''}"></div>
+          <div><label class="fld">Status</label><select id="f_status" class="inp"><option value="active" ${p&&p.status==='active'?'selected':''}>Active</option><option value="left" ${p&&p.status==='left'?'selected':''}>Left</option></select></div>
+        </div>`;
+    }
+    function collectPerson(){
+      return {
+        full_name: document.getElementById('f_name').value.trim(),
+        emp_code: document.getElementById('f_emp').value.trim(),
+        unit_id: document.getElementById('f_unit').value || null,
+        department_id: document.getElementById('f_dep').value || null,
+        designation_id: (document.getElementById('f_desig').value && document.getElementById('f_desig').value!=='__new') ? document.getElementById('f_desig').value : null,
+        grade_id: document.getElementById('f_grade').value || null,
+        reports_to_id: document.getElementById('f_mgr').value || null,
+        phone: document.getElementById('f_phone').value.trim(),
+        email: document.getElementById('f_email').value.trim(),
+        doj: document.getElementById('f_doj').value || null,
+        status: document.getElementById('f_status').value || 'active'
+      };
+    }
+    async function createRoleInline(sel){
+      const title = prompt('New role / designation title:');
+      if(!title || !title.trim()){ sel.value=''; return; }
+      try {
+        const r = await api.post('/org/designations', { title: title.trim() });
+        if(!r.ok) throw new Error(r.error||'Failed');
+        D.designations.push(r.data); reindex();
+        const opt = new Option(r.data.title, r.data.id, true, true);
+        sel.add(opt, sel.querySelector('option[value="__new"]')); sel.value = r.data.id;
+        toast('Role created','success');
+      } catch(e){ toast(e.message||'Failed','error'); sel.value=''; }
+    }
+    function openPerson(id){
+      const p = id ? P[id] : null;
+      showModal(`${p?'Edit':'Add'} Employee`, personForm(p), async ()=>{
+        const body = collectPerson();
+        if(!body.full_name){ toast('Name required','error'); return false; }
+        const r = p ? await api.put('/org/people/'+p.id, body) : await api.post('/org/people', body);
+        if(!r.ok){ toast(r.error||'Save failed','error'); return false; }
+        await loadAll(); render(); toast('Saved','success'); return true;
+      });
+    }
+    function openInsert(managerId){
+      const mgr = P[managerId];
+      const reports = D.people.filter(x=>x.reports_to_id==managerId);
+      const repChecks = reports.map(x=>`<label style="display:flex;align-items:center;gap:8px;font-size:.82rem;margin:3px 0"><input type="checkbox" class="ins-rep" value="${x.id}" style="width:auto"> ${esc(x.full_name)}${x.designation_id?' — '+esc(desigLabel(x.designation_id)):''}</label>`).join('');
+      const form = personForm(null, {managerId}) +
+        (reports.length ? `<div style="margin-top:12px;padding:10px;background:#f5f6f8;border:1px solid #e0e4ec;border-radius:9px"><div style="font-size:.74rem;font-weight:800;color:#475569;margin-bottom:5px">Move these reports under the new person (optional):</div>${repChecks}</div>` : '');
+      showModal(`Insert person under ${esc(mgr?mgr.full_name:'')}`, form, async ()=>{
+        const body = collectPerson();
+        if(!body.full_name){ toast('Name required','error'); return false; }
+        body.manager_id = managerId;
+        body.move_report_ids = [...document.querySelectorAll('.ins-rep:checked')].map(c=>Number(c.value));
+        const r = await api.post('/org/people/insert-between', body);
+        if(!r.ok){ toast(r.error||'Failed','error'); return false; }
+        await loadAll(); render(); toast('Inserted','success'); return true;
+      });
+    }
+    async function delPerson(id){
+      const p = P[id]; if(!p) return;
+      if(!confirm(`Delete ${p.full_name}? Anyone reporting to them moves up to their manager.`)) return;
+      const r = await api.delete('/org/people/'+id);
+      if(!r.ok){ toast(r.error||'Delete failed','error'); return; }
+      await loadAll(); render(); toast('Deleted','success');
+    }
+
+    /* ---------- ORG CHART ---------- */
+    function renderChart(){
+      const body = document.getElementById('mgBody');
+      const kids = {}; D.people.forEach(p=>{ const k=p.reports_to_id||0; (kids[k]=kids[k]||[]).push(p); });
+      function node(p){
+        const c = (kids[p.id]||[]).sort((a,b)=>a.full_name.localeCompare(b.full_name));
+        return `<li><span class="pnode"><b>${esc(p.full_name)}</b><small>${esc(desigLabel(p.designation_id)||'')}${p.unit_id&&U[p.unit_id]?' · '+esc(U[p.unit_id].name):''}</small></span>${c.length?`<ul>${c.map(node).join('')}</ul>`:''}</li>`;
+      }
+      const roots = (kids[0]||[]).sort((a,b)=>a.full_name.localeCompare(b.full_name));
+      body.innerHTML = `<div class="card" style="padding:18px">
+        <div style="font-weight:800;color:#141a2e;margin-bottom:6px">Joyo Plastics — Organisation</div>
+        ${roots.length ? `<div class="tree"><ul>${roots.map(node).join('')}</ul></div>` : '<div class="empty">Add people and set who reports to whom to build the chart.</div>'}</div>`;
+    }
+
+    /* ---------- SETUP ---------- */
+    const SETUP = [
+      { kind:'units', title:'Units (Factories)', cols:[['name','Name'],['code','Code'],['unit_type','Type'],['location','Location'],['sort_order','Order']] },
+      { kind:'departments', title:'Departments', cols:[['name','Name'],['code','Code'],['sort_order','Order']] },
+      { kind:'grades', title:'Grades / Bands', cols:[['band_name','Band'],['level_code','Level'],['rank_order','Rank']] },
+      { kind:'designations', title:'Roles / Designations', cols:[['title','Title']] }
+    ];
+    function renderSetup(){
+      const body = document.getElementById('mgBody');
+      body.innerHTML = SETUP.map(s=>{
+        const rows = (D[s.kind]||[]).map(r=>`<tr>${s.cols.map(c=>`<td>${esc(r[c[0]]==null?'':r[c[0]])}</td>`).join('')}<td style="white-space:nowrap"><button class="btn2" onclick="openSetup('${s.kind}',${r.id})"><i class="bi bi-pencil"></i></button> <button class="btn2 r" onclick="delSetup('${s.kind}',${r.id})"><i class="bi bi-trash"></i></button></td></tr>`).join('');
+        return `<div class="card" style="margin-bottom:16px">
+          <div class="bar"><strong style="margin-right:auto;color:#141a2e">${s.title} <span style="font-weight:600;color:#8d95ad">· ${(D[s.kind]||[]).length}</span></strong>
+            <button class="btn2 p" onclick="openSetup('${s.kind}',null)"><i class="bi bi-plus-lg"></i> Add</button></div>
+          <div style="overflow-x:auto"><table class="mg"><thead><tr>${s.cols.map(c=>`<th>${c[1]}</th>`).join('')}<th></th></tr></thead>
+          <tbody>${rows||`<tr><td colspan="${s.cols.length+1}" class="empty">None yet.</td></tr>`}</tbody></table></div></div>`;
+      }).join('');
+    }
+    function setupFieldsFor(kind, r){
+      if(kind==='units') return `<label class="fld">Name *</label><input id="s_name" class="inp" value="${r?esc(r.name):''}"><div class="grid2"><div><label class="fld">Code</label><input id="s_code" class="inp" value="${r?esc(r.code||''):''}"></div><div><label class="fld">Type</label><select id="s_type" class="inp"><option value="plant" ${r&&r.unit_type==='plant'?'selected':''}>Plant</option><option value="ho" ${r&&r.unit_type==='ho'?'selected':''}>Head Office</option><option value="warehouse" ${r&&r.unit_type==='warehouse'?'selected':''}>Warehouse</option></select></div><div><label class="fld">Location</label><input id="s_loc" class="inp" value="${r?esc(r.location||''):''}"></div><div><label class="fld">Order</label><input id="s_order" type="number" class="inp" value="${r?esc(r.sort_order||100):100}"></div></div>`;
+      if(kind==='departments') return `<label class="fld">Name *</label><input id="s_name" class="inp" value="${r?esc(r.name):''}"><div class="grid2"><div><label class="fld">Code</label><input id="s_code" class="inp" value="${r?esc(r.code||''):''}"></div><div><label class="fld">Order</label><input id="s_order" type="number" class="inp" value="${r?esc(r.sort_order||100):100}"></div></div>`;
+      if(kind==='grades') return `<label class="fld">Band name *</label><input id="s_band" class="inp" value="${r?esc(r.band_name):''}"><div class="grid2"><div><label class="fld">Level code</label><input id="s_level" class="inp" value="${r?esc(r.level_code||''):''}"></div><div><label class="fld">Rank (lower=senior)</label><input id="s_rank" type="number" class="inp" value="${r?esc(r.rank_order||100):100}"></div></div>`;
+      return `<label class="fld">Title *</label><input id="s_title" class="inp" value="${r?esc(r.title):''}">`;
+    }
+    function collectSetup(kind){
+      if(kind==='units') return { name:val('s_name'), code:val('s_code'), unit_type:val('s_type'), location:val('s_loc'), sort_order:num('s_order') };
+      if(kind==='departments') return { name:val('s_name'), code:val('s_code'), sort_order:num('s_order') };
+      if(kind==='grades') return { band_name:val('s_band'), level_code:val('s_level'), rank_order:num('s_rank') };
+      return { title:val('s_title') };
+    }
+    const val = id => (document.getElementById(id)||{}).value?.trim?.() ?? '';
+    const num = id => { const v=(document.getElementById(id)||{}).value; return v===''?null:Number(v); };
+    function openSetup(kind, id){
+      const r = id ? (D[kind]||[]).find(x=>x.id===id) : null;
+      const cfg = SETUP.find(s=>s.kind===kind);
+      showModal(`${r?'Edit':'Add'} — ${cfg.title}`, setupFieldsFor(kind,r), async ()=>{
+        const body = collectSetup(kind);
+        const nameField = body.name||body.band_name||body.title;
+        if(!nameField){ toast('Name required','error'); return false; }
+        const res = r ? await api.put(`/org/${kind}/${r.id}`, body) : await api.post(`/org/${kind}`, body);
+        if(!res.ok){ toast(res.error||'Save failed','error'); return false; }
+        await loadAll(); render(); toast('Saved','success'); return true;
+      });
+    }
+    async function delSetup(kind, id){
+      if(!confirm('Delete this entry?')) return;
+      const r = await api.delete(`/org/${kind}/${id}`);
+      if(!r.ok){ toast(r.error||'Delete failed','error'); return; }
+      await loadAll(); render(); toast('Deleted','success');
+    }
+
+    /* ---------- modal helper ---------- */
+    function showModal(title, inner, onSave){
+      const m = document.getElementById('mgModalInner');
+      m.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><h3>${esc(title)}</h3><button class="btn2" onclick="closeModal()">✕</button></div>${inner}<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px"><button class="btn2" onclick="closeModal()">Cancel</button><button class="btn2 p" id="mgSaveBtn">Save</button></div>`;
+      document.getElementById('mgSaveBtn').onclick = async ()=>{ const btn=document.getElementById('mgSaveBtn'); btn.disabled=true; const ok=await onSave(); btn.disabled=false; if(ok!==false) closeModal(); };
+      document.getElementById('mgModal').classList.add('on');
+    }
+    function closeModal(){ document.getElementById('mgModal').classList.remove('on'); }
+
+    async function init(){
+      JPSMS.renderShell('management');
+      if(!isSuper()){ document.getElementById('mgBody').innerHTML = `<div class="card restricted"><i class="bi bi-shield-lock" style="font-size:2rem;color:#8a6d1a"></i><h3 style="color:#141a2e">Restricted</h3><p>The Management module is available to Superadmin only.</p></div>`; document.querySelector('.mg-tabs').style.display='none'; return; }
+      const t = new URLSearchParams(location.search).get('tab'); curTab = ['people','chart','setup'].includes(t)?t:'people';
+      ['people','chart','setup'].forEach(x=>document.getElementById('tab-'+x).classList.toggle('active', x===curTab));
+      try { await loadAll(); render(); } catch(e){ toast(e.message||'Load failed','error'); }
+    }
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.54.1",
+  "latest": "1.55.0",
   "versions": [
+    {
+      "version": "1.55.0",
+      "date": "2026-09-04",
+      "title": "Management — Organisation Structure (Superadmin)",
+      "modules": [
+        {
+          "app": "management",
+          "label": "Management",
+          "icon": "bi-diagram-3-fill",
+          "changes": [
+            { "type": "feat", "text": "New Superadmin-only Management app: build the Joyo Plastics organisation — units (factory-wise), departments, grades and roles — and add every employee with who they report to. Create new roles on the fly and insert a person between two levels. Includes a factory-wise people directory and a live org chart." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.54.1",
       "date": "2026-09-04",

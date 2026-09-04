@@ -83,6 +83,7 @@ function escHtml(value) {
         { id: 'dpr', label: 'DPR', href: 'dpr.html?view=summary' },
         { id: 'purchase', label: 'Purchase', href: 'purchase_orders.html' },
         { id: 'masters', label: 'Masters', href: 'masters.html' },
+        { id: 'management', label: 'Management', href: 'management.html' },
         { id: 'maintenance', label: 'Maintenance', href: 'maintenance.html?type=machine' },
         { id: 'quality', label: 'Quality', href: 'Quality.html' },
         { id: 'hr', label: 'HR', href: 'hr.html' },
@@ -115,6 +116,7 @@ function escHtml(value) {
         'purchase_vendors.html': 'purchase',
         'purchase_grn.html': 'purchase',
         'masters.html': 'masters',
+        'management.html': 'management',
         'maintenance.html': 'maintenance',
         'quality.html': 'quality',
         'hr.html': 'hr',
@@ -1305,6 +1307,18 @@ function escHtml(value) {
                 { id: 'master_wip_stock', label: 'WIP Stock', icon: 'bi-box-seam-fill', href: 'masters.html?type=wipstock' },
                 { id: 'master_mould', label: 'Mould Master', icon: 'bi-gem', href: 'masters.html?type=moulds' },
                 { id: 'master_labour_parties', label: 'Labour Parties', icon: 'bi-people-fill', href: 'masters.html?type=labour-parties' }
+            ]
+        },
+        {
+            id: 'management',
+            label: 'Management',
+            icon: 'bi-diagram-3-fill',
+            href: 'management.html',
+            visibleIf: (user) => isSuperadminUser(user),
+            items: [
+                { id: 'mgmt_people', label: 'People (Factory-wise)', icon: 'bi-people-fill', href: 'management.html?tab=people' },
+                { id: 'mgmt_chart', label: 'Org Chart', icon: 'bi-diagram-3', href: 'management.html?tab=chart' },
+                { id: 'mgmt_setup', label: 'Setup', icon: 'bi-sliders', href: 'management.html?tab=setup' }
             ]
         },
         {
