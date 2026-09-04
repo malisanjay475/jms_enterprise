@@ -11042,16 +11042,16 @@ async function buildDprOrderAnalysis(req) {
     });
 
     const dtMap = parseDprJson(l.downtime_breakup);
-    if (dtMap && typeof dtMap === 'object') {
-      Object.entries(dtMap).forEach(([reason, minutes]) => addDprReason(downtimeStats, reason, minutes));
-    } else {
+    if (dtMap && typeof dtMap === 'object' && Object.keys(dtMap).length) {
+      Object.entries(dtMap).forEach(([reason, minutes]) => addDprReason(downtimeStats, analyzeDowntimeReasonLabel(reason), minutes));
+    } else if (dt > 0) {
       addDprReason(downtimeStats, 'Unspecified', dt);
     }
 
     const rejMap = parseDprJson(l.reject_breakup);
-    if (rejMap && typeof rejMap === 'object') {
-      Object.entries(rejMap).forEach(([reason, qty]) => addDprReason(rejectionStats, reason, qty));
-    } else {
+    if (rejMap && typeof rejMap === 'object' && Object.keys(rejMap).length) {
+      Object.entries(rejMap).forEach(([reason, qty]) => addDprReason(rejectionStats, analyzeRejectReasonLabel(reason), qty));
+    } else if (rej > 0) {
       addDprReason(rejectionStats, 'Unspecified', rej);
     }
   });
@@ -28395,9 +28395,9 @@ app.get('/api/analyze/mould/:mouldCode', async (req, res) => {
       slotKeys.add(`${l.date}|${l.shift}|${l.hour_slot}|${l.machine}`);
 
       let rb = l.reject_breakup; if (typeof rb === 'string') { try { rb = JSON.parse(rb); } catch (e) { rb = null; } }
-      if (rb && typeof rb === 'object') Object.entries(rb).forEach(([k, v]) => rejectReasons[k] = (rejectReasons[k] || 0) + toNum(v));
+      if (rb && typeof rb === 'object') Object.entries(rb).forEach(([k, v]) => { const lab = analyzeRejectReasonLabel(k); rejectReasons[lab] = (rejectReasons[lab] || 0) + toNum(v); });
       let db = l.downtime_breakup; if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
-      if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => downtimeReasons[k] = (downtimeReasons[k] || 0) + toNum(v));
+      if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => { const lab = analyzeDowntimeReasonLabel(k); downtimeReasons[lab] = (downtimeReasons[lab] || 0) + toNum(v); });
 
       const d = l.date || 'Unknown';
       if (!dailyTrend[d]) dailyTrend[d] = { date: d, good: 0, reject: 0, downtime: 0 };
@@ -28617,7 +28617,7 @@ app.get('/api/analyze/plant', async (req, res) => {
       apply(byDate[d]);
 
       let db = l.downtime_breakup; if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
-      if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => lossReasons[k] = (lossReasons[k] || 0) + toNum(v));
+      if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => { const lab = analyzeDowntimeReasonLabel(k); lossReasons[lab] = (lossReasons[lab] || 0) + toNum(v); });
     });
 
     const oeeOf = (a) => {
@@ -28706,7 +28706,7 @@ app.get('/api/analyze/machine', async (req, res) => {
 
       if (drill) {
         let db = l.downtime_breakup; if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
-        if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => drill.downtimeReasons[k] = (drill.downtimeReasons[k] || 0) + toNum(v));
+        if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => { const lab = analyzeDowntimeReasonLabel(k); drill.downtimeReasons[lab] = (drill.downtimeReasons[lab] || 0) + toNum(v); });
         const d = l.date || 'Unknown';
         if (!drill.byDate[d]) drill.byDate[d] = { date: d, good: 0, reject: 0, downtime: 0 };
         drill.byDate[d].good += good; drill.byDate[d].reject += rej; drill.byDate[d].downtime += dt;
@@ -28850,6 +28850,18 @@ function analyzeDowntimeReasonLabel(key) {
   const k = String(key == null ? '' : key).trim();
   if (ANALYZE_DOWNTIME_CODES[k]) return ANALYZE_DOWNTIME_CODES[k];
   if (ANALYZE_DOWNTIME_QUICK[k]) return ANALYZE_DOWNTIME_QUICK[k];
+  return k || 'Other';
+}
+// Reject reason code -> label. Mirrors REJECTION_CODES in dpr-script-1.js.
+const ANALYZE_REJECT_CODES = {
+  A: 'Short Shot', B: 'Shrinkage', C: 'Silver / Color Streak', D: 'Flow Line / Weld Line',
+  E: 'Fitment Issue', F: 'Dent / Air Trap', G: 'Warpage', H: 'Black Dot / Water Mark',
+  I: 'Startup Rejection', J: 'Bottom Cracking', K: 'Scratches', L: 'Overlap', M: 'Punching Issue'
+};
+function analyzeRejectReasonLabel(key) {
+  const k = String(key == null ? '' : key).trim();
+  if (ANALYZE_REJECT_CODES[k]) return ANALYZE_REJECT_CODES[k];
+  if (ANALYZE_REJECT_CODES[k.toUpperCase()]) return ANALYZE_REJECT_CODES[k.toUpperCase()];
   return k || 'Other';
 }
 // Parse a downtime_breakup value (JSONB object, or a JSON string) into {label: minutes}.
