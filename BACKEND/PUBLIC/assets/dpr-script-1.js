@@ -742,6 +742,13 @@
                         <option value="MouldTrial">🧪 Mould Trial</option>
                       </select>
                     </div>
+                    <div>
+                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Group By</label>
+                      <select id="s-group-by" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:130px">
+                        <option value="date">Date-wise</option>
+                        <option value="machine">Machine-wise</option>
+                      </select>
+                    </div>
                     <div style="display:flex; gap:10px">
                       <button id="btn-s-apply" class="btn btn-primary" style="padding:7px 15px; background:#3b82f6; color:white; border:none; border-radius:4px; font-weight:600; cursor:pointer">Apply</button>
                     </div>
@@ -1182,6 +1189,7 @@
 
                     const processQuery = `&process=${encodeURIComponent(dprProcess)}`;
                     const selectedLines = selLines.slice(); // [] = all lines
+                    const groupBy = document.getElementById('s-group-by')?.value || 'date';
                     const filterMode = document.getElementById('s-eff-filter')?.value || '';
 
                     localStorage.setItem('jpsms_dpr_process', dprProcess);
@@ -1423,6 +1431,15 @@
                         // Hoist Accumulators to be Line-Level but Cross-Date
                         const lineAccumulators = {};
 
+                        // Machine-wise grouping: collect each machine's rows across every
+                        // (date × shift) pass, then emit them grouped by machine after the loop.
+                        // Date-wise (default) keeps the original per-pass block rendering.
+                        const mmMode = groupBy === 'machine';
+                        const mmOrder = [];          // line names in first-seen order
+                        const mmHeader = {};         // lineName -> line header + <table><tbody> open
+                        const mmRows = {};           // lineName -> machine -> [rowHtml, ...] (pass order)
+                        let mmStickyHeader = '';     // the column header, emitted once
+
                         renderPasses.forEach(({ date, shift: passShift }) => {
                             // Force this block to a single shift so each (date × shift) renders
                             // as its own labelled section (shadows the outer shiftMode).
@@ -1435,7 +1452,7 @@
                             const dateDayClosed = dayClosed.filter(c => (c.dpr_date_str || c.dpr_date || '').startsWith(date));
                             const dateNightClosed = nightClosed.filter(c => (c.dpr_date_str || c.dpr_date || '').startsWith(date));
 
-                            masterHtml += `<div class="dpr-date-banner" style="position:sticky; z-index:46; background:#0f172a; color:white; padding:12px 20px; font-weight:800; border-radius:12px; margin:40px 0 20px 0; font-size:1.2rem; display:flex; justify-content:space-between; align-items:center; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1)">
+                            if (!mmMode) masterHtml += `<div class="dpr-date-banner" style="position:sticky; z-index:46; background:#0f172a; color:white; padding:12px 20px; font-weight:800; border-radius:12px; margin:40px 0 20px 0; font-size:1.2rem; display:flex; justify-content:space-between; align-items:center; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1)">
                                 <span><i class="bi bi-calendar3" style="margin-right:10px"></i>Compliance Summary for ${new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                                 <span style="font-size:0.9rem; opacity:0.8">${dprEscHtml(dprProcess)} • ${dprEscHtml(shiftMode)} Shift</span>
                             </div>`;
@@ -1563,7 +1580,7 @@
                         };
 
                             // --- GLOBAL STICKY HEADER PER DATE ---
-                            masterHtml += `
+                            const _stickyHeaderHtml = `
                                 <div class="date-section-header" style="position:sticky; z-index:45; top:130px; margin-bottom:0; box-shadow:0 1px 2px rgba(0,0,0,0.05); background:#f8fafc; border-bottom:1px solid #e2e8f0; border:1px solid #cbd5e1; border-radius:8px 8px 0 0; overflow:hidden">
                                     <table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
                                         <colgroup>
@@ -1583,8 +1600,12 @@
                                     </table>
                                 </div>
                             `;
+                            // Machine-wise: emit the column header once (after the loop). Date-wise: per date block.
+                            if (mmMode) { mmStickyHeader = _stickyHeaderHtml; } else { masterHtml += _stickyHeaderHtml; }
 
-                        const flatMode = !!filterMode;
+                        // Machine-wise grouping keeps the line→machine structure, so the flat
+                        // View-Filter rendering is disabled while grouping by machine.
+                        const flatMode = !!filterMode && !mmMode;
                         const lineBuffer = [];
                         const globalMachineBuffer = [];
 
@@ -1920,7 +1941,13 @@
                                         let machineHtml = '';
                                         if (isFirstMouldInMachine) {
                                             let label = stripMachPfx(machine);
-                                            if (shiftMode === 'Both') {
+                                            if (mmMode) {
+                                                // Machine-wise: every row is one date+shift, so label it with both.
+                                                const badgeColor = (rowShift === 'Day') ? '#f59e0b' : '#6366f1';
+                                                const dLbl = new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+                                                label += ` <span style="color:#334155; font-size:0.7rem; background:#e2e8f0; padding:1px 5px; border-radius:4px; margin-left:4px">${dLbl}</span>`;
+                                                label += ` <span style="color:${badgeColor}; font-size:0.7rem; background:${badgeColor}15; padding:1px 4px; border-radius:4px; margin-left:3px">${rowShift}</span>`;
+                                            } else if (shiftMode === 'Both') {
                                                 const badgeColor = (rowShift === 'Day') ? '#f59e0b' : '#6366f1';
                                                 label += ` <span style="color:${badgeColor}; font-size:0.7rem; background:${badgeColor}15; padding:1px 4px; border-radius:4px; margin-left:4px">${rowShift}</span>`;
                                             }
@@ -2757,8 +2784,18 @@
                             }); // End machines loop
 
                             // Append to Line Inner HTML (always, even in flatMode — line totals still update)
-                            lineInnerHtml += machineBuffer.map(m => m.html).join('');
-                            lineInnerHtml += `</tbody></table></div></div>`;
+                            if (mmMode) {
+                                // Machine-wise: capture this line's header (open table + tbody) once,
+                                // and stash each machine's row html across passes for grouped emission.
+                                if (!mmRows[lineName]) { mmRows[lineName] = {}; mmOrder.push(lineName); mmHeader[lineName] = lineInnerHtml; }
+                                machineBuffer.forEach(mb => {
+                                    if (!mmRows[lineName][mb.name]) mmRows[lineName][mb.name] = [];
+                                    mmRows[lineName][mb.name].push(mb.html);
+                                });
+                            } else {
+                                lineInnerHtml += machineBuffer.map(m => m.html).join('');
+                                lineInnerHtml += `</tbody></table></div></div>`;
+                            }
 
                             // Store Totals for this line (Accumulate across dates)
                             if (!window.lineTheTonnages[lineName]) {
@@ -2801,7 +2838,7 @@
 
                             // Capture for Line Sorting (only in normal mode)
                             let calcEff = (lineTotalEstPcs > 0) ? (lineTotalGoodPcs / lineTotalEstPcs) * 100 : 0;
-                            if (!flatMode) {
+                            if (!flatMode && !mmMode) {
                                 lineBuffer.push({
                                     html: lineInnerHtml,
                                     name: lineName,
@@ -2878,12 +2915,32 @@
                                     </div>
                                 </div>
                             `;
-                        } else {
+                        } else if (!mmMode) {
                             // Normal mode: sort lines alphabetically
                             lineBuffer.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
                             masterHtml += lineBuffer.map(x => x.html).join('');
                         }
-                        }); // END allDates.forEach
+                        }); // END renderPasses.forEach
+
+                        // ---- Machine-wise emission: one table per line, rows grouped by machine ----
+                        // Each machine shows its rows for every date+shift together (labelled per row),
+                        // e.g. M-1 04 Day, M-1 04 Night, M-1 05 Day, M-1 05 Night, then M-2, …
+                        if (mmMode && mmOrder.length) {
+                            masterHtml += mmStickyHeader;
+                            const extractIdx = (str) => { const m = String(str).match(/-(\d+)$/); return m ? parseInt(m[1]) : 999999; };
+                            mmOrder.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+                            mmOrder.forEach(lineName => {
+                                let html = mmHeader[lineName]; // line header + <table>…<tbody>
+                                const machs = Object.keys(mmRows[lineName]).sort((a, b) => {
+                                    const ia = extractIdx(a), ib = extractIdx(b);
+                                    if (ia !== ib && ia !== 999999 && ib !== 999999) return ia - ib;
+                                    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+                                });
+                                machs.forEach(machine => { html += mmRows[lineName][machine].join(''); });
+                                html += `</tbody></table></div></div>`;
+                                masterHtml += html;
+                            });
+                        }
 
                         // ---- ENTRIES COUNT: Standalone calculation from raw API data ----
                         // Runs outside the rendering loop so it is never skipped or double-counted.
@@ -3280,6 +3337,7 @@
 
                 document.getElementById('btn-s-apply').onclick = loadSummary;
                 document.getElementById('s-eff-filter')?.addEventListener('change', loadSummary);
+                document.getElementById('s-group-by')?.addEventListener('change', loadSummary);
                 document.getElementById('s-factory')?.addEventListener('change', loadSummary);
 
                 // Load factories into the factory dropdown

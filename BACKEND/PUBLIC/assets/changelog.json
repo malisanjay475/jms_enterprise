@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.7",
+  "latest": "1.55.8",
   "versions": [
+    {
+      "version": "1.55.8",
+      "date": "2026-09-05",
+      "title": "Compliance Summary: Machine-wise grouping",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary has a new 'Group By' option: choose Machine-wise to see each machine's rows for every selected date and shift together (e.g. Machine 1 — 04 Sep Day, 04 Sep Night, 05 Sep Day, 05 Sep Night — then the next machine). Date-wise stays the default." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.7",
       "date": "2026-09-05",
