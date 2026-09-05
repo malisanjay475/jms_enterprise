@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.4",
+  "latest": "1.55.5",
   "versions": [
+    {
+      "version": "1.55.5",
+      "date": "2026-09-05",
+      "title": "HR Manager can create MC/MP priority schedules",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "The HR Manager role can now create and view MC/MP priority schedules on the Excel View Timeline, alongside PPC managers. Permission is enforced on the server, not just hidden in the UI." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.4",
       "date": "2026-09-05",
