@@ -12967,6 +12967,39 @@ app.post('/api/planning/delete', async (req, res) => {
 
     // 1. Fetch before delete for logging
     const check = await q('SELECT * FROM plan_board WHERE id = $1', [rowId]);
+
+    // 1b. Refuse to hard-delete a plan that already has production logged.
+    // Hard-deleting the plan_board row leaves its dpr_hourly rows orphaned
+    // (production with no plan): every plan-joined balance silently drops that
+    // output while raw DPR reports still count it — the "have entries but plan
+    // not showing" bug. DPR stores plan_id as either the PLN code or the numeric
+    // board id, so match both. Block here; the plan must be completed or its DPR
+    // cleared first.
+    if (check.length) {
+      const p = check[0];
+      const prod = await q(
+        `SELECT COUNT(*)::int AS rows,
+                COALESCE(SUM(good_qty), 0)::int AS good,
+                COALESCE(SUM(reject_qty), 0)::int AS reject
+           FROM dpr_hourly
+          WHERE (plan_id = $1 OR plan_id = $2)
+            AND COALESCE(is_deleted, false) = false`,
+        [p.plan_id, String(rowId)]
+      );
+      const pr = prod[0] || {};
+      if (Number(pr.rows) > 0) {
+        return res.json({
+          ok: false,
+          code: 'PLAN_HAS_PRODUCTION',
+          error:
+            `Cannot delete this plan: it has ${pr.rows} DPR production ` +
+            `entr${Number(pr.rows) === 1 ? 'y' : 'ies'} logged ` +
+            `(${pr.good} good / ${pr.reject} reject). Deleting it would orphan ` +
+            `that production. Mark the plan COMPLETED, or remove its DPR entries first.`,
+        });
+      }
+    }
+
     if (check.length) {
       const p = check[0];
       // Log DELETE
