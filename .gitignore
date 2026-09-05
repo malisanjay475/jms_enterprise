@@ -141,3 +141,7 @@ BACKEND/job_card_api_snippet.js
 # Local GitHub Actions secret values (never commit)
 scripts/github-actions.secrets.env
 .gstack/
+
+# QC Android app self-update artifacts (runtime, uploaded to LOCAL server)
+BACKEND/PUBLIC/qc-app/*.apk
+BACKEND/PUBLIC/qc-app/version.json

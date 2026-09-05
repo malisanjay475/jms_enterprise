@@ -747,6 +747,15 @@
       return ln === 'all' || session.global_access === true;
     }
 
+    /* Roles that may back-date entries (up to 30 days) even without all-line access,
+       so PPC/Planner/Admin can complete pending back-dated entries. Keep in sync with
+       BACKDATE_ROLES in registerLegacyRoutes.js assertDateEntryAllowed(). */
+    const BACKDATE_ROLES = ['ppc_manager', 'ppc_ass_manager', 'planner', 'admin', 'superadmin'];
+    function canBackDate() {
+      if (isAllLineAccess()) return true;
+      return BACKDATE_ROLES.includes(String(session.role_code || '').trim().toLowerCase());
+    }
+
     /* Refresh line access + global_access from the server so a stale cached session
        (e.g. logged in before the feature shipped) still unlocks the date picker
        without forcing a re-login. Fire-and-forget; rebuilds the date select on change. */
@@ -756,7 +765,7 @@
         const r = await apiFetch(`/api/user/access?username=${encodeURIComponent(session.username)}`);
         const j = await r.json();
         if (!j || !j.ok || !j.data) return;
-        const wasAll = isAllLineAccess();
+        const wasAll = canBackDate();
         session.line = j.data.line || session.line;
         session.role_code = j.data.role_code || session.role_code;
         session.global_access = j.data.global_access === true;
@@ -768,7 +777,7 @@
           localStorage.setItem('jpsmsSession', JSON.stringify(raw));
         } catch (_) { }
         // If access changed and the date select is present, rebuild so the picker appears/hides.
-        if (isAllLineAccess() !== wasAll && el('d-date')) buildDateSelect();
+        if (canBackDate() !== wasAll && el('d-date')) buildDateSelect();
       } catch (_) { }
     }
 
@@ -923,9 +932,9 @@
       selDate.add(new Option('Today (' + fmtD(today) + ')', isoDate(today)));
       selDate.add(new Option('Yesterday (' + fmtD(yest) + ')', isoDate(yest)));
 
-      // All-lines users may back-date up to 30 days. Partial-line users only see Today/Yesterday.
+      // All-lines users + PPC/Planner/Admin may back-date up to 30 days. Others: Today/Yesterday only.
       const custom = el('d-date-custom');
-      if (isAllLineAccess()) {
+      if (canBackDate()) {
         // Re-attach a previously picked custom back-date so it survives shift/job changes.
         if (customDateChoice && customDateChoice !== isoDate(today) && customDateChoice !== isoDate(yest)) {
           const cd = new Date(customDateChoice + 'T00:00:00');
@@ -1259,6 +1268,34 @@
       el('act-cavity').classList.remove('input-error');
     }
 
+    /* Article weight ±10% check — WARN ONLY (does not block the save; article
+       weight is intentionally saved as-is). Shows a warning when the actual
+       article weight deviates more than 10% from STD (either lighter or heavier). */
+    function validateActWeight() {
+      const warn = el('wt-warn');
+      const act = el('act-article');
+      if (!warn) return;
+      const stdW = parseFloat((el('std-article') && el('std-article').value) || 0);
+      // Article ACT may be typed in grams: the save treats a value >= 10 as grams
+      // and stores kg (value / 1000). Normalise the same way before comparing to
+      // the kg-based STD, or a grams entry would always look wildly off.
+      let actW = parseFloat((act && act.value) || 0);
+      if (!isNaN(actW) && actW >= 10) actW = actW / 1000;
+      if (stdW > 0 && actW > 0) {
+        const devPct = Math.abs(actW - stdW) / stdW * 100;
+        if (devPct > 10) {
+          const lo = (stdW * 0.9), hi = (stdW * 1.1);
+          warn.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> Weight ${devPct.toFixed(1)}% off STD (${actW} vs ${stdW}). Expected ${lo.toFixed(3)}–${hi.toFixed(3)}. You can still save.`;
+          warn.style.display = 'block';
+          if (act) act.classList.add('input-warn');
+          return;
+        }
+      }
+      warn.style.display = 'none';
+      warn.innerHTML = '';
+      if (act) act.classList.remove('input-warn');
+    }
+
     function saveStdActual() {
       const job = session.activeJob;
       if (!job) {
@@ -1484,6 +1521,7 @@
             el('std-msg').innerHTML =
               '<span class="warn">No setup saved — enter ACT values and Save.</span>';
             setupDone = false;
+            if (typeof validateActWeight === 'function') validateActWeight(); // clear any stale weight warning
             validateForm();
             return;
           }
@@ -1506,6 +1544,7 @@
           el('act-cycle').value = String(cyc ?? '');
           el('act-pcshr').value = String(pcs ?? '');
           el('act-man').value = String(man ?? '');
+          if (typeof validateActWeight === 'function') validateActWeight();
           // el('act-name').value = String(ent ?? ''); // REMOVED
           el('act-sfgqty').value = String(sfg ?? '');
           // Backwards Compat Logic: Try Parse JSON, else String
@@ -2525,12 +2564,8 @@
         loadUsedSlots();
         show('dpr-form');
         showPage('sec-dpr', el('tab-dpr'));
-        // [KAN-83] Scroll to the Colour Breakdown (colour picker) so the writer picks a
-        // colour first, instead of jumping straight to the entry inputs.
-        setTimeout(() => {
-          const _colourBlock = el('color-picker-btn') || el('dpr-form') || el('d-slot') || el('sec-dpr');
-          if (_colourBlock) _colourBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 80);
+        // (Removed the auto-scroll to the Colour Breakdown on Fill DPR per request —
+        // the form just opens without jumping the page.)
       } catch (e) { alert('Error opening DPR Form: ' + e.message); console.error(e); }
     }
 

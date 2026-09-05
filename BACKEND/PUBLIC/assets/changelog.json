@@ -11,8 +11,524 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.43.4",
+  "latest": "1.51.1",
   "versions": [
+    {
+      "version": "1.51.1",
+      "date": "2026-09-04",
+      "title": "Analyze — real reason names + cleaner look",
+      "modules": [
+        {
+          "app": "analyze",
+          "label": "Analyze",
+          "icon": "bi-bar-chart-fill",
+          "changes": [
+            {
+              "type": "fix",
+              "text": "Downtime and rejection charts across all Analyze screens (Order, Mould, Plant, Machine, Downtime) now show the real reason names — e.g. 'Manpower Shortage' and 'Short Shot' — instead of internal codes like 1, 2 or A, B."
+            },
+            {
+              "type": "improvement",
+              "text": "Refreshed the whole Analyze look with cleaner, consistent metric cards, chart headers and tables so every view reads clearly at a glance."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.51.0",
+      "date": "2026-09-03",
+      "title": "Downtime Analyze — machine, date & factory-wise losses",
+      "modules": [
+        {
+          "app": "analyze",
+          "label": "Analyze",
+          "icon": "bi-bar-chart-fill",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "New 'Downtime Analyze' screen under Analyze shows where machine time is being lost — a reason Pareto (80/20), machine-wise, date-wise and reason-wise views, a daily downtime trend, and click any row to drill into every contributing hour with mould, order, shift and who entered it."
+            },
+            {
+              "type": "feat",
+              "text": "Pick a period with one tap (Today, Last 7 Days, This Month, or a custom date range) and download the whole downtime report to Excel or CSV."
+            },
+            {
+              "type": "feat",
+              "text": "Staff with access to more than one factory get an extra plant-wise view comparing downtime across factories; single-factory users only ever see their own plant."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.50.2",
+      "date": "2026-09-03",
+      "title": "Running Plan Manpower — auto for all machines",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "The Manpower report in Create Priority no longer needs manual selection — clicking 'Running Plan Manpower' now auto-lists every machine's currently-running plan with STD Manpower and a blank Actual column, shown on screen and downloadable to Excel." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.50.1",
+      "date": "2026-09-02",
+      "title": "Manpower Excel report in Create Priority",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "In Excel View Timeline → Create Priority, a new 'Manpower Excel' button generates a machine-wise report of the running plan with STD Manpower and a blank Actual Manpower column to fill in — shown on screen and downloadable to Excel." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.50.0",
+      "date": "2026-09-02",
+      "title": "QC Supervisor native Android app + verified ticks",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "When a QC verifies an hourly entry in the QC app, that hour slot now shows a green verified tick in the DPR Compliance Summary." }
+          ]
+        },
+        {
+          "app": "supervisor_app",
+          "label": "QC Supervisor",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "feat", "text": "New native Android QC app covering Job Queue, First Piece Approval with camera, hourly QC entry, Verify & Hold, Material Issues, Quality Dashboard and Compliance — with offline entry that syncs when the network returns." },
+            { "type": "feat", "text": "QC Entry now shows a live colour balance (planned, produced and pending per colour)." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.49.19",
+      "date": "2026-08-26",
+      "title": "DPR Compliance Summary — cleaner Plant Total labels",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "In the DPR Compliance Summary Plant Total, removed the Capacity and Predicted Tonnage figures, and renamed Overall Tonnage to Gross Production and Tonnage to Good Production." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.49.18",
+      "date": "2026-09-02",
+      "title": "Fill DPR no longer auto-scrolls to colour",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Moulding Supervisor App",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "fix", "text": "Tapping Fill DPR opens the entry form without automatically scrolling down to the colour breakdown." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.49.17",
+      "date": "2026-08-26",
+      "title": "Fixed false 'OVER PRODUCTION' on split-batch colours",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "fix", "text": "The Colour & QTY panel counted a colour's production once per batch, so a colour split into two batches showed double the produced quantity and a false 'OVER PRODUCTION' alert. Produced is now counted once per colour, matching the colour-shift breakdown." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.49.16",
+      "date": "2026-08-26",
+      "title": "Master Plan shows Plan ID & creator; DPR Plan Date refresh",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "improvement", "text": "The Master Plan list now shows each plan's Plan ID and who created it, under the OR number." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The DPR Job Detail Plan Date now reliably shows the JMS plan creation date; the page was still loading a cached older script." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.49.15",
+      "date": "2026-08-29",
+      "title": "PPC / Planner / Admin can back-date supervisor entries",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Moulding Supervisor App",
+          "icon": "bi-phone",
+          "changes": [
+            { "type": "feat", "text": "PPC Manager, PPC Ass. Manager, Planner and Admin can now pick a back-date (up to 30 days) in the Supervisor app to complete pending entries, the same as all-lines users." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.49.6",
+      "date": "2026-08-28",
+      "title": "Plant Capacity tile on Compliance Summary",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary strip now also shows a Capacity figure: every planned machine at its best mould rate for the full shift (including machines that had a plan but sat idle), so under-utilised machines are visible next to the Planned Target." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.49.5",
+      "date": "2026-08-28",
+      "title": "Target tiles on DPR Compliance Summary",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary top strip now shows Planned Target, Planned Estimated (after Std Mould Changeover) and Plan Achievable (Estimated − 5%) in Kg, for the selected shift, alongside the existing tonnage figures." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.49.4",
+      "date": "2026-08-27",
+      "title": "Planned Achievable Target (5%) in DPR waterfall",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "The Daily Report Live Calculation now shows Planned Estimated → minus a 5% allowance → Planned Achievable Target before the losses, and the combined loss line is now labelled simply 'Downtime Loss'." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.49.2",
+      "date": "2026-08-27",
+      "title": "Simpler 24-hour target waterfall",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "The Daily Report 'Live Calculation' now reads as a single clear waterfall: Planned Target @24h → minus Std Mould Changeover (with the number of mould changes) → Planned Achievable → minus Downtime + Speed loss (one line) → Gross Production → minus Rejection → Good Production." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.49.1",
+      "date": "2026-08-27",
+      "title": "Daily Report — production waterfall removed",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Reverted the Daily Report production waterfall added in the previous version; the Daily Report is back to its earlier layout." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.49.0",
+      "date": "2026-08-27",
+      "title": "Daily Report production waterfall",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The Daily Production Report now shows a production waterfall in tons: Planned Target @24h → minus Std Mould Changeover (from machine load + unload time) → Planned Achievable → minus Downtime & Speed loss → Gross → minus Rejection → Good weight, per machine and factory total, with Full Day / Day / Night views." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.48.0",
+      "date": "2026-08-27",
+      "title": "New Maintenance module — Machine & Mould",
+      "modules": [
+        {
+          "app": "maintenance",
+          "label": "Maintenance",
+          "icon": "bi-wrench-adjustable-circle",
+          "changes": [
+            { "type": "feat", "text": "New Maintenance app with Machine and Mould sub-menus: raise a ticket when a machine or mould goes down, and the Maintenance/Toolroom manager (plus PPC and anyone you allow in User Management) is alerted." },
+            { "type": "feat", "text": "Track each repair with a live time — down since, work started, and handed back — plus a dashboard of what's under maintenance, in progress, or overdue for multiple days." },
+            { "type": "feat", "text": "A manager can reject a machine wrongly put in maintenance, and it returns to the DPR Compliance Summary as a producing machine." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary now shows an \"Under Maintenance — Available by\" note on any machine that is under maintenance, so everyone can see when it will be back." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.47.4",
+      "date": "2026-08-27",
+      "title": "Create Plan mould quantity no longer doubles",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "Create Plan now shows each mould's Item Qty once. Orders whose planning data was duplicated across factories no longer show double quantities when viewed across all factories." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.47.2",
+      "date": "2026-08-26",
+      "title": "DPR Job Detail: correct Actual Weight, OR Qty & Plan Date",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The DPR Job Detail popup now shows the correct Actual Weight from this plan's own supervisor setup (matching the QC 'Supervisor' value) instead of sometimes borrowing another mould's weight from the same order." },
+            { "type": "fix", "text": "OR Qty now shows the real quantity from OR-JR Status instead of 0." },
+            { "type": "fix", "text": "Plan Date now shows the date the plan was actually created in JMS, instead of an old/stale date." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.47.1",
+      "date": "2026-08-25",
+      "title": "Supervisor: Article weight ±10% warning",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "improvement", "text": "In the STD vs Actual setup, if the actual Article weight is more than 10% away from STD (lighter or heavier), a warning now appears showing the expected range. It is a warning only — the value is still saved as entered." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.47.0",
+      "date": "2026-08-23",
+      "title": "ERP auto-sync now imports Summary & Details too (every 3 min)",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-database",
+          "changes": [
+            { "type": "improvement", "text": "The automatic ERP sync now runs every 3 minutes and, after fetching from the ERP, also imports OR-JR Wise Summary and OR-JR Wise Details per factory (into the planning tables) — not just OR-JR Status. So factory (LOCAL) servers receive the new planning data on their next sync, with no manual Import needed. The manual Fetch/Import buttons still work." }
+          ]
+        },
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "fix", "text": "In the Mould Wise Item QTY Detail view, machines are now listed in true ascending order (e.g. …-300-6, -7, -8, -9, -10, -11) with each machine family kept together, instead of text order that put -10 and -11 before -6." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.46.1",
+      "date": "2026-08-23",
+      "title": "Mould Wise Detail — totals row + Machine Master order",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "improvement", "text": "The Mould Wise Item QTY Detail view now has a TOTAL row at the bottom (Day/Night totals for every date, plus Prod STD and Reject Qty totals), on screen and in the Excel download." },
+            { "type": "improvement", "text": "Machines in the Detail view are now listed in the same order as the Machine Master / DPR Compliance Summary (by building, line, machine)." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.46.0",
+      "date": "2026-08-23",
+      "title": "Mould Wise Item QTY — new Detail (date-wise grid) view",
+      "summary": "The Mould Wise Item QTY report now has a Summary / Detail switch. Summary is the report you already have. Detail shows a date-wise grid: one row per Machine + Mould, with Prod (STD), STD Cycle and Avg Cycle, and then every date in the range split into Day and Night production columns. Tick more boxes in Include Columns (STD Weight, Efficiency, Reject Qty, Reject %) and they are added as columns. Downloads to a matching Excel with merged date headers.",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            {
+              "type": "feat",
+              "text": "Mould Wise Item QTY report has a new Detail view: one row per Machine + Mould with a date-wise Day/Night production grid, plus Prod (STD) = pcs/hour x 24, STD Cycle and Avg Cycle."
+            },
+            {
+              "type": "improvement",
+              "text": "In Detail, the Include Columns tick boxes (STD Weight, Efficiency, Reject Qty, Reject %) add matching columns, and the Excel download mirrors the on-screen grid with merged Date / Day / Night headers."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.45.6",
+      "date": "2026-08-23",
+      "title": "Accurate Mould/Colour/Job change counts in DPR Compliance",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The Compliance Summary now counts Mould Change (MC), Colour Change (CC) and Job Change (JC) once per actual change instead of once per downtime hour, so a changeover that took several hours is counted as one — and quick-action mould changeovers are included." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.45.5",
+      "date": "2026-08-23",
+      "title": "DPR setup STD picks the exact mould variant",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The One-time Setup STD now matches the exact mould variant shown on the job (e.g. a double-cavity BODY 2), so cavity, cycle and pcs/hr are correct even when a plan's stored code is the shorter base code." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.45.1",
+      "date": "2026-08-23",
+      "title": "Correct STD values on DPR setup",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The One-time Setup STD values (cavity, cycle, pcs/hr, weight, manpower) now come from the Mould Master matched by Mould No. instead of mould name, so moulds like double-cavity variants show the correct standards." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.45.0",
+      "date": "2026-08-22",
+      "title": "Delete an Extra Allowed Qty grant",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "Admins and Superadmins can now delete an Extra Allowed Qty entry from the Machine Timeline — removing it lowers that colour's cap back automatically. Only Admin/Superadmin see the Delete button." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.44.2",
+      "date": "2026-08-22",
+      "title": "Mould-Wise report: totals & averages row",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "feat", "text": "The Mould-Wise report now shows a total row that sums Production As Per STD and Reject Qty, and averages Reject % and Avg Cycle Time — on screen and in the Excel download." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.44.1",
+      "date": "2026-08-22",
+      "title": "Mould-Wise Excel now includes all selected columns",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "fix", "text": "The Mould-Wise Excel download now includes every column you tick (Production As Per STD, Efficiency, Reject, cycle times, etc.), matching what's shown on screen." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.44.0",
+      "date": "2026-08-22",
+      "title": "Mould-Wise report: factory filter, tonnage filter & Excel",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "fix", "text": "Mould Wise Item QTY report now respects the Factory filter — picking a factory shows only that factory's data." },
+            { "type": "feat", "text": "New Machine Tonnage filter on the Mould-Wise report: tick the tonnages you want (all selected by default)." },
+            { "type": "feat", "text": "Download the Mould-Wise report as a coloured Excel file, with the report name, applied filters, and who generated it and when." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.43.4",
       "date": "2026-08-19",

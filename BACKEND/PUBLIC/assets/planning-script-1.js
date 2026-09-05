@@ -1112,9 +1112,9 @@
     }
 
     /* ── Create Priority: role gating ───────────────────────────────────
-       Visible only to PPC managers and superadmin. */
+       Visible only to PPC managers, HR manager and superadmin. */
     window.etvApplyPriorityRole = function () {
-      const allowed = ['ppc_ass_manager', 'ppc_manager', 'superadmin'];
+      const allowed = ['ppc_ass_manager', 'ppc_manager', 'hr_manager', 'superadmin'];
       let role = '';
       try { role = String((window.JPSMS && window.JPSMS.auth.getUser().role_code) || '').toLowerCase(); } catch (_) {}
       const show = allowed.includes(role);
@@ -1280,6 +1280,7 @@
           <div class="pp-total"><span>Total Manpower</span><strong>${total}</strong></div>
           <button class="pp-btn savepdf" ${items.length?'':'disabled'} onclick="window.etvPrioritySave(true)"><i class="bi bi-file-earmark-pdf"></i> Save &amp; Generate PDF</button>
           <button class="pp-btn save" ${items.length?'':'disabled'} onclick="window.etvPrioritySave(false)"><i class="bi bi-save"></i> Save MC/MP SCH</button>
+          <button class="pp-btn manp" onclick="window.etvManpowerReport()" style="background:#0f766e;color:#fff;border-color:#0f766e" title="Auto-lists every machine's running plan with STD manpower + blank Actual"><i class="bi bi-file-earmark-spreadsheet"></i> Running Plan Manpower</button>
           <button class="pp-btn cancel" onclick="window.etvPriorityCancel()">Cancel</button>
         </div>`;
       requestAnimationFrame(() => panel.classList.add('open'));
@@ -1356,6 +1357,99 @@
       const w = window.open('', '_blank');
       if (!w) { alert('Please allow pop-ups to generate the PDF.'); return; }
       w.document.open(); w.document.write(html); w.document.close();
+    };
+
+    /* Manpower report (Create Priority): running plan machine-wise with STD
+       Manpower and a blank Actual column for manual fill. Shows on screen and
+       downloads an Excel-openable file. */
+    window.etvManpowerReport = async function () {
+      // Auto-collect EVERY machine's currently-running plan — no manual selection.
+      let items = [];
+      try {
+        const api = getApi();
+        const proc = (typeof getProcFilter === 'function' ? getProcFilter() : '');
+        const res = await api.get(`/planning/board${proc ? ('?process=' + encodeURIComponent(proc)) : ''}`);
+        const plans = (res && res.data && res.data.plans) ? res.data.plans : [];
+        items = plans
+          .filter(p => String(p.status || '').trim().toLowerCase() === 'running')
+          .map(p => ({
+            machine: p.machine || '-',
+            mouldName: p.mouldName || p.mould_name || '-',
+            mouldNo: p.mouldNo || p.mould_code || '',
+            manpower: (typeof window.etvManpowerFor === 'function') ? window.etvManpowerFor(p) : null
+          }))
+          .sort((a, b) => String(a.machine).localeCompare(String(b.machine), undefined, { numeric: true, sensitivity: 'base' }));
+      } catch (e) {
+        console.error('[Manpower Report] board fetch failed', e);
+        alert('Could not load running plans: ' + (e && e.message ? e.message : e));
+        return;
+      }
+      if (!items.length) { alert('No running plans found on any machine right now.'); return; }
+      const totalStd = items.reduce((s, it) => s + (Number.isFinite(it.manpower) ? it.manpower : 0), 0);
+      const dateTxt = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      const title = ('Running Plan Manpower — ' + dateTxt).trim();
+
+      const rowsHtml = items.map((it, i) => `
+        <tr>
+          <td class="c">${i + 1}</td>
+          <td>${prioEsc(it.machine)}</td>
+          <td>${prioEsc(it.mouldName)}</td>
+          <td class="c">${it.manpower == null ? '–' : it.manpower}</td>
+          <td class="c"></td>
+        </tr>`).join('');
+
+      // Excel-openable HTML (.xls). Actual Manpower left blank for manual entry.
+      window._etvManpowerXls = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"></head><body>
+        <table border="1">
+          <tr><td colspan="5" align="center"><b>${prioEsc(title)}</b></td></tr>
+          <tr><th>Sr</th><th>Machine</th><th>Running Plan</th><th>STD Manpower</th><th>Actual Manpower</th></tr>
+          ${items.map((it, i) => `<tr><td align="center">${i + 1}</td><td>${prioEsc(it.machine)}</td><td>${prioEsc(it.mouldName)}</td><td align="center">${it.manpower == null ? '' : it.manpower}</td><td></td></tr>`).join('')}
+          <tr><td colspan="3" align="right"><b>Total STD Manpower</b></td><td align="center"><b>${totalStd}</b></td><td></td></tr>
+        </table></body></html>`;
+      window._etvManpowerName = (title.replace(/[^\w]+/g, '_') || 'Manpower_Report') + '.xls';
+
+      const host = document.createElement('div');
+      host.id = 'etv-manpower-modal';
+      host.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+      host.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:760px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e2e8f0">
+          <h3 style="margin:0;font-size:1rem;font-weight:800;color:#0f172a"><i class="bi bi-people"></i> ${prioEsc(title)}</h3>
+          <button onclick="document.getElementById('etv-manpower-modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;line-height:1">&times;</button>
+        </div>
+        <div style="padding:16px 18px">
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+              <thead><tr style="background:#0f766e;color:#fff">
+                <th style="border:1px solid #cbd5e1;padding:6px 10px">Sr</th>
+                <th style="border:1px solid #cbd5e1;padding:6px 10px;text-align:left">Machine</th>
+                <th style="border:1px solid #cbd5e1;padding:6px 10px;text-align:left">Running Plan</th>
+                <th style="border:1px solid #cbd5e1;padding:6px 10px">STD Manpower</th>
+                <th style="border:1px solid #cbd5e1;padding:6px 10px">Actual Manpower</th>
+              </tr></thead>
+              <tbody>${rowsHtml}</tbody>
+              <tfoot><tr style="background:#f1f5f9;font-weight:800">
+                <td colspan="3" style="border:1px solid #cbd5e1;padding:6px 10px;text-align:right">Total STD Manpower</td>
+                <td style="border:1px solid #cbd5e1;padding:6px 10px;text-align:center">${totalStd}</td>
+                <td style="border:1px solid #cbd5e1;padding:6px 10px"></td>
+              </tr></tfoot>
+            </table>
+          </div>
+          <div style="margin-top:14px;text-align:right">
+            <button onclick="window.etvManpowerDownload()" style="background:#0f766e;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-weight:700;cursor:pointer"><i class="bi bi-download"></i> Download Excel</button>
+          </div>
+        </div></div>`;
+      host.addEventListener('click', e => { if (e.target === host) host.remove(); });
+      document.body.appendChild(host);
+    };
+
+    window.etvManpowerDownload = function () {
+      const html = window._etvManpowerXls; if (!html) return;
+      const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = window._etvManpowerName || 'Manpower_Report.xls';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     };
 
     /* Saved Priorities list */

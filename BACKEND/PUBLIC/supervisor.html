@@ -973,9 +973,10 @@
             <div class="std-card">
               <div class="std-pair">
                 <div><small>Article STD</small><input id="std-article" class="short" disabled></div>
-                <div><small>Article ACT</small><input id="act-article" class="short" placeholder="" inputmode="decimal">
+                <div><small>Article ACT</small><input id="act-article" class="short" placeholder="" inputmode="decimal" oninput="validateActWeight()">
                 </div>
               </div>
+              <div id="wt-warn" role="status" aria-live="polite" style="display:none; margin-top:6px; font-size:0.72rem; font-weight:700; color:#b45309; background:#fff7ed; border:1px solid #fed7aa; border-radius:6px; padding:4px 8px;"></div>
             </div>
             <div class="std-card">
               <div class="std-pair">
@@ -1429,7 +1430,7 @@
     </div>
   </div>
 
-  <script src="/assets/supervisor-script-1.js?v=release90"></script>
+  <script src="/assets/supervisor-script-1.js?v=release92"></script>
   <script src="/assets/register-sw.js?v=release65"></script>
   <script>
     // Colour picker panel helpers — defined here so onclick in HTML always finds them

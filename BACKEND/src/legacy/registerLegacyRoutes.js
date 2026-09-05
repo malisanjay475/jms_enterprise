@@ -47,6 +47,24 @@ const uploadQC = multer({
   }
 });
 
+// QC Android app self-update feed — the APK + version.json are served statically
+// from PUBLIC/qc-app/ (see express.static). Admins publish new builds here so all
+// factory phones auto-update. Fixed filename keeps the download URL stable.
+const _qcAppDir = path.join(STATIC_PUBLIC_DIR, 'qc-app');
+fs.mkdirSync(_qcAppDir, { recursive: true });
+const uploadQcApk = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, _qcAppDir),
+    filename: (_req, _file, cb) => cb(null, 'jms-qc.apk')
+  }),
+  limits: { fileSize: 200 * 1024 * 1024, files: 1 },
+  fileFilter(_req, file, cb) {
+    if (/\.apk$/i.test(file.originalname) ||
+        file.mimetype === 'application/vnd.android.package-archive') return cb(null, true);
+    cb(new Error('Only .apk files allowed'), false);
+  }
+});
+
 const {
   getFinancialYearInfo,
   getFinancialYearPrefix,
@@ -68,6 +86,98 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
   aiService.init(config.geminiApiKey);
   const hrPerformanceRuntime = registerHrPerformanceRoutes({ app, pool, config, services }) || {};
   const interviewPanelRuntime = registerInterviewPanelRoutes({ app, pool, config, services }) || {};
+
+  /* ============================================================
+     QC ANDROID APP — COLOUR PRODUCED / PENDING BALANCE
+     Per-colour planned (plan_board.colour_details) vs produced
+     (SUM good_qty from dpr_hourly). Read-only, additive.
+     ============================================================ */
+  app.get('/api/qc/colour-balance', async (req, res) => {
+    try {
+      const planId = String(req.query.plan_id || '').trim();
+      if (!planId) return res.json({ ok: true, data: [] });
+      const factoryId = getFactoryId(req);
+
+      const planRows = await q(
+        `SELECT COALESCE(colour_details, '[]'::jsonb) AS colour_details
+           FROM plan_board
+          WHERE plan_id = $1 AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+          LIMIT 1`,
+        [planId, factoryId || null]
+      );
+      let details = [];
+      try {
+        const raw = planRows[0] && planRows[0].colour_details;
+        details = Array.isArray(raw) ? raw : (raw ? JSON.parse(raw) : []);
+      } catch (_) { details = []; }
+
+      const prodRows = await q(
+        `SELECT COALESCE(NULLIF(TRIM(colour), ''), '(none)') AS colour,
+                COALESCE(SUM(good_qty), 0) AS produced
+           FROM dpr_hourly
+          WHERE plan_id = $1 AND COALESCE(is_deleted, false) = false
+          GROUP BY 1`,
+        [planId]
+      );
+      const producedByColour = {};
+      for (const r of prodRows) {
+        producedByColour[String(r.colour).toLowerCase()] = Number(r.produced || 0);
+      }
+
+      const data = details.map((d) => {
+        const name = String(d.colour || d.color || d.name || d.shade || '').trim() || '(none)';
+        const planQty = Number(d.planQty || d.plan_qty || d.qty || d.quantity || d.planned || 0);
+        const produced = producedByColour[name.toLowerCase()] || 0;
+        return { colour: name, planQty, produced, balance: Math.max(0, planQty - produced) };
+      });
+      res.json({ ok: true, data });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
+
+  /* ============================================================
+     QC ANDROID APP — SELF-UPDATE PUBLISH
+     Admin uploads a new APK; server stores it + writes version.json.
+     The app reads /qc-app/version.json (static) and installs /qc-app/jms-qc.apk.
+     Additive + isolated: no existing behaviour changes.
+     ============================================================ */
+  app.post('/api/qc-app/publish', uploadQcApk.single('apk'), async (req, res) => {
+    try {
+      const { username, password, versionCode, versionName, notes } = req.body || {};
+      if (!username || !password) {
+        return res.status(400).json({ ok: false, error: 'username and password required' });
+      }
+      const rows = await q(
+        `SELECT id, COALESCE(password_hash, password) AS pw, role_code
+           FROM users WHERE username = $1 LIMIT 1`,
+        [username]
+      );
+      if (!rows.length) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      const valid = await bcrypt.compare(password, rows[0].pw || '');
+      if (!valid) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
+      const role = String(rows[0].role_code || '').toLowerCase();
+      if (role !== 'admin' && role !== 'superadmin') {
+        return res.status(403).json({ ok: false, error: 'Admin access required' });
+      }
+      if (!req.file) return res.status(400).json({ ok: false, error: 'APK file required (field "apk")' });
+      const vc = parseInt(versionCode, 10);
+      if (!Number.isFinite(vc)) {
+        return res.status(400).json({ ok: false, error: 'versionCode (integer) required' });
+      }
+      const meta = {
+        versionCode: vc,
+        versionName: String(versionName || vc),
+        apk: 'jms-qc.apk',
+        notes: String(notes || ''),
+        publishedAt: new Date().toISOString()
+      };
+      fs.writeFileSync(path.join(_qcAppDir, 'version.json'), JSON.stringify(meta, null, 2));
+      res.json({ ok: true, ...meta });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: String(e.message || e) });
+    }
+  });
 
 /* ============================================================
    HELPER: MACHINE SERIES SORT (Suffix Priority)
@@ -4616,6 +4726,9 @@ async function initializeLegacyRuntime() {
             ('quality', 'Quality Manager'),
             ('qc_supervisor', 'QC Supervisor'),
             ('shifting_supervisor', 'Shifting Supervisor'),
+            ('maintenance_manager', 'Maintenance Manager'),
+            ('toolroom_manager', 'Toolroom Manager'),
+            ('maintenance_tech', 'Maintenance Technician'),
             ('admin', 'Admin')
             ON CONFLICT (code) DO NOTHING;
 
@@ -6641,61 +6754,47 @@ app.get('/api/std-actual/status', async (req, res) => {
       );
     }
 
-    // NEW: Fetch Standards from Mould Master (User Req: Fetch by Matching ERP ITEM CODE)
+    // Fetch Standards from the Mould Master, resolved the SAME way the queue/board
+    // does (line ~23588). The previous logic joined mould_planning_summary on
+    // or_jr_no ONLY (not mould_name) and then picked a row with a loose
+    // planName.includes(summaryName) substring match — so a plan named
+    // "...BODY DOUBLE CAVITY" matched the shorter "...BODY" (single cavity) first,
+    // showing CAVITY STD 1 instead of 2 (KAN-141). Now: join the summary on
+    // or_jr_no AND mould_name (exact), resolve moulds by EXACT mould_number,
+    // preferring the summary's specific mould_no over plan_board.mould_code.
     let std = {};
     if (planId) {
-      // STRICT MOULD NO LOGIC (Plan -> Order -> Summary -> Master)
       try {
-        // 1. Get Linkage info
-        const linkRes = await q(`
-          SELECT 
-            p.order_no, 
-            p.mould_name as plan_mould_name,
-            s.mould_no, 
-            s.mould_name as summary_mould_name
-          FROM plan_board p
-          LEFT JOIN mould_planning_summary s ON s.or_jr_no = p.order_no
-          WHERE p.plan_id = $1
+        const planRows = await q(`
+          SELECT m.std_wt_kg, m.runner_weight, m.no_of_cav, m.cycle_time,
+                 m.pcs_per_hour, m.manpower, m.std_volume_cap
+          FROM plan_board pb
+          LEFT JOIN mould_planning_summary mps
+            ON mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name
+          LEFT JOIN LATERAL (
+            SELECT mm.* FROM moulds mm
+            WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')))
+              AND TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')) <> ''
+            ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
+            LIMIT 1
+          ) m ON TRUE
+          WHERE pb.plan_id = $1
+          ORDER BY (mps.mould_no IS NOT NULL) DESC,
+                   (m.no_of_cav IS NOT NULL) DESC NULLS LAST,
+                   m.updated_at DESC NULLS LAST, m.id DESC
+          LIMIT 1
         `, [planId]);
-
-        if (linkRes.length) {
-          // We might have multiple rows if one Order has multiple Moulds in summary
-          // Filter to find the BEST match using Mould Name
-          let best = linkRes[0];
-          if (linkRes.length > 1) {
-            const planName = (linkRes[0].plan_mould_name || '').toLowerCase().trim();
-
-            const match = linkRes.find(r => {
-              const sumName = (r.summary_mould_name || '').toLowerCase().trim();
-              return sumName && planName.includes(sumName); // or vice versa
-            });
-            if (match) best = match;
-          }
-
-          const mouldNo = best.mould_no;
-          if (mouldNo) {
-            // 2. Fetch Master strictly by Mould No
-            // First try exact match
-            let mRows = await q(`SELECT * FROM moulds WHERE mould_number = $1`, [mouldNo]);
-
-            // Fallback: case-insensitive / trim-tolerant exact match if strict fails
-            if (!mRows.length) {
-              mRows = await q(`SELECT * FROM moulds WHERE UPPER(TRIM(mould_number)) = UPPER(TRIM($1)) LIMIT 1`, [mouldNo]);
-            }
-
-            if (mRows.length) {
-              const m = mRows[0];
-              std = {
-                article_std: m.std_wt_kg,
-                runner_std: m.runner_weight,
-                cavity_std: m.no_of_cav,
-                cycle_std: m.cycle_time,
-                pcshr_std: m.pcs_per_hour,
-                man_std: m.manpower,
-                sfgqty_std: m.sfg_std_packing
-              };
-            }
-          }
+        const r0 = planRows.length ? planRows[0] : null;
+        if (r0) {
+          std = {
+            article_std: r0.std_wt_kg,
+            runner_std: r0.runner_weight,
+            cavity_std: r0.no_of_cav,
+            cycle_std: r0.cycle_time,
+            pcshr_std: r0.pcs_per_hour,
+            man_std: r0.manpower,
+            sfgqty_std: r0.std_volume_cap
+          };
         }
       } catch (err) {
         console.error('Error fetching standards (MouldNo Logic)', err);
@@ -6768,11 +6867,16 @@ async function assertDateEntryAllowed(session, entryDate) {
   if (!entryDate) return { ok: false, error: 'Missing entry date.' };
   if (!username) return { ok: false, error: 'Missing session. Please log in again.' };
 
-  const rows = await q('SELECT line, global_access FROM users WHERE username=$1 LIMIT 1', [username]);
+  const rows = await q('SELECT line, global_access, role_code FROM users WHERE username=$1 LIMIT 1', [username]);
   if (!rows.length) return { ok: false, error: 'User not found. Please log in again.' };
 
   const uLine = String(rows[0].line || '').trim().toLowerCase();
-  const allAccess = uLine === 'all' || rows[0].global_access === true;
+  // Roles allowed to back-date entries (up to 30 days) regardless of line access,
+  // so PPC/Planner/Admin can complete pending back-dated entries. Keep in sync with
+  // BACKDATE_ROLES in supervisor-script-1.js.
+  const BACKDATE_ROLES = new Set(['ppc_manager', 'ppc_ass_manager', 'planner', 'admin', 'superadmin']);
+  const uRole = String(rows[0].role_code || '').trim().toLowerCase();
+  const allAccess = uLine === 'all' || rows[0].global_access === true || BACKDATE_ROLES.has(uRole);
 
   const now = new Date();
   const today = new Date(now); today.setHours(0, 0, 0, 0);
@@ -7138,6 +7242,48 @@ app.post('/api/dpr/submit', async (req, res) => {
         await q('UPDATE machine_status_logs SET is_active=false, end_date=$2, end_slot=$3 WHERE machine=$1 AND is_active=true',
           [Machine, Date, HourSlot]);
       } catch (_) { }
+    }
+
+    // [MAINTENANCE MODULE] When a supervisor saves a Maintenance / MouldMaintenance
+    // quick-action, ALSO open a maintenance ticket and alert the maintenance/toolroom
+    // team (+ PPC/planner + opt-in users). Deduped: skip if this machine/mould already
+    // has an OPEN ticket, so continuity auto-fills don't spawn duplicates.
+    try {
+      const et = String(EntryType || '');
+      if (et === 'Maintenance' || et === 'MouldMaintenance') {
+        const assetType = et === 'MouldMaintenance' ? 'mould' : 'machine';
+        const assetCol = assetType === 'mould' ? 'mould_name' : 'machine';
+        const assetVal = assetType === 'mould' ? (MouldNo || Machine) : Machine;
+        if (assetVal) {
+          const openRows = await q(
+            `SELECT sync_id FROM maintenance_tickets
+              WHERE asset_type = $1 AND ${assetCol} = $2
+                AND status IN ('reported','acknowledged','in_progress') AND is_deleted = FALSE
+                AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL) LIMIT 1`,
+            [assetType, assetVal, factoryId]
+          );
+          if (!openRows.length) {
+            const ticketNo = await nextMaintenanceTicketNo(factoryId);
+            const ins = await q(
+              `INSERT INTO maintenance_tickets
+                 (ticket_no, asset_type, machine, mould_name, plan_id, order_no,
+                  status, priority, problem_desc, reported_by, factory_id)
+               VALUES ($1,$2,$3,$4,$5,$6,'reported','normal',$7,$8,$9)
+               RETURNING *`,
+              [ticketNo, assetType,
+               assetType === 'machine' ? assetVal : (Machine || null),
+               assetType === 'mould' ? assetVal : null,
+               PlanID || null, OrderNo || null,
+               Remarks || (assetType === 'mould' ? 'Mould maintenance' : 'Machine maintenance'),
+               (session && session.username) || Supervisor || 'supervisor', factoryId || null]
+            );
+            await notifyMaintenance(ins[0], factoryId, (session && session.username) || 'supervisor', 'opened');
+            console.log(`[MAINTENANCE] auto-opened ${ticketNo} from ${et} quick-action (${assetVal})`);
+          }
+        }
+      }
+    } catch (mErr) {
+      console.error('dpr/submit maintenance-ticket', mErr.message);
     }
 
     if (typeof syncService.triggerSync === 'function') {
@@ -9255,6 +9401,17 @@ function buildPriorityTitle(priorityDate, shift) {
 // POST /api/planning/priority  → create a saved priority list
 app.post('/api/planning/priority', async (req, res) => {
   try {
+    // Role guard — only PPC managers, HR manager and admins/superadmin may create
+    // a priority (MC/MP) schedule. Mirrors the frontend gate in etvApplyPriorityRole
+    // (planning-script-1.js); enforced here so the button-hiding can't be bypassed.
+    const actor = await getRequestActor(req);
+    const PRIORITY_CREATE_ROLES = new Set(['ppc_ass_manager', 'ppc_manager', 'hr_manager']);
+    const roleOk = actor && (isAdminLikeRole(actor)
+      || PRIORITY_CREATE_ROLES.has(String(actor.role_code || '').toLowerCase()));
+    if (!roleOk) {
+      return res.status(403).json({ ok: false, error: 'You do not have permission to create a priority schedule.' });
+    }
+
     const { priorityDate, shift, process, items, createdBy } = req.body || {};
     if (!priorityDate || !shift) {
       return res.status(400).json({ ok: false, error: 'priorityDate and shift are required' });
@@ -9585,6 +9742,7 @@ app.get('/api/planning/board', async (req, res) => {
       SELECT DISTINCT ON (pb.id)
         pb.id,
         pb.plan_id      AS "planId",
+        COALESCE(NULLIF(TRIM(pb.created_by), ''), 'System') AS "createdBy",
         pb.plant,
         COALESCE(NULLIF(TRIM(pb.building), ''), NULLIF(TRIM(planMachine.building), ''), NULLIF(TRIM(planMachine.machine_process), ''), 'General') AS building,
         COALESCE(NULLIF(TRIM(pb.line), ''), NULLIF(TRIM(planMachine.line), ''), CASE WHEN COALESCE(NULLIF(TRIM(planMachine.machine_process), ''), 'Moulding') = 'Moulding' THEN '1' ELSE 'Machines' END) AS line,
@@ -10732,6 +10890,7 @@ async function buildDprOrderAnalysis(req) {
       pb.consumption_ratio_qty,
       pb.colour_details,
       pb.start_date,
+      pb.created_at AS plan_created_at,
       pb.end_date,
       pb.item_code,
       pb.item_name,
@@ -10740,7 +10899,9 @@ async function buildDprOrderAnalysis(req) {
       COALESCE(o.client_name, ojr.client_name) as client_name,
       o.priority,
       COALESCE(o.item_name, ojr.product_name, pb.item_name) as product_name,
-      COALESCE(o.qty, ojr.or_qty, pb.plan_qty) as or_qty,
+      -- OR Qty comes from OR-JR Status (or_jr_report). A 0 in the orders table is
+      -- non-NULL and would win a plain COALESCE, so skip zeros with NULLIF.
+      COALESCE(NULLIF(ojr.or_qty, 0), NULLIF(o.qty, 0), pb.plan_qty) as or_qty,
       ojr.or_jr_date,
       ojr.job_card_no,
       ojr.job_card_date,
@@ -10768,7 +10929,12 @@ async function buildDprOrderAnalysis(req) {
         OR sa.plan_id = pb.id::text
         OR TRIM(COALESCE(sa.order_no, '')) = TRIM(pb.order_no)
       )
-      ORDER BY sa.created_at DESC NULLS LAST, sa.id DESC
+      -- Always prefer THIS plan's own setup (article weight, cavity, cycle). The
+      -- order_no match is only a legacy fallback: without this ranking it could
+      -- borrow another mould's setup from the same OR and show a wrong Actual weight.
+      ORDER BY
+        (CASE WHEN sa.plan_id = pb.plan_id OR sa.plan_id = pb.id::text THEN 0 ELSE 1 END),
+        sa.created_at DESC NULLS LAST, sa.id DESC
       LIMIT 1
     ) std ON true
     LEFT JOIN moulds m ON TRIM(m.mould_name) = TRIM(pb.mould_name)
@@ -10887,16 +11053,16 @@ async function buildDprOrderAnalysis(req) {
     });
 
     const dtMap = parseDprJson(l.downtime_breakup);
-    if (dtMap && typeof dtMap === 'object') {
-      Object.entries(dtMap).forEach(([reason, minutes]) => addDprReason(downtimeStats, reason, minutes));
-    } else {
+    if (dtMap && typeof dtMap === 'object' && Object.keys(dtMap).length) {
+      Object.entries(dtMap).forEach(([reason, minutes]) => addDprReason(downtimeStats, analyzeDowntimeReasonLabel(reason), minutes));
+    } else if (dt > 0) {
       addDprReason(downtimeStats, 'Unspecified', dt);
     }
 
     const rejMap = parseDprJson(l.reject_breakup);
-    if (rejMap && typeof rejMap === 'object') {
-      Object.entries(rejMap).forEach(([reason, qty]) => addDprReason(rejectionStats, reason, qty));
-    } else {
+    if (rejMap && typeof rejMap === 'object' && Object.keys(rejMap).length) {
+      Object.entries(rejMap).forEach(([reason, qty]) => addDprReason(rejectionStats, analyzeRejectReasonLabel(reason), qty));
+    } else if (rej > 0) {
       addDprReason(rejectionStats, 'Unspecified', rej);
     }
   });
@@ -11298,9 +11464,16 @@ function applyPlanningFamilyCoverage(rows) {
 async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
   const rawRows = await queryFn(`
     -- Pre-aggregate mould_planning_summary by (or_jr_no, mould_no) so that
-    -- multiple rows for the same mould with different plan_dates are combined
-    -- into one row with SUMmed mould_item_qty (colour-wise same mould totalled).
-    WITH r AS (
+    -- multiple rows for the same mould with different plan_dates/colours are
+    -- combined into one row with SUMmed mould_item_qty (colour-wise totalled).
+    --
+    -- per_factory sums WITHIN each factory (correct — colours total per factory).
+    -- Then r picks EXACTLY ONE factory per (or_jr_no, mould_no) so that a JR that
+    -- was duplicated across factory_id in the summary (a sync/import artifact)
+    -- can never double the Mould Item Qty when viewed unscoped / all-factories.
+    -- Preference: the requested factory ($2) first, then any real (non-null)
+    -- factory, then lowest id — deterministic.
+    WITH per_factory AS (
       SELECT
         TRIM(or_jr_no)                                         AS or_jr_no,
         MIN(or_jr_date)                                        AS or_jr_date,
@@ -11318,6 +11491,16 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       WHERE TRIM(COALESCE(or_jr_no, '')) = TRIM($1)
         AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
       GROUP BY TRIM(or_jr_no), TRIM(mould_no), factory_id
+    ),
+    r AS (
+      SELECT DISTINCT ON (or_jr_no, mould_no)
+        or_jr_no, or_jr_date, item_code, mould_no, mould_name, mould_item_qty,
+        product_name, tonnage, cycle_time, cavity, machine_name, factory_id
+      FROM per_factory
+      ORDER BY or_jr_no, mould_no,
+        (factory_id = $2) DESC NULLS LAST,
+        (factory_id IS NOT NULL) DESC,
+        factory_id ASC
     )
     SELECT
       r.or_jr_no,
@@ -11348,9 +11531,18 @@ async function getPlanningOrderMouldBundle(queryFn, orderNo, factoryId) {
       COALESCE(pb_sum.planned_qty, 0)::numeric AS existing_planned_qty,
       COALESCE(pb_sum.plan_count, 0)::int AS existing_plan_count
     FROM r
-    LEFT JOIN orders o
-      ON TRIM(o.order_no) = r.or_jr_no
-     AND ($2::int IS NULL OR o.factory_id = $2 OR o.factory_id IS NULL)
+    -- LATERAL + LIMIT 1 (not a plain JOIN): orders can also hold this JR under
+    -- more than one factory_id, and a plain join would re-double every mould row.
+    LEFT JOIN LATERAL (
+      SELECT o0.item_name, o0.client_name
+      FROM orders o0
+      WHERE TRIM(o0.order_no) = r.or_jr_no
+        AND ($2::int IS NULL OR o0.factory_id = $2 OR o0.factory_id IS NULL)
+      ORDER BY (o0.factory_id = $2) DESC NULLS LAST,
+               (o0.factory_id IS NOT NULL) DESC,
+               o0.factory_id ASC
+      LIMIT 1
+    ) o ON true
     LEFT JOIN LATERAL (
       SELECT
         mm.id,
@@ -16378,7 +16570,10 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
       rejectPct: Math.round(rejectPct * 10) / 10,
       stdCycle: Math.round(stdCycle * 100) / 100,
       avgCycle: Math.round(avgCycle * 100) / 100,
-      stdWeight: Math.round(stdWeight * 1000) / 1000
+      stdWeight: Math.round(stdWeight * 1000) / 1000,
+      // Raw pcs/hour so the Detail (pivot) view can show Prod (STD)/day = pcs/hr x 24.
+      pcsPerHour,
+      shots, runSeconds
     });
     entry.grandTotal += total;
   }
@@ -16386,19 +16581,117 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
   return { fields: activeDims, data: Array.from(byMould.values()) };
 }
 
+// Enumerate the calendar dates (YYYY-MM-DD) in [from, to] inclusive, UTC-safe.
+// Falls back to the min/max date present in the data when from/to are missing.
+// Capped at 400 days so a bad range can't explode the column count.
+function mouldWiseDateAxis(from, to, data) {
+  let start = from, end = to;
+  if (!start || !end) {
+    const all = [];
+    for (const g of data) for (const r of g.rows) if (r.date) all.push(String(r.date).slice(0, 10));
+    all.sort();
+    if (!all.length) return [];
+    start = start || all[0];
+    end = end || all[all.length - 1];
+  }
+  const parse = s => { const [y, m, d] = String(s).slice(0, 10).split('-').map(Number); return Date.UTC(y, m - 1, d); };
+  let t = parse(start); const e = parse(end);
+  const out = [];
+  let guard = 0;
+  while (t <= e && guard < 400) {
+    const d = new Date(t);
+    const iso = d.toISOString().slice(0, 10);
+    out.push({ date: iso, dayNum: d.getUTCDate() });
+    t += 86400000; guard++;
+  }
+  return out;
+}
+
+// Pivot the mould-wise report into the Detail matrix: one row per Machine+Mould,
+// dates as Day/Night column pairs, with per-row metric aggregates. `data` must
+// have been built with the `machine` dimension on. Machines are ordered with the
+// same naturalCompare the DPR Compliance Summary uses.
+function buildMouldWiseDetailPivot(data, { from, to }) {
+  const dates = mouldWiseDateAxis(from, to, data);
+  const r2 = n => Math.round(n * 100) / 100;
+  const r1 = n => Math.round(n * 10) / 10;
+  const r3 = n => Math.round(n * 1000) / 1000;
+
+  const byRow = new Map();
+  for (const g of data) {
+    for (const row of g.rows) {
+      const machine = row.machine || '-';
+      const key = `${machine}||${g.mouldNo}||${g.mouldName}`;
+      let rec = byRow.get(key);
+      if (!rec) {
+        rec = { machine, mouldNo: g.mouldNo, mouldName: g.mouldName || g.mouldNo, cells: {},
+          _pcs: 0, _stdCycle: 0, _stdWt: 0, _shots: 0, _run: 0, _total: 0, _std: 0, _rej: 0 };
+        byRow.set(key, rec);
+      }
+      const date = String(row.date).slice(0, 10);
+      const cell = rec.cells[date] || (rec.cells[date] = { day: 0, night: 0 });
+      cell.day += Number(row.day) || 0;
+      cell.night += Number(row.night) || 0;
+      rec._pcs = Math.max(rec._pcs, Number(row.pcsPerHour) || 0);
+      rec._stdCycle = Math.max(rec._stdCycle, Number(row.stdCycle) || 0);
+      rec._stdWt = Math.max(rec._stdWt, Number(row.stdWeight) || 0);
+      rec._shots += Number(row.shots) || 0;
+      rec._run += Number(row.runSeconds) || 0;
+      rec._total += Number(row.total) || 0;
+      rec._std += Number(row.stdProd) || 0;   // 23-based STD, for Efficiency
+      rec._rej += Number(row.rejectQty) || 0;
+    }
+  }
+
+  const rows = Array.from(byRow.values()).map(rec => ({
+    machine: rec.machine,
+    mouldNo: rec.mouldNo,
+    mouldName: rec.mouldName,
+    // Prod (STD)/day = pcs/hour x 24 (per user spec for this column).
+    prodStd: Math.round(rec._pcs * 24),
+    stdCycle: r2(rec._stdCycle),
+    avgCycle: rec._shots > 0 ? r2(rec._run / rec._shots) : 0,
+    stdWeight: r3(rec._stdWt),
+    efficiency: rec._std > 0 ? r1((rec._total / rec._std) * 100) : 0,
+    rejectQty: rec._rej,
+    rejectPct: (rec._total + rec._rej) > 0 ? r1((rec._rej / (rec._total + rec._rej)) * 100) : 0,
+    total: rec._total,
+    cells: rec.cells
+  }));
+
+  // Order machines in true ascending (numeric-aware) order on the full machine
+  // name, so a family stays together and its numbers sort 6,7,8,9,10,11 (not the
+  // text order 10,11,6,7). Within a machine, group by mould name.
+  const mcmp = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+  rows.sort((a, b) =>
+    mcmp(a.machine, b.machine)
+    || String(a.mouldName).localeCompare(String(b.mouldName)));
+
+  return { dates, rows };
+}
+
 app.get('/api/reports/mould-wise-qty', async (req, res) => {
   try {
+    const view = String(req.query.view || 'summary').toLowerCase() === 'detail' ? 'detail' : 'summary';
     const requested = String(req.query.fields || '')
       .split(',').map(s => s.trim()).filter(Boolean);
+    // Detail is a per-machine pivot, so the machine dimension must be on.
+    if (view === 'detail' && !requested.includes('machine')) requested.push('machine');
+    const from = normalizePlanningText(req.query.from);
+    const to = normalizePlanningText(req.query.to);
+    const reportFactoryId = resolveReportFactoryId(req);
     const out = await buildMouldWiseReport({
-      requestFactoryId: resolveReportFactoryId(req),
-      from: normalizePlanningText(req.query.from),
-      to: normalizePlanningText(req.query.to),
+      requestFactoryId: reportFactoryId,
+      from, to,
       search: normalizePlanningText(req.query.q),
       requested,
       tonnages: req.query.tonnages
     });
-    res.json({ ok: true, fields: out.fields, data: out.data });
+    if (view === 'detail') {
+      const pivot = buildMouldWiseDetailPivot(out.data, { from, to });
+      return res.json({ ok: true, view: 'detail', fields: out.fields, pivot });
+    }
+    res.json({ ok: true, view: 'summary', fields: out.fields, data: out.data });
   } catch (e) {
     console.error('/api/reports/mould-wise-qty', e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
@@ -16433,8 +16726,10 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     const requestFactoryId = resolveReportFactoryId(req);
     const from = normalizePlanningText(req.query.from);
     const to = normalizePlanningText(req.query.to);
+    const view = String(req.query.view || 'summary').toLowerCase() === 'detail' ? 'detail' : 'summary';
     const requested = String(req.query.fields || '')
       .split(',').map(s => s.trim()).filter(Boolean);
+    if (view === 'detail' && !requested.includes('machine')) requested.push('machine');
 
     const { data } = await buildMouldWiseReport({
       requestFactoryId,
@@ -16454,6 +16749,161 @@ app.get('/api/reports/mould-wise-qty.xlsx', async (req, res) => {
     const tonnageLabel = String(req.query.tonnages || '').trim()
       ? String(req.query.tonnages).trim().split(',').map(t => t + 'T').join(', ')
       : 'All';
+
+    // ---- DETAIL (pivot) workbook: one row per Machine+Mould, dates as Day/Night
+    //      column pairs, with a merged Date / day-number / Day-Night header. ----
+    if (view === 'detail') {
+      const onD = new Set(requested);
+      const pivot = buildMouldWiseDetailPivot(data, { from, to });
+      const leftCols = [
+        { key: 'machine', label: 'Machine', w: 16 },
+        { key: 'mouldNo', label: 'Mould No', w: 16 },
+        { key: 'mouldName', label: 'Mould Name', w: 34 }
+      ];
+      const METRIC_DEFS = [
+        ['std_prod', { key: 'prodStd', label: 'Prod (STD)', w: 12 }],
+        ['std_cycle', { key: 'stdCycle', label: 'STD Cycle (s)', w: 12 }],
+        ['avg_cycle', { key: 'avgCycle', label: 'Avg Cycle (s)', w: 12 }],
+        ['std_weight', { key: 'stdWeight', label: 'STD Wt (kg)', w: 12 }],
+        ['efficiency', { key: 'efficiency', label: 'Eff %', w: 10, pct: true }],
+        ['reject_qty', { key: 'rejectQty', label: 'Reject Qty', w: 12 }],
+        ['reject_pct', { key: 'rejectPct', label: 'Reject %', w: 10, pct: true }]
+      ];
+      for (const [f, def] of METRIC_DEFS) if (onD.has(f)) leftCols.push({ ...def, num: true });
+
+      const dates = pivot.dates;
+      const NLEFT = leftCols.length;
+      const NCOL = NLEFT + dates.length * 2;
+      const BLUE = 'FF1E4E79', HEADFILL = 'FF2E6CA4', BAND = 'FFEFF4FA', WHITE = 'FFFFFFFF', INK = 'FF1F2937', GREY = 'FF64748B';
+      const FONT = 'Calibri';
+      const thin = { style: 'thin', color: { argb: 'FFD5DEEA' } };
+      const box = { top: thin, left: thin, right: thin, bottom: thin };
+
+      const wb = new ExcelJS.Workbook();
+      wb.creator = username;
+      const ws = wb.addWorksheet('Mould Wise Detail', { views: [{ state: 'frozen', xSplit: NLEFT, ySplit: 7 }] });
+      ws.columns = [...leftCols.map(c => ({ width: c.w })), ...dates.flatMap(() => [{ width: 8 }, { width: 8 }])];
+
+      // Title + meta
+      ws.mergeCells(1, 1, 1, NCOL);
+      const tc = ws.getCell(1, 1);
+      tc.value = 'MOULD WISE ITEM QTY — DETAIL (Day / Night by date)';
+      tc.font = { name: FONT, size: 14, bold: true, color: { argb: WHITE } };
+      tc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLUE } };
+      tc.alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(1).height = 30;
+      ws.mergeCells(2, 1, 2, NCOL);
+      ws.getCell(2, 1).value = `Factory: ${factoryLabel}    |    Period: ${from || '—'} to ${to || '—'}    |    Machine Tonnage: ${tonnageLabel}`;
+      ws.getCell(2, 1).font = { name: FONT, size: 10, color: { argb: INK } };
+      ws.mergeCells(3, 1, 3, NCOL);
+      ws.getCell(3, 1).value = `Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}    |    By: ${username}`;
+      ws.getCell(3, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+
+      const HR1 = 5, HR2 = 6, HR3 = 7;
+      const styleHead = cell => {
+        cell.font = { name: FONT, size: 10, bold: true, color: { argb: WHITE } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADFILL } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = box;
+      };
+      // Left columns: label merged across the 3 header rows.
+      leftCols.forEach((c, i) => {
+        ws.mergeCells(HR1, i + 1, HR3, i + 1);
+        const cell = ws.getCell(HR1, i + 1);
+        cell.value = c.label;
+        styleHead(cell);
+      });
+      // Date region: "Date" over everything, then day number over each pair, then Day/Night.
+      const dStart = NLEFT + 1;
+      if (dates.length) {
+        ws.mergeCells(HR1, dStart, HR1, dStart + dates.length * 2 - 1);
+        const dcell = ws.getCell(HR1, dStart);
+        dcell.value = 'Date';
+        styleHead(dcell);
+      }
+      dates.forEach((d, j) => {
+        const col = dStart + j * 2;
+        ws.mergeCells(HR2, col, HR2, col + 1);
+        const nc = ws.getCell(HR2, col); nc.value = d.dayNum; styleHead(nc);
+        const dc = ws.getCell(HR3, col); dc.value = 'Day'; styleHead(dc);
+        const ni = ws.getCell(HR3, col + 1); ni.value = 'Night'; styleHead(ni);
+      });
+      [HR1, HR2, HR3].forEach(rn => { ws.getRow(rn).height = 18; });
+
+      const numFmtD = key => key === 'efficiency' || key === 'rejectPct' ? '0.0"%"'
+        : key === 'avgCycle' || key === 'stdCycle' ? '#,##0.00'
+          : key === 'stdWeight' ? '#,##0.000' : '#,##0';
+
+      let rr = HR3 + 1;
+      let band = 0;
+      for (const row of pivot.rows) {
+        const fill = band % 2 ? BAND : WHITE;
+        leftCols.forEach((c, i) => {
+          const cell = ws.getCell(rr, i + 1);
+          cell.value = row[c.key] === undefined || row[c.key] === null ? '' : row[c.key];
+          cell.font = { name: FONT, size: 10, color: { argb: INK } };
+          cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle' };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+          cell.border = box;
+          if (c.num && typeof cell.value === 'number') cell.numFmt = numFmtD(c.key);
+        });
+        dates.forEach((d, j) => {
+          const col = dStart + j * 2;
+          const cc = row.cells[d.date] || { day: 0, night: 0 };
+          [[col, cc.day], [col + 1, cc.night]].forEach(([ci, val]) => {
+            const cell = ws.getCell(rr, ci);
+            cell.value = val ? val : '';
+            cell.font = { name: FONT, size: 10, color: { argb: INK } };
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+            cell.border = box;
+            if (typeof cell.value === 'number') cell.numFmt = '#,##0';
+          });
+        });
+        rr++; band++;
+      }
+
+      // Grand totals row: per-date Day/Night sums + additive metric totals
+      // (Prod STD, Reject Qty). Rate/constant columns left blank.
+      if (pivot.rows.length) {
+        const SUBFILL = 'FFDCE7F3';
+        const ADD = new Set(['prodStd', 'rejectQty']);
+        const styleTot = (cell, val, isNum) => {
+          cell.value = val;
+          cell.font = { name: FONT, size: 10, bold: true, color: { argb: BLUE } };
+          cell.alignment = { horizontal: isNum ? 'right' : 'left', vertical: 'middle' };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SUBFILL } };
+          cell.border = box;
+        };
+        leftCols.forEach((c, i) => {
+          const cell = ws.getCell(rr, i + 1);
+          if (i === 0) styleTot(cell, 'TOTAL', false);
+          else if (ADD.has(c.key)) {
+            const s = pivot.rows.reduce((a, r) => a + (Number(r[c.key]) || 0), 0);
+            styleTot(cell, s, true); cell.numFmt = '#,##0';
+          } else styleTot(cell, '', true);
+        });
+        dates.forEach((d, j) => {
+          const col = dStart + j * 2;
+          const ds = pivot.rows.reduce((a, r) => a + ((r.cells[d.date] || {}).day || 0), 0);
+          const ns = pivot.rows.reduce((a, r) => a + ((r.cells[d.date] || {}).night || 0), 0);
+          const cd = ws.getCell(rr, col); styleTot(cd, ds || '', true); if (ds) cd.numFmt = '#,##0';
+          const cn = ws.getCell(rr, col + 1); styleTot(cn, ns || '', true); if (ns) cn.numFmt = '#,##0';
+        });
+        rr++;
+      } else {
+        ws.mergeCells(HR3 + 1, 1, HR3 + 1, NCOL);
+        ws.getCell(HR3 + 1, 1).value = 'No production found for this mould / date range / filters.';
+        ws.getCell(HR3 + 1, 1).font = { name: FONT, italic: true, color: { argb: GREY } };
+      }
+
+      const bufD = await wb.xlsx.writeBuffer();
+      const fnameD = `Mould_Wise_Detail_${(from || 'all')}_${(to || 'all')}.xlsx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${fnameD}"`);
+      res.end(Buffer.from(bufD));
+      return;
+    }
 
     // Column selection is driven by ALL requested fields (dimensions AND
     // metrics). `fields` returned by the builder only carries the dimensions,
@@ -17077,7 +17527,7 @@ app.post('/api/reports/erp-mould-item/sync', (req, res) => handleErpSync('mouldI
    Every run is written to erp_autosync_history so it can be reviewed.
    ============================================================ */
 const ERP_AUTOSYNC_INTERVAL_MS = Math.max(
-  60000, Number(process.env.ERP_AUTOSYNC_INTERVAL_MS) || 5 * 60 * 1000
+  60000, Number(process.env.ERP_AUTOSYNC_INTERVAL_MS) || 3 * 60 * 1000
 );
 const ERP_AUTOSYNC_ENABLED = String(process.env.ERP_AUTOSYNC_ENABLED ?? '1') !== '0';
 let _erpAutoSyncRunning = false;
@@ -17179,6 +17629,24 @@ async function runErpAutoSyncCycle(trigger = 'auto') {
           throw e;
         } finally {
           client.release();
+        }
+
+        // Also import OR-JR Wise Summary + Details from the fetched ERP snapshot
+        // into the planning tables, per factory, so LOCAL servers receive the new
+        // planning data on the next sync (same path as the manual Import buttons).
+        for (const pk of ['summary', 'detail']) {
+          try {
+            const r = await runErpPlanningImportForFactory(pk, f.id);
+            fs[`planning_${pk}_imported`] = r.wrote;
+          } catch (e) {
+            if (e.code === 'NO_SNAPSHOT' || e.code === 'NO_LINKAGE') {
+              fs[`planning_${pk}_skipped`] = e.code;
+            } else {
+              hadError = true;
+              fs[`planning_${pk}_error`] = String(e.message || e);
+              console.warn(`[ERP AutoSync] factory ${f.id} ${pk} import failed:`, e.message);
+            }
+          }
         }
       } catch (e) {
         // NO_SNAPSHOT means nobody has fetched yet (ERP empty on first boot) — not a hard error.
@@ -17902,6 +18370,38 @@ function registerErpPlanningConfirm(cfgKey, routePath) {
 
 registerErpPlanningConfirm('summary', '/api/upload/orjr-wise-summary-erp-confirm');
 registerErpPlanningConfirm('detail', '/api/upload/orjr-wise-detail-erp-confirm');
+
+// Headless per-factory ERP import for OR-JR Wise Summary / Details, used by the
+// ERP auto-sync scheduler (same projection + write as the manual Import buttons,
+// so behaviour can't drift). One call writes up to OR_JR_ERP_PREVIEW_ROW_CAP
+// actionable rows; loops (bounded) until nothing changed remains so a big first
+// import completes across a single cycle. Returns { wrote }.
+async function runErpPlanningImportForFactory(cfgKey, factoryId, { maxIterations = 30 } = {}) {
+  const cfg = ERP_PLANNING_IMPORTS[cfgKey];
+  let wrote = 0;
+  for (let it = 0; it < maxIterations; it++) {
+    const built = await buildErpPlanningRows(cfgKey, factoryId);
+    const { preview } = await buildErpPlanningPreview(cfgKey, built.rows, factoryId);
+    if (!preview.length) break;
+    assertUploadRowsMatchFactory(preview, factoryId, `${cfg.label} ERP import`);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      if (cfgKey === 'summary') await writeErpPlanningSummary(client, preview, factoryId);
+      else await writeErpPlanningDetail(client, preview, factoryId);
+      await client.query('COMMIT');
+    } catch (e) {
+      try { await client.query('ROLLBACK'); } catch (_) { }
+      throw e;
+    } finally {
+      client.release();
+    }
+    wrote += preview.length;
+    // Fewer than a full cap means we caught up; avoid an extra scan.
+    if (preview.length < OR_JR_ERP_PREVIEW_ROW_CAP) break;
+  }
+  return { wrote };
+}
 
 // POST /api/upload/excel (Mock - requires 'xlsx' library for real parsing)
 app.post('/api/upload/excel', async (req, res) => {
@@ -20824,7 +21324,14 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         COALESCE(TRIM(d.order_no), TRIM(pb.order_no), TRIM(mps.or_jr_no)) as order_no,
         TRIM(COALESCE(pb.mould_name, mps.mould_name)) as mould_name,
         ojr.job_card_no,
-        COALESCE(ojr.client_name, o.client_name) as client_name
+        COALESCE(ojr.client_name, o.client_name) as client_name,
+        -- QC verified this hour slot in the QC app? (fan-out-safe EXISTS;
+        -- qc_verifications is UNIQUE per machine/date/shift/hour_slot)
+        EXISTS (
+          SELECT 1 FROM qc_verifications qv
+          WHERE qv.machine = d.machine AND qv.dpr_date = d.dpr_date
+            AND qv.shift = d.shift AND qv.hour_slot = d.hour_slot
+        ) AS qc_verified
       FROM (
         SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
         FROM dpr_hourly
@@ -23708,7 +24215,13 @@ app.get('/api/job/colors', async (req, res) => {
             if (k) prodMap[k] = (prodMap[k] || 0) + Number(p.total || 0);
           });
 
-          // Build result: plan qty from colour_details, produced from dpr_hourly
+          // Build result: plan qty from colour_details, produced from dpr_hourly.
+          // A colour can appear in several colour_details rows (batch splits), so
+          // SUM the plan qty across those rows — but the produced figure in prodMap
+          // is ALREADY the full per-colour total, so it must be assigned ONCE per
+          // colour, not added per row (adding per row double-counted production and
+          // caused a false "OVER PRODUCTION" — e.g. two "SM White" batches showed
+          // 2x the produced qty).
           const grouped = {};
           cd.forEach(row => {
             const name = String(
@@ -23718,8 +24231,11 @@ app.get('/api/job/colors', async (req, res) => {
             const qty = Number(row.planQty ?? row.batchQty ?? row.useQty ?? row.qty ?? 0) || 0;
             if (!grouped[name]) grouped[name] = { target: 0, produced: 0 };
             grouped[name].target += qty;
+          });
+          // Produced: one lookup per unique colour (prodMap already holds the total).
+          Object.keys(grouped).forEach(name => {
             const k = name.toUpperCase();
-            if (prodMap[k]) grouped[name].produced += prodMap[k];
+            if (prodMap[k]) grouped[name].produced = prodMap[k];
           });
 
           const result = Object.entries(grouped)
@@ -24128,6 +24644,358 @@ app.delete('/api/extra-qty/:id', async (req, res) => {
   }
 });
 
+// ============================================================
+//  MAINTENANCE MODULE — machine & mould maintenance tickets
+//  One code path for both sub-menus (asset_type = 'machine' | 'mould').
+//  Tickets are the single source of truth; the DPR Compliance Summary READS
+//  open tickets to show "Under Maintenance + Available by" (see dpr summary).
+// ============================================================
+
+// Roles alerted per asset type, in addition to: admin/superadmin, PPC/Planner
+// (MAINT_ALWAYS_ROLES), and any user with the `maintenance_alerts` permission
+// toggle set in User Management. [[project_users_companywide_sync]]
+const MAINT_ALERT_ROLES = {
+  machine: ['maintenance_manager', 'maintenance_tech'],
+  mould:   ['toolroom_manager', 'maintenance_tech']
+};
+const MAINT_ALWAYS_ROLES = ['ppc_manager', 'ppc_ass_manager', 'planner'];
+
+function maintAssetType(v) { return String(v || '').toLowerCase() === 'mould' ? 'mould' : 'machine'; }
+
+// Who may acknowledge / reject / start / handover a ticket.
+function canManageMaintenance(actor, assetType) {
+  if (!actor) return false;
+  if (isAdminLikeRole(actor)) return true;
+  const role = String(actor.role_code || '').toLowerCase();
+  return (MAINT_ALERT_ROLES[maintAssetType(assetType)] || []).includes(role);
+}
+
+// Factory-scoped active recipients for an alert (same scoping as approval fan-out).
+async function getMaintenanceAlertUsers(assetType, factoryId) {
+  const roleSet = new Set([
+    ...(MAINT_ALERT_ROLES[maintAssetType(assetType)] || []),
+    ...MAINT_ALWAYS_ROLES
+  ]);
+  const rows = await q(
+    `SELECT DISTINCT u.username, u.role_code, u.global_access, u.permissions
+       FROM users u
+       LEFT JOIN user_factories uf ON uf.user_id = u.id
+      WHERE COALESCE(u.is_active, TRUE) = TRUE
+        AND ($1::int IS NULL OR u.global_access = TRUE OR uf.factory_id = $1
+             OR LOWER(COALESCE(u.role_code,'')) IN ('admin','superadmin'))`,
+    [factoryId || null]
+  );
+  return rows.filter((u) => {
+    const role = String(u.role_code || '').toLowerCase();
+    if (role === 'admin' || role === 'superadmin') return true;
+    if (roleSet.has(role)) return true;
+    const perms = (u.permissions && typeof u.permissions === 'object') ? u.permissions : {};
+    return perms.maintenance_alerts === true;   // per-user opt-in from User Management
+  });
+}
+
+// kind: 'opened' | 'overdue' → managers/PPC/opt-in ; 'handover' | 'rejected' → the supervisor who raised it
+async function notifyMaintenance(ticket, factoryId, createdBy, kind) {
+  try {
+    const assetType = maintAssetType(ticket.asset_type);
+    const asset = assetType === 'mould'
+      ? (ticket.mould_name || ticket.mould_code || '-')
+      : (ticket.machine || '-');
+    const link = `maintenance.html?type=${assetType}&ticket=${encodeURIComponent(ticket.sync_id || '')}`;
+    let title, message, targets;
+    if (kind === 'handover' || kind === 'rejected') {
+      title = `${asset}: ${kind === 'rejected' ? 'maintenance rejected' : 'handed back'}`;
+      message = (kind === 'rejected'
+        ? `Maintenance rejected — ${ticket.rejected_reason || 'not a maintenance issue'}. Machine returns to production.`
+        : `Maintenance complete. ${ticket.fix_desc || ''}`).trim();
+      targets = ticket.reported_by ? [{ username: ticket.reported_by }] : [];
+    } else {
+      const users = await getMaintenanceAlertUsers(assetType, factoryId);
+      if (kind === 'overdue') {
+        title = `Maintenance OVERDUE: ${asset}`;
+        message = `Ticket ${ticket.ticket_no || ''} for ${asset} is still open past its expected ready date.`;
+      } else {
+        title = `Maintenance: ${asset} in maintenance`;
+        message = [`Asset: ${asset}`, `Priority: ${ticket.priority || 'normal'}`,
+                   `Problem: ${ticket.problem_desc || '-'}`, `By: ${createdBy || '-'}`].join(' | ');
+      }
+      targets = users;
+    }
+    let count = 0;
+    for (const u of targets) {
+      await q(`INSERT INTO notifications (target_user, type, title, message, link, created_by)
+               VALUES ($1,$2,$3,$4,$5,$6)`,
+        [u.username, 'maintenance', title, message, link, createdBy || 'System']);
+      count += 1;
+    }
+    return count;
+  } catch (e) { console.warn('[Maintenance] notify skipped:', e.message || e); return 0; }
+}
+
+// Generate a factory-scoped human ticket number MNT-YY-NNNN.
+async function nextMaintenanceTicketNo(factoryId) {
+  const yy = new Date().getFullYear().toString().slice(-2);
+  const rows = await q(
+    `SELECT COUNT(*)::int AS n FROM maintenance_tickets
+      WHERE ($1::int IS NULL OR factory_id = $1)
+        AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM NOW())`,
+    [factoryId || null]
+  );
+  const seq = (rows[0]?.n || 0) + 1;
+  return `MNT-${yy}-${String(seq).padStart(4, '0')}`;
+}
+
+// POST /api/maintenance/tickets — open a ticket (any authenticated user; supervisors raise).
+app.post('/api/maintenance/tickets', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    if (!actor) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    const b = req.body || {};
+    const assetType = maintAssetType(b.asset_type);
+    const machine = String(b.machine || '').trim();
+    const mouldName = String(b.mould_name || '').trim();
+    if (assetType === 'machine' && !machine) return res.json({ ok: false, error: 'machine required' });
+    if (assetType === 'mould' && !mouldName) return res.json({ ok: false, error: 'mould_name required' });
+    const problem = String(b.problem_desc || '').trim();
+    if (!problem) return res.json({ ok: false, error: 'problem_desc required — describe the issue' });
+    const priority = ['low', 'normal', 'high', 'breakdown'].includes(String(b.priority || '').toLowerCase())
+      ? String(b.priority).toLowerCase() : 'normal';
+    const factoryId = getFactoryId(req) || null;
+    const ticketNo = await nextMaintenanceTicketNo(factoryId);
+
+    const ins = await q(
+      `INSERT INTO maintenance_tickets
+         (ticket_no, asset_type, machine, mould_name, mould_code, plan_id, order_no,
+          status, priority, problem_desc, reported_by,
+          expected_ready_date, expected_ready_time, factory_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'reported',$8,$9,$10,$11,$12,$13)
+       RETURNING *`,
+      [ticketNo, assetType, machine || null, mouldName || null, b.mould_code || null,
+       b.plan_id || null, b.order_no || null, priority, problem, actor.username,
+       b.expected_ready_date || null, b.expected_ready_time || null, factoryId]
+    );
+    const ticket = ins[0];
+    await notifyMaintenance(ticket, factoryId, actor.username, 'opened');
+    console.log(`[MAINTENANCE] ${actor.username} opened ${ticketNo} (${assetType}: ${machine || mouldName})`);
+    res.json({ ok: true, data: ticket });
+  } catch (e) {
+    console.error('api/maintenance/tickets POST', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/maintenance/tickets — list/filter (factory-scoped).
+app.get('/api/maintenance/tickets', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const params = [];
+    const where = ['is_deleted = FALSE'];
+    if (factoryId) { params.push(factoryId); where.push(`(factory_id = $${params.length} OR factory_id IS NULL)`); }
+    if (req.query.type) { params.push(maintAssetType(req.query.type)); where.push(`asset_type = $${params.length}`); }
+    if (req.query.status) { params.push(String(req.query.status).toLowerCase()); where.push(`status = $${params.length}`); }
+    if (req.query.machine) { params.push(String(req.query.machine)); where.push(`machine = $${params.length}`); }
+    if (req.query.open === '1') where.push(`status IN ('reported','acknowledged','in_progress')`);
+    const rows = await q(
+      `SELECT *,
+              GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (COALESCE(handover_at, NOW()) - down_at)) / 86400))::int AS days_open,
+              (status IN ('reported','acknowledged','in_progress')
+               AND expected_ready_date IS NOT NULL
+               AND expected_ready_date < CURRENT_DATE) AS is_overdue
+         FROM maintenance_tickets
+        WHERE ${where.join(' AND ')}
+        ORDER BY (status IN ('reported','acknowledged','in_progress')) DESC, down_at DESC`,
+      params
+    );
+    res.json({ ok: true, data: rows });
+  } catch (e) {
+    console.error('api/maintenance/tickets GET', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/maintenance/tickets/:sync_id — one ticket + its worklogs.
+app.get('/api/maintenance/tickets/:sync_id', async (req, res) => {
+  try {
+    const rows = await q(`SELECT * FROM maintenance_tickets WHERE sync_id = $1 AND is_deleted = FALSE`, [req.params.sync_id]);
+    if (!rows.length) return res.json({ ok: false, error: 'Ticket not found' });
+    const logs = await q(
+      `SELECT * FROM maintenance_worklogs WHERE ticket_sync_id = $1 AND is_deleted = FALSE ORDER BY logged_at ASC`,
+      [req.params.sync_id]
+    );
+    res.json({ ok: true, data: { ...rows[0], worklogs: logs } });
+  } catch (e) {
+    console.error('api/maintenance/ticket GET', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Shared helper for the lifecycle transitions below.
+async function maintenanceTransition(req, res, { requireManage, build, kind }) {
+  const actor = await getRequestActor(req);
+  if (!actor) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+  const rows = await q(`SELECT * FROM maintenance_tickets WHERE sync_id = $1 AND is_deleted = FALSE`, [req.params.sync_id]);
+  if (!rows.length) return res.json({ ok: false, error: 'Ticket not found' });
+  const ticket = rows[0];
+  if (requireManage && !canManageMaintenance(actor, ticket.asset_type)) {
+    return res.status(403).json({ ok: false, error: 'Maintenance/Toolroom manager (or admin) access required' });
+  }
+  const { setSql, params } = build(ticket, actor, req.body || {});
+  const upd = await q(
+    `UPDATE maintenance_tickets SET ${setSql}, updated_at = NOW()
+      WHERE sync_id = $1 AND is_deleted = FALSE RETURNING *`,
+    [req.params.sync_id, ...params]
+  );
+  if (!upd.length) return res.json({ ok: false, error: 'Update failed' });
+  return upd[0];
+}
+
+// POST /api/maintenance/tickets/:sync_id/ack — manager acknowledges + optionally assigns.
+app.post('/api/maintenance/tickets/:sync_id/ack', async (req, res) => {
+  try {
+    const t = await maintenanceTransition(req, res, {
+      requireManage: true, kind: 'ack',
+      build: (ticket, actor, b) => ({
+        setSql: `status = 'acknowledged', ack_at = COALESCE(ack_at, NOW()), assigned_to = $2`,
+        params: [b.assigned_to ? String(b.assigned_to).trim() : (ticket.assigned_to || null)]
+      })
+    });
+    if (t && t.sync_id) res.json({ ok: true, data: t });
+  } catch (e) { console.error('maintenance ack', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+// POST /api/maintenance/tickets/:sync_id/start — Start Job (stamp work_started_at).
+app.post('/api/maintenance/tickets/:sync_id/start', async (req, res) => {
+  try {
+    const t = await maintenanceTransition(req, res, {
+      requireManage: true, kind: 'start',
+      build: () => ({ setSql: `status = 'in_progress', work_started_at = COALESCE(work_started_at, NOW())`, params: [] })
+    });
+    if (t && t.sync_id) res.json({ ok: true, data: t });
+  } catch (e) { console.error('maintenance start', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+// POST /api/maintenance/tickets/:sync_id/eta — set/update expected ready (shown in Compliance Summary).
+app.post('/api/maintenance/tickets/:sync_id/eta', async (req, res) => {
+  try {
+    const t = await maintenanceTransition(req, res, {
+      requireManage: true, kind: 'eta',
+      build: (ticket, actor, b) => ({
+        setSql: `expected_ready_date = $2, expected_ready_time = $3`,
+        params: [b.expected_ready_date || null, b.expected_ready_time || null]
+      })
+    });
+    if (t && t.sync_id) res.json({ ok: true, data: t });
+  } catch (e) { console.error('maintenance eta', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+// POST /api/maintenance/tickets/:sync_id/handover — Hand Back with fix description.
+app.post('/api/maintenance/tickets/:sync_id/handover', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req) || null;
+    const t = await maintenanceTransition(req, res, {
+      requireManage: true, kind: 'handover',
+      build: (ticket, actor, b) => {
+        const fix = String(b.fix_desc || '').trim();
+        if (!fix) throw new Error('fix_desc required — describe the problem & what was done');
+        return { setSql: `status = 'handover', handover_at = NOW(), fix_desc = $2`, params: [fix] };
+      }
+    });
+    if (t && t.sync_id) {
+      await notifyMaintenance(t, factoryId, (await getRequestActor(req))?.username, 'handover');
+      res.json({ ok: true, data: t });
+    }
+  } catch (e) {
+    if (String(e.message || '').includes('fix_desc')) return res.json({ ok: false, error: e.message });
+    console.error('maintenance handover', e); res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/maintenance/tickets/:sync_id/reject — "not a maintenance issue".
+// Sets rejected; ticket is no longer open, so the machine returns to the DPR
+// Compliance Summary as a normal producing machine (the summary reads OPEN tickets).
+app.post('/api/maintenance/tickets/:sync_id/reject', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req) || null;
+    const t = await maintenanceTransition(req, res, {
+      requireManage: true, kind: 'rejected',
+      build: (ticket, actor, b) => {
+        const reason = String(b.rejected_reason || '').trim();
+        if (!reason) throw new Error('rejected_reason required — state why this is not a maintenance issue');
+        return {
+          setSql: `status = 'rejected', rejected_at = NOW(), rejected_by = $2, rejected_reason = $3`,
+          params: [actor.username, reason]
+        };
+      }
+    });
+    if (t && t.sync_id) {
+      await notifyMaintenance(t, factoryId, (await getRequestActor(req))?.username, 'rejected');
+      res.json({ ok: true, data: t });
+    }
+  } catch (e) {
+    if (String(e.message || '').includes('rejected_reason')) return res.json({ ok: false, error: e.message });
+    console.error('maintenance reject', e); res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/maintenance/tickets/:sync_id/worklog — add a dated progress note.
+app.post('/api/maintenance/tickets/:sync_id/worklog', async (req, res) => {
+  try {
+    const actor = await getRequestActor(req);
+    if (!actor) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    const rows = await q(`SELECT asset_type, factory_id FROM maintenance_tickets WHERE sync_id = $1 AND is_deleted = FALSE`, [req.params.sync_id]);
+    if (!rows.length) return res.json({ ok: false, error: 'Ticket not found' });
+    if (!canManageMaintenance(actor, rows[0].asset_type)) {
+      return res.status(403).json({ ok: false, error: 'Maintenance/Toolroom manager (or admin) access required' });
+    }
+    const note = String((req.body || {}).note || '').trim();
+    if (!note) return res.json({ ok: false, error: 'note required' });
+    const minutes = Number((req.body || {}).minutes);
+    const ins = await q(
+      `INSERT INTO maintenance_worklogs (ticket_sync_id, note, minutes, logged_by, factory_id)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [req.params.sync_id, note, Number.isFinite(minutes) && minutes > 0 ? Math.floor(minutes) : null, actor.username, rows[0].factory_id || null]
+    );
+    // touch the parent so the change syncs
+    await q(`UPDATE maintenance_tickets SET updated_at = NOW() WHERE sync_id = $1`, [req.params.sync_id]);
+    res.json({ ok: true, data: ins[0] });
+  } catch (e) {
+    console.error('maintenance worklog', e); res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/maintenance/dashboard — live counts + open rows (per sub-menu).
+app.get('/api/maintenance/dashboard', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const params = [];
+    const scope = [];
+    if (factoryId) { params.push(factoryId); scope.push(`(factory_id = $${params.length} OR factory_id IS NULL)`); }
+    if (req.query.type) { params.push(maintAssetType(req.query.type)); scope.push(`asset_type = $${params.length}`); }
+    const scopeSql = scope.length ? `AND ${scope.join(' AND ')}` : '';
+    const counts = await q(
+      `SELECT
+         COUNT(*) FILTER (WHERE status IN ('reported','acknowledged')) AS under_maintenance,
+         COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress,
+         COUNT(*) FILTER (WHERE status IN ('reported','acknowledged','in_progress')
+                            AND expected_ready_date IS NOT NULL AND expected_ready_date < CURRENT_DATE) AS overdue
+       FROM maintenance_tickets WHERE is_deleted = FALSE ${scopeSql}`,
+      params
+    );
+    const openRows = await q(
+      `SELECT *,
+              GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - down_at)) / 86400))::int AS days_open,
+              (expected_ready_date IS NOT NULL AND expected_ready_date < CURRENT_DATE) AS is_overdue
+         FROM maintenance_tickets
+        WHERE is_deleted = FALSE AND status IN ('reported','acknowledged','in_progress') ${scopeSql}
+        ORDER BY is_overdue DESC, down_at ASC`,
+      params
+    );
+    res.json({ ok: true, data: { counts: counts[0] || {}, open: openRows } });
+  } catch (e) {
+    console.error('api/maintenance/dashboard', e); res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // GET /api/reports/machine-maintenance — machine-wise maintenance downtime,
 // grouped daily / weekly / monthly. Maintenance minutes come from:
 //  - quick-action entries (entry_type='Maintenance'): their downtime_min (default 60/slot)
@@ -24305,6 +25173,144 @@ app.get('/api/reports/tonnage', async (req, res) => {
   }
 });
 
+// GET /api/reports/dpr-daily — the SINGLE source-of-truth production waterfall.
+// Both the DPR Compliance Summary strip and the Daily Report "Live Calculation"
+// read this so they can never diverge. All values in Kg.
+//   Capacity            = every PLANNED machine's best mould rate × full shift hrs
+//   Planned Target      = std rate × STD weight × shift hours (machines that ran)
+//   - Std Changeover    = (distinct moulds − 1) × (load+unload min)/60 × rate
+//   = Planned Estimated
+//   - 5% allowance
+//   = Planned Achievable
+//   - Downtime Loss     = Planned Achievable − Gross
+//   = Gross Production   = (good + reject) × ACTUAL piece weight
+//   - Rejection         = reject × ACTUAL weight
+//   = Good Production    = good × ACTUAL weight
+// shift = Day|Night → 12 h; anything else (Both) → 24 h.
+app.get('/api/reports/dpr-daily', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.json({ ok: false, error: 'date required' });
+    const round2 = (v) => Number((Number(v) || 0).toFixed(2));
+    const wkg = (w) => { const n = Number(w) || 0; return n >= 10 ? n / 1000 : n; }; // grams→kg tolerant
+    const shift = ['Day', 'Night'].includes(String(req.query.shift)) ? String(req.query.shift) : null;
+    const shiftHours = shift ? 12 : 24;
+    const process = req.query.process ? String(req.query.process) : null;
+    const factoryId = getFactoryId(req);
+
+    const params = [date];
+    let cond = '';
+    if (factoryId) { params.push(factoryId); cond += ` AND (h.factory_id = $${params.length} OR h.factory_id IS NULL)`; }
+    if (shift) { params.push(shift); cond += ` AND h.shift = $${params.length}`; }
+    if (process) { params.push(process); cond += ` AND mc.machine_process = $${params.length}`; }
+
+    const rows = await q(`
+      SELECT
+        COALESCE(NULLIF(TRIM(h.machine), ''), 'Unassigned') AS machine,
+        h.shift, h.hour_slot,
+        TRIM(COALESCE(h.mould_no, '')) AS mould_no,
+        COALESCE(h.good_qty, 0)   AS good_qty,
+        COALESCE(h.reject_qty, 0) AS reject_qty,
+        COALESCE(h.shots, 0)      AS shots,
+        COALESCE(m.pcs_per_hour, 0) AS pcs_hr,
+        COALESCE(m.std_wt_kg, 0)    AS std_wt,
+        COALESCE(sa.article_act, m.std_wt_kg, 0) AS act_wt,
+        COALESCE(mc.mould_load_time, 0)   AS load_t,
+        COALESCE(mc.mould_unload_time, 0) AS unload_t
+      FROM dpr_hourly h
+      -- All lookups are LATERAL LIMIT 1 so a plan/mould with several setup or
+      -- master rows can NEVER fan out and multiply the quantities.
+      LEFT JOIN LATERAL (
+        SELECT pcs_per_hour, std_wt_kg FROM moulds mm
+        WHERE mm.mould_number = h.mould_no AND (mm.factory_id = h.factory_id OR mm.factory_id IS NULL)
+        ORDER BY (mm.factory_id = h.factory_id) DESC NULLS LAST, mm.id DESC LIMIT 1
+      ) m ON true
+      LEFT JOIN LATERAL (
+        SELECT article_act FROM std_actual sa0
+        WHERE sa0.plan_id = h.plan_id AND COALESCE(sa0.article_act, 0) > 0
+        ORDER BY sa0.id DESC LIMIT 1
+      ) sa ON true
+      LEFT JOIN LATERAL (
+        SELECT mould_load_time, mould_unload_time, machine_process FROM machines mc0
+        WHERE TRIM(mc0.machine) = TRIM(h.machine) AND (mc0.factory_id = h.factory_id OR mc0.factory_id IS NULL)
+        ORDER BY (mc0.factory_id = h.factory_id) DESC NULLS LAST LIMIT 1
+      ) mc ON true
+      WHERE h.is_deleted = false
+        AND h.dpr_date = $1::date${cond}
+      ORDER BY machine, h.shift, h.hour_slot
+    `, params);
+
+    const byMachine = new Map();
+    for (const r of rows) {
+      let a = byMachine.get(r.machine);
+      if (!a) { a = { machine: r.machine, load_t: Number(r.load_t) || 0, unload_t: Number(r.unload_t) || 0,
+        good_kg: 0, reject_kg: 0, moulds: new Set(), _mould: new Map() }; byMachine.set(r.machine, a); }
+      if (!a.load_t && Number(r.load_t)) a.load_t = Number(r.load_t);
+      if (!a.unload_t && Number(r.unload_t)) a.unload_t = Number(r.unload_t);
+
+      const stdWt = wkg(r.std_wt);
+      const actWt = wkg(r.act_wt) || stdWt;
+      a.good_kg   += (Number(r.good_qty) || 0)   * actWt;
+      a.reject_kg += (Number(r.reject_qty) || 0) * actWt;
+
+      const produced = (Number(r.good_qty) || 0) > 0 || (Number(r.shots) || 0) > 0;
+      if (r.mould_no && produced) {
+        a.moulds.add(r.mould_no);
+        const rate = Number(r.pcs_hr) || 0;
+        if (rate > 0) {
+          let mm = a._mould.get(r.mould_no);
+          if (!mm) { mm = { slots: new Set(), rateWt: rate * stdWt }; a._mould.set(r.mould_no, mm); }
+          mm.slots.add(`${r.shift}|${r.hour_slot}`);
+        }
+      }
+    }
+
+    const machines = [];
+    let T = { capacity: 0, planned_target: 0, std_changeover: 0, planned_estimated: 0,
+      planned_achievable: 0, downtime_speed_loss: 0, gross: 0, rejection: 0, good: 0, mould_changes: 0 };
+    for (const a of byMachine.values()) {
+      // run-time-weighted std rate×wt (kg/hr) across the machine's moulds
+      let totalSlots = 0, bestRateWt = 0;
+      a._mould.forEach(mm => { totalSlots += mm.slots.size; if (mm.rateWt > bestRateWt) bestRateWt = mm.rateWt; });
+      let blendedRateWt = 0;
+      if (totalSlots > 0) a._mould.forEach(mm => { blendedRateWt += (mm.slots.size / totalSlots) * mm.rateWt; });
+
+      const mc = Math.max(0, a.moulds.size - 1);                       // distinct moulds − 1
+      const target = blendedRateWt * shiftHours;
+      const changeover = mc * ((a.load_t + a.unload_t) / 60) * blendedRateWt;
+      const estimated = Math.max(0, target - changeover);
+      const achievable = estimated * 0.95;
+      const gross = a.good_kg + a.reject_kg;
+      const dtLoss = Math.max(0, achievable - gross);
+      const capacity = bestRateWt * shiftHours;
+
+      machines.push({ machine: a.machine, mould_changes: mc,
+        capacity: round2(capacity), planned_target: round2(target), std_changeover: round2(changeover),
+        planned_estimated: round2(estimated), planned_achievable: round2(achievable),
+        downtime_speed_loss: round2(dtLoss), gross_production: round2(gross),
+        rejection: round2(a.reject_kg), good_production: round2(a.good_kg) });
+
+      T.capacity += capacity; T.planned_target += target; T.std_changeover += changeover;
+      T.planned_estimated += estimated; T.planned_achievable += achievable;
+      T.downtime_speed_loss += dtLoss; T.gross += gross; T.rejection += a.reject_kg;
+      T.good += a.good_kg; T.mould_changes += mc;
+    }
+    machines.sort((x, y) => String(x.machine).localeCompare(String(y.machine), undefined, { numeric: true }));
+
+    const total = {
+      capacity: round2(T.capacity), planned_target: round2(T.planned_target),
+      std_changeover: round2(T.std_changeover), planned_estimated: round2(T.planned_estimated),
+      planned_achievable: round2(T.planned_achievable), downtime_speed_loss: round2(T.downtime_speed_loss),
+      gross_production: round2(T.gross), rejection: round2(T.rejection), good_production: round2(T.good),
+      mould_changes: T.mould_changes
+    };
+    res.json({ ok: true, date, shift: shift || 'all', shift_hours: shiftHours, machines, total });
+  } catch (e) {
+    console.error('api/reports/dpr-daily', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // GET /api/reports/extra-qty-allowed — audit report of all grants
 app.get('/api/reports/extra-qty-allowed', async (req, res) => {
   try {
@@ -24361,26 +25367,51 @@ app.get('/api/std-actual/status', async (req, res) => {
     const { planId, shift, date, machine } = req.query;
     if (!planId) return res.json({ ok: false, error: 'Missing planId' });
 
-    // 1. Fetch Plan Details to get Mould Name
-    const plans = await q('SELECT mould_name FROM plan_board WHERE plan_id=$1', [planId]);
-    const mouldName = plans.length ? plans[0].mould_name : null;
+    // 1+2. Resolve the plan's Mould Master standards the SAME way the queue/board
+    // does (line ~23588): prefer the planning summary's specific mould_no
+    // (e.g. "5272-BODY 2") over plan_board.mould_code, which can hold a COARSER
+    // base code (e.g. "5272-BODY") that resolves to a different mould's row —
+    // that was the bug: cavity showed 1 instead of 2. Match EXACTLY on
+    // moulds.mould_number and align with the "Mould Code" shown on the card.
+    const planRows = await q(`
+      SELECT
+        m.std_wt_kg, m.runner_weight, m.no_of_cav, m.cycle_time,
+        m.pcs_per_hour, m.manpower, m.std_volume_cap
+      FROM plan_board pb
+      LEFT JOIN mould_planning_summary mps
+        ON mps.or_jr_no = pb.order_no AND mps.mould_name = pb.mould_name
+      LEFT JOIN LATERAL (
+        SELECT mm.*
+        FROM moulds mm
+        WHERE UPPER(TRIM(mm.mould_number)) = UPPER(TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')))
+          AND TRIM(COALESCE(NULLIF(TRIM(mps.mould_no),''), NULLIF(TRIM(pb.mould_code),''), '')) <> ''
+        ORDER BY mm.updated_at DESC NULLS LAST, mm.id DESC
+        LIMIT 1
+      ) m ON TRUE
+      WHERE pb.plan_id = $1
+      -- plan_id / mps can fan out to multiple candidate rows: one carrying the
+      -- specific planning mould_no (e.g. "5272-BODY 2", cav 2) and one falling
+      -- back to pb.mould_code (coarse "5272-BODY", cav 1). Prefer the specific
+      -- planning-summary mould first (this is the code the card shows), then a
+      -- resolved master row.
+      ORDER BY (mps.mould_no IS NOT NULL) DESC,
+               (m.no_of_cav IS NOT NULL) DESC NULLS LAST,
+               m.updated_at DESC NULLS LAST, m.id DESC
+      LIMIT 1
+    `, [planId]);
 
-    // 2. Fetch Standards from MOULDS table (Mould Master)
     let std = null;
-    if (mouldName) {
-      // Try exact match on mould_name (mould_name in plan_board)
-      const m = await q('SELECT * FROM moulds WHERE mould_name = $1', [mouldName]);
-      if (m.length) {
-        std = {
-          article_std: m[0].std_wt_kg,
-          runner_std: m[0].runner_weight,
-          cavity_std: m[0].no_of_cav,
-          cycle_std: m[0].cycle_time,
-          pcshr_std: m[0].pcs_per_hour,
-          man_std: m[0].manpower,
-          sfgqty_std: m[0].std_volume_cap
-        };
-      }
+    const r0 = planRows.length ? planRows[0] : null;
+    if (r0 && (r0.std_wt_kg != null || r0.no_of_cav != null || r0.cycle_time != null)) {
+      std = {
+        article_std: r0.std_wt_kg,
+        runner_std: r0.runner_weight,
+        cavity_std: r0.no_of_cav,
+        cycle_std: r0.cycle_time,
+        pcshr_std: r0.pcs_per_hour,
+        man_std: r0.manpower,
+        sfgqty_std: r0.std_volume_cap
+      };
     }
 
     // 3. Fetch Existing Setup (ACTUALS)
@@ -27375,9 +28406,9 @@ app.get('/api/analyze/mould/:mouldCode', async (req, res) => {
       slotKeys.add(`${l.date}|${l.shift}|${l.hour_slot}|${l.machine}`);
 
       let rb = l.reject_breakup; if (typeof rb === 'string') { try { rb = JSON.parse(rb); } catch (e) { rb = null; } }
-      if (rb && typeof rb === 'object') Object.entries(rb).forEach(([k, v]) => rejectReasons[k] = (rejectReasons[k] || 0) + toNum(v));
+      if (rb && typeof rb === 'object') Object.entries(rb).forEach(([k, v]) => { const lab = analyzeRejectReasonLabel(k); rejectReasons[lab] = (rejectReasons[lab] || 0) + toNum(v); });
       let db = l.downtime_breakup; if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
-      if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => downtimeReasons[k] = (downtimeReasons[k] || 0) + toNum(v));
+      if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => { const lab = analyzeDowntimeReasonLabel(k); downtimeReasons[lab] = (downtimeReasons[lab] || 0) + toNum(v); });
 
       const d = l.date || 'Unknown';
       if (!dailyTrend[d]) dailyTrend[d] = { date: d, good: 0, reject: 0, downtime: 0 };
@@ -27597,7 +28628,7 @@ app.get('/api/analyze/plant', async (req, res) => {
       apply(byDate[d]);
 
       let db = l.downtime_breakup; if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
-      if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => lossReasons[k] = (lossReasons[k] || 0) + toNum(v));
+      if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => { const lab = analyzeDowntimeReasonLabel(k); lossReasons[lab] = (lossReasons[lab] || 0) + toNum(v); });
     });
 
     const oeeOf = (a) => {
@@ -27686,7 +28717,7 @@ app.get('/api/analyze/machine', async (req, res) => {
 
       if (drill) {
         let db = l.downtime_breakup; if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
-        if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => drill.downtimeReasons[k] = (drill.downtimeReasons[k] || 0) + toNum(v));
+        if (db && typeof db === 'object') Object.entries(db).forEach(([k, v]) => { const lab = analyzeDowntimeReasonLabel(k); drill.downtimeReasons[lab] = (drill.downtimeReasons[lab] || 0) + toNum(v); });
         const d = l.date || 'Unknown';
         if (!drill.byDate[d]) drill.byDate[d] = { date: d, good: 0, reject: 0, downtime: 0 };
         drill.byDate[d].good += good; drill.byDate[d].reject += rej; drill.byDate[d].downtime += dt;
@@ -27803,6 +28834,347 @@ app.get('/api/analyze/compare', async (req, res) => {
     res.json({ ok: true, data: { factories } });
   } catch (e) {
     console.error('analyze/compare', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// ============================================================
+// DOWNTIME ANALYZE  (analyze.html?view=downtime)
+// Machine-wise / date-wise / reason-wise / plant-wise downtime,
+// sourced from dpr_hourly.downtime_breakup (JSON {reasonKey: minutes}).
+// ============================================================
+// Reason key -> human label. Mirrors DOWNTIME_CODES + QUICK_ACTION_META
+// in BACKEND/PUBLIC/assets/dpr-script-1.js (single source of truth for labels).
+const ANALYZE_DOWNTIME_CODES = {
+  '1': 'Manpower Shortage', '2': 'Mould Change', '3': 'Accessories Issue',
+  '4': 'No Material', '5': 'Machine Maintenance', '6': 'Nozzle Blockage',
+  '7': 'Mould Problem', '8': 'Power / Heater Failure', '9': 'Color Change',
+  '10': 'Process Setting', '11': 'Mould Trial', '12': 'Crane / Loading', '13': 'No Plan'
+};
+const ANALYZE_DOWNTIME_QUICK = {
+  ManPowerShortage: 'Manpower Shortage', MouldChangeover: 'Mould Change',
+  MouldChange: 'Mould Change', Maintenance: 'Machine Maintenance',
+  MouldMaintenance: 'Mould Maintenance', PowerCut: 'Power / Heater Failure',
+  MouldTrial: 'Mould Trial', NoPlan: 'No Plan'
+};
+function analyzeDowntimeReasonLabel(key) {
+  const k = String(key == null ? '' : key).trim();
+  if (ANALYZE_DOWNTIME_CODES[k]) return ANALYZE_DOWNTIME_CODES[k];
+  if (ANALYZE_DOWNTIME_QUICK[k]) return ANALYZE_DOWNTIME_QUICK[k];
+  return k || 'Other';
+}
+// Reject reason code -> label. Mirrors REJECTION_CODES in dpr-script-1.js.
+const ANALYZE_REJECT_CODES = {
+  A: 'Short Shot', B: 'Shrinkage', C: 'Silver / Color Streak', D: 'Flow Line / Weld Line',
+  E: 'Fitment Issue', F: 'Dent / Air Trap', G: 'Warpage', H: 'Black Dot / Water Mark',
+  I: 'Startup Rejection', J: 'Bottom Cracking', K: 'Scratches', L: 'Overlap', M: 'Punching Issue'
+};
+function analyzeRejectReasonLabel(key) {
+  const k = String(key == null ? '' : key).trim();
+  if (ANALYZE_REJECT_CODES[k]) return ANALYZE_REJECT_CODES[k];
+  if (ANALYZE_REJECT_CODES[k.toUpperCase()]) return ANALYZE_REJECT_CODES[k.toUpperCase()];
+  return k || 'Other';
+}
+// Parse a downtime_breakup value (JSONB object, or a JSON string) into {label: minutes}.
+function analyzeParseDowntimeBreakup(raw) {
+  let db = raw;
+  if (typeof db === 'string') { try { db = JSON.parse(db); } catch (e) { db = null; } }
+  const out = {};
+  if (db && typeof db === 'object') {
+    for (const [k, v] of Object.entries(db)) {
+      const min = toNum(v);
+      if (!min) continue;
+      const label = analyzeDowntimeReasonLabel(k);
+      out[label] = (out[label] || 0) + min;
+    }
+  }
+  return out;
+}
+// Build the factory-access WHERE clause shared by the downtime endpoints.
+// Returns { where:[], params:[], blocked:bool } — blocked = user has no access at all.
+async function analyzeDowntimeScope(req, { requireAllForNoFactory = false } = {}) {
+  const username = getRequestUsername(req);
+  const access = await getAccessibleFactoriesForUser(username);
+  const accessibleIds = access.factories.map(f => Number(f.id));
+  const canAll = access.canSelectAllFactories;
+  const params = [];
+  const where = ['COALESCE(dh.is_deleted, false) = false'];
+
+  const reqFactory = Number(req.query.factory);
+  if (reqFactory) {
+    if (!canAll && !accessibleIds.includes(reqFactory)) return { blocked: true, forbidden: true };
+    params.push(reqFactory); where.push(`dh.factory_id = $${params.length}`);
+  } else if (!canAll) {
+    if (!accessibleIds.length) return { blocked: true };
+    params.push(accessibleIds); where.push(`dh.factory_id = ANY($${params.length}::int[])`);
+  }
+  if (req.query.from) { params.push(req.query.from); where.push(`dh.dpr_date >= $${params.length}`); }
+  if (req.query.to) { params.push(req.query.to); where.push(`dh.dpr_date <= $${params.length}`); }
+  if (req.query.shift) { params.push(req.query.shift); where.push(`dh.shift = $${params.length}`); }
+
+  return { where, params, access, accessibleIds, canAll, blocked: false };
+}
+
+// GET /api/analyze/downtime
+// Machine-wise downtime + company-wide reason Pareto over the range.
+app.get('/api/analyze/downtime', async (req, res) => {
+  try {
+    const scope = await analyzeDowntimeScope(req);
+    if (scope.forbidden) return res.status(403).json({ ok: false, error: 'No access to that factory' });
+    if (scope.blocked) return res.json({ ok: true, data: { machines: [], reasons: [], totals: {} } });
+
+    const logs = await q(`
+      SELECT dh.machine, dh.line, dh.dpr_date::text AS date, dh.shift, dh.hour_slot,
+             dh.downtime_min, dh.downtime_breakup
+        FROM dpr_hourly dh
+       WHERE ${scope.where.join(' AND ')}
+    `, scope.params);
+
+    const byMc = {};          // machine -> { good... } we only need downtime here
+    const reasonTotals = {};  // label -> minutes (company-wide Pareto)
+    let totalDt = 0, totalEvents = 0;
+
+    logs.forEach(l => {
+      const mc = l.machine || 'Unassigned';
+      const dt = toNum(l.downtime_min);
+      const reasons = analyzeParseDowntimeBreakup(l.downtime_breakup);
+      if (!byMc[mc]) byMc[mc] = { machine: mc, line: l.line || '-', totalDowntimeMin: 0, events: 0, runSlots: new Set(), byReason: {} };
+      const a = byMc[mc];
+      a.runSlots.add(`${l.date}|${l.shift}|${l.hour_slot}`);
+      // Prefer the itemised breakup; fall back to the scalar downtime_min if no breakup.
+      const reasonSum = Object.values(reasons).reduce((s, v) => s + v, 0);
+      const effMin = reasonSum > 0 ? reasonSum : dt;
+      if (effMin > 0) { a.events += 1; totalEvents += 1; }
+      a.totalDowntimeMin += effMin;
+      totalDt += effMin;
+      if (reasonSum > 0) {
+        for (const [label, min] of Object.entries(reasons)) {
+          a.byReason[label] = (a.byReason[label] || 0) + min;
+          reasonTotals[label] = (reasonTotals[label] || 0) + min;
+        }
+      } else if (dt > 0) {
+        a.byReason['Unspecified'] = (a.byReason['Unspecified'] || 0) + dt;
+        reasonTotals['Unspecified'] = (reasonTotals['Unspecified'] || 0) + dt;
+      }
+    });
+
+    const machines = Object.values(byMc).map(a => {
+      const runHours = a.runSlots.size;
+      const downHours = a.totalDowntimeMin / 60;
+      const availableHours = runHours + downHours;
+      const topReason = Object.entries(a.byReason).sort((x, y) => y[1] - x[1])[0];
+      return {
+        machine: a.machine, line: a.line,
+        totalDowntimeMin: Math.round(a.totalDowntimeMin),
+        events: a.events,
+        byReason: Object.fromEntries(Object.entries(a.byReason).map(([k, v]) => [k, Math.round(v)])),
+        topReason: topReason ? topReason[0] : null,
+        downtimePct: availableHours > 0 ? Number(((downHours / availableHours) * 100).toFixed(1)) : 0
+      };
+    }).sort((a, b) => b.totalDowntimeMin - a.totalDowntimeMin);
+
+    // Company-wide reason Pareto (desc + cumulative %)
+    let cum = 0;
+    const reasons = Object.entries(reasonTotals)
+      .map(([reason, min]) => ({ reason, min: Math.round(min) }))
+      .sort((a, b) => b.min - a.min)
+      .map(r => {
+        const share = totalDt > 0 ? (r.min / totalDt) * 100 : 0;
+        cum += share;
+        return { ...r, share: Number(share.toFixed(1)), cumulative: Number(cum.toFixed(1)) };
+      });
+
+    const worstMachine = machines[0] || null;
+    res.json({
+      ok: true,
+      data: {
+        machines, reasons,
+        totals: {
+          totalDowntimeMin: Math.round(totalDt),
+          totalDowntimeHrs: Number((totalDt / 60).toFixed(1)),
+          totalEvents,
+          machineCount: machines.length,
+          avgDowntimePerMachine: machines.length ? Math.round(totalDt / machines.length) : 0,
+          worstMachine: worstMachine ? worstMachine.machine : null,
+          worstReason: reasons[0] ? reasons[0].reason : null
+        }
+      }
+    });
+  } catch (e) {
+    console.error('analyze/downtime', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// GET /api/analyze/downtime/daily
+// Date-wise downtime trend: per day totals, reason split, shift split.
+app.get('/api/analyze/downtime/daily', async (req, res) => {
+  try {
+    const scope = await analyzeDowntimeScope(req);
+    if (scope.forbidden) return res.status(403).json({ ok: false, error: 'No access to that factory' });
+    if (scope.blocked) return res.json({ ok: true, data: { days: [], reasonKeys: [] } });
+
+    const logs = await q(`
+      SELECT dh.dpr_date::text AS date, dh.shift, dh.downtime_min, dh.downtime_breakup
+        FROM dpr_hourly dh
+       WHERE ${scope.where.join(' AND ')}
+    `, scope.params);
+
+    const byDate = {};
+    const reasonSeen = {};
+    logs.forEach(l => {
+      const d = l.date || 'Unknown';
+      const shift = /night/i.test(l.shift || '') ? 'Night' : 'Day';
+      const reasons = analyzeParseDowntimeBreakup(l.downtime_breakup);
+      const reasonSum = Object.values(reasons).reduce((s, v) => s + v, 0);
+      const effMin = reasonSum > 0 ? reasonSum : toNum(l.downtime_min);
+      if (!byDate[d]) byDate[d] = { date: d, totalMin: 0, Day: 0, Night: 0, byReason: {} };
+      const a = byDate[d];
+      a.totalMin += effMin; a[shift] += effMin;
+      if (reasonSum > 0) {
+        for (const [label, min] of Object.entries(reasons)) {
+          a.byReason[label] = (a.byReason[label] || 0) + min;
+          reasonSeen[label] = (reasonSeen[label] || 0) + min;
+        }
+      } else if (effMin > 0) {
+        a.byReason['Unspecified'] = (a.byReason['Unspecified'] || 0) + effMin;
+        reasonSeen['Unspecified'] = (reasonSeen['Unspecified'] || 0) + effMin;
+      }
+    });
+
+    const days = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)).map(d => ({
+      date: d.date, totalMin: Math.round(d.totalMin),
+      Day: Math.round(d.Day), Night: Math.round(d.Night),
+      byReason: Object.fromEntries(Object.entries(d.byReason).map(([k, v]) => [k, Math.round(v)]))
+    }));
+    const reasonKeys = Object.entries(reasonSeen).sort((a, b) => b[1] - a[1]).map(([k]) => k);
+    const worstDay = days.slice().sort((a, b) => b.totalMin - a.totalMin)[0] || null;
+
+    res.json({ ok: true, data: { days, reasonKeys, worstDay: worstDay ? worstDay.date : null } });
+  } catch (e) {
+    console.error('analyze/downtime/daily', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// GET /api/analyze/downtime/detail?machine=&reason=&date=
+// Raw contributing hour-slots for a drill (machine / reason / date all optional).
+app.get('/api/analyze/downtime/detail', async (req, res) => {
+  try {
+    const scope = await analyzeDowntimeScope(req);
+    if (scope.forbidden) return res.status(403).json({ ok: false, error: 'No access to that factory' });
+    if (scope.blocked) return res.json({ ok: true, data: { rows: [] } });
+
+    const where = scope.where.slice();
+    const params = scope.params.slice();
+    const drillMachine = String(req.query.machine || '').trim();
+    if (drillMachine) { params.push(drillMachine); where.push(`TRIM(COALESCE(dh.machine,'')) = TRIM($${params.length})`); }
+    if (req.query.date) { params.push(req.query.date); where.push(`dh.dpr_date = $${params.length}`); }
+
+    const logs = await q(`
+      SELECT dh.dpr_date::text AS date, dh.shift, dh.hour_slot, dh.machine, dh.line,
+             dh.mould_no, dh.order_no, dh.plan_id, dh.colour,
+             dh.good_qty, dh.reject_qty, dh.downtime_min, dh.downtime_breakup,
+             COALESCE(dh.supervisor, dh.created_by) AS entered_by
+        FROM dpr_hourly dh
+       WHERE ${where.join(' AND ')}
+       ORDER BY dh.dpr_date DESC, dh.shift, dh.hour_slot, dh.machine
+    `, params);
+
+    const reasonFilter = String(req.query.reason || '').trim();
+    const rows = [];
+    logs.forEach(l => {
+      const reasons = analyzeParseDowntimeBreakup(l.downtime_breakup);
+      const reasonSum = Object.values(reasons).reduce((s, v) => s + v, 0);
+      if (reasonSum > 0) {
+        for (const [label, min] of Object.entries(reasons)) {
+          if (reasonFilter && label !== reasonFilter) continue;
+          rows.push({
+            date: l.date, shift: l.shift, hour: l.hour_slot, machine: l.machine, line: l.line,
+            mould: l.mould_no, order: l.order_no, plan: l.plan_id, colour: l.colour,
+            reason: label, minutes: Math.round(min),
+            good: toNum(l.good_qty), reject: toNum(l.reject_qty), enteredBy: l.entered_by
+          });
+        }
+      } else if (toNum(l.downtime_min) > 0 && (!reasonFilter || reasonFilter === 'Unspecified')) {
+        rows.push({
+          date: l.date, shift: l.shift, hour: l.hour_slot, machine: l.machine, line: l.line,
+          mould: l.mould_no, order: l.order_no, plan: l.plan_id, colour: l.colour,
+          reason: 'Unspecified', minutes: Math.round(toNum(l.downtime_min)),
+          good: toNum(l.good_qty), reject: toNum(l.reject_qty), enteredBy: l.entered_by
+        });
+      }
+    });
+
+    res.json({ ok: true, data: { rows, count: rows.length } });
+  } catch (e) {
+    console.error('analyze/downtime/detail', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// GET /api/analyze/downtime/plant
+// Plant-wise (factory comparison) downtime. ONLY for users with all-factory
+// access (or >1 accessible factory); single-factory users get an empty set.
+app.get('/api/analyze/downtime/plant', async (req, res) => {
+  try {
+    const username = getRequestUsername(req);
+    const access = await getAccessibleFactoriesForUser(username);
+    const accessibleIds = access.factories.map(f => Number(f.id));
+    const canAll = access.canSelectAllFactories;
+    if (!canAll && accessibleIds.length <= 1) {
+      return res.json({ ok: true, data: { factories: [], gated: true } });
+    }
+    const nameById = {};
+    access.factories.forEach(f => { nameById[Number(f.id)] = f.name || f.code || ('Factory ' + f.id); });
+
+    const params = [];
+    const where = ['COALESCE(dh.is_deleted, false) = false', 'dh.factory_id IS NOT NULL'];
+    if (!canAll) { params.push(accessibleIds); where.push(`dh.factory_id = ANY($${params.length}::int[])`); }
+    if (req.query.from) { params.push(req.query.from); where.push(`dh.dpr_date >= $${params.length}`); }
+    if (req.query.to) { params.push(req.query.to); where.push(`dh.dpr_date <= $${params.length}`); }
+
+    const logs = await q(`
+      SELECT dh.factory_id, dh.dpr_date::text AS date, dh.shift, dh.hour_slot,
+             dh.downtime_min, dh.downtime_breakup
+        FROM dpr_hourly dh
+       WHERE ${where.join(' AND ')}
+    `, params);
+
+    const acc = {};
+    logs.forEach(l => {
+      const fid = Number(l.factory_id);
+      if (!acc[fid]) acc[fid] = { factory_id: fid, name: nameById[fid] || ('Factory ' + fid), totalMin: 0, events: 0, runSlots: new Set(), byReason: {} };
+      const a = acc[fid];
+      const reasons = analyzeParseDowntimeBreakup(l.downtime_breakup);
+      const reasonSum = Object.values(reasons).reduce((s, v) => s + v, 0);
+      const effMin = reasonSum > 0 ? reasonSum : toNum(l.downtime_min);
+      a.runSlots.add(`${l.date}|${l.shift}|${l.hour_slot}`);
+      if (effMin > 0) a.events += 1;
+      a.totalMin += effMin;
+      if (reasonSum > 0) for (const [label, min] of Object.entries(reasons)) a.byReason[label] = (a.byReason[label] || 0) + min;
+      else if (effMin > 0) a.byReason['Unspecified'] = (a.byReason['Unspecified'] || 0) + effMin;
+    });
+
+    const factories = Object.values(acc).map(a => {
+      const runHours = a.runSlots.size;
+      const downHours = a.totalMin / 60;
+      const availableHours = runHours + downHours;
+      const top = Object.entries(a.byReason).sort((x, y) => y[1] - x[1])[0];
+      return {
+        factory_id: a.factory_id, name: a.name,
+        totalDowntimeMin: Math.round(a.totalMin),
+        totalDowntimeHrs: Number((a.totalMin / 60).toFixed(1)),
+        events: a.events,
+        topReason: top ? top[0] : null,
+        byReason: Object.fromEntries(Object.entries(a.byReason).map(([k, v]) => [k, Math.round(v)])),
+        downtimePct: availableHours > 0 ? Number(((downHours / availableHours) * 100).toFixed(1)) : 0
+      };
+    }).sort((a, b) => b.totalDowntimeMin - a.totalDowntimeMin);
+
+    res.json({ ok: true, data: { factories, gated: false } });
+  } catch (e) {
+    console.error('analyze/downtime/plant', e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });

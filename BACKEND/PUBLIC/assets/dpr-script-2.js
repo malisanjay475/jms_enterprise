@@ -231,8 +231,9 @@
         dprSetText('modalJobClient', d.client_name || '-');
         dprSetText('modalJobClientInfo', d.client_name || '-');
 
-        // 2. Dates
-        dprSetText('modalJobPlanDate', dprFmtDate(d.plan_date || d.start_date));
+        // 2. Dates — Plan Date is the JMS plan creation date (overwritten with
+        //    backend truth once /analyze/order returns).
+        dprSetText('modalJobPlanDate', dprFmtDate(d.plan_created_at || d.created_at || d.plan_date || d.start_date));
         dprSetText('modalJobORDate', dprFmtDate(d.or_date || d.or_jr_date));
         dprSetText('modalJobJCDate', dprFmtDate(d.jc_date || d.job_card_date));
 
@@ -538,7 +539,8 @@
                 dprSetText('modalJobJC', info.job_card_no || headerDetails.job_card_no || headerDetails.jcNo || '-');
                 dprSetText('modalJobORDate', dprFmtDate(info.or_jr_date || headerDetails.or_date));
                 dprSetText('modalJobJCDate', dprFmtDate(info.job_card_date || headerDetails.jc_date));
-                dprSetText('modalJobPlanDate', dprFmtDate(info.start_date || headerDetails.plan_date));
+                // Plan Date = the date the plan was created in JMS (not the ERP/stale start_date).
+                dprSetText('modalJobPlanDate', dprFmtDate(info.plan_created_at || headerDetails.plan_created_at || info.start_date || headerDetails.plan_date));
                 dprSetText('modalJobStdCycle', info.std_cycle || headerDetails.std_cycle_time || '-');
                 dprSetText('modalJobActCycle', info.act_cycle || headerDetails.act_cycle || '-');
                 dprSetText('modalJobStdWeight', info.std_weight || headerDetails.std_weight || '-');
