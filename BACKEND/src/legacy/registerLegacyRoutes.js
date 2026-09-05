@@ -16796,11 +16796,14 @@ app.get('/api/org/bootstrap', async (req, res) => {
 });
 
 // Generic CRUD for the four setup lists: /api/org/:kind (POST), /:kind/:id (PUT/DELETE).
-app.post('/api/org/:kind', async (req, res) => {
+app.post('/api/org/:kind', async (req, res, next) => {
+  // 'people' (and other dedicated org routes) are registered AFTER this generic
+  // one, so this :kind route would otherwise swallow them and reply "Unknown list".
+  // Fall through for any kind that isn't one of the generic setup lists.
+  if (!ORG_TABLES[req.params.kind]) return next();
   try {
     if (!await orgRequireSuperadmin(req, res)) return;
     const cfg = ORG_TABLES[req.params.kind];
-    if (!cfg) return res.json({ ok: false, error: 'Unknown list' });
     const b = req.body || {};
     const keys = cfg.cols.filter(c => b[c] !== undefined);
     if (!keys.length) return res.json({ ok: false, error: 'No fields' });
@@ -16810,11 +16813,11 @@ app.post('/api/org/:kind', async (req, res) => {
     res.json({ ok: true, data: ins[0] });
   } catch (e) { console.error('api/org POST', e); res.status(500).json({ ok: false, error: String(e) }); }
 });
-app.put('/api/org/:kind/:id', async (req, res) => {
+app.put('/api/org/:kind/:id', async (req, res, next) => {
+  if (!ORG_TABLES[req.params.kind]) return next();
   try {
     if (!await orgRequireSuperadmin(req, res)) return;
     const cfg = ORG_TABLES[req.params.kind];
-    if (!cfg) return res.json({ ok: false, error: 'Unknown list' });
     const b = req.body || {};
     const keys = cfg.cols.filter(c => b[c] !== undefined);
     if (!keys.length) return res.json({ ok: false, error: 'No fields' });
@@ -16825,11 +16828,11 @@ app.put('/api/org/:kind/:id', async (req, res) => {
     res.json({ ok: true, data: upd[0] });
   } catch (e) { console.error('api/org PUT', e); res.status(500).json({ ok: false, error: String(e) }); }
 });
-app.delete('/api/org/:kind/:id', async (req, res) => {
+app.delete('/api/org/:kind/:id', async (req, res, next) => {
+  if (!ORG_TABLES[req.params.kind]) return next();
   try {
     if (!await orgRequireSuperadmin(req, res)) return;
     const cfg = ORG_TABLES[req.params.kind];
-    if (!cfg) return res.json({ ok: false, error: 'Unknown list' });
     const del = await q(`UPDATE ${cfg.table} SET is_deleted=TRUE, updated_at=NOW() WHERE id=$1 AND is_deleted=FALSE RETURNING id`, [req.params.id]);
     if (!del.length) return res.json({ ok: false, error: 'Not found' });
     res.json({ ok: true });

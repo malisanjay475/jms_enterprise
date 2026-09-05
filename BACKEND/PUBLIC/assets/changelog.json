@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.2",
+  "latest": "1.55.3",
   "versions": [
+    {
+      "version": "1.55.3",
+      "date": "2026-09-05",
+      "title": "Add Employee now saves",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Management",
+          "icon": "bi-diagram-3",
+          "changes": [
+            { "type": "fix", "text": "Adding or editing an employee in Management no longer fails with \"Unknown list\" — the save now reaches the correct handler." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.2",
       "date": "2026-09-05",
