@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.3",
+  "latest": "1.55.4",
   "versions": [
+    {
+      "version": "1.55.4",
+      "date": "2026-09-05",
+      "title": "Compliance Summary: multi-line filter + date range by shift",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary Line filter is now a checkbox dropdown — tick several lines at once to see just those (or leave it on 'All Lines'); it filters as you tick." },
+            { "type": "feat", "text": "The Compliance Summary date picker is now a From–To range: pick a span of days and, with the Both shift, the summary shows a separate block for each day and shift (e.g. 04 Day, 04 Night, 05 Day, 05 Night), each labelled with its date and shift." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.3",
       "date": "2026-09-05",
@@ -84,22 +100,6 @@
           "icon": "bi-clipboard-data",
           "changes": [
             { "type": "fix", "text": "In the Compliance Summary, when the same mould runs on one machine under two different orders (e.g. one order earlier and another later in the day), each plan's hourly entries now stay on its own row — no more false red-cross on a row where an entry was actually made." }
-          ]
-        }
-      ]
-    },
-    {
-      "version": "1.54.0",
-      "date": "2026-09-04",
-      "title": "Compliance Summary: multi-line filter + date range",
-      "modules": [
-        {
-          "app": "dpr",
-          "label": "DPR",
-          "icon": "bi-clipboard-data",
-          "changes": [
-            { "type": "feat", "text": "The DPR Compliance Summary Line filter is now a checkbox dropdown — tick several lines at once to see just those, or leave it on 'All Lines'." },
-            { "type": "feat", "text": "The Compliance Summary date picker is now a From–To range: pick a span of days and the summary shows each day separately, with the shift labelled on every day's block." }
           ]
         }
       ]
