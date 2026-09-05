@@ -689,7 +689,7 @@
                 let dprProcess = localStorage.getItem('jpsms_dpr_process') || 'Moulding';
 
                 card.innerHTML = `
-                  <div id="sticky-dpr-filter" style="position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:10px; margin-bottom:15px; align-items:flex-end; padding:15px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+                  <div id="sticky-dpr-filter" style="position:relative; z-index:60; display:flex; flex-wrap:wrap; gap:10px; margin-bottom:15px; align-items:flex-end; padding:15px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
                     <div>
                       <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">From Date</label>
                       <input type="date" id="s-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px" value="${today}">
@@ -721,7 +721,7 @@
                       <button type="button" id="s-line-btn" class="form-control" style="padding:7px 10px; border:1px solid #cbd5e1; border-radius:4px; min-width:150px; text-align:left; background:#fff; cursor:pointer; font-size:0.85rem; display:flex; justify-content:space-between; align-items:center; gap:8px">
                         <span id="s-line-label">All Lines</span><span style="color:#94a3b8">▾</span>
                       </button>
-                      <div id="s-line-menu" style="display:none; position:absolute; z-index:30; top:100%; left:0; margin-top:4px; background:#fff; border:1px solid #cbd5e1; border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,0.15); max-height:280px; overflow:auto; min-width:210px; padding:6px 4px"></div>
+                      <div id="s-line-menu" style="display:none; position:absolute; z-index:1000; top:100%; left:0; margin-top:4px; background:#fff; border:1px solid #cbd5e1; border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,0.15); max-height:280px; overflow:auto; min-width:210px; padding:6px 4px"></div>
                     </div>
                     <div>
                       <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">View Filter</label>

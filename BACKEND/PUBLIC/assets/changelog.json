@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.6",
+  "latest": "1.55.7",
   "versions": [
+    {
+      "version": "1.55.7",
+      "date": "2026-09-05",
+      "title": "DPR Line Filter dropdown shows above the report",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The Line Filter dropdown on the DPR Compliance Summary now opens above the report instead of appearing behind the legend and totals." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.6",
       "date": "2026-09-05",
