@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.0",
+  "latest": "1.55.1",
   "versions": [
+    {
+      "version": "1.55.1",
+      "date": "2026-09-05",
+      "title": "Stopped Machines — correct stop reason",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The 'Machines Stopped' popup now shows the reason from the actual current stoppage (the newest downtime reason after the machine last produced), instead of a stale reason from an earlier entry." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.0",
       "date": "2026-09-04",
