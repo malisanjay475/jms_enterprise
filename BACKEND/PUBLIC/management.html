@@ -34,11 +34,36 @@
     .fld { display:block; font-size:.72rem; font-weight:700; color:#475569; margin:8px 0 3px; }
     .fld + .inp, .fld + select { width:100%; }
     select.inp { width:100%; }
-    .tree ul { list-style:none; margin:0 0 0 18px; padding:0; border-left:1px solid #d6dbe8; }
-    .tree li { margin:6px 0; padding-left:12px; position:relative; }
-    .tree li::before { content:""; position:absolute; left:0; top:14px; width:10px; height:1px; background:#d6dbe8; }
-    .pnode { display:inline-flex; flex-direction:column; background:#fff; border:1px solid #e0e4ec; border-left:3px solid #3949ab; border-radius:8px; padding:6px 11px; box-shadow:0 1px 2px rgba(20,26,46,.05); }
-    .pnode b { color:#141a2e; font-size:.84rem; } .pnode small { color:#5c6580; font-size:.7rem; }
+    /* Top-down org-chart tree with elbow connectors */
+    .tree { overflow-x:auto; padding:26px 10px 12px; text-align:center; }
+    .tree ul { list-style:none; padding-top:22px; position:relative; margin:0; display:inline-flex; justify-content:center; }
+    .tree li { list-style:none; position:relative; padding:22px 10px 0; display:flex; flex-direction:column; align-items:center; }
+    /* horizontal connectors between siblings */
+    .tree li::before, .tree li::after { content:""; position:absolute; top:0; right:50%; width:50%; height:22px; border-top:2px solid #c7d0e0; }
+    .tree li::after { right:auto; left:50%; border-left:2px solid #c7d0e0; }
+    .tree li:only-child::before, .tree li:only-child::after { display:none; }
+    .tree li:only-child { padding-top:22px; }
+    .tree li:first-child::before, .tree li:last-child::after { border:0 none; }
+    .tree li:last-child::before { border-right:2px solid #c7d0e0; border-radius:0 7px 0 0; }
+    .tree li:first-child::after { border-radius:7px 0 0 0; }
+    /* vertical drop from a parent to its children row */
+    .tree ul ul::before { content:""; position:absolute; top:0; left:50%; width:0; height:22px; border-left:2px solid #c7d0e0; }
+    .tree > ul { padding-top:0; }
+    .pnode { display:inline-flex; align-items:center; gap:9px; text-align:left; background:#fff; border:1px solid #e0e4ec; border-top:3px solid #3949ab; border-radius:11px; padding:9px 14px; box-shadow:0 2px 6px rgba(20,26,46,.07); transition:box-shadow .15s, transform .15s; white-space:nowrap; }
+    .pnode:hover { box-shadow:0 6px 16px rgba(57,73,171,.18); transform:translateY(-1px); }
+    .pnode .av { flex:0 0 auto; width:34px; height:34px; border-radius:50%; background:linear-gradient(135deg,#4f5bd5,#3949ab); color:#fff; font-weight:800; font-size:.78rem; display:flex; align-items:center; justify-content:center; letter-spacing:.5px; }
+    .pnode .meta { display:flex; flex-direction:column; line-height:1.25; }
+    .pnode b { color:#141a2e; font-size:.85rem; } .pnode small { color:#5c6580; font-size:.7rem; }
+    .pnode .unit { color:#3949ab; font-weight:700; }
+    /* List view (classic left-indented) */
+    .treelist ul { list-style:none; margin:0 0 0 18px; padding:0; border-left:1px solid #d6dbe8; display:block; }
+    .treelist li { margin:6px 0; padding:0 0 0 12px; position:relative; display:block; align-items:stretch; }
+    .treelist li::before { content:""; position:absolute; left:0; top:18px; width:10px; height:1px; background:#d6dbe8; border:0; }
+    .treelist li::after { display:none; }
+    .treelist > ul { margin-left:0; border-left:0; }
+    .org-toggle { display:inline-flex; background:#eef0f6; border-radius:9px; padding:3px; gap:2px; }
+    .org-toggle button { border:none; background:transparent; padding:5px 14px; border-radius:7px; font-weight:700; font-size:.78rem; color:#5c6580; cursor:pointer; }
+    .org-toggle button.on { background:#fff; color:#3949ab; box-shadow:0 1px 3px rgba(20,26,46,.12); }
     .empty { text-align:center; color:#94a3b8; padding:34px; font-size:.9rem; }
     .restricted { text-align:center; padding:60px 20px; color:#5c6580; }
   </style>
@@ -229,15 +254,29 @@
     function renderChart(){
       const body = document.getElementById('mgBody');
       const kids = {}; D.people.forEach(p=>{ const k=p.reports_to_id||0; (kids[k]=kids[k]||[]).push(p); });
+      const initials = (name)=>{ const w=String(name||'').trim().split(/\s+/); return ((w[0]||'')[0]||'').toUpperCase()+((w.length>1?w[w.length-1][0]:'')||'').toUpperCase(); };
       function node(p){
         const c = (kids[p.id]||[]).sort((a,b)=>a.full_name.localeCompare(b.full_name));
-        return `<li><span class="pnode"><b>${esc(p.full_name)}</b><small>${esc(desigLabel(p.designation_id)||'')}${p.unit_id&&U[p.unit_id]?' · '+esc(U[p.unit_id].name):''}</small></span>${c.length?`<ul>${c.map(node).join('')}</ul>`:''}</li>`;
+        const desig = esc(desigLabel(p.designation_id)||'');
+        const unit = (p.unit_id&&U[p.unit_id])?` · <span class="unit">${esc(U[p.unit_id].name)}</span>`:'';
+        const sub = (desig||unit)?`<small>${desig}${unit}</small>`:'';
+        return `<li><span class="pnode"><span class="av">${esc(initials(p.full_name))}</span><span class="meta"><b>${esc(p.full_name)}</b>${sub}</span></span>${c.length?`<ul>${c.map(node).join('')}</ul>`:''}</li>`;
       }
       const roots = (kids[0]||[]).sort((a,b)=>a.full_name.localeCompare(b.full_name));
+      if(window.__orgView===undefined){ try{ window.__orgView = localStorage.getItem('mg_org_view')||'tree'; }catch(_){ window.__orgView='tree'; } }
+      const view = (window.__orgView==='list') ? 'list' : 'tree';
+      const wrapClass = view==='list' ? 'treelist' : 'tree';
       body.innerHTML = `<div class="card" style="padding:18px">
-        <div style="font-weight:800;color:#141a2e;margin-bottom:6px">Joyo Plastics — Organisation</div>
-        ${roots.length ? `<div class="tree"><ul>${roots.map(node).join('')}</ul></div>` : '<div class="empty">Add people and set who reports to whom to build the chart.</div>'}</div>`;
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap">
+          <div style="font-weight:800;color:#141a2e">Joyo Plastics — Organisation</div>
+          <div class="org-toggle">
+            <button class="${view==='tree'?'on':''}" onclick="setOrgView('tree')"><i class="bi bi-diagram-3"></i> Tree</button>
+            <button class="${view==='list'?'on':''}" onclick="setOrgView('list')"><i class="bi bi-list-nested"></i> List</button>
+          </div>
+        </div>
+        ${roots.length ? `<div class="${wrapClass}"><ul>${roots.map(node).join('')}</ul></div>` : '<div class="empty">Add people and set who reports to whom to build the chart.</div>'}</div>`;
     }
+    function setOrgView(v){ window.__orgView = v; try{ localStorage.setItem('mg_org_view', v); }catch(_){} renderChart(); }
 
     /* ---------- SETUP ---------- */
     const SETUP = [

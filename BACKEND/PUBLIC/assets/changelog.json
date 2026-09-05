@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.8",
+  "latest": "1.55.9",
   "versions": [
+    {
+      "version": "1.55.9",
+      "date": "2026-09-05",
+      "title": "Management: Organisation tree chart",
+      "modules": [
+        {
+          "app": "management",
+          "label": "Management",
+          "icon": "bi-diagram-3",
+          "changes": [
+            { "type": "improvement", "text": "The Management Organisation chart now has a top-down tree view with connector lines and cleaner people cards. A Tree / List toggle lets you switch between the new tree and the classic indented list, and your choice is remembered." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.8",
       "date": "2026-09-05",
