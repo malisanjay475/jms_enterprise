@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.1",
+  "latest": "1.55.2",
   "versions": [
+    {
+      "version": "1.55.2",
+      "date": "2026-09-05",
+      "title": "Management People — no more duplicate factories",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Management",
+          "icon": "bi-diagram-3",
+          "changes": [
+            { "type": "fix", "text": "The Management People / Org list no longer shows every factory (and department/grade/designation) twice. Duplicate org rows created by MAIN and LOCAL seeding are now collapsed to one, and their people are kept under the correct unit." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.1",
       "date": "2026-09-05",
