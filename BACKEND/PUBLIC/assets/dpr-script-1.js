@@ -797,11 +797,13 @@
                         selLines = itemCbs.filter(cb => cb.checked).map(cb => cb.value);
                         if (allCb) allCb.checked = selLines.length === 0;
                         updateLineLabel();
+                        loadSummary(); // apply immediately (menu stays open)
                     };
                     if (allCb) allCb.onchange = () => {
                         if (allCb.checked) { itemCbs.forEach(cb => cb.checked = false); selLines = []; }
                         else { allCb.checked = true; } // can't uncheck "All" directly; pick a line to narrow
                         updateLineLabel();
+                        loadSummary();
                     };
                     itemCbs.forEach(cb => cb.onchange = syncFromItems);
                     updateLineLabel();
@@ -810,12 +812,11 @@
                     e.stopPropagation();
                     if (dprLineMenu) dprLineMenu.style.display = dprLineMenu.style.display === 'none' ? 'block' : 'none';
                 };
-                // Close the menu on outside click; re-run the summary so the picked lines apply.
+                // Close the menu on outside click (filtering already applied on each toggle).
                 document.addEventListener('click', (e) => {
                     if (!dprLineMenu || dprLineMenu.style.display === 'none') return;
                     if (dprLineMenu.contains(e.target) || (dprLineBtn && dprLineBtn.contains(e.target))) return;
                     dprLineMenu.style.display = 'none';
-                    loadSummary();
                 });
 
                 const renderDprProcessButtons = () => {
@@ -1276,12 +1277,25 @@
                         const dayClosed = resDayMat.data.closedPlants || [];
                         const nightClosed = resNightMat.data.closedPlants || [];
 
-                        const allDates = Array.from(new Set([...Object.keys(dayDatesMap), ...Object.keys(nightDatesMap)])).sort().reverse();
+                        // Ascending (oldest → newest) so a range reads 04 → 05, Day before Night.
+                        const allDates = Array.from(new Set([...Object.keys(dayDatesMap), ...Object.keys(nightDatesMap)])).sort();
+
+                        // One render block per (date × shift). For "Both" this splits each day
+                        // into a Day block then a Night block; otherwise one block per day.
+                        const renderPasses = [];
+                        allDates.forEach(d => {
+                            if (shiftMode === 'Both') { renderPasses.push({ date: d, shift: 'Day' }); renderPasses.push({ date: d, shift: 'Night' }); }
+                            else { renderPasses.push({ date: d, shift: shiftMode }); }
+                        });
 
                         // Populate Lines dropdown from machine data
                         const allLineKeys = new Set();
                         (machines || []).forEach(m => allLineKeys.add(m.line || m.building || m.machine_process || 'General'));
-                        renderLineMenu(Array.from(allLineKeys).sort());
+                        // Rebuild the checkbox list only when the menu is closed/empty, so an
+                        // immediate re-filter (triggered from an open menu) doesn't clobber it.
+                        if (!dprLineMenu || dprLineMenu.style.display === 'none' || !dprLineMenu.children.length) {
+                            renderLineMenu(Array.from(allLineKeys).sort());
+                        }
 
                         if (allDates.length === 0) {
                             container.innerHTML = '<div style="padding:40px; text-align:center; color:#64748b">No data found for this range.</div>';
@@ -1409,7 +1423,10 @@
                         // Hoist Accumulators to be Line-Level but Cross-Date
                         const lineAccumulators = {};
 
-                        allDates.forEach(date => {
+                        renderPasses.forEach(({ date, shift: passShift }) => {
+                            // Force this block to a single shift so each (date × shift) renders
+                            // as its own labelled section (shadows the outer shiftMode).
+                            const shiftMode = passShift;
                             const dayData = dayDatesMap[date] || { entries: {}, maintenance: {}, setups: [] };
                             const nightData = nightDatesMap[date] || { entries: {}, maintenance: {}, setups: [] };
                             const dayTeam = dayTeamsByDate[date] || [];
