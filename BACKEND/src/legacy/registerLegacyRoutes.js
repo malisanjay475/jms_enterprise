@@ -16494,31 +16494,42 @@ app.get('/api/dpr/stopped-machines', async (req, res) => {
       return '';
     };
 
-    // Group per machine → last production time + latest entry (for the reason).
+    // Group per machine → last production time + the reason-bearing entries. We keep
+    // every entry that actually carries a downtime reason (downtime_breakup code or a
+    // quick-action entry_type), with its time, so the "why" can be taken from the
+    // stoppage that is CURRENTLY keeping the machine down — the newest reason recorded
+    // AFTER the last production — instead of whatever the single most-recent row was
+    // (which is often a plain production row or an auto-filled continuation).
     const byMach = new Map();
     for (const e of dpr) {
       const k = normMach(e.machine);
       if (!planByMach.has(k)) continue;
       const t = new Date(e.created_at).getTime();
-      if (!byMach.has(k)) byMach.set(k, { lastProd: 0, latest: null, latestT: 0 });
+      if (!byMach.has(k)) byMach.set(k, { lastProd: 0, reasons: [] });
       const rec = byMach.get(k);
       const produced = Number(e.good_qty || 0) > 0 || Number(e.shots || 0) > 0;
       if (produced && t > rec.lastProd) rec.lastProd = t;
-      if (t > rec.latestT) { rec.latestT = t; rec.latest = e; }
+      const rsn = reasonFromEntry(e);
+      if (rsn) rec.reasons.push({ t, reason: rsn });
     }
 
     const windowStart = now - WINDOW_DAYS * 86400000;
     const out = [];
     for (const [k, plan] of planByMach) {
-      const rec = byMach.get(k) || { lastProd: 0, latest: null };
+      const rec = byMach.get(k) || { lastProd: 0, reasons: [] };
       const lastProd = rec.lastProd || 0;
       const silentSince = lastProd || windowStart;   // never produced in window → from window start
       const silentMin = Math.round((now - silentSince) / 60000);
       if (silentMin <= STOP_MIN) continue;           // still producing within the threshold (2h)
 
-      // Reason = the latest entry after last production (or the latest entry at all).
-      let reason = '';
-      if (rec.latest && (!lastProd || rec.latestT >= lastProd)) reason = reasonFromEntry(rec.latest);
+      // Reason = the NEWEST downtime reason recorded during the current stoppage,
+      // i.e. at/after the last production. A reason logged before the machine last
+      // produced is stale (it ran after that), so it is ignored. If the machine never
+      // produced in the window, use the newest reason on record; else "no entry".
+      const stoppageReasons = (rec.reasons || [])
+        .filter(r => !lastProd || r.t >= lastProd)
+        .sort((a, b) => b.t - a.t);
+      const reason = stoppageReasons.length ? stoppageReasons[0].reason : '';
       const stoppedSince = new Date(silentSince);
       const carried = lastProd ? (stoppedSince.toDateString() !== new Date(now).toDateString()) : true;
 
