@@ -269,14 +269,55 @@
       body.innerHTML = `<div class="card" style="padding:18px">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap">
           <div style="font-weight:800;color:#141a2e">Joyo Plastics — Organisation</div>
-          <div class="org-toggle">
-            <button class="${view==='tree'?'on':''}" onclick="setOrgView('tree')"><i class="bi bi-diagram-3"></i> Tree</button>
-            <button class="${view==='list'?'on':''}" onclick="setOrgView('list')"><i class="bi bi-list-nested"></i> List</button>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <div class="org-toggle">
+              <button class="${view==='tree'?'on':''}" onclick="setOrgView('tree')"><i class="bi bi-diagram-3"></i> Tree</button>
+              <button class="${view==='list'?'on':''}" onclick="setOrgView('list')"><i class="bi bi-list-nested"></i> List</button>
+            </div>
+            <button id="orgDownloadBtn" class="btn2 p" onclick="downloadOrg()"><i class="bi bi-download"></i> Download</button>
           </div>
         </div>
-        ${roots.length ? `<div class="${wrapClass}"><ul>${roots.map(node).join('')}</ul></div>` : '<div class="empty">Add people and set who reports to whom to build the chart.</div>'}</div>`;
+        ${roots.length ? `<div id="orgCaptureArea" class="${wrapClass}" style="background:#fff"><ul>${roots.map(node).join('')}</ul></div>` : '<div class="empty">Add people and set who reports to whom to build the chart.</div>'}</div>`;
     }
     function setOrgView(v){ window.__orgView = v; try{ localStorage.setItem('mg_org_view', v); }catch(_){} renderChart(); }
+    function loadHtml2Canvas(){
+      return new Promise((resolve, reject)=>{
+        if(window.html2canvas) return resolve(window.html2canvas);
+        const s=document.createElement('script');
+        s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+        s.onload=()=>resolve(window.html2canvas); s.onerror=()=>reject(new Error('cdn'));
+        document.head.appendChild(s);
+      });
+    }
+    // Fallback (offline / LOCAL server): open a clean print window → Save as PDF.
+    function printOrg(){
+      const area=document.getElementById('orgCaptureArea'); if(!area){ toast('Nothing to download','error'); return; }
+      const styles=[...document.querySelectorAll('style')].map(s=>s.outerHTML).join('');
+      const w=window.open('','_blank'); if(!w){ toast('Allow pop-ups to download','error'); return; }
+      w.document.write(`<!doctype html><html><head><title>Joyo Plastics — Organisation</title>${styles}
+        <style>body{padding:24px;background:#fff}@page{size:landscape;margin:12mm}</style></head>
+        <body><h3 style="font-family:Inter,system-ui,sans-serif;color:#141a2e">Joyo Plastics — Organisation</h3>${area.outerHTML}</body></html>`);
+      w.document.close(); setTimeout(()=>{ w.focus(); w.print(); }, 400);
+    }
+    async function downloadOrg(){
+      const area=document.getElementById('orgCaptureArea'); if(!area){ toast('Nothing to download','error'); return; }
+      const btn=document.getElementById('orgDownloadBtn'); const old=btn?btn.innerHTML:'';
+      if(btn){ btn.disabled=true; btn.innerHTML='<i class="bi bi-arrow-repeat"></i> Preparing…'; }
+      try{
+        const h2c=await loadHtml2Canvas();
+        // Capture the full tree even when it scrolls horizontally.
+        const canvas=await h2c(area, { backgroundColor:'#ffffff', scale:2, useCORS:true,
+          width:area.scrollWidth, height:area.scrollHeight, windowWidth:area.scrollWidth });
+        const a=document.createElement('a');
+        a.href=canvas.toDataURL('image/png');
+        a.download=`Joyo-Organisation-${new Date().toISOString().slice(0,10)}.png`;
+        document.body.appendChild(a); a.click(); a.remove();
+        toast('Downloaded','success');
+      }catch(e){
+        // No internet for the CDN → fall back to print/PDF.
+        printOrg();
+      }finally{ if(btn){ btn.disabled=false; btn.innerHTML=old; } }
+    }
 
     /* ---------- SETUP ---------- */
     const SETUP = [

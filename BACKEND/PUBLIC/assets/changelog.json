@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.9",
+  "latest": "1.55.10",
   "versions": [
+    {
+      "version": "1.55.10",
+      "date": "2026-09-05",
+      "title": "Management: download the Organisation chart",
+      "modules": [
+        {
+          "app": "management",
+          "label": "Management",
+          "icon": "bi-diagram-3",
+          "changes": [
+            { "type": "feat", "text": "The Management Organisation chart has a Download button — it saves the current view (Tree or List) as a PNG image. On servers without internet it falls back to a print / Save-as-PDF window." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.9",
       "date": "2026-09-05",
