@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.5",
+  "latest": "1.55.6",
   "versions": [
+    {
+      "version": "1.55.6",
+      "date": "2026-09-05",
+      "title": "Cleaned up corrupted machine names in old records",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Some old production records stored a machine name with a stray '>' instead of '-' (e.g. 'B -L1>HYD-300-11'), which made those rows drop out of machine-wise history and STD lookups. Those names are now corrected so historical DPR and STD reports line up with the current machine list." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.5",
       "date": "2026-09-05",
