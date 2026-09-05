@@ -16750,13 +16750,47 @@ const ORG_TABLES = {
 app.get('/api/org/bootstrap', async (req, res) => {
   try {
     if (!await orgRequireSuperadmin(req, res)) return;
-    const [units, departments, grades, designations, people] = await Promise.all([
+    let [units, departments, grades, designations, people] = await Promise.all([
       q(`SELECT * FROM org_units WHERE is_deleted=FALSE ORDER BY sort_order, name`),
       q(`SELECT * FROM org_departments WHERE is_deleted=FALSE ORDER BY sort_order, name`),
       q(`SELECT * FROM org_grades WHERE is_deleted=FALSE ORDER BY rank_order, level_code`),
       q(`SELECT * FROM org_designations WHERE is_deleted=FALSE ORDER BY title`),
       q(`SELECT * FROM org_people WHERE is_deleted=FALSE ORDER BY sort_order, full_name`)
     ]);
+
+    // MAIN and LOCAL each seeded org_units with their own random sync_id, so the
+    // sync keeps BOTH copies → every factory unit shows twice ("double-double").
+    // Collapse duplicates by natural key (factory_id + trimmed lower(name)) to ONE
+    // canonical row (lowest id), and remap any person pointing at a dropped copy so
+    // nobody falls into "Unassigned". Read-only — the underlying rows are untouched.
+    const collapse = (rows, keyOf) => {
+      const canonById = {};      // dropped id -> canonical id
+      const seen = new Map();    // natural key -> canonical row
+      const kept = [];
+      for (const r of rows) {
+        const k = keyOf(r);
+        if (k && seen.has(k)) { canonById[r.id] = seen.get(k).id; }
+        else { if (k) seen.set(k, r); kept.push(r); canonById[r.id] = r.id; }
+      }
+      return { kept, canonById };
+    };
+    const uKey = (u) => `${u.factory_id ?? ''}|${String(u.name || '').trim().toLowerCase()}`;
+    const dKey = (d) => String(d.name || '').trim().toLowerCase();
+    const gKey = (g) => `${String(g.band_name || '').trim().toLowerCase()}|${String(g.level_code || '').trim().toLowerCase()}`;
+    const sKey = (s) => String(s.title || '').trim().toLowerCase();
+    const u = collapse(units, uKey);
+    const dep = collapse(departments, dKey);
+    const gr = collapse(grades, gKey);
+    const des = collapse(designations, sKey);
+    units = u.kept; departments = dep.kept; grades = gr.kept; designations = des.kept;
+    people = people.map(p => ({
+      ...p,
+      unit_id: u.canonById[p.unit_id] ?? p.unit_id,
+      department_id: dep.canonById[p.department_id] ?? p.department_id,
+      grade_id: gr.canonById[p.grade_id] ?? p.grade_id,
+      designation_id: des.canonById[p.designation_id] ?? p.designation_id
+    }));
+
     res.json({ ok: true, data: { units, departments, grades, designations, people } });
   } catch (e) { console.error('api/org/bootstrap', e); res.status(500).json({ ok: false, error: String(e) }); }
 });
