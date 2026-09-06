@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.11",
+  "latest": "1.55.12",
   "versions": [
+    {
+      "version": "1.55.12",
+      "date": "2026-09-06",
+      "title": "Compliance Summary: search + line filter fixes",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Fixed the DPR Compliance Summary search blanking the whole report — it now correctly shows only the matching machines as you type." },
+            { "type": "improvement", "text": "The Line filter no longer applies the moment you tick a box — tick the lines you want, then press Apply." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.11",
       "date": "2026-09-05",
