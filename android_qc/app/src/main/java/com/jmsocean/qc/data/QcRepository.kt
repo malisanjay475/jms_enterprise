@@ -219,7 +219,8 @@ class QcRepository(private val session: SessionStore) {
         hourSlot: String,
         good: Int,
         reject: Int,
-        remarks: String
+        remarks: String,
+        statusOverride: String? = null
     ): Result<Unit> = submitOrQueue(
         "api/qc/verify/submit",
         com.jmsocean.qc.data.remote.VerifySubmitRequest.serializer(),
@@ -231,9 +232,10 @@ class QcRepository(private val session: SessionStore) {
             hour_slot = hourSlot,
             qc_good_qty = good,
             qc_reject_qty = reject,
-            remarks = remarks
+            remarks = remarks,
+            status_override = statusOverride
         ),
-        "Verify $machine $hourSlot"
+        if (statusOverride != null) "Deviation $machine $hourSlot" else "Verify $machine $hourSlot"
     )
 
     suspend fun placeHold(

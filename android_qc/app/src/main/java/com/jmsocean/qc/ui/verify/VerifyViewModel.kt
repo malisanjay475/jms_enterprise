@@ -95,6 +95,21 @@ class VerifyViewModel : ViewModel() {
         }
     }
 
+    fun submitDeviation(slot: VerifySlot, good: Int, reject: Int, desc: String, remarks: String) {
+        val s = _state.value
+        _state.update { it.copy(busySlot = slot.hour_slot, error = null, message = null) }
+        val note = "DEVIATION: $desc" + (if (remarks.isNotBlank()) " | $remarks" else "")
+        viewModelScope.launch {
+            repo.verifySubmit(
+                s.machine, s.date, s.shift, slot.hour_slot, good, reject, note,
+                statusOverride = "Deviation"
+            ).onSuccess {
+                _state.update { it.copy(busySlot = null, message = "Deviation recorded for ${slot.hour_slot}.") }
+                load()
+            }.onFailure { e -> _state.update { it.copy(busySlot = null, error = e.message) } }
+        }
+    }
+
     fun placeHold(slot: VerifySlot, reason: String, qty: Int?, remarks: String) {
         val s = _state.value
         _state.update { it.copy(busySlot = slot.hour_slot, error = null, message = null) }
