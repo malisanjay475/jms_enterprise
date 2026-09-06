@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.14",
+  "latest": "1.55.15",
   "versions": [
+    {
+      "version": "1.55.15",
+      "date": "2026-09-06",
+      "title": "Compliance Summary: much faster balance calculation",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "perf", "text": "The DPR Compliance Summary no longer scans the whole production history to compute plan balances — it now looks up only the plans shown, so multi-day ranges load a lot faster." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.14",
       "date": "2026-09-06",

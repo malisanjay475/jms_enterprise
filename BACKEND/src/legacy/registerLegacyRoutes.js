@@ -5597,6 +5597,8 @@ async function initializeLegacyRuntime() {
     // Cumulative-produced (plan_prod) CTE scans all live rows with a plan_id grouped by
     // (plan_id, factory_id); this partial index supports that filter/grouping.
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_planprod ON dpr_hourly(factory_id, plan_id) WHERE is_deleted = false AND plan_id IS NOT NULL;`);
+    // std_actual setups are read by the same (shift, dpr_date, factory_id) filter.
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_std_actual_shift_date_fac ON std_actual(shift, dpr_date, factory_id) WHERE is_deleted = false;`);
 
     // Per-machine P1–P4 priority labels
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
@@ -21917,6 +21919,16 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
           WHERE is_deleted = false
             AND plan_id IS NOT NULL
             AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+            -- Only the plans actually shown in this range need a cumulative-produced
+            -- figure. Restricting to them turns a whole-table dedup/aggregate into an
+            -- indexed lookup of a handful of plans (idx_dpr_hourly_planprod), while
+            -- still summing ALL dates for each of those plans (balance stays correct).
+            AND plan_id IN (
+              SELECT plan_id FROM std_actual
+              WHERE dpr_date BETWEEN $1 AND $2 AND shift = $3 AND is_deleted = false
+                AND plan_id IS NOT NULL
+                AND ($4::int IS NULL OR factory_id = $4)
+            )
           ORDER BY ${DPR_HOURLY_KEY}, id DESC
         ) dh
         GROUP BY dh.plan_id, dh.factory_id
