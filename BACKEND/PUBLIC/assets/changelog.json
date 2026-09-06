@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.10",
+  "latest": "1.55.11",
   "versions": [
+    {
+      "version": "1.55.11",
+      "date": "2026-09-05",
+      "title": "Compliance Summary: search + compact filter",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "Added a Search box at the top of the DPR Compliance Summary — type a machine, OR / order number, or client to instantly show only the matching machines." },
+            { "type": "improvement", "text": "The Compliance Summary is now always Machine-wise (the Group By filter was removed), Process is a compact dropdown, the Factory box is smaller, and the whole filter bar fits on one line." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.10",
       "date": "2026-09-05",

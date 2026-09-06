@@ -689,75 +689,79 @@
                 let dprProcess = localStorage.getItem('jpsms_dpr_process') || 'Moulding';
 
                 card.innerHTML = `
-                  <div id="sticky-dpr-filter" style="position:relative; z-index:60; display:flex; flex-wrap:wrap; gap:10px; margin-bottom:15px; align-items:flex-end; padding:15px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">From Date</label>
-                      <input type="date" id="s-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px" value="${today}">
-                    </div>
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">To Date</label>
-                      <input type="date" id="s-date-to" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px" value="${today}">
-                    </div>
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Process</label>
-                      <div id="s-process" style="display:flex; gap:10px; flex-wrap:wrap; min-width:340px;"></div>
-                    </div>
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Shift</label>
-                      <select id="s-shift" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:100px">
-                         <option value="Day">Day</option>
-                         <option value="Night">Night</option>
-                         <option value="Both">Both (24h)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Factory</label>
-                      <select id="s-factory" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:150px">
-                        <option value="">All Factories</option>
-                      </select>
-                    </div>
-                    <div style="position:relative">
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Line Filter</label>
-                      <button type="button" id="s-line-btn" class="form-control" style="padding:7px 10px; border:1px solid #cbd5e1; border-radius:4px; min-width:150px; text-align:left; background:#fff; cursor:pointer; font-size:0.85rem; display:flex; justify-content:space-between; align-items:center; gap:8px">
-                        <span id="s-line-label">All Lines</span><span style="color:#94a3b8">▾</span>
-                      </button>
-                      <div id="s-line-menu" style="display:none; position:absolute; z-index:1000; top:100%; left:0; margin-top:4px; background:#fff; border:1px solid #cbd5e1; border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,0.15); max-height:280px; overflow:auto; min-width:210px; padding:6px 4px"></div>
-                    </div>
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">View Filter</label>
-                      <select id="s-eff-filter" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:160px">
-                        <option value="">All</option>
-                        <option value="ShowAll">Show All (by EFF)</option>
-                        <option value="AbovePlan">🔴 Above Plan Qty</option>
-                        <option value="Pending">⚠️ Pending Entries</option>
-                        <option value="LowEff">Low EFF</option>
-                        <option value="LowOee">Low OEE</option>
-                        <option value="MouldChange">Mould Change</option>
-                        <option value="PlanChangeOver">Plan Change Over (≤20% left)</option>
-                        <option value="ManPowerShortage">🚷 MP Shortage</option>
-                        <option value="MouldMaintenance">🔧 Mould Maintenance</option>
-                        <option value="PowerCut">⚡ Power Cut</option>
-                        <option value="NoPlan">📅 No Plan</option>
-                        <option value="MachineMaintenance">🛠️ Machine Maintenance</option>
-                        <option value="MouldTrial">🧪 Mould Trial</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Group By</label>
-                      <select id="s-group-by" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:130px">
-                        <option value="date">Date-wise</option>
-                        <option value="machine">Machine-wise</option>
-                      </select>
-                    </div>
-                    <div style="display:flex; gap:10px">
-                      <button id="btn-s-apply" class="btn btn-primary" style="padding:7px 15px; background:#3b82f6; color:white; border:none; border-radius:4px; font-weight:600; cursor:pointer">Apply</button>
-                    </div>
-                    <div style="flex:1; text-align:right; font-size:0.8rem; color:#64748b; align-self:center">
-                        <span style="display:inline-block; width:12px; height:12px; background:#22c55e; margin-right:4px; vertical-align:middle; border-radius:3px"></span>Filled
-                        <span style="display:inline-block; width:12px; height:12px; background:#facc15; margin-left:10px; margin-right:4px; vertical-align:middle; border-radius:3px"></span>Late (>45m)
-                        <span style="display:inline-block; width:12px; height:12px; background:#ef4444; margin-left:10px; margin-right:4px; vertical-align:middle; border-radius:3px"></span>Missing
-                        <span style="display:inline-block; width:12px; height:12px; background:#e2e8f0; margin-left:10px; margin-right:4px; vertical-align:middle; border-radius:3px"></span>Future
-                        <div style="margin-top:5px; font-size:0.75rem">${['Maintenance', 'ManPowerShortage', 'NoPlan', 'MouldMaintenance', 'MouldTrial'].map(k => { const qm = QUICK_ACTION_META[k]; return `<span style="margin-left:10px; white-space:nowrap"><i class="bi ${qm.icon}" style="color:${qm.color}; margin-right:3px"></i>${qm.label}</span>`; }).join('')}</div>
+                  <div id="sticky-dpr-filter" style="position:relative; z-index:60; margin-bottom:15px; padding:12px 14px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end">
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Search</label>
+                        <div style="position:relative; display:inline-flex; align-items:center">
+                          <i class="bi bi-search" style="position:absolute; left:9px; color:#94a3b8; font-size:0.8rem; pointer-events:none"></i>
+                          <input id="s-search" type="text" placeholder="Machine, OR, client…" style="padding:6px 8px 6px 26px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem; outline:none; width:170px">
+                          <span id="s-search-count" style="position:absolute; right:8px; font-size:0.66rem; color:#94a3b8; white-space:nowrap; pointer-events:none"></span>
+                        </div>
+                      </div>
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">From</label>
+                        <input type="date" id="s-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem" value="${today}">
+                      </div>
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">To</label>
+                        <input type="date" id="s-date-to" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem" value="${today}">
+                      </div>
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Process</label>
+                        <select id="s-process-sel" class="form-control" style="padding:6px 7px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem; min-width:110px">
+                          ${DPR_PROCESS_OPTIONS.map(o => `<option value="${o}" ${o === dprProcess ? 'selected' : ''}>${o}</option>`).join('')}
+                        </select>
+                      </div>
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Shift</label>
+                        <select id="s-shift" class="form-control" style="padding:6px 7px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem; min-width:90px">
+                           <option value="Day">Day</option>
+                           <option value="Night">Night</option>
+                           <option value="Both">Both (24h)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Factory</label>
+                        <select id="s-factory" class="form-control" style="padding:6px 7px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem; min-width:95px; max-width:130px">
+                          <option value="">All</option>
+                        </select>
+                      </div>
+                      <div style="position:relative">
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Line</label>
+                        <button type="button" id="s-line-btn" class="form-control" style="padding:6px 9px; border:1px solid #cbd5e1; border-radius:4px; min-width:120px; text-align:left; background:#fff; cursor:pointer; font-size:0.8rem; display:flex; justify-content:space-between; align-items:center; gap:6px">
+                          <span id="s-line-label">All Lines</span><span style="color:#94a3b8">▾</span>
+                        </button>
+                        <div id="s-line-menu" style="display:none; position:absolute; z-index:1000; top:100%; left:0; margin-top:4px; background:#fff; border:1px solid #cbd5e1; border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,0.15); max-height:280px; overflow:auto; min-width:200px; padding:6px 4px"></div>
+                      </div>
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">View</label>
+                        <select id="s-eff-filter" class="form-control" style="padding:6px 7px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem; min-width:130px">
+                          <option value="">All</option>
+                          <option value="ShowAll">Show All (by EFF)</option>
+                          <option value="AbovePlan">🔴 Above Plan Qty</option>
+                          <option value="Pending">⚠️ Pending Entries</option>
+                          <option value="LowEff">Low EFF</option>
+                          <option value="LowOee">Low OEE</option>
+                          <option value="MouldChange">Mould Change</option>
+                          <option value="PlanChangeOver">Plan Change Over (≤20% left)</option>
+                          <option value="ManPowerShortage">🚷 MP Shortage</option>
+                          <option value="MouldMaintenance">🔧 Mould Maintenance</option>
+                          <option value="PowerCut">⚡ Power Cut</option>
+                          <option value="NoPlan">📅 No Plan</option>
+                          <option value="MachineMaintenance">🛠️ Machine Maintenance</option>
+                          <option value="MouldTrial">🧪 Mould Trial</option>
+                        </select>
+                      </div>
+                      <div style="display:flex; gap:8px">
+                        <button id="btn-s-apply" class="btn btn-primary" style="padding:7px 15px; background:#3b82f6; color:white; border:none; border-radius:4px; font-weight:600; cursor:pointer; font-size:0.82rem">Apply</button>
+                      </div>
+                      <div style="margin-left:auto; text-align:right; font-size:0.72rem; color:#64748b; align-self:center; display:flex; gap:9px; flex-wrap:wrap; justify-content:flex-end">
+                          <span><span style="display:inline-block; width:11px; height:11px; background:#22c55e; margin-right:3px; vertical-align:middle; border-radius:3px"></span>Filled</span>
+                          <span><span style="display:inline-block; width:11px; height:11px; background:#facc15; margin-right:3px; vertical-align:middle; border-radius:3px"></span>Late</span>
+                          <span><span style="display:inline-block; width:11px; height:11px; background:#ef4444; margin-right:3px; vertical-align:middle; border-radius:3px"></span>Missing</span>
+                          <span><span style="display:inline-block; width:11px; height:11px; background:#e2e8f0; margin-right:3px; vertical-align:middle; border-radius:3px"></span>Future</span>
+                      </div>
                     </div>
                   </div>
                   <div id="summary-container">
@@ -826,26 +830,16 @@
                     dprLineMenu.style.display = 'none';
                 });
 
-                const renderDprProcessButtons = () => {
-                    const host = document.getElementById('s-process');
-                    if (!host) return;
-                    host.innerHTML = DPR_PROCESS_OPTIONS.map(option => {
-                        const isActive = option === dprProcess;
-                        const style = isActive
-                            ? 'background:linear-gradient(135deg,#0f8ea8,#024c81); color:#fff; border-color:transparent; box-shadow:0 12px 24px rgba(2,76,129,0.2);'
-                            : 'background:#fff; color:#0f172a; border-color:rgba(148,163,184,0.35); box-shadow:0 8px 18px rgba(15,23,42,0.08);';
-                        return `<button type="button" data-process-option="${option}" style="min-width:104px; padding:12px 16px; border-radius:16px; border:1px solid; font-size:0.92rem; font-weight:800; ${style}">${option}</button>`;
-                    }).join('');
-                    Array.from(host.querySelectorAll('[data-process-option]')).forEach(btn => {
-                        btn.onclick = () => {
-                            dprProcess = btn.dataset.processOption;
-                            localStorage.setItem('jpsms_dpr_process', dprProcess);
-                            renderDprProcessButtons();
-                            loadSummary();
-                        };
+                // Process is now a compact dropdown.
+                const dprProcessSel = document.getElementById('s-process-sel');
+                if (dprProcessSel) {
+                    dprProcessSel.value = dprProcess;
+                    dprProcessSel.addEventListener('change', () => {
+                        dprProcess = dprProcessSel.value;
+                        localStorage.setItem('jpsms_dpr_process', dprProcess);
+                        loadSummary();
                     });
-                };
-                renderDprProcessButtons();
+                }
 
                 // ---- Labour DPR Summary ----
                 let _labourDprPartyId = '';
@@ -1189,7 +1183,7 @@
 
                     const processQuery = `&process=${encodeURIComponent(dprProcess)}`;
                     const selectedLines = selLines.slice(); // [] = all lines
-                    const groupBy = document.getElementById('s-group-by')?.value || 'date';
+                    const groupBy = 'machine'; // Compliance Summary is always machine-wise now
                     const filterMode = document.getElementById('s-eff-filter')?.value || '';
 
                     localStorage.setItem('jpsms_dpr_process', dprProcess);
@@ -2930,14 +2924,22 @@
                             const extractIdx = (str) => { const m = String(str).match(/-(\d+)$/); return m ? parseInt(m[1]) : 999999; };
                             mmOrder.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
                             mmOrder.forEach(lineName => {
-                                let html = mmHeader[lineName]; // line header + <table>…<tbody>
+                                // Close the header's auto-opened (empty) tbody, then give each
+                                // machine its OWN tbody carrying searchable text (machine + its
+                                // moulds/orders/clients), so the top Search box can show/hide by machine.
+                                let html = mmHeader[lineName] + '</tbody>';
                                 const machs = Object.keys(mmRows[lineName]).sort((a, b) => {
                                     const ia = extractIdx(a), ib = extractIdx(b);
                                     if (ia !== ib && ia !== 999999 && ib !== 999999) return ia - ib;
                                     return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
                                 });
-                                machs.forEach(machine => { html += mmRows[lineName][machine].join(''); });
-                                html += `</tbody></table></div></div>`;
+                                machs.forEach(machine => {
+                                    const rowsHtml = mmRows[lineName][machine].join('');
+                                    const searchText = (machine + ' ' + rowsHtml.replace(/<[^>]+>/g, ' '))
+                                        .toLowerCase().replace(/\s+/g, ' ').replace(/"/g, '').trim();
+                                    html += `<tbody class="mm-machine" data-search="${searchText}">${rowsHtml}</tbody>`;
+                                });
+                                html += `</table></div></div>`;
                                 masterHtml += html;
                             });
                         }
@@ -3015,6 +3017,8 @@
                         }
 
                         container.innerHTML = masterHtml;
+                        // Re-apply the active search filter to the fresh DOM.
+                        try { if (window.applyDprSearch) window.applyDprSearch(); } catch(_) {}
 
                         // ---- KAN-68: Freeze ONLY the date banner + hour-slot header ----
                         // Per request, the filter and plant-total bars now scroll away (position
@@ -3335,10 +3339,41 @@
                     });
                 };
 
+                // Show/hide machine blocks by the top Search box (machine / OR / client).
+                // AND-matches space-separated words; hides line cards left with no matches.
+                window.applyDprSearch = function() {
+                    const box = document.getElementById('s-search');
+                    const cont = document.getElementById('summary-container');
+                    if (!cont) return;
+                    const q = (box ? box.value : '').toLowerCase().trim();
+                    const words = q ? q.split(/\s+/) : [];
+                    const blocks = cont.querySelectorAll('tbody.mm-machine');
+                    let shown = 0;
+                    blocks.forEach(tb => {
+                        const hay = tb.getAttribute('data-search') || '';
+                        const match = !words.length || words.every(w => hay.indexOf(w) !== -1);
+                        tb.style.display = match ? '' : 'none';
+                        if (match) shown++;
+                    });
+                    // Hide a line card if none of its machines match.
+                    const seenCards = new Set();
+                    cont.querySelectorAll('table').forEach(table => {
+                        const card = table.parentElement && table.parentElement.parentElement;
+                        if (!card || seenCards.has(card)) return;
+                        seenCards.add(card);
+                        const vis = table.querySelectorAll('tbody.mm-machine:not([style*="display: none"])').length;
+                        card.style.display = (words.length && vis === 0) ? 'none' : '';
+                    });
+                    const cnt = document.getElementById('s-search-count');
+                    if (cnt) cnt.textContent = words.length ? `${shown} machine${shown === 1 ? '' : 's'}` : '';
+                };
+
                 document.getElementById('btn-s-apply').onclick = loadSummary;
                 document.getElementById('s-eff-filter')?.addEventListener('change', loadSummary);
-                document.getElementById('s-group-by')?.addEventListener('change', loadSummary);
                 document.getElementById('s-factory')?.addEventListener('change', loadSummary);
+                // Live search over the rendered machine blocks (machine / OR / client).
+                const dprSearchInput = document.getElementById('s-search');
+                if (dprSearchInput) dprSearchInput.addEventListener('input', () => applyDprSearch());
 
                 // Load factories into the factory dropdown
                 J.api.get('/factories').then(r => {
