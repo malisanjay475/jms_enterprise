@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.13",
+  "latest": "1.55.14",
   "versions": [
+    {
+      "version": "1.55.14",
+      "date": "2026-09-06",
+      "title": "Compliance Summary: faster database query",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "perf", "text": "Added database indexes so the DPR Compliance Summary reads production data much faster — multi-day date ranges in particular now load quickly." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.13",
       "date": "2026-09-06",

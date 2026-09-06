@@ -5589,6 +5589,14 @@ async function initializeLegacyRuntime() {
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_shifting_label_uid ON shifting_records(label_uid);`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_plan_id ON dpr_hourly(plan_id);`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_status ON plan_board(status);`);
+    // DPR Compliance Summary perf: the summary-matrix entries query filters
+    // dpr_hourly by (shift = , dpr_date BETWEEN , factory_id) with is_deleted=false,
+    // so a partial composite index turns a big date-range scan into an index range
+    // scan (shift equality first, then the dpr_date range). Predicate matches the query.
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_shift_date_fac ON dpr_hourly(shift, dpr_date, factory_id) WHERE is_deleted = false;`);
+    // Cumulative-produced (plan_prod) CTE scans all live rows with a plan_id grouped by
+    // (plan_id, factory_id); this partial index supports that filter/grouping.
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_planprod ON dpr_hourly(factory_id, plan_id) WHERE is_deleted = false AND plan_id IS NOT NULL;`);
 
     // Per-machine P1–P4 priority labels
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
