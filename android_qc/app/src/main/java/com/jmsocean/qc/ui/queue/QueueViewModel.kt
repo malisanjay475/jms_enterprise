@@ -22,6 +22,7 @@ data class QueueUiState(
     val loadingMachines: Boolean = false,
     val loadingJobs: Boolean = false,
     val error: String? = null,
+    val fpaDonePlanIds: Set<String> = emptySet(),
     // self-updater
     val update: AppVersion? = null,
     val downloadingUpdate: Boolean = false,
@@ -101,11 +102,26 @@ class QueueViewModel : ViewModel() {
 
     fun loadJobs(machine: String? = null) {
         val target = machine ?: _state.value.selectedMachine ?: return
-        _state.update { it.copy(loadingJobs = true, error = null) }
+        _state.update { it.copy(loadingJobs = true, error = null, fpaDonePlanIds = emptySet()) }
         viewModelScope.launch {
             repo.queue(target)
-                .onSuccess { jobs -> _state.update { it.copy(loadingJobs = false, jobs = jobs) } }
+                .onSuccess { jobs ->
+                    _state.update { it.copy(loadingJobs = false, jobs = jobs) }
+                    refreshFpaDone(jobs)
+                }
                 .onFailure { e -> _state.update { it.copy(loadingJobs = false, error = e.message) } }
+        }
+    }
+
+    /** Check FPA status per job so the card can show FPA ✓ and unlock QC. */
+    private fun refreshFpaDone(jobs: List<QueueJob>) {
+        viewModelScope.launch {
+            val done = mutableSetOf<String>()
+            for (job in jobs) {
+                val planId = job.PlanID ?: continue
+                repo.fpaStatus(planId, job.JobCardNo ?: "").onSuccess { if (it) done.add(planId) }
+            }
+            _state.update { it.copy(fpaDonePlanIds = done) }
         }
     }
 

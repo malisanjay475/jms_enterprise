@@ -29,19 +29,42 @@ private fun firstString(o: JsonObject, vararg keys: String): String? {
 }
 
 /**
- * Natural machine sort — "Line>Model-Tonnage-Index" or "Machine 10" ordered
- * by alpha prefix then the trailing number, so 2 < 10 (not lexicographic).
+ * Machine sort — a byte-for-byte port of the backend `naturalCompare`
+ * (Supervisor.html / summary-matrix), so the app's dropdown order is identical
+ * to the web. Splits "Line>Model-Tonnage-Index": sort by LINE first, then the
+ * trailing INDEX number, then the full string — all numeric-aware.
  */
-val naturalMachineComparator: Comparator<String> = Comparator { a, b ->
+private val TRAILING_NUM = Regex("(\\d+)$")
+
+private fun machineMeta(v: String): Pair<String, Int> {
+    val parts = v.split(">")
+    val line = if (parts.size > 1) parts[0] else ""
+    val rest = if (parts.size > 1) parts[1] else v
+    val idx = TRAILING_NUM.find(rest)?.value?.toIntOrNull() ?: 999999
+    return line to idx
+}
+
+/** Numeric-aware string compare (like localeCompare {numeric:true}). */
+private fun naturalStrCompare(a: String, b: String): Int {
     val ta = tokenize(a); val tb = tokenize(b)
     val n = minOf(ta.size, tb.size)
     for (i in 0 until n) {
         val x = ta[i]; val y = tb[i]
-        val cmp = if (x is Int && y is Int) x.compareTo(y)
+        val c = if (x is Int && y is Int) x.compareTo(y)
         else x.toString().compareTo(y.toString(), ignoreCase = true)
-        if (cmp != 0) return@Comparator cmp
+        if (c != 0) return c
     }
-    ta.size - tb.size
+    return ta.size - tb.size
+}
+
+val naturalMachineComparator: Comparator<String> = Comparator { a, b ->
+    val (la, ia) = machineMeta(a)
+    val (lb, ib) = machineMeta(b)
+    val lineCmp = naturalStrCompare(la, lb)
+    if (lineCmp != 0) return@Comparator lineCmp
+    val idxCmp = ia - ib
+    if (idxCmp != 0) return@Comparator idxCmp
+    naturalStrCompare(a, b)
 }
 
 private fun tokenize(s: String): List<Any> {

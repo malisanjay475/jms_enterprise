@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -207,7 +208,8 @@ fun QueueScreen(
                 else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(s.jobs) { job ->
                         JobCard(
-                            job,
+                            job = job,
+                            fpaDone = job.PlanID != null && job.PlanID in s.fpaDonePlanIds,
                             onFpa = { vm.openFpa(job); onOpenFpa() },
                             onQc = { vm.openFpa(job); onOpenQc() }
                         )
@@ -226,8 +228,7 @@ private fun CenterLoader() {
 }
 
 @Composable
-private fun JobCard(job: QueueJob, onFpa: () -> Unit, onQc: () -> Unit) {
-    val colours = remember(job) { parseColourLines(job.colourDetails) }
+private fun JobCard(job: QueueJob, fpaDone: Boolean, onFpa: () -> Unit, onQc: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(14.dp),
@@ -243,54 +244,57 @@ private fun JobCard(job: QueueJob, onFpa: () -> Unit, onQc: () -> Unit) {
                     job.productName, fontWeight = FontWeight.Bold, fontSize = 15.sp,
                     modifier = Modifier.weight(1f)
                 )
-                job.machinePriority?.let { p ->
-                    PriorityBadge(p)
-                }
+                job.machinePriority?.let { PriorityBadge(it) }
             }
-            job.clientName?.takeIf { it.isNotBlank() }?.let {
-                Spacer(Modifier.height(2.dp))
-                Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
-            }
+
+            // OR No | JC No
             Spacer(Modifier.height(4.dp))
             Text(
                 buildString {
-                    job.orderNumber.takeIf { it.isNotBlank() }?.let { append("OR $it") }
-                    job.JobCardNo?.let { append(if (isEmpty()) "JC $it" else " · JC $it") }
-                    job.mouldForEntry.takeIf { it.isNotBlank() }?.let { append(" · Mould $it") }
+                    append("OR ${job.orderNumber.ifBlank { "—" }}")
+                    job.JobCardNo?.takeIf { it.isNotBlank() }?.let { append("  |  JC $it") }
                 },
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface
+            )
+            // Client Name
+            job.clientName?.takeIf { it.isNotBlank() }?.let {
+                Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+            }
+            // Mould Name · Mould No
+            Spacer(Modifier.height(2.dp))
+            Text(
+                buildString {
+                    append("Mould: ${job.Mould?.takeIf { it.isNotBlank() } ?: "—"}")
+                    job.mouldNo?.takeIf { it.isNotBlank() }?.let { append("   ·   No: $it") }
+                },
+                fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            if (colours.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    colours.forEach { c ->
-                        Box(
-                            Modifier
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                "${c.colour} · ${c.planQty}",
-                                fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onFpa, modifier = Modifier.weight(1f)) { Text("📷 FPA") }
-                Button(onClick = onQc, modifier = Modifier.weight(1f)) {
-                    Text("📋 QC", color = MaterialTheme.colorScheme.onPrimary)
+                // FPA — green + ticked once done
+                if (fpaDone) {
+                    Button(
+                        onClick = onFpa,
+                        colors = ButtonDefaults.buttonColors(containerColor = Good),
+                        modifier = Modifier.weight(1f)
+                    ) { Text("📷 FPA ✓", color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold) }
+                } else {
+                    OutlinedButton(onClick = onFpa, modifier = Modifier.weight(1f)) { Text("📷 FPA") }
                 }
+                // QC — enabled only after FPA
+                Button(
+                    onClick = onQc,
+                    enabled = fpaDone,
+                    modifier = Modifier.weight(1f)
+                ) { Text("📋 QC", color = MaterialTheme.colorScheme.onPrimary) }
+            }
+            if (!fpaDone) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Complete FPA to enable QC",
+                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
