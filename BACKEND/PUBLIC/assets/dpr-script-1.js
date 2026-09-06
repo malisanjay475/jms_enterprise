@@ -1189,9 +1189,13 @@
 
                     container.innerHTML = `<div style="padding:40px; text-align:center; color:#64748b"><i class="bi bi-arrow-repeat spin" style="font-size:2rem;display:block;margin-bottom:10px"></i> Loading Matrix...</div>`;
 
-                    // P4: Auto-fill elapsed quick-action slots before loading the matrix
-                    // Fire-and-forget — don't block the matrix load; errors are non-fatal
-                    try { await J.api.post('/dpr/auto-fill-ongoing', {}); } catch(_) {}
+                    // P4: Auto-fill elapsed quick-action slots. It only ever writes to the
+                    // CURRENT/today shift, so skip it entirely for past date ranges (huge
+                    // speed-up), and never block the matrix load on it (fire-and-forget).
+                    const _today = localToday();
+                    if (fromDate <= _today && _today <= toDate) {
+                        J.api.post('/dpr/auto-fill-ongoing', {}).catch(() => {});
+                    }
 
                     // Prepare Requests based on Shift Mode
                     const promises = [];

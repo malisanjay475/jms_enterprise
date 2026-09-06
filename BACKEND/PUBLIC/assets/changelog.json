@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.12",
+  "latest": "1.55.13",
   "versions": [
+    {
+      "version": "1.55.13",
+      "date": "2026-09-06",
+      "title": "Compliance Summary: faster load for date ranges",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "perf", "text": "The DPR Compliance Summary now loads much faster, especially for past date ranges — the current-shift auto-fill step (a background write) no longer runs or blocks the view when you are looking at earlier dates." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.12",
       "date": "2026-09-06",
