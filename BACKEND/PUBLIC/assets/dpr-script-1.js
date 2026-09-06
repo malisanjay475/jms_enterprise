@@ -804,17 +804,16 @@
                         ${rows}`;
                     const allCb = dprLineMenu.querySelector('#s-line-all');
                     const itemCbs = Array.from(dprLineMenu.querySelectorAll('.s-line-cb'));
+                    // Tick lines, then press Apply — selection is NOT applied live.
                     const syncFromItems = () => {
                         selLines = itemCbs.filter(cb => cb.checked).map(cb => cb.value);
                         if (allCb) allCb.checked = selLines.length === 0;
                         updateLineLabel();
-                        loadSummary(); // apply immediately (menu stays open)
                     };
                     if (allCb) allCb.onchange = () => {
                         if (allCb.checked) { itemCbs.forEach(cb => cb.checked = false); selLines = []; }
                         else { allCb.checked = true; } // can't uncheck "All" directly; pick a line to narrow
                         updateLineLabel();
-                        loadSummary();
                     };
                     itemCbs.forEach(cb => cb.onchange = syncFromItems);
                     updateLineLabel();
@@ -2940,7 +2939,9 @@
                                     html += `<tbody class="mm-machine" data-search="${searchText}">${rowsHtml}</tbody>`;
                                 });
                                 html += `</table></div></div>`;
-                                masterHtml += html;
+                                // Wrap each line so search can hide a whole line card cleanly
+                                // (without touching the sticky column header, which is also a table).
+                                masterHtml += `<div class="dpr-line-card">${html}</div>`;
                             });
                         }
 
@@ -3355,13 +3356,10 @@
                         tb.style.display = match ? '' : 'none';
                         if (match) shown++;
                     });
-                    // Hide a line card if none of its machines match.
-                    const seenCards = new Set();
-                    cont.querySelectorAll('table').forEach(table => {
-                        const card = table.parentElement && table.parentElement.parentElement;
-                        if (!card || seenCards.has(card)) return;
-                        seenCards.add(card);
-                        const vis = table.querySelectorAll('tbody.mm-machine:not([style*="display: none"])').length;
+                    // Hide a line card when none of its machines match (never touches the
+                    // sticky column header, which lives outside .dpr-line-card).
+                    cont.querySelectorAll('.dpr-line-card').forEach(card => {
+                        const vis = card.querySelectorAll('tbody.mm-machine:not([style*="display: none"])').length;
                         card.style.display = (words.length && vis === 0) ? 'none' : '';
                     });
                     const cnt = document.getElementById('s-search-count');
