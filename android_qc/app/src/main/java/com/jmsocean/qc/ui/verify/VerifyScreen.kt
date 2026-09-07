@@ -52,7 +52,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.jmsocean.qc.data.parseColourLines
 import com.jmsocean.qc.data.remote.ColourBalance
+import com.jmsocean.qc.data.remote.ColourLine
 import com.jmsocean.qc.data.remote.QueueJob
 import com.jmsocean.qc.data.remote.VerifySlot
 import com.jmsocean.qc.ui.theme.Crit
@@ -96,6 +98,7 @@ fun VerifyScreen(
         }
     ) { pad ->
         var menuOpen by remember { mutableStateOf(false) }
+        var changing by remember { mutableStateOf(false) }
         val selJc = s.selectedJob?.JobCardNo
         val slots = remember(s.slots, selJc) {
             if (!selJc.isNullOrBlank()) s.slots.filter { it.job_card_no.isNullOrBlank() || it.job_card_no == selJc }
@@ -116,58 +119,65 @@ fun VerifyScreen(
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         if (s.machines.isEmpty()) DropdownMenuItem(text = { Text("No machines") }, onClick = {})
                         s.machines.forEach { m ->
-                            DropdownMenuItem(text = { Text(m) }, onClick = { menuOpen = false; vm.selectMachine(m) })
+                            DropdownMenuItem(text = { Text(m) }, onClick = { menuOpen = false; changing = false; vm.selectMachine(m) })
                         }
                     }
                 }
             }
 
-            if (s.jobs.isNotEmpty()) item { SectionHeader("Select a plan to verify") }
-
-            // Jobs — tap to select; running flagged green; balance under the selected one
-            items(s.jobs) { j ->
-                val running = j.Status.equals("RUNNING", ignoreCase = true)
-                val selected = s.selectedJob?.PlanID == j.PlanID && j.PlanID != null
-                JobPickCard(j, running, selected, if (selected) s.runningBalances else emptyList()) { vm.selectJob(j) }
-            }
-
-            // Shift toggle + status
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
-                    listOf("Day", "Night").forEach { sh ->
-                        FilterChip(selected = s.shift == sh, onClick = { if (s.shift != sh) vm.setShift(sh) }, label = { Text(sh) })
-                    }
+            val sel = s.selectedJob
+            if (sel == null || changing) {
+                // ── Pick a plan ──
+                if (s.jobs.isNotEmpty()) item { SectionHeader("Select a plan to verify") }
+                items(s.jobs) { j ->
+                    val running = j.Status.equals("RUNNING", ignoreCase = true)
+                    JobPickCard(j, running, false, emptyList()) { vm.selectJob(j); changing = false }
                 }
-            }
-            s.message?.let { item { Text(it, color = Good, fontSize = 13.sp) } }
-            s.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) } }
-
-            item {
-                SectionHeader(
-                    if (s.selectedJob != null) "Entries · ${s.selectedJob!!.productName}" else "Entries"
-                )
-            }
-
-            when {
-                s.loading -> item {
-                    Box(Modifier.fillMaxWidth().padding(30.dp), Alignment.Center) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    }
+                if (s.jobs.isEmpty() && !s.loading) item {
+                    Text("No plans on this machine.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                slots.isEmpty() -> item {
-                    Text("No entries for this plan / shift yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                else -> items(slots) { slot ->
-                    SlotCard(
-                        slot = slot,
-                        busy = s.busySlot == slot.hour_slot,
-                        onVerify = { g, r, rmk -> vm.submit(slot, g, r, rmk) },
-                        onHold = { holdFor = slot },
-                        onDeviation = { deviationFor = slot }
+            } else {
+                // ── Selected plan: info on top + only its entries ──
+                item {
+                    SelectedJobHeader(
+                        job = sel,
+                        balances = s.runningBalances,
+                        planColours = parseColourLines(sel.colourDetails),
+                        canChange = s.jobs.size > 1,
+                        onChange = { changing = true }
                     )
                 }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 2.dp)) {
+                        listOf("Day", "Night").forEach { sh ->
+                            FilterChip(selected = s.shift == sh, onClick = { if (s.shift != sh) vm.setShift(sh) }, label = { Text(sh) })
+                        }
+                    }
+                }
+                s.message?.let { item { Text(it, color = Good, fontSize = 13.sp) } }
+                s.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) } }
+                item { SectionHeader("Entries") }
+                when {
+                    s.loading -> item {
+                        Box(Modifier.fillMaxWidth().padding(30.dp), Alignment.Center) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    slots.isEmpty() -> item {
+                        Text("No entries for this plan / shift yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    else -> items(slots) { slot ->
+                        SlotCard(
+                            slot = slot,
+                            busy = s.busySlot == slot.hour_slot,
+                            onVerify = { g, r, rmk -> vm.submit(slot, g, r, rmk) },
+                            onHold = { holdFor = slot },
+                            onDeviation = { deviationFor = slot }
+                        )
+                    }
+                }
+                item { Spacer(Modifier.size(8.dp)) }
             }
-            item { Spacer(Modifier.size(8.dp)) }
         }
     }
 
@@ -335,6 +345,73 @@ private fun SupStat(label: String, value: Int?, modifier: Modifier = Modifier) {
     Column(modifier) {
         Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
         Text("${value ?: 0}", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun SelectedJobHeader(
+    job: QueueJob,
+    balances: List<ColourBalance>,
+    planColours: List<ColourLine>,
+    canChange: Boolean,
+    onChange: () -> Unit
+) {
+    val running = job.Status.equals("RUNNING", ignoreCase = true)
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.5.dp, if (running) Good else MaterialTheme.colorScheme.primary),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(job.productName, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                if (running) Text("● RUNNING", color = Good, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            }
+            job.clientName?.takeIf { it.isNotBlank() }?.let {
+                Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+            }
+            Text(
+                buildString {
+                    append("OR ${job.orderNumber.ifBlank { "—" }}")
+                    job.JobCardNo?.takeIf { it.isNotBlank() }?.let { append("  |  JC $it") }
+                },
+                fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Mould: ${job.Mould?.takeIf { it.isNotBlank() } ?: "—"}" +
+                    (job.mouldNo?.takeIf { it.isNotBlank() }?.let { "   ·   No: $it" } ?: ""),
+                fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // Colour: full balance if available, else planned colours from the plan
+            Spacer(Modifier.size(10.dp))
+            if (balances.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth()) {
+                    BalHead("Colour", 1.4f); BalHead("Plan", 1f); BalHead("Made", 1f, Good); BalHead("Bal", 1f, Warn)
+                }
+                balances.forEach { b ->
+                    Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                        BalCell(b.colour, 1.4f, bold = true); BalCell("${b.planQty}", 1f)
+                        BalCell("${b.produced}", 1f, Good); BalCell("${b.balance}", 1f, Warn)
+                    }
+                }
+            } else if (planColours.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth()) { BalHead("Colour", 1.6f); BalHead("Plan Qty", 1f) }
+                planColours.forEach { c ->
+                    Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                        BalCell(c.colour, 1.6f, bold = true); BalCell("${c.planQty}", 1f)
+                    }
+                }
+            } else {
+                Text("Colour balance unavailable.", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            if (canChange) {
+                Spacer(Modifier.size(6.dp))
+                TextButton(onClick = onChange, contentPadding = PaddingValues(0.dp)) { Text("Change plan") }
+            }
+        }
     }
 }
 

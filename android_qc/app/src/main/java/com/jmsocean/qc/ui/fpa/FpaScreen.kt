@@ -6,6 +6,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +60,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.jmsocean.qc.ui.theme.Accent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.jmsocean.qc.ui.theme.Good
 import com.jmsocean.qc.ui.theme.Warn
 import java.io.File
@@ -90,7 +97,13 @@ fun FpaScreen(
         ActivityResultContracts.TakePicture()
     ) { ok -> if (ok) pendingProduct?.let { vm.addProductImage(it) } }
 
+    var zoomModel by remember { mutableStateOf<Any?>(null) }
+
     LaunchedEffect(s.submitted) { if (s.submitted) { /* stay on view mode */ } }
+
+    if (zoomModel != null) {
+        ZoomImageDialog(model = zoomModel!!, onDismiss = { zoomModel = null })
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -185,7 +198,9 @@ fun FpaScreen(
                                 .height(200.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.surface)
+                                .clickable { zoomModel = s.savedFormUrl }
                         )
+                        Text("Tap to zoom", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
                         Spacer(Modifier.height(14.dp))
                     }
                     if (s.savedProductUrls.isNotEmpty()) {
@@ -207,6 +222,7 @@ fun FpaScreen(
                                         .aspectRatio(1f)
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(MaterialTheme.colorScheme.surface)
+                                        .clickable { zoomModel = url }
                                 )
                             }
                         }
@@ -282,6 +298,33 @@ fun FpaScreen(
                     Spacer(Modifier.height(24.dp))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ZoomImageDialog(model: Any, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        var scale by remember { mutableStateOf(1f) }
+        var offset by remember { mutableStateOf(Offset.Zero) }
+        val tState = rememberTransformableState { zoom, pan, _ ->
+            scale = (scale * zoom).coerceIn(1f, 5f)
+            offset += pan
+        }
+        Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.93f)).clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center
+        ) {
+            AsyncImage(
+                model = model, contentDescription = "Zoomed image", contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+                    .graphicsLayer(scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y)
+                    .transformable(tState)
+            )
+            Text(
+                "Pinch to zoom · tap to close", color = Color.White, fontSize = 12.sp,
+                modifier = Modifier.align(Alignment.TopCenter).padding(16.dp)
+            )
         }
     }
 }
