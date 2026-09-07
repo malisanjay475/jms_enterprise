@@ -23,6 +23,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Surface
@@ -166,28 +169,28 @@ fun QcApp_Root() {
             }
         }
     ) {
-        androidx.compose.material3.Scaffold(
+        Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
                 if (current in topLevel) {
-                    androidx.compose.material3.NavigationBar {
-                        androidx.compose.material3.NavigationBarItem(
+                    NavigationBar {
+                        NavigationBarItem(
                             selected = current == Routes.QUEUE, onClick = { go(Routes.QUEUE) },
                             icon = { Icon(Icons.Default.List, null) }, label = { Text("Queue") }
                         )
-                        androidx.compose.material3.NavigationBarItem(
+                        NavigationBarItem(
                             selected = current == Routes.VERIFY, onClick = { go(Routes.VERIFY) },
                             icon = { Icon(Icons.Default.CheckCircle, null) }, label = { Text("Verify") }
                         )
-                        androidx.compose.material3.NavigationBarItem(
+                        NavigationBarItem(
                             selected = current == Routes.COMPLIANCE, onClick = { go(Routes.COMPLIANCE) },
                             icon = { Icon(Icons.Default.GridOn, null) }, label = { Text("Compliance") }
                         )
-                        androidx.compose.material3.NavigationBarItem(
+                        NavigationBarItem(
                             selected = current == Routes.ISSUES, onClick = { go(Routes.ISSUES) },
                             icon = { Icon(Icons.Default.Warning, null) }, label = { Text("Issues") }
                         )
-                        androidx.compose.material3.NavigationBarItem(
+                        NavigationBarItem(
                             selected = current == Routes.DASHBOARD || current == Routes.RECENT,
                             onClick = openDrawer,
                             icon = { Icon(Icons.Default.Menu, null) }, label = { Text("More") }
