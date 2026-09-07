@@ -465,6 +465,25 @@ class QcRepository(private val session: SessionStore) {
         if (!env.ok) error(env.error ?: "Slot check failed")
     }
 
+    // ── QC shift team ───────────────────────────────────────────────────────
+
+    suspend fun shiftTeam(machine: String, date: String, shift: String): Result<List<com.jmsocean.qc.data.remote.ShiftTeamMember>> = runCatching {
+        val env = api.shiftTeam(machine, date, shift)
+        if (!env.ok) error(env.error ?: "Could not load shift team")
+        val arr = env.data as? JsonArray ?: JsonArray(emptyList())
+        arr.map { json.decodeFromJsonElement(com.jmsocean.qc.data.remote.ShiftTeamMember.serializer(), it) }
+    }
+
+    suspend fun addShiftTeam(machine: String, date: String, shift: String, role: String, name: String): Result<Unit> = runCatching {
+        val env = api.addShiftTeam(
+            com.jmsocean.qc.data.remote.ShiftTeamAddRequest(
+                session = sessionRef(), machine = machine, dpr_date = date, shift = shift,
+                role = role, employee_name = name
+            )
+        )
+        if (!env.ok) error(env.error ?: "Could not save shift team")
+    }
+
     fun logout() {
         session.clear()
         Network.cookieJar.clear()

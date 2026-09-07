@@ -78,6 +78,23 @@ data class ComplianceGrid(val slots: List<String>, val lines: List<ComplianceLin
 data class ComplianceLine(val name: String, val rows: List<ComplianceRow>)
 data class ComplianceRow(val machine: String, val cells: Map<String, String>)
 
+// ── QC shift team ───────────────────────────────────────────────────────────
+@Serializable
+data class ShiftTeamMember(
+    val role: String? = null,
+    val employee_name: String? = null
+)
+
+@Serializable
+data class ShiftTeamAddRequest(
+    val session: SessionRef,
+    val machine: String,
+    val dpr_date: String,
+    val shift: String,
+    val role: String,
+    val employee_name: String
+)
+
 // ── QC job setup (STD vs Actual) ────────────────────────────────────────────
 @Serializable
 data class StdValues(

@@ -137,6 +137,35 @@ fun QcInspectionScreen(
                 }
             }
 
+            // Shift-team gate — compulsory before any inspection entry
+            if (s.teamChecked && !s.teamOk) {
+              Spacer(Modifier.size(10.dp))
+              SectionCard {
+                Label("QC Shift Team — required")
+                Text(
+                    "Record the QC team for this shift before inspection.",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+                OutlinedTextField(
+                    value = s.supName, onValueChange = vm::setSupName,
+                    label = { Text("QC Supervisor name") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.size(8.dp))
+                OutlinedTextField(
+                    value = s.inchargeName, onValueChange = vm::setInchargeName,
+                    label = { Text("QC Incharge name") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
+                s.teamError?.let { Text(it, color = Crit, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp)) }
+                Spacer(Modifier.size(8.dp))
+                Button(onClick = vm::saveShiftTeam, enabled = !s.savingTeam, modifier = Modifier.fillMaxWidth()) {
+                    if (s.savingTeam) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    else Text("Save shift team", color = MaterialTheme.colorScheme.onPrimary)
+                }
+              }
+              Spacer(Modifier.size(24.dp))
+            } else {
+
             // Setup: STD vs Actual (2x/shift)
             Spacer(Modifier.size(10.dp))
             SectionCard {
@@ -234,6 +263,7 @@ fun QcInspectionScreen(
                 else Text("Save slot check", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
             }
             Spacer(Modifier.size(24.dp))
+            } // end else (shift-team gate)
         }
     }
 }

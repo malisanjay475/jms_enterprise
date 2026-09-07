@@ -59,6 +59,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.jmsocean.qc.ui.theme.Accent
 import com.jmsocean.qc.ui.theme.Good
+import com.jmsocean.qc.ui.theme.Warn
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -123,16 +124,43 @@ fun FpaScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(12.dp)) {
-                    Text(job?.productName ?: "—", fontWeight = FontWeight.Bold)
+                    Text(
+                        "Mould: ${job?.Mould?.takeIf { it.isNotBlank() } ?: "—"}",
+                        fontWeight = FontWeight.Bold, fontSize = 14.sp
+                    )
                     Text(
                         buildString {
-                            job?.JobCardNo?.let { append("JC $it") }
-                            if (s.machine.isNotBlank()) append(" · ${s.machine}")
-                            job?.Mould?.let { append(" · Mould $it") }
+                            append("OR ${job?.orderNumber?.ifBlank { "—" } ?: "—"}")
+                            job?.JobCardNo?.takeIf { it.isNotBlank() }?.let { append("  |  JC $it") }
                         },
-                        fontSize = 12.sp,
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    job?.mouldNo?.takeIf { it.isNotBlank() }?.let {
+                        Text("Mould No: $it", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            // Colour balance
+            if (s.balances.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        SectionLabel("Colour balance")
+                        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                            BalHead("Colour", 1.4f); BalHead("Plan", 1f); BalHead("Made", 1f, Good); BalHead("Bal", 1f, Warn)
+                        }
+                        s.balances.forEach { b ->
+                            Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                                BalCell(b.colour, 1.4f, bold = true); BalCell("${b.planQty}", 1f)
+                                BalCell("${b.produced}", 1f, Good); BalCell("${b.balance}", 1f, Warn)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -267,6 +295,18 @@ private fun SectionLabel(text: String) {
         modifier = Modifier.padding(bottom = 8.dp)
     )
 }
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.BalHead(
+    t: String, w: Float, color: androidx.compose.ui.graphics.Color? = null
+) = Text(t, Modifier.weight(w), fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold,
+    color = color ?: MaterialTheme.colorScheme.onSurfaceVariant)
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.BalCell(
+    t: String, w: Float, color: androidx.compose.ui.graphics.Color? = null, bold: Boolean = false
+) = Text(t, Modifier.weight(w), fontSize = 12.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium,
+    color = color ?: MaterialTheme.colorScheme.onSurface)
 
 @Composable
 private fun DoneBanner(submittedNow: Boolean, by: String?, at: String?) {

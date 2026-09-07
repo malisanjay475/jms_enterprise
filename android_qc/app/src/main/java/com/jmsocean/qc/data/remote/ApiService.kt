@@ -118,6 +118,16 @@ interface ApiService {
     @POST("api/qc/job-setup")
     suspend fun saveJobSetup(@Body body: JobSetupSaveRequest): ApiEnvelope
 
+    @GET("api/qc/shift-team")
+    suspend fun shiftTeam(
+        @Query("machine") machine: String,
+        @Query("date") date: String,
+        @Query("shift") shift: String
+    ): ApiEnvelope
+
+    @POST("api/qc/shift-team")
+    suspend fun addShiftTeam(@Body body: ShiftTeamAddRequest): ApiEnvelope
+
     // multipart — optional ff_photo file; text fields via PartMap
     @Multipart
     @POST("api/qc/online-report/slot")
