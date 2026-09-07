@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
@@ -165,7 +166,41 @@ fun QcApp_Root() {
             }
         }
     ) {
-        NavHost(navController = nav, startDestination = start) {
+        androidx.compose.material3.Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            bottomBar = {
+                if (current in topLevel) {
+                    androidx.compose.material3.NavigationBar {
+                        androidx.compose.material3.NavigationBarItem(
+                            selected = current == Routes.QUEUE, onClick = { go(Routes.QUEUE) },
+                            icon = { Icon(Icons.Default.List, null) }, label = { Text("Queue") }
+                        )
+                        androidx.compose.material3.NavigationBarItem(
+                            selected = current == Routes.VERIFY, onClick = { go(Routes.VERIFY) },
+                            icon = { Icon(Icons.Default.CheckCircle, null) }, label = { Text("Verify") }
+                        )
+                        androidx.compose.material3.NavigationBarItem(
+                            selected = current == Routes.COMPLIANCE, onClick = { go(Routes.COMPLIANCE) },
+                            icon = { Icon(Icons.Default.GridOn, null) }, label = { Text("Compliance") }
+                        )
+                        androidx.compose.material3.NavigationBarItem(
+                            selected = current == Routes.ISSUES, onClick = { go(Routes.ISSUES) },
+                            icon = { Icon(Icons.Default.Warning, null) }, label = { Text("Issues") }
+                        )
+                        androidx.compose.material3.NavigationBarItem(
+                            selected = current == Routes.DASHBOARD || current == Routes.RECENT,
+                            onClick = openDrawer,
+                            icon = { Icon(Icons.Default.Menu, null) }, label = { Text("More") }
+                        )
+                    }
+                }
+            }
+        ) { scaffoldPad ->
+        NavHost(
+            navController = nav,
+            startDestination = start,
+            modifier = Modifier.padding(scaffoldPad)
+        ) {
             composable(Routes.LOGIN) {
                 LoginScreen(onLoggedIn = {
                     nav.navigate(Routes.QUEUE) { popUpTo(Routes.LOGIN) { inclusive = true } }
@@ -188,6 +223,7 @@ fun QcApp_Root() {
                 QcInspectionScreen(onBack = { nav.popBackStack() })
             }
         }
+        } // Scaffold content
     }
 }
 
