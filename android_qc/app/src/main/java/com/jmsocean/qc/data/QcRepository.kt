@@ -390,6 +390,16 @@ class QcRepository(private val session: SessionStore) {
         ComplianceGrid(slots, lines)
     }
 
+    // ── Recent QC slot entries ──────────────────────────────────────────────
+
+    suspend fun recentSlots(machine: String): Result<List<com.jmsocean.qc.data.remote.RecentSlot>> = runCatching {
+        if (machine.isBlank()) return@runCatching emptyList()
+        val env = api.recentSlots(machine)
+        if (!env.ok) error(env.error ?: "Could not load recent entries")
+        val arr = env.data as? JsonArray ?: JsonArray(emptyList())
+        arr.map { json.decodeFromJsonElement(com.jmsocean.qc.data.remote.RecentSlot.serializer(), it) }
+    }
+
     fun logout() {
         session.clear()
         Network.cookieJar.clear()

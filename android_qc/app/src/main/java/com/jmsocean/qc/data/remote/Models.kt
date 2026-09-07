@@ -78,6 +78,27 @@ data class ComplianceGrid(val slots: List<String>, val lines: List<ComplianceLin
 data class ComplianceLine(val name: String, val rows: List<ComplianceRow>)
 data class ComplianceRow(val machine: String, val cells: Map<String, String>)
 
+/** A recent QC online-report slot check — GET /api/qc/recent-slots. */
+@Serializable
+data class RecentSlot(
+    val slot: String = "",
+    val dpr_date: String? = null,
+    val shift: String? = null,
+    val mould_name: String? = null,
+    val item_name: String? = null,
+    val visual_status: String? = null,
+    val visual_problem: String? = null,
+    val visual_remarks: String? = null,
+    val colour_status: String? = null,
+    val colour_problem: String? = null,
+    val colour_remarks: String? = null,
+    val ff_status: String? = null,
+    val ff_problem: String? = null,
+    val ff_photo_url: String? = null,
+    val entered_by: String? = null,
+    val entered_at: String? = null
+)
+
 /** Response of GET /api/qc/fpa/status. */
 @Serializable
 data class FpaStatus(

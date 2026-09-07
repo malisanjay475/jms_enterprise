@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.DrawerValue
@@ -37,6 +38,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.jmsocean.qc.ui.compliance.ComplianceScreen
+import com.jmsocean.qc.ui.recent.RecentScreen
 import com.jmsocean.qc.ui.dashboard.DashboardScreen
 import com.jmsocean.qc.ui.fpa.FpaScreen
 import com.jmsocean.qc.ui.issues.IssuesScreen
@@ -70,6 +72,7 @@ private object Routes {
     const val ISSUES = "issues"
     const val DASHBOARD = "dashboard"
     const val COMPLIANCE = "compliance"
+    const val RECENT = "recent"
 }
 
 @Composable
@@ -81,7 +84,7 @@ fun QcApp_Root() {
 
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
-    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.COMPLIANCE)
+    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.COMPLIANCE, Routes.RECENT)
 
     val start = if (app.session.isLoggedIn) Routes.QUEUE else Routes.LOGIN
     val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
@@ -139,6 +142,13 @@ fun QcApp_Root() {
                     onClick = { go(Routes.COMPLIANCE) },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
+                NavigationDrawerItem(
+                    label = { Text("Recent Entries") },
+                    icon = { Icon(Icons.Default.History, null) },
+                    selected = current == Routes.RECENT,
+                    onClick = { go(Routes.RECENT) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider()
                 NavigationDrawerItem(
@@ -172,6 +182,7 @@ fun QcApp_Root() {
             composable(Routes.ISSUES) { IssuesScreen(onMenu = openDrawer) }
             composable(Routes.DASHBOARD) { DashboardScreen(onMenu = openDrawer) }
             composable(Routes.COMPLIANCE) { ComplianceScreen(onMenu = openDrawer) }
+            composable(Routes.RECENT) { RecentScreen(onMenu = openDrawer) }
             composable(Routes.FPA) { FpaScreen(onBack = { nav.popBackStack() }) }
             composable(Routes.QC) {
                 QcEntryScreen(

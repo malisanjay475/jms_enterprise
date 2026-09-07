@@ -100,6 +100,12 @@ interface ApiService {
         @Query("machine") machine: String?
     ): ApiEnvelope
 
+    @GET("api/qc/recent-slots")
+    suspend fun recentSlots(
+        @Query("machine") machine: String,
+        @Query("limit") limit: Int = 20
+    ): ApiEnvelope
+
     // multipart/form-data — field names must match the backend multer config
     @Multipart
     @POST("api/qc/fpa")
