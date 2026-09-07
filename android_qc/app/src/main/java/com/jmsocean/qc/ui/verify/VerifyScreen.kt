@@ -114,23 +114,50 @@ fun VerifyScreen(
                 }
             }
 
-            // Job context header
-            s.jobContext?.let { j ->
+            // Jobs on this machine — running one flagged green, with colour balance
+            s.jobs.forEach { j ->
+                val running = j.Status.equals("RUNNING", ignoreCase = true)
                 Spacer(Modifier.size(10.dp))
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (running) Good.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    border = if (running) BorderStroke(1.5.dp, Good) else null,
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(Modifier.padding(12.dp)) {
-                        Text(j.productName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(j.productName, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                            if (running) Text("● RUNNING", color = Good, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+                        j.clientName?.takeIf { it.isNotBlank() }?.let {
+                            Text(it, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurface)
+                        }
                         Text(
                             buildString {
-                                j.clientName?.let { append(it) }
-                                j.orderNumber.takeIf { it.isNotBlank() }?.let { append(if (isEmpty()) "OR $it" else " · OR $it") }
-                                j.JobCardNo?.let { append(" · JC $it") }
+                                append("OR ${j.orderNumber.ifBlank { "—" }}")
+                                j.JobCardNo?.takeIf { it.isNotBlank() }?.let { append("  |  JC $it") }
                             },
+                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "Mould: ${j.Mould?.takeIf { it.isNotBlank() } ?: "—"}" +
+                                (j.mouldNo?.takeIf { it.isNotBlank() }?.let { "   ·   No: $it" } ?: ""),
                             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        // Colour balance for the running job
+                        if (running && s.runningBalances.isNotEmpty()) {
+                            Spacer(Modifier.size(8.dp))
+                            Row(Modifier.fillMaxWidth()) {
+                                BalHead("Colour", 1.4f); BalHead("Plan", 1f); BalHead("Made", 1f, Good); BalHead("Bal", 1f, Warn)
+                            }
+                            s.runningBalances.forEach { b ->
+                                Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                                    BalCell(b.colour, 1.4f, bold = true); BalCell("${b.planQty}", 1f)
+                                    BalCell("${b.produced}", 1f, Good); BalCell("${b.balance}", 1f, Warn)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -348,6 +375,18 @@ private fun SupStat(label: String, value: Int?, modifier: Modifier = Modifier) {
         Text("${value ?: 0}", fontSize = 15.sp, fontWeight = FontWeight.Bold)
     }
 }
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.BalHead(
+    t: String, w: Float, color: androidx.compose.ui.graphics.Color? = null
+) = Text(t, Modifier.weight(w), fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold,
+    color = color ?: MaterialTheme.colorScheme.onSurfaceVariant)
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.BalCell(
+    t: String, w: Float, color: androidx.compose.ui.graphics.Color? = null, bold: Boolean = false
+) = Text(t, Modifier.weight(w), fontSize = 12.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium,
+    color = color ?: MaterialTheme.colorScheme.onSurface)
 
 @Composable
 private fun DeviationDialog(
