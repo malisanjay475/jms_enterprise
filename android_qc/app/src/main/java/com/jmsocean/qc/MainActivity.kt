@@ -43,7 +43,7 @@ import com.jmsocean.qc.ui.dashboard.DashboardScreen
 import com.jmsocean.qc.ui.fpa.FpaScreen
 import com.jmsocean.qc.ui.issues.IssuesScreen
 import com.jmsocean.qc.ui.login.LoginScreen
-import com.jmsocean.qc.ui.qcentry.QcEntryScreen
+import com.jmsocean.qc.ui.inspection.QcInspectionScreen
 import com.jmsocean.qc.ui.queue.QueueScreen
 import com.jmsocean.qc.ui.theme.QcTheme
 import com.jmsocean.qc.ui.verify.VerifyScreen
@@ -185,10 +185,7 @@ fun QcApp_Root() {
             composable(Routes.RECENT) { RecentScreen(onMenu = openDrawer) }
             composable(Routes.FPA) { FpaScreen(onBack = { nav.popBackStack() }) }
             composable(Routes.QC) {
-                QcEntryScreen(
-                    onBack = { nav.popBackStack() },
-                    onDoFpa = { nav.navigate(Routes.FPA) }
-                )
+                QcInspectionScreen(onBack = { nav.popBackStack() })
             }
         }
     }

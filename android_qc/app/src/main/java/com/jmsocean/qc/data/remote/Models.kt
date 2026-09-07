@@ -78,6 +78,44 @@ data class ComplianceGrid(val slots: List<String>, val lines: List<ComplianceLin
 data class ComplianceLine(val name: String, val rows: List<ComplianceRow>)
 data class ComplianceRow(val machine: String, val cells: Map<String, String>)
 
+// ── QC job setup (STD vs Actual) ────────────────────────────────────────────
+@Serializable
+data class StdValues(
+    val std_weight: Double? = null,
+    val std_cycle_time: Double? = null,
+    val std_cavity: Int? = null
+)
+
+@Serializable
+data class JobSetupRow(
+    val act_weight: Double? = null,
+    val act_cycle_time: Double? = null,
+    val act_cavity: Int? = null
+)
+
+@Serializable
+data class JobSetupResponse(
+    val ok: Boolean = false,
+    val error: String? = null,
+    val std: StdValues? = null,
+    val setup: JobSetupRow? = null
+)
+
+@Serializable
+data class JobSetupSaveRequest(
+    val session: SessionRef,
+    val job_card_no: String,
+    val machine: String,
+    val dpr_date: String,
+    val shift: String,
+    val std_weight: Double? = null,
+    val act_weight: Double? = null,
+    val std_cycle_time: Double? = null,
+    val act_cycle_time: Double? = null,
+    val std_cavity: Int? = null,
+    val act_cavity: Int? = null
+)
+
 /** A recent QC online-report slot check — GET /api/qc/recent-slots. */
 @Serializable
 data class RecentSlot(

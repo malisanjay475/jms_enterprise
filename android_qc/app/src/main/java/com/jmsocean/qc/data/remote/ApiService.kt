@@ -106,6 +106,26 @@ interface ApiService {
         @Query("limit") limit: Int = 20
     ): ApiEnvelope
 
+    @GET("api/qc/job-setup")
+    suspend fun jobSetup(
+        @Query("job_card_no") jobCardNo: String,
+        @Query("date") date: String,
+        @Query("shift") shift: String,
+        @Query("machine") machine: String,
+        @Query("mould_name") mouldName: String
+    ): JobSetupResponse
+
+    @POST("api/qc/job-setup")
+    suspend fun saveJobSetup(@Body body: JobSetupSaveRequest): ApiEnvelope
+
+    // multipart — optional ff_photo file; text fields via PartMap
+    @Multipart
+    @POST("api/qc/online-report/slot")
+    suspend fun submitSlotCheck(
+        @PartMap fields: Map<String, @JvmSuppressWildcards RequestBody>,
+        @Part ffPhoto: MultipartBody.Part?
+    ): ApiEnvelope
+
     // multipart/form-data — field names must match the backend multer config
     @Multipart
     @POST("api/qc/fpa")

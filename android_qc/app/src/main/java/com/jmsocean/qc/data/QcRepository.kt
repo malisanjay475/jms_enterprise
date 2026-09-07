@@ -400,6 +400,71 @@ class QcRepository(private val session: SessionStore) {
         arr.map { json.decodeFromJsonElement(com.jmsocean.qc.data.remote.RecentSlot.serializer(), it) }
     }
 
+    // ── QC job setup (STD vs Actual) ────────────────────────────────────────
+
+    suspend fun jobSetup(
+        jobCardNo: String, date: String, shift: String, machine: String, mouldName: String
+    ): Result<com.jmsocean.qc.data.remote.JobSetupResponse> = runCatching {
+        api.jobSetup(jobCardNo, date, shift, machine, mouldName)
+    }
+
+    suspend fun saveJobSetup(
+        jobCardNo: String, machine: String, date: String, shift: String,
+        stdWeight: Double?, actWeight: Double?,
+        stdCT: Double?, actCT: Double?,
+        stdCavity: Int?, actCavity: Int?
+    ): Result<Unit> = runCatching {
+        val env = api.saveJobSetup(
+            com.jmsocean.qc.data.remote.JobSetupSaveRequest(
+                session = sessionRef(), job_card_no = jobCardNo, machine = machine,
+                dpr_date = date, shift = shift,
+                std_weight = stdWeight, act_weight = actWeight,
+                std_cycle_time = stdCT, act_cycle_time = actCT,
+                std_cavity = stdCavity, act_cavity = actCavity
+            )
+        )
+        if (!env.ok) error(env.error ?: "Setup save failed")
+    }
+
+    // ── QC slot process check (Visual / Colour / Function-Fitment) ──────────
+
+    suspend fun submitSlotCheck(
+        machine: String, date: String, shift: String, slot: String,
+        job: com.jmsocean.qc.data.remote.QueueJob,
+        visualStatus: String?, visualProblem: String?, visualRemarks: String?,
+        colourStatus: String?, colourProblem: String?, colourRemarks: String?,
+        ffStatus: String?, ffProblem: String?, ffPhoto: File?
+    ): Result<Unit> = runCatching {
+        fun text(v: String): RequestBody = v.toRequestBody("text/plain".toMediaTypeOrNull())
+        val sessionJson = buildJsonObject {
+            put("username", session.username); put("line", session.line)
+        }.toString()
+        val fields = buildMap {
+            put("session", text(sessionJson))
+            put("machine", text(machine))
+            put("dpr_date", text(date))
+            put("shift", text(shift))
+            put("slot", text(slot))
+            put("job_card_no", text(job.JobCardNo ?: ""))
+            put("order_no", text(job.orderNumber))
+            put("item_name", text(job.productName))
+            put("mould_name", text(job.Mould ?: ""))
+            visualStatus?.let { put("visual_status", text(it)) }
+            visualProblem?.let { put("visual_problem", text(it)) }
+            visualRemarks?.let { put("visual_remarks", text(it)) }
+            colourStatus?.let { put("colour_status", text(it)) }
+            colourProblem?.let { put("colour_problem", text(it)) }
+            colourRemarks?.let { put("colour_remarks", text(it)) }
+            ffStatus?.let { put("ff_status", text(it)) }
+            ffProblem?.let { put("ff_problem", text(it)) }
+        }
+        val photoPart = ffPhoto?.let {
+            MultipartBody.Part.createFormData("ff_photo", it.name, it.asRequestBody("image/jpeg".toMediaTypeOrNull()))
+        }
+        val env = api.submitSlotCheck(fields, photoPart)
+        if (!env.ok) error(env.error ?: "Slot check failed")
+    }
+
     fun logout() {
         session.clear()
         Network.cookieJar.clear()
