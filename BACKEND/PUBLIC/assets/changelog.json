@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.17",
+  "latest": "1.55.18",
   "versions": [
+    {
+      "version": "1.55.18",
+      "date": "2026-09-07",
+      "title": "Compliance Summary: manpower STD vs Actual",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "Each machine's summary box now shows Manpower — STD (mould master) vs Actual (setup) — just above Weight. Actual over STD shows red (over-manned), below STD shows green (saving)." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.17",
       "date": "2026-09-07",
