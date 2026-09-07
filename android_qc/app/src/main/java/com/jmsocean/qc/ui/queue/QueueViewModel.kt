@@ -11,6 +11,8 @@ import com.jmsocean.qc.data.remote.QueueJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -113,14 +115,12 @@ class QueueViewModel : ViewModel() {
         }
     }
 
-    /** Check FPA status per job so the card can show FPA ✓ and unlock QC. */
+    /** Check FPA status per job (in parallel) so the card can show FPA ✓ and unlock QC. */
     private fun refreshFpaDone(jobs: List<QueueJob>) {
         viewModelScope.launch {
-            val done = mutableSetOf<String>()
-            for (job in jobs) {
-                val planId = job.PlanID ?: continue
-                repo.fpaStatus(planId, job.JobCardNo ?: "").onSuccess { if (it) done.add(planId) }
-            }
+            val done = jobs.mapNotNull { it.PlanID }.distinct().map { planId ->
+                async { planId to (repo.fpaStatus(planId, "").getOrDefault(false)) }
+            }.awaitAll().filter { it.second }.map { it.first }.toSet()
             _state.update { it.copy(fpaDonePlanIds = done) }
         }
     }

@@ -41,7 +41,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.jmsocean.qc.ui.compliance.ComplianceScreen
 import com.jmsocean.qc.ui.recent.RecentScreen
 import com.jmsocean.qc.ui.dashboard.DashboardScreen
 import com.jmsocean.qc.ui.fpa.FpaScreen
@@ -75,7 +74,6 @@ private object Routes {
     const val VERIFY = "verify"
     const val ISSUES = "issues"
     const val DASHBOARD = "dashboard"
-    const val COMPLIANCE = "compliance"
     const val RECENT = "recent"
 }
 
@@ -88,7 +86,7 @@ fun QcApp_Root() {
 
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
-    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.COMPLIANCE, Routes.RECENT)
+    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.RECENT)
 
     val start = if (app.session.isLoggedIn) Routes.QUEUE else Routes.LOGIN
     val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
@@ -140,13 +138,6 @@ fun QcApp_Root() {
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
-                    label = { Text("Compliance") },
-                    icon = { Icon(Icons.Default.GridOn, null) },
-                    selected = current == Routes.COMPLIANCE,
-                    onClick = { go(Routes.COMPLIANCE) },
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
-                NavigationDrawerItem(
                     label = { Text("Recent Entries") },
                     icon = { Icon(Icons.Default.History, null) },
                     selected = current == Routes.RECENT,
@@ -183,15 +174,15 @@ fun QcApp_Root() {
                             icon = { Icon(Icons.Default.CheckCircle, null) }, label = { Text("Verify") }
                         )
                         NavigationBarItem(
-                            selected = current == Routes.COMPLIANCE, onClick = { go(Routes.COMPLIANCE) },
-                            icon = { Icon(Icons.Default.GridOn, null) }, label = { Text("Compliance") }
-                        )
-                        NavigationBarItem(
                             selected = current == Routes.ISSUES, onClick = { go(Routes.ISSUES) },
                             icon = { Icon(Icons.Default.Warning, null) }, label = { Text("Issues") }
                         )
                         NavigationBarItem(
-                            selected = current == Routes.DASHBOARD || current == Routes.RECENT,
+                            selected = current == Routes.RECENT, onClick = { go(Routes.RECENT) },
+                            icon = { Icon(Icons.Default.History, null) }, label = { Text("Recent") }
+                        )
+                        NavigationBarItem(
+                            selected = current == Routes.DASHBOARD,
                             onClick = openDrawer,
                             icon = { Icon(Icons.Default.Menu, null) }, label = { Text("More") }
                         )
@@ -219,7 +210,6 @@ fun QcApp_Root() {
             composable(Routes.VERIFY) { VerifyScreen(onMenu = openDrawer) }
             composable(Routes.ISSUES) { IssuesScreen(onMenu = openDrawer) }
             composable(Routes.DASHBOARD) { DashboardScreen(onMenu = openDrawer) }
-            composable(Routes.COMPLIANCE) { ComplianceScreen(onMenu = openDrawer) }
             composable(Routes.RECENT) { RecentScreen(onMenu = openDrawer) }
             composable(Routes.FPA) { FpaScreen(onBack = { nav.popBackStack() }) }
             composable(Routes.QC) {

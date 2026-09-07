@@ -18,6 +18,7 @@ data class VerifyUiState(
     val machines: List<String> = emptyList(),
     val jobContext: QueueJob? = null,
     val jobs: List<QueueJob> = emptyList(),
+    val selectedJob: QueueJob? = null,
     val runningBalances: List<ColourBalance> = emptyList(),
     val date: String = Ist.date(),
     val shift: String = Ist.shift(),
@@ -56,7 +57,7 @@ class VerifyViewModel : ViewModel() {
             repo.queue(m).onSuccess { jobs ->
                 val running = jobs.firstOrNull { it.Status.equals("RUNNING", ignoreCase = true) }
                     ?: jobs.firstOrNull()
-                _state.update { it.copy(jobs = jobs, jobContext = running, runningBalances = emptyList()) }
+                _state.update { it.copy(jobs = jobs, jobContext = running, selectedJob = running, runningBalances = emptyList()) }
                 running?.PlanID?.let { pid ->
                     repo.colourBalance(pid).onSuccess { b -> _state.update { it.copy(runningBalances = b) } }
                 }
@@ -69,6 +70,15 @@ class VerifyViewModel : ViewModel() {
         _state.update { it.copy(machine = m) }
         loadContext()
         load()
+    }
+
+    fun selectJob(job: QueueJob) {
+        _state.update { it.copy(selectedJob = job, runningBalances = emptyList()) }
+        job.PlanID?.let { pid ->
+            viewModelScope.launch {
+                repo.colourBalance(pid).onSuccess { b -> _state.update { it.copy(runningBalances = b) } }
+            }
+        }
     }
 
     fun setShift(shift: String) {

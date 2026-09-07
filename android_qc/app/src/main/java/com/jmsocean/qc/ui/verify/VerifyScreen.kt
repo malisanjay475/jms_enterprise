@@ -2,6 +2,7 @@ package com.jmsocean.qc.ui.verify
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.jmsocean.qc.data.remote.ColourBalance
+import com.jmsocean.qc.data.remote.QueueJob
 import com.jmsocean.qc.data.remote.VerifySlot
 import com.jmsocean.qc.ui.theme.Crit
 import com.jmsocean.qc.ui.theme.Good
@@ -92,120 +95,79 @@ fun VerifyScreen(
             )
         }
     ) { pad ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(pad)
-                .padding(horizontal = 16.dp)
+        var menuOpen by remember { mutableStateOf(false) }
+        val selJc = s.selectedJob?.JobCardNo
+        val slots = remember(s.slots, selJc) {
+            if (!selJc.isNullOrBlank()) s.slots.filter { it.job_card_no.isNullOrBlank() || it.job_card_no == selJc }
+            else s.slots
+        }
+        LazyColumn(
+            Modifier.fillMaxSize().padding(pad),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Spacer(Modifier.size(12.dp))
-
             // Machine picker
-            var menuOpen by remember { mutableStateOf(false) }
-            Box {
-                OutlinedButton(onClick = { menuOpen = true }) {
-                    Text(s.machine.ifBlank { "Select machine ▾" })
-                }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    if (s.machines.isEmpty()) DropdownMenuItem(text = { Text("No machines") }, onClick = {})
-                    s.machines.forEach { m ->
-                        DropdownMenuItem(text = { Text(m) }, onClick = { menuOpen = false; vm.selectMachine(m) })
+            item {
+                Box {
+                    OutlinedButton(onClick = { menuOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(s.machine.ifBlank { "Select machine ▾" }, modifier = Modifier.weight(1f))
+                        Text("▾")
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        if (s.machines.isEmpty()) DropdownMenuItem(text = { Text("No machines") }, onClick = {})
+                        s.machines.forEach { m ->
+                            DropdownMenuItem(text = { Text(m) }, onClick = { menuOpen = false; vm.selectMachine(m) })
+                        }
                     }
                 }
             }
 
-            // Jobs on this machine — running one flagged green, with colour balance
-            s.jobs.forEach { j ->
+            if (s.jobs.isNotEmpty()) item { SectionHeader("Select a plan to verify") }
+
+            // Jobs — tap to select; running flagged green; balance under the selected one
+            items(s.jobs) { j ->
                 val running = j.Status.equals("RUNNING", ignoreCase = true)
-                Spacer(Modifier.size(10.dp))
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (running) Good.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surfaceVariant
-                    ),
-                    border = if (running) BorderStroke(1.5.dp, Good) else null,
-                    shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(Modifier.padding(12.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text(j.productName, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                            if (running) Text("● RUNNING", color = Good, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                        }
-                        j.clientName?.takeIf { it.isNotBlank() }?.let {
-                            Text(it, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurface)
-                        }
-                        Text(
-                            buildString {
-                                append("OR ${j.orderNumber.ifBlank { "—" }}")
-                                j.JobCardNo?.takeIf { it.isNotBlank() }?.let { append("  |  JC $it") }
-                            },
-                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            "Mould: ${j.Mould?.takeIf { it.isNotBlank() } ?: "—"}" +
-                                (j.mouldNo?.takeIf { it.isNotBlank() }?.let { "   ·   No: $it" } ?: ""),
-                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        // Colour balance for the running job
-                        if (running && s.runningBalances.isNotEmpty()) {
-                            Spacer(Modifier.size(8.dp))
-                            Row(Modifier.fillMaxWidth()) {
-                                BalHead("Colour", 1.4f); BalHead("Plan", 1f); BalHead("Made", 1f, Good); BalHead("Bal", 1f, Warn)
-                            }
-                            s.runningBalances.forEach { b ->
-                                Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
-                                    BalCell(b.colour, 1.4f, bold = true); BalCell("${b.planQty}", 1f)
-                                    BalCell("${b.produced}", 1f, Good); BalCell("${b.balance}", 1f, Warn)
-                                }
-                            }
-                        }
+                val selected = s.selectedJob?.PlanID == j.PlanID && j.PlanID != null
+                JobPickCard(j, running, selected, if (selected) s.runningBalances else emptyList()) { vm.selectJob(j) }
+            }
+
+            // Shift toggle + status
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                    listOf("Day", "Night").forEach { sh ->
+                        FilterChip(selected = s.shift == sh, onClick = { if (s.shift != sh) vm.setShift(sh) }, label = { Text(sh) })
                     }
                 }
             }
+            s.message?.let { item { Text(it, color = Good, fontSize = 13.sp) } }
+            s.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) } }
 
-            Spacer(Modifier.size(12.dp))
+            item {
+                SectionHeader(
+                    if (s.selectedJob != null) "Entries · ${s.selectedJob!!.productName}" else "Entries"
+                )
+            }
 
-            // Shift toggle
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Day", "Night").forEach { sh ->
-                    FilterChip(
-                        selected = s.shift == sh,
-                        onClick = { if (s.shift != sh) vm.setShift(sh) },
-                        label = { Text(sh) }
+            when {
+                s.loading -> item {
+                    Box(Modifier.fillMaxWidth().padding(30.dp), Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                slots.isEmpty() -> item {
+                    Text("No entries for this plan / shift yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                else -> items(slots) { slot ->
+                    SlotCard(
+                        slot = slot,
+                        busy = s.busySlot == slot.hour_slot,
+                        onVerify = { g, r, rmk -> vm.submit(slot, g, r, rmk) },
+                        onHold = { holdFor = slot },
+                        onDeviation = { deviationFor = slot }
                     )
                 }
             }
-
-            if (s.message != null) {
-                Spacer(Modifier.size(10.dp))
-                Text(s.message!!, color = Good, fontSize = 13.sp)
-            }
-            if (s.error != null) {
-                Spacer(Modifier.size(10.dp))
-                Text(s.error!!, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
-            }
-
-            Spacer(Modifier.size(12.dp))
-
-            when {
-                s.loading -> Box(Modifier.fillMaxWidth().padding(30.dp), Alignment.Center) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                }
-                s.slots.isEmpty() -> Text(
-                    "No DPR entries for this shift yet.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(s.slots) { slot ->
-                        SlotCard(
-                            slot = slot,
-                            busy = s.busySlot == slot.hour_slot,
-                            onVerify = { g, r, rmk -> vm.submit(slot, g, r, rmk) },
-                            onHold = { holdFor = slot },
-                            onDeviation = { deviationFor = slot }
-                        )
-                    }
-                }
-            }
+            item { Spacer(Modifier.size(8.dp)) }
         }
     }
 
@@ -373,6 +335,65 @@ private fun SupStat(label: String, value: Int?, modifier: Modifier = Modifier) {
     Column(modifier) {
         Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
         Text("${value ?: 0}", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun SectionHeader(t: String) = Text(
+    t, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp)
+)
+
+@Composable
+private fun JobPickCard(
+    j: QueueJob, running: Boolean, selected: Boolean, balances: List<ColourBalance>, onClick: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+        ),
+        border = when {
+            running -> BorderStroke(1.5.dp, Good)
+            selected -> BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+            else -> BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        },
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(j.productName, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                if (running) Text("● RUNNING", color = Good, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                else if (selected) Text("Selected", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            }
+            j.clientName?.takeIf { it.isNotBlank() }?.let {
+                Text(it, fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurface)
+            }
+            Text(
+                buildString {
+                    append("OR ${j.orderNumber.ifBlank { "—" }}")
+                    j.JobCardNo?.takeIf { it.isNotBlank() }?.let { append("  |  JC $it") }
+                },
+                fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Mould: ${j.Mould?.takeIf { it.isNotBlank() } ?: "—"}" +
+                    (j.mouldNo?.takeIf { it.isNotBlank() }?.let { "   ·   No: $it" } ?: ""),
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (selected && balances.isNotEmpty()) {
+                Spacer(Modifier.size(8.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    BalHead("Colour", 1.4f); BalHead("Plan", 1f); BalHead("Made", 1f, Good); BalHead("Bal", 1f, Warn)
+                }
+                balances.forEach { b ->
+                    Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                        BalCell(b.colour, 1.4f, bold = true); BalCell("${b.planQty}", 1f)
+                        BalCell("${b.produced}", 1f, Good); BalCell("${b.balance}", 1f, Warn)
+                    }
+                }
+            }
+        }
     }
 }
 
