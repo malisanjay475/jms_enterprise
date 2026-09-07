@@ -266,11 +266,25 @@ class QcRepository(private val session: SessionStore) {
 
     // ── Issues ──────────────────────────────────────────────────────────────
 
-    suspend fun issues(machine: String, status: String?): Result<List<MaterialIssue>> = runCatching {
+    /** Pull the real {ok,error} message out of a non-2xx response body. */
+    private fun serverErr(e: Throwable): String {
+        if (e is retrofit2.HttpException) {
+            val body = runCatching { e.response()?.errorBody()?.string() }.getOrNull()
+            val msg = body?.takeIf { it.isNotBlank() }?.let {
+                runCatching { json.decodeFromString(ApiEnvelope.serializer(), it).error }.getOrNull()
+            }
+            return msg ?: "Server error (HTTP ${e.code()})"
+        }
+        return e.message ?: "Failed"
+    }
+
+    suspend fun issues(machine: String, status: String?): Result<List<MaterialIssue>> = try {
         val env = api.materialIssues(machine.ifBlank { null }, status)
-        if (!env.ok) error(env.error ?: "Could not load issues")
+        if (!env.ok) throw Exception(env.error ?: "Could not load issues")
         val arr = env.data as? JsonArray ?: JsonArray(emptyList())
-        arr.map { json.decodeFromJsonElement(MaterialIssue.serializer(), it) }
+        Result.success(arr.map { json.decodeFromJsonElement(MaterialIssue.serializer(), it) })
+    } catch (e: Exception) {
+        Result.failure(Exception(serverErr(e)))
     }
 
     suspend fun createIssue(
