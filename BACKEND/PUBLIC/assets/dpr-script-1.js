@@ -753,8 +753,9 @@
                           <option value="MouldTrial">🧪 Mould Trial</option>
                         </select>
                       </div>
-                      <div style="display:flex; gap:8px">
+                      <div style="display:flex; gap:8px; align-items:center">
                         <button id="btn-s-apply" class="btn btn-primary" style="padding:7px 15px; background:#3b82f6; color:white; border:none; border-radius:4px; font-weight:600; cursor:pointer; font-size:0.82rem">Apply</button>
+                        <span id="dpr-machine-count" style="font-size:0.75rem; font-weight:700; color:#0369a1; background:#e0f2fe; border:1px solid #bae6fd; padding:4px 10px; border-radius:99px; white-space:nowrap"></span>
                       </div>
                       <div style="margin-left:auto; text-align:right; font-size:0.72rem; color:#64748b; align-self:center; display:flex; gap:9px; flex-wrap:wrap; justify-content:flex-end">
                           <span><span style="display:inline-block; width:11px; height:11px; background:#22c55e; margin-right:3px; vertical-align:middle; border-radius:3px"></span>Filled</span>
@@ -1436,6 +1437,7 @@
                         const mmHeader = {};         // lineName -> line header + <table><tbody> open
                         const mmRows = {};           // lineName -> machine -> [rowHtml, ...] (pass order)
                         let mmStickyHeader = '';     // the column header, emitted once
+                        let mmMachineCount = 0;      // machines shown after View/Line filters
 
                         renderPasses.forEach(({ date, shift: passShift }) => {
                             // Force this block to a single shift so each (date × shift) renders
@@ -2962,6 +2964,7 @@
                                     const passRows = mmRows[lineName][machine];
                                     if (!passesViewFilter(passRows)) return; // View Filter
                                     anyShown = true;
+                                    mmMachineCount++;
                                     const rowsHtml = passRows.map(r => r.html).join('');
                                     const searchText = (machine + ' ' + rowsHtml.replace(/<[^>]+>/g, ' '))
                                         .toLowerCase().replace(/\s+/g, ' ').replace(/"/g, '').trim();
@@ -3049,7 +3052,9 @@
                         }
 
                         container.innerHTML = masterHtml;
-                        // Re-apply the active search filter to the fresh DOM.
+                        // Total machines shown after View/Line filters (before Search narrows).
+                        window._dprMachineCount = mmMachineCount;
+                        // Re-apply the active search filter to the fresh DOM (also sets the count badge).
                         try { if (window.applyDprSearch) window.applyDprSearch(); } catch(_) {}
 
                         // ---- KAN-68: Freeze ONLY the date banner + hour-slot header ----
@@ -3395,6 +3400,10 @@
                     });
                     const cnt = document.getElementById('s-search-count');
                     if (cnt) cnt.textContent = words.length ? `${shown} machine${shown === 1 ? '' : 's'}` : '';
+                    // Count badge: total shown (after View/Line filters), or matched/total while searching.
+                    const total = window._dprMachineCount || 0;
+                    const badge = document.getElementById('dpr-machine-count');
+                    if (badge) badge.textContent = words.length ? `${shown} / ${total} machines` : `${total} machine${total === 1 ? '' : 's'}`;
                 };
 
                 document.getElementById('btn-s-apply').onclick = loadSummary;
