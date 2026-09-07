@@ -2776,7 +2776,7 @@
                                 if (flatMode) {
                                     globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
                                 } else {
-                                    machineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine });
+                                    machineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
                                 }
                             }); // End machines loop
 
@@ -2787,7 +2787,7 @@
                                 if (!mmRows[lineName]) { mmRows[lineName] = {}; mmOrder.push(lineName); mmHeader[lineName] = lineInnerHtml; }
                                 machineBuffer.forEach(mb => {
                                     if (!mmRows[lineName][mb.name]) mmRows[lineName][mb.name] = [];
-                                    mmRows[lineName][mb.name].push(mb.html);
+                                    mmRows[lineName][mb.name].push(mb); // {html, meta…} per pass
                                 });
                             } else {
                                 lineInnerHtml += machineBuffer.map(m => m.html).join('');
@@ -2925,6 +2925,27 @@
                         if (mmMode && mmOrder.length) {
                             masterHtml += mmStickyHeader;
                             const extractIdx = (str) => { const m = String(str).match(/-(\d+)$/); return m ? parseInt(m[1]) : 999999; };
+                            // View Filter: a machine passes if ANY of its date/shift passes matches.
+                            const passesViewFilter = (rows) => {
+                                if (!filterMode || filterMode === 'ShowAll') return true;
+                                return rows.some(r => {
+                                    switch (filterMode) {
+                                        case 'AbovePlan': return r.balComplete === true;
+                                        case 'Pending': return r.missingSlots > 0;
+                                        case 'LowEff': return r.hasEntries && r.eff < 75;
+                                        case 'LowOee': return r.hasEntries && r.oee < 75;
+                                        case 'MouldChange': return r.entryTypes.has('MouldChange') || r.entryTypes.has('MouldChangeover');
+                                        case 'PlanChangeOver': return r.planNearDone === true;
+                                        case 'ManPowerShortage': return r.entryTypes.has('ManPowerShortage');
+                                        case 'MouldMaintenance': return r.entryTypes.has('MouldMaintenance');
+                                        case 'PowerCut': return r.entryTypes.has('PowerCut');
+                                        case 'NoPlan': return r.entryTypes.has('NoPlan') || !r.hasEntries;
+                                        case 'MachineMaintenance': return r.entryTypes.has('Maintenance');
+                                        case 'MouldTrial': return r.entryTypes.has('MouldTrial');
+                                        default: return true;
+                                    }
+                                });
+                            };
                             mmOrder.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
                             mmOrder.forEach(lineName => {
                                 // Close the header's auto-opened (empty) tbody, then give each
@@ -2936,13 +2957,19 @@
                                     if (ia !== ib && ia !== 999999 && ib !== 999999) return ia - ib;
                                     return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
                                 });
+                                let anyShown = false;
                                 machs.forEach(machine => {
-                                    const rowsHtml = mmRows[lineName][machine].join('');
+                                    const passRows = mmRows[lineName][machine];
+                                    if (!passesViewFilter(passRows)) return; // View Filter
+                                    anyShown = true;
+                                    const rowsHtml = passRows.map(r => r.html).join('');
                                     const searchText = (machine + ' ' + rowsHtml.replace(/<[^>]+>/g, ' '))
                                         .toLowerCase().replace(/\s+/g, ' ').replace(/"/g, '').trim();
                                     html += `<tbody class="mm-machine" data-search="${searchText}">${rowsHtml}</tbody>`;
                                 });
                                 html += `</table></div></div>`;
+                                // Skip a line card entirely when the View Filter removed all its machines.
+                                if (!anyShown && filterMode && filterMode !== 'ShowAll') return;
                                 // Wrap each line so search can hide a whole line card cleanly
                                 // (without touching the sticky column header, which is also a table).
                                 masterHtml += `<div class="dpr-line-card">${html}</div>`;
