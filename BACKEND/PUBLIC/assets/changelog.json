@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.15",
+  "latest": "1.55.16",
   "versions": [
+    {
+      "version": "1.55.16",
+      "date": "2026-09-06",
+      "title": "Compliance Summary: View Filter works in machine-wise",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Fixed the DPR Compliance Summary View filter (Above Plan Qty, Pending Entries, Low EFF/OEE, Mould Change, MP Shortage, etc.) — it now correctly shows only the matching machines in the machine-wise layout." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.15",
       "date": "2026-09-06",
