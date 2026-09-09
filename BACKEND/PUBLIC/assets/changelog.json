@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.21",
+  "latest": "1.55.22",
   "versions": [
+    {
+      "version": "1.55.22",
+      "date": "2026-09-09",
+      "title": "Mould Master: upload button always shows on MAIN",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "fix", "text": "The Mould Master file upload (Choose file + Preview Upload) now always shows on the MAIN server, including when viewing another factory's scope — it was sometimes left hidden after the page finished loading." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.21",
       "date": "2026-09-09",
