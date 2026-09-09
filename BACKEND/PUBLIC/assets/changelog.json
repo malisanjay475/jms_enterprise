@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.20",
+  "latest": "1.55.21",
   "versions": [
+    {
+      "version": "1.55.21",
+      "date": "2026-09-09",
+      "title": "Compliance Summary: fix View filter crash",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Fixed a 'slots is not defined' error that blanked the DPR Compliance Summary when a View filter (e.g. Show All by EFF) was selected." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.20",
       "date": "2026-09-09",
