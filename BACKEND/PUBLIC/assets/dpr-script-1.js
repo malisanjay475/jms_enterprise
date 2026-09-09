@@ -2964,35 +2964,62 @@
                                     }
                                 });
                             };
-                            mmOrder.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
-                            mmOrder.forEach(lineName => {
-                                // Close the header's auto-opened (empty) tbody, then give each
-                                // machine its OWN tbody carrying searchable text (machine + its
-                                // moulds/orders/clients), so the top Search box can show/hide by machine.
-                                let html = mmHeader[lineName] + '</tbody>';
-                                const machs = Object.keys(mmRows[lineName]).sort((a, b) => {
-                                    const ia = extractIdx(a), ib = extractIdx(b);
-                                    if (ia !== ib && ia !== 999999 && ib !== 999999) return ia - ib;
-                                    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+                            const mkSearchText = (machine, rowsHtml) => (machine + ' ' + rowsHtml.replace(/<[^>]+>/g, ' '))
+                                .toLowerCase().replace(/\s+/g, ' ').replace(/"/g, '').trim();
+
+                            if (filterMode) {
+                                // ── View Filter selected → flat list across ALL lines, sorted by the
+                                // relevant metric (Pending: most missing first; Low OEE: lowest OEE;
+                                // everything else incl. "Show All (by EFF)": lowest EFF first). This
+                                // restores the original flat-sorted behaviour of the View filter.
+                                const flat = [];
+                                mmOrder.forEach(lineName => {
+                                    Object.keys(mmRows[lineName]).forEach(machine => {
+                                        const passRows = mmRows[lineName][machine];
+                                        if (!passesViewFilter(passRows)) return;
+                                        flat.push({
+                                            machine,
+                                            rowsHtml: passRows.map(r => r.html).join(''),
+                                            eff: Math.min(...passRows.map(r => r.eff || 0)),
+                                            oee: Math.min(...passRows.map(r => r.oee || 0)),
+                                            missingSlots: Math.max(...passRows.map(r => r.missingSlots || 0))
+                                        });
+                                    });
                                 });
-                                let anyShown = false;
-                                machs.forEach(machine => {
-                                    const passRows = mmRows[lineName][machine];
-                                    if (!passesViewFilter(passRows)) return; // View Filter
-                                    anyShown = true;
-                                    mmMachineCount++;
-                                    const rowsHtml = passRows.map(r => r.html).join('');
-                                    const searchText = (machine + ' ' + rowsHtml.replace(/<[^>]+>/g, ' '))
-                                        .toLowerCase().replace(/\s+/g, ' ').replace(/"/g, '').trim();
-                                    html += `<tbody class="mm-machine" data-search="${searchText}">${rowsHtml}</tbody>`;
+                                if (filterMode === 'Pending') flat.sort((a, b) => b.missingSlots - a.missingSlots);
+                                else if (filterMode === 'LowOee') flat.sort((a, b) => a.oee - b.oee);
+                                else flat.sort((a, b) => a.eff - b.eff);
+                                mmMachineCount = flat.length;
+
+                                const filterLabels = { ShowAll: 'Show All (by EFF)', AbovePlan: '🔴 Above Plan Qty', Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', LowOee: 'Low OEE', MouldChange: 'Mould Change', PlanChangeOver: 'Plan Change Over (≤20% left)', ManPowerShortage: '🚷 MP Shortage', MouldMaintenance: '🔧 Mould Maintenance', PowerCut: '⚡ Power Cut', NoPlan: '📅 No Plan', MachineMaintenance: '🛠️ Machine Maintenance', MouldTrial: '🧪 Mould Trial' };
+                                let tbodies = '';
+                                flat.forEach(f => { tbodies += `<tbody class="mm-machine" data-search="${mkSearchText(f.machine, f.rowsHtml)}">${f.rowsHtml}</tbody>`; });
+                                const colgroup = `<colgroup><col style="width:220px; min-width:220px"><col style="width:45px; min-width:45px">${slots.map(() => '<col style="width:65px; min-width:65px">').join('')}<col style="width:140px; min-width:140px"></colgroup>`;
+                                masterHtml += `<div class="dpr-line-card"><div style="margin-bottom:24px; background:white; border:1px solid #cbd5e1; border-radius:0 0 12px 12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-top:-1px">
+                                    <div style="display:flex; align-items:center; gap:8px; padding:8px 14px; background:#0f172a; color:#fff; font-size:0.8rem; font-weight:700; letter-spacing:.3px"><i class="bi bi-funnel-fill"></i><span>${filterLabels[filterMode] || filterMode}</span><span style="margin-left:auto; background:${flat.length ? '#3b82f6' : '#64748b'}; padding:2px 10px; border-radius:12px; font-weight:800">${flat.length} machine${flat.length === 1 ? '' : 's'}</span></div>
+                                    <div style="overflow-x:auto"><table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">${colgroup}<tbody></tbody>${tbodies}</table></div></div></div>`;
+                            } else {
+                                // No View Filter → grouped machine-wise (one table per line).
+                                mmOrder.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+                                mmOrder.forEach(lineName => {
+                                    // Close the header's auto-opened (empty) tbody, then give each machine its
+                                    // OWN tbody carrying searchable text (machine + its moulds/orders/clients).
+                                    let html = mmHeader[lineName] + '</tbody>';
+                                    const machs = Object.keys(mmRows[lineName]).sort((a, b) => {
+                                        const ia = extractIdx(a), ib = extractIdx(b);
+                                        if (ia !== ib && ia !== 999999 && ib !== 999999) return ia - ib;
+                                        return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+                                    });
+                                    machs.forEach(machine => {
+                                        const passRows = mmRows[lineName][machine];
+                                        mmMachineCount++;
+                                        const rowsHtml = passRows.map(r => r.html).join('');
+                                        html += `<tbody class="mm-machine" data-search="${mkSearchText(machine, rowsHtml)}">${rowsHtml}</tbody>`;
+                                    });
+                                    html += `</table></div></div>`;
+                                    masterHtml += `<div class="dpr-line-card">${html}</div>`;
                                 });
-                                html += `</table></div></div>`;
-                                // Skip a line card entirely when the View Filter removed all its machines.
-                                if (!anyShown && filterMode && filterMode !== 'ShowAll') return;
-                                // Wrap each line so search can hide a whole line card cleanly
-                                // (without touching the sticky column header, which is also a table).
-                                masterHtml += `<div class="dpr-line-card">${html}</div>`;
-                            });
+                            }
                         }
 
                         // ---- ENTRIES COUNT: Standalone calculation from raw API data ----

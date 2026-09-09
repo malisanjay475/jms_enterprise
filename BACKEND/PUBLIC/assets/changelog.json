@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.19",
+  "latest": "1.55.20",
   "versions": [
+    {
+      "version": "1.55.20",
+      "date": "2026-09-09",
+      "title": "Compliance Summary: View filter sorted list",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The DPR Compliance Summary View filter now shows a single sorted list of the matching machines — 'Show All (by EFF)' and 'Low EFF' order worst EFF first, 'Low OEE' worst OEE first, 'Pending Entries' most-pending first — instead of leaving the machines in their normal grouped order." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.19",
       "date": "2026-09-09",
