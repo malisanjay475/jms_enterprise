@@ -1115,9 +1115,14 @@
        Visible only to PPC managers, HR manager, admin and superadmin. */
     window.etvApplyPriorityRole = function () {
       const allowed = ['ppc_ass_manager', 'ppc_manager', 'hr_manager', 'admin', 'superadmin'];
-      let role = '';
-      try { role = String((window.JPSMS && window.JPSMS.auth.getUser().role_code) || '').toLowerCase(); } catch (_) {}
-      const show = allowed.includes(role);
+      let show = false;
+      try {
+        const auth = window.JPSMS && window.JPSMS.auth;
+        const user = (auth && auth.getUser) ? (auth.getUser() || {}) : {};
+        const role = String((user && user.role_code) || '').toLowerCase();
+        // Admin/superadmin always pass via the app's own helper; PPC/HR roles by role_code.
+        show = allowed.includes(role) || !!(auth && auth.isAdminLike && auth.isAdminLike(user));
+      } catch (_) {}
       ['etv-priority-btn', 'etv-saved-priority-btn'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = show ? 'inline-flex' : 'none';
