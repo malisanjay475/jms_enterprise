@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.18",
+  "latest": "1.55.19",
   "versions": [
+    {
+      "version": "1.55.19",
+      "date": "2026-09-09",
+      "title": "Mould Master upload button shows on MAIN",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-gem",
+          "changes": [
+            { "type": "fix", "text": "The Mould Master Upload button now appears for Superadmin/Admin on the MAIN server even in All-Factories view. Moulds are company-wide, so the per-factory write lock no longer hides it. Factory servers stay read-only as before." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.18",
       "date": "2026-09-07",
