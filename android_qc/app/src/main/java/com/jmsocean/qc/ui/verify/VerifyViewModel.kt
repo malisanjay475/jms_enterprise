@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jmsocean.qc.QcApp
 import com.jmsocean.qc.data.Ist
+import com.jmsocean.qc.data.remote.ColourBalance
 import com.jmsocean.qc.data.remote.QueueJob
 import com.jmsocean.qc.data.remote.VerifySlot
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +17,7 @@ data class VerifyUiState(
     val machine: String = "",
     val machines: List<String> = emptyList(),
     val jobContext: QueueJob? = null,
+    val balances: List<ColourBalance> = emptyList(),
     val date: String = Ist.date(),
     val shift: String = Ist.shift(),
     val slots: List<VerifySlot> = emptyList(),
@@ -51,9 +53,19 @@ class VerifyViewModel : ViewModel() {
         if (m.isBlank()) return
         viewModelScope.launch {
             repo.queue(m).onSuccess { jobs ->
-                _state.update { it.copy(jobContext = jobs.firstOrNull()) }
+                val job = jobs.firstOrNull()
+                _state.update { it.copy(jobContext = job) }
+                val planId = job?.PlanID
+                if (!planId.isNullOrBlank()) {
+                    repo.colourBalance(planId).onSuccess { b -> _state.update { it.copy(balances = b) } }
+                } else _state.update { it.copy(balances = emptyList()) }
             }
         }
+    }
+
+    fun setDate(date: String) {
+        _state.update { it.copy(date = date) }
+        load()
     }
 
     fun selectMachine(m: String) {
