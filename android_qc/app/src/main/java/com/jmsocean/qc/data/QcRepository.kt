@@ -325,12 +325,25 @@ class QcRepository(private val session: SessionStore) {
         shift: String,
         hourSlot: String,
         shots: Int,
-        reject: Int,
+        rejectQty: Int,
         downtimeMin: Int,
         colour: String,
-        remarks: String
+        remarks: String,
+        rejectBreakup: String,
+        downtimeBreakup: String
     ): Result<Unit> {
-        val good = (shots - reject).coerceAtLeast(0)
+        val good = (shots - rejectQty).coerceAtLeast(0)
+        // Mirror the web form: fold Color / Rej[…] / DT[…] breakdowns into Remarks.
+        val breakdowns = buildList {
+            if (colour.isNotBlank()) add("Color=$colour")
+            if (rejectBreakup.isNotBlank()) add("Rej[$rejectBreakup]")
+            if (downtimeBreakup.isNotBlank()) add("DT[$downtimeBreakup]")
+        }
+        val fullRemarks = when {
+            breakdowns.isEmpty() -> remarks
+            remarks.isNotBlank() -> remarks + " | " + breakdowns.joinToString(" | ")
+            else -> breakdowns.joinToString(" | ")
+        }
         return submitOrQueue(
             "api/dpr/submit",
             com.jmsocean.qc.data.remote.DprSubmitRequest.serializer(),
@@ -338,13 +351,13 @@ class QcRepository(private val session: SessionStore) {
                 session = sessionRef(),
                 entry = com.jmsocean.qc.data.remote.DprEntry(
                     date = date, shift = shift, hourSlot = hourSlot,
-                    shots = shots, goodQty = good, rejectQty = reject,
-                    downtimeMin = downtimeMin, remarks = remarks,
+                    shots = shots, goodQty = good, rejectQty = rejectQty,
+                    downtimeMin = downtimeMin, remarks = fullRemarks,
                     planId = job.PlanID ?: "", machine = job.Machine ?: session.machine,
                     orderNo = job.orderNumber, mouldNo = job.mouldForEntry,
                     jobCardNo = job.JobCardNo ?: "", colour = colour,
-                    rejectBreakup = if (reject > 0 && colour.isNotBlank()) "$colour:$reject" else "",
-                    downtimeBreakup = ""
+                    rejectBreakup = rejectBreakup,
+                    downtimeBreakup = downtimeBreakup
                 )
             ),
             "QC $hourSlot"

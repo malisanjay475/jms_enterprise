@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -28,10 +29,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -181,18 +184,13 @@ fun QcEntryScreen(
                         Spacer(Modifier.height(12.dp))
                     }
 
-                    // Shots / Reject / Downtime
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NumField("Shots", s.shots, vm::setShots, Modifier.weight(1f))
-                        NumField("Reject", s.reject, vm::setReject, Modifier.weight(1f))
-                    }
-                    Spacer(Modifier.height(8.dp))
+                    // Shots + Good (auto)
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        NumField("Downtime (min)", s.downtime, vm::setDowntime, Modifier.weight(1f))
+                        NumField("Shots", s.shots, vm::setShots, Modifier.weight(1f))
                         Card(
                             colors = CardDefaults.cardColors(containerColor = Good.copy(alpha = 0.12f)),
                             shape = RoundedCornerShape(10.dp), modifier = Modifier.weight(1f)
@@ -203,6 +201,58 @@ fun QcEntryScreen(
                             }
                         }
                     }
+                    Spacer(Modifier.height(12.dp))
+
+                    // Reject (defect reasons) — code dropdown + qty per row
+                    val rejectLabels = remember { REJECT_REASONS.map { "${it.first} · ${it.second}" } }
+                    SectionHeader("Reject", "Total: ${s.totalReject}")
+                    s.rejectRows.forEachIndexed { i, r ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(top = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            DropdownField(
+                                label = "Defect",
+                                selectedText = REJECT_REASONS.firstOrNull { it.first == r.code }
+                                    ?.let { "${it.first} · ${it.second}" } ?: "",
+                                options = rejectLabels,
+                                onSelect = { idx -> vm.setRejectCode(i, REJECT_REASONS[idx].first) },
+                                modifier = Modifier.weight(1.6f)
+                            )
+                            NumField("Qty", r.qty, { vm.setRejectQty(i, it) }, Modifier.weight(0.8f))
+                            IconButton(onClick = { vm.removeRejectRow(i) }) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = Crit)
+                            }
+                        }
+                    }
+                    TextButton(onClick = vm::addRejectRow) { Text("+ Add reject reason") }
+                    Spacer(Modifier.height(8.dp))
+
+                    // Downtime reasons — reason dropdown + minutes per row
+                    val downtimeLabels = remember { DOWNTIME_REASONS.map { "${it.first} · ${it.second}" } }
+                    SectionHeader("Downtime (min)", "Total: ${s.totalDowntime} / 60")
+                    s.downtimeRows.forEachIndexed { i, r ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(top = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            DropdownField(
+                                label = "Reason",
+                                selectedText = DOWNTIME_REASONS.firstOrNull { it.first == r.code }
+                                    ?.let { "${it.first} · ${it.second}" } ?: "",
+                                options = downtimeLabels,
+                                onSelect = { idx -> vm.setDowntimeCode(i, DOWNTIME_REASONS[idx].first) },
+                                modifier = Modifier.weight(1.6f)
+                            )
+                            NumField("Min", r.min, { vm.setDowntimeMin(i, it) }, Modifier.weight(0.8f))
+                            IconButton(onClick = { vm.removeDowntimeRow(i) }) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove", tint = Crit)
+                            }
+                        }
+                    }
+                    TextButton(onClick = vm::addDowntimeRow) { Text("+ Add downtime reason") }
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = s.remarks, onValueChange = vm::setRemarks,
@@ -236,6 +286,18 @@ fun QcEntryScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String, trailing: String) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(trailing, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
