@@ -51,9 +51,22 @@ data class SlotUi(
     val savedMsg: String? = null
 )
 
+/** STD-vs-Act setup, filled twice per shift (period 1 = start, 2 = mid). */
+data class PeriodInput(
+    val actWeight: String = "", val actCT: String = "", val actCavity: String = "",
+    val done: Boolean = false, val saving: Boolean = false, val msg: String? = null
+)
+data class SetupUi(
+    val available: Boolean = false,   // job has a JC → setup applies
+    val stdWeight: String = "", val stdCT: String = "", val stdCavity: String = "",
+    val p1: PeriodInput = PeriodInput(),
+    val p2: PeriodInput = PeriodInput()
+)
+
 data class OnlineReportUiState(
     val machine: String = "",
     val machines: List<String> = emptyList(),
+    val setup: SetupUi = SetupUi(),
     val date: String = Ist.date(),
     val shift: String = Ist.shift(),
     val loading: Boolean = false,
@@ -86,7 +99,7 @@ class OnlineReportViewModel : ViewModel() {
     )
     val state: StateFlow<OnlineReportUiState> = _state.asStateFlow()
 
-    init { loadMachines(); load() }
+    init { loadMachines(); load(); loadSetup() }
 
     private fun loadMachines() = viewModelScope.launch {
         repo.machines().onSuccess { list ->
@@ -94,8 +107,58 @@ class OnlineReportViewModel : ViewModel() {
         }
     }
 
-    fun setMachine(v: String) { _state.update { it.copy(machine = v) }; load() }
-    fun setShift(v: String) { _state.update { it.copy(shift = v) }; load() }
+    fun setMachine(v: String) { _state.update { it.copy(machine = v) }; load(); loadSetup() }
+    fun setShift(v: String) { _state.update { it.copy(shift = v) }; load(); loadSetup() }
+
+    private fun loadSetup() {
+        val jc = activeJob?.JobCardNo?.takeIf { it.isNotBlank() } ?: run {
+            _state.update { it.copy(setup = SetupUi(available = false)) }; return
+        }
+        val s = _state.value
+        val mould = activeJob?.mouldForEntry ?: ""
+        viewModelScope.launch {
+            repo.jobSetup(jc, s.date, s.shift, s.machine, mould).onSuccess { d ->
+                _state.update {
+                    it.copy(setup = SetupUi(
+                        available = true,
+                        stdWeight = d.stdWeight, stdCT = d.stdCycleTime, stdCavity = d.stdCavity,
+                        p1 = PeriodInput(
+                            actWeight = d.period1?.actWeight ?: "", actCT = d.period1?.actCycleTime ?: "",
+                            actCavity = d.period1?.actCavity ?: "", done = d.period1 != null
+                        ),
+                        p2 = PeriodInput(
+                            actWeight = d.period2?.actWeight ?: "", actCT = d.period2?.actCycleTime ?: "",
+                            actCavity = d.period2?.actCavity ?: "", done = d.period2 != null
+                        )
+                    ))
+                }
+            }
+        }
+    }
+
+    private fun editPeriod(period: Int, f: (PeriodInput) -> PeriodInput) = _state.update { st ->
+        val su = st.setup
+        st.copy(setup = if (period == 1) su.copy(p1 = f(su.p1).copy(msg = null)) else su.copy(p2 = f(su.p2).copy(msg = null)))
+    }
+    fun setSetupWeight(period: Int, v: String) = editPeriod(period) { it.copy(actWeight = v) }
+    fun setSetupCT(period: Int, v: String) = editPeriod(period) { it.copy(actCT = v) }
+    fun setSetupCavity(period: Int, v: String) = editPeriod(period) { it.copy(actCavity = v.filter(Char::isDigit)) }
+
+    fun saveSetup(period: Int) {
+        val s = _state.value
+        val jc = activeJob?.JobCardNo?.takeIf { it.isNotBlank() } ?: return
+        val su = s.setup
+        val p = if (period == 1) su.p1 else su.p2
+        editPeriod(period) { it.copy(saving = true, msg = null) }
+        viewModelScope.launch {
+            repo.saveJobSetup(
+                jobCardNo = jc, machine = s.machine, date = s.date, shift = s.shift, period = period,
+                stdWeight = su.stdWeight, stdCycleTime = su.stdCT, stdCavity = su.stdCavity,
+                actWeight = p.actWeight, actCycleTime = p.actCT, actCavity = p.actCavity
+            ).onSuccess { editPeriod(period) { it.copy(saving = false, done = true, msg = "✓ Saved") } }
+                .onFailure { e -> editPeriod(period) { it.copy(saving = false, msg = e.message ?: "Save failed") } }
+        }
+    }
 
     fun load() {
         val s = _state.value

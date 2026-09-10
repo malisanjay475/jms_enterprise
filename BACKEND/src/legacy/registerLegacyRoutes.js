@@ -5452,6 +5452,19 @@ async function initializeLegacyRuntime() {
       );
     `);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcjobs_lookup ON qc_job_setup (machine, dpr_date, shift)`);
+    // Setup is now filled TWICE per shift (every ~6h): setup_period 1 (start) & 2 (mid).
+    // Add the column, drop the old shift-level unique, add a period-aware unique.
+    await q(`ALTER TABLE qc_job_setup ADD COLUMN IF NOT EXISTS setup_period INTEGER DEFAULT 1`);
+    await q(`DO $$
+      DECLARE c text;
+      BEGIN
+        SELECT conname INTO c FROM pg_constraint
+          WHERE conrelid = 'qc_job_setup'::regclass AND contype = 'u'
+            AND pg_get_constraintdef(oid) LIKE '%(job_card_no, machine, dpr_date, shift)%';
+        IF c IS NOT NULL THEN EXECUTE 'ALTER TABLE qc_job_setup DROP CONSTRAINT ' || quote_ident(c); END IF;
+      END $$;`);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qc_job_setup_period
+                ON qc_job_setup (job_card_no, machine, dpr_date, shift, setup_period)`);
 
     // QC ONLINE REPORT SLOTS — structured 2-hour slot quality checks
     await q(`
@@ -27131,15 +27144,18 @@ app.get('/api/qc/job-setup', async (req, res) => {
     const { job_card_no, date, shift, machine, mould_name } = req.query;
     const factoryId = getFactoryId(req);
 
-    // Get existing QC setup
-    const setup = await q(
+    // Get existing QC setup — both periods (1 = start of shift, 2 = mid-shift).
+    const setupRows = await q(
       `SELECT * FROM qc_job_setup
        WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
          AND machine = $2 AND dpr_date = $3::date AND shift = $4
          AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)
-       ORDER BY setup_at DESC LIMIT 1`,
+       ORDER BY COALESCE(setup_period,1) ASC, setup_at DESC`,
       [job_card_no || '', machine || '', date, shift || 'Day', factoryId]
     );
+    const setups = { 1: null, 2: null };
+    for (const r of setupRows) { const p = r.setup_period || 1; if (!setups[p]) setups[p] = r; }
+    const setup = [setups[1] || null];  // keep the legacy `setup` shape (array-indexed [0])
 
     // Get STD values from mould master
     let std = { std_weight: null, std_cycle_time: null, std_cavity: null };
@@ -27166,7 +27182,7 @@ app.get('/api/qc/job-setup', async (req, res) => {
       if (mouldRows.length) std = { std_weight: mouldRows[0].std_weight, std_cycle_time: mouldRows[0].std_cycle_time, std_cavity: mouldRows[0].std_cavity };
     }
 
-    res.json({ ok: true, setup: setup[0] || null, std });
+    res.json({ ok: true, setup: setup[0] || null, setups, std });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -27178,22 +27194,25 @@ app.post('/api/qc/job-setup', async (req, res) => {
     const { job_card_no, machine, dpr_date, shift, act_weight, act_cycle_time, act_cavity,
             std_weight, std_cycle_time, std_cavity } = req.body || {};
     if (!job_card_no || !machine || !dpr_date || !shift) return res.json({ ok: false, error: 'job_card_no, machine, dpr_date, shift required' });
+    // setup_period: 1 (start of shift) or 2 (mid-shift). Filled twice per shift.
+    let setupPeriod = parseInt(req.body.setup_period, 10);
+    if (setupPeriod !== 1 && setupPeriod !== 2) setupPeriod = 1;
     const rawUser = (req.body.session ? (() => { try { const s = typeof req.body.session === 'string' ? JSON.parse(req.body.session) : req.body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || '';
     const setup_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
     const factoryId = getFactoryId(req);
     const toN = v => (v !== '' && v !== null && v !== undefined && !isNaN(Number(v))) ? Number(v) : null;
 
     await q(`
-      INSERT INTO qc_job_setup (factory_id, job_card_no, machine, dpr_date, shift,
+      INSERT INTO qc_job_setup (factory_id, job_card_no, machine, dpr_date, shift, setup_period,
         std_weight, act_weight, std_cycle_time, act_cycle_time, std_cavity, act_cavity, setup_by)
-      VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12)
-      ON CONFLICT (job_card_no, machine, dpr_date, shift)
+      VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      ON CONFLICT (job_card_no, machine, dpr_date, shift, setup_period)
       DO UPDATE SET
         std_weight = EXCLUDED.std_weight, act_weight = EXCLUDED.act_weight,
         std_cycle_time = EXCLUDED.std_cycle_time, act_cycle_time = EXCLUDED.act_cycle_time,
         std_cavity = EXCLUDED.std_cavity, act_cavity = EXCLUDED.act_cavity,
         setup_by = EXCLUDED.setup_by, setup_at = NOW()
-    `, [factoryId, job_card_no, machine, dpr_date, shift,
+    `, [factoryId, job_card_no, machine, dpr_date, shift, setupPeriod,
         toN(std_weight), toN(act_weight), toN(std_cycle_time), toN(act_cycle_time),
         toN(std_cavity) ? Math.round(toN(std_cavity)) : null,
         toN(act_cavity) ? Math.round(toN(act_cavity)) : null, setup_by]);

@@ -114,12 +114,70 @@ fun OnlineReportScreen(
                 }
                 s.error != null -> Text(s.error!!, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 24.dp))
                 else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (s.setup.available) item { SetupCard(s.setup, vm) }
                     items(s.slots) { slot -> SlotCard(slot, vm) }
                     item { Spacer(Modifier.height(24.dp)) }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun SetupCard(setup: SetupUi, vm: OnlineReportViewModel) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text("Setup (STD vs Act) — fill twice per shift", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "STD  Weight ${setup.stdWeight.ifBlank { "—" }} · CT ${setup.stdCT.ifBlank { "—" }} · Cavity ${setup.stdCavity.ifBlank { "—" }}",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            SetupPeriodBlock("Setup 1 (start)", 1, setup.stdWeight, setup.stdCT, setup.stdCavity, setup.p1, vm)
+            SetupPeriodBlock("Setup 2 (mid-shift)", 2, setup.stdWeight, setup.stdCT, setup.stdCavity, setup.p2, vm)
+        }
+    }
+}
+
+@Composable
+private fun SetupPeriodBlock(
+    title: String, period: Int, stdW: String, stdCT: String, stdCav: String,
+    p: PeriodInput, vm: OnlineReportViewModel
+) {
+    Spacer(Modifier.height(10.dp))
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        if (p.done) Text("✓ Done", color = Good, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+    Spacer(Modifier.height(4.dp))
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        NumField2("Act Wt", p.actWeight, { vm.setSetupWeight(period, it) }, Modifier.weight(1f))
+        NumField2("Act CT", p.actCT, { vm.setSetupCT(period, it) }, Modifier.weight(1f))
+        NumField2("Act Cav", p.actCavity, { vm.setSetupCavity(period, it) }, Modifier.weight(1f))
+    }
+    Spacer(Modifier.height(6.dp))
+    Button(onClick = { vm.saveSetup(period) }, enabled = !p.saving, modifier = Modifier.fillMaxWidth()) {
+        if (p.saving) CircularProgressIndicator(Modifier.height(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+        else Text(if (p.done) "Update $title" else "Save $title", color = MaterialTheme.colorScheme.onPrimary)
+    }
+    p.msg?.let {
+        Spacer(Modifier.height(4.dp))
+        Text(it, color = if (it.startsWith("✓")) Good else Crit, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun NumField2(label: String, value: String, onChange: (String) -> Unit, modifier: Modifier) {
+    OutlinedTextField(
+        value = value, onValueChange = onChange, label = { Text(label, fontSize = 11.sp) }, singleLine = true,
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+        ),
+        modifier = modifier
+    )
 }
 
 @Composable
