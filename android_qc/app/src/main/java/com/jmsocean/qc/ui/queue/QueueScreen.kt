@@ -1,8 +1,6 @@
 package com.jmsocean.qc.ui.queue
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +27,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -48,7 +47,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.jmsocean.qc.data.parseColourLines
 import com.jmsocean.qc.data.remote.QueueJob
 import com.jmsocean.qc.ui.theme.Accent
 import com.jmsocean.qc.ui.theme.Crit
@@ -208,9 +206,91 @@ fun QueueScreen(
                     items(s.jobs) { job ->
                         JobCard(
                             job,
+                            onClick = { vm.openDetail(job) },
                             onFpa = { vm.openFpa(job); onOpenFpa() },
                             onQc = { vm.openFpa(job); onOpenQc() }
                         )
+                    }
+                }
+            }
+        }
+    }
+
+    // Colour-wise Plan / Produced detail sheet (opens on job tap)
+    s.detailJob?.let { job ->
+        ColourDetailSheet(
+            job = job,
+            loading = s.detailLoading,
+            balances = s.detailBalances,
+            error = s.detailError,
+            onDismiss = { vm.closeDetail() }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ColourDetailSheet(
+    job: QueueJob,
+    loading: Boolean,
+    balances: List<com.jmsocean.qc.data.remote.ColourBalance>,
+    error: String?,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+            Text(job.productName, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Text(
+                buildString {
+                    job.orderNumber.takeIf { it.isNotBlank() }?.let { append("OR $it") }
+                    job.JobCardNo?.let { append(if (isEmpty()) "JC $it" else " · JC $it") }
+                    job.mouldForEntry.takeIf { it.isNotBlank() }?.let { append(" · Mould $it") }
+                },
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(14.dp))
+
+            when {
+                loading -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Accent)
+                }
+                error != null -> Text(error, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                balances.isEmpty() -> Text(
+                    "No colour breakdown for this job.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp
+                )
+                else -> {
+                    // Header row
+                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                        Text("Colour", Modifier.weight(1.4f), fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Plan", Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Produced", Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Balance", Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    androidx.compose.material3.HorizontalDivider()
+                    balances.forEach { b ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(b.colour.ifBlank { "—" }, Modifier.weight(1.4f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Text("${b.planQty}", Modifier.weight(1f), fontSize = 13.sp)
+                            Text("${b.produced}", Modifier.weight(1f), fontSize = 13.sp, color = Good, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "${b.balance}", Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                color = if (b.balance > 0) Warn else Good
+                            )
+                        }
+                        androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                    }
+                    // Totals
+                    Row(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                        Text("Total", Modifier.weight(1.4f), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("${balances.sumOf { it.planQty }}", Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("${balances.sumOf { it.produced }}", Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Good)
+                        Text("${balances.sumOf { it.balance }}", Modifier.weight(1f), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
             }
@@ -226,9 +306,9 @@ private fun CenterLoader() {
 }
 
 @Composable
-private fun JobCard(job: QueueJob, onFpa: () -> Unit, onQc: () -> Unit) {
-    val colours = remember(job) { parseColourLines(job.colourDetails) }
+private fun JobCard(job: QueueJob, onClick: () -> Unit, onFpa: () -> Unit, onQc: () -> Unit) {
     Card(
+        onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(14.dp),
         modifier = Modifier.fillMaxWidth()
@@ -262,28 +342,12 @@ private fun JobCard(job: QueueJob, onFpa: () -> Unit, onQc: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            if (colours.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    colours.forEach { c ->
-                        Box(
-                            Modifier
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                "${c.colour} · ${c.planQty}",
-                                fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Tap for colour-wise plan & produced",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

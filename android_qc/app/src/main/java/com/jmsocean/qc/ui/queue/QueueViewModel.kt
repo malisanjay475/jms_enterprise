@@ -7,6 +7,7 @@ import com.jmsocean.qc.QcApp
 import com.jmsocean.qc.data.AppUpdater
 import com.jmsocean.qc.data.SyncManager
 import com.jmsocean.qc.data.remote.AppVersion
+import com.jmsocean.qc.data.remote.ColourBalance
 import com.jmsocean.qc.data.remote.QueueJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,7 +26,12 @@ data class QueueUiState(
     // self-updater
     val update: AppVersion? = null,
     val downloadingUpdate: Boolean = false,
-    val updateError: String? = null
+    val updateError: String? = null,
+    // colour-wise plan/produced detail (opens when a job is tapped)
+    val detailJob: QueueJob? = null,
+    val detailLoading: Boolean = false,
+    val detailBalances: List<ColourBalance> = emptyList(),
+    val detailError: String? = null
 )
 
 class QueueViewModel : ViewModel() {
@@ -107,6 +113,27 @@ class QueueViewModel : ViewModel() {
                 .onSuccess { jobs -> _state.update { it.copy(loadingJobs = false, jobs = jobs) } }
                 .onFailure { e -> _state.update { it.copy(loadingJobs = false, error = e.message) } }
         }
+    }
+
+    /** Tap a job → show colour-wise Plan / Produced / Balance (like supervisor.html). */
+    fun openDetail(job: QueueJob) {
+        _state.update {
+            it.copy(detailJob = job, detailLoading = true, detailBalances = emptyList(), detailError = null)
+        }
+        val planId = job.PlanID
+        if (planId.isNullOrBlank()) {
+            _state.update { it.copy(detailLoading = false, detailError = "No plan linked to this job.") }
+            return
+        }
+        viewModelScope.launch {
+            repo.colourBalance(planId)
+                .onSuccess { list -> _state.update { it.copy(detailLoading = false, detailBalances = list) } }
+                .onFailure { e -> _state.update { it.copy(detailLoading = false, detailError = e.message ?: "Could not load colour balance") } }
+        }
+    }
+
+    fun closeDetail() = _state.update {
+        it.copy(detailJob = null, detailLoading = false, detailBalances = emptyList(), detailError = null)
     }
 
     fun logout() = repo.logout()

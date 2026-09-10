@@ -4,9 +4,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -62,6 +64,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private object Routes {
+    const val SPLASH = "splash"
     const val LOGIN = "login"
     const val QUEUE = "queue"
     const val FPA = "fpa"
@@ -83,7 +86,7 @@ fun QcApp_Root() {
     val current = backStack?.destination?.route
     val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.COMPLIANCE)
 
-    val start = if (app.session.isLoggedIn) Routes.QUEUE else Routes.LOGIN
+    val start = Routes.SPLASH
     val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
 
     fun go(route: String) {
@@ -156,6 +159,12 @@ fun QcApp_Root() {
         }
     ) {
         NavHost(navController = nav, startDestination = start) {
+            composable(Routes.SPLASH) {
+                SplashScreen(onDone = {
+                    val next = if (app.session.isLoggedIn) Routes.QUEUE else Routes.LOGIN
+                    nav.navigate(next) { popUpTo(Routes.SPLASH) { inclusive = true } }
+                })
+            }
             composable(Routes.LOGIN) {
                 LoginScreen(onLoggedIn = {
                     nav.navigate(Routes.QUEUE) { popUpTo(Routes.LOGIN) { inclusive = true } }
@@ -184,9 +193,34 @@ fun QcApp_Root() {
 }
 
 @Composable
+private fun SplashScreen(onDone: () -> Unit) {
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(1400)
+        onDone()
+    }
+    androidx.compose.foundation.layout.Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = androidx.compose.ui.Alignment.Center
+    ) {
+        Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(R.drawable.jms_logo),
+                contentDescription = "JMS QC",
+                modifier = Modifier.size(120.dp)
+            )
+            Spacer(Modifier.height(16.dp))
+            Text("JMS QC", fontWeight = FontWeight.Bold, fontSize = 24.sp,
+                color = MaterialTheme.colorScheme.onBackground)
+        }
+    }
+}
+
+@Composable
 private fun DrawerHeader(username: String, line: String) {
     Column(Modifier.padding(24.dp)) {
-        Text("JMS Ocean QC", fontWeight = FontWeight.Bold, fontSize = 20.sp,
+        Text("JMS QC", fontWeight = FontWeight.Bold, fontSize = 20.sp,
             color = MaterialTheme.colorScheme.onSurface)
         Text(
             buildString {
