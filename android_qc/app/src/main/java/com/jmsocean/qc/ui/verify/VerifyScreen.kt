@@ -130,9 +130,45 @@ fun VerifyScreen(
                 }
             }
 
+            // Colour-wise Plan / Produced / Balance for the machine's job
+            if (s.balances.isNotEmpty()) {
+                Spacer(Modifier.size(10.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Colour balance", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Spacer(Modifier.size(6.dp))
+                        Row(Modifier.fillMaxWidth()) {
+                            Text("Colour", Modifier.weight(1.4f), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Plan", Modifier.weight(1f), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Produced", Modifier.weight(1f), fontSize = 11.sp, color = Good)
+                            Text("Bal", Modifier.weight(1f), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        s.balances.forEach { b ->
+                            Spacer(Modifier.size(4.dp))
+                            Row(Modifier.fillMaxWidth()) {
+                                Text(b.colour, Modifier.weight(1.4f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Text("${b.planQty}", Modifier.weight(1f), fontSize = 12.sp)
+                                Text("${b.produced}", Modifier.weight(1f), fontSize = 12.sp, color = Good, fontWeight = FontWeight.SemiBold)
+                                Text("${b.balance}", Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.size(12.dp))
 
-            // Shift toggle
+            // Date (Today / Yesterday) + Shift toggle
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val today = com.jmsocean.qc.data.Ist.date()
+                val yesterday = com.jmsocean.qc.data.Ist.yesterday()
+                FilterChip(selected = s.date == today, onClick = { if (s.date != today) vm.setDate(today) }, label = { Text("Today") })
+                FilterChip(selected = s.date == yesterday, onClick = { if (s.date != yesterday) vm.setDate(yesterday) }, label = { Text("Yesterday") })
+            }
+            Spacer(Modifier.size(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("Day", "Night").forEach { sh ->
                     FilterChip(

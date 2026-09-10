@@ -21848,13 +21848,17 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         TRIM(COALESCE(pb.mould_name, mps.mould_name)) as mould_name,
         ojr.job_card_no,
         COALESCE(ojr.client_name, o.client_name) as client_name,
-        -- QC verified this hour slot in the QC app? (fan-out-safe EXISTS;
-        -- qc_verifications is UNIQUE per machine/date/shift/hour_slot)
-        EXISTS (
-          SELECT 1 FROM qc_verifications qv
-          WHERE qv.machine = d.machine AND qv.dpr_date = d.dpr_date
-            AND qv.shift = d.shift AND qv.hour_slot = d.hour_slot
-        ) AS qc_verified
+        -- QC verify detail for this hour slot (qc_verifications is UNIQUE per
+        -- machine/date/shift/hour_slot; qv/qh joined LATERAL below, fan-out-safe).
+        (qv.id IS NOT NULL)   AS qc_verified,
+        qv.status             AS qc_verify_status,
+        qv.verified_by        AS qc_verified_by,
+        qv.verified_at        AS qc_verified_at,
+        qv.qc_good_qty        AS qc_good_qty,
+        qv.qc_reject_qty      AS qc_reject_qty,
+        qv.remarks            AS qc_remarks,
+        (qh.id IS NOT NULL)   AS qc_hold,
+        qh.reason             AS qc_hold_reason
       FROM (
         SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
         FROM dpr_hourly
@@ -21898,6 +21902,22 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       -- most one orders row matches (null-tolerant for legacy rows). KAN-127.
       LEFT JOIN orders o ON o.order_no = COALESCE(d.order_no, pb.order_no)
         AND (o.factory_id = d.factory_id OR o.factory_id IS NULL OR d.factory_id IS NULL)
+      -- QC verification for this exact slot (Verified / Discrepancy + who/when/remarks)
+      LEFT JOIN LATERAL (
+        SELECT id, status, verified_by, verified_at, qc_good_qty, qc_reject_qty, remarks
+        FROM qc_verifications qv2
+        WHERE qv2.machine = d.machine AND qv2.dpr_date = d.dpr_date
+          AND qv2.shift = d.shift AND qv2.hour_slot = d.hour_slot
+        LIMIT 1
+      ) qv ON true
+      -- Active QC hold on this slot (→ cross in the Compliance Summary)
+      LEFT JOIN LATERAL (
+        SELECT id, reason FROM qc_holds qh2
+        WHERE qh2.machine = d.machine AND qh2.dpr_date = d.dpr_date
+          AND qh2.shift = d.shift AND qh2.slot = d.hour_slot
+          AND UPPER(COALESCE(qh2.status,'ACTIVE')) = 'ACTIVE'
+        ORDER BY qh2.id DESC LIMIT 1
+      ) qh ON true
     `;
     const entryParams = [fDate, tDate, shift];
     if (factoryId) {

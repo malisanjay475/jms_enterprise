@@ -329,6 +329,22 @@
                 </div>
             `;
 
+            // QC Verification (Verified / Qty changed / Hold) + who / when / remarks
+            if (e.qc_verified || e.qc_hold) {
+                const fmtWhen = e.qc_verified_at ? new Date(e.qc_verified_at).toLocaleString() : '';
+                let badge, bg, bc, fg;
+                if (e.qc_hold) { badge = '✘ On Hold'; bg = '#fff1f2'; bc = '#fecaca'; fg = '#be123c'; }
+                else if (e.qc_verify_status === 'Discrepancy') { badge = '✘ QC changed qty'; bg = '#fff7ed'; bc = '#fed7aa'; fg = '#c2410c'; }
+                else { badge = '✔ QC Verified'; bg = '#ecfdf5'; bc = '#a7f3d0'; fg = '#047857'; }
+                html += `<div style="margin-top:16px;padding:10px 12px;background:${bg};border:1px solid ${bc};border-radius:8px">
+                    <div style="font-weight:800;color:${fg}">${badge}</div>
+                    ${(e.qc_verified_by || fmtWhen) ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">By <b>${e.qc_verified_by || '—'}</b>${fmtWhen ? ' · ' + fmtWhen : ''}</div>` : ''}
+                    ${e.qc_verify_status === 'Discrepancy' ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">QC qty: <b>${e.qc_good_qty ?? '—'}</b> good / <b>${e.qc_reject_qty ?? '—'}</b> rej (supervisor: ${e.good_qty} / ${e.reject_qty || 0})</div>` : ''}
+                    ${e.qc_hold_reason ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">Hold reason: <b>${e.qc_hold_reason}</b></div>` : ''}
+                    ${e.qc_remarks ? `<div style="font-size:0.82rem;color:#334155;margin-top:5px;padding-top:5px;border-top:1px dashed ${bc}"><b>QC remarks:</b> ${e.qc_remarks}</div>` : ''}
+                </div>`;
+            }
+
             // Rejection Reasons
             const rejMap = typeof e.reject_breakup === 'object' ? e.reject_breakup : {};
             if (Object.keys(rejMap).length > 0) {
@@ -2266,7 +2282,9 @@
                                                             <div style="display:flex;align-items:baseline;gap:3px;line-height:1;min-width:0">
                                                                 <span style="font-weight:800;font-size:0.95rem;color:#15803d;line-height:1">${entry.good_qty}</span>
                                                                 ${rejQty > 0 ? `<span style="font-size:0.78rem;color:#9ca3af;font-weight:600;line-height:1">|</span><span style="font-weight:800;font-size:0.85rem;color:#dc2626;line-height:1">${rejQty}</span>` : ''}
-                                                                ${entry.qc_verified ? `<span title="QC Verified" aria-label="QC Verified" style="margin-left:auto;color:#16a34a;font-size:0.85rem;line-height:1;flex:0 0 auto"><i class="bi bi-patch-check-fill"></i></span>` : ''}
+                                                                ${(entry.qc_hold || entry.qc_verify_status === 'Discrepancy')
+                                                                    ? `<span title="${entry.qc_hold ? 'QC Hold' : 'QC changed qty'} — tap for details" aria-label="QC flagged" style="margin-left:auto;color:#dc2626;font-size:0.9rem;line-height:1;flex:0 0 auto"><i class="bi bi-x-circle-fill"></i></span>`
+                                                                    : (entry.qc_verified ? `<span title="QC Verified — tap for details" aria-label="QC Verified" style="margin-left:auto;color:#16a34a;font-size:0.85rem;line-height:1;flex:0 0 auto"><i class="bi bi-patch-check-fill"></i></span>` : '')}
                                                             </div>
 
                                                             <!-- Row 2: Time -->
