@@ -27028,6 +27028,32 @@ app.get('/api/qc/online-report', async (req, res) => {
   }
 });
 
+// GET /api/qc/online-report/list — manager view: all slots for a date/shift
+// across every machine (or one machine if given). Factory-scoped.
+app.get('/api/qc/online-report/list', async (req, res) => {
+  try {
+    const { date, shift, machine } = req.query;
+    if (!date) return res.json({ ok: false, error: 'date required' });
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT machine, dpr_date, shift, slot, job_card_no, order_no, item_name, mould_name,
+              visual_status, visual_problem, visual_remarks,
+              colour_status, colour_problem, colour_remarks,
+              ff_status, ff_problem, ff_photo_url, entered_by, entered_at
+         FROM qc_online_report_slots
+        WHERE dpr_date = $1::date
+          AND ($2::text IS NULL OR $2 = '' OR shift = $2)
+          AND ($3::text IS NULL OR $3 = '' OR machine = $3)
+          AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+        ORDER BY machine ASC, slot ASC`,
+      [date, shift || '', machine || '', factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // POST /api/qc/online-report/slot — upsert one slot's QC check data (with optional photo)
 app.post('/api/qc/online-report/slot', (req, res, next) => {
   uploadQC.single('ff_photo')(req, res, err => {
