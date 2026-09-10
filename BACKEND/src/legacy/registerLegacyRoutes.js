@@ -150,9 +150,13 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       if (!username || !password) {
         return res.status(400).json({ ok: false, error: 'username and password required' });
       }
+      // Read the password column the way /api/login does. Some schemas have no
+      // password_hash column, so pull it defensively via to_jsonb to avoid a
+      // "column does not exist" error.
       const rows = await q(
-        `SELECT id, COALESCE(password_hash, password) AS pw, role_code
-           FROM users WHERE username = $1 LIMIT 1`,
+        `SELECT id, role_code,
+                COALESCE(to_jsonb(u.*) ->> 'password', to_jsonb(u.*) ->> 'password_hash') AS pw
+           FROM users u WHERE username = $1 LIMIT 1`,
         [username]
       );
       if (!rows.length) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
