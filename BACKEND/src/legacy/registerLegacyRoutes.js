@@ -125,7 +125,9 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       }
 
       const data = details.map((d) => {
-        const name = String(d.colour || d.color || d.name || d.shade || '').trim() || '(none)';
+        const name = String(
+          d.colourName || d.itemColour || d.colour || d.color || d.name || d.shade || ''
+        ).trim() || '(none)';
         const planQty = Number(d.planQty || d.plan_qty || d.qty || d.quantity || d.planned || 0);
         const produced = producedByColour[name.toLowerCase()] || 0;
         return { colour: name, planQty, produced, balance: Math.max(0, planQty - produced) };
