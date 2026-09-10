@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -22,7 +21,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +32,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -142,42 +141,43 @@ fun QcEntryScreen(
                     }
                 }
                 else -> {
-                    // Shift
-                    Text("Shift", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Day", "Night").forEach {
-                            FilterChip(selected = s.shift == it, onClick = { vm.setShift(it) }, label = { Text(it) })
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-
-                    // Hour slot
-                    Text("Hour slot", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    // Shift + Hour slot side by side (dropdowns)
                     Row(
-                        Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        HOUR_SLOTS.forEach {
-                            FilterChip(selected = s.slot == it, onClick = { vm.setSlot(it) }, label = { Text(it) })
-                        }
+                        val shiftOptions = listOf("Day", "Night")
+                        DropdownField(
+                            label = "Shift",
+                            selectedText = s.shift,
+                            options = shiftOptions,
+                            onSelect = { i -> vm.setShift(shiftOptions[i]) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        DropdownField(
+                            label = "Hour slot",
+                            selectedText = s.slot,
+                            options = HOUR_SLOTS,
+                            onSelect = { i -> vm.setSlot(HOUR_SLOTS[i]) },
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                     Spacer(Modifier.height(12.dp))
 
-                    // Colours
+                    // Colour (full width dropdown)
                     if (s.colours.isNotEmpty()) {
-                        Text("Colour", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(
-                            Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            s.colours.forEach { c ->
-                                FilterChip(
-                                    selected = s.colour == c.colour,
-                                    onClick = { vm.setColour(c.colour) },
-                                    label = { Text("${c.colour} (${c.planQty})") }
-                                )
-                            }
-                        }
+                        val colourLabels = s.colours.map { "${it.colour} (${it.planQty})" }
+                        val selectedColourLabel = s.colours
+                            .firstOrNull { it.colour == s.colour }
+                            ?.let { "${it.colour} (${it.planQty})" }
+                            ?: colourLabels.firstOrNull().orEmpty()
+                        DropdownField(
+                            label = "Colour",
+                            selectedText = selectedColourLabel,
+                            options = colourLabels,
+                            onSelect = { i -> s.colours.getOrNull(i)?.let { vm.setColour(it.colour) } },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                         Spacer(Modifier.height(12.dp))
                     }
 
@@ -247,4 +247,47 @@ private fun NumField(label: String, value: String, onChange: (String) -> Unit, m
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = modifier
     )
+}
+
+/** A read-only dropdown (ExposedDropdownMenu) used for Shift / Slot / Colour. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DropdownField(
+    label: String,
+    selectedText: String,
+    options: List<String>,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.material3.ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = modifier
+    ) {
+        OutlinedTextField(
+            value = selectedText,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            singleLine = true,
+            trailingIcon = {
+                androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor()
+        )
+        androidx.compose.material3.ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            options.forEachIndexed { i, opt ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(opt) },
+                    onClick = { onSelect(i); expanded = false }
+                )
+            }
+        }
+    }
 }
