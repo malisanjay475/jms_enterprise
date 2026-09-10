@@ -183,7 +183,8 @@ fun QcApp_Root() {
                 QueueScreen(
                     onMenu = openDrawer,
                     onOpenFpa = { nav.navigate(Routes.FPA) },
-                    onOpenQc = { nav.navigate(Routes.QC) }
+                    onOpenQc = { nav.navigate(Routes.QC) },
+                    onOpenChecks = { nav.navigate(Routes.ONLINE_REPORT) }
                 )
             }
             composable(Routes.VERIFY) { VerifyScreen(onMenu = openDrawer) }

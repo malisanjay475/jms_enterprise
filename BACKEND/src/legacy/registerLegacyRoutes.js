@@ -24616,6 +24616,13 @@ WITH RankedPlans AS (
     r.job_card_no as "JobCardNo",
     r.job_card_no,
 
+    --FPA status: 'Done' when First Piece Approved for this job card on this machine,
+    --else 'Pending'. Always non-null so the app can distinguish it from an old server.
+    COALESCE((SELECT jc.fpa_status FROM qc_job_checks jc
+       WHERE TRIM(COALESCE(jc.job_card_no,'')) = TRIM(COALESCE(r.job_card_no,''))
+         AND jc.machine = pb.machine AND jc.fpa_status = 'Done'
+       ORDER BY jc.updated_at DESC LIMIT 1), 'Pending') as fpa_status,
+
     --Mixing Ratio(Constructed)
     CONCAT(
       CASE WHEN m.material IS NOT NULL THEN m.material || ' ' ELSE '' END,

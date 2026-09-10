@@ -53,6 +53,7 @@ data class SlotUi(
 
 data class OnlineReportUiState(
     val machine: String = "",
+    val machines: List<String> = emptyList(),
     val date: String = Ist.date(),
     val shift: String = Ist.shift(),
     val loading: Boolean = false,
@@ -65,11 +66,35 @@ class OnlineReportViewModel : ViewModel() {
     private val repo = QcApp.instance.repository
     private val session = QcApp.instance.session
 
-    private val _state = MutableStateFlow(OnlineReportUiState(machine = session.machine))
+    // When opened from a job's QC → Checks, use that job's machine + context;
+    // when opened from the drawer, fall back to the session machine.
+    private val activeJob = repo.activeJob
+    private val seededJob: OnlineJob? = activeJob?.let {
+        OnlineJob(
+            job_card_no = it.JobCardNo,
+            order_no = it.OrderNo,
+            item_name = it.productName,
+            mould_name = it.mouldForEntry
+        )
+    }
+
+    private val _state = MutableStateFlow(
+        OnlineReportUiState(
+            machine = activeJob?.Machine?.takeIf { it.isNotBlank() } ?: session.machine,
+            job = seededJob
+        )
+    )
     val state: StateFlow<OnlineReportUiState> = _state.asStateFlow()
 
-    init { load() }
+    init { loadMachines(); load() }
 
+    private fun loadMachines() = viewModelScope.launch {
+        repo.machines().onSuccess { list ->
+            _state.update { it.copy(machines = list.sortedWith(com.jmsocean.qc.data.machineQueueComparator)) }
+        }
+    }
+
+    fun setMachine(v: String) { _state.update { it.copy(machine = v) }; load() }
     fun setShift(v: String) { _state.update { it.copy(shift = v) }; load() }
 
     fun load() {
@@ -100,7 +125,7 @@ class OnlineReportViewModel : ViewModel() {
                             done = sv != null && (sv.visual_status != null || sv.colour_status != null || sv.ff_status != null)
                         )
                     }
-                    _state.update { it.copy(loading = false, slots = slots, job = r.job) }
+                    _state.update { it.copy(loading = false, slots = slots, job = r.job ?: seededJob) }
                 }
                 .onFailure { e -> _state.update { it.copy(loading = false, error = e.message) } }
         }

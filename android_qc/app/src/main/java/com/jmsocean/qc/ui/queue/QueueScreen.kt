@@ -59,11 +59,13 @@ fun QueueScreen(
     onMenu: () -> Unit,
     onOpenFpa: () -> Unit,
     onOpenQc: () -> Unit,
+    onOpenChecks: () -> Unit,
     vm: QueueViewModel = viewModel()
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
     val pendingSync by vm.pendingSync.collectAsStateWithLifecycle()
     var menuOpen by remember { mutableStateOf(false) }
+    var qcChooserJob by remember { mutableStateOf<QueueJob?>(null) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
 
     Scaffold(
@@ -208,12 +210,27 @@ fun QueueScreen(
                             job,
                             onClick = { vm.openDetail(job) },
                             onFpa = { vm.openFpa(job); onOpenFpa() },
-                            onQc = { vm.openFpa(job); onOpenQc() }
+                            onQc = { qcChooserJob = job }
                         )
                     }
                 }
             }
         }
+    }
+
+    // QC chooser: Hourly Entry vs QC Checks (Visual/Colour/F-F)
+    qcChooserJob?.let { job ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { qcChooserJob = null },
+            title = { Text("QC for ${job.productName}") },
+            text = { Text("What do you want to record?") },
+            confirmButton = {
+                TextButton(onClick = { vm.openFpa(job); qcChooserJob = null; onOpenQc() }) { Text("Hourly Entry") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.openFpa(job); qcChooserJob = null; onOpenChecks() }) { Text("QC Checks") }
+            }
+        )
     }
 
     // Colour-wise Plan / Produced detail sheet (opens on job tap)
@@ -315,6 +332,10 @@ private fun CenterLoader() {
 
 @Composable
 private fun JobCard(job: QueueJob, onClick: () -> Unit, onFpa: () -> Unit, onQc: () -> Unit) {
+    val fpaDone = job.fpa_status?.equals("Done", ignoreCase = true) == true
+    // Lock QC only when the server actually reports a non-done status.
+    // If fpa_status is null (older server that doesn't send it), don't lock.
+    val qcLocked = job.fpa_status != null && !fpaDone
     Card(
         onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -359,10 +380,22 @@ private fun JobCard(job: QueueJob, onClick: () -> Unit, onFpa: () -> Unit, onQc:
 
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onFpa, modifier = Modifier.weight(1f)) { Text("📷 FPA") }
-                Button(onClick = onQc, modifier = Modifier.weight(1f)) {
+                // FPA turns green once First Piece is approved.
+                OutlinedButton(
+                    onClick = onFpa,
+                    modifier = Modifier.weight(1f),
+                    colors = if (fpaDone)
+                        androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = Good)
+                    else androidx.compose.material3.ButtonDefaults.outlinedButtonColors()
+                ) { Text(if (fpaDone) "✅ FPA" else "📷 FPA") }
+                // QC is locked until FPA is done.
+                Button(onClick = onQc, enabled = !qcLocked, modifier = Modifier.weight(1f)) {
                     Text("📋 QC", color = MaterialTheme.colorScheme.onPrimary)
                 }
+            }
+            if (qcLocked) {
+                Spacer(Modifier.height(4.dp))
+                Text("Do FPA first to unlock QC", fontSize = 11.sp, color = Warn)
             }
         }
     }

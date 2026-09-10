@@ -84,11 +84,19 @@ fun OnlineReportScreen(
         Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp)) {
             Spacer(Modifier.height(12.dp))
 
+            // Machine dropdown pinned at top
+            Dropdown(
+                "Machine",
+                s.machine.ifBlank { "Select machine" },
+                s.machines,
+                { vm.setMachine(it) },
+                Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Dropdown("Shift", s.shift, listOf("Day", "Night"), { vm.setShift(it) }, Modifier.weight(1f))
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                    Text("${s.machine.ifBlank { "—" }} · ${s.date}", fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(s.date, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             s.job?.let { j ->
