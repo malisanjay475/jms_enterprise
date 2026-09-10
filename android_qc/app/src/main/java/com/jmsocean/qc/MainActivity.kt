@@ -229,5 +229,11 @@ private fun DrawerHeader(username: String, line: String) {
             },
             fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Version ${BuildConfig.VERSION_NAME}",
+            fontSize = 12.sp, fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

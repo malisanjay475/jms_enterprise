@@ -261,6 +261,11 @@ private fun ColourDetailSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp
                 )
                 else -> {
+                    // The LOCAL backend may return colour as "(none)"; the real names live
+                    // in the job's ColourDetails (key: colourName). Fill them in by position.
+                    val localNames = remember(job) {
+                        com.jmsocean.qc.data.parseColourLines(job.colourDetails).map { it.colour }
+                    }
                     // Header row
                     Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                         Text("Colour", Modifier.weight(1.4f), fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
@@ -273,9 +278,12 @@ private fun ColourDetailSheet(
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     androidx.compose.material3.HorizontalDivider()
-                    balances.forEach { b ->
+                    balances.forEachIndexed { i, b ->
+                        val name = b.colour
+                            .takeUnless { it.isBlank() || it.equals("(none)", ignoreCase = true) }
+                            ?: localNames.getOrNull(i) ?: "—"
                         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(b.colour.ifBlank { "—" }, Modifier.weight(1.4f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Text(name, Modifier.weight(1.4f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                             Text("${b.planQty}", Modifier.weight(1f), fontSize = 13.sp)
                             Text("${b.produced}", Modifier.weight(1f), fontSize = 13.sp, color = Good, fontWeight = FontWeight.SemiBold)
                             Text(
