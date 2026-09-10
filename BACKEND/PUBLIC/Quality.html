@@ -255,6 +255,21 @@
             <button class="btn btn-primary" onclick="applyFilters()">Apply</button>
         </div>
 
+        <!-- View tabs -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+            <button class="btn btn-outline small" onclick="switchView('dashboard')">Dashboard</button>
+            <button class="btn btn-outline small" onclick="switchView('compliance')">Compliance</button>
+            <button class="btn btn-outline small" onclick="switchView('hourly')">Hourly</button>
+            <button class="btn btn-outline small" onclick="switchView('onlineqc')">Online QC Report</button>
+        </div>
+
+        <!-- VIEW: ONLINE QC REPORT (2-hr Visual/Colour/Function-Fitment checks) -->
+        <div id="view-onlineqc" class="hidden">
+            <div id="onlineqc-container">
+                <div style="text-align:center; padding: 40px; color: var(--text-muted)">Loading QC checks…</div>
+            </div>
+        </div>
+
         <!-- VIEW: COMPLIANCE -->
         <div id="view-compliance" class="hidden">
             <div id="compliance-container">
@@ -424,13 +439,20 @@
                 // Toggle Visibility
                 document.getElementById('view-compliance').classList.add('hidden');
                 document.getElementById('view-dashboard').classList.add('hidden');
+                document.getElementById('view-onlineqc').classList.add('hidden');
                 document.getElementById('compliance-legend').classList.add('hidden');
                 document.getElementById('dashboard-actions').classList.add('hidden');
 
                 // Toggle Filter Logic
                 const shiftFilter = document.getElementById('filter-shift-wrapper');
 
-                if (view === 'dashboard') {
+                if (view === 'onlineqc') {
+                    // Online QC Report — Visual/Colour/Function-Fitment per 2-hr slot
+                    document.getElementById('view-onlineqc').classList.remove('hidden');
+                    document.getElementById('page-title').textContent = 'Online QC Report';
+                    shiftFilter.style.display = 'inline';
+                    loadOnlineQC();
+                } else if (view === 'dashboard') {
                     // Dashboard
                     document.getElementById('view-dashboard').classList.remove('hidden');
                     document.getElementById('dashboard-actions').classList.remove('hidden');
@@ -457,7 +479,69 @@
             function applyFilters() {
                 if (currentView === 'compliance') loadComplianceMatrix();
                 else if (currentView === 'hourly') loadHourlyTable();
+                else if (currentView === 'onlineqc') loadOnlineQC();
                 else loadDashboard();
+            }
+
+            /* Online QC Report — manager view of Visual/Colour/F-F checks */
+            const QC_SLOT_ORDER = ['06-07', '08-09', '10-11', '12-01', '02-03', '04-05'];
+            function qcStatusCell(status, problem, remarks) {
+                if (!status) return '<span style="color:var(--text-muted)">—</span>';
+                const ok = String(status).toUpperCase() === 'OK';
+                const badge = ok
+                    ? '<span style="color:#059669;font-weight:700">✔ OK</span>'
+                    : '<span style="color:#dc2626;font-weight:700">✘ Not OK</span>';
+                const detail = ok ? '' : `<div style="font-size:11px;color:var(--text-muted)">${[problem, remarks].filter(Boolean).join(' · ')}</div>`;
+                return badge + detail;
+            }
+            async function loadOnlineQC() {
+                const box = document.getElementById('onlineqc-container');
+                box.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading QC checks…</div>';
+                const date = document.getElementById('filter-date').value;
+                const shift = document.getElementById('filter-shift').value;
+                const machine = document.getElementById('filter-machine').value;
+                try {
+                    const qs = new URLSearchParams({ date, shift });
+                    if (machine) qs.set('machine', machine);
+                    const res = await JPSMS.api.get('/qc/online-report/list?' + qs.toString());
+                    const rows = (res && res.ok && Array.isArray(res.data)) ? res.data : [];
+                    if (!rows.length) {
+                        box.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--text-muted)">No QC check entries for this date/shift.</div>';
+                        return;
+                    }
+                    // Group by machine
+                    const byMachine = {};
+                    rows.forEach(r => { (byMachine[r.machine] = byMachine[r.machine] || []).push(r); });
+                    let html = '';
+                    Object.keys(byMachine).sort().forEach(m => {
+                        const slots = byMachine[m];
+                        const first = slots[0] || {};
+                        html += `<div class="card" style="margin-bottom:14px;padding:14px">
+                          <div style="font-weight:700;font-size:15px">${m}</div>
+                          <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">${[first.item_name, first.mould_name, first.job_card_no ? 'JC ' + first.job_card_no : ''].filter(Boolean).join(' · ') || ''}</div>
+                          <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+                            <thead><tr style="text-align:left;color:var(--text-muted)">
+                              <th style="padding:6px 8px">Slot</th><th style="padding:6px 8px">Visual</th>
+                              <th style="padding:6px 8px">Colour</th><th style="padding:6px 8px">Function/Fitment</th>
+                              <th style="padding:6px 8px">By</th>
+                            </tr></thead><tbody>`;
+                        QC_SLOT_ORDER.forEach(sl => {
+                            const r = slots.find(x => x.slot === sl);
+                            if (!r) return;
+                            html += `<tr style="border-top:1px solid var(--line,#eee)">
+                              <td style="padding:6px 8px;font-weight:600">${sl}</td>
+                              <td style="padding:6px 8px">${qcStatusCell(r.visual_status, r.visual_problem, r.visual_remarks)}</td>
+                              <td style="padding:6px 8px">${qcStatusCell(r.colour_status, r.colour_problem, r.colour_remarks)}</td>
+                              <td style="padding:6px 8px">${qcStatusCell(r.ff_status, r.ff_problem, '')}</td>
+                              <td style="padding:6px 8px;color:var(--text-muted)">${r.entered_by || ''}</td>
+                            </tr>`;
+                        });
+                        html += '</tbody></table></div></div>';
+                    });
+                    box.innerHTML = html;
+                } catch (e) {
+                    box.innerHTML = '<div class="card" style="padding:24px;color:#dc2626">Failed to load QC checks.</div>';
+                }
             }
 
             /*Source: Compliance Logic (Matrix View)*/
