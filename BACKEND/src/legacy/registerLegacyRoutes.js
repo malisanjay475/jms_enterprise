@@ -17009,6 +17009,7 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
         $3::text IS NULL OR $3 = ''
         OR TRIM(COALESCE(d.mould_no, '')) ILIKE '%' || $3 || '%'
         OR COALESCE(m.mould_name, '') ILIKE '%' || $3 || '%'
+        OR TRIM(COALESCE(d.order_no, '')) ILIKE '%' || $3 || '%'
       )
       AND (
         $5::text IS NULL OR $5 = ''
