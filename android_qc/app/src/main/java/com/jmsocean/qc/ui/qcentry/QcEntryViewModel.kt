@@ -68,9 +68,17 @@ class QcEntryViewModel : ViewModel() {
 
     private fun loadBalances() {
         val planId = _state.value.job?.PlanID ?: return
+        // Real colour names live on the job (ColourDetails → colourName); the LOCAL
+        // backend may return "(none)". Fill names in by position so the table reads right.
+        val localNames = parseColourLines(_state.value.job?.colourDetails).map { it.colour }
         viewModelScope.launch {
             repo.colourBalance(planId).onSuccess { list ->
-                _state.update { it.copy(balances = list) }
+                val named = list.mapIndexed { i, b ->
+                    if (b.colour.isBlank() || b.colour.equals("(none)", ignoreCase = true)) {
+                        b.copy(colour = localNames.getOrNull(i) ?: b.colour)
+                    } else b
+                }
+                _state.update { it.copy(balances = named) }
             }
         }
     }
