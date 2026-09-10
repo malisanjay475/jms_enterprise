@@ -110,6 +110,22 @@ interface ApiService {
     @POST("api/qc/online-report/slot")
     suspend fun saveOnlineSlot(@FieldMap fields: Map<String, String>): ApiEnvelope
 
+    // QC job setup (STD from mould master vs Act by user), filled twice per shift.
+    // Returns raw JSON ({ ok, setup, setups:{1,2}, std }) — parsed tolerantly in the
+    // repository because Postgres NUMERIC comes back as strings, INTEGER as numbers.
+    @GET("api/qc/job-setup")
+    suspend fun jobSetup(
+        @Query("job_card_no") jobCardNo: String,
+        @Query("date") date: String,
+        @Query("shift") shift: String,
+        @Query("machine") machine: String,
+        @Query("mould_name") mouldName: String
+    ): kotlinx.serialization.json.JsonElement
+
+    @FormUrlEncoded
+    @POST("api/qc/job-setup")
+    suspend fun saveJobSetup(@FieldMap fields: Map<String, String>): ApiEnvelope
+
     @GET("api/qc/compliance")
     suspend fun compliance(
         @Query("date") date: String,
