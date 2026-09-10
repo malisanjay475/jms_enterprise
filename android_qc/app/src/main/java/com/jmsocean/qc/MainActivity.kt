@@ -43,6 +43,7 @@ import com.jmsocean.qc.ui.dashboard.DashboardScreen
 import com.jmsocean.qc.ui.fpa.FpaScreen
 import com.jmsocean.qc.ui.issues.IssuesScreen
 import com.jmsocean.qc.ui.login.LoginScreen
+import com.jmsocean.qc.ui.onlinereport.OnlineReportScreen
 import com.jmsocean.qc.ui.qcentry.QcEntryScreen
 import com.jmsocean.qc.ui.queue.QueueScreen
 import com.jmsocean.qc.ui.theme.QcTheme
@@ -70,6 +71,7 @@ private object Routes {
     const val FPA = "fpa"
     const val QC = "qc"
     const val VERIFY = "verify"
+    const val ONLINE_REPORT = "online_report"
     const val ISSUES = "issues"
     const val DASHBOARD = "dashboard"
     const val COMPLIANCE = "compliance"
@@ -84,7 +86,7 @@ fun QcApp_Root() {
 
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
-    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.COMPLIANCE)
+    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ONLINE_REPORT, Routes.ISSUES, Routes.DASHBOARD, Routes.COMPLIANCE)
 
     val start = Routes.SPLASH
     val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
@@ -119,6 +121,13 @@ fun QcApp_Root() {
                     icon = { Icon(Icons.Default.CheckCircle, null) },
                     selected = current == Routes.VERIFY,
                     onClick = { go(Routes.VERIFY) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+                NavigationDrawerItem(
+                    label = { Text("Online QC Report") },
+                    icon = { Icon(Icons.Default.CheckCircle, null) },
+                    selected = current == Routes.ONLINE_REPORT,
+                    onClick = { go(Routes.ONLINE_REPORT) },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
@@ -178,6 +187,7 @@ fun QcApp_Root() {
                 )
             }
             composable(Routes.VERIFY) { VerifyScreen(onMenu = openDrawer) }
+            composable(Routes.ONLINE_REPORT) { OnlineReportScreen(onMenu = openDrawer) }
             composable(Routes.ISSUES) { IssuesScreen(onMenu = openDrawer) }
             composable(Routes.DASHBOARD) { DashboardScreen(onMenu = openDrawer) }
             composable(Routes.COMPLIANCE) { ComplianceScreen(onMenu = openDrawer) }

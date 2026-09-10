@@ -374,6 +374,55 @@ class QcRepository(private val session: SessionStore) {
         arr.map { json.decodeFromJsonElement(ColourBalance.serializer(), it) }
     }
 
+    // ── Online QC Report (2-hour slot Visual / Colour / Function-Fitment) ────
+
+    suspend fun onlineReport(
+        machine: String, date: String, shift: String
+    ): Result<com.jmsocean.qc.data.remote.OnlineReportResponse> = runCatching {
+        val r = api.onlineReport(machine, date, shift)
+        if (!r.ok) error(r.error ?: "Could not load QC report")
+        r
+    }
+
+    /** Upsert one slot's checks. Only include a check's fields when its status is set. */
+    suspend fun saveOnlineSlot(
+        machine: String, date: String, shift: String, slot: String,
+        job: com.jmsocean.qc.data.remote.OnlineJob?,
+        visualStatus: String?, visualProblem: String, visualRemarks: String,
+        colourStatus: String?, colourProblem: String, colourRemarks: String,
+        ffStatus: String?, ffProblem: String
+    ): Result<Unit> = runCatching {
+        val fields = mutableMapOf(
+            "session" to json.encodeToString(
+                com.jmsocean.qc.data.remote.SessionRef.serializer(), sessionRef()
+            ),
+            "machine" to machine,
+            "dpr_date" to date,
+            "shift" to shift,
+            "slot" to slot,
+            "job_card_no" to (job?.job_card_no ?: ""),
+            "order_no" to (job?.order_no ?: ""),
+            "item_name" to (job?.item_name ?: ""),
+            "mould_name" to (job?.mould_name ?: "")
+        )
+        if (visualStatus != null) {
+            fields["visual_status"] = visualStatus
+            fields["visual_problem"] = visualProblem
+            fields["visual_remarks"] = visualRemarks
+        }
+        if (colourStatus != null) {
+            fields["colour_status"] = colourStatus
+            fields["colour_problem"] = colourProblem
+            fields["colour_remarks"] = colourRemarks
+        }
+        if (ffStatus != null) {
+            fields["ff_status"] = ffStatus
+            fields["ff_problem"] = ffProblem
+        }
+        val env = api.saveOnlineSlot(fields)
+        if (!env.ok) error(env.error ?: "Save failed")
+    }
+
     // ── Compliance grid ─────────────────────────────────────────────────────
 
     suspend fun compliance(date: String, shift: String, machine: String?): Result<ComplianceGrid> = runCatching {
