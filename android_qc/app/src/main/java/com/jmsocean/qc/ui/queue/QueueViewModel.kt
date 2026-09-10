@@ -83,10 +83,13 @@ class QueueViewModel : ViewModel() {
         viewModelScope.launch {
             repo.machines()
                 .onSuccess { list ->
+                    // Queue order: group by plant+line (B-L1, C-L1 …), then by machine
+                    // index (Machine 1, 2, 3 …) ignoring tonnage — so 350-1 comes before 300-6.
+                    val sorted = list.sortedWith(com.jmsocean.qc.data.machineQueueComparator)
                     _state.update {
-                        it.copy(loadingMachines = false, machines = list)
+                        it.copy(loadingMachines = false, machines = sorted)
                     }
-                    list.firstOrNull()?.let { selectMachine(it) }
+                    sorted.firstOrNull()?.let { selectMachine(it) }
                 }
                 .onFailure { e ->
                     _state.update { it.copy(loadingMachines = false, error = e.message) }
