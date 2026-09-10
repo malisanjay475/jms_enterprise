@@ -4,9 +4,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -41,6 +43,7 @@ import com.jmsocean.qc.ui.dashboard.DashboardScreen
 import com.jmsocean.qc.ui.fpa.FpaScreen
 import com.jmsocean.qc.ui.issues.IssuesScreen
 import com.jmsocean.qc.ui.login.LoginScreen
+import com.jmsocean.qc.ui.onlinereport.OnlineReportScreen
 import com.jmsocean.qc.ui.qcentry.QcEntryScreen
 import com.jmsocean.qc.ui.queue.QueueScreen
 import com.jmsocean.qc.ui.theme.QcTheme
@@ -62,11 +65,13 @@ class MainActivity : ComponentActivity() {
 }
 
 private object Routes {
+    const val SPLASH = "splash"
     const val LOGIN = "login"
     const val QUEUE = "queue"
     const val FPA = "fpa"
     const val QC = "qc"
     const val VERIFY = "verify"
+    const val ONLINE_REPORT = "online_report"
     const val ISSUES = "issues"
     const val DASHBOARD = "dashboard"
     const val COMPLIANCE = "compliance"
@@ -81,9 +86,9 @@ fun QcApp_Root() {
 
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
-    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.COMPLIANCE)
+    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ONLINE_REPORT, Routes.ISSUES, Routes.DASHBOARD, Routes.COMPLIANCE)
 
-    val start = if (app.session.isLoggedIn) Routes.QUEUE else Routes.LOGIN
+    val start = Routes.SPLASH
     val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
 
     fun go(route: String) {
@@ -116,6 +121,13 @@ fun QcApp_Root() {
                     icon = { Icon(Icons.Default.CheckCircle, null) },
                     selected = current == Routes.VERIFY,
                     onClick = { go(Routes.VERIFY) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+                NavigationDrawerItem(
+                    label = { Text("Online QC Report") },
+                    icon = { Icon(Icons.Default.CheckCircle, null) },
+                    selected = current == Routes.ONLINE_REPORT,
+                    onClick = { go(Routes.ONLINE_REPORT) },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
@@ -156,6 +168,12 @@ fun QcApp_Root() {
         }
     ) {
         NavHost(navController = nav, startDestination = start) {
+            composable(Routes.SPLASH) {
+                SplashScreen(onDone = {
+                    val next = if (app.session.isLoggedIn) Routes.QUEUE else Routes.LOGIN
+                    nav.navigate(next) { popUpTo(Routes.SPLASH) { inclusive = true } }
+                })
+            }
             composable(Routes.LOGIN) {
                 LoginScreen(onLoggedIn = {
                     nav.navigate(Routes.QUEUE) { popUpTo(Routes.LOGIN) { inclusive = true } }
@@ -165,10 +183,12 @@ fun QcApp_Root() {
                 QueueScreen(
                     onMenu = openDrawer,
                     onOpenFpa = { nav.navigate(Routes.FPA) },
-                    onOpenQc = { nav.navigate(Routes.QC) }
+                    onOpenQc = { nav.navigate(Routes.QC) },
+                    onOpenChecks = { nav.navigate(Routes.ONLINE_REPORT) }
                 )
             }
             composable(Routes.VERIFY) { VerifyScreen(onMenu = openDrawer) }
+            composable(Routes.ONLINE_REPORT) { OnlineReportScreen(onMenu = openDrawer) }
             composable(Routes.ISSUES) { IssuesScreen(onMenu = openDrawer) }
             composable(Routes.DASHBOARD) { DashboardScreen(onMenu = openDrawer) }
             composable(Routes.COMPLIANCE) { ComplianceScreen(onMenu = openDrawer) }
@@ -184,9 +204,34 @@ fun QcApp_Root() {
 }
 
 @Composable
+private fun SplashScreen(onDone: () -> Unit) {
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(1400)
+        onDone()
+    }
+    androidx.compose.foundation.layout.Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = androidx.compose.ui.Alignment.Center
+    ) {
+        Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(R.drawable.jms_logo),
+                contentDescription = "JMS QC",
+                modifier = Modifier.size(120.dp)
+            )
+            Spacer(Modifier.height(16.dp))
+            Text("JMS QC", fontWeight = FontWeight.Bold, fontSize = 24.sp,
+                color = MaterialTheme.colorScheme.onBackground)
+        }
+    }
+}
+
+@Composable
 private fun DrawerHeader(username: String, line: String) {
     Column(Modifier.padding(24.dp)) {
-        Text("JMS Ocean QC", fontWeight = FontWeight.Bold, fontSize = 20.sp,
+        Text("JMS QC", fontWeight = FontWeight.Bold, fontSize = 20.sp,
             color = MaterialTheme.colorScheme.onSurface)
         Text(
             buildString {
@@ -194,6 +239,12 @@ private fun DrawerHeader(username: String, line: String) {
                 if (line.isNotBlank()) append(" · Line $line")
             },
             fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Version ${BuildConfig.VERSION_NAME}",
+            fontSize = 12.sp, fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

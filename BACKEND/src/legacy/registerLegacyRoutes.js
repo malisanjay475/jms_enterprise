@@ -125,7 +125,9 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       }
 
       const data = details.map((d) => {
-        const name = String(d.colour || d.color || d.name || d.shade || '').trim() || '(none)';
+        const name = String(
+          d.colourName || d.itemColour || d.colour || d.color || d.name || d.shade || ''
+        ).trim() || '(none)';
         const planQty = Number(d.planQty || d.plan_qty || d.qty || d.quantity || d.planned || 0);
         const produced = producedByColour[name.toLowerCase()] || 0;
         return { colour: name, planQty, produced, balance: Math.max(0, planQty - produced) };
@@ -148,9 +150,13 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       if (!username || !password) {
         return res.status(400).json({ ok: false, error: 'username and password required' });
       }
+      // Read the password column the way /api/login does. Some schemas have no
+      // password_hash column, so pull it defensively via to_jsonb to avoid a
+      // "column does not exist" error.
       const rows = await q(
-        `SELECT id, COALESCE(password_hash, password) AS pw, role_code
-           FROM users WHERE username = $1 LIMIT 1`,
+        `SELECT id, role_code,
+                COALESCE(to_jsonb(u.*) ->> 'password', to_jsonb(u.*) ->> 'password_hash') AS pw
+           FROM users u WHERE username = $1 LIMIT 1`,
         [username]
       );
       if (!rows.length) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
@@ -24614,6 +24620,13 @@ WITH RankedPlans AS (
     r.job_card_no as "JobCardNo",
     r.job_card_no,
 
+    --FPA status: 'Done' when First Piece Approved for this job card on this machine,
+    --else 'Pending'. Always non-null so the app can distinguish it from an old server.
+    COALESCE((SELECT jc.fpa_status FROM qc_job_checks jc
+       WHERE TRIM(COALESCE(jc.job_card_no,'')) = TRIM(COALESCE(r.job_card_no,''))
+         AND jc.machine = pb.machine AND jc.fpa_status = 'Done'
+       ORDER BY jc.updated_at DESC LIMIT 1), 'Pending') as fpa_status,
+
     --Mixing Ratio(Constructed)
     CONCAT(
       CASE WHEN m.material IS NOT NULL THEN m.material || ' ' ELSE '' END,
@@ -26989,16 +27002,27 @@ app.get('/api/qc/online-report', async (req, res) => {
        ORDER BY slot ASC`,
       [machine, date, shift, factoryId]
     );
-    // Also fetch the active job context for item/mould names
-    const jobRows = await q(
-      `SELECT d.job_card_no, d.order_no, d.item_name, d.mould_name
-       FROM dpr_hourly d
-       WHERE d.machine = $1 AND d.dpr_date = $2::date AND d.shift = $3 AND d.is_deleted = false
-         AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
-       ORDER BY d.id DESC LIMIT 1`,
-      [machine, date, shift, factoryId]
-    );
-    res.json({ ok: true, data: rows || [], job: jobRows[0] || null });
+    // Also fetch the active job context for item/mould names.
+    // dpr_hourly has no item_name/mould_name columns, so pull those from plan_board.
+    // Wrapped so a failure here never 500s the whole report.
+    let job = null;
+    try {
+      const jobRows = await q(
+        `SELECT d.job_card_no, d.order_no, pb.item_name, pb.mould_name
+         FROM dpr_hourly d
+         LEFT JOIN LATERAL (
+           SELECT item_name, mould_name FROM plan_board
+           WHERE machine = d.machine AND order_no = d.order_no
+           ORDER BY updated_at DESC NULLS LAST LIMIT 1
+         ) pb ON true
+         WHERE d.machine = $1 AND d.dpr_date = $2::date AND d.shift = $3 AND d.is_deleted = false
+           AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
+         ORDER BY d.id DESC LIMIT 1`,
+        [machine, date, shift, factoryId]
+      );
+      job = jobRows[0] || null;
+    } catch (_) { job = null; }
+    res.json({ ok: true, data: rows || [], job });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }

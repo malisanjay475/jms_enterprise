@@ -73,6 +73,40 @@ data class ColourBalance(
     val balance: Int = 0
 )
 
+/** One saved 2-hour QC slot from GET /api/qc/online-report (qc_online_report_slots). */
+@Serializable
+data class OnlineSlot(
+    val slot: String = "",
+    val visual_status: String? = null,
+    val visual_problem: String? = null,
+    val visual_remarks: String? = null,
+    val colour_status: String? = null,
+    val colour_problem: String? = null,
+    val colour_remarks: String? = null,
+    val ff_status: String? = null,
+    val ff_problem: String? = null,
+    val ff_photo_url: String? = null,
+    val entered_by: String? = null
+)
+
+/** Active-job context returned alongside the online-report slots. */
+@Serializable
+data class OnlineJob(
+    val job_card_no: String? = null,
+    val order_no: String? = null,
+    val item_name: String? = null,
+    val mould_name: String? = null
+)
+
+/** GET /api/qc/online-report response — { ok, data:[slots], job }. */
+@Serializable
+data class OnlineReportResponse(
+    val ok: Boolean = false,
+    val error: String? = null,
+    val data: List<OnlineSlot> = emptyList(),
+    val job: OnlineJob? = null
+)
+
 // Compliance grid (parsed from GET /api/qc/compliance) — plain holders.
 data class ComplianceGrid(val slots: List<String>, val lines: List<ComplianceLine>)
 data class ComplianceLine(val name: String, val rows: List<ComplianceRow>)
