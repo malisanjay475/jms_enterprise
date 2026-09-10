@@ -26998,16 +26998,27 @@ app.get('/api/qc/online-report', async (req, res) => {
        ORDER BY slot ASC`,
       [machine, date, shift, factoryId]
     );
-    // Also fetch the active job context for item/mould names
-    const jobRows = await q(
-      `SELECT d.job_card_no, d.order_no, d.item_name, d.mould_name
-       FROM dpr_hourly d
-       WHERE d.machine = $1 AND d.dpr_date = $2::date AND d.shift = $3 AND d.is_deleted = false
-         AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
-       ORDER BY d.id DESC LIMIT 1`,
-      [machine, date, shift, factoryId]
-    );
-    res.json({ ok: true, data: rows || [], job: jobRows[0] || null });
+    // Also fetch the active job context for item/mould names.
+    // dpr_hourly has no item_name/mould_name columns, so pull those from plan_board.
+    // Wrapped so a failure here never 500s the whole report.
+    let job = null;
+    try {
+      const jobRows = await q(
+        `SELECT d.job_card_no, d.order_no, pb.item_name, pb.mould_name
+         FROM dpr_hourly d
+         LEFT JOIN LATERAL (
+           SELECT item_name, mould_name FROM plan_board
+           WHERE machine = d.machine AND order_no = d.order_no
+           ORDER BY updated_at DESC NULLS LAST LIMIT 1
+         ) pb ON true
+         WHERE d.machine = $1 AND d.dpr_date = $2::date AND d.shift = $3 AND d.is_deleted = false
+           AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
+         ORDER BY d.id DESC LIMIT 1`,
+        [machine, date, shift, factoryId]
+      );
+      job = jobRows[0] || null;
+    } catch (_) { job = null; }
+    res.json({ ok: true, data: rows || [], job });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
