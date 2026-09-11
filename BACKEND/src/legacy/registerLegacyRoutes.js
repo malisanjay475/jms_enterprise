@@ -4238,6 +4238,26 @@ async function bootstrapFreshCoreTables() {
   await q(`ALTER TABLE factories ADD COLUMN IF NOT EXISTS plant_codes TEXT`);
   // Seed the known mapping once, only where it has not been set yet (never overwrite
   // a value an admin has since corrected).
+  //
+  // Dungra Unit-II (JMS code F4) is a SEPARATE ERP factory (ERP id 46, OR/JR plant
+  // code JGUII) from Dungra Plant 1 (ERP id 41). Its name still contains the word
+  // "DUNGRA", so the generic '%DUNGRA%' name match below would otherwise claim it
+  // for Plant 1's ERP id. Seed Unit-II FIRST — the DUNGRA block is guarded by
+  // erp_factory_id IS NULL and will then skip this row. Match by code (F4, exact)
+  // or by the "UNIT-II"/"UNIT II" name suffix so it works however the row was saved.
+  //
+  // Also self-heal a row mis-seeded to Plant 1 on an earlier boot: if Unit-II already
+  // inherited ERP id 41 (Plant 1) before this fix shipped, correct it back to 46. We
+  // only override the specific wrong value 41 (or NULL) — never an admin-set value.
+  await q(`
+    UPDATE factories SET erp_factory_id = 46, plant_codes = 'JGUII'
+    WHERE (erp_factory_id IS NULL OR erp_factory_id = 41)
+      AND (
+        UPPER(TRIM(COALESCE(code, ''))) = 'F4'
+        OR UPPER(COALESCE(name, '')) LIKE '%UNIT-II%'
+        OR UPPER(COALESCE(name, '')) LIKE '%UNIT II%'
+      )
+  `).catch(err => console.warn('[DB] factory Dungra Unit-II ERP mapping seed skipped:', err.message));
   await q(`
     UPDATE factories SET erp_factory_id = v.erp_id, plant_codes = v.codes
     FROM (VALUES
