@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.56.0",
+  "latest": "1.56.1",
   "versions": [
+    {
+      "version": "1.56.1",
+      "date": "2026-09-11",
+      "title": "Fix DPR Compliance Summary error toast",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Removed the 'could not determine data type of parameter' error on the DPR Compliance Summary — the QC memo badge lookup now loads correctly." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.56.0",
       "date": "2026-09-11",
