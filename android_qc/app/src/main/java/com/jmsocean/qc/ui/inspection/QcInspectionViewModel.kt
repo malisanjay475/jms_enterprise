@@ -52,7 +52,6 @@ data class QcInspectUiState(
     val teamChecked: Boolean = false,
     val teamOk: Boolean = false,
     val supName: String = "",
-    val inchargeName: String = "",
     val savingTeam: Boolean = false,
     val teamError: String? = null,
     // status
@@ -96,33 +95,40 @@ class QcInspectionViewModel : ViewModel() {
         viewModelScope.launch {
             repo.shiftTeam(s.machine, s.date, s.shift)
                 .onSuccess { members ->
-                    val hasSup = members.any { it.role?.contains("Supervisor", true) == true && !it.employee_name.isNullOrBlank() }
-                    val hasInc = members.any { it.role?.contains("Incharge", true) == true && !it.employee_name.isNullOrBlank() }
-                    _state.update { it.copy(teamChecked = true, teamOk = hasSup && hasInc) }
+                    // One QC supervisor per shift (machine + date + shift). If it's already
+                    // recorded, pull the name so it stays visible on the setup card.
+                    val sup = members.firstOrNull {
+                        it.role?.contains("Supervisor", true) == true && !it.employee_name.isNullOrBlank()
+                    }
+                    _state.update {
+                        it.copy(
+                            teamChecked = true,
+                            teamOk = sup != null,
+                            supName = sup?.employee_name?.trim() ?: it.supName
+                        )
+                    }
                 }
                 .onFailure { _state.update { it.copy(teamChecked = true, teamOk = false) } }
         }
     }
 
     fun setSupName(v: String) = _state.update { it.copy(supName = v) }
-    fun setInchargeName(v: String) = _state.update { it.copy(inchargeName = v) }
 
     fun saveShiftTeam() {
         val s = _state.value
-        if (s.supName.isBlank() || s.inchargeName.isBlank()) {
-            _state.update { it.copy(teamError = "Enter both QC Supervisor and QC Incharge.") }; return
+        if (s.supName.isBlank()) {
+            _state.update { it.copy(teamError = "Enter the QC Supervisor name for this shift.") }; return
         }
         _state.update { it.copy(savingTeam = true, teamError = null) }
         viewModelScope.launch {
-            val r1 = repo.addShiftTeam(s.machine, s.date, s.shift, "QC Supervisor", s.supName.trim())
-            val r2 = repo.addShiftTeam(s.machine, s.date, s.shift, "QC Incharge", s.inchargeName.trim())
-            if (r1.isSuccess && r2.isSuccess) {
-                _state.update { it.copy(savingTeam = false, teamOk = true) }
-            } else {
-                _state.update { it.copy(savingTeam = false, teamError = "Could not save shift team. Check connection.") }
-            }
+            repo.addShiftTeam(s.machine, s.date, s.shift, "QC Supervisor", s.supName.trim())
+                .onSuccess { _state.update { it.copy(savingTeam = false, teamOk = true) } }
+                .onFailure { _state.update { it.copy(savingTeam = false, teamError = "Could not save. Check connection.") } }
         }
     }
+
+    /** Re-open the shift-team card to change the QC supervisor for this shift. */
+    fun editShiftSupervisor() = _state.update { it.copy(teamOk = false) }
 
     private fun loadBalances() {
         val planId = _state.value.job?.PlanID ?: return
