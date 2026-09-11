@@ -27608,8 +27608,8 @@ app.get('/api/qc/memos', async (req, res) => {
               EXTRACT(EPOCH FROM (resolved_at - created_at))/60 AS resolution_mins
          FROM qc_material_issues
         WHERE memo_no IS NOT NULL
-          AND ($1 IS NULL OR machine = $1)
-          AND ($2 IS NULL OR status = $2)
+          AND ($1::text IS NULL OR machine = $1::text)
+          AND ($2::text IS NULL OR status = $2::text)
           AND ($3::boolean IS TRUE OR $4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
         ORDER BY created_at DESC
         LIMIT $5`,
