@@ -27484,21 +27484,37 @@ app.post('/api/qc/material-issues/:id/resolve', async (req, res) => {
 
 // The two Moulding roles a memo is sent to, by role_code (factory-scoped).
 const MEMO_TARGET_ROLES = ['moulding_manager', 'moulding_ass_manager'];
+// Roles allowed to change a memo's lifecycle (accept/solve/deviation).
+const MEMO_MOULDING_ACTORS = ['moulding_manager', 'moulding_ass_manager', 'admin', 'superadmin'];
+// Roles that see every factory's memos and may reply/re-raise.
+const MEMO_QUALITY_ROLES = ['quality', 'quality_manager', 'quality_supervisor', 'qc_supervisor', 'admin', 'superadmin'];
 
-// Extract the acting username from a request (session JSON, or explicit field).
+// Extract the acting username from a request (authenticated header, session JSON,
+// or explicit field). Prefer the server-known username over any client-sent value.
 function memoActor(req, fallback = 'QC') {
   const b = req.body || {};
-  const raw = (b.session ? (() => {
-    try { const s = typeof b.session === 'string' ? JSON.parse(b.session) : b.session; return s.username || s.supervisor || s.user || ''; }
-    catch (_) { return ''; }
-  })() : '') || b.created_by || b.by || '';
+  const raw = (getRequestUsername(req) || '') ||
+    (b.session ? (() => {
+      try { const s = typeof b.session === 'string' ? JSON.parse(b.session) : b.session; return s.username || s.supervisor || s.user || ''; }
+      catch (_) { return ''; }
+    })() : '') || b.created_by || b.by || '';
   return String(raw).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || fallback;
 }
 
-// Is this request from a Quality manager (sees every factory + can reply)?
-function isQualityManager(req) {
-  const role = String(req.headers['x-role-code'] || (req.query && req.query.role) || (req.body && req.body.role) || '').toLowerCase();
-  return role === 'quality' || role === 'quality_manager' || role === 'admin' || role === 'superadmin';
+// Resolve the caller's REAL role_code from the users table (never trust a
+// client-sent ?role / body.role — that would let anyone claim Quality).
+async function memoRole(req) {
+  try {
+    const uname = getRequestUsername(req);
+    if (!uname) return '';
+    const r = await q('SELECT role_code FROM users WHERE username=$1 LIMIT 1', [uname]);
+    return String((r && r[0] && r[0].role_code) || '').toLowerCase();
+  } catch (_) { return ''; }
+}
+
+// Is the authenticated caller a Quality manager (sees every factory + can reply)?
+async function isQualityManager(req) {
+  return MEMO_QUALITY_ROLES.includes(await memoRole(req));
 }
 
 // POST /api/qc/memos — raise a memo (multi image/video, job context, @mention)
@@ -27565,7 +27581,7 @@ app.get('/api/qc/memos', async (req, res) => {
   try {
     const { machine, status, limit } = req.query;
     const factoryId = getFactoryId(req);
-    const seeAll = isQualityManager(req);
+    const seeAll = await isQualityManager(req);
     const rows = await q(
       `SELECT *,
               EXTRACT(EPOCH FROM (COALESCE(first_reply_at, accepted_at) - created_at))/60 AS response_mins,
@@ -27599,7 +27615,6 @@ app.get('/api/qc/memos/active-by-machine', async (req, res) => {
           AND status <> 'SOLVED'
           AND ($1 IS NULL OR machine = $1)
           AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
-          AND (report_date IS NULL OR report_date >= (CURRENT_DATE - INTERVAL '3 days'))
         ORDER BY created_at DESC`,
       [machine || null, factoryId]
     );
@@ -27613,6 +27628,7 @@ app.get('/api/qc/memos/active-by-machine', async (req, res) => {
 app.post('/api/qc/memos/:id/accept', async (req, res) => {
   try {
     const { id } = req.params;
+    if (!MEMO_MOULDING_ACTORS.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only Moulding managers can accept a memo.' });
     const by = memoActor(req, 'Moulding');
     const factoryId = getFactoryId(req);
     await q(
@@ -27634,6 +27650,7 @@ app.post('/api/qc/memos/:id/accept', async (req, res) => {
 app.post('/api/qc/memos/:id/solve', async (req, res) => {
   try {
     const { id } = req.params;
+    if (!MEMO_MOULDING_ACTORS.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only Moulding managers can solve a memo.' });
     const { resolution_notes } = req.body || {};
     const by = memoActor(req, 'Moulding');
     const factoryId = getFactoryId(req);
@@ -27656,6 +27673,7 @@ app.post('/api/qc/memos/:id/solve', async (req, res) => {
 app.post('/api/qc/memos/:id/deviation', async (req, res) => {
   try {
     const { id } = req.params;
+    if (!MEMO_MOULDING_ACTORS.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only Moulding managers can run a memo under deviation.' });
     const { notes } = req.body || {};
     const by = memoActor(req, 'Moulding');
     const factoryId = getFactoryId(req);
@@ -27679,6 +27697,11 @@ app.post('/api/qc/memos/:id/reply', async (req, res) => {
     const { id } = req.params;
     const { message } = req.body || {};
     if (!message || !String(message).trim()) return res.json({ ok: false, error: 'message required' });
+    const role = await memoRole(req);
+    if (!MEMO_QUALITY_ROLES.includes(role) && !MEMO_TARGET_ROLES.includes(role)) {
+      return res.status(403).json({ ok: false, error: 'Only Quality or Moulding can reply to a memo.' });
+    }
+    const seeAll = MEMO_QUALITY_ROLES.includes(role);
     const by = memoActor(req, 'User');
     const factoryId = getFactoryId(req);
     await q(
@@ -27687,7 +27710,7 @@ app.post('/api/qc/memos/:id/reply', async (req, res) => {
               action_history = action_history || $1::jsonb
         WHERE id=$2 AND ($3::int IS NULL OR factory_id=$3 OR factory_id IS NULL OR $4::boolean IS TRUE)`,
       [JSON.stringify([{ action: 'REPLY', by, at: new Date().toISOString(), notes: String(message).slice(0, 1000) }]),
-       id, factoryId, isQualityManager(req)]
+       id, factoryId, seeAll]
     );
     res.json({ ok: true });
   } catch (e) {
@@ -27699,6 +27722,7 @@ app.post('/api/qc/memos/:id/reply', async (req, res) => {
 app.post('/api/qc/memos/:id/reraise', async (req, res) => {
   try {
     const { id } = req.params;
+    if (!MEMO_QUALITY_ROLES.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only QC / Quality can re-raise a memo.' });
     const { notes } = req.body || {};
     const by = memoActor(req, 'QC');
     const factoryId = getFactoryId(req);
