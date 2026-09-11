@@ -95,6 +95,14 @@ confirm UPSERT, so a blank ERP value can never wipe an existing one.
 | 1 | Dungra Plant 1 | **41** | JOYO PLASTICS - DUNGRA - UNIT-I | `JG`, `JGUI` |
 | F2 | Shivani | **44** | JOYO PLASTICS - SHIVANI, KACHIGAM | `JS` |
 | F3 | Kachigam | **1** | JOYO PLASTICS - PREMIER, KACHIGAM | `JP` |
+| F4 | Dungra Unit-II | **46** | JOYO PLASTICS - DUNGRA - UNIT-II | `JGUII` |
+
+**🚨 Dungra Unit-II (F4) is a SEPARATE ERP factory (46), not Plant 1 (41).** Both plants'
+names contain "DUNGRA", so the `%DUNGRA%` name-match seed would otherwise file Unit-II's
+orders under Plant 1. The seed claims Unit-II first (by code `F4` / name `UNIT-II`, guarded
+by `erp_factory_id IS NULL`) and self-heals a row previously mis-seeded to 41. Its OR prefix
+`JGUII` is distinct from Plant 1's `JGUI` (exact-match only), but the ERP `factoryID` (46 vs
+41) is the primary discriminator. Added v1.56.0, PR #1388.
 
 **🚨 The ID spaces collide.** ERP `factoryID = 1` is **Kachigam**, but JMS `factory_id = 1`
 is **Dungra Plant 1**. Using the ERP number directly as the JMS number would silently file
