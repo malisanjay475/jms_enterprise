@@ -5578,6 +5578,28 @@ async function initializeLegacyRuntime() {
     `);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcissues_machine ON qc_material_issues (machine, status)`);
 
+    // RAISED MEMO — extra columns layered onto qc_material_issues (the memo store).
+    // A "memo" is a QC-raised production issue with a unique number, job context,
+    // multi-media, an @mentioned person, and an Accept → Solve / Deviation lifecycle.
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS memo_no TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS shift TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS report_date DATE`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS plan_id TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS order_no TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS mould_name TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS mentioned_name TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS mentioned_role TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS media_urls JSONB DEFAULT '[]'::jsonb`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS accepted_by TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS first_reply_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS deviation BOOLEAN DEFAULT FALSE`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS deviation_by TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS deviation_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS reraised_count INTEGER DEFAULT 0`);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qcissues_memo_no ON qc_material_issues (memo_no) WHERE memo_no IS NOT NULL`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcissues_memo_scope ON qc_material_issues (factory_id, report_date, shift, status)`);
+
     // QC NOTIFICATIONS — in-app notifications for roles
     await q(`
       CREATE TABLE IF NOT EXISTS qc_notifications (
@@ -27468,6 +27490,302 @@ app.post('/api/qc/material-issues/:id/resolve', async (req, res) => {
       [by, resolution_notes || '', JSON.stringify([{ action: 'RESOLVED', by, at: new Date().toISOString(), notes: resolution_notes || '' }]), id, factoryId]
     );
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RAISED MEMO — QC raises a production memo to Moulding; lifecycle:
+//   RAISED → ACCEPTED → SOLVED   (or DEVIATION = "Running Under Deviation")
+// Notifies moulding_manager + moulding_ass_manager of the raising factory only.
+// Built on qc_material_issues (+ memo columns). New /api/qc/memos* aliases.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The two Moulding roles a memo is sent to, by role_code (factory-scoped).
+const MEMO_TARGET_ROLES = ['moulding_manager', 'moulding_ass_manager'];
+// Roles allowed to change a memo's lifecycle (accept/solve/deviation).
+const MEMO_MOULDING_ACTORS = ['moulding_manager', 'moulding_ass_manager', 'admin', 'superadmin'];
+// Roles that see every factory's memos and may reply/re-raise.
+const MEMO_QUALITY_ROLES = ['quality', 'quality_manager', 'quality_supervisor', 'qc_supervisor', 'admin', 'superadmin'];
+
+// Extract the acting username from a request (authenticated header, session JSON,
+// or explicit field). Prefer the server-known username over any client-sent value.
+function memoActor(req, fallback = 'QC') {
+  const b = req.body || {};
+  const raw = (getRequestUsername(req) || '') ||
+    (b.session ? (() => {
+      try { const s = typeof b.session === 'string' ? JSON.parse(b.session) : b.session; return s.username || s.supervisor || s.user || ''; }
+      catch (_) { return ''; }
+    })() : '') || b.created_by || b.by || '';
+  return String(raw).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || fallback;
+}
+
+// Resolve the caller's REAL role_code from the users table (never trust a
+// client-sent ?role / body.role — that would let anyone claim Quality).
+async function memoRole(req) {
+  try {
+    const uname = getRequestUsername(req);
+    if (!uname) return '';
+    const r = await q('SELECT role_code FROM users WHERE username=$1 LIMIT 1', [uname]);
+    return String((r && r[0] && r[0].role_code) || '').toLowerCase();
+  } catch (_) { return ''; }
+}
+
+// Is the authenticated caller a Quality manager (sees every factory + can reply)?
+async function isQualityManager(req) {
+  return MEMO_QUALITY_ROLES.includes(await memoRole(req));
+}
+
+// POST /api/qc/memos — raise a memo (multi image/video, job context, @mention)
+app.post('/api/qc/memos', (req, res, next) => {
+  uploadQC.array('media_files', 12)(req, res, err => {
+    if (err) return res.status(400).json({ ok: false, error: err.message || 'Upload error' });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { machine, job_card_no, plan_id, order_no, mould_name, issue_description,
+            severity, shift, report_date, mentioned_name, mentioned_role } = body;
+    if (!machine || !issue_description) return res.json({ ok: false, error: 'machine and issue_description required' });
+    const created_by = memoActor(req);
+    const factoryId = getFactoryId(req);
+    const files = Array.isArray(req.files) ? req.files : [];
+    const mediaUrls = files.map(f => `/uploads/qc-images/${path.basename(f.filename || f.path)}`);
+    const now = new Date().toISOString();
+    const initAudit = JSON.stringify([{ action: 'RAISED', by: created_by, at: now, notes: issue_description }]);
+
+    const ins = await q(
+      `INSERT INTO qc_material_issues
+         (factory_id, machine, job_card_no, plan_id, order_no, mould_name, issue_description,
+          severity, media_url, media_urls, assigned_to_role, mentioned_name, mentioned_role,
+          created_by, shift, report_date, status, action_history)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16,'RAISED',$17::jsonb)
+       RETURNING id`,
+      [factoryId, machine, job_card_no || '', plan_id || '', order_no || '', mould_name || '',
+       issue_description, severity || 'Medium', mediaUrls[0] || null, JSON.stringify(mediaUrls),
+       'moulding_manager', mentioned_name || '', mentioned_role || '', created_by,
+       shift || '', report_date || null, initAudit]
+    );
+    const id = ins[0].id;
+    // Unique, human-readable memo number: MEMO-<factory>-<id> (id is globally unique).
+    const memoNo = `MEMO-${factoryId || 0}-${id}`;
+    await q(`UPDATE qc_material_issues SET memo_no=$1 WHERE id=$2`, [memoNo, id]);
+
+    // Notify the two Moulding roles of THIS factory only.
+    for (const role of MEMO_TARGET_ROLES) {
+      await q(
+        `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+         VALUES ($1,$2,$3,'MEMO',$4)`,
+        [factoryId, role, `${memoNo}: new memo on ${machine} by ${created_by} — ${issue_description.slice(0, 80)}`, id]
+      );
+    }
+    // Also directly notify the @mentioned person, if any.
+    if (mentioned_name) {
+      await q(
+        `INSERT INTO qc_notifications (factory_id, recipient_role, recipient_name, message, ref_type, ref_id)
+         VALUES ($1,$2,$3,$4,'MEMO',$5)`,
+        [factoryId, mentioned_role || 'moulding_manager', mentioned_name,
+         `${memoNo}: you were mentioned on ${machine} by ${created_by}`, id]
+      );
+    }
+    res.json({ ok: true, id, memo_no: memoNo, media_urls: mediaUrls });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/memos — list memos. Quality managers see all factories; others own factory.
+app.get('/api/qc/memos', async (req, res) => {
+  try {
+    const { machine, status, limit } = req.query;
+    const factoryId = getFactoryId(req);
+    const seeAll = await isQualityManager(req);
+    const rows = await q(
+      `SELECT *,
+              EXTRACT(EPOCH FROM (COALESCE(first_reply_at, accepted_at) - created_at))/60 AS response_mins,
+              EXTRACT(EPOCH FROM (resolved_at - created_at))/60 AS resolution_mins
+         FROM qc_material_issues
+        WHERE memo_no IS NOT NULL
+          AND ($1 IS NULL OR machine = $1)
+          AND ($2 IS NULL OR status = $2)
+          AND ($3::boolean IS TRUE OR $4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+        ORDER BY created_at DESC
+        LIMIT $5`,
+      [machine || null, status || null, seeAll, factoryId, Math.min(200, parseInt(limit) || 100)]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/memos/active-by-machine — open memos for the DPR Compliance badge.
+// Carryover: anything not SOLVED stays visible into the next shift; SOLVED drops off.
+app.get('/api/qc/memos/active-by-machine', async (req, res) => {
+  try {
+    const { machine } = req.query;
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT id, memo_no, machine, job_card_no, plan_id, issue_description, severity,
+              created_by, created_at, status, deviation, accepted_by, accepted_at, shift, report_date
+         FROM qc_material_issues
+        WHERE memo_no IS NOT NULL
+          AND status <> 'SOLVED'
+          AND ($1 IS NULL OR machine = $1)
+          AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        ORDER BY created_at DESC`,
+      [machine || null, factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/accept — Moulding accepts the memo (starts the clock).
+app.post('/api/qc/memos/:id/accept', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!MEMO_MOULDING_ACTORS.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only Moulding managers can accept a memo.' });
+    const by = memoActor(req, 'Moulding');
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+          SET accepted_by=$1, accepted_at=NOW(),
+              first_reply_at = COALESCE(first_reply_at, NOW()),
+              status = CASE WHEN status IN ('SOLVED') THEN status ELSE 'ACCEPTED' END,
+              action_history = action_history || $2::jsonb
+        WHERE id=$3 AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)`,
+      [by, JSON.stringify([{ action: 'ACCEPTED', by, at: new Date().toISOString() }]), id, factoryId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/solve — Moulding marks the memo solved.
+app.post('/api/qc/memos/:id/solve', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!MEMO_MOULDING_ACTORS.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only Moulding managers can solve a memo.' });
+    const { resolution_notes } = req.body || {};
+    const by = memoActor(req, 'Moulding');
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+          SET resolved_by=$1, resolved_at=NOW(), status='SOLVED',
+              deviation=FALSE, resolution_notes=$2,
+              first_reply_at = COALESCE(first_reply_at, NOW()),
+              action_history = action_history || $3::jsonb
+        WHERE id=$4 AND ($5::int IS NULL OR factory_id=$5 OR factory_id IS NULL)`,
+      [by, resolution_notes || '', JSON.stringify([{ action: 'SOLVED', by, at: new Date().toISOString(), notes: resolution_notes || '' }]), id, factoryId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/deviation — Moulding runs the job Under Deviation.
+app.post('/api/qc/memos/:id/deviation', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!MEMO_MOULDING_ACTORS.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only Moulding managers can run a memo under deviation.' });
+    const { notes } = req.body || {};
+    const by = memoActor(req, 'Moulding');
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+          SET deviation=TRUE, deviation_by=$1, deviation_at=NOW(), status='DEVIATION',
+              first_reply_at = COALESCE(first_reply_at, NOW()),
+              action_history = action_history || $2::jsonb
+        WHERE id=$3 AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)`,
+      [by, JSON.stringify([{ action: 'DEVIATION', by, at: new Date().toISOString(), notes: notes || '' }]), id, factoryId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/reply — threaded reply (Quality or Moulding).
+app.post('/api/qc/memos/:id/reply', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { message } = req.body || {};
+    if (!message || !String(message).trim()) return res.json({ ok: false, error: 'message required' });
+    const role = await memoRole(req);
+    if (!MEMO_QUALITY_ROLES.includes(role) && !MEMO_TARGET_ROLES.includes(role)) {
+      return res.status(403).json({ ok: false, error: 'Only Quality or Moulding can reply to a memo.' });
+    }
+    const seeAll = MEMO_QUALITY_ROLES.includes(role);
+    const by = memoActor(req, 'User');
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+          SET first_reply_at = COALESCE(first_reply_at, NOW()),
+              action_history = action_history || $1::jsonb
+        WHERE id=$2 AND ($3::int IS NULL OR factory_id=$3 OR factory_id IS NULL OR $4::boolean IS TRUE)`,
+      [JSON.stringify([{ action: 'REPLY', by, at: new Date().toISOString(), notes: String(message).slice(0, 1000) }]),
+       id, factoryId, seeAll]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/reraise — QC reopens a memo that was not really solved.
+app.post('/api/qc/memos/:id/reraise', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!MEMO_QUALITY_ROLES.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only QC / Quality can re-raise a memo.' });
+    const { notes } = req.body || {};
+    const by = memoActor(req, 'QC');
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `UPDATE qc_material_issues
+          SET status='RAISED', deviation=FALSE, resolved_by=NULL, resolved_at=NULL,
+              reraised_count = COALESCE(reraised_count,0) + 1,
+              action_history = action_history || $1::jsonb
+        WHERE id=$2 AND ($3::int IS NULL OR factory_id=$3 OR factory_id IS NULL)
+        RETURNING factory_id, machine, memo_no`,
+      [JSON.stringify([{ action: 'RERAISED', by, at: new Date().toISOString(), notes: notes || '' }]), id, factoryId]
+    );
+    // Re-notify the Moulding roles.
+    if (rows && rows[0]) {
+      for (const role of MEMO_TARGET_ROLES) {
+        await q(
+          `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+           VALUES ($1,$2,$3,'MEMO',$4)`,
+          [rows[0].factory_id, role, `${rows[0].memo_no}: re-raised by ${by} on ${rows[0].machine}`, id]
+        );
+      }
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/factory-people — Moulding people in a factory, for the @mention picker.
+app.get('/api/qc/factory-people', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT DISTINCT u.username, u.role_code, COALESCE(u.full_name, u.username) AS name
+         FROM users u
+         LEFT JOIN user_factories uf ON uf.user_id = u.id
+        WHERE COALESCE(u.is_active, TRUE) = TRUE
+          AND LOWER(COALESCE(u.role_code,'')) = ANY($1::text[])
+          AND ($2::int IS NULL OR u.global_access = TRUE OR uf.factory_id = $2)
+        ORDER BY name`,
+      [MEMO_TARGET_ROLES, factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
