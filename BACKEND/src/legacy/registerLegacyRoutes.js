@@ -27633,7 +27633,7 @@ app.get('/api/qc/memos/active-by-machine', async (req, res) => {
          FROM qc_material_issues
         WHERE memo_no IS NOT NULL
           AND status <> 'SOLVED'
-          AND ($1 IS NULL OR machine = $1)
+          AND ($1::text IS NULL OR machine = $1)
           AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
         ORDER BY created_at DESC`,
       [machine || null, factoryId]
