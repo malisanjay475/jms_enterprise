@@ -84,6 +84,18 @@ interface ApiService {
         @PartMap fields: Map<String, @JvmSuppressWildcards RequestBody>
     ): ApiEnvelope
 
+    // Raised Memo — multipart create (multiple images/video via media_files[])
+    @Multipart
+    @POST("api/qc/memos")
+    suspend fun createMemo(
+        @PartMap fields: Map<String, @JvmSuppressWildcards RequestBody>,
+        @Part media: List<@JvmSuppressWildcards MultipartBody.Part>
+    ): ApiEnvelope
+
+    // Moulding people of the caller's factory, for the @mention picker.
+    @GET("api/qc/factory-people")
+    suspend fun factoryPeople(): ApiEnvelope
+
     @GET("api/qc/dashboard/kpis")
     suspend fun dashboardKpis(
         @Query("date") date: String?,

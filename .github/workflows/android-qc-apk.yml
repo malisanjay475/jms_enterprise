@@ -16,6 +16,9 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
+    # secrets can't be used in `if:` directly — surface presence as an env flag.
+    env:
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
     defaults:
       run:
         working-directory: android_qc
@@ -41,10 +44,39 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: jms-qc-debug-apk
           path: android_qc/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # Signed release build — runs only when the keystore secret is configured.
+      # Add repo secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD.
+      - name: Decode keystore
+        id: keystore
+        if: env.HAS_KEYSTORE == 'true'
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/jms-qc-release.jks"
+          echo "path=$RUNNER_TEMP/jms-qc-release.jks" >> "$GITHUB_OUTPUT"
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+
+      - name: Build signed release APK
+        if: env.HAS_KEYSTORE == 'true'
+        run: gradle assembleRelease --no-daemon --stacktrace
+        env:
+          KEYSTORE_FILE: ${{ steps.keystore.outputs.path }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Upload release APK
+        if: env.HAS_KEYSTORE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jms-qc-release-apk
+          path: android_qc/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30

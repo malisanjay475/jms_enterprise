@@ -313,6 +313,67 @@ class QcRepository(private val session: SessionStore) {
         if (!env.ok) error(env.error ?: "Could not raise issue")
     }
 
+    // ── Raised Memo ───────────────────────────────────────────────────────────
+
+    /** Moulding people (moulding_manager / moulding_ass_manager) of this factory. */
+    suspend fun factoryPeople(): Result<List<com.jmsocean.qc.data.remote.FactoryPerson>> = try {
+        val env = api.factoryPeople()
+        if (!env.ok) throw Exception(env.error ?: "Could not load people")
+        val arr = env.data as? JsonArray ?: JsonArray(emptyList())
+        Result.success(arr.map { json.decodeFromJsonElement(com.jmsocean.qc.data.remote.FactoryPerson.serializer(), it) })
+    } catch (e: Exception) {
+        Result.failure(Exception(serverErr(e)))
+    }
+
+    /** Raise a memo to Moulding with job context, multi-media and an @mention. */
+    suspend fun createMemo(
+        machine: String,
+        job: QueueJob?,
+        description: String,
+        severity: String,
+        remarks: String,
+        mentionedName: String,
+        mentionedRole: String,
+        images: List<File>,
+        video: File?
+    ): Result<String> = try {
+        fun text(v: String): RequestBody = v.toRequestBody("text/plain".toMediaTypeOrNull())
+        val sessionJson = buildJsonObject {
+            put("username", session.username); put("line", session.line)
+        }.toString()
+        val descFull = if (remarks.isBlank()) description else "$description\n\nRemarks: $remarks"
+        val fields = buildMap {
+            put("session", text(sessionJson))
+            put("machine", text(machine))
+            put("issue_description", text(descFull))
+            put("severity", text(severity))
+            put("shift", text(Ist.shift()))
+            put("report_date", text(Ist.date()))
+            job?.let {
+                put("job_card_no", text(it.JobCardNo ?: ""))
+                put("plan_id", text(it.PlanID ?: ""))
+                put("order_no", text(it.orderNumber))
+                put("mould_name", text(it.Mould ?: ""))
+            }
+            if (mentionedName.isNotBlank()) {
+                put("mentioned_name", text(mentionedName))
+                put("mentioned_role", text(mentionedRole))
+            }
+        }
+        fun part(f: File, mime: String): MultipartBody.Part =
+            MultipartBody.Part.createFormData("media_files", f.name, f.asRequestBody(mime.toMediaTypeOrNull()))
+        val parts = buildList {
+            images.forEach { add(part(it, "image/jpeg")) }
+            video?.let { add(part(it, "video/mp4")) }
+        }
+        val env = api.createMemo(fields, parts)
+        if (!env.ok) throw Exception(env.error ?: "Could not raise memo")
+        val memoNo = (env.data as? JsonObject)?.get("memo_no")?.jsonPrimitive?.contentOrNull ?: ""
+        Result.success(memoNo)
+    } catch (e: Exception) {
+        Result.failure(Exception(serverErr(e)))
+    }
+
     // ── Dashboard ───────────────────────────────────────────────────────────
 
     suspend fun dashboardKpis(date: String?, machine: String): Result<Kpis> = runCatching {

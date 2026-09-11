@@ -184,6 +184,14 @@ data class MaterialIssue(
     val media_url: String? = null
 )
 
+/** A Moulding person for the memo @mention picker (GET /api/qc/factory-people). */
+@Serializable
+data class FactoryPerson(
+    val username: String = "",
+    val role_code: String = "",
+    val name: String = ""
+)
+
 /** Parsed KPI tile values from GET /api/qc/dashboard/kpis (data object). */
 data class Kpis(
     val production: Int = 0,
