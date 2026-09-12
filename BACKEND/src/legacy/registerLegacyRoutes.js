@@ -4758,6 +4758,13 @@ async function initializeLegacyRuntime() {
             ('admin', 'Admin')
             ON CONFLICT (code) DO NOTHING;
 
+            -- The seed above is DO NOTHING, so existing databases keep the old
+            -- 'quality' label ('Quality Manager'). Correct it to 'QC HOD' — but only
+            -- when it is still one of the known defaults, so a manually-customised
+            -- label is never clobbered.
+            UPDATE roles SET label = 'QC HOD'
+              WHERE code = 'quality' AND label IN ('Quality Manager', 'Quality', 'quality');
+
             CREATE TABLE IF NOT EXISTS notifications (
                 id SERIAL PRIMARY KEY,
                 target_user TEXT NOT NULL,
