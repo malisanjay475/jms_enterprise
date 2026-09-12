@@ -475,38 +475,6 @@ class QcRepository(private val session: SessionStore) {
         return SavedSetup(o.str("act_weight"), o.str("act_cycle_time"), o.str("act_cavity"), o.str("setup_by").ifBlank { null })
     }
 
-    suspend fun jobSetup(
-        jobCardNo: String, date: String, shift: String, machine: String, mouldName: String
-    ): Result<JobSetupData> = runCatching {
-        val root = api.jobSetup(jobCardNo, date, shift, machine, mouldName) as? JsonObject
-            ?: error("Bad setup response")
-        val std = root["std"] as? JsonObject ?: JsonObject(emptyMap())
-        val setups = root["setups"] as? JsonObject ?: JsonObject(emptyMap())
-        JobSetupData(
-            stdWeight = std.str("std_weight"),
-            stdCycleTime = std.str("std_cycle_time"),
-            stdCavity = std.str("std_cavity"),
-            period1 = parseSetup(setups["1"]),
-            period2 = parseSetup(setups["2"])
-        )
-    }
-
-    suspend fun saveJobSetup(
-        jobCardNo: String, machine: String, date: String, shift: String, period: Int,
-        stdWeight: String, stdCycleTime: String, stdCavity: String,
-        actWeight: String, actCycleTime: String, actCavity: String
-    ): Result<Unit> = runCatching {
-        val fields = mapOf(
-            "session" to json.encodeToString(com.jmsocean.qc.data.remote.SessionRef.serializer(), sessionRef()),
-            "job_card_no" to jobCardNo, "machine" to machine, "dpr_date" to date, "shift" to shift,
-            "setup_period" to period.toString(),
-            "std_weight" to stdWeight, "std_cycle_time" to stdCycleTime, "std_cavity" to stdCavity,
-            "act_weight" to actWeight, "act_cycle_time" to actCycleTime, "act_cavity" to actCavity
-        )
-        val env = api.saveJobSetup(fields)
-        if (!env.ok) error(env.error ?: "Save failed")
-    }
-
     // ── Online QC Report (2-hour slot Visual / Colour / Function-Fitment) ────
 
     suspend fun onlineReport(
