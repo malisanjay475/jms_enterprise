@@ -8580,7 +8580,10 @@
             <div style="padding:20px; max-width:1200px; margin:0 auto">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px">
                     <h2 style="font-size:1.5rem; font-weight:700; color:#0f172a"><i class="bi bi-check-circle-fill" style="color:#22c55e"></i> Completed Plans</h2>
-                    <button class="btn" onclick="window.location.reload()"><i class="bi bi-arrow-left"></i> Back to Board</button>
+                    <div style="display:flex; gap:8px">
+                        <button class="btn" onclick="window.downloadCompletedPlansExcel()" style="background:#166534; color:#fff; border-color:#166534"><i class="bi bi-file-earmark-spreadsheet"></i> Download Excel</button>
+                        <button class="btn" onclick="window.location.reload()"><i class="bi bi-arrow-left"></i> Back to Board</button>
+                    </div>
                 </div>
                 <div id="completedReportCon">Loading...</div>
             </div>
@@ -8599,6 +8602,7 @@
 
       window.renderCompletedPlans = function (reports) {
         const con = document.getElementById('completedReportCon');
+        window._completedReports = reports || [];   // stash for Excel export
         if (!reports.length) {
           con.innerHTML = '<div class="muted" style="text-align:center; padding:40px; background:#f8fafc; border-radius:12px">No fully completed plans yet.</div>';
           return;
@@ -8685,6 +8689,48 @@
               `;
           con.appendChild(card);
         });
+      };
+
+      window.downloadCompletedPlansExcel = function () {
+        const reports = window._completedReports || [];
+        if (!reports.length) { toast('No completed plans to export.', 'error'); return; }
+        const xesc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        let body = '';
+        reports.forEach(rpt => {
+          const h = rpt.header || {};
+          const doneAt = h.completedAt ? new Date(h.completedAt).toLocaleString() : '';
+          (rpt.rows || []).forEach(r => {
+            const t = r.time ? new Date(r.time).toLocaleString() : '';
+            body += `<tr>
+              <td>${xesc(h.orderNo)}</td>
+              <td>${xesc(h.product)}</td>
+              <td>${xesc(r.mould_name)}</td>
+              <td>${xesc(r.mould_code || '')}</td>
+              <td>${xesc(r.machine)}</td>
+              <td>${xesc(r.type)}</td>
+              <td>${xesc(r.remarks || '')}</td>
+              <td>${xesc(r.user_name || 'System')}</td>
+              <td>${xesc(t)}</td>
+              <td>${xesc(doneAt)}</td>
+            </tr>`;
+          });
+        });
+        const dateTxt = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+        const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"></head><body>
+          <table border="1">
+            <tr><td colspan="10" align="center"><b>Completed Production Plans — ${xesc(dateTxt)}</b></td></tr>
+            <tr>
+              <th>Order No</th><th>Product</th><th>Mould Name</th><th>Mould No</th><th>Machine</th>
+              <th>Status</th><th>Remarks</th><th>User</th><th>Time</th><th>Completed At</th>
+            </tr>
+            ${body}
+          </table></body></html>`;
+        const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'Completed_Production_Plans_' + dateTxt.replace(/[^\w]+/g, '_') + '.xls';
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
       };
 
       window.restorePlan = async function (orderNo) {
