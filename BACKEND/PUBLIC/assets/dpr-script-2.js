@@ -263,6 +263,8 @@
     async function loadJobQCEvidence(details) {
         const box = document.getElementById('modalJobQCEvidence');
         if (!box) return;
+        // Remember the job so a delete can re-render this same evidence panel.
+        window._lastQcJobDetails = details;
 
         const jc = details.job_card_no || details.JobCardNo || '';
         const planId = details.plan_id || details.PlanID || '';
@@ -286,6 +288,8 @@
                 .slice(0, 3);
             const fpa = rows.find(r => r.fpa_form_image || (Array.isArray(r.product_images) && r.product_images.length));
             const fpaImages = fpa ? [fpa.fpa_form_image, ...((Array.isArray(fpa.product_images) ? fpa.product_images : []))].filter(Boolean) : [];
+            const fpaRowId = fpa ? fpa.id : null;
+            const canDelFpa = !!(window.canDeleteFpaImage && window.canDeleteFpaImage());
 
             box.innerHTML = `
                 <h4 style="font-size:1rem; font-weight:900; color:#0f172a; margin:0 0 10px">QC</h4>
@@ -309,13 +313,18 @@
                     <div style="font-size:0.85rem; color:#334155; font-weight:800; margin:14px 0 8px">FPA Images</div>
                     <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px">
                         ${fpaImages.map((src, i) => `
+                        <div style="position:relative">
                         <button type="button" onclick="openJobImage(decodeURIComponent('${encodeURIComponent(src)}'))"
                             style="display:block;padding:0;border:2px solid #e2e8f0;background:#f8fafc;cursor:zoom-in;border-radius:10px;overflow:hidden;transition:border-color 0.2s,transform 0.2s;width:100%"
                             onmouseover="this.style.borderColor='#93c5fd';this.style.transform='scale(1.02)'"
                             onmouseout="this.style.borderColor='#e2e8f0';this.style.transform='scale(1)'">
                             <img src="${dprEsc(src)}" alt="FPA image ${i + 1}"
                                 style="width:100%;aspect-ratio:4/3;object-fit:cover;display:block;border-radius:8px">
-                        </button>`).join('')}
+                        </button>
+                        ${(canDelFpa && fpaRowId) ? `<button type="button" title="Delete this FPA image"
+                            onclick="deleteFpaImage(${fpaRowId}, decodeURIComponent('${encodeURIComponent(src)}'))"
+                            style="position:absolute;top:5px;right:5px;width:26px;height:26px;padding:0;border:none;border-radius:50%;background:#dc2626;color:#fff;font-size:15px;font-weight:900;line-height:1;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.35);z-index:2">&times;</button>` : ''}
+                        </div>`).join('')}
                     </div>
                 ` : '<div style="color:#64748b; font-size:0.82rem; margin-top:10px">No FPA images saved for this job yet.</div>'}
             `;
@@ -323,6 +332,23 @@
             box.innerHTML = `<div style="color:#b91c1c; font-size:0.85rem">QC evidence could not be loaded: ${String(err.message || err)}</div>`;
         }
     }
+
+    // Delete one FPA image (Quality / admin / superadmin). Server re-checks the role.
+    // After a successful delete, re-render the same job's evidence so the grid updates
+    // and Quality can capture a fresh FPA photo from the app.
+    window.deleteFpaImage = async function (id, url) {
+        if (!confirm('Delete this FPA image? Quality can then add a new one.')) return;
+        try {
+            const res = await JPSMS.api.post('/qc/fpa/delete-image', { id, url, session: JPSMS.auth.getUser() });
+            if (res && res.ok) {
+                if (window._lastQcJobDetails) loadJobQCEvidence(window._lastQcJobDetails);
+            } else {
+                alert((res && res.error) || 'Could not delete image.');
+            }
+        } catch (e) {
+            alert('Delete failed: ' + (e.message || e));
+        }
+    };
 
     // Real end-timestamp of an hour slot. Day shift starts 07:00; Night starts 19:00
     // and slots after '10-11' fall on the NEXT calendar day (mirrors getSlotEnd in dpr-script-1.js).

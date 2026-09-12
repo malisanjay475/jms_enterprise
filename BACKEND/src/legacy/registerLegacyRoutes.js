@@ -26756,6 +26756,75 @@ app.get('/api/qc/job-checks', async (req, res) => {
   }
 });
 
+// POST /api/qc/fpa/delete-image — remove ONE FPA image from a qc_job_checks row.
+// Allowed roles: quality, admin, superadmin — so Quality can drop a bad FPA photo
+// and re-take it. Role is resolved server-side; a client-sent role is never trusted.
+app.post('/api/qc/fpa/delete-image', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const id = parseInt(body.id, 10);
+    const url = String(body.url || '').trim();
+    if (!id || !url) return res.status(400).json({ ok: false, error: 'id and url required' });
+
+    const uname = (body.session ? (() => {
+      try { const s = typeof body.session === 'string' ? JSON.parse(body.session) : body.session; return s.username || s.user || ''; }
+      catch (_) { return ''; }
+    })() : '') || getRequestUsername(req) || '';
+    const urow = uname ? await q('SELECT role_code FROM users WHERE username=$1 LIMIT 1', [uname]) : [];
+    const role = String((urow[0] && urow[0].role_code) || '').toLowerCase();
+    const allowed = role === 'admin' || role === 'superadmin' || role === 'quality' || role === 'quality_manager';
+    if (!allowed) return res.status(403).json({ ok: false, error: 'Only Quality / admin can delete FPA images.' });
+
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT id, fpa_form_image, fpa_form_url, product_images FROM qc_job_checks
+        WHERE id=$1 AND ($2::int IS NULL OR factory_id=$2 OR factory_id IS NULL) LIMIT 1`,
+      [id, factoryId]
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Job check not found' });
+    const row = rows[0];
+
+    let products = [];
+    try { products = Array.isArray(row.product_images) ? row.product_images : JSON.parse(row.product_images || '[]'); }
+    catch (_) { products = []; }
+    const newProducts = products.filter(u => String(u) !== url);
+    const clearedForm = (row.fpa_form_image === url) || (row.fpa_form_url === url);
+    const newForm = clearedForm ? null : row.fpa_form_image;
+    const newFormUrl = clearedForm ? null : row.fpa_form_url;
+    const nothingLeft = !newForm && newProducts.length === 0;
+
+    await q(
+      `UPDATE qc_job_checks
+          SET fpa_form_image=$1, fpa_form_url=$2, product_images=$3::jsonb,
+              fpa_status  = CASE WHEN $4 THEN 'Pending' ELSE fpa_status END,
+              fpa_done_at = CASE WHEN $4 THEN NULL ELSE fpa_done_at END,
+              fpa_done_by = CASE WHEN $4 THEN NULL ELSE fpa_done_by END,
+              updated_at = NOW()
+        WHERE id=$5`,
+      [newForm, newFormUrl, JSON.stringify(newProducts), nothingLeft, id]
+    );
+
+    // Best-effort: delete the physical file only if no other row still references it.
+    try {
+      const base = path.basename(url);
+      const still = await q(
+        `SELECT 1 FROM qc_job_checks
+          WHERE fpa_form_image LIKE $1 OR fpa_form_url LIKE $1 OR product_images::text LIKE $1 LIMIT 1`,
+        ['%' + base + '%']
+      );
+      if (!still.length) {
+        const fp = path.join(_qcImgDir, base);
+        if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      }
+    } catch (_) { /* file cleanup is best-effort */ }
+
+    if (syncService && syncService.triggerSync) syncService.triggerSync();
+    res.json({ ok: true, product_images: newProducts, fpa_form_image: newForm, cleared: nothingLeft });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // 2. Internal Line Issue Memo
 app.post('/api/qc/issue', async (req, res) => {
   try {
