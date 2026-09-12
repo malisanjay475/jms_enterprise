@@ -226,6 +226,15 @@
             return adminLike || ['planner', 'ppc_ass_manager', 'ppc_manager'].includes(r);
         };
 
+        // Who may delete an FPA image in the Compliance Summary job modal:
+        // Quality + admin/superadmin. The server enforces this too.
+        window.canDeleteFpaImage = () => {
+            const u = (window.JPSMS && JPSMS.auth && JPSMS.auth.getUser && JPSMS.auth.getUser()) || {};
+            const r = String(u.role_code || u.role || '').toLowerCase();
+            const adminLike = (JPSMS.auth.isAdminLike ? JPSMS.auth.isAdminLike(u) : (r === 'admin' || r === 'superadmin'));
+            return adminLike || ['quality', 'quality_manager'].includes(r);
+        };
+
         // --- DELETE MODAL LOGIC (ADD-ON) ---
         window.deleteEntry = async (id) => {
             if (!confirm('This entry will be deleted. Are you sure?')) return;
@@ -443,7 +452,7 @@
     </script>
 </body>
 
-  <script src="/assets/dpr-script-2.js?v=release76"></script>
+  <script src="/assets/dpr-script-2.js?v=release77"></script>
   <script src="/assets/dpr-machine-auto.js?v=release4"></script>
 
 <!-- JOB DETAIL MODAL -->

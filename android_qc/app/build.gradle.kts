@@ -24,6 +24,20 @@ android {
         buildConfigField("String", "BASE_URL", "\"http://192.168.1.173:3001/\"")
     }
 
+    // Release signing reads from env / CI secrets — NEVER commit a keystore or
+    // password. Set KEYSTORE_FILE, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD.
+    signingConfigs {
+        create("release") {
+            val kfile = System.getenv("KEYSTORE_FILE")
+            if (kfile != null && file(kfile).exists()) {
+                storeFile = file(kfile)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
@@ -32,6 +46,10 @@ android {
         }
         release {
             isMinifyEnabled = false
+            // Only sign when the keystore env is present (CI with secrets).
+            if (System.getenv("KEYSTORE_FILE") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
