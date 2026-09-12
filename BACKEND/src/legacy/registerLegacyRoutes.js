@@ -4749,7 +4749,7 @@ async function initializeLegacyRuntime() {
             ('ppc_ass_manager', 'PPC Ass. Manager'),
             ('moulding_manager', 'Moulding Manager'),
             ('moulding_ass_manager', 'Moulding Ass. Manager'),
-            ('quality', 'Quality Manager'),
+            ('quality', 'QC HOD'),
             ('qc_supervisor', 'QC Supervisor'),
             ('shifting_supervisor', 'Shifting Supervisor'),
             ('maintenance_manager', 'Maintenance Manager'),
