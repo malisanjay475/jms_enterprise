@@ -1220,6 +1220,9 @@
                     // Open machine maintenance tickets → chip on the machine's summary cell
                     // (remarks + "Available by" ETA) so everyone sees it's down & when it returns.
                     const maintPromise = J.api.get('/maintenance/tickets?open=1&type=machine').catch(() => ({ ok: false, data: [] }));
+                    // Open QC memos (not solved) → clickable chip on the machine's summary cell.
+                    // Carries into the next shift until Moulding solves it.
+                    const memoPromise = J.api.get('/qc/memos/active-by-machine').catch(() => ({ ok: false, data: [] }));
                     if (shiftMode === 'Both') {
                         promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}`));
                         promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}`));
@@ -1237,7 +1240,7 @@
                         promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night`));
                     }
 
-                    Promise.all([...promises, scopedMachinesPromise, maintPromise]).then(([resDayMat, resNightMat, resDayTeam, resNightTeam, scopedMachinesRes, maintRes]) => {
+                    Promise.all([...promises, scopedMachinesPromise, maintPromise, memoPromise]).then(([resDayMat, resNightMat, resDayTeam, resNightTeam, scopedMachinesRes, maintRes, memoRes]) => {
                         // Error Check
                         if (!resDayMat.ok) throw new Error(resDayMat.error || 'Day Fetch Failed');
                         if (!resNightMat.ok) throw new Error(resNightMat.error || 'Night Fetch Failed');
@@ -1248,6 +1251,13 @@
                             if (t && t.machine) maintByMachine[String(t.machine)] = t;
                         });
                         window._dprMaintByMachine = maintByMachine;
+
+                        // Map of open (not-solved) memos by machine → chip on the summary cell.
+                        const memoByMachine = {};
+                        ((memoRes && memoRes.ok && memoRes.data) || []).forEach(mo => {
+                            if (mo && mo.machine) (memoByMachine[String(mo.machine)] = memoByMachine[String(mo.machine)] || []).push(mo);
+                        });
+                        window._dprMemoByMachine = memoByMachine;
 
                         let scopedMachinesList = scopedMachinesRes.data || [];
                         if (selectedFactory) {
@@ -2762,7 +2772,25 @@
                                                 </div>`;
                                             }
                                         } catch (_e) {}
-                                        machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${_maintChip}${summaryH}</td></tr>`;
+                                        // Memo chip: clickable pill per open QC memo on this machine.
+                                        // Purple when running Under Deviation, amber otherwise.
+                                        let _memoChip = '';
+                                        try {
+                                            const _mos = (window._dprMemoByMachine || {})[String(machine)] || [];
+                                            if (_mos.length) {
+                                                _memoChip = _mos.map(mo => {
+                                                    const dev = mo.status === 'DEVIATION' || mo.deviation;
+                                                    const bg = dev ? '#faf5ff' : '#fffbeb', bd = dev ? '#d8b4fe' : '#fcd34d', col = dev ? '#7e22ce' : '#b45309';
+                                                    const label = dev ? 'Running Under Deviation' : (mo.status === 'ACCEPTED' ? 'Memo · Accepted' : 'Memo Raised');
+                                                    const tip = dprEscHtml((mo.issue_description || '').slice(0, 120));
+                                                    return `<div onclick="event.stopPropagation(); window.openDprMemo(${mo.id})" title="${tip}" style="cursor:pointer;margin-bottom:5px;padding:4px 7px;border-radius:6px;background:${bg};border:1px solid ${bd};line-height:1.25">
+                                                        <div style="font-weight:800;color:${col};font-size:0.66rem;text-transform:uppercase;letter-spacing:.03em">📝 ${label}</div>
+                                                        <div style="color:${col};font-weight:600;font-size:0.63rem">${dprEscHtml(mo.memo_no || '')} · ${dprEscHtml(mo.created_by || '')}</div>
+                                                    </div>`;
+                                                }).join('');
+                                            }
+                                        } catch (_e) {}
+                                        machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${_maintChip}${_memoChip}${summaryH}</td></tr>`;
 
                                         // Row-level "clear quick entries" button (replaces this row's placeholder).
                                         // Allowed: admin/superadmin + planner, ppc_ass_manager, ppc_manager.
