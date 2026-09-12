@@ -114,6 +114,58 @@
       window.open(url, '_blank');
     };
 
+    // Excel download of the selected order's moulds in the Create Production Plan modal.
+    // Uses the client-side .xls (HTML table) pattern already used elsewhere in Planning.
+    window.exportCpOrderExcel = function () {
+      const order = window.cpSelectedOrder;
+      const moulds = Array.isArray(window.cpOrderMoulds) ? window.cpOrderMoulds : [];
+      if (!order || !moulds.length) { alert('Select a pending order first.'); return; }
+      const esc = (s) => String(s == null ? '' : s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+      const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : ''; };
+      const rowsHtml = moulds.map((m) => {
+        const target = m.targetPlanQty != null ? m.targetPlanQty : m.plan_qty;
+        const planned = m.plannedQty != null ? m.plannedQty : 0;
+        const balance = m.remainingQty != null ? m.remainingQty : (num(target) !== '' ? Math.max(num(target) - num(planned), 0) : '');
+        return `<tr>
+          <td>${esc(m.mould_name || m.mouldFamily || m.mould_no || '-')}</td>
+          <td>${esc(m.mould_no || m.item_code || '-')}</td>
+          <td>${esc(m.item_code || '-')}</td>
+          <td style="text-align:center">${esc(m.mouldingSqn || '-')}</td>
+          <td style="text-align:right">${num(target)}</td>
+          <td style="text-align:right">${num(planned)}</td>
+          <td style="text-align:right">${num(balance)}</td>
+          <td>${esc(m.primary_machine || m.primaryMachine || '-')}</td>
+          <td>${esc(m.secondary_machine || m.secondaryMachine || '-')}</td>
+          <td>${m.isFullyPlanned ? 'Planned' : (num(planned) > 0 ? 'Partly Planned' : 'Not Planned')}</td>
+        </tr>`;
+      }).join('');
+      const th = (t, align) => `<th style="background:#1e293b;color:#fff;border:1px solid #334155;padding:6px 8px;text-align:${align || 'left'}">${t}</th>`;
+      const table = `<table border="1" style="border-collapse:collapse;font-family:Arial;font-size:12px">
+        <thead>
+          <tr><td colspan="10" style="font-size:15px;font-weight:bold;padding:8px">Create Production Plan — Order Moulds</td></tr>
+          <tr>
+            <td colspan="5" style="padding:4px 8px"><b>OR No:</b> ${esc(order.orderNo || '-')} &nbsp;&nbsp; <b>OR Date:</b> ${esc((typeof formatCpDate === 'function' ? formatCpDate(order.orDate) : order.orDate) || '-')}</td>
+            <td colspan="5" style="padding:4px 8px"><b>Product:</b> ${esc(order.productName || '-')} &nbsp;&nbsp; <b>Client:</b> ${esc(order.partyName || order.clientName || '-')} &nbsp;&nbsp; <b>OR Qty:</b> ${num(order.orQty)}</td>
+          </tr>
+          <tr>${th('Mould Name')}${th('Mould No')}${th('Item Code')}${th('Sqn', 'center')}${th('Target Qty', 'right')}${th('Planned Qty', 'right')}${th('Balance Qty', 'right')}${th('Primary Machine')}${th('Secondary Machine')}${th('Status')}</tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>`;
+      const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+        <head><meta charset="utf-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
+        <x:Name>Order Moulds</x:Name><x:WorksheetOptions><x:Print><x:ValidPrinterInfo/></x:Print></x:WorksheetOptions>
+        </x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head>
+        <body>${table}</body></html>`;
+      const safeOr = String(order.orderNo || 'order').replace(/[^A-Za-z0-9._-]+/g, '_');
+      const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `Create_Plan_${safeOr}_${new Date().toISOString().slice(0, 10)}.xls`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    };
+
     window.switchView = function (viewName) {
       viewName = (viewName || '').trim();
       console.log('Switching View to:', viewName);
@@ -929,6 +981,7 @@
             <input type="text" id="cpOrderSearch" placeholder="Search OR / JC / Product / Client">
             <button type="button" id="cpSearchClear" class="cp-search-clear" aria-label="Clear search"><i class="bi bi-x-lg"></i></button>
           </div>
+          <button class="btn" type="button" id="cpExcelBtn" onclick="window.exportCpOrderExcel()" title="Download the selected order's moulds as Excel" style="background:#ecfdf5; color:#047857; border:1px solid #6ee7b7; font-weight:700; white-space:nowrap"><i class="bi bi-file-earmark-excel"></i> Excel</button>
           <button class="btn icon ghost cp-close-btn" id="cpClose"><i class="bi bi-x-lg"></i></button>
         </div>
       </div>

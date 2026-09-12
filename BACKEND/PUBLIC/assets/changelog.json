@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.57.4",
+  "latest": "1.57.5",
   "versions": [
+    {
+      "version": "1.57.5",
+      "date": "2026-09-12",
+      "title": "Create Production Plan: Excel download",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "Create Production Plan now has an Excel button that downloads the selected order's moulds — OR No, mould name/number, item code, moulding sequence, Target/Planned/Balance qty, primary/secondary machine and planned status." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.57.4",
       "date": "2026-09-12",
