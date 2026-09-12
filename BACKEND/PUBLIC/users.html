@@ -582,7 +582,7 @@
                 ${u.username} 
                 ${u.global_access ? '<i class="bi bi-globe" title="Global Access" style="color:#2563eb; margin-left:4px"></i>' : ''}
             </td>
-            <td><span class="badge">${esc((window.__rolesByCode && window.__rolesByCode[u.role_code]) || u.role_code || 'operator')}</span></td>
+            <td><span class="badge">${(window.__rolesByCode && window.__rolesByCode[u.role_code]) || u.role_code || 'operator'}</span></td>
             <td>${u.line || '-'}</td>
             <td>
                 <div>${u.is_active !== false ? 'Active' : 'Inactive'}</div>

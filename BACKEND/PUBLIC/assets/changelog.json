@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.57.2",
+  "latest": "1.57.3",
   "versions": [
+    {
+      "version": "1.57.3",
+      "date": "2026-09-12",
+      "title": "Fix: User Management error loading users",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "fix", "text": "Fixed an 'Error loading users' on the User Management page introduced in the previous update; the role name now renders correctly." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.57.2",
       "date": "2026-09-12",
