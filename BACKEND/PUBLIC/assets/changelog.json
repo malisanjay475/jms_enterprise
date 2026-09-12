@@ -11,8 +11,33 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.56.1",
+  "latest": "1.57.0",
   "versions": [
+    {
+      "version": "1.57.0",
+      "date": "2026-09-12",
+      "title": "Raised Memo + FPA image delete",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-check-circle",
+          "changes": [
+            { "type": "feat", "text": "New MEMO module: raise a production memo to Moulding with photos/video, remarks and an @mention; it notifies that factory's Moulding managers." },
+            { "type": "feat", "text": "Track every memo end to end — who accepted, reply thread, and the Accept / Solve / Running-Under-Deviation status." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "Compliance Summary shows a memo chip on each machine; an unsolved memo carries into the next shift until it is solved." },
+            { "type": "feat", "text": "Quality, admin and superadmin can now delete an FPA image in the Compliance Summary job view, then capture a fresh one." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.56.1",
       "date": "2026-09-11",
