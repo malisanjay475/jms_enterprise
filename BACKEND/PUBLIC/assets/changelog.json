@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.57.1",
+  "latest": "1.57.2",
   "versions": [
+    {
+      "version": "1.57.2",
+      "date": "2026-09-12",
+      "title": "User Management: show role names",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "fix", "text": "The User Management list now shows the friendly role name (e.g. 'QC HOD') instead of the raw role code ('quality'), and existing databases are corrected so the Quality role reads 'QC HOD'." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.57.1",
       "date": "2026-09-12",
