@@ -13,15 +13,20 @@ android {
         applicationId = "com.jmsocean.qc"
         minSdk = 26
         targetSdk = 34
-        versionCode = 20
-        versionName = "0.13.0"
+        // versionCode jumped to 100 to sit safely above every historically
+        // published build (the old 0.12.x/0.13.x feed used codes ~12–13, which
+        // otherwise out-ranked this newer app and made the updater offer a
+        // downgrade). Keep future bumps strictly increasing from here.
+        versionCode = 100
+        versionName = "1.1.0"
 
         // Base URL of the JMS API. Change here to point at LOCAL / staging / prod.
-        //  - LOCAL factory server (no geofence, shop-floor): http://192.168.1.173:3001/  ← active
-        //  - Production (https, reachable anywhere):          https://jmsocean.cloud/
+        //  - Production (https, reachable anywhere):          https://jmsocean.cloud/  ← active
+        //  - LOCAL factory server (no geofence, shop-floor): http://192.168.1.173:3001/
         //  - Staging (http, VPN/office):                      http://72.62.228.195:9093/
-        // NOTE: the phone must be on the same factory Wi-Fi/LAN as the LOCAL server.
-        buildConfigField("String", "BASE_URL", "\"http://192.168.1.173:3001/\"")
+        // NOTE: MAIN enforces a GPS geofence at /api/login (admins bypass); non-admins
+        // must be at the factory. Switch back to the LOCAL URL for shop-floor LAN builds.
+        buildConfigField("String", "BASE_URL", "\"https://jmsocean.cloud/\"")
     }
 
     // Release signing reads from env / CI secrets — NEVER commit a keystore or
@@ -46,7 +51,8 @@ android {
         }
         release {
             isMinifyEnabled = false
-            // Only sign when the keystore env is present (CI with secrets).
+            // Only sign when the keystore env is present (local/CI with secrets);
+            // otherwise Gradle produces an unsigned release for inspection.
             if (System.getenv("KEYSTORE_FILE") != null) {
                 signingConfig = signingConfigs.getByName("release")
             }

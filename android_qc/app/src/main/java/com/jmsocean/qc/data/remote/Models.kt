@@ -112,6 +112,82 @@ data class ComplianceGrid(val slots: List<String>, val lines: List<ComplianceLin
 data class ComplianceLine(val name: String, val rows: List<ComplianceRow>)
 data class ComplianceRow(val machine: String, val cells: Map<String, String>)
 
+// ── QC shift team ───────────────────────────────────────────────────────────
+@Serializable
+data class ShiftTeamMember(
+    val role: String? = null,
+    val employee_name: String? = null
+)
+
+@Serializable
+data class ShiftTeamAddRequest(
+    val session: SessionRef,
+    val machine: String,
+    val dpr_date: String,
+    val shift: String,
+    val role: String,
+    val employee_name: String
+)
+
+// ── QC job setup (STD vs Actual) ────────────────────────────────────────────
+@Serializable
+data class StdValues(
+    val std_weight: Double? = null,
+    val std_cycle_time: Double? = null,
+    val std_cavity: Int? = null
+)
+
+@Serializable
+data class JobSetupRow(
+    val act_weight: Double? = null,
+    val act_cycle_time: Double? = null,
+    val act_cavity: Int? = null
+)
+
+@Serializable
+data class JobSetupResponse(
+    val ok: Boolean = false,
+    val error: String? = null,
+    val std: StdValues? = null,
+    val setup: JobSetupRow? = null
+)
+
+@Serializable
+data class JobSetupSaveRequest(
+    val session: SessionRef,
+    val job_card_no: String,
+    val machine: String,
+    val dpr_date: String,
+    val shift: String,
+    val std_weight: Double? = null,
+    val act_weight: Double? = null,
+    val std_cycle_time: Double? = null,
+    val act_cycle_time: Double? = null,
+    val std_cavity: Int? = null,
+    val act_cavity: Int? = null
+)
+
+/** A recent QC online-report slot check — GET /api/qc/recent-slots. */
+@Serializable
+data class RecentSlot(
+    val slot: String = "",
+    val dpr_date: String? = null,
+    val shift: String? = null,
+    val mould_name: String? = null,
+    val item_name: String? = null,
+    val visual_status: String? = null,
+    val visual_problem: String? = null,
+    val visual_remarks: String? = null,
+    val colour_status: String? = null,
+    val colour_problem: String? = null,
+    val colour_remarks: String? = null,
+    val ff_status: String? = null,
+    val ff_problem: String? = null,
+    val ff_photo_url: String? = null,
+    val entered_by: String? = null,
+    val entered_at: String? = null
+)
+
 /** Response of GET /api/qc/fpa/status. */
 @Serializable
 data class FpaStatus(
@@ -140,6 +216,14 @@ data class MaterialIssue(
     val created_by: String? = null,
     val created_at: String? = null,
     val media_url: String? = null
+)
+
+/** A Moulding person for the memo @mention picker (GET /api/qc/factory-people). */
+@Serializable
+data class FactoryPerson(
+    val username: String = "",
+    val role_code: String = "",
+    val name: String = ""
 )
 
 /** Parsed KPI tile values from GET /api/qc/dashboard/kpis (data object). */

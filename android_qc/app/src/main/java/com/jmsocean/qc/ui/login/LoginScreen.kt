@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.jmsocean.qc.BuildConfig
 import com.jmsocean.qc.data.LocationProvider
 import com.jmsocean.qc.ui.theme.Accent
 
@@ -149,6 +150,21 @@ fun LoginScreen(
                         Text("Log in", color = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
+
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "App v${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "Server: ${BuildConfig.BASE_URL}",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }

@@ -32,7 +32,8 @@ data class FpaUiState(
     val savedFormUrl: String? = null,
     val savedProductUrls: List<String> = emptyList(),
     val doneBy: String? = null,
-    val doneAt: String? = null
+    val doneAt: String? = null,
+    val balances: List<com.jmsocean.qc.data.remote.ColourBalance> = emptyList()
 ) {
     val canSubmit: Boolean
         get() = !submitting && formImage != null && productImages.size >= 2
@@ -48,7 +49,14 @@ class FpaViewModel : ViewModel() {
     )
     val state: StateFlow<FpaUiState> = _state.asStateFlow()
 
-    init { checkStatus() }
+    init {
+        checkStatus()
+        _state.value.job?.PlanID?.let { pid ->
+            viewModelScope.launch {
+                repo.colourBalance(pid).onSuccess { b -> _state.update { it.copy(balances = b) } }
+            }
+        }
+    }
 
     private fun checkStatus() {
         val job = _state.value.job

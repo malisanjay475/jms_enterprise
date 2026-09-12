@@ -87,6 +87,18 @@ interface ApiService {
         @PartMap fields: Map<String, @JvmSuppressWildcards RequestBody>
     ): ApiEnvelope
 
+    // Raised Memo — multipart create (multiple images/video via media_files[])
+    @Multipart
+    @POST("api/qc/memos")
+    suspend fun createMemo(
+        @PartMap fields: Map<String, @JvmSuppressWildcards RequestBody>,
+        @Part media: List<@JvmSuppressWildcards MultipartBody.Part>
+    ): ApiEnvelope
+
+    // Moulding people of the caller's factory, for the @mention picker.
+    @GET("api/qc/factory-people")
+    suspend fun factoryPeople(): ApiEnvelope
+
     @GET("api/qc/dashboard/kpis")
     suspend fun dashboardKpis(
         @Query("date") date: String?,
@@ -113,6 +125,19 @@ interface ApiService {
     // QC job setup (STD from mould master vs Act by user), filled twice per shift.
     // Returns raw JSON ({ ok, setup, setups:{1,2}, std }) — parsed tolerantly in the
     // repository because Postgres NUMERIC comes back as strings, INTEGER as numbers.
+    @GET("api/qc/compliance")
+    suspend fun compliance(
+        @Query("date") date: String,
+        @Query("shift") shift: String,
+        @Query("machine") machine: String?
+    ): ApiEnvelope
+
+    @GET("api/qc/recent-slots")
+    suspend fun recentSlots(
+        @Query("machine") machine: String,
+        @Query("limit") limit: Int = 20
+    ): ApiEnvelope
+
     @GET("api/qc/job-setup")
     suspend fun jobSetup(
         @Query("job_card_no") jobCardNo: String,
@@ -120,17 +145,27 @@ interface ApiService {
         @Query("shift") shift: String,
         @Query("machine") machine: String,
         @Query("mould_name") mouldName: String
-    ): kotlinx.serialization.json.JsonElement
+    ): JobSetupResponse
 
-    @FormUrlEncoded
     @POST("api/qc/job-setup")
-    suspend fun saveJobSetup(@FieldMap fields: Map<String, String>): ApiEnvelope
+    suspend fun saveJobSetup(@Body body: JobSetupSaveRequest): ApiEnvelope
 
-    @GET("api/qc/compliance")
-    suspend fun compliance(
+    @GET("api/qc/shift-team")
+    suspend fun shiftTeam(
+        @Query("machine") machine: String,
         @Query("date") date: String,
-        @Query("shift") shift: String,
-        @Query("machine") machine: String?
+        @Query("shift") shift: String
+    ): ApiEnvelope
+
+    @POST("api/qc/shift-team")
+    suspend fun addShiftTeam(@Body body: ShiftTeamAddRequest): ApiEnvelope
+
+    // multipart — optional ff_photo file; text fields via PartMap
+    @Multipart
+    @POST("api/qc/online-report/slot")
+    suspend fun submitSlotCheck(
+        @PartMap fields: Map<String, @JvmSuppressWildcards RequestBody>,
+        @Part ffPhoto: MultipartBody.Part?
     ): ApiEnvelope
 
     // multipart/form-data — field names must match the backend multer config

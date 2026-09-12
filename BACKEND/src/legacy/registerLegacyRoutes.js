@@ -27526,8 +27526,8 @@ app.get('/api/qc/material-issues', async (req, res) => {
     const factoryId = getFactoryId(req);
     const rows = await q(
       `SELECT * FROM qc_material_issues
-       WHERE ($1 IS NULL OR machine = $1)
-         AND ($2 IS NULL OR status = $2)
+       WHERE ($1::text IS NULL OR machine = $1::text)
+         AND ($2::text IS NULL OR status = $2::text)
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY created_at DESC
        LIMIT $4`,
