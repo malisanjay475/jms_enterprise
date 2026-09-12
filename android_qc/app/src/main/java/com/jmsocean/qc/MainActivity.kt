@@ -157,6 +157,13 @@ fun QcApp_Root() {
                     },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "App v${com.jmsocean.qc.BuildConfig.VERSION_NAME} (build ${com.jmsocean.qc.BuildConfig.VERSION_CODE})",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
             }
         }
     ) {

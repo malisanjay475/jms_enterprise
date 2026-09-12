@@ -13,7 +13,11 @@ android {
         applicationId = "com.jmsocean.qc"
         minSdk = 26
         targetSdk = 34
-        versionCode = 11
+        // versionCode jumped to 100 to sit safely above every historically
+        // published build (the old 0.12.x/0.13.x feed used codes ~12–13, which
+        // otherwise out-ranked this newer app and made the updater offer a
+        // downgrade). Keep future bumps strictly increasing from here.
+        versionCode = 100
         versionName = "1.1.0"
 
         // Base URL of the JMS API. Change here to point at LOCAL / staging / prod.
