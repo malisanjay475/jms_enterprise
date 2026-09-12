@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.57.0",
+  "latest": "1.57.1",
   "versions": [
+    {
+      "version": "1.57.1",
+      "date": "2026-09-12",
+      "title": "Rename Quality Manager role to QC HOD",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-person-gear",
+          "changes": [
+            { "type": "improvement", "text": "The 'Quality Manager' role is now shown as 'QC HOD'. Everyone already assigned this role keeps their access and simply shows as QC HOD — no need to reassign." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.57.0",
       "date": "2026-09-12",
