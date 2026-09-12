@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.57.7",
+  "latest": "1.57.8",
   "versions": [
+    {
+      "version": "1.57.8",
+      "date": "2026-09-12",
+      "title": "Sidebar: correct role name and full plant name",
+      "modules": [
+        {
+          "app": "all",
+          "label": "General",
+          "icon": "bi-window-sidebar",
+          "changes": [
+            { "type": "fix", "text": "The user card now shows your proper role name (for example \"QC HOD\") instead of the internal code, and the plant name shows in full. Loads the latest app files so the fix takes effect after one refresh." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.57.7",
       "date": "2026-09-12",
