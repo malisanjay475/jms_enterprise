@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.57.6",
+  "latest": "1.57.7",
   "versions": [
+    {
+      "version": "1.57.7",
+      "date": "2026-09-12",
+      "title": "Complete Production Plan Report: Excel download",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "The Complete Production Plan Report now has an Excel button that downloads the current filtered results — Machine, OR No, Job Card, Mould, Product, Mould No, Client, Plan, Produced, Balance, Actual Start/End, Status, By and Completed At." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.57.6",
       "date": "2026-09-12",
