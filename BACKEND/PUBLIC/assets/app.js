@@ -31,7 +31,7 @@ function escHtml(value) {
  */
 (function initMobileApp() {
     const path = window.location.pathname.toLowerCase();
-    if (window.innerWidth > 768 || path.endsWith('/login.html') || path.includes('/vendor/login.html') || path.includes('/supervisor.html') || path.includes('/qcsupervisor.html') || path.includes('/shifting_supervisor.html') || path.includes('/wip_supervisor.html')) return;
+    if (window.innerWidth > 768 || path.endsWith('/login.html') || path.includes('/vendor/login.html')) return;
     const mobileUser = (() => {
         try {
             return JSON.parse(localStorage.getItem('user') || '{}');
@@ -39,32 +39,39 @@ function escHtml(value) {
             return {};
         }
     })();
-    const canViewSettings = ['admin', 'superadmin'].includes(String(mobileUser.role_code || '').toLowerCase());
+    const perms = mobileUser.permissions || {};
+    const role = String(mobileUser.role_code || '').toLowerCase();
+    const isAdmin = role === 'admin' || role === 'superadmin';
+    const canPlan = isAdmin || ['planner', 'ppc_manager', 'ppc_ass_manager'].includes(role) || Boolean(perms.planning);
+    const canDpr = isAdmin || ['supervisor', 'planner'].includes(role) || Boolean(perms.dpr);
+    const canStats = isAdmin || role === 'management' || Boolean(perms.analyze);
 
-    // Bottom Nav HTML
+    // Dynamic Bottom Nav HTML with access checks and a direct 'Menu' drawer button
     const navHTML = `
-    <nav class="mobile-nav">
+    <nav class="mobile-nav" role="navigation" aria-label="Mobile Navigation">
         <a href="/index.html" class="nav-item ${window.location.pathname.includes('index') || window.location.pathname === '/' ? 'active' : ''}">
             <i class="bi bi-grid-1x2-fill"></i>
             <span>Home</span>
         </a>
+        ${canPlan ? `
         <a href="/planning.html" class="nav-item ${window.location.pathname.includes('planning') ? 'active' : ''}">
             <i class="bi bi-calendar-event"></i>
             <span>Plan</span>
-        </a>
+        </a>` : ''}
+        ${canDpr ? `
         <a href="/dpr.html?view=summary" class="nav-item ${window.location.pathname.includes('dpr') ? 'active' : ''}">
              <i class="bi bi-pencil-square"></i>
             <span>DPR</span>
-        </a>
+        </a>` : ''}
+        ${canStats ? `
         <a href="/analyze.html" class="nav-item ${window.location.pathname.includes('analyze') ? 'active' : ''}">
             <i class="bi bi-graph-up-arrow"></i>
             <span>Stats</span>
-        </a>
-        ${canViewSettings ? `
-         <a href="/settings.html" class="nav-item ${window.location.pathname.includes('settings') ? 'active' : ''}">
-            <i class="bi bi-gear-fill"></i>
-            <span>Settings</span>
         </a>` : ''}
+        <a href="javascript:void(0)" onclick="if(window.JPSMS && window.JPSMS.toggleSidebar){window.JPSMS.toggleSidebar();}else{document.querySelector('.sidebar')?.classList.toggle('mobile-open');}" class="nav-item mobile-nav-menu-btn" aria-label="Toggle All Modules Menu">
+            <i class="bi bi-list"></i>
+            <span>Menu</span>
+        </a>
     </nav>`;
 
     // Inject if not present
@@ -867,6 +874,45 @@ function escHtml(value) {
             });
         }
 
+        if (!document.body.hasAttribute('data-mobile-sidebar-swipe-bound')) {
+            document.body.setAttribute('data-mobile-sidebar-swipe-bound', 'true');
+            let touchStartX = 0;
+            let touchStartY = 0;
+            let touchEndX = 0;
+            let touchEndY = 0;
+
+            document.addEventListener('touchstart', (e) => {
+                if (!e.touches || e.touches.length !== 1) return;
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+                touchEndX = touchStartX;
+                touchEndY = touchStartY;
+            }, { passive: true });
+
+            document.addEventListener('touchmove', (e) => {
+                if (!e.touches || e.touches.length !== 1) return;
+                touchEndX = e.touches[0].clientX;
+                touchEndY = e.touches[0].clientY;
+            }, { passive: true });
+
+            document.addEventListener('touchend', () => {
+                const diffX = touchEndX - touchStartX;
+                const diffY = Math.abs(touchEndY - touchStartY);
+                if (diffY > 90) return;
+                
+                const sb = document.querySelector('.sidebar');
+                if (!sb) return;
+
+                if (touchStartX < 35 && diffX > 60 && isMobileShellViewport()) {
+                    sb.classList.add('mobile-open');
+                    refreshMobileSidebarControls();
+                } else if (diffX < -60 && sb.classList.contains('mobile-open') && isMobileShellViewport()) {
+                    sb.classList.remove('mobile-open');
+                    refreshMobileSidebarControls();
+                }
+            }, { passive: true });
+        }
+
         refreshMobileSidebarControls();
     }
 
@@ -1584,23 +1630,35 @@ function escHtml(value) {
                 const hasSub = subHtml.length > 0;
 
                 navHtml += `
-                <li class="nav-item ${isParentActive ? 'active' : ''}">
-                    <a href="${menu.href}" target="_self" class="nav-link-main">
-                        <i class="bi ${menu.icon || 'bi-circle'}"></i> 
-                        <span class="nav-text">${menu.label}</span>
-                    </a>
+                <li class="nav-item ${isParentActive ? 'active open' : ''} ${hasSub ? 'has-sub' : ''}" data-menu-id="${menu.id}">
+                    <div class="nav-link-row">
+                        <a href="${menu.href}" target="_self" class="nav-link-main">
+                            <i class="bi ${menu.icon || 'bi-circle'}"></i> 
+                            <span class="nav-text">${menu.label}</span>
+                        </a>
+                        ${hasSub ? `<button type="button" class="sub-toggle-btn" aria-label="Toggle ${menu.label} submenu" onclick="this.closest('.nav-item').classList.toggle('open'); event.stopPropagation(); event.preventDefault();"><i class="bi bi-chevron-down"></i></button>` : ''}
+                    </div>
                     ${hasSub ? `<ul class="nav-sub">${subHtml}</ul>` : ''}
                 </li>`;
             }
         });
 
         const html = `
-      <div class="brand" style="justify-content: space-between; padding: 20px 15px;">
+      <div class="brand" style="justify-content: space-between; padding: 18px 15px; align-items:center;">
          <a href="/index.html" class="brand-logo" aria-label="${BRAND_NAME} Home">
              <img src="/assets/jms-logo.png" alt="JMS logo">
              <span>${BRAND_NAME}</span>
          </a>
-         <i class="bi bi-list" id="sidebar-toggle" style="font-size:1.5rem; color: var(--sidebar-text); cursor:pointer; transition: color 0.2s;"></i>
+         <div style="display:flex; align-items:center; gap:8px;">
+           <button class="sidebar-close-btn" onclick="JPSMS.closeSidebar()" aria-label="Close Sidebar"><i class="bi bi-x-lg"></i></button>
+           <i class="bi bi-list" id="sidebar-toggle" style="font-size:1.5rem; color: var(--sidebar-text); cursor:pointer; transition: color 0.2s;"></i>
+         </div>
+      </div>
+      <div class="sidebar-search-box">
+        <div class="search-inner">
+          <i class="bi bi-search"></i>
+          <input type="text" id="sidebarNavSearch" placeholder="Search modules..." aria-label="Search modules" autocomplete="off">
+        </div>
       </div>
       <ul class="nav-links">
         ${navHtml}
@@ -1682,6 +1740,54 @@ function escHtml(value) {
         document.body.prepend(sidebar);
         ensureMobileSidebarControls();
         applyViewportLayoutMode();
+
+        // Sidebar Real-Time Module Search Filter
+        const searchInput = sidebar.querySelector('#sidebarNavSearch');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                const query = e.target.value.toLowerCase().trim();
+                const items = sidebar.querySelectorAll('.nav-links > .nav-item');
+                items.forEach(item => {
+                    const mainText = item.querySelector('.nav-link-main .nav-text')?.textContent.toLowerCase() || '';
+                    const subItems = item.querySelectorAll('.nav-sub li');
+                    let matchedSub = false;
+                    subItems.forEach(sub => {
+                        const subText = sub.querySelector('.sub-link .nav-text')?.textContent.toLowerCase() || '';
+                        if (!query || subText.includes(query)) {
+                            sub.style.display = '';
+                            if (query && subText.includes(query)) matchedSub = true;
+                        } else {
+                            sub.style.display = 'none';
+                        }
+                    });
+                    if (!query || mainText.includes(query) || matchedSub) {
+                        item.style.display = '';
+                        if (query && matchedSub) {
+                            item.classList.add('open');
+                        }
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+            });
+        }
+
+        // Auto-wrap tables on mobile screens for smooth horizontal scrolling
+        const ensureMobileTables = () => {
+            if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+                document.querySelectorAll('table').forEach(tbl => {
+                    const parent = tbl.parentElement;
+                    if (parent && !parent.classList.contains('table-responsive-mobile') && !parent.classList.contains('table-responsive') && !parent.classList.contains('table-wrap')) {
+                        const wrap = document.createElement('div');
+                        wrap.className = 'table-responsive-mobile';
+                        parent.insertBefore(wrap, tbl);
+                        wrap.appendChild(tbl);
+                    }
+                });
+            }
+        };
+        setTimeout(ensureMobileTables, 250);
+        window.addEventListener('resize', ensureMobileTables, { passive: true });
 
         // Populate version badge + wire up the "What's New" popup
         const versionBadge = document.getElementById('jms-version-badge');
@@ -2008,6 +2114,41 @@ function escHtml(value) {
             initNotificationBell();
             schedulePremiumMotionRefresh(document);
         }, 200);
+    };
+
+    // --- Native App JS Bridge ---
+    window.JMS_NATIVE = {
+        get isNative() {
+            return Boolean(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+        },
+        async scanBarcode() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BarcodeScanner) {
+                try {
+                    const result = await window.Capacitor.Plugins.BarcodeScanner.scan();
+                    return result.text || null;
+                } catch (err) {
+                    console.warn('[JMS Native] Barcode scan error:', err);
+                    return null;
+                }
+            }
+            return null;
+        },
+        async getGPS() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+                try {
+                    const pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: true });
+                    return {
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude,
+                        acc: pos.coords.accuracy
+                    };
+                } catch (err) {
+                    console.warn('[JMS Native] Geolocation error:', err);
+                    return null;
+                }
+            }
+            return null;
+        }
     };
 
 })(window.JPSMS);

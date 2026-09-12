@@ -1,4 +1,4 @@
-﻿/* Font Import — self-hosted Inter (see scripts/selfhost-fonts.js). Was a live
+/* Font Import — self-hosted Inter (see scripts/selfhost-fonts.js). Was a live
    @import from fonts.googleapis.com; now local so there's no third-party fetch
    (works offline on the factory LOCAL box) and no CSP font/style exemption. */
 @import url('/assets/vendor/fonts/g-5710dd5f5b.css');
@@ -1228,11 +1228,9 @@ tbody tr:hover {
     -webkit-overflow-scrolling: touch !important;
   }
 
-  /* 2. Hide desktop-only chrome (sidebar handled by the off-canvas drawer below) */
+  /* 2. Hide desktop-only chrome */
   .top-nav,
-  #sidebarToggle,
-  .desktop-only,
-  .header button {
+  .desktop-only {
     display: none !important;
     width: 0 !important;
     height: 0 !important;
@@ -1448,3 +1446,150 @@ tbody tr:hover {
     font-size: 1.35rem;
   }
 }
+
+/* =========================================
+   MOBILE SIDEBAR DRAWER & TABLE ENHANCEMENTS
+   ========================================= */
+
+/* Sidebar Search Box */
+.sidebar-search-box {
+  padding: 8px 14px 12px;
+  position: relative;
+}
+
+.sidebar-search-box .search-inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-search-box i {
+  position: absolute;
+  left: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.9rem;
+  pointer-events: none;
+}
+
+.sidebar-search-box input {
+  width: 100%;
+  padding: 8px 12px 8px 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.sidebar-search-box input:focus {
+  border-color: var(--accent-cyan, #01a8dd);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.sidebar-search-box input::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Submenu Accordion Toggle */
+.nav-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.nav-link-row .nav-link-main {
+  flex: 1;
+}
+
+.sub-toggle-btn {
+  background: transparent;
+  border: none;
+  color: var(--sidebar-text, #c9dfec);
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.22s ease, color 0.2s;
+}
+
+.sub-toggle-btn:hover {
+  color: #ffffff;
+}
+
+.sub-toggle-btn i {
+  font-size: 0.8rem;
+  transition: transform 0.22s ease;
+}
+
+.nav-item.open .sub-toggle-btn i,
+.nav-item.active .sub-toggle-btn i {
+  transform: rotate(180deg);
+}
+
+.nav-item .nav-sub {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  padding-left: 18px;
+  margin: 0;
+  list-style: none;
+}
+
+.nav-item.open .nav-sub,
+.nav-item.active .nav-sub {
+  max-height: 800px;
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
+/* Sidebar Close Button (Mobile Only) */
+.sidebar-close-btn {
+  display: none;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #ffffff;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sidebar-close-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+@media (max-width: 1024px) {
+  .sidebar-close-btn {
+    display: inline-flex !important;
+  }
+}
+
+/* Responsive Table Wrapper */
+.table-responsive-mobile {
+  width: 100%;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  margin-bottom: 1rem;
+  border-radius: 8px;
+  box-shadow: inset -6px 0 8px -4px rgba(0, 0, 0, 0.08);
+}
+
+@media (max-width: 768px) {
+  table {
+    min-width: 580px;
+  }
+
+  .table-card,
+  .card:has(table) {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+}
+
