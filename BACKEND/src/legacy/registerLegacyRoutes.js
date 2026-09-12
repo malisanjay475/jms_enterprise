@@ -24194,10 +24194,19 @@ app.get('/api/job/colors', async (req, res) => {
     //    This is always the most accurate source — it's the exact colour breakdown saved when
     //    the plan was created. Only fall back to jc_details if plan_id is absent or empty.
     if (plan_id && String(plan_id) !== 'undefined' && String(plan_id) !== '') {
-      const pbRows = await q(
-        `SELECT colour_details FROM plan_board WHERE plan_id = $1 LIMIT 1`,
-        [String(plan_id)]
-      );
+      // plan_id (PLN-yr-seq) is NOT globally unique — it repeats per factory. A bare
+      // `WHERE plan_id = $1 LIMIT 1` can grab another factory's plan_board row and show
+      // ITS colour_details (seen on new units like JGUII whose plan_id collides with an
+      // existing factory). Scope to the requesting factory, prefer the exact factory
+      // match, and tolerate legacy NULL-factory rows as a fallback.
+      let pbSql = `SELECT colour_details FROM plan_board WHERE plan_id = $1`;
+      const pbParams = [String(plan_id)];
+      if (factoryIdTop) {
+        pbSql += ` AND (factory_id = $2 OR factory_id IS NULL) ORDER BY (factory_id = $2) DESC NULLS LAST`;
+        pbParams.push(factoryIdTop);
+      }
+      pbSql += ` LIMIT 1`;
+      const pbRows = await q(pbSql, pbParams);
       if (pbRows.length) {
         let cd = pbRows[0].colour_details || [];
         if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = []; } }
