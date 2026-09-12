@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.57.3",
+  "latest": "1.57.4",
   "versions": [
+    {
+      "version": "1.57.4",
+      "date": "2026-09-12",
+      "title": "Supervisor: correct plan colours for new units",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "fix", "text": "The Colour & QTY list now shows this unit's own plan colours. New units whose plan number matched an older unit could show the wrong factory's colours." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.57.3",
       "date": "2026-09-12",
