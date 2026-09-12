@@ -1409,13 +1409,13 @@
           const list = byMachine[m].slice().sort((a, b) => (Number(a.seq || 0) - Number(b.seq || 0)) || (Number(a.id || 0) - Number(b.id || 0)));
           const running = list.find(p => String(p.status || '').trim().toLowerCase() === 'running');
           if (running) items.push(rowFor(running, false));
-          if (shift === 'Night') {
-            // next queued plan on this machine whose mould differs = an upcoming change
-            const base = running || list[0];
-            const baseMould = base ? String(base.mouldNo || base.mould_code || '').trim() : '';
-            const startIdx = running ? list.indexOf(running) + 1 : 0;
-            const change = list.slice(startIdx).find(p =>
-              String(p.status || '').trim().toLowerCase() !== 'running' &&
+          // Night: only when a running plan exists, add its next queued mould change.
+          // Skip dead/non-queued statuses so a cancelled/archived row isn't mistaken for it.
+          if (shift === 'Night' && running) {
+            const DEAD = new Set(['running', 'cancelled', 'canceled', 'archived', 'rejected', 'completed', 'dropped', 'stopped']);
+            const baseMould = String(running.mouldNo || running.mould_code || '').trim();
+            const change = list.slice(list.indexOf(running) + 1).find(p =>
+              !DEAD.has(String(p.status || '').trim().toLowerCase()) &&
               String(p.mouldNo || p.mould_code || '').trim() !== baseMould);
             if (change) items.push(rowFor(change, true));
           }
