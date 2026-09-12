@@ -761,6 +761,7 @@
                <button class="btn primary" onclick="window.loadProductionCompletionReport()" style="height:38px; border-radius:11px; background:#0369a1; border-color:#0369a1; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; font-weight:900; padding:0 12px; flex:0 0 auto;">
                   <i class="bi bi-funnel"></i> Apply Filters
                </button>
+               <button class="btn" onclick="window.exportProductionCompletionExcel()" title="Download this report as Excel" style="height:38px; border-radius:11px; background:#ecfdf5; color:#047857; border:1px solid #6ee7b7; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; font-weight:900; padding:0 12px; flex:0 0 auto;"><i class="bi bi-file-earmark-excel"></i> Excel</button>
                <button class="btn" onclick="window.switchView('master')" style="height:38px; border-radius:11px; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; font-weight:900; padding:0 12px; flex:0 0 auto;"><i class="bi bi-arrow-left"></i> Back</button>
                <button class="btn" onclick="window.loadProductionCompletionReport()" title="Refresh Results" aria-label="Refresh Results" style="height:38px; width:38px; border-radius:11px; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;"><i class="bi bi-arrow-clockwise"></i></button>
             </div>
