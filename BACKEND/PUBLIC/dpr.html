@@ -153,7 +153,7 @@
     </div>
 
     <script src="/assets/app.min.js"></script>
-  <script src="/assets/dpr-script-1.js?v=release97"></script>
+  <script src="/assets/dpr-script-1.js?v=release103"></script>
 
     <!-- ADMIN EDIT MODAL -->
     <div id="dprEditModal" class="modal"
@@ -224,6 +224,15 @@
             const r = String(u.role_code || u.role || '').toLowerCase();
             const adminLike = (JPSMS.auth.isAdminLike ? JPSMS.auth.isAdminLike(u) : (r === 'admin' || r === 'superadmin'));
             return adminLike || ['planner', 'ppc_ass_manager', 'ppc_manager'].includes(r);
+        };
+
+        // Who may delete an FPA image in the Compliance Summary job modal:
+        // Quality + admin/superadmin. The server enforces this too.
+        window.canDeleteFpaImage = () => {
+            const u = (window.JPSMS && JPSMS.auth && JPSMS.auth.getUser && JPSMS.auth.getUser()) || {};
+            const r = String(u.role_code || u.role || '').toLowerCase();
+            const adminLike = (JPSMS.auth.isAdminLike ? JPSMS.auth.isAdminLike(u) : (r === 'admin' || r === 'superadmin'));
+            return adminLike || ['quality', 'quality_manager'].includes(r);
         };
 
         // --- DELETE MODAL LOGIC (ADD-ON) ---
@@ -371,9 +380,79 @@
             toggle();
         })();
     </script>
+
+    <!-- Raised Memo popover: click a memo chip in the Compliance Summary to view it
+         and (for Moulding roles) Accept / Solve / Run Under Deviation. -->
+    <script>
+        (function () {
+            const escM = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            function memoUser() { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch (_) { return {}; } }
+            function isMouldingRole() {
+                const r = String(memoUser().role_code || '').toLowerCase();
+                return ['moulding_manager', 'moulding_ass_manager', 'admin', 'superadmin'].includes(r);
+            }
+            function findMemo(id) {
+                const map = window._dprMemoByMachine || {};
+                for (const k in map) { const hit = (map[k] || []).find(m => String(m.id) === String(id)); if (hit) return hit; }
+                return null;
+            }
+            function closeMemo() { const el = document.getElementById('dpr-memo-modal'); if (el) el.remove(); }
+            async function act(id, path, body) {
+                const role = String(memoUser().role_code || '').toLowerCase();
+                const res = await JPSMS.api.post(`/qc/memos/${id}/${path}`, Object.assign({ role }, body || {}));
+                if (res && res.ok) { closeMemo(); location.reload(); }
+                else alert((res && res.error) || 'Action failed.');
+            }
+            window.openDprMemo = function (id) {
+                const mo = findMemo(id);
+                if (!mo) return;
+                const fmt = v => { try { return v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''; } catch (_) { return ''; } };
+                const dev = mo.status === 'DEVIATION' || mo.deviation;
+                const moulding = isMouldingRole();
+                let actions = '';
+                if (moulding && mo.status !== 'SOLVED') {
+                    if (mo.status === 'RAISED') {
+                        actions += `<button class="btn btn-primary small" style="flex:1" onclick="window._memoAct(${id},'accept')">Accept</button>`;
+                    }
+                    actions += `<button class="btn small" style="flex:1;background:#10b981;color:#fff" onclick="window._memoSolve(${id})">Mark Solved</button>`;
+                    if (!dev) actions += `<button class="btn small" style="flex:1;background:#a855f7;color:#fff" onclick="window._memoDev(${id})">Run Under Deviation</button>`;
+                }
+                const wrap = document.createElement('div');
+                wrap.id = 'dpr-memo-modal';
+                wrap.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px';
+                wrap.onclick = e => { if (e.target === wrap) closeMemo(); };
+                wrap.innerHTML = `<div style="background:#fff;border-radius:12px;max-width:440px;width:100%;padding:20px;max-height:85vh;overflow:auto">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                        <div style="font-weight:800;font-size:15px">${escM(mo.memo_no || ('MEMO-' + mo.id))}</div>
+                        <span style="border-radius:999px;padding:2px 10px;font-size:11px;font-weight:700;background:${dev ? '#faf5ff' : '#fffbeb'};color:${dev ? '#7e22ce' : '#b45309'};border:1px solid ${dev ? '#d8b4fe' : '#fcd34d'}">${escM(dev ? 'UNDER DEVIATION' : mo.status)}</span>
+                    </div>
+                    <div style="font-size:14px;font-weight:600;color:#111">${escM(mo.issue_description || '-')}</div>
+                    <div style="font-size:12px;color:#6b7280;margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">
+                        <span><b>Machine:</b> ${escM(mo.machine || '-')}</span>
+                        ${mo.job_card_no ? `<span><b>JC:</b> ${escM(mo.job_card_no)}</span>` : ''}
+                        <span><b>Raised by:</b> ${escM(mo.created_by || '-')}</span>
+                        <span><b>Raised:</b> ${escM(fmt(mo.created_at))}</span>
+                        ${mo.accepted_by ? `<span><b>Accepted by:</b> ${escM(mo.accepted_by)} · ${escM(fmt(mo.accepted_at))}</span>` : ''}
+                        ${mo.shift ? `<span><b>Shift:</b> ${escM(mo.shift)}</span>` : ''}
+                    </div>
+                    <div style="font-size:11px;color:#9ca3af;margin-top:8px">Unsolved memos carry into the next shift until Moulding solves them.</div>
+                    <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+                        ${actions}
+                        <button class="btn btn-outline small" style="flex:0 0 auto" onclick="window._memoClose()">Close</button>
+                    </div>
+                    <div style="margin-top:10px;text-align:right"><a href="qc_memo.html" style="font-size:12px;color:#0ea5e9">Open in Memo module →</a></div>
+                </div>`;
+                document.body.appendChild(wrap);
+            };
+            window._memoClose = closeMemo;
+            window._memoAct = act;
+            window._memoSolve = function (id) { const n = prompt('Resolution note (optional):', ''); if (n === null) return; act(id, 'solve', { resolution_notes: n }); };
+            window._memoDev = function (id) { const n = prompt('Deviation note (optional):', ''); if (n === null) return; act(id, 'deviation', { notes: n }); };
+        })();
+    </script>
 </body>
 
-  <script src="/assets/dpr-script-2.js?v=release76"></script>
+  <script src="/assets/dpr-script-2.js?v=release77"></script>
   <script src="/assets/dpr-machine-auto.js?v=release4"></script>
 
 <!-- JOB DETAIL MODAL -->

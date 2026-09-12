@@ -7,6 +7,7 @@ import com.jmsocean.qc.data.remote.QueueJob
 import com.jmsocean.qc.data.remote.SessionData
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -313,6 +314,67 @@ class QcRepository(private val session: SessionStore) {
         if (!env.ok) error(env.error ?: "Could not raise issue")
     }
 
+    // ── Raised Memo ───────────────────────────────────────────────────────────
+
+    /** Moulding people (moulding_manager / moulding_ass_manager) of this factory. */
+    suspend fun factoryPeople(): Result<List<com.jmsocean.qc.data.remote.FactoryPerson>> = try {
+        val env = api.factoryPeople()
+        if (!env.ok) throw Exception(env.error ?: "Could not load people")
+        val arr = env.data as? JsonArray ?: JsonArray(emptyList())
+        Result.success(arr.map { json.decodeFromJsonElement(com.jmsocean.qc.data.remote.FactoryPerson.serializer(), it) })
+    } catch (e: Exception) {
+        Result.failure(Exception(serverErr(e)))
+    }
+
+    /** Raise a memo to Moulding with job context, multi-media and an @mention. */
+    suspend fun createMemo(
+        machine: String,
+        job: QueueJob?,
+        description: String,
+        severity: String,
+        remarks: String,
+        mentionedName: String,
+        mentionedRole: String,
+        images: List<File>,
+        video: File?
+    ): Result<String> = try {
+        fun text(v: String): RequestBody = v.toRequestBody("text/plain".toMediaTypeOrNull())
+        val sessionJson = buildJsonObject {
+            put("username", session.username); put("line", session.line)
+        }.toString()
+        val descFull = if (remarks.isBlank()) description else "$description\n\nRemarks: $remarks"
+        val fields = buildMap {
+            put("session", text(sessionJson))
+            put("machine", text(machine))
+            put("issue_description", text(descFull))
+            put("severity", text(severity))
+            put("shift", text(Ist.shift()))
+            put("report_date", text(Ist.date()))
+            job?.let {
+                put("job_card_no", text(it.JobCardNo ?: ""))
+                put("plan_id", text(it.PlanID ?: ""))
+                put("order_no", text(it.orderNumber))
+                put("mould_name", text(it.Mould ?: ""))
+            }
+            if (mentionedName.isNotBlank()) {
+                put("mentioned_name", text(mentionedName))
+                put("mentioned_role", text(mentionedRole))
+            }
+        }
+        fun part(f: File, mime: String): MultipartBody.Part =
+            MultipartBody.Part.createFormData("media_files", f.name, f.asRequestBody(mime.toMediaTypeOrNull()))
+        val parts = buildList {
+            images.forEach { add(part(it, "image/jpeg")) }
+            video?.let { add(part(it, "video/mp4")) }
+        }
+        val env = api.createMemo(fields, parts)
+        if (!env.ok) throw Exception(env.error ?: "Could not raise memo")
+        val memoNo = (env.data as? JsonObject)?.get("memo_no")?.jsonPrimitive?.contentOrNull ?: ""
+        Result.success(memoNo)
+    } catch (e: Exception) {
+        Result.failure(Exception(serverErr(e)))
+    }
+
     // ── Dashboard ───────────────────────────────────────────────────────────
 
     suspend fun dashboardKpis(date: String?, machine: String): Result<Kpis> = runCatching {
@@ -341,12 +403,25 @@ class QcRepository(private val session: SessionStore) {
         shift: String,
         hourSlot: String,
         shots: Int,
-        reject: Int,
+        rejectQty: Int,
         downtimeMin: Int,
         colour: String,
-        remarks: String
+        remarks: String,
+        rejectBreakup: String,
+        downtimeBreakup: String
     ): Result<Unit> {
-        val good = (shots - reject).coerceAtLeast(0)
+        val good = (shots - rejectQty).coerceAtLeast(0)
+        // Mirror the web form: fold Color / Rej[…] / DT[…] breakdowns into Remarks.
+        val breakdowns = buildList {
+            if (colour.isNotBlank()) add("Color=$colour")
+            if (rejectBreakup.isNotBlank()) add("Rej[$rejectBreakup]")
+            if (downtimeBreakup.isNotBlank()) add("DT[$downtimeBreakup]")
+        }
+        val fullRemarks = when {
+            breakdowns.isEmpty() -> remarks
+            remarks.isNotBlank() -> remarks + " | " + breakdowns.joinToString(" | ")
+            else -> breakdowns.joinToString(" | ")
+        }
         return submitOrQueue(
             "api/dpr/submit",
             com.jmsocean.qc.data.remote.DprSubmitRequest.serializer(),
@@ -354,13 +429,13 @@ class QcRepository(private val session: SessionStore) {
                 session = sessionRef(),
                 entry = com.jmsocean.qc.data.remote.DprEntry(
                     date = date, shift = shift, hourSlot = hourSlot,
-                    shots = shots, goodQty = good, rejectQty = reject,
-                    downtimeMin = downtimeMin, remarks = remarks,
+                    shots = shots, goodQty = good, rejectQty = rejectQty,
+                    downtimeMin = downtimeMin, remarks = fullRemarks,
                     planId = job.PlanID ?: "", machine = job.Machine ?: session.machine,
                     orderNo = job.orderNumber, mouldNo = job.mouldForEntry,
                     jobCardNo = job.JobCardNo ?: "", colour = colour,
-                    rejectBreakup = if (reject > 0 && colour.isNotBlank()) "$colour:$reject" else "",
-                    downtimeBreakup = ""
+                    rejectBreakup = rejectBreakup,
+                    downtimeBreakup = downtimeBreakup
                 )
             ),
             "QC $hourSlot"
@@ -375,6 +450,78 @@ class QcRepository(private val session: SessionStore) {
         if (!env.ok) error(env.error ?: "Could not load colour balance")
         val arr = env.data as? JsonArray ?: JsonArray(emptyList())
         arr.map { json.decodeFromJsonElement(ColourBalance.serializer(), it) }
+    }
+
+    // ── QC job setup (STD vs Act, twice per shift) ──────────────────────────
+
+    /** One saved setup period (the Act values a user entered). */
+    data class SavedSetup(val actWeight: String, val actCycleTime: String, val actCavity: String, val by: String?)
+
+    /** STD (from mould master) + both setup periods for a job/shift. */
+    data class JobSetupData(
+        val stdWeight: String,
+        val stdCycleTime: String,
+        val stdCavity: String,
+        val period1: SavedSetup?,
+        val period2: SavedSetup?
+    )
+
+    private fun JsonObject.str(key: String): String {
+        val v = this[key] ?: return ""
+        return (v as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull ?: ""
+    }
+    private fun parseSetup(el: JsonElement?): SavedSetup? {
+        val o = el as? JsonObject ?: return null
+        return SavedSetup(o.str("act_weight"), o.str("act_cycle_time"), o.str("act_cavity"), o.str("setup_by").ifBlank { null })
+    }
+
+    // ── Online QC Report (2-hour slot Visual / Colour / Function-Fitment) ────
+
+    suspend fun onlineReport(
+        machine: String, date: String, shift: String
+    ): Result<com.jmsocean.qc.data.remote.OnlineReportResponse> = runCatching {
+        val r = api.onlineReport(machine, date, shift)
+        if (!r.ok) error(r.error ?: "Could not load QC report")
+        r
+    }
+
+    /** Upsert one slot's checks. Only include a check's fields when its status is set. */
+    suspend fun saveOnlineSlot(
+        machine: String, date: String, shift: String, slot: String,
+        job: com.jmsocean.qc.data.remote.OnlineJob?,
+        visualStatus: String?, visualProblem: String, visualRemarks: String,
+        colourStatus: String?, colourProblem: String, colourRemarks: String,
+        ffStatus: String?, ffProblem: String
+    ): Result<Unit> = runCatching {
+        val fields = mutableMapOf(
+            "session" to json.encodeToString(
+                com.jmsocean.qc.data.remote.SessionRef.serializer(), sessionRef()
+            ),
+            "machine" to machine,
+            "dpr_date" to date,
+            "shift" to shift,
+            "slot" to slot,
+            "job_card_no" to (job?.job_card_no ?: ""),
+            "order_no" to (job?.order_no ?: ""),
+            "item_name" to (job?.item_name ?: ""),
+            "mould_name" to (job?.mould_name ?: "")
+        )
+        if (visualStatus != null) {
+            fields["visual_status"] = visualStatus
+            fields["visual_problem"] = visualProblem
+            fields["visual_remarks"] = visualRemarks
+        }
+        if (colourStatus != null) {
+            fields["colour_status"] = colourStatus
+            fields["colour_problem"] = colourProblem
+            fields["colour_remarks"] = colourRemarks
+        }
+        if (ffStatus != null) {
+            fields["ff_status"] = ffStatus
+            fields["ff_problem"] = ffProblem
+        }
+        val env = api.saveOnlineSlot(fields)
+        if (!env.ok) error(env.error ?: "Save failed")
     }
 
     // ── Compliance grid ─────────────────────────────────────────────────────

@@ -4,6 +4,9 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.Field
+import retrofit2.http.FieldMap
+import retrofit2.http.FormUrlEncoded
 import retrofit2.http.GET
 import retrofit2.http.Multipart
 import retrofit2.http.POST
@@ -84,6 +87,18 @@ interface ApiService {
         @PartMap fields: Map<String, @JvmSuppressWildcards RequestBody>
     ): ApiEnvelope
 
+    // Raised Memo — multipart create (multiple images/video via media_files[])
+    @Multipart
+    @POST("api/qc/memos")
+    suspend fun createMemo(
+        @PartMap fields: Map<String, @JvmSuppressWildcards RequestBody>,
+        @Part media: List<@JvmSuppressWildcards MultipartBody.Part>
+    ): ApiEnvelope
+
+    // Moulding people of the caller's factory, for the @mention picker.
+    @GET("api/qc/factory-people")
+    suspend fun factoryPeople(): ApiEnvelope
+
     @GET("api/qc/dashboard/kpis")
     suspend fun dashboardKpis(
         @Query("date") date: String?,
@@ -93,6 +108,23 @@ interface ApiService {
     @GET("api/qc/colour-balance")
     suspend fun colourBalance(@Query("plan_id") planId: String): ApiEnvelope
 
+    // Online QC Report — 2-hour slot Visual / Colour / Function-Fitment checks.
+    @GET("api/qc/online-report")
+    suspend fun onlineReport(
+        @Query("machine") machine: String,
+        @Query("date") date: String,
+        @Query("shift") shift: String
+    ): OnlineReportResponse
+
+    // Upsert one slot. Form-encoded (server has express.urlencoded); optional
+    // ff_photo upload is omitted here — text checks only.
+    @FormUrlEncoded
+    @POST("api/qc/online-report/slot")
+    suspend fun saveOnlineSlot(@FieldMap fields: Map<String, String>): ApiEnvelope
+
+    // QC job setup (STD from mould master vs Act by user), filled twice per shift.
+    // Returns raw JSON ({ ok, setup, setups:{1,2}, std }) — parsed tolerantly in the
+    // repository because Postgres NUMERIC comes back as strings, INTEGER as numbers.
     @GET("api/qc/compliance")
     suspend fun compliance(
         @Query("date") date: String,

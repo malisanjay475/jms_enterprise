@@ -83,6 +83,8 @@ services:
       # Persist uploaded files (machine icons, operator photos, etc.) across Docker deploys.
       # Without this volume, every deploy wipes PUBLIC/uploads/ and all icons are lost.
       - jms_v1_uploads:/app/PUBLIC/uploads
+      # Persist the published QC Android APK + version.json across deploys.
+      - jms_v1_qcapp:/app/PUBLIC/qc-app
     environment:
       PORT: "3000"
       # Hardcoded IST — do NOT use ${TZ:-Asia/Kolkata}: Hostinger VPS has TZ=UTC in the
@@ -191,4 +193,5 @@ networks:
 volumes:
   jms_v1_pg_data:
   jms_v1_uploads:
+  jms_v1_qcapp:
   jms_v1_pgadmin:

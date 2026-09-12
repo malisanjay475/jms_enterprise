@@ -124,7 +124,7 @@ fun QcApp_Root() {
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
-                    label = { Text("Material Issues") },
+                    label = { Text("Raised Memo") },
                     icon = { Icon(Icons.Default.Warning, null) },
                     selected = current == Routes.ISSUES,
                     onClick = { go(Routes.ISSUES) },
@@ -157,6 +157,13 @@ fun QcApp_Root() {
                     },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "App v${com.jmsocean.qc.BuildConfig.VERSION_NAME} (build ${com.jmsocean.qc.BuildConfig.VERSION_CODE})",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
             }
         }
     ) {
@@ -175,7 +182,7 @@ fun QcApp_Root() {
                         )
                         NavigationBarItem(
                             selected = current == Routes.ISSUES, onClick = { go(Routes.ISSUES) },
-                            icon = { Icon(Icons.Default.Warning, null) }, label = { Text("Issues") }
+                            icon = { Icon(Icons.Default.Warning, null) }, label = { Text("Memo") }
                         )
                         NavigationBarItem(
                             selected = current == Routes.RECENT, onClick = { go(Routes.RECENT) },
