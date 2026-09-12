@@ -11,8 +11,258 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.55.15",
+  "latest": "1.57.5",
   "versions": [
+    {
+      "version": "1.57.5",
+      "date": "2026-09-12",
+      "title": "Create Production Plan: Excel download",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "Create Production Plan now has an Excel button that downloads the selected order's moulds — OR No, mould name/number, item code, moulding sequence, Target/Planned/Balance qty, primary/secondary machine and planned status." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.4",
+      "date": "2026-09-12",
+      "title": "Supervisor: correct plan colours for new units",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "fix", "text": "The Colour & QTY list now shows this unit's own plan colours. New units whose plan number matched an older unit could show the wrong factory's colours." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.3",
+      "date": "2026-09-12",
+      "title": "Fix: User Management error loading users",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "fix", "text": "Fixed an 'Error loading users' on the User Management page introduced in the previous update; the role name now renders correctly." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.2",
+      "date": "2026-09-12",
+      "title": "User Management: show role names",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "fix", "text": "The User Management list now shows the friendly role name (e.g. 'QC HOD') instead of the raw role code ('quality'), and existing databases are corrected so the Quality role reads 'QC HOD'." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.1",
+      "date": "2026-09-12",
+      "title": "Rename Quality Manager role to QC HOD",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-person-gear",
+          "changes": [
+            { "type": "improvement", "text": "The 'Quality Manager' role is now shown as 'QC HOD'. Everyone already assigned this role keeps their access and simply shows as QC HOD — no need to reassign." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.0",
+      "date": "2026-09-12",
+      "title": "Raised Memo + FPA image delete",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-check-circle",
+          "changes": [
+            { "type": "feat", "text": "New MEMO module: raise a production memo to Moulding with photos/video, remarks and an @mention; it notifies that factory's Moulding managers." },
+            { "type": "feat", "text": "Track every memo end to end — who accepted, reply thread, and the Accept / Solve / Running-Under-Deviation status." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "Compliance Summary shows a memo chip on each machine; an unsolved memo carries into the next shift until it is solved." },
+            { "type": "feat", "text": "Quality, admin and superadmin can now delete an FPA image in the Compliance Summary job view, then capture a fresh one." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.56.1",
+      "date": "2026-09-11",
+      "title": "Fix DPR Compliance Summary error toast",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Removed the 'could not determine data type of parameter' error on the DPR Compliance Summary — the QC memo badge lookup now loads correctly." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.56.0",
+      "date": "2026-09-11",
+      "title": "New plant: Dungra Unit-II fetches its ERP orders",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "feat", "text": "Joyo Plastics - Dungra - Unit-II is now linked to the ERP, so its OR-JR Status, OR-JR Wise Summary and OR-JR Wise Details reports and its orders load automatically just like the other plants." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.23",
+      "date": "2026-09-10",
+      "title": "Mould Wise Item QTY: search by OR number",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "feat", "text": "The Mould Wise Item QTY report search now also matches the OR / JR number, not just the mould name and number." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.22",
+      "date": "2026-09-09",
+      "title": "Mould Master: upload button always shows on MAIN",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "fix", "text": "The Mould Master file upload (Choose file + Preview Upload) now always shows on the MAIN server, including when viewing another factory's scope — it was sometimes left hidden after the page finished loading." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.21",
+      "date": "2026-09-09",
+      "title": "Compliance Summary: fix View filter crash",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Fixed a 'slots is not defined' error that blanked the DPR Compliance Summary when a View filter (e.g. Show All by EFF) was selected." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.20",
+      "date": "2026-09-09",
+      "title": "Compliance Summary: View filter sorted list",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The DPR Compliance Summary View filter now shows a single sorted list of the matching machines — 'Show All (by EFF)' and 'Low EFF' order worst EFF first, 'Low OEE' worst OEE first, 'Pending Entries' most-pending first — instead of leaving the machines in their normal grouped order." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.19",
+      "date": "2026-09-09",
+      "title": "Mould Master upload button shows on MAIN",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-gem",
+          "changes": [
+            { "type": "fix", "text": "The Mould Master Upload button now appears for Superadmin/Admin on the MAIN server even in All-Factories view. Moulds are company-wide, so the per-factory write lock no longer hides it. Factory servers stay read-only as before." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.18",
+      "date": "2026-09-07",
+      "title": "Compliance Summary: manpower STD vs Actual",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "Each machine's summary box now shows Manpower — STD (mould master) vs Actual (setup) — just above Weight. Actual over STD shows red (over-manned), below STD shows green (saving)." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.17",
+      "date": "2026-09-07",
+      "title": "Compliance Summary: machine count badge",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary now shows a machine count next to Apply — the total number of machines when unfiltered, and the matched count (matched / total) when a View filter or Search is applied." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.16",
+      "date": "2026-09-06",
+      "title": "Compliance Summary: View Filter works in machine-wise",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Fixed the DPR Compliance Summary View filter (Above Plan Qty, Pending Entries, Low EFF/OEE, Mould Change, MP Shortage, etc.) — it now correctly shows only the matching machines in the machine-wise layout." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.55.15",
       "date": "2026-09-06",

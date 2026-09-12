@@ -1,8 +1,10 @@
 name: Build QC Android APK
 
-# Builds the native QC Supervisor app and publishes an installable debug APK
-# as a downloadable artifact. Trigger it from the Actions tab (Run workflow)
-# or on any push that touches android_qc/.
+# Builds the native QC Supervisor app. On every push/dispatch it produces a
+# downloadable debug APK artifact. When the RELEASE signing secrets are set it
+# also builds a signed release APK, and on push to `main` it AUTO-PUBLISHES that
+# release APK to the MAIN server's update feed (/api/qc-app/publish) — from which
+# every LOCAL factory server syncs it and all phones auto-update. No manual step.
 on:
   workflow_dispatch:
   push:
@@ -16,9 +18,10 @@ permissions:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    # secrets can't be used in `if:` directly — surface presence as an env flag.
+    # secrets can't be used in `if:` directly — surface presence as env flags.
     env:
       HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      HAS_PUBLISH: ${{ secrets.QC_PUBLISH_USER != '' && secrets.QC_PUBLISH_PASS != '' }}
     defaults:
       run:
         working-directory: android_qc
@@ -52,7 +55,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # Signed release build — runs only when the keystore secret is configured.
+      # ── Signed release build — only when the keystore secret is configured ──
       # Add repo secrets: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD.
       - name: Decode keystore
         id: keystore
@@ -80,3 +83,25 @@ jobs:
           path: android_qc/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
+
+      # ── Auto-publish to the fleet — only on push to main, with a signed
+      #    release APK and publish credentials present. Reads versionCode /
+      #    versionName from build.gradle so the feed always matches the APK.
+      - name: Auto-publish release to MAIN feed
+        if: ${{ github.ref == 'refs/heads/main' && env.HAS_KEYSTORE == 'true' && env.HAS_PUBLISH == 'true' }}
+        run: |
+          VC=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts | head -1)
+          VN=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+          APK=app/build/outputs/apk/release/app-release.apk
+          echo "Publishing versionCode=$VC versionName=$VN"
+          curl -fsS -X POST "$PUBLISH_URL/api/qc-app/publish" \
+            -F "username=$QC_PUBLISH_USER" \
+            -F "password=$QC_PUBLISH_PASS" \
+            -F "versionCode=$VC" \
+            -F "versionName=$VN" \
+            -F "notes=Auto-published from CI (${GITHUB_SHA:0:7})" \
+            -F "apk=@$APK"
+        env:
+          PUBLISH_URL: https://jmsocean.cloud
+          QC_PUBLISH_USER: ${{ secrets.QC_PUBLISH_USER }}
+          QC_PUBLISH_PASS: ${{ secrets.QC_PUBLISH_PASS }}

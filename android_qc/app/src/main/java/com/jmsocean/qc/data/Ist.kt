@@ -17,6 +17,12 @@ object Ist {
     fun date(): String =
         SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = zone }.format(Date())
 
+    /** Yesterday's IST date (yyyy-MM-dd) — for the Today/Yesterday selector. */
+    fun yesterday(): String {
+        val cal = Calendar.getInstance(zone).apply { add(Calendar.DAY_OF_MONTH, -1) }
+        return SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = zone }.format(cal.time)
+    }
+
     fun shift(): String {
         val hour = Calendar.getInstance(zone).get(Calendar.HOUR_OF_DAY)
         return if (hour in 6..17) "Day" else "Night"

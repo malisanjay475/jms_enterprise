@@ -50,6 +50,9 @@ services:
       # Persist uploaded files (machine icons, operator photos, etc.) across Docker deploys.
       # Without this volume, every deploy wipes PUBLIC/uploads/ and all icons are lost.
       - jms_v1_uploads:/app/PUBLIC/uploads
+      # Persist the published QC Android APK + version.json across deploys, so
+      # CI's auto-publish survives the next backend deploy (else it's wiped).
+      - jms_v1_qcapp:/app/PUBLIC/qc-app
       # App-side pg_dump backups (every 5 min, kept for 4 hours)
       - jms_v1_backups:/app/backups
     environment:
@@ -93,5 +96,6 @@ networks:
 volumes:
   jms_v1_pg_data:
   jms_v1_uploads:
+  jms_v1_qcapp:
   # Shared backup volume — pg_dump files from app + WAL archives from db
   jms_v1_backups:

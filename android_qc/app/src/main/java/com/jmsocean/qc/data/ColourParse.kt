@@ -67,6 +67,26 @@ val naturalMachineComparator: Comparator<String> = Comparator { a, b ->
     naturalStrCompare(a, b)
 }
 
+/**
+ * Queue machine order: group by plant + line (e.g. "B -L1", "C -L1"), then by the
+ * trailing machine index (Machine 1, 2, 3 …) — ignoring model/tonnage. So all
+ * B-L1 machines come first in 1,2,3… order, then B-L2 …, then C-L1, etc.
+ */
+val machineQueueComparator: Comparator<String> = Comparator { a, b ->
+    val lineCmp = naturalMachineComparator.compare(machineLineKey(a), machineLineKey(b))
+    if (lineCmp != 0) lineCmp else machineIndex(a).compareTo(machineIndex(b))
+}
+
+private fun machineLineKey(s: String): String {
+    val m = Regex("^(.*?-L\\d+)", RegexOption.IGNORE_CASE).find(s)
+    return (m?.groupValues?.getOrNull(1) ?: s).trim()
+}
+
+private fun machineIndex(s: String): Int {
+    val m = Regex("(\\d+)\\s*$").find(s.trim())
+    return m?.groupValues?.getOrNull(1)?.toIntOrNull() ?: Int.MAX_VALUE
+}
+
 private fun tokenize(s: String): List<Any> {
     val out = mutableListOf<Any>()
     val sb = StringBuilder()
