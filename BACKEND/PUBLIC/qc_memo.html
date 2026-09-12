@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - Memo</title>
+    <link rel="stylesheet" href="/assets/app.css">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <style>
+        .memo-toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+        .memo-chip { border:1px solid #cbd5e1; background:#fff; border-radius:999px; padding:5px 14px; font-size:13px; font-weight:600; cursor:pointer; color:var(--text-muted); }
+        .memo-chip.active { background:#0ea5e9; border-color:#0ea5e9; color:#fff; }
+        .memo-card { border:1px solid #e2e8f0; border-left:4px solid #94a3b8; border-radius:10px; padding:14px 16px; background:#fff; margin-bottom:10px; cursor:pointer; transition:box-shadow .15s; }
+        .memo-card:hover { box-shadow:0 2px 10px rgba(0,0,0,.08); }
+        .memo-card.st-RAISED   { border-left-color:#f59e0b; }
+        .memo-card.st-ACCEPTED { border-left-color:#3b82f6; }
+        .memo-card.st-DEVIATION{ border-left-color:#a855f7; }
+        .memo-card.st-SOLVED   { border-left-color:#10b981; opacity:.85; }
+        .memo-no { font-weight:800; font-size:13px; color:#0f172a; letter-spacing:.02em; }
+        .memo-badge { border-radius:999px; padding:2px 10px; font-size:11px; font-weight:700; white-space:nowrap; }
+        .b-RAISED   { background:#fffbeb; color:#b45309; border:1px solid #fcd34d; }
+        .b-ACCEPTED { background:#eff6ff; color:#1d4ed8; border:1px solid #93c5fd; }
+        .b-DEVIATION{ background:#faf5ff; color:#7e22ce; border:1px solid #d8b4fe; }
+        .b-SOLVED   { background:#ecfdf5; color:#047857; border:1px solid #6ee7b7; }
+        .memo-meta { font-size:12px; color:#6b7280; margin-top:6px; display:flex; gap:14px; flex-wrap:wrap; }
+        .memo-tt { font-size:11px; color:#9ca3af; margin-top:4px; }
+        /* Drawer */
+        .drawer-mask { position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:1200; display:none; }
+        .drawer-mask.open { display:block; }
+        .drawer { position:fixed; top:0; right:0; height:100%; width:min(460px,100%); background:#fff; z-index:1201; transform:translateX(100%); transition:transform .2s; display:flex; flex-direction:column; }
+        .drawer.open { transform:translateX(0); }
+        .drawer-head { padding:16px 18px; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center; }
+        .drawer-body { padding:16px 18px; overflow-y:auto; flex:1; }
+        .drawer-foot { padding:12px 18px; border-top:1px solid #e2e8f0; }
+        .tl-item { border-left:2px solid #e2e8f0; padding:0 0 14px 14px; position:relative; }
+        .tl-item:before { content:''; position:absolute; left:-6px; top:2px; width:10px; height:10px; border-radius:50%; background:#0ea5e9; }
+        .tl-act { font-weight:700; font-size:12px; color:#0f172a; text-transform:uppercase; letter-spacing:.03em; }
+        .tl-meta { font-size:11px; color:#9ca3af; }
+        .tl-notes { font-size:13px; color:#374151; margin-top:2px; }
+        .memo-media img, .memo-media video { max-width:100%; border-radius:8px; margin-top:8px; border:1px solid #e2e8f0; }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <div class="page-title" style="font-size:1.5rem;font-weight:700;">Raised Memos</div>
+            <button class="btn btn-outline small" onclick="loadMemos()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+        </div>
+
+        <div class="memo-toolbar">
+            <span id="f-status" data-v="" class="memo-chip active">All</span>
+            <span id="f-RAISED" data-v="RAISED" class="memo-chip">Raised</span>
+            <span id="f-ACCEPTED" data-v="ACCEPTED" class="memo-chip">Accepted</span>
+            <span id="f-DEVIATION" data-v="DEVIATION" class="memo-chip">Deviation</span>
+            <span id="f-SOLVED" data-v="SOLVED" class="memo-chip">Solved</span>
+            <input type="text" id="f-machine" class="form-input" placeholder="Filter machine…" style="width:180px;margin-left:auto;">
+        </div>
+
+        <div id="memo-list"><div style="color:var(--text-muted);padding:20px;">Loading…</div></div>
+    </div>
+
+    <div class="drawer-mask" id="drawer-mask" onclick="closeDrawer()"></div>
+    <div class="drawer" id="drawer">
+        <div class="drawer-head">
+            <div class="memo-no" id="d-no">MEMO</div>
+            <button class="btn btn-outline small" onclick="closeDrawer()"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="drawer-body" id="d-body"></div>
+        <div class="drawer-foot">
+            <textarea id="d-reply" class="form-input" rows="2" placeholder="Reply to this memo…" style="width:100%;resize:vertical;"></textarea>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+                <button class="btn btn-primary small" style="flex:1;" onclick="sendReply()">Send Reply</button>
+                <button class="btn btn-outline small" id="d-reraise" onclick="reRaise()" title="Reopen if not actually solved">Re-raise</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/app.min.js?v=1576"></script>
+    <script>
+        JPSMS.auth.requireAuth();
+        JPSMS.renderShell('quality');
+
+        let STATUS = '';
+        let CURRENT = null;
+        const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const user = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch (_) { return {}; } })();
+        const roleCode = String(user.role_code || '').toLowerCase();
+        const fmtDT = v => { try { return v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''; } catch (_) { return ''; } };
+        const mins = v => { const n = Math.round(Number(v)); if (!isFinite(n) || n < 0) return ''; if (n < 60) return n + 'm'; return Math.floor(n / 60) + 'h ' + (n % 60) + 'm'; };
+
+        document.querySelectorAll('.memo-chip').forEach(c => c.addEventListener('click', () => {
+            document.querySelectorAll('.memo-chip').forEach(x => x.classList.remove('active'));
+            c.classList.add('active');
+            STATUS = c.getAttribute('data-v') || '';
+            loadMemos();
+        }));
+        document.getElementById('f-machine').addEventListener('input', () => { clearTimeout(window._mt); window._mt = setTimeout(loadMemos, 300); });
+
+        async function loadMemos() {
+            const list = document.getElementById('memo-list');
+            list.innerHTML = '<div style="color:var(--text-muted);padding:20px;">Loading…</div>';
+            const machine = document.getElementById('f-machine').value.trim();
+            const qs = new URLSearchParams();
+            if (STATUS) qs.set('status', STATUS);
+            if (machine) qs.set('machine', machine);
+            if (roleCode) qs.set('role', roleCode); // lets Quality managers see every factory
+            const res = await JPSMS.api.get('/qc/memos?' + qs.toString());
+            const rows = (res && res.ok && Array.isArray(res.data)) ? res.data : [];
+            if (!rows.length) { list.innerHTML = '<div style="color:#10b981;padding:20px;font-weight:600;">✓ No memos for this filter.</div>'; return; }
+            list.innerHTML = rows.map(cardHtml).join('');
+        }
+
+        function cardHtml(r) {
+            const st = r.status || 'RAISED';
+            const resp = mins(r.response_mins), reso = mins(r.resolution_mins);
+            const tt = st === 'SOLVED'
+                ? (reso ? `Solved in ${reso}` : 'Solved')
+                : (resp ? `First response ${resp}` : 'Awaiting response');
+            return `<div class="memo-card st-${esc(st)}" onclick='openMemo(${JSON.stringify(r).replace(/'/g, "&#39;")})'>
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+                    <div>
+                        <span class="memo-no">${esc(r.memo_no || ('MEMO-' + r.id))}</span>
+                        <span style="font-size:12px;color:#6b7280;margin-left:8px;">${esc(r.machine || '')}</span>
+                    </div>
+                    <span class="memo-badge b-${esc(st)}">${esc(st === 'DEVIATION' ? 'UNDER DEVIATION' : st)}</span>
+                </div>
+                <div style="font-size:13px;font-weight:600;color:#111;margin-top:6px;">${esc(r.issue_description || '-')}</div>
+                <div class="memo-meta">
+                    <span><b>By:</b> ${esc(r.created_by || '-')}</span>
+                    ${r.job_card_no ? `<span><b>JC:</b> ${esc(r.job_card_no)}</span>` : ''}
+                    ${r.accepted_by ? `<span><b>Accepted:</b> ${esc(r.accepted_by)}</span>` : ''}
+                    <span>${fmtDT(r.created_at)}</span>
+                </div>
+                <div class="memo-tt">${esc(tt)}${r.reraised_count ? ` · re-raised ${r.reraised_count}×` : ''}</div>
+            </div>`;
+        }
+
+        function openMemo(r) {
+            CURRENT = r;
+            document.getElementById('d-no').textContent = r.memo_no || ('MEMO-' + r.id);
+            const hist = Array.isArray(r.action_history) ? r.action_history
+                : (() => { try { return JSON.parse(r.action_history || '[]'); } catch (_) { return []; } })();
+            let media = [];
+            try { media = Array.isArray(r.media_urls) ? r.media_urls : JSON.parse(r.media_urls || '[]'); } catch (_) { }
+            if (!media.length && r.media_url) media = [r.media_url];
+            const mediaHtml = media.length ? `<div class="memo-media">${media.map(u =>
+                /\.(mp4|mov)$/i.test(u) ? `<video src="${esc(u)}" controls></video>` : `<img src="${esc(u)}">`
+            ).join('')}</div>` : '';
+            const tl = hist.map(h => `<div class="tl-item">
+                <div class="tl-act">${esc(h.action || '')}</div>
+                <div class="tl-meta">${esc(h.by || '')} · ${fmtDT(h.at)}</div>
+                ${h.notes ? `<div class="tl-notes">${esc(h.notes)}</div>` : ''}
+            </div>`).join('');
+            document.getElementById('d-body').innerHTML = `
+                <div style="font-size:14px;font-weight:600;color:#111;">${esc(r.issue_description || '-')}</div>
+                <div class="memo-meta" style="margin-top:8px;">
+                    <span><b>Machine:</b> ${esc(r.machine || '-')}</span>
+                    ${r.mould_name ? `<span><b>Mould:</b> ${esc(r.mould_name)}</span>` : ''}
+                    ${r.plan_id ? `<span><b>Plan:</b> ${esc(r.plan_id)}</span>` : ''}
+                    ${r.mentioned_name ? `<span><b>To:</b> ${esc(r.mentioned_name)}</span>` : ''}
+                </div>
+                ${mediaHtml}
+                <div style="margin:16px 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:.04em;">Timeline</div>
+                ${tl || '<div style="color:#9ca3af;font-size:13px;">No activity yet.</div>'}`;
+            document.getElementById('d-reraise').style.display = (r.status === 'SOLVED') ? '' : 'none';
+            document.getElementById('drawer').classList.add('open');
+            document.getElementById('drawer-mask').classList.add('open');
+        }
+        function closeDrawer() {
+            document.getElementById('drawer').classList.remove('open');
+            document.getElementById('drawer-mask').classList.remove('open');
+            CURRENT = null;
+        }
+
+        async function sendReply() {
+            if (!CURRENT) return;
+            const box = document.getElementById('d-reply');
+            const msg = box.value.trim();
+            if (!msg) return;
+            const res = await JPSMS.api.post(`/qc/memos/${CURRENT.id}/reply`, { message: msg, role: roleCode });
+            if (res && res.ok) { box.value = ''; closeDrawer(); loadMemos(); }
+            else alert((res && res.error) || 'Could not send reply.');
+        }
+        async function reRaise() {
+            if (!CURRENT) return;
+            if (!confirm('Re-raise this memo? It goes back to Moulding as not solved.')) return;
+            const res = await JPSMS.api.post(`/qc/memos/${CURRENT.id}/reraise`, { role: roleCode });
+            if (res && res.ok) { closeDrawer(); loadMemos(); }
+            else alert((res && res.error) || 'Could not re-raise.');
+        }
+
+        loadMemos();
+    </script>
+</body>
+
+</html>

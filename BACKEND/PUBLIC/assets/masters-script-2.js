@@ -916,6 +916,18 @@
       if (type === 'moulds' && !jmsMouldWriteAllowed()) {
         document.getElementById('uploadSection').style.display = 'none';
         hintEl.textContent = 'Read-only on this factory server — mould master is managed on MAIN and synced here.';
+      } else if (type === 'moulds' && jmsMouldWriteAllowed() && JPSMS.auth.can('masters', 'edit')) {
+        // Mould master is company-wide and mastered on MAIN, so bulk upload is allowed
+        // for any factory scope. setupUI re-runs after /api/version resolves the server
+        // type, and the first (server-type-unknown) pass or a previous type may have left
+        // the file picker / Preview Upload button hidden — restore them explicitly so the
+        // upload button always shows for moulds on MAIN.
+        const us = document.getElementById('uploadSection');
+        if (us) us.style.display = 'flex';
+        if (fileIn) fileIn.style.display = '';
+        if (hintEl) hintEl.style.display = '';
+        const upBtn = us ? us.querySelector('button[onclick="uploadMaster()"]') : null;
+        if (upBtn) upBtn.style.display = '';
       }
 
       // ERP reports: show a slim bar with a superadmin-only "Fetch Latest Data" button.

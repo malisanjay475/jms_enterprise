@@ -329,6 +329,22 @@
                 </div>
             `;
 
+            // QC Verification (Verified / Qty changed / Hold) + who / when / remarks
+            if (e.qc_verified || e.qc_hold) {
+                const fmtWhen = e.qc_verified_at ? new Date(e.qc_verified_at).toLocaleString() : '';
+                let badge, bg, bc, fg;
+                if (e.qc_hold) { badge = '✘ On Hold'; bg = '#fff1f2'; bc = '#fecaca'; fg = '#be123c'; }
+                else if (e.qc_verify_status === 'Discrepancy') { badge = '✘ QC changed qty'; bg = '#fff7ed'; bc = '#fed7aa'; fg = '#c2410c'; }
+                else { badge = '✔ QC Verified'; bg = '#ecfdf5'; bc = '#a7f3d0'; fg = '#047857'; }
+                html += `<div style="margin-top:16px;padding:10px 12px;background:${bg};border:1px solid ${bc};border-radius:8px">
+                    <div style="font-weight:800;color:${fg}">${badge}</div>
+                    ${(e.qc_verified_by || fmtWhen) ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">By <b>${e.qc_verified_by || '—'}</b>${fmtWhen ? ' · ' + fmtWhen : ''}</div>` : ''}
+                    ${e.qc_verify_status === 'Discrepancy' ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">QC qty: <b>${e.qc_good_qty ?? '—'}</b> good / <b>${e.qc_reject_qty ?? '—'}</b> rej (supervisor: ${e.good_qty} / ${e.reject_qty || 0})</div>` : ''}
+                    ${e.qc_hold_reason ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">Hold reason: <b>${e.qc_hold_reason}</b></div>` : ''}
+                    ${e.qc_remarks ? `<div style="font-size:0.82rem;color:#334155;margin-top:5px;padding-top:5px;border-top:1px dashed ${bc}"><b>QC remarks:</b> ${e.qc_remarks}</div>` : ''}
+                </div>`;
+            }
+
             // Rejection Reasons
             const rejMap = typeof e.reject_breakup === 'object' ? e.reject_breakup : {};
             if (Object.keys(rejMap).length > 0) {
@@ -1204,6 +1220,9 @@
                     // Open machine maintenance tickets → chip on the machine's summary cell
                     // (remarks + "Available by" ETA) so everyone sees it's down & when it returns.
                     const maintPromise = J.api.get('/maintenance/tickets?open=1&type=machine').catch(() => ({ ok: false, data: [] }));
+                    // Open QC memos (not solved) → clickable chip on the machine's summary cell.
+                    // Carries into the next shift until Moulding solves it.
+                    const memoPromise = J.api.get('/qc/memos/active-by-machine').catch(() => ({ ok: false, data: [] }));
                     if (shiftMode === 'Both') {
                         promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}`));
                         promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}`));
@@ -1221,7 +1240,7 @@
                         promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night`));
                     }
 
-                    Promise.all([...promises, scopedMachinesPromise, maintPromise]).then(([resDayMat, resNightMat, resDayTeam, resNightTeam, scopedMachinesRes, maintRes]) => {
+                    Promise.all([...promises, scopedMachinesPromise, maintPromise, memoPromise]).then(([resDayMat, resNightMat, resDayTeam, resNightTeam, scopedMachinesRes, maintRes, memoRes]) => {
                         // Error Check
                         if (!resDayMat.ok) throw new Error(resDayMat.error || 'Day Fetch Failed');
                         if (!resNightMat.ok) throw new Error(resNightMat.error || 'Night Fetch Failed');
@@ -1232,6 +1251,13 @@
                             if (t && t.machine) maintByMachine[String(t.machine)] = t;
                         });
                         window._dprMaintByMachine = maintByMachine;
+
+                        // Map of open (not-solved) memos by machine → chip on the summary cell.
+                        const memoByMachine = {};
+                        ((memoRes && memoRes.ok && memoRes.data) || []).forEach(mo => {
+                            if (mo && mo.machine) (memoByMachine[String(mo.machine)] = memoByMachine[String(mo.machine)] || []).push(mo);
+                        });
+                        window._dprMemoByMachine = memoByMachine;
 
                         let scopedMachinesList = scopedMachinesRes.data || [];
                         if (selectedFactory) {
@@ -2266,7 +2292,9 @@
                                                             <div style="display:flex;align-items:baseline;gap:3px;line-height:1;min-width:0">
                                                                 <span style="font-weight:800;font-size:0.95rem;color:#15803d;line-height:1">${entry.good_qty}</span>
                                                                 ${rejQty > 0 ? `<span style="font-size:0.78rem;color:#9ca3af;font-weight:600;line-height:1">|</span><span style="font-weight:800;font-size:0.85rem;color:#dc2626;line-height:1">${rejQty}</span>` : ''}
-                                                                ${entry.qc_verified ? `<span title="QC Verified" aria-label="QC Verified" style="margin-left:auto;color:#16a34a;font-size:0.85rem;line-height:1;flex:0 0 auto"><i class="bi bi-patch-check-fill"></i></span>` : ''}
+                                                                ${(entry.qc_hold || entry.qc_verify_status === 'Discrepancy')
+                                                                    ? `<span title="${entry.qc_hold ? 'QC Hold' : 'QC changed qty'} — tap for details" aria-label="QC flagged" style="margin-left:auto;color:#dc2626;font-size:0.9rem;line-height:1;flex:0 0 auto"><i class="bi bi-x-circle-fill"></i></span>`
+                                                                    : (entry.qc_verified ? `<span title="QC Verified — tap for details" aria-label="QC Verified" style="margin-left:auto;color:#16a34a;font-size:0.85rem;line-height:1;flex:0 0 auto"><i class="bi bi-patch-check-fill"></i></span>` : '')}
                                                             </div>
 
                                                             <!-- Row 2: Time -->
@@ -2744,7 +2772,25 @@
                                                 </div>`;
                                             }
                                         } catch (_e) {}
-                                        machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${_maintChip}${summaryH}</td></tr>`;
+                                        // Memo chip: clickable pill per open QC memo on this machine.
+                                        // Purple when running Under Deviation, amber otherwise.
+                                        let _memoChip = '';
+                                        try {
+                                            const _mos = (window._dprMemoByMachine || {})[String(machine)] || [];
+                                            if (_mos.length) {
+                                                _memoChip = _mos.map(mo => {
+                                                    const dev = mo.status === 'DEVIATION' || mo.deviation;
+                                                    const bg = dev ? '#faf5ff' : '#fffbeb', bd = dev ? '#d8b4fe' : '#fcd34d', col = dev ? '#7e22ce' : '#b45309';
+                                                    const label = dev ? 'Running Under Deviation' : (mo.status === 'ACCEPTED' ? 'Memo · Accepted' : 'Memo Raised');
+                                                    const tip = dprEscHtml((mo.issue_description || '').slice(0, 120));
+                                                    return `<div onclick="event.stopPropagation(); window.openDprMemo(${mo.id})" title="${tip}" style="cursor:pointer;margin-bottom:5px;padding:4px 7px;border-radius:6px;background:${bg};border:1px solid ${bd};line-height:1.25">
+                                                        <div style="font-weight:800;color:${col};font-size:0.66rem;text-transform:uppercase;letter-spacing:.03em">📝 ${label}</div>
+                                                        <div style="color:${col};font-weight:600;font-size:0.63rem">${dprEscHtml(mo.memo_no || '')} · ${dprEscHtml(mo.created_by || '')}</div>
+                                                    </div>`;
+                                                }).join('');
+                                            }
+                                        } catch (_e) {}
+                                        machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${_maintChip}${_memoChip}${summaryH}</td></tr>`;
 
                                         // Row-level "clear quick entries" button (replaces this row's placeholder).
                                         // Allowed: admin/superadmin + planner, ppc_ass_manager, ppc_manager.
@@ -2964,35 +3010,62 @@
                                     }
                                 });
                             };
-                            mmOrder.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
-                            mmOrder.forEach(lineName => {
-                                // Close the header's auto-opened (empty) tbody, then give each
-                                // machine its OWN tbody carrying searchable text (machine + its
-                                // moulds/orders/clients), so the top Search box can show/hide by machine.
-                                let html = mmHeader[lineName] + '</tbody>';
-                                const machs = Object.keys(mmRows[lineName]).sort((a, b) => {
-                                    const ia = extractIdx(a), ib = extractIdx(b);
-                                    if (ia !== ib && ia !== 999999 && ib !== 999999) return ia - ib;
-                                    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+                            const mkSearchText = (machine, rowsHtml) => (machine + ' ' + rowsHtml.replace(/<[^>]+>/g, ' '))
+                                .toLowerCase().replace(/\s+/g, ' ').replace(/"/g, '').trim();
+
+                            if (filterMode) {
+                                // ── View Filter selected → flat list across ALL lines, sorted by the
+                                // relevant metric (Pending: most missing first; Low OEE: lowest OEE;
+                                // everything else incl. "Show All (by EFF)": lowest EFF first). This
+                                // restores the original flat-sorted behaviour of the View filter.
+                                const flat = [];
+                                mmOrder.forEach(lineName => {
+                                    Object.keys(mmRows[lineName]).forEach(machine => {
+                                        const passRows = mmRows[lineName][machine];
+                                        if (!passesViewFilter(passRows)) return;
+                                        flat.push({
+                                            machine,
+                                            rowsHtml: passRows.map(r => r.html).join(''),
+                                            eff: Math.min(...passRows.map(r => r.eff || 0)),
+                                            oee: Math.min(...passRows.map(r => r.oee || 0)),
+                                            missingSlots: Math.max(...passRows.map(r => r.missingSlots || 0))
+                                        });
+                                    });
                                 });
-                                let anyShown = false;
-                                machs.forEach(machine => {
-                                    const passRows = mmRows[lineName][machine];
-                                    if (!passesViewFilter(passRows)) return; // View Filter
-                                    anyShown = true;
-                                    mmMachineCount++;
-                                    const rowsHtml = passRows.map(r => r.html).join('');
-                                    const searchText = (machine + ' ' + rowsHtml.replace(/<[^>]+>/g, ' '))
-                                        .toLowerCase().replace(/\s+/g, ' ').replace(/"/g, '').trim();
-                                    html += `<tbody class="mm-machine" data-search="${searchText}">${rowsHtml}</tbody>`;
+                                if (filterMode === 'Pending') flat.sort((a, b) => b.missingSlots - a.missingSlots);
+                                else if (filterMode === 'LowOee') flat.sort((a, b) => a.oee - b.oee);
+                                else flat.sort((a, b) => a.eff - b.eff);
+                                mmMachineCount = flat.length;
+
+                                const filterLabels = { ShowAll: 'Show All (by EFF)', AbovePlan: '🔴 Above Plan Qty', Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', LowOee: 'Low OEE', MouldChange: 'Mould Change', PlanChangeOver: 'Plan Change Over (≤20% left)', ManPowerShortage: '🚷 MP Shortage', MouldMaintenance: '🔧 Mould Maintenance', PowerCut: '⚡ Power Cut', NoPlan: '📅 No Plan', MachineMaintenance: '🛠️ Machine Maintenance', MouldTrial: '🧪 Mould Trial' };
+                                let tbodies = '';
+                                flat.forEach(f => { tbodies += `<tbody class="mm-machine" data-search="${mkSearchText(f.machine, f.rowsHtml)}">${f.rowsHtml}</tbody>`; });
+                                const colgroup = `<colgroup><col style="width:220px; min-width:220px"><col style="width:45px; min-width:45px">${Array(12).fill('<col style="width:65px; min-width:65px">').join('')}<col style="width:140px; min-width:140px"></colgroup>`;
+                                masterHtml += `<div class="dpr-line-card"><div style="margin-bottom:24px; background:white; border:1px solid #cbd5e1; border-radius:0 0 12px 12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-top:-1px">
+                                    <div style="display:flex; align-items:center; gap:8px; padding:8px 14px; background:#0f172a; color:#fff; font-size:0.8rem; font-weight:700; letter-spacing:.3px"><i class="bi bi-funnel-fill"></i><span>${filterLabels[filterMode] || filterMode}</span><span style="margin-left:auto; background:${flat.length ? '#3b82f6' : '#64748b'}; padding:2px 10px; border-radius:12px; font-weight:800">${flat.length} machine${flat.length === 1 ? '' : 's'}</span></div>
+                                    <div style="overflow-x:auto"><table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">${colgroup}<tbody></tbody>${tbodies}</table></div></div></div>`;
+                            } else {
+                                // No View Filter → grouped machine-wise (one table per line).
+                                mmOrder.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+                                mmOrder.forEach(lineName => {
+                                    // Close the header's auto-opened (empty) tbody, then give each machine its
+                                    // OWN tbody carrying searchable text (machine + its moulds/orders/clients).
+                                    let html = mmHeader[lineName] + '</tbody>';
+                                    const machs = Object.keys(mmRows[lineName]).sort((a, b) => {
+                                        const ia = extractIdx(a), ib = extractIdx(b);
+                                        if (ia !== ib && ia !== 999999 && ib !== 999999) return ia - ib;
+                                        return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+                                    });
+                                    machs.forEach(machine => {
+                                        const passRows = mmRows[lineName][machine];
+                                        mmMachineCount++;
+                                        const rowsHtml = passRows.map(r => r.html).join('');
+                                        html += `<tbody class="mm-machine" data-search="${mkSearchText(machine, rowsHtml)}">${rowsHtml}</tbody>`;
+                                    });
+                                    html += `</table></div></div>`;
+                                    masterHtml += `<div class="dpr-line-card">${html}</div>`;
                                 });
-                                html += `</table></div></div>`;
-                                // Skip a line card entirely when the View Filter removed all its machines.
-                                if (!anyShown && filterMode && filterMode !== 'ShowAll') return;
-                                // Wrap each line so search can hide a whole line card cleanly
-                                // (without touching the sticky column header, which is also a table).
-                                masterHtml += `<div class="dpr-line-card">${html}</div>`;
-                            });
+                            }
                         }
 
                         // ---- ENTRIES COUNT: Standalone calculation from raw API data ----

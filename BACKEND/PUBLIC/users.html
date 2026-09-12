@@ -414,7 +414,7 @@
         </div>
     </div>
 
-    <script src="/assets/app.min.js"></script>
+    <script src="/assets/app.min.js?v=1576"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             JPSMS.auth.requireAuth();
@@ -422,8 +422,8 @@
             if (!JPSMS.auth.can('users', 'add')) {
                 document.getElementById('btnAddUser').style.display = 'none';
             }
-            loadUsers();
-            loadRoles();
+            // Load roles first so the code→label map exists before the user list renders.
+            loadRoles().then(() => loadUsers()).catch(() => loadUsers());
             loadFactories();
             renderAppAccessChecks();
 
@@ -582,7 +582,7 @@
                 ${u.username} 
                 ${u.global_access ? '<i class="bi bi-globe" title="Global Access" style="color:#2563eb; margin-left:4px"></i>' : ''}
             </td>
-            <td><span class="badge">${u.role_code || 'operator'}</span></td>
+            <td><span class="badge">${(window.__rolesByCode && window.__rolesByCode[u.role_code]) || u.role_code || 'operator'}</span></td>
             <td>${u.line || '-'}</td>
             <td>
                 <div>${u.is_active !== false ? 'Active' : 'Inactive'}</div>
@@ -958,6 +958,10 @@
                     if (aRank !== bRank) return aRank - bRank;
                     return String(a.label || '').localeCompare(String(b.label || ''));
                 });
+                // Code → label map so the user list can show friendly role names
+                // (e.g. "QC HOD") instead of the raw role_code ("quality").
+                window.__rolesByCode = {};
+                list.forEach(r => { window.__rolesByCode[r.code] = r.label || r.code; });
                 sel.innerHTML = '';
                 list.forEach(r => {
                     const opt = new Option(r.label, r.code);

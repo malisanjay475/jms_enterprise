@@ -491,9 +491,10 @@ body {
   margin-top: 0;
   color: rgba(201, 223, 236, 0.72);
   font-size: 0.6rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Show the full plant name instead of truncating it with "…" */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 
 .sidebar-user-actions {

@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- Captured FPA photos live in cacheDir/images -->
+    <!-- Captured FPA / memo photos live in cacheDir/images -->
     <cache-path name="images" path="images/" />
+    <!-- Captured memo videos live in cacheDir/videos -->
+    <cache-path name="videos" path="videos/" />
     <!-- Downloaded update APKs live in cacheDir/apk -->
     <cache-path name="apk" path="apk/" />
 </paths>

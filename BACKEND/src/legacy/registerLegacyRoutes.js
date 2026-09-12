@@ -125,7 +125,9 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       }
 
       const data = details.map((d) => {
-        const name = String(d.colour || d.color || d.name || d.shade || '').trim() || '(none)';
+        const name = String(
+          d.colourName || d.itemColour || d.colour || d.color || d.name || d.shade || ''
+        ).trim() || '(none)';
         const planQty = Number(d.planQty || d.plan_qty || d.qty || d.quantity || d.planned || 0);
         const produced = producedByColour[name.toLowerCase()] || 0;
         return { colour: name, planQty, produced, balance: Math.max(0, planQty - produced) };
@@ -148,9 +150,13 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       if (!username || !password) {
         return res.status(400).json({ ok: false, error: 'username and password required' });
       }
+      // Read the password column the way /api/login does. Some schemas have no
+      // password_hash column, so pull it defensively via to_jsonb to avoid a
+      // "column does not exist" error.
       const rows = await q(
-        `SELECT id, COALESCE(password_hash, password) AS pw, role_code
-           FROM users WHERE username = $1 LIMIT 1`,
+        `SELECT id, role_code,
+                COALESCE(to_jsonb(u.*) ->> 'password', to_jsonb(u.*) ->> 'password_hash') AS pw
+           FROM users u WHERE username = $1 LIMIT 1`,
         [username]
       );
       if (!rows.length) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
@@ -4232,6 +4238,26 @@ async function bootstrapFreshCoreTables() {
   await q(`ALTER TABLE factories ADD COLUMN IF NOT EXISTS plant_codes TEXT`);
   // Seed the known mapping once, only where it has not been set yet (never overwrite
   // a value an admin has since corrected).
+  //
+  // Dungra Unit-II (JMS code F4) is a SEPARATE ERP factory (ERP id 46, OR/JR plant
+  // code JGUII) from Dungra Plant 1 (ERP id 41). Its name still contains the word
+  // "DUNGRA", so the generic '%DUNGRA%' name match below would otherwise claim it
+  // for Plant 1's ERP id. Seed Unit-II FIRST — the DUNGRA block is guarded by
+  // erp_factory_id IS NULL and will then skip this row. Match by code (F4, exact)
+  // or by the "UNIT-II"/"UNIT II" name suffix so it works however the row was saved.
+  //
+  // Also self-heal a row mis-seeded to Plant 1 on an earlier boot: if Unit-II already
+  // inherited ERP id 41 (Plant 1) before this fix shipped, correct it back to 46. We
+  // only override the specific wrong value 41 (or NULL) — never an admin-set value.
+  await q(`
+    UPDATE factories SET erp_factory_id = 46, plant_codes = 'JGUII'
+    WHERE (erp_factory_id IS NULL OR erp_factory_id = 41)
+      AND (
+        UPPER(TRIM(COALESCE(code, ''))) = 'F4'
+        OR UPPER(COALESCE(name, '')) LIKE '%UNIT-II%'
+        OR UPPER(COALESCE(name, '')) LIKE '%UNIT II%'
+      )
+  `).catch(err => console.warn('[DB] factory Dungra Unit-II ERP mapping seed skipped:', err.message));
   await q(`
     UPDATE factories SET erp_factory_id = v.erp_id, plant_codes = v.codes
     FROM (VALUES
@@ -4723,7 +4749,7 @@ async function initializeLegacyRuntime() {
             ('ppc_ass_manager', 'PPC Ass. Manager'),
             ('moulding_manager', 'Moulding Manager'),
             ('moulding_ass_manager', 'Moulding Ass. Manager'),
-            ('quality', 'Quality Manager'),
+            ('quality', 'QC HOD'),
             ('qc_supervisor', 'QC Supervisor'),
             ('shifting_supervisor', 'Shifting Supervisor'),
             ('maintenance_manager', 'Maintenance Manager'),
@@ -4731,6 +4757,13 @@ async function initializeLegacyRuntime() {
             ('maintenance_tech', 'Maintenance Technician'),
             ('admin', 'Admin')
             ON CONFLICT (code) DO NOTHING;
+
+            -- The seed above is DO NOTHING, so existing databases keep the old
+            -- 'quality' label ('Quality Manager'). Correct it to 'QC HOD' — but only
+            -- when it is still one of the known defaults, so a manually-customised
+            -- label is never clobbered.
+            UPDATE roles SET label = 'QC HOD'
+              WHERE code = 'quality' AND label IN ('Quality Manager', 'Quality', 'quality');
 
             CREATE TABLE IF NOT EXISTS notifications (
                 id SERIAL PRIMARY KEY,
@@ -5446,6 +5479,19 @@ async function initializeLegacyRuntime() {
       );
     `);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcjobs_lookup ON qc_job_setup (machine, dpr_date, shift)`);
+    // Setup is now filled TWICE per shift (every ~6h): setup_period 1 (start) & 2 (mid).
+    // Add the column, drop the old shift-level unique, add a period-aware unique.
+    await q(`ALTER TABLE qc_job_setup ADD COLUMN IF NOT EXISTS setup_period INTEGER DEFAULT 1`);
+    await q(`DO $$
+      DECLARE c text;
+      BEGIN
+        SELECT conname INTO c FROM pg_constraint
+          WHERE conrelid = 'qc_job_setup'::regclass AND contype = 'u'
+            AND pg_get_constraintdef(oid) LIKE '%(job_card_no, machine, dpr_date, shift)%';
+        IF c IS NOT NULL THEN EXECUTE 'ALTER TABLE qc_job_setup DROP CONSTRAINT ' || quote_ident(c); END IF;
+      END $$;`);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qc_job_setup_period
+                ON qc_job_setup (job_card_no, machine, dpr_date, shift, setup_period)`);
 
     // QC ONLINE REPORT SLOTS — structured 2-hour slot quality checks
     await q(`
@@ -5538,6 +5584,28 @@ async function initializeLegacyRuntime() {
       );
     `);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcissues_machine ON qc_material_issues (machine, status)`);
+
+    // RAISED MEMO — extra columns layered onto qc_material_issues (the memo store).
+    // A "memo" is a QC-raised production issue with a unique number, job context,
+    // multi-media, an @mentioned person, and an Accept → Solve / Deviation lifecycle.
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS memo_no TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS shift TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS report_date DATE`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS plan_id TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS order_no TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS mould_name TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS mentioned_name TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS mentioned_role TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS media_urls JSONB DEFAULT '[]'::jsonb`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS accepted_by TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS first_reply_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS deviation BOOLEAN DEFAULT FALSE`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS deviation_by TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS deviation_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS reraised_count INTEGER DEFAULT 0`);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qcissues_memo_no ON qc_material_issues (memo_no) WHERE memo_no IS NOT NULL`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcissues_memo_scope ON qc_material_issues (factory_id, report_date, shift, status)`);
 
     // QC NOTIFICATIONS — in-app notifications for roles
     await q(`
@@ -17009,6 +17077,7 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
         $3::text IS NULL OR $3 = ''
         OR TRIM(COALESCE(d.mould_no, '')) ILIKE '%' || $3 || '%'
         OR COALESCE(m.mould_name, '') ILIKE '%' || $3 || '%'
+        OR TRIM(COALESCE(d.order_no, '')) ILIKE '%' || $3 || '%'
       )
       AND (
         $5::text IS NULL OR $5 = ''
@@ -21841,13 +21910,17 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         TRIM(COALESCE(pb.mould_name, mps.mould_name)) as mould_name,
         ojr.job_card_no,
         COALESCE(ojr.client_name, o.client_name) as client_name,
-        -- QC verified this hour slot in the QC app? (fan-out-safe EXISTS;
-        -- qc_verifications is UNIQUE per machine/date/shift/hour_slot)
-        EXISTS (
-          SELECT 1 FROM qc_verifications qv
-          WHERE qv.machine = d.machine AND qv.dpr_date = d.dpr_date
-            AND qv.shift = d.shift AND qv.hour_slot = d.hour_slot
-        ) AS qc_verified
+        -- QC verify detail for this hour slot (qc_verifications is UNIQUE per
+        -- machine/date/shift/hour_slot; qv/qh joined LATERAL below, fan-out-safe).
+        (qv.id IS NOT NULL)   AS qc_verified,
+        qv.status             AS qc_verify_status,
+        qv.verified_by        AS qc_verified_by,
+        qv.verified_at        AS qc_verified_at,
+        qv.qc_good_qty        AS qc_good_qty,
+        qv.qc_reject_qty      AS qc_reject_qty,
+        qv.remarks            AS qc_remarks,
+        (qh.id IS NOT NULL)   AS qc_hold,
+        qh.reason             AS qc_hold_reason
       FROM (
         SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
         FROM dpr_hourly
@@ -21891,6 +21964,22 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       -- most one orders row matches (null-tolerant for legacy rows). KAN-127.
       LEFT JOIN orders o ON o.order_no = COALESCE(d.order_no, pb.order_no)
         AND (o.factory_id = d.factory_id OR o.factory_id IS NULL OR d.factory_id IS NULL)
+      -- QC verification for this exact slot (Verified / Discrepancy + who/when/remarks)
+      LEFT JOIN LATERAL (
+        SELECT id, status, verified_by, verified_at, qc_good_qty, qc_reject_qty, remarks
+        FROM qc_verifications qv2
+        WHERE qv2.machine = d.machine AND qv2.dpr_date = d.dpr_date
+          AND qv2.shift = d.shift AND qv2.hour_slot = d.hour_slot
+        LIMIT 1
+      ) qv ON true
+      -- Active QC hold on this slot (→ cross in the Compliance Summary)
+      LEFT JOIN LATERAL (
+        SELECT id, reason FROM qc_holds qh2
+        WHERE qh2.machine = d.machine AND qh2.dpr_date = d.dpr_date
+          AND qh2.shift = d.shift AND qh2.slot = d.hour_slot
+          AND UPPER(COALESCE(qh2.status,'ACTIVE')) = 'ACTIVE'
+        ORDER BY qh2.id DESC LIMIT 1
+      ) qh ON true
     `;
     const entryParams = [fDate, tDate, shift];
     if (factoryId) {
@@ -24613,6 +24702,13 @@ WITH RankedPlans AS (
     r.job_card_no as "JobCardNo",
     r.job_card_no,
 
+    --FPA status: 'Done' when First Piece Approved for this job card on this machine,
+    --else 'Pending'. Always non-null so the app can distinguish it from an old server.
+    COALESCE((SELECT jc.fpa_status FROM qc_job_checks jc
+       WHERE TRIM(COALESCE(jc.job_card_no,'')) = TRIM(COALESCE(r.job_card_no,''))
+         AND jc.machine = pb.machine AND jc.fpa_status = 'Done'
+       ORDER BY jc.updated_at DESC LIMIT 1), 'Pending') as fpa_status,
+
     --Mixing Ratio(Constructed)
     CONCAT(
       CASE WHEN m.material IS NOT NULL THEN m.material || ' ' ELSE '' END,
@@ -24727,10 +24823,19 @@ app.get('/api/job/colors', async (req, res) => {
     //    This is always the most accurate source — it's the exact colour breakdown saved when
     //    the plan was created. Only fall back to jc_details if plan_id is absent or empty.
     if (plan_id && String(plan_id) !== 'undefined' && String(plan_id) !== '') {
-      const pbRows = await q(
-        `SELECT colour_details FROM plan_board WHERE plan_id = $1 LIMIT 1`,
-        [String(plan_id)]
-      );
+      // plan_id (PLN-yr-seq) is NOT globally unique — it repeats per factory. A bare
+      // `WHERE plan_id = $1 LIMIT 1` can grab another factory's plan_board row and show
+      // ITS colour_details (seen on new units like JGUII whose plan_id collides with an
+      // existing factory). Scope to the requesting factory, prefer the exact factory
+      // match, and tolerate legacy NULL-factory rows as a fallback.
+      let pbSql = `SELECT colour_details FROM plan_board WHERE plan_id = $1`;
+      const pbParams = [String(plan_id)];
+      if (factoryIdTop) {
+        pbSql += ` AND (factory_id = $2 OR factory_id IS NULL) ORDER BY (factory_id = $2) DESC NULLS LAST`;
+        pbParams.push(factoryIdTop);
+      }
+      pbSql += ` LIMIT 1`;
+      const pbRows = await q(pbSql, pbParams);
       if (pbRows.length) {
         let cd = pbRows[0].colour_details || [];
         if (typeof cd === 'string') { try { cd = JSON.parse(cd); } catch (_) { cd = []; } }
@@ -26709,6 +26814,75 @@ app.get('/api/qc/job-checks', async (req, res) => {
   }
 });
 
+// POST /api/qc/fpa/delete-image — remove ONE FPA image from a qc_job_checks row.
+// Allowed roles: quality, admin, superadmin — so Quality can drop a bad FPA photo
+// and re-take it. Role is resolved server-side; a client-sent role is never trusted.
+app.post('/api/qc/fpa/delete-image', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const id = parseInt(body.id, 10);
+    const url = String(body.url || '').trim();
+    if (!id || !url) return res.status(400).json({ ok: false, error: 'id and url required' });
+
+    const uname = (body.session ? (() => {
+      try { const s = typeof body.session === 'string' ? JSON.parse(body.session) : body.session; return s.username || s.user || ''; }
+      catch (_) { return ''; }
+    })() : '') || getRequestUsername(req) || '';
+    const urow = uname ? await q('SELECT role_code FROM users WHERE username=$1 LIMIT 1', [uname]) : [];
+    const role = String((urow[0] && urow[0].role_code) || '').toLowerCase();
+    const allowed = role === 'admin' || role === 'superadmin' || role === 'quality' || role === 'quality_manager';
+    if (!allowed) return res.status(403).json({ ok: false, error: 'Only Quality / admin can delete FPA images.' });
+
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT id, fpa_form_image, fpa_form_url, product_images FROM qc_job_checks
+        WHERE id=$1 AND ($2::int IS NULL OR factory_id=$2 OR factory_id IS NULL) LIMIT 1`,
+      [id, factoryId]
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Job check not found' });
+    const row = rows[0];
+
+    let products = [];
+    try { products = Array.isArray(row.product_images) ? row.product_images : JSON.parse(row.product_images || '[]'); }
+    catch (_) { products = []; }
+    const newProducts = products.filter(u => String(u) !== url);
+    const clearedForm = (row.fpa_form_image === url) || (row.fpa_form_url === url);
+    const newForm = clearedForm ? null : row.fpa_form_image;
+    const newFormUrl = clearedForm ? null : row.fpa_form_url;
+    const nothingLeft = !newForm && newProducts.length === 0;
+
+    await q(
+      `UPDATE qc_job_checks
+          SET fpa_form_image=$1, fpa_form_url=$2, product_images=$3::jsonb,
+              fpa_status  = CASE WHEN $4 THEN 'Pending' ELSE fpa_status END,
+              fpa_done_at = CASE WHEN $4 THEN NULL ELSE fpa_done_at END,
+              fpa_done_by = CASE WHEN $4 THEN NULL ELSE fpa_done_by END,
+              updated_at = NOW()
+        WHERE id=$5`,
+      [newForm, newFormUrl, JSON.stringify(newProducts), nothingLeft, id]
+    );
+
+    // Best-effort: delete the physical file only if no other row still references it.
+    try {
+      const base = path.basename(url);
+      const still = await q(
+        `SELECT 1 FROM qc_job_checks
+          WHERE fpa_form_image LIKE $1 OR fpa_form_url LIKE $1 OR product_images::text LIKE $1 LIMIT 1`,
+        ['%' + base + '%']
+      );
+      if (!still.length) {
+        const fp = path.join(_qcImgDir, base);
+        if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      }
+    } catch (_) { /* file cleanup is best-effort */ }
+
+    if (syncService && syncService.triggerSync) syncService.triggerSync();
+    res.json({ ok: true, product_images: newProducts, fpa_form_image: newForm, cleared: nothingLeft });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 // 2. Internal Line Issue Memo
 app.post('/api/qc/issue', async (req, res) => {
   try {
@@ -26988,16 +27162,53 @@ app.get('/api/qc/online-report', async (req, res) => {
        ORDER BY slot ASC`,
       [machine, date, shift, factoryId]
     );
-    // Also fetch the active job context for item/mould names
-    const jobRows = await q(
-      `SELECT d.job_card_no, d.order_no, d.item_name, d.mould_name
-       FROM dpr_hourly d
-       WHERE d.machine = $1 AND d.dpr_date = $2::date AND d.shift = $3 AND d.is_deleted = false
-         AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
-       ORDER BY d.id DESC LIMIT 1`,
-      [machine, date, shift, factoryId]
+    // Also fetch the active job context for item/mould names.
+    // dpr_hourly has no item_name/mould_name columns, so pull those from plan_board.
+    // Wrapped so a failure here never 500s the whole report.
+    let job = null;
+    try {
+      const jobRows = await q(
+        `SELECT d.job_card_no, d.order_no, pb.item_name, pb.mould_name
+         FROM dpr_hourly d
+         LEFT JOIN LATERAL (
+           SELECT item_name, mould_name FROM plan_board
+           WHERE machine = d.machine AND order_no = d.order_no
+           ORDER BY updated_at DESC NULLS LAST LIMIT 1
+         ) pb ON true
+         WHERE d.machine = $1 AND d.dpr_date = $2::date AND d.shift = $3 AND d.is_deleted = false
+           AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
+         ORDER BY d.id DESC LIMIT 1`,
+        [machine, date, shift, factoryId]
+      );
+      job = jobRows[0] || null;
+    } catch (_) { job = null; }
+    res.json({ ok: true, data: rows || [], job });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/online-report/list — manager view: all slots for a date/shift
+// across every machine (or one machine if given). Factory-scoped.
+app.get('/api/qc/online-report/list', async (req, res) => {
+  try {
+    const { date, shift, machine } = req.query;
+    if (!date) return res.json({ ok: false, error: 'date required' });
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT machine, dpr_date, shift, slot, job_card_no, order_no, item_name, mould_name,
+              visual_status, visual_problem, visual_remarks,
+              colour_status, colour_problem, colour_remarks,
+              ff_status, ff_problem, ff_photo_url, entered_by, entered_at
+         FROM qc_online_report_slots
+        WHERE dpr_date = $1::date
+          AND ($2::text IS NULL OR $2 = '' OR shift = $2)
+          AND ($3::text IS NULL OR $3 = '' OR machine = $3)
+          AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+        ORDER BY machine ASC, slot ASC`,
+      [date, shift || '', machine || '', factoryId]
     );
-    res.json({ ok: true, data: rows || [], job: jobRows[0] || null });
+    res.json({ ok: true, data: rows || [] });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -27060,15 +27271,18 @@ app.get('/api/qc/job-setup', async (req, res) => {
     const { job_card_no, date, shift, machine, mould_name } = req.query;
     const factoryId = getFactoryId(req);
 
-    // Get existing QC setup
-    const setup = await q(
+    // Get existing QC setup — both periods (1 = start of shift, 2 = mid-shift).
+    const setupRows = await q(
       `SELECT * FROM qc_job_setup
        WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
          AND machine = $2 AND dpr_date = $3::date AND shift = $4
          AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)
-       ORDER BY setup_at DESC LIMIT 1`,
+       ORDER BY COALESCE(setup_period,1) ASC, setup_at DESC`,
       [job_card_no || '', machine || '', date, shift || 'Day', factoryId]
     );
+    const setups = { 1: null, 2: null };
+    for (const r of setupRows) { const p = r.setup_period || 1; if (!setups[p]) setups[p] = r; }
+    const setup = [setups[1] || null];  // keep the legacy `setup` shape (array-indexed [0])
 
     // Get STD values from mould master
     let std = { std_weight: null, std_cycle_time: null, std_cavity: null };
@@ -27095,7 +27309,7 @@ app.get('/api/qc/job-setup', async (req, res) => {
       if (mouldRows.length) std = { std_weight: mouldRows[0].std_weight, std_cycle_time: mouldRows[0].std_cycle_time, std_cavity: mouldRows[0].std_cavity };
     }
 
-    res.json({ ok: true, setup: setup[0] || null, std });
+    res.json({ ok: true, setup: setup[0] || null, setups, std });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -27107,22 +27321,25 @@ app.post('/api/qc/job-setup', async (req, res) => {
     const { job_card_no, machine, dpr_date, shift, act_weight, act_cycle_time, act_cavity,
             std_weight, std_cycle_time, std_cavity } = req.body || {};
     if (!job_card_no || !machine || !dpr_date || !shift) return res.json({ ok: false, error: 'job_card_no, machine, dpr_date, shift required' });
+    // setup_period: 1 (start of shift) or 2 (mid-shift). Filled twice per shift.
+    let setupPeriod = parseInt(req.body.setup_period, 10);
+    if (setupPeriod !== 1 && setupPeriod !== 2) setupPeriod = 1;
     const rawUser = (req.body.session ? (() => { try { const s = typeof req.body.session === 'string' ? JSON.parse(req.body.session) : req.body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || '';
     const setup_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
     const factoryId = getFactoryId(req);
     const toN = v => (v !== '' && v !== null && v !== undefined && !isNaN(Number(v))) ? Number(v) : null;
 
     await q(`
-      INSERT INTO qc_job_setup (factory_id, job_card_no, machine, dpr_date, shift,
+      INSERT INTO qc_job_setup (factory_id, job_card_no, machine, dpr_date, shift, setup_period,
         std_weight, act_weight, std_cycle_time, act_cycle_time, std_cavity, act_cavity, setup_by)
-      VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12)
-      ON CONFLICT (job_card_no, machine, dpr_date, shift)
+      VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      ON CONFLICT (job_card_no, machine, dpr_date, shift, setup_period)
       DO UPDATE SET
         std_weight = EXCLUDED.std_weight, act_weight = EXCLUDED.act_weight,
         std_cycle_time = EXCLUDED.std_cycle_time, act_cycle_time = EXCLUDED.act_cycle_time,
         std_cavity = EXCLUDED.std_cavity, act_cavity = EXCLUDED.act_cavity,
         setup_by = EXCLUDED.setup_by, setup_at = NOW()
-    `, [factoryId, job_card_no, machine, dpr_date, shift,
+    `, [factoryId, job_card_no, machine, dpr_date, shift, setupPeriod,
         toN(std_weight), toN(act_weight), toN(std_cycle_time), toN(act_cycle_time),
         toN(std_cavity) ? Math.round(toN(std_cavity)) : null,
         toN(act_cavity) ? Math.round(toN(act_cavity)) : null, setup_by]);
@@ -27309,8 +27526,8 @@ app.get('/api/qc/material-issues', async (req, res) => {
     const factoryId = getFactoryId(req);
     const rows = await q(
       `SELECT * FROM qc_material_issues
-       WHERE ($1 IS NULL OR machine = $1)
-         AND ($2 IS NULL OR status = $2)
+       WHERE ($1::text IS NULL OR machine = $1::text)
+         AND ($2::text IS NULL OR status = $2::text)
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY created_at DESC
        LIMIT $4`,
@@ -27358,6 +27575,302 @@ app.post('/api/qc/material-issues/:id/resolve', async (req, res) => {
       [by, resolution_notes || '', JSON.stringify([{ action: 'RESOLVED', by, at: new Date().toISOString(), notes: resolution_notes || '' }]), id, factoryId]
     );
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RAISED MEMO — QC raises a production memo to Moulding; lifecycle:
+//   RAISED → ACCEPTED → SOLVED   (or DEVIATION = "Running Under Deviation")
+// Notifies moulding_manager + moulding_ass_manager of the raising factory only.
+// Built on qc_material_issues (+ memo columns). New /api/qc/memos* aliases.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The two Moulding roles a memo is sent to, by role_code (factory-scoped).
+const MEMO_TARGET_ROLES = ['moulding_manager', 'moulding_ass_manager'];
+// Roles allowed to change a memo's lifecycle (accept/solve/deviation).
+const MEMO_MOULDING_ACTORS = ['moulding_manager', 'moulding_ass_manager', 'admin', 'superadmin'];
+// Roles that see every factory's memos and may reply/re-raise.
+const MEMO_QUALITY_ROLES = ['quality', 'quality_manager', 'quality_supervisor', 'qc_supervisor', 'admin', 'superadmin'];
+
+// Extract the acting username from a request (authenticated header, session JSON,
+// or explicit field). Prefer the server-known username over any client-sent value.
+function memoActor(req, fallback = 'QC') {
+  const b = req.body || {};
+  const raw = (getRequestUsername(req) || '') ||
+    (b.session ? (() => {
+      try { const s = typeof b.session === 'string' ? JSON.parse(b.session) : b.session; return s.username || s.supervisor || s.user || ''; }
+      catch (_) { return ''; }
+    })() : '') || b.created_by || b.by || '';
+  return String(raw).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || fallback;
+}
+
+// Resolve the caller's REAL role_code from the users table (never trust a
+// client-sent ?role / body.role — that would let anyone claim Quality).
+async function memoRole(req) {
+  try {
+    const uname = getRequestUsername(req);
+    if (!uname) return '';
+    const r = await q('SELECT role_code FROM users WHERE username=$1 LIMIT 1', [uname]);
+    return String((r && r[0] && r[0].role_code) || '').toLowerCase();
+  } catch (_) { return ''; }
+}
+
+// Is the authenticated caller a Quality manager (sees every factory + can reply)?
+async function isQualityManager(req) {
+  return MEMO_QUALITY_ROLES.includes(await memoRole(req));
+}
+
+// POST /api/qc/memos — raise a memo (multi image/video, job context, @mention)
+app.post('/api/qc/memos', (req, res, next) => {
+  uploadQC.array('media_files', 12)(req, res, err => {
+    if (err) return res.status(400).json({ ok: false, error: err.message || 'Upload error' });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { machine, job_card_no, plan_id, order_no, mould_name, issue_description,
+            severity, shift, report_date, mentioned_name, mentioned_role } = body;
+    if (!machine || !issue_description) return res.json({ ok: false, error: 'machine and issue_description required' });
+    const created_by = memoActor(req);
+    const factoryId = getFactoryId(req);
+    const files = Array.isArray(req.files) ? req.files : [];
+    const mediaUrls = files.map(f => `/uploads/qc-images/${path.basename(f.filename || f.path)}`);
+    const now = new Date().toISOString();
+    const initAudit = JSON.stringify([{ action: 'RAISED', by: created_by, at: now, notes: issue_description }]);
+
+    const ins = await q(
+      `INSERT INTO qc_material_issues
+         (factory_id, machine, job_card_no, plan_id, order_no, mould_name, issue_description,
+          severity, media_url, media_urls, assigned_to_role, mentioned_name, mentioned_role,
+          created_by, shift, report_date, status, action_history)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16,'RAISED',$17::jsonb)
+       RETURNING id`,
+      [factoryId, machine, job_card_no || '', plan_id || '', order_no || '', mould_name || '',
+       issue_description, severity || 'Medium', mediaUrls[0] || null, JSON.stringify(mediaUrls),
+       'moulding_manager', mentioned_name || '', mentioned_role || '', created_by,
+       shift || '', report_date || null, initAudit]
+    );
+    const id = ins[0].id;
+    // Unique, human-readable memo number: MEMO-<factory>-<id> (id is globally unique).
+    const memoNo = `MEMO-${factoryId || 0}-${id}`;
+    await q(`UPDATE qc_material_issues SET memo_no=$1 WHERE id=$2`, [memoNo, id]);
+
+    // Notify the two Moulding roles of THIS factory only.
+    for (const role of MEMO_TARGET_ROLES) {
+      await q(
+        `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+         VALUES ($1,$2,$3,'MEMO',$4)`,
+        [factoryId, role, `${memoNo}: new memo on ${machine} by ${created_by} — ${issue_description.slice(0, 80)}`, id]
+      );
+    }
+    // Also directly notify the @mentioned person, if any.
+    if (mentioned_name) {
+      await q(
+        `INSERT INTO qc_notifications (factory_id, recipient_role, recipient_name, message, ref_type, ref_id)
+         VALUES ($1,$2,$3,$4,'MEMO',$5)`,
+        [factoryId, mentioned_role || 'moulding_manager', mentioned_name,
+         `${memoNo}: you were mentioned on ${machine} by ${created_by}`, id]
+      );
+    }
+    res.json({ ok: true, id, memo_no: memoNo, media_urls: mediaUrls });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/memos — list memos. Quality managers see all factories; others own factory.
+app.get('/api/qc/memos', async (req, res) => {
+  try {
+    const { machine, status, limit } = req.query;
+    const factoryId = getFactoryId(req);
+    const seeAll = await isQualityManager(req);
+    const rows = await q(
+      `SELECT *,
+              EXTRACT(EPOCH FROM (COALESCE(first_reply_at, accepted_at) - created_at))/60 AS response_mins,
+              EXTRACT(EPOCH FROM (resolved_at - created_at))/60 AS resolution_mins
+         FROM qc_material_issues
+        WHERE memo_no IS NOT NULL
+          AND ($1::text IS NULL OR machine = $1::text)
+          AND ($2::text IS NULL OR status = $2::text)
+          AND ($3::boolean IS TRUE OR $4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+        ORDER BY created_at DESC
+        LIMIT $5`,
+      [machine || null, status || null, seeAll, factoryId, Math.min(200, parseInt(limit) || 100)]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/memos/active-by-machine — open memos for the DPR Compliance badge.
+// Carryover: anything not SOLVED stays visible into the next shift; SOLVED drops off.
+app.get('/api/qc/memos/active-by-machine', async (req, res) => {
+  try {
+    const { machine } = req.query;
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT id, memo_no, machine, job_card_no, plan_id, issue_description, severity,
+              created_by, created_at, status, deviation, accepted_by, accepted_at, shift, report_date
+         FROM qc_material_issues
+        WHERE memo_no IS NOT NULL
+          AND status <> 'SOLVED'
+          AND ($1::text IS NULL OR machine = $1)
+          AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        ORDER BY created_at DESC`,
+      [machine || null, factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/accept — Moulding accepts the memo (starts the clock).
+app.post('/api/qc/memos/:id/accept', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!MEMO_MOULDING_ACTORS.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only Moulding managers can accept a memo.' });
+    const by = memoActor(req, 'Moulding');
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+          SET accepted_by=$1, accepted_at=NOW(),
+              first_reply_at = COALESCE(first_reply_at, NOW()),
+              status = CASE WHEN status IN ('SOLVED') THEN status ELSE 'ACCEPTED' END,
+              action_history = action_history || $2::jsonb
+        WHERE id=$3 AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)`,
+      [by, JSON.stringify([{ action: 'ACCEPTED', by, at: new Date().toISOString() }]), id, factoryId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/solve — Moulding marks the memo solved.
+app.post('/api/qc/memos/:id/solve', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!MEMO_MOULDING_ACTORS.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only Moulding managers can solve a memo.' });
+    const { resolution_notes } = req.body || {};
+    const by = memoActor(req, 'Moulding');
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+          SET resolved_by=$1, resolved_at=NOW(), status='SOLVED',
+              deviation=FALSE, resolution_notes=$2,
+              first_reply_at = COALESCE(first_reply_at, NOW()),
+              action_history = action_history || $3::jsonb
+        WHERE id=$4 AND ($5::int IS NULL OR factory_id=$5 OR factory_id IS NULL)`,
+      [by, resolution_notes || '', JSON.stringify([{ action: 'SOLVED', by, at: new Date().toISOString(), notes: resolution_notes || '' }]), id, factoryId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/deviation — Moulding runs the job Under Deviation.
+app.post('/api/qc/memos/:id/deviation', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!MEMO_MOULDING_ACTORS.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only Moulding managers can run a memo under deviation.' });
+    const { notes } = req.body || {};
+    const by = memoActor(req, 'Moulding');
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+          SET deviation=TRUE, deviation_by=$1, deviation_at=NOW(), status='DEVIATION',
+              first_reply_at = COALESCE(first_reply_at, NOW()),
+              action_history = action_history || $2::jsonb
+        WHERE id=$3 AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)`,
+      [by, JSON.stringify([{ action: 'DEVIATION', by, at: new Date().toISOString(), notes: notes || '' }]), id, factoryId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/reply — threaded reply (Quality or Moulding).
+app.post('/api/qc/memos/:id/reply', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { message } = req.body || {};
+    if (!message || !String(message).trim()) return res.json({ ok: false, error: 'message required' });
+    const role = await memoRole(req);
+    if (!MEMO_QUALITY_ROLES.includes(role) && !MEMO_TARGET_ROLES.includes(role)) {
+      return res.status(403).json({ ok: false, error: 'Only Quality or Moulding can reply to a memo.' });
+    }
+    const seeAll = MEMO_QUALITY_ROLES.includes(role);
+    const by = memoActor(req, 'User');
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+          SET first_reply_at = COALESCE(first_reply_at, NOW()),
+              action_history = action_history || $1::jsonb
+        WHERE id=$2 AND ($3::int IS NULL OR factory_id=$3 OR factory_id IS NULL OR $4::boolean IS TRUE)`,
+      [JSON.stringify([{ action: 'REPLY', by, at: new Date().toISOString(), notes: String(message).slice(0, 1000) }]),
+       id, factoryId, seeAll]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/reraise — QC reopens a memo that was not really solved.
+app.post('/api/qc/memos/:id/reraise', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!MEMO_QUALITY_ROLES.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only QC / Quality can re-raise a memo.' });
+    const { notes } = req.body || {};
+    const by = memoActor(req, 'QC');
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `UPDATE qc_material_issues
+          SET status='RAISED', deviation=FALSE, resolved_by=NULL, resolved_at=NULL,
+              reraised_count = COALESCE(reraised_count,0) + 1,
+              action_history = action_history || $1::jsonb
+        WHERE id=$2 AND ($3::int IS NULL OR factory_id=$3 OR factory_id IS NULL)
+        RETURNING factory_id, machine, memo_no`,
+      [JSON.stringify([{ action: 'RERAISED', by, at: new Date().toISOString(), notes: notes || '' }]), id, factoryId]
+    );
+    // Re-notify the Moulding roles.
+    if (rows && rows[0]) {
+      for (const role of MEMO_TARGET_ROLES) {
+        await q(
+          `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+           VALUES ($1,$2,$3,'MEMO',$4)`,
+          [rows[0].factory_id, role, `${rows[0].memo_no}: re-raised by ${by} on ${rows[0].machine}`, id]
+        );
+      }
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/factory-people — Moulding people in a factory, for the @mention picker.
+app.get('/api/qc/factory-people', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT DISTINCT u.username, u.role_code, COALESCE(u.full_name, u.username) AS name
+         FROM users u
+         LEFT JOIN user_factories uf ON uf.user_id = u.id
+        WHERE COALESCE(u.is_active, TRUE) = TRUE
+          AND LOWER(COALESCE(u.role_code,'')) = ANY($1::text[])
+          AND ($2::int IS NULL OR u.global_access = TRUE OR uf.factory_id = $2)
+        ORDER BY name`,
+      [MEMO_TARGET_ROLES, factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }

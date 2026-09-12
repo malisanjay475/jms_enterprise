@@ -1,6 +1,9 @@
 package com.jmsocean.qc.ui.login
 
 import android.Manifest
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.res.painterResource
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.jmsocean.qc.BuildConfig
 import com.jmsocean.qc.data.LocationProvider
 import com.jmsocean.qc.ui.theme.Accent
 
@@ -66,9 +70,18 @@ fun LoginScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = RoundedCornerShape(20.dp)
         ) {
-            Column(modifier = Modifier.padding(24.dp)) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Image(
+                    painter = painterResource(com.jmsocean.qc.R.drawable.jms_logo),
+                    contentDescription = "JMS QC logo",
+                    modifier = Modifier.size(88.dp)
+                )
+                Spacer(Modifier.height(12.dp))
                 Text(
-                    "JMS Ocean QC",
+                    "JMS QC",
                     fontSize = 26.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -137,6 +150,21 @@ fun LoginScreen(
                         Text("Log in", color = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
+
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "App v${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "Server: ${BuildConfig.BASE_URL}",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
