@@ -1616,8 +1616,8 @@ function escHtml(value) {
         </div>
           <div class="sidebar-user-meta">
           <div class="sidebar-user-name">${escHtml(user.username || 'Guest')}</div>
-          <div class="sidebar-role-label">${escHtml(roleLabel)}</div>
-          <div class="sidebar-user-unit">${escHtml(inferredFactoryName || 'No Unit Selected')}</div>
+          <div class="sidebar-role-label" id="jms-role-label" title="${escHtml(roleLabel)}">${escHtml(roleLabel)}</div>
+          <div class="sidebar-user-unit" title="${escHtml(inferredFactoryName || 'No Unit Selected')}">${escHtml(inferredFactoryName || 'No Unit Selected')}</div>
         </div>
         
         <div class="sidebar-user-actions">
@@ -1702,6 +1702,31 @@ function escHtml(value) {
             // this user has already seen. Access-filtered inside whatsNew.
             exports.whatsNew.maybeShow({ user, version: v.version });
         }).catch(() => {});
+
+        // Resolve the friendly role name (e.g. role_code "quality" → "QC HOD")
+        // so the sidebar shows the label configured in User Management instead of
+        // a title-cased raw code. Cached on the module so we only fetch once.
+        (function applyRoleLabel() {
+            const rawCode = String(user.role || user.role_code || 'operator').toLowerCase();
+            const setLabel = (map) => {
+                const el = document.getElementById('jms-role-label');
+                if (!el) return;
+                const friendly = map && map[rawCode];
+                if (friendly) {
+                    el.textContent = friendly;
+                    el.title = friendly;
+                }
+            };
+            if (exports.__rolesByCode) { setLabel(exports.__rolesByCode); return; }
+            fetch('/api/roles').then(r => r.json()).then(res => {
+                const map = {};
+                (res && res.data || []).forEach(role => {
+                    if (role && role.code) map[String(role.code).toLowerCase()] = role.label || role.code;
+                });
+                exports.__rolesByCode = map;
+                setLabel(map);
+            }).catch(() => {});
+        })();
 
         // Inject Hamburger if Header Exists
         setTimeout(() => {
