@@ -135,9 +135,17 @@ class QcRepository(private val session: SessionStore) {
         val arr = env.data as? JsonArray ?: JsonArray(emptyList())
         val doneRow = arr.map { it.jsonObject }.firstOrNull { row ->
             row["fpa_status"]?.jsonPrimitive?.contentOrNull?.equals("Done", ignoreCase = true) == true
-        } ?: return@runCatching FpaStatus(ok = true, done = false)
+        } ?: return@runCatching FpaStatus(ok = true, done = false, submitted = false)
+        // Honor the approval workflow: an FPA row exists (submitted), but it only counts as
+        // "done" (locked) once it has been APPROVED. Pending/Rejected keep the form usable.
+        val approval = doneRow["fpa_approval_status"]?.jsonPrimitive?.contentOrNull ?: "Approved"
         FpaStatus(
-            ok = true, done = true,
+            ok = true,
+            done = approval.equals("Approved", ignoreCase = true),
+            submitted = true,
+            approval_status = approval,
+            reject_reason = doneRow["fpa_reject_reason"]?.jsonPrimitive?.contentOrNull,
+            reviewed_by = doneRow["fpa_reviewed_by"]?.jsonPrimitive?.contentOrNull,
             done_by = doneRow["fpa_done_by"]?.jsonPrimitive?.contentOrNull,
             done_at = doneRow["fpa_done_at"]?.jsonPrimitive?.contentOrNull,
             form_url = doneRow["fpa_form_url"]?.jsonPrimitive?.contentOrNull,
