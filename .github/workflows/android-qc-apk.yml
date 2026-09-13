@@ -22,6 +22,9 @@ jobs:
     env:
       HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
       HAS_PUBLISH: ${{ secrets.QC_PUBLISH_USER != '' && secrets.QC_PUBLISH_PASS != '' }}
+      # Auto versionCode: always increases with the run number, stays above the
+      # local fallback of 100, so every merged build is newer → phones auto-update.
+      APP_VERSION_CODE: ${{ 1000 + github.run_number }}
     defaults:
       run:
         working-directory: android_qc
@@ -90,7 +93,9 @@ jobs:
       - name: Auto-publish release to MAIN feed
         if: ${{ github.ref == 'refs/heads/main' && env.HAS_KEYSTORE == 'true' && env.HAS_PUBLISH == 'true' }}
         run: |
-          VC=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts | head -1)
+          # versionCode is the CI-computed APP_VERSION_CODE (matches the built APK,
+          # not the build.gradle fallback); versionName is the human label from gradle.
+          VC=$APP_VERSION_CODE
           VN=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
           APK=app/build/outputs/apk/release/app-release.apk
           echo "Publishing versionCode=$VC versionName=$VN"
