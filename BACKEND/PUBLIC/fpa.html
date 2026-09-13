@@ -98,7 +98,12 @@
         const fmtDT = v => { try { return v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''; } catch (_) { return ''; } };
         const parseImgs = v => { try { return Array.isArray(v) ? v : JSON.parse(v || '[]'); } catch (_) { return []; } };
 
-        function openLightbox(url) { document.getElementById('lb-img').src = url; document.getElementById('lb-mask').classList.add('open'); }
+        function openLightbox(url) {
+            // Only allow same-origin relative or http(s) image URLs — never javascript:/data:.
+            if (!url || !(/^https?:\/\//i.test(url) || url.startsWith('/'))) return;
+            document.getElementById('lb-img').setAttribute('src', encodeURI(url));
+            document.getElementById('lb-mask').classList.add('open');
+        }
 
         // Machine dropdown
         (async function loadMachines() {
