@@ -365,9 +365,30 @@
       }
     };
 
-    // Excel download of the Complete Production Plan Report (current filtered rows).
-    window.exportProductionCompletionExcel = function () {
-      const plans = Array.isArray(window._pcrPlans) ? window._pcrPlans : [];
+    // Excel download of the Complete Production Plan Report — ALL matching plans
+    // (not just the 250 shown on screen). Re-fetches with the current filters and a
+    // large limit so the sheet is the complete result set.
+    window.exportProductionCompletionExcel = async function () {
+      const btn = document.querySelector('button[onclick="window.exportProductionCompletionExcel()"]');
+      const oldHtml = btn ? btn.innerHTML : '';
+      const search = (document.getElementById('pcrSearch') || {}).value || '';
+      const from = (document.getElementById('pcrFrom') || {}).value || '';
+      const to = (document.getElementById('pcrTo') || {}).value || '';
+      let plans = [];
+      try {
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> Preparing…'; }
+        const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+        let url = `/planning/completed?limit=100000&search=${encodeURIComponent(search)}`;
+        if (from) url += `&from=${from}`;
+        if (to) url += `&to=${to}`;
+        const res = await api.get(url);
+        plans = (res && res.data) ? res.data : [];
+      } catch (e) {
+        // Fall back to whatever is loaded on screen if the full fetch fails.
+        plans = Array.isArray(window._pcrPlans) ? window._pcrPlans : [];
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = oldHtml; }
+      }
       if (!plans.length) { alert('No completed plans to export. Apply filters first.'); return; }
       const esc = (s) => String(s == null ? '' : s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
       const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : ''; };
