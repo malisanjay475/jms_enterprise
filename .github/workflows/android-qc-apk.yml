@@ -22,9 +22,6 @@ jobs:
     env:
       HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
       HAS_PUBLISH: ${{ secrets.QC_PUBLISH_USER != '' && secrets.QC_PUBLISH_PASS != '' }}
-      # Auto versionCode: always increases with the run number, stays above the
-      # local fallback of 100, so every merged build is newer → phones auto-update.
-      APP_VERSION_CODE: ${{ 1000 + github.run_number }}
     defaults:
       run:
         working-directory: android_qc
@@ -46,6 +43,12 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+
+      # Auto versionCode = 1000 + run number (GitHub expressions have no maths, so
+      # compute it in the shell). Always increasing, always above the local 100
+      # fallback, so every merged build is newer and phones auto-update.
+      - name: Compute versionCode
+        run: echo "APP_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
 
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon --stacktrace
