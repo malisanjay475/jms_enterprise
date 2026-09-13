@@ -122,12 +122,14 @@
             const imgs = parseImgs(r.product_images);
             const formUrl = r.fpa_form_url;
             const thumbs = [];
-            if (formUrl) thumbs.push(`<a href="#" onclick="openLightbox('${esc(formUrl)}');return false;" title="FPA form"><img src="${esc(formUrl)}" alt="form"></a>`);
-            imgs.forEach(u => thumbs.push(`<a href="#" onclick="openLightbox('${esc(u)}');return false;" title="Product"><img src="${esc(u)}" alt="product"></a>`));
+            // Use data-* attributes + event delegation (never inline JS with interpolated
+            // DB values) so a crafted machine name / URL cannot inject script.
+            if (formUrl) thumbs.push(`<a href="#" class="js-zoom" data-url="${esc(formUrl)}" title="FPA form"><img src="${esc(formUrl)}" alt="form"></a>`);
+            imgs.forEach(u => thumbs.push(`<a href="#" class="js-zoom" data-url="${esc(u)}" title="Product"><img src="${esc(u)}" alt="product"></a>`));
             const actions = (canApprove && st !== 'Approved')
                 ? `<div class="fpa-actions">
-                     <button class="btn small" style="background:#10b981;color:#fff;" onclick="approveFpa(${r.id})"><i class="bi bi-check-lg"></i> Approve</button>
-                     <button class="btn small" style="background:#ef4444;color:#fff;" onclick="openReject(${r.id}, '${esc((r.machine||'') + ' / ' + (r.job_card_no||''))}')"><i class="bi bi-x-lg"></i> Reject</button>
+                     <button class="btn small js-approve" data-id="${r.id}" style="background:#10b981;color:#fff;"><i class="bi bi-check-lg"></i> Approve</button>
+                     <button class="btn small js-reject" data-id="${r.id}" data-sub="${esc((r.machine||'') + ' / ' + (r.job_card_no||''))}" style="background:#ef4444;color:#fff;"><i class="bi bi-x-lg"></i> Reject</button>
                    </div>`
                 : '';
             const rejectNote = (st === 'Rejected' && r.fpa_reject_reason)
@@ -152,6 +154,16 @@
                 ${rejectNote}${reviewNote}${actions}
             </div>`;
         }
+
+        // Delegated click handling for the dynamically-rendered list (no inline JS).
+        document.getElementById('fpa-list').addEventListener('click', (ev) => {
+            const zoom = ev.target.closest('.js-zoom');
+            if (zoom) { ev.preventDefault(); openLightbox(zoom.getAttribute('data-url')); return; }
+            const ap = ev.target.closest('.js-approve');
+            if (ap) { approveFpa(parseInt(ap.getAttribute('data-id'), 10)); return; }
+            const rj = ev.target.closest('.js-reject');
+            if (rj) { openReject(parseInt(rj.getAttribute('data-id'), 10), rj.getAttribute('data-sub') || ''); return; }
+        });
 
         async function loadFpa() {
             const date = document.getElementById('f-date').value;

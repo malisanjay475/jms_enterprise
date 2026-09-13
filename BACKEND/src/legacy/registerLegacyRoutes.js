@@ -5631,15 +5631,31 @@ async function initializeLegacyRuntime() {
     // QC FPA APPROVAL WORKFLOW — FPA submitted by QC goes Pending -> Approved/Rejected.
     // Only an Approved FPA counts in the DPR Compliance Summary. A Rejected FPA is sent
     // back to the QC user (with a reason) to correct and re-upload.
-    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_approval_status TEXT DEFAULT 'Pending'`);
+    //
+    // IMPORTANT: add fpa_approval_status WITHOUT a default first, backfill existing FPAs to
+    // 'Approved' (grandfather so historical DPR data does not flip to Pending), and only THEN
+    // set the default to 'Pending'. If the column were created with DEFAULT 'Pending', every
+    // existing row would be filled with 'Pending' on ADD COLUMN and the backfill would match
+    // nothing — silently hiding all past FPAs. This DO block also makes the backfill run
+    // exactly once (only when the column is first created), so genuinely-pending FPAs on later
+    // boots are never force-approved.
+    await q(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'qc_job_checks' AND column_name = 'fpa_approval_status'
+        ) THEN
+          ALTER TABLE qc_job_checks ADD COLUMN fpa_approval_status TEXT;
+          UPDATE qc_job_checks SET fpa_approval_status = 'Approved' WHERE fpa_status = 'Done';
+          ALTER TABLE qc_job_checks ALTER COLUMN fpa_approval_status SET DEFAULT 'Pending';
+        END IF;
+      END $$;
+    `);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reviewed_by TEXT`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reviewed_at TIMESTAMPTZ`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reject_reason TEXT`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_resubmit_count INTEGER DEFAULT 0`);
-    // Grandfather: any FPA already submitted before this feature is treated as Approved so
-    // historical DPR Compliance data does not suddenly flip to Pending.
-    await q(`UPDATE qc_job_checks SET fpa_approval_status = 'Approved'
-             WHERE fpa_status = 'Done' AND fpa_approval_status IS NULL`);
 
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_date DATE;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_type TEXT;`);
