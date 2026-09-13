@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.58.0",
+  "latest": "1.58.1",
   "versions": [
+    {
+      "version": "1.58.1",
+      "date": "2026-09-13",
+      "title": "Mobile menu drawer alignment",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-list",
+          "changes": [
+            { "type": "fix", "text": "Fixed the mobile side menu: the full menu drawer now shows a clean vertical list with each item's label on the left and its dropdown arrow aligned on the right, instead of the arrows sitting misaligned below each item." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.58.0",
       "date": "2026-09-13",

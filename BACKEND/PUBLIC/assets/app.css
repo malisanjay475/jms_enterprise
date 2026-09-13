@@ -1281,6 +1281,50 @@ tbody tr:hover {
     color: var(--primary) !important;
   }
 
+  /* The full sidebar DRAWER (opened via hamburger) must stay a normal vertical
+     list — not inherit the bottom-tab-bar column styling above. Keep each item a
+     horizontal row so the label sits left and the submenu chevron aligns right. */
+  .sidebar .nav-links {
+    flex-direction: column !important;
+    padding: 0 12px !important;
+  }
+  .sidebar .nav-item {
+    flex: 0 0 auto !important;
+    flex-direction: row !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    height: auto !important;
+    font-size: 0.95rem !important;
+    color: var(--sidebar-text) !important;
+    margin-bottom: 4px !important;
+  }
+  .sidebar .nav-link-row {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+  }
+  .sidebar .nav-link-main {
+    flex: 1 1 auto !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    min-width: 0 !important;
+  }
+  .sidebar .nav-item i {
+    font-size: 1.1rem !important;
+    margin-bottom: 0 !important;
+    color: var(--sidebar-text) !important;
+  }
+  .sidebar .nav-link-main .nav-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sidebar .sub-toggle-btn {
+    flex: 0 0 auto !important;
+  }
+
   /* 4. CARDS & VISUALS */
   .card,
   .card-mobile {
