@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.58.1",
+  "latest": "1.58.2",
   "versions": [
+    {
+      "version": "1.58.2",
+      "date": "2026-09-13",
+      "title": "Mobile menu drawer fix on all pages",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-list",
+          "changes": [
+            { "type": "fix", "text": "The mobile menu drawer alignment fix now applies on every page — pages that loaded the stylesheet without a version (Shifting, Supervisor, Quality, Scanning, WIP and others) were still showing the old cached layout." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.58.1",
       "date": "2026-09-13",
