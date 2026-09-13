@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.59.0",
+  "latest": "1.60.0",
   "versions": [
+    {
+      "version": "1.60.0",
+      "date": "2026-09-13",
+      "title": "Executive Control Deck & Fleet Intelligence in Analytics",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Analytics",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "improvement", "text": "Unified executive control deck saving 140px vertical space with zero-state mould tooling fleet hub, dynamic date controls, and 3-pillar plant OEE breakdown." },
+            { "type": "feat", "text": "Added dual-mode views (Cards vs Compact Table) for Order and Machine Fleet with instant OEE status filtering, column sorting, and 3D Supervisor podium rankings." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.59.0",
       "date": "2026-09-13",
