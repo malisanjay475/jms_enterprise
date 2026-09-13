@@ -11,8 +11,33 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.57.9",
+  "latest": "1.58.0",
   "versions": [
+    {
+      "version": "1.58.0",
+      "date": "2026-09-13",
+      "title": "FPA approval workflow + Quality Dashboard fixes",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "feat", "text": "New FPA menu under Quality shows line-wise First Piece Approvals with Pending / Approved / Rejected status and the submitted photos." },
+            { "type": "feat", "text": "FPA submitted from the QC app now needs approval: QC HOD / Quality Ass. Manager / admin can Approve or Reject it (rejection asks for a reason)." },
+            { "type": "fix", "text": "Quality Dashboard no longer errors and the rejection charts load again (Machines / Moulds / Products / Defect)." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "Compliance Summary now counts an FPA as Done only after it has been approved; a submitted-but-unapproved or rejected FPA stays Pending." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.57.9",
       "date": "2026-09-12",

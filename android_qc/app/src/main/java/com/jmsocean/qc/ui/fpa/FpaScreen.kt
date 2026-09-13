@@ -38,6 +38,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -235,7 +236,63 @@ fun FpaScreen(
                     Spacer(Modifier.height(24.dp))
                 }
 
+                s.pendingApproval -> Column {
+                    Surface(
+                        color = Color(0xFFFFFBEB),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text("⏳ Pending Approval", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFFB45309))
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Your FPA has been submitted and is waiting for QC HOD approval. It will appear in the DPR Compliance Summary only after it is approved.",
+                                fontSize = 13.sp, color = Color(0xFF92400E)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    if (s.savedFormUrl != null) {
+                        SectionLabel("📋 Submitted FPA form")
+                        AsyncImage(
+                            model = s.savedFormUrl,
+                            contentDescription = "Submitted FPA form",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxWidth().height(200.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surface)
+                                .clickable { zoomModel = s.savedFormUrl }
+                        )
+                        Spacer(Modifier.height(16.dp))
+                    }
+                    Button(
+                        onClick = onBack,
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    ) { Text("Back to Queue", color = MaterialTheme.colorScheme.onPrimary) }
+                    Spacer(Modifier.height(24.dp))
+                }
+
                 else -> {
+                    if (s.rejected) {
+                        Surface(
+                            color = Color(0xFFFEF2F2),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text("❌ FPA Rejected — please correct & re-upload", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFFB91C1C))
+                                if (!s.rejectReason.isNullOrBlank()) {
+                                    Spacer(Modifier.height(6.dp))
+                                    Text("Reason: ${s.rejectReason}", fontSize = 13.sp, color = Color(0xFF991B1B))
+                                }
+                                if (!s.reviewedBy.isNullOrBlank()) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Text("By: ${s.reviewedBy}", fontSize = 12.sp, color = Color(0xFFB91C1C))
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                    }
                     if (s.error != null) {
                         Text(s.error!!, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
                         Spacer(Modifier.height(8.dp))

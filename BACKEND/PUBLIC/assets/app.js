@@ -127,6 +127,7 @@ function escHtml(value) {
         'maintenance.html': 'maintenance',
         'quality.html': 'quality',
         'qc_memo.html': 'quality',
+        'fpa.html': 'quality',
         'hr.html': 'hr',
         'hr_performance.html': 'hr',
         'hr_interview_panel.html': 'hr',
@@ -1387,6 +1388,7 @@ function escHtml(value) {
                 { id: 'qc_dash', label: 'QC Dashboard', icon: 'bi-grid-1x2', href: 'Quality.html?view=dashboard' },
                 { id: 'qc_comp', label: 'Compliance Summary', icon: 'bi-table', href: 'Quality.html?view=compliance' },
                 { id: 'qc_hour', label: 'Quality Hourly', icon: 'bi-clock-history', href: 'Quality.html?view=hourly' },
+                { id: 'qc_fpa', label: 'FPA', icon: 'bi-clipboard-check', href: 'fpa.html' },
                 { id: 'qc_memo', label: 'MEMO', icon: 'bi-journal-text', href: 'qc_memo.html' },
                 { id: 'qc_app', label: 'Supervisor App', icon: 'bi-phone', href: 'QCSupervisor.html' }
             ]
@@ -2300,7 +2302,7 @@ function escHtml(value) {
     'dpr_daily_report.html': 'dpr', 'job_summary.html': 'dpr',
     'purchase_orders.html': 'purchase', 'purchase_vendors.html': 'purchase',
     'purchase_grn.html': 'purchase', 'masters.html': 'masters',
-    'quality.html': 'quality', 'qc_memo.html': 'quality', 'hr.html': 'hr', 'hr_performance.html': 'hr',
+    'quality.html': 'quality', 'qc_memo.html': 'quality', 'fpa.html': 'quality', 'hr.html': 'hr', 'hr_performance.html': 'hr',
     'hr_interview_panel.html': 'hr', 'shifting_reports.html': 'shifting_module',
     'shifting_logs.html': 'shifting_module', 'shifting_summary.html': 'shifting_module',
     'shifting.html': 'shifting_module', 'wip.html': 'wip_internal',
