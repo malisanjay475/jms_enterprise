@@ -11,8 +11,23 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.58.2",
+  "latest": "1.59.0",
   "versions": [
+    {
+      "version": "1.59.0",
+      "date": "2026-09-13",
+      "title": "Complete Redesign of Analytics Portal (analyze.html)",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Analytics",
+          "icon": "bi-graph-up-arrow",
+          "changes": [
+            { "type": "feat", "text": "Brand new high-performance Analytics Portal with interactive Plant OEE gauge, multi-factor trend toggles, searchable Machine fleet matrix with visual utilization bars, 6-tab Order drilldown modal, Mould tooling analytics, Supervisor shift leaderboard podium, and Downtime Cockpit with Excel and CSV exports." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.58.2",
       "date": "2026-09-13",
