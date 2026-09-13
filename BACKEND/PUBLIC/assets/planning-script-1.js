@@ -1112,12 +1112,17 @@
     }
 
     /* ── Create Priority: role gating ───────────────────────────────────
-       Visible only to PPC managers, HR manager and superadmin. */
+       Visible only to PPC managers, HR manager, admin and superadmin. */
     window.etvApplyPriorityRole = function () {
-      const allowed = ['ppc_ass_manager', 'ppc_manager', 'hr_manager', 'superadmin'];
-      let role = '';
-      try { role = String((window.JPSMS && window.JPSMS.auth.getUser().role_code) || '').toLowerCase(); } catch (_) {}
-      const show = allowed.includes(role);
+      const allowed = ['ppc_ass_manager', 'ppc_manager', 'hr_manager', 'admin', 'superadmin'];
+      let show = false;
+      try {
+        const auth = window.JPSMS && window.JPSMS.auth;
+        const user = (auth && auth.getUser) ? (auth.getUser() || {}) : {};
+        const role = String((user && user.role_code) || '').toLowerCase();
+        // Admin/superadmin always pass via the app's own helper; PPC/HR roles by role_code.
+        show = allowed.includes(role) || !!(auth && auth.isAdminLike && auth.isAdminLike(user));
+      } catch (_) {}
       ['etv-priority-btn', 'etv-saved-priority-btn'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = show ? 'inline-flex' : 'none';
@@ -1359,26 +1364,63 @@
       w.document.open(); w.document.write(html); w.document.close();
     };
 
+    /* Machine order for MC/MP schedules: group by plant + line (e.g. "B -L1",
+       "C -L1"), then by the trailing machine index (Machine 1,2,3 …), ignoring
+       model/tonnage — so 350-1 (Machine 1) sorts before 300-6 (Machine 6). */
+    window.etvMachineCompare = function (a, b) {
+        const lineKey = (s) => {
+            const m = String(s || '').match(/^(.*?-L\s?\d+)/i);
+            return (m ? m[1] : String(s || '')).trim();
+        };
+        const idx = (s) => {
+            const m = String(s || '').trim().match(/(\d+)\s*$/);
+            return m ? parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER;
+        };
+        const lc = lineKey(a).localeCompare(lineKey(b), undefined, { numeric: true, sensitivity: 'base' });
+        return lc !== 0 ? lc : (idx(a) - idx(b));
+    };
+
     /* Manpower report (Create Priority): running plan machine-wise with STD
        Manpower and a blank Actual column for manual fill. Shows on screen and
        downloads an Excel-openable file. */
     window.etvManpowerReport = async function () {
-      // Auto-collect EVERY machine's currently-running plan — no manual selection.
+      // Report follows the shift picked in MC/MP SCH.
+      //  · Day   → each machine's currently-running plan.
+      //  · Night → running plan + any UPCOMING mould change queued next on that machine.
+      const shift = (window.etvPriorityCtx && window.etvPriorityCtx.shift) || 'Day';
+      const mpFor = (p) => (typeof window.etvManpowerFor === 'function') ? window.etvManpowerFor(p) : null;
+      const rowFor = (p, upcoming) => ({
+        machine: p.machine || '-',
+        mouldName: (p.mouldName || p.mould_name || '-') + (upcoming ? '  (Upcoming change)' : ''),
+        mouldNo: p.mouldNo || p.mould_code || '',
+        manpower: mpFor(p),
+        upcoming: !!upcoming
+      });
       let items = [];
       try {
         const api = getApi();
         const proc = (typeof getProcFilter === 'function' ? getProcFilter() : '');
         const res = await api.get(`/planning/board${proc ? ('?process=' + encodeURIComponent(proc)) : ''}`);
         const plans = (res && res.data && res.data.plans) ? res.data.plans : [];
-        items = plans
-          .filter(p => String(p.status || '').trim().toLowerCase() === 'running')
-          .map(p => ({
-            machine: p.machine || '-',
-            mouldName: p.mouldName || p.mould_name || '-',
-            mouldNo: p.mouldNo || p.mould_code || '',
-            manpower: (typeof window.etvManpowerFor === 'function') ? window.etvManpowerFor(p) : null
-          }))
-          .sort((a, b) => String(a.machine).localeCompare(String(b.machine), undefined, { numeric: true, sensitivity: 'base' }));
+        // group plans by machine, ordered by queue seq
+        const byMachine = {};
+        plans.forEach(p => { const m = p.machine || '-'; (byMachine[m] = byMachine[m] || []).push(p); });
+        Object.keys(byMachine).forEach(m => {
+          const list = byMachine[m].slice().sort((a, b) => (Number(a.seq || 0) - Number(b.seq || 0)) || (Number(a.id || 0) - Number(b.id || 0)));
+          const running = list.find(p => String(p.status || '').trim().toLowerCase() === 'running');
+          if (running) items.push(rowFor(running, false));
+          // Night: only when a running plan exists, add its next queued mould change.
+          // Skip dead/non-queued statuses so a cancelled/archived row isn't mistaken for it.
+          if (shift === 'Night' && running) {
+            const DEAD = new Set(['running', 'cancelled', 'canceled', 'archived', 'rejected', 'completed', 'dropped', 'stopped']);
+            const baseMould = String(running.mouldNo || running.mould_code || '').trim();
+            const change = list.slice(list.indexOf(running) + 1).find(p =>
+              !DEAD.has(String(p.status || '').trim().toLowerCase()) &&
+              String(p.mouldNo || p.mould_code || '').trim() !== baseMould);
+            if (change) items.push(rowFor(change, true));
+          }
+        });
+        items.sort((a, b) => window.etvMachineCompare(a.machine, b.machine) || (Number(a.upcoming) - Number(b.upcoming)));
       } catch (e) {
         console.error('[Manpower Report] board fetch failed', e);
         alert('Could not load running plans: ' + (e && e.message ? e.message : e));
@@ -1386,11 +1428,12 @@
       }
       if (!items.length) { alert('No running plans found on any machine right now.'); return; }
       const totalStd = items.reduce((s, it) => s + (Number.isFinite(it.manpower) ? it.manpower : 0), 0);
-      const dateTxt = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-      const title = ('Running Plan Manpower — ' + dateTxt).trim();
+      const ctxDate = (window.etvPriorityCtx && window.etvPriorityCtx.date) ? new Date(window.etvPriorityCtx.date) : new Date();
+      const dateTxt = ctxDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      const title = ('Running Plan Manpower — ' + dateTxt + ' · ' + shift).trim();
 
       const rowsHtml = items.map((it, i) => `
-        <tr>
+        <tr${it.upcoming ? ' style="background:#fff7ed"' : ''}>
           <td class="c">${i + 1}</td>
           <td>${prioEsc(it.machine)}</td>
           <td>${prioEsc(it.mouldName)}</td>

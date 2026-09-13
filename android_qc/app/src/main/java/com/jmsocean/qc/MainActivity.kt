@@ -14,13 +14,18 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Surface
@@ -36,12 +41,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.jmsocean.qc.ui.compliance.ComplianceScreen
+import com.jmsocean.qc.ui.recent.RecentScreen
 import com.jmsocean.qc.ui.dashboard.DashboardScreen
 import com.jmsocean.qc.ui.fpa.FpaScreen
 import com.jmsocean.qc.ui.issues.IssuesScreen
 import com.jmsocean.qc.ui.login.LoginScreen
-import com.jmsocean.qc.ui.qcentry.QcEntryScreen
+import com.jmsocean.qc.ui.inspection.QcInspectionScreen
 import com.jmsocean.qc.ui.queue.QueueScreen
 import com.jmsocean.qc.ui.theme.QcTheme
 import com.jmsocean.qc.ui.verify.VerifyScreen
@@ -69,7 +74,7 @@ private object Routes {
     const val VERIFY = "verify"
     const val ISSUES = "issues"
     const val DASHBOARD = "dashboard"
-    const val COMPLIANCE = "compliance"
+    const val RECENT = "recent"
 }
 
 @Composable
@@ -81,7 +86,7 @@ fun QcApp_Root() {
 
     val backStack by nav.currentBackStackEntryAsState()
     val current = backStack?.destination?.route
-    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.COMPLIANCE)
+    val topLevel = setOf(Routes.QUEUE, Routes.VERIFY, Routes.ISSUES, Routes.DASHBOARD, Routes.RECENT)
 
     val start = if (app.session.isLoggedIn) Routes.QUEUE else Routes.LOGIN
     val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
@@ -119,7 +124,7 @@ fun QcApp_Root() {
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
-                    label = { Text("Material Issues") },
+                    label = { Text("Raised Memo") },
                     icon = { Icon(Icons.Default.Warning, null) },
                     selected = current == Routes.ISSUES,
                     onClick = { go(Routes.ISSUES) },
@@ -133,10 +138,10 @@ fun QcApp_Root() {
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
-                    label = { Text("Compliance") },
-                    icon = { Icon(Icons.Default.GridOn, null) },
-                    selected = current == Routes.COMPLIANCE,
-                    onClick = { go(Routes.COMPLIANCE) },
+                    label = { Text("Recent Entries") },
+                    icon = { Icon(Icons.Default.History, null) },
+                    selected = current == Routes.RECENT,
+                    onClick = { go(Routes.RECENT) },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 Spacer(Modifier.height(8.dp))
@@ -152,10 +157,51 @@ fun QcApp_Root() {
                     },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "App v${com.jmsocean.qc.BuildConfig.VERSION_NAME} (build ${com.jmsocean.qc.BuildConfig.VERSION_CODE})",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
             }
         }
     ) {
-        NavHost(navController = nav, startDestination = start) {
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            bottomBar = {
+                if (current in topLevel) {
+                    NavigationBar {
+                        NavigationBarItem(
+                            selected = current == Routes.QUEUE, onClick = { go(Routes.QUEUE) },
+                            icon = { Icon(Icons.Default.List, null) }, label = { Text("Queue") }
+                        )
+                        NavigationBarItem(
+                            selected = current == Routes.VERIFY, onClick = { go(Routes.VERIFY) },
+                            icon = { Icon(Icons.Default.CheckCircle, null) }, label = { Text("Verify") }
+                        )
+                        NavigationBarItem(
+                            selected = current == Routes.ISSUES, onClick = { go(Routes.ISSUES) },
+                            icon = { Icon(Icons.Default.Warning, null) }, label = { Text("Memo") }
+                        )
+                        NavigationBarItem(
+                            selected = current == Routes.RECENT, onClick = { go(Routes.RECENT) },
+                            icon = { Icon(Icons.Default.History, null) }, label = { Text("Recent") }
+                        )
+                        NavigationBarItem(
+                            selected = current == Routes.DASHBOARD,
+                            onClick = openDrawer,
+                            icon = { Icon(Icons.Default.Menu, null) }, label = { Text("More") }
+                        )
+                    }
+                }
+            }
+        ) { scaffoldPad ->
+        NavHost(
+            navController = nav,
+            startDestination = start,
+            modifier = Modifier.padding(scaffoldPad)
+        ) {
             composable(Routes.LOGIN) {
                 LoginScreen(onLoggedIn = {
                     nav.navigate(Routes.QUEUE) { popUpTo(Routes.LOGIN) { inclusive = true } }
@@ -171,15 +217,13 @@ fun QcApp_Root() {
             composable(Routes.VERIFY) { VerifyScreen(onMenu = openDrawer) }
             composable(Routes.ISSUES) { IssuesScreen(onMenu = openDrawer) }
             composable(Routes.DASHBOARD) { DashboardScreen(onMenu = openDrawer) }
-            composable(Routes.COMPLIANCE) { ComplianceScreen(onMenu = openDrawer) }
+            composable(Routes.RECENT) { RecentScreen(onMenu = openDrawer) }
             composable(Routes.FPA) { FpaScreen(onBack = { nav.popBackStack() }) }
             composable(Routes.QC) {
-                QcEntryScreen(
-                    onBack = { nav.popBackStack() },
-                    onDoFpa = { nav.navigate(Routes.FPA) }
-                )
+                QcInspectionScreen(onBack = { nav.popBackStack() })
             }
         }
+        } // Scaffold content
     }
 }
 

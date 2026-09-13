@@ -64,7 +64,8 @@
             toast.style.display = 'block';
         }
 
-        function renderStaleMachineAlerts(container, staleMachines) {
+        function renderStaleMachineAlerts(container, staleMachines, opts) {
+            const noBanner = !!(opts && opts.noBanner);
             // Cleanup previous render
             if (dprStaleObserver) { dprStaleObserver.disconnect(); dprStaleObserver = null; }
             const oldToast = document.getElementById('dprStaleToast');
@@ -89,7 +90,9 @@
                 staleCells.push({ cell, info: s });
             });
 
-            // 2. Alert banner at the very top of the summary
+            // 2. Alert banner at the very top of the summary (skipped when the
+            //    caller supplies its own banner, e.g. the Stopped-machines alert).
+            if (noBanner) return;
             const chips = staleMachines.map((s, i) => `<button data-stale-idx="${i}" style="border:1px solid #fecaca; background:#fff; color:#b91c1c; border-radius:999px; padding:3px 12px; font-weight:900; font-size:0.75rem; cursor:pointer; white-space:nowrap">${dprEscHtml(stripMachPfx(s.machine))} · ${s.silentHrs}h</button>`).join('');
             const banner = document.createElement('div');
             banner.id = 'dprStaleBanner';
@@ -132,6 +135,128 @@
                 staleCells.forEach(c => dprStaleObserver.observe(c.cell));
             }
         }
+
+        // --- MACHINE STOPPED (no production > 2h, any reason) ALERT ---
+        // A machine that holds an active plan but has produced nothing (good=0 &
+        // shots=0) for over two hours is "stopped" — including stoppages carried over
+        // from a previous day. Backend: GET /api/dpr/stopped-machines.
+        async function dprRenderStoppedBanner(container) {
+            const old = document.getElementById('dprStoppedBanner');
+            if (old) old.remove();
+            if (!container) return;
+            try {
+                const api = (window.JPSMS && window.JPSMS.api) ? window.JPSMS.api : window.api;
+                const res = await api.get('/dpr/stopped-machines');
+                const list = (res && res.ok && Array.isArray(res.data)) ? res.data : [];
+                window.__dprStoppedMachines = list;
+                if (!list.length) return;
+                const carried = list.filter(s => s.carried).length;
+                const banner = document.createElement('div');
+                banner.id = 'dprStoppedBanner';
+                banner.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#fef2f2;border:1px solid #fca5a5;border-left:5px solid #dc2626;border-radius:12px;padding:10px 14px;margin-bottom:14px';
+                banner.innerHTML = `
+                    <span style="font-weight:900;color:#b91c1c;font-size:0.9rem">
+                      <i class="bi bi-exclamation-octagon-fill"></i>
+                      ${list.length} machine${list.length === 1 ? '' : 's'} STOPPED — no production for 2 hr+${carried ? ` <span style="font-weight:700;color:#9a3412">(${carried} since a previous day)</span>` : ''}
+                    </span>
+                    <button id="dprStoppedViewBtn" style="border:1px solid #dc2626;background:#dc2626;color:#fff;border-radius:8px;padding:5px 14px;font-weight:800;font-size:0.78rem;cursor:pointer;white-space:nowrap">
+                      <i class="bi bi-list-ul"></i> View stopped machines
+                    </button>`;
+                banner.querySelector('#dprStoppedViewBtn').onclick = () => dprShowStoppedModal(list);
+                container.prepend(banner);
+            } catch (e) { console.warn('Stopped-machine banner failed (non-fatal):', e); }
+        }
+
+        function dprShowStoppedModal(list) {
+            const esc = (typeof dprEscHtml === 'function') ? dprEscHtml : (s => String(s == null ? '' : s));
+            const strip = (typeof stripMachPfx === 'function') ? stripMachPfx : (s => s);
+            const fmtSince = iso => {
+                if (!iso) return '—';
+                const d = new Date(iso); if (isNaN(d.getTime())) return '—';
+                const p = n => String(n).padStart(2, '0');
+                return `${p(d.getDate())}-${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]} ${p(d.getHours())}:${p(d.getMinutes())}`;
+            };
+            const dur = s => (s.silentHrs >= 1 ? s.silentHrs + 'h' : (s.silentMin || 0) + 'm');
+            const rows = list.map((s, i) => `
+                <tr${s.carried ? ' style="background:#fff7ed"' : ''}>
+                  <td style="border:1px solid #e2e8f0;padding:6px 10px;text-align:center">${i + 1}</td>
+                  <td style="border:1px solid #e2e8f0;padding:6px 10px;font-weight:700">${esc(strip(s.machine))}</td>
+                  <td style="border:1px solid #e2e8f0;padding:6px 10px">${esc(s.mould || '-')}</td>
+                  <td style="border:1px solid #e2e8f0;padding:6px 10px;text-align:center">${fmtSince(s.stoppedSince)}${s.carried ? ' <span style="font-size:0.62rem;font-weight:800;color:#9a3412;background:#ffedd5;border-radius:6px;padding:1px 5px">PREV DAY</span>' : ''}</td>
+                  <td style="border:1px solid #e2e8f0;padding:6px 10px;text-align:center;font-weight:800;color:#b91c1c">${dur(s)}</td>
+                  <td style="border:1px solid #e2e8f0;padding:6px 10px;color:#9a3412;font-weight:700">${esc(s.reason || '-')}</td>
+                </tr>`).join('');
+            const host = document.createElement('div');
+            host.id = 'dprStoppedModal';
+            host.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+            host.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:820px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.3)">
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e2e8f0;position:sticky;top:0;background:#fff">
+                  <h3 style="margin:0;font-size:1rem;font-weight:800;color:#b91c1c"><i class="bi bi-exclamation-octagon-fill"></i> Stopped Machines — no production 2 hr+ (${list.length})</h3>
+                  <button onclick="document.getElementById('dprStoppedModal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;line-height:1">&times;</button>
+                </div>
+                <div style="padding:14px 18px">
+                  <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;margin-bottom:12px;padding:8px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px">
+                    <span style="font-size:0.74rem;font-weight:700;color:#475569;margin-right:auto"><i class="bi bi-file-earmark-excel" style="color:#166534"></i> Download machine-wise downtime report</span>
+                    <input id="dprDtDate" type="date" value="${new Date().toISOString().slice(0,10)}" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:7px;font-size:0.78rem">
+                    <select id="dprDtShift" style="padding:5px 8px;border:1px solid #cbd5e1;border-radius:7px;font-size:0.78rem">
+                      <option value="Full">Full Day</option>
+                      <option value="Day">Day</option>
+                      <option value="Night">Night</option>
+                    </select>
+                    <button onclick="window.dprDownloadDowntimeReport()" style="border:1px solid #166534;background:#166534;color:#fff;border-radius:7px;padding:5px 12px;font-weight:800;font-size:0.76rem;cursor:pointer;white-space:nowrap"><i class="bi bi-download"></i> Excel</button>
+                  </div>
+                  <div style="overflow-x:auto">
+                    <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+                      <thead><tr style="background:#b91c1c;color:#fff">
+                        <th style="border:1px solid #e2e8f0;padding:6px 10px">#</th>
+                        <th style="border:1px solid #e2e8f0;padding:6px 10px;text-align:left">Machine</th>
+                        <th style="border:1px solid #e2e8f0;padding:6px 10px;text-align:left">Running Plan</th>
+                        <th style="border:1px solid #e2e8f0;padding:6px 10px">Stopped Since</th>
+                        <th style="border:1px solid #e2e8f0;padding:6px 10px">Duration</th>
+                        <th style="border:1px solid #e2e8f0;padding:6px 10px;text-align:left">Reason (Why)</th>
+                      </tr></thead>
+                      <tbody>${rows}</tbody>
+                    </table>
+                  </div>
+                  <div style="margin-top:10px;font-size:0.72rem;color:#64748b">"Stopped" = the machine has an active plan but recorded no production (0 pcs) for over two hours, for any reason. Rows shaded orange carried over from a previous day.</div>
+                </div></div>`;
+            host.addEventListener('click', e => { if (e.target === host) host.remove(); });
+            document.body.appendChild(host);
+        }
+
+        // Download the machine-wise downtime Excel report for the chosen date + shift.
+        // Server-generated xlsx (ExcelJS); sends auth + factory headers like the other
+        // report downloads. Columns: Machine, Running Plan, Total Time, Available Time,
+        // Downtime, Reason — for every machine holding an active plan.
+        window.dprDownloadDowntimeReport = async function () {
+            const date = (document.getElementById('dprDtDate') || {}).value || new Date().toISOString().slice(0, 10);
+            const shift = (document.getElementById('dprDtShift') || {}).value || 'Full';
+            let factoryId = '';
+            try { factoryId = localStorage.getItem('jpsms_factory_id') || ''; } catch (_) {}
+            const url = `/api/reports/machine-downtime.xlsx?date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}${factoryId ? `&factory_id=${encodeURIComponent(factoryId)}` : ''}`;
+            const headers = {};
+            try {
+                const token = localStorage.getItem('token');
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                const u = JSON.parse(localStorage.getItem('user') || '{}');
+                if (u && u.username) headers['X-User-Name'] = u.username;
+                if (factoryId) headers['X-Factory-ID'] = factoryId;
+            } catch (_) {}
+            try {
+                if (window.JPSMS && JPSMS.toast) JPSMS.toast('Preparing Excel…', 'info');
+                const res = await fetch(url, { headers });
+                if (!res.ok) throw new Error(`Download failed (${res.status})`);
+                const blob = await res.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `Machine_Downtime_${date}_${shift}.xlsx`;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+            } catch (e) {
+                if (window.JPSMS && JPSMS.toast) JPSMS.toast(e.message || 'Excel download failed', 'error');
+                else alert(e.message || 'Excel download failed');
+            }
+        };
 
         // --- CODE MAPPINGS ---
         const REJECTION_CODES = {
@@ -203,6 +328,22 @@
                     </div>
                 </div>
             `;
+
+            // QC Verification (Verified / Qty changed / Hold) + who / when / remarks
+            if (e.qc_verified || e.qc_hold) {
+                const fmtWhen = e.qc_verified_at ? new Date(e.qc_verified_at).toLocaleString() : '';
+                let badge, bg, bc, fg;
+                if (e.qc_hold) { badge = '✘ On Hold'; bg = '#fff1f2'; bc = '#fecaca'; fg = '#be123c'; }
+                else if (e.qc_verify_status === 'Discrepancy') { badge = '✘ QC changed qty'; bg = '#fff7ed'; bc = '#fed7aa'; fg = '#c2410c'; }
+                else { badge = '✔ QC Verified'; bg = '#ecfdf5'; bc = '#a7f3d0'; fg = '#047857'; }
+                html += `<div style="margin-top:16px;padding:10px 12px;background:${bg};border:1px solid ${bc};border-radius:8px">
+                    <div style="font-weight:800;color:${fg}">${badge}</div>
+                    ${(e.qc_verified_by || fmtWhen) ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">By <b>${e.qc_verified_by || '—'}</b>${fmtWhen ? ' · ' + fmtWhen : ''}</div>` : ''}
+                    ${e.qc_verify_status === 'Discrepancy' ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">QC qty: <b>${e.qc_good_qty ?? '—'}</b> good / <b>${e.qc_reject_qty ?? '—'}</b> rej (supervisor: ${e.good_qty} / ${e.reject_qty || 0})</div>` : ''}
+                    ${e.qc_hold_reason ? `<div style="font-size:0.82rem;color:#475569;margin-top:3px">Hold reason: <b>${e.qc_hold_reason}</b></div>` : ''}
+                    ${e.qc_remarks ? `<div style="font-size:0.82rem;color:#334155;margin-top:5px;padding-top:5px;border-top:1px dashed ${bc}"><b>QC remarks:</b> ${e.qc_remarks}</div>` : ''}
+                </div>`;
+            }
 
             // Rejection Reasons
             const rejMap = typeof e.reject_breakup === 'object' ? e.reject_breakup : {};
@@ -564,63 +705,80 @@
                 let dprProcess = localStorage.getItem('jpsms_dpr_process') || 'Moulding';
 
                 card.innerHTML = `
-                  <div id="sticky-dpr-filter" style="position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:10px; margin-bottom:15px; align-items:flex-end; padding:15px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Date</label>
-                      <input type="date" id="s-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px" value="${today}">
-                    </div>
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Process</label>
-                      <div id="s-process" style="display:flex; gap:10px; flex-wrap:wrap; min-width:340px;"></div>
-                    </div>
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Shift</label>
-                      <select id="s-shift" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:100px">
-                         <option value="Day">Day</option>
-                         <option value="Night">Night</option>
-                         <option value="Both">Both (24h)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Factory</label>
-                      <select id="s-factory" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:150px">
-                        <option value="">All Factories</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">Line Filter</label>
-                      <select id="s-line" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:130px">
-                        <option value="">All Lines</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:4px">View Filter</label>
-                      <select id="s-eff-filter" class="form-control" style="padding:7px; border:1px solid #cbd5e1; border-radius:4px; min-width:160px">
-                        <option value="">All</option>
-                        <option value="ShowAll">Show All (by EFF)</option>
-                        <option value="AbovePlan">🔴 Above Plan Qty</option>
-                        <option value="Pending">⚠️ Pending Entries</option>
-                        <option value="LowEff">Low EFF</option>
-                        <option value="LowOee">Low OEE</option>
-                        <option value="MouldChange">Mould Change</option>
-                        <option value="PlanChangeOver">Plan Change Over (≤20% left)</option>
-                        <option value="ManPowerShortage">🚷 MP Shortage</option>
-                        <option value="MouldMaintenance">🔧 Mould Maintenance</option>
-                        <option value="PowerCut">⚡ Power Cut</option>
-                        <option value="NoPlan">📅 No Plan</option>
-                        <option value="MachineMaintenance">🛠️ Machine Maintenance</option>
-                        <option value="MouldTrial">🧪 Mould Trial</option>
-                      </select>
-                    </div>
-                    <div style="display:flex; gap:10px">
-                      <button id="btn-s-apply" class="btn btn-primary" style="padding:7px 15px; background:#3b82f6; color:white; border:none; border-radius:4px; font-weight:600; cursor:pointer">Apply</button>
-                    </div>
-                    <div style="flex:1; text-align:right; font-size:0.8rem; color:#64748b; align-self:center">
-                        <span style="display:inline-block; width:12px; height:12px; background:#22c55e; margin-right:4px; vertical-align:middle; border-radius:3px"></span>Filled
-                        <span style="display:inline-block; width:12px; height:12px; background:#facc15; margin-left:10px; margin-right:4px; vertical-align:middle; border-radius:3px"></span>Late (>45m)
-                        <span style="display:inline-block; width:12px; height:12px; background:#ef4444; margin-left:10px; margin-right:4px; vertical-align:middle; border-radius:3px"></span>Missing
-                        <span style="display:inline-block; width:12px; height:12px; background:#e2e8f0; margin-left:10px; margin-right:4px; vertical-align:middle; border-radius:3px"></span>Future
-                        <div style="margin-top:5px; font-size:0.75rem">${['Maintenance', 'ManPowerShortage', 'NoPlan', 'MouldMaintenance', 'MouldTrial'].map(k => { const qm = QUICK_ACTION_META[k]; return `<span style="margin-left:10px; white-space:nowrap"><i class="bi ${qm.icon}" style="color:${qm.color}; margin-right:3px"></i>${qm.label}</span>`; }).join('')}</div>
+                  <div id="sticky-dpr-filter" style="position:relative; z-index:60; margin-bottom:15px; padding:12px 14px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,0.1)">
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end">
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Search</label>
+                        <div style="position:relative; display:inline-flex; align-items:center">
+                          <i class="bi bi-search" style="position:absolute; left:9px; color:#94a3b8; font-size:0.8rem; pointer-events:none"></i>
+                          <input id="s-search" type="text" placeholder="Machine, OR, client…" style="padding:6px 8px 6px 26px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem; outline:none; width:170px">
+                          <span id="s-search-count" style="position:absolute; right:8px; font-size:0.66rem; color:#94a3b8; white-space:nowrap; pointer-events:none"></span>
+                        </div>
+                      </div>
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">From</label>
+                        <input type="date" id="s-date" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem" value="${today}">
+                      </div>
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">To</label>
+                        <input type="date" id="s-date-to" class="form-control" style="padding:6px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem" value="${today}">
+                      </div>
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Process</label>
+                        <select id="s-process-sel" class="form-control" style="padding:6px 7px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem; min-width:110px">
+                          ${DPR_PROCESS_OPTIONS.map(o => `<option value="${o}" ${o === dprProcess ? 'selected' : ''}>${o}</option>`).join('')}
+                        </select>
+                      </div>
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Shift</label>
+                        <select id="s-shift" class="form-control" style="padding:6px 7px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem; min-width:90px">
+                           <option value="Day">Day</option>
+                           <option value="Night">Night</option>
+                           <option value="Both">Both (24h)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Factory</label>
+                        <select id="s-factory" class="form-control" style="padding:6px 7px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem; min-width:95px; max-width:130px">
+                          <option value="">All</option>
+                        </select>
+                      </div>
+                      <div style="position:relative">
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">Line</label>
+                        <button type="button" id="s-line-btn" class="form-control" style="padding:6px 9px; border:1px solid #cbd5e1; border-radius:4px; min-width:120px; text-align:left; background:#fff; cursor:pointer; font-size:0.8rem; display:flex; justify-content:space-between; align-items:center; gap:6px">
+                          <span id="s-line-label">All Lines</span><span style="color:#94a3b8">▾</span>
+                        </button>
+                        <div id="s-line-menu" style="display:none; position:absolute; z-index:1000; top:100%; left:0; margin-top:4px; background:#fff; border:1px solid #cbd5e1; border-radius:6px; box-shadow:0 6px 18px rgba(0,0,0,0.15); max-height:280px; overflow:auto; min-width:200px; padding:6px 4px"></div>
+                      </div>
+                      <div>
+                        <label style="display:block; font-size:0.7rem; font-weight:600; color:#64748b; margin-bottom:3px">View</label>
+                        <select id="s-eff-filter" class="form-control" style="padding:6px 7px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.8rem; min-width:130px">
+                          <option value="">All</option>
+                          <option value="ShowAll">Show All (by EFF)</option>
+                          <option value="AbovePlan">🔴 Above Plan Qty</option>
+                          <option value="Pending">⚠️ Pending Entries</option>
+                          <option value="LowEff">Low EFF</option>
+                          <option value="LowOee">Low OEE</option>
+                          <option value="MouldChange">Mould Change</option>
+                          <option value="PlanChangeOver">Plan Change Over (≤20% left)</option>
+                          <option value="ManPowerShortage">🚷 MP Shortage</option>
+                          <option value="MouldMaintenance">🔧 Mould Maintenance</option>
+                          <option value="PowerCut">⚡ Power Cut</option>
+                          <option value="NoPlan">📅 No Plan</option>
+                          <option value="MachineMaintenance">🛠️ Machine Maintenance</option>
+                          <option value="MouldTrial">🧪 Mould Trial</option>
+                        </select>
+                      </div>
+                      <div style="display:flex; gap:8px; align-items:center">
+                        <button id="btn-s-apply" class="btn btn-primary" style="padding:7px 15px; background:#3b82f6; color:white; border:none; border-radius:4px; font-weight:600; cursor:pointer; font-size:0.82rem">Apply</button>
+                        <span id="dpr-machine-count" style="font-size:0.75rem; font-weight:700; color:#0369a1; background:#e0f2fe; border:1px solid #bae6fd; padding:4px 10px; border-radius:99px; white-space:nowrap"></span>
+                      </div>
+                      <div style="margin-left:auto; text-align:right; font-size:0.72rem; color:#64748b; align-self:center; display:flex; gap:9px; flex-wrap:wrap; justify-content:flex-end">
+                          <span><span style="display:inline-block; width:11px; height:11px; background:#22c55e; margin-right:3px; vertical-align:middle; border-radius:3px"></span>Filled</span>
+                          <span><span style="display:inline-block; width:11px; height:11px; background:#facc15; margin-right:3px; vertical-align:middle; border-radius:3px"></span>Late</span>
+                          <span><span style="display:inline-block; width:11px; height:11px; background:#ef4444; margin-right:3px; vertical-align:middle; border-radius:3px"></span>Missing</span>
+                          <span><span style="display:inline-block; width:11px; height:11px; background:#e2e8f0; margin-right:3px; vertical-align:middle; border-radius:3px"></span>Future</span>
+                      </div>
                     </div>
                   </div>
                   <div id="summary-container">
@@ -631,26 +789,73 @@
                 // Set default shift
                 document.getElementById('s-shift').value = defaultShift;
 
-                const renderDprProcessButtons = () => {
-                    const host = document.getElementById('s-process');
-                    if (!host) return;
-                    host.innerHTML = DPR_PROCESS_OPTIONS.map(option => {
-                        const isActive = option === dprProcess;
-                        const style = isActive
-                            ? 'background:linear-gradient(135deg,#0f8ea8,#024c81); color:#fff; border-color:transparent; box-shadow:0 12px 24px rgba(2,76,129,0.2);'
-                            : 'background:#fff; color:#0f172a; border-color:rgba(148,163,184,0.35); box-shadow:0 8px 18px rgba(15,23,42,0.08);';
-                        return `<button type="button" data-process-option="${option}" style="min-width:104px; padding:12px 16px; border-radius:16px; border:1px solid; font-size:0.92rem; font-weight:800; ${style}">${option}</button>`;
-                    }).join('');
-                    Array.from(host.querySelectorAll('[data-process-option]')).forEach(btn => {
-                        btn.onclick = () => {
-                            dprProcess = btn.dataset.processOption;
-                            localStorage.setItem('jpsms_dpr_process', dprProcess);
-                            renderDprProcessButtons();
-                            loadSummary();
-                        };
-                    });
+                // ---- Multi-select Line Filter (checkbox dropdown) ----
+                // selLines = [] means "All Lines"; otherwise the list of chosen line keys.
+                let selLines = [];
+                const dprLineBtn = document.getElementById('s-line-btn');
+                const dprLineMenu = document.getElementById('s-line-menu');
+                const dprLineLabel = document.getElementById('s-line-label');
+                const updateLineLabel = () => {
+                    if (!dprLineLabel) return;
+                    dprLineLabel.textContent = !selLines.length
+                        ? 'All Lines'
+                        : (selLines.length === 1 ? selLines[0] : `${selLines.length} lines`);
                 };
-                renderDprProcessButtons();
+                // Rebuild the checkbox list from the current set of line keys. Called by
+                // loadSummary once the machine list (and thus the real lines) is known.
+                const renderLineMenu = (lineKeys) => {
+                    if (!dprLineMenu) return;
+                    // Drop any previously-selected lines that no longer exist.
+                    selLines = selLines.filter(l => lineKeys.includes(l));
+                    const allChecked = selLines.length === 0;
+                    const rows = lineKeys.map(lk => {
+                        const checked = selLines.includes(lk) ? 'checked' : '';
+                        return `<label style="display:flex; align-items:center; gap:8px; padding:5px 8px; font-size:0.82rem; cursor:pointer; border-radius:4px" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
+                                  <input type="checkbox" class="s-line-cb" value="${String(lk).replace(/"/g,'&quot;')}" ${checked} style="cursor:pointer"> ${lk}
+                                </label>`;
+                    }).join('');
+                    dprLineMenu.innerHTML = `
+                        <label style="display:flex; align-items:center; gap:8px; padding:5px 8px; font-size:0.82rem; font-weight:700; cursor:pointer; border-bottom:1px solid #e2e8f0; margin-bottom:2px">
+                          <input type="checkbox" id="s-line-all" ${allChecked ? 'checked' : ''} style="cursor:pointer"> All Lines
+                        </label>
+                        ${rows}`;
+                    const allCb = dprLineMenu.querySelector('#s-line-all');
+                    const itemCbs = Array.from(dprLineMenu.querySelectorAll('.s-line-cb'));
+                    // Tick lines, then press Apply — selection is NOT applied live.
+                    const syncFromItems = () => {
+                        selLines = itemCbs.filter(cb => cb.checked).map(cb => cb.value);
+                        if (allCb) allCb.checked = selLines.length === 0;
+                        updateLineLabel();
+                    };
+                    if (allCb) allCb.onchange = () => {
+                        if (allCb.checked) { itemCbs.forEach(cb => cb.checked = false); selLines = []; }
+                        else { allCb.checked = true; } // can't uncheck "All" directly; pick a line to narrow
+                        updateLineLabel();
+                    };
+                    itemCbs.forEach(cb => cb.onchange = syncFromItems);
+                    updateLineLabel();
+                };
+                if (dprLineBtn) dprLineBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (dprLineMenu) dprLineMenu.style.display = dprLineMenu.style.display === 'none' ? 'block' : 'none';
+                };
+                // Close the menu on outside click (filtering already applied on each toggle).
+                document.addEventListener('click', (e) => {
+                    if (!dprLineMenu || dprLineMenu.style.display === 'none') return;
+                    if (dprLineMenu.contains(e.target) || (dprLineBtn && dprLineBtn.contains(e.target))) return;
+                    dprLineMenu.style.display = 'none';
+                });
+
+                // Process is now a compact dropdown.
+                const dprProcessSel = document.getElementById('s-process-sel');
+                if (dprProcessSel) {
+                    dprProcessSel.value = dprProcess;
+                    dprProcessSel.addEventListener('change', () => {
+                        dprProcess = dprProcessSel.value;
+                        localStorage.setItem('jpsms_dpr_process', dprProcess);
+                        loadSummary();
+                    });
+                }
 
                 // ---- Labour DPR Summary ----
                 let _labourDprPartyId = '';
@@ -978,8 +1183,10 @@
                 // ---- End Labour DPR Summary ----
 
                 const loadSummary = async () => {
-                    const fromDate = document.getElementById('s-date').value;
-                    const toDate = fromDate; // single date selector
+                    let fromDate = document.getElementById('s-date').value;
+                    let toDate = document.getElementById('s-date-to')?.value || fromDate;
+                    // Tolerate a reversed range — swap so From is always the earlier day.
+                    if (toDate && fromDate && toDate < fromDate) { const t = fromDate; fromDate = toDate; toDate = t; }
                     const shiftMode = document.getElementById('s-shift').value; // 'Day', 'Night', 'Both'
                     const container = document.getElementById('summary-container');
                     const selectedFactory = document.getElementById('s-factory')?.value || '';
@@ -991,16 +1198,21 @@
                     }
 
                     const processQuery = `&process=${encodeURIComponent(dprProcess)}`;
-                    const selectedLine = document.getElementById('s-line')?.value || '';
+                    const selectedLines = selLines.slice(); // [] = all lines
+                    const groupBy = 'machine'; // Compliance Summary is always machine-wise now
                     const filterMode = document.getElementById('s-eff-filter')?.value || '';
 
                     localStorage.setItem('jpsms_dpr_process', dprProcess);
 
                     container.innerHTML = `<div style="padding:40px; text-align:center; color:#64748b"><i class="bi bi-arrow-repeat spin" style="font-size:2rem;display:block;margin-bottom:10px"></i> Loading Matrix...</div>`;
 
-                    // P4: Auto-fill elapsed quick-action slots before loading the matrix
-                    // Fire-and-forget — don't block the matrix load; errors are non-fatal
-                    try { await J.api.post('/dpr/auto-fill-ongoing', {}); } catch(_) {}
+                    // P4: Auto-fill elapsed quick-action slots. It only ever writes to the
+                    // CURRENT/today shift, so skip it entirely for past date ranges (huge
+                    // speed-up), and never block the matrix load on it (fire-and-forget).
+                    const _today = localToday();
+                    if (fromDate <= _today && _today <= toDate) {
+                        J.api.post('/dpr/auto-fill-ongoing', {}).catch(() => {});
+                    }
 
                     // Prepare Requests based on Shift Mode
                     const promises = [];
@@ -1008,6 +1220,9 @@
                     // Open machine maintenance tickets → chip on the machine's summary cell
                     // (remarks + "Available by" ETA) so everyone sees it's down & when it returns.
                     const maintPromise = J.api.get('/maintenance/tickets?open=1&type=machine').catch(() => ({ ok: false, data: [] }));
+                    // Open QC memos (not solved) → clickable chip on the machine's summary cell.
+                    // Carries into the next shift until Moulding solves it.
+                    const memoPromise = J.api.get('/qc/memos/active-by-machine').catch(() => ({ ok: false, data: [] }));
                     if (shiftMode === 'Both') {
                         promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Day${processQuery}`));
                         promises.push(J.api.get(`/dpr/summary-matrix?fromDate=${fromDate}&toDate=${toDate}&shift=Night${processQuery}`));
@@ -1025,7 +1240,7 @@
                         promises.push(J.api.get(`/shift/team-range?fromDate=${fromDate}&toDate=${toDate}&shift=Night`));
                     }
 
-                    Promise.all([...promises, scopedMachinesPromise, maintPromise]).then(([resDayMat, resNightMat, resDayTeam, resNightTeam, scopedMachinesRes, maintRes]) => {
+                    Promise.all([...promises, scopedMachinesPromise, maintPromise, memoPromise]).then(([resDayMat, resNightMat, resDayTeam, resNightTeam, scopedMachinesRes, maintRes, memoRes]) => {
                         // Error Check
                         if (!resDayMat.ok) throw new Error(resDayMat.error || 'Day Fetch Failed');
                         if (!resNightMat.ok) throw new Error(resNightMat.error || 'Night Fetch Failed');
@@ -1036,6 +1251,13 @@
                             if (t && t.machine) maintByMachine[String(t.machine)] = t;
                         });
                         window._dprMaintByMachine = maintByMachine;
+
+                        // Map of open (not-solved) memos by machine → chip on the summary cell.
+                        const memoByMachine = {};
+                        ((memoRes && memoRes.ok && memoRes.data) || []).forEach(mo => {
+                            if (mo && mo.machine) (memoByMachine[String(mo.machine)] = memoByMachine[String(mo.machine)] || []).push(mo);
+                        });
+                        window._dprMemoByMachine = memoByMachine;
 
                         let scopedMachinesList = scopedMachinesRes.data || [];
                         if (selectedFactory) {
@@ -1087,22 +1309,24 @@
                         const dayClosed = resDayMat.data.closedPlants || [];
                         const nightClosed = resNightMat.data.closedPlants || [];
 
-                        const allDates = Array.from(new Set([...Object.keys(dayDatesMap), ...Object.keys(nightDatesMap)])).sort().reverse();
+                        // Ascending (oldest → newest) so a range reads 04 → 05, Day before Night.
+                        const allDates = Array.from(new Set([...Object.keys(dayDatesMap), ...Object.keys(nightDatesMap)])).sort();
+
+                        // One render block per (date × shift). For "Both" this splits each day
+                        // into a Day block then a Night block; otherwise one block per day.
+                        const renderPasses = [];
+                        allDates.forEach(d => {
+                            if (shiftMode === 'Both') { renderPasses.push({ date: d, shift: 'Day' }); renderPasses.push({ date: d, shift: 'Night' }); }
+                            else { renderPasses.push({ date: d, shift: shiftMode }); }
+                        });
 
                         // Populate Lines dropdown from machine data
                         const allLineKeys = new Set();
                         (machines || []).forEach(m => allLineKeys.add(m.line || m.building || m.machine_process || 'General'));
-                        const lineDropdown = document.getElementById('s-line');
-                        if (lineDropdown) {
-                            const prevLineVal = lineDropdown.value;
-                            lineDropdown.innerHTML = '<option value="">All Lines</option>';
-                            Array.from(allLineKeys).sort().forEach(lk => {
-                                const opt = document.createElement('option');
-                                opt.value = lk;
-                                opt.textContent = lk;
-                                if (lk === prevLineVal) opt.selected = true;
-                                lineDropdown.appendChild(opt);
-                            });
+                        // Rebuild the checkbox list only when the menu is closed/empty, so an
+                        // immediate re-filter (triggered from an open menu) doesn't clobber it.
+                        if (!dprLineMenu || dprLineMenu.style.display === 'none' || !dprLineMenu.children.length) {
+                            renderLineMenu(Array.from(allLineKeys).sort());
                         }
 
                         if (allDates.length === 0) {
@@ -1119,7 +1343,7 @@
                         masterHtml += `
                             <div id="sticky-plant-total" style="position:relative; z-index:1; background:white; border:1px solid #cbd5e1; border-radius:12px; padding:15px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05)">
                                 <div style="font-size:1.1rem; font-weight:700; color:#0f172a">
-                                    Plant Total (${new Date(fromDate).toLocaleDateString('en-GB')})
+                                    Plant Total (${new Date(fromDate).toLocaleDateString('en-GB')}${toDate && toDate !== fromDate ? ' – ' + new Date(toDate).toLocaleDateString('en-GB') : ''})
                                     <span style="font-size:0.8rem; font-weight:400; color:#64748b; margin-left:8px">(Combined Summary)</span>
                                 </div>
                                 <div style="display:flex; gap:20px; flex-wrap:wrap; row-gap:12px; justify-content:flex-end; align-items:center">
@@ -1231,7 +1455,20 @@
                         // Hoist Accumulators to be Line-Level but Cross-Date
                         const lineAccumulators = {};
 
-                        allDates.forEach(date => {
+                        // Machine-wise grouping: collect each machine's rows across every
+                        // (date × shift) pass, then emit them grouped by machine after the loop.
+                        // Date-wise (default) keeps the original per-pass block rendering.
+                        const mmMode = groupBy === 'machine';
+                        const mmOrder = [];          // line names in first-seen order
+                        const mmHeader = {};         // lineName -> line header + <table><tbody> open
+                        const mmRows = {};           // lineName -> machine -> [rowHtml, ...] (pass order)
+                        let mmStickyHeader = '';     // the column header, emitted once
+                        let mmMachineCount = 0;      // machines shown after View/Line filters
+
+                        renderPasses.forEach(({ date, shift: passShift }) => {
+                            // Force this block to a single shift so each (date × shift) renders
+                            // as its own labelled section (shadows the outer shiftMode).
+                            const shiftMode = passShift;
                             const dayData = dayDatesMap[date] || { entries: {}, maintenance: {}, setups: [] };
                             const nightData = nightDatesMap[date] || { entries: {}, maintenance: {}, setups: [] };
                             const dayTeam = dayTeamsByDate[date] || [];
@@ -1240,7 +1477,7 @@
                             const dateDayClosed = dayClosed.filter(c => (c.dpr_date_str || c.dpr_date || '').startsWith(date));
                             const dateNightClosed = nightClosed.filter(c => (c.dpr_date_str || c.dpr_date || '').startsWith(date));
 
-                            masterHtml += `<div class="dpr-date-banner" style="position:sticky; z-index:46; background:#0f172a; color:white; padding:12px 20px; font-weight:800; border-radius:12px; margin:40px 0 20px 0; font-size:1.2rem; display:flex; justify-content:space-between; align-items:center; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1)">
+                            if (!mmMode) masterHtml += `<div class="dpr-date-banner" style="position:sticky; z-index:46; background:#0f172a; color:white; padding:12px 20px; font-weight:800; border-radius:12px; margin:40px 0 20px 0; font-size:1.2rem; display:flex; justify-content:space-between; align-items:center; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1)">
                                 <span><i class="bi bi-calendar3" style="margin-right:10px"></i>Compliance Summary for ${new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                                 <span style="font-size:0.9rem; opacity:0.8">${dprEscHtml(dprProcess)} • ${dprEscHtml(shiftMode)} Shift</span>
                             </div>`;
@@ -1270,10 +1507,10 @@
                             });
                         });
 
-                        // Apply line filter — only keep the selected line
-                        if (selectedLine) {
+                        // Apply line filter — keep only the selected line(s); [] = all lines
+                        if (selectedLines.length) {
                             Object.keys(lines).forEach(k => {
-                                if (k !== selectedLine) delete lines[k];
+                                if (!selectedLines.includes(k)) delete lines[k];
                             });
                         }
 
@@ -1368,7 +1605,7 @@
                         };
 
                             // --- GLOBAL STICKY HEADER PER DATE ---
-                            masterHtml += `
+                            const _stickyHeaderHtml = `
                                 <div class="date-section-header" style="position:sticky; z-index:45; top:130px; margin-bottom:0; box-shadow:0 1px 2px rgba(0,0,0,0.05); background:#f8fafc; border-bottom:1px solid #e2e8f0; border:1px solid #cbd5e1; border-radius:8px 8px 0 0; overflow:hidden">
                                     <table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">
                                         <colgroup>
@@ -1388,8 +1625,12 @@
                                     </table>
                                 </div>
                             `;
+                            // Machine-wise: emit the column header once (after the loop). Date-wise: per date block.
+                            if (mmMode) { mmStickyHeader = _stickyHeaderHtml; } else { masterHtml += _stickyHeaderHtml; }
 
-                        const flatMode = !!filterMode;
+                        // Machine-wise grouping keeps the line→machine structure, so the flat
+                        // View-Filter rendering is disabled while grouping by machine.
+                        const flatMode = !!filterMode && !mmMode;
                         const lineBuffer = [];
                         const globalMachineBuffer = [];
 
@@ -1725,7 +1966,13 @@
                                         let machineHtml = '';
                                         if (isFirstMouldInMachine) {
                                             let label = stripMachPfx(machine);
-                                            if (shiftMode === 'Both') {
+                                            if (mmMode) {
+                                                // Machine-wise: every row is one date+shift, so label it with both.
+                                                const badgeColor = (rowShift === 'Day') ? '#f59e0b' : '#6366f1';
+                                                const dLbl = new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+                                                label += ` <span style="color:#334155; font-size:0.7rem; background:#e2e8f0; padding:1px 5px; border-radius:4px; margin-left:4px">${dLbl}</span>`;
+                                                label += ` <span style="color:${badgeColor}; font-size:0.7rem; background:${badgeColor}15; padding:1px 4px; border-radius:4px; margin-left:3px">${rowShift}</span>`;
+                                            } else if (shiftMode === 'Both') {
                                                 const badgeColor = (rowShift === 'Day') ? '#f59e0b' : '#6366f1';
                                                 label += ` <span style="color:${badgeColor}; font-size:0.7rem; background:${badgeColor}15; padding:1px 4px; border-radius:4px; margin-left:4px">${rowShift}</span>`;
                                             }
@@ -2045,7 +2292,9 @@
                                                             <div style="display:flex;align-items:baseline;gap:3px;line-height:1;min-width:0">
                                                                 <span style="font-weight:800;font-size:0.95rem;color:#15803d;line-height:1">${entry.good_qty}</span>
                                                                 ${rejQty > 0 ? `<span style="font-size:0.78rem;color:#9ca3af;font-weight:600;line-height:1">|</span><span style="font-weight:800;font-size:0.85rem;color:#dc2626;line-height:1">${rejQty}</span>` : ''}
-                                                                ${entry.qc_verified ? `<span title="QC Verified" aria-label="QC Verified" style="margin-left:auto;color:#16a34a;font-size:0.85rem;line-height:1;flex:0 0 auto"><i class="bi bi-patch-check-fill"></i></span>` : ''}
+                                                                ${(entry.qc_hold || entry.qc_verify_status === 'Discrepancy')
+                                                                    ? `<span title="${entry.qc_hold ? 'QC Hold' : 'QC changed qty'} — tap for details" aria-label="QC flagged" style="margin-left:auto;color:#dc2626;font-size:0.9rem;line-height:1;flex:0 0 auto"><i class="bi bi-x-circle-fill"></i></span>`
+                                                                    : (entry.qc_verified ? `<span title="QC Verified — tap for details" aria-label="QC Verified" style="margin-left:auto;color:#16a34a;font-size:0.85rem;line-height:1;flex:0 0 auto"><i class="bi bi-patch-check-fill"></i></span>` : '')}
                                                             </div>
 
                                                             <!-- Row 2: Time -->
@@ -2466,9 +2715,25 @@
                                         const effColor     = rowEffNet >= 80 ? '#166534' : rowEffNet >= 60 ? '#b45309' : '#dc2626';
                                         const oeeColor     = rowEff    >= 80 ? '#166534' : rowEff    >= 60 ? '#b45309' : '#dc2626';
 
+                                        // Manpower: STD (mould master) vs Actual (setup man_act).
+                                        // MORE than STD → red (over-manned); LESS → green (saving); equal → neutral.
+                                        const stdMp = parseFloat(m.details?.std_manpower || 0);
+                                        const actMp = parseFloat(m.details?.act_manpower || 0);
+                                        let mpActHtml = actMp > 0 ? String(actMp) : '-';
+                                        if (stdMp > 0 && actMp > 0) {
+                                            if (actMp > stdMp) {
+                                                mpActHtml = `<span style="color:#dc2626;font-weight:800" title="Over STD manpower by ${actMp - stdMp}">${actMp} &#8593;</span>`;
+                                            } else if (actMp < stdMp) {
+                                                mpActHtml = `<span style="color:#166534;font-weight:800" title="Under STD manpower by ${stdMp - actMp}">${actMp} &#8595;</span>`;
+                                            }
+                                        }
+                                        const mpHtml = (stdMp > 0 || actMp > 0)
+                                            ? `<div style="color:#475569;font-weight:600" title="Manpower — STD (mould master) vs Actual (setup)">MP: ${stdMp > 0 ? stdMp : '-'} &#8594; ${mpActHtml}</div>`
+                                            : '';
+
                                         const summaryClickScript = `showSummaryDetails('${stripMachPfx(machine)}', '${rowShift}', '${lineName}', ${sumGood}, ${sumRej}, ${sumDt}, ${sumAutoDt}, ${Math.round(sumStd)}, '${encodeURIComponent(JSON.stringify(rowAggRej))}', '${encodeURIComponent(JSON.stringify(rowAggDt))}')`;
 
-                                        let summaryH = !m.is_dummy ? `<div style="text-align:left;cursor:pointer;font-size:0.72rem;line-height:1.32;padding:1px 0" onclick="${summaryClickScript}"><div style="font-weight:700;color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-weight:800;color:#166534;font-size:0.8rem">${totalPcs}<span style="font-weight:500;color:#64748b;font-size:0.68rem"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="color:#db2777;font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="color:#be185d;font-weight:600">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${(wtStdGrams > 0 || wtActGrams > 0) ? `<div style="color:#64748b;font-weight:600">Wt: ${wtStdGrams > 0 ? wtStdGrams + 'g' : '-'} → ${wtActHtml}</div>` : ''}${(stdCt > 0 || avgCt > 0) ? `<div style="color:#0d9488;font-weight:600" title="Cycle Time — STD (mould master) vs Avg CT = net run time ÷ shots (shots = recorded shots, else produced pcs ÷ cavity)">CT: ${stdCt > 0 ? stdCt + 's' : '-'} → ${avgCt > 0 ? `<span style="font-weight:800;color:${stdCt > 0 && avgCt > stdCt ? '#dc2626' : '#166534'}">${avgCt.toFixed(1)}s</span>` : '-'}</div>` : ''}<div style="font-weight:700;color:#7c3aed">Tot Kg: ${totKg.toFixed(1)}</div>${predQty > 0 ? `<div style="font-weight:700;color:#0891b2" title="Predicted by shift end — produced so far + current pace (or STD rate) × remaining runnable hours">Pred: ${predQty} pcs${predKg > 0 ? ` | ${predKg.toFixed(1)} Kg` : ''}</div>` : ''}${rowEffNet > 0 ? `<div style="font-weight:700;color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-weight:700;color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
+                                        let summaryH = !m.is_dummy ? `<div style="text-align:left;cursor:pointer;font-size:0.72rem;line-height:1.32;padding:1px 0" onclick="${summaryClickScript}"><div style="font-weight:700;color:#0369a1">Std: ${Math.round(sumStd)}</div><div style="font-weight:800;color:#166534;font-size:0.8rem">${totalPcs}<span style="font-weight:500;color:#64748b;font-size:0.68rem"> (${sumGood} + ${sumRej})</span></div>${sumDt > 0 ? `<div style="color:#db2777;font-weight:700">${(sumDt / 60).toFixed(1)} Hrs DT</div>` : ''}${sumAutoDt > 0 ? `<div style="color:#be185d;font-weight:600">Auto DT: ${Math.round(sumAutoDt)}m</div>` : ''}${mpHtml}${(wtStdGrams > 0 || wtActGrams > 0) ? `<div style="color:#64748b;font-weight:600">Wt: ${wtStdGrams > 0 ? wtStdGrams + 'g' : '-'} → ${wtActHtml}</div>` : ''}${(stdCt > 0 || avgCt > 0) ? `<div style="color:#0d9488;font-weight:600" title="Cycle Time — STD (mould master) vs Avg CT = net run time ÷ shots (shots = recorded shots, else produced pcs ÷ cavity)">CT: ${stdCt > 0 ? stdCt + 's' : '-'} → ${avgCt > 0 ? `<span style="font-weight:800;color:${stdCt > 0 && avgCt > stdCt ? '#dc2626' : '#166534'}">${avgCt.toFixed(1)}s</span>` : '-'}</div>` : ''}<div style="font-weight:700;color:#7c3aed">Tot Kg: ${totKg.toFixed(1)}</div>${predQty > 0 ? `<div style="font-weight:700;color:#0891b2" title="Predicted by shift end — produced so far + current pace (or STD rate) × remaining runnable hours">Pred: ${predQty} pcs${predKg > 0 ? ` | ${predKg.toFixed(1)} Kg` : ''}</div>` : ''}${rowEffNet > 0 ? `<div style="font-weight:700;color:${effColor}" title="EFF (Net Run Time) — Est: ${estPcsNet} pcs">EFF :- ${rowEffNet.toFixed(1)} %</div>` : ''}${rowEff > 0 ? `<div style="font-weight:700;color:${oeeColor}" title="OEE (Scheduled Time) — Est: ${estPcs} pcs">OEE :- ${rowEff.toFixed(1)} %</div>` : ''}</div>` : '<span style="color:#94a3b8">-</span>';
 
                                         lineTotalTonnage += sumTonnage;
                                         lineTotalRejTonnage += sumRejTonnage;
@@ -2507,7 +2772,25 @@
                                                 </div>`;
                                             }
                                         } catch (_e) {}
-                                        machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${_maintChip}${summaryH}</td></tr>`;
+                                        // Memo chip: clickable pill per open QC memo on this machine.
+                                        // Purple when running Under Deviation, amber otherwise.
+                                        let _memoChip = '';
+                                        try {
+                                            const _mos = (window._dprMemoByMachine || {})[String(machine)] || [];
+                                            if (_mos.length) {
+                                                _memoChip = _mos.map(mo => {
+                                                    const dev = mo.status === 'DEVIATION' || mo.deviation;
+                                                    const bg = dev ? '#faf5ff' : '#fffbeb', bd = dev ? '#d8b4fe' : '#fcd34d', col = dev ? '#7e22ce' : '#b45309';
+                                                    const label = dev ? 'Running Under Deviation' : (mo.status === 'ACCEPTED' ? 'Memo · Accepted' : 'Memo Raised');
+                                                    const tip = dprEscHtml((mo.issue_description || '').slice(0, 120));
+                                                    return `<div onclick="event.stopPropagation(); window.openDprMemo(${mo.id})" title="${tip}" style="cursor:pointer;margin-bottom:5px;padding:4px 7px;border-radius:6px;background:${bg};border:1px solid ${bd};line-height:1.25">
+                                                        <div style="font-weight:800;color:${col};font-size:0.66rem;text-transform:uppercase;letter-spacing:.03em">📝 ${label}</div>
+                                                        <div style="color:${col};font-weight:600;font-size:0.63rem">${dprEscHtml(mo.memo_no || '')} · ${dprEscHtml(mo.created_by || '')}</div>
+                                                    </div>`;
+                                                }).join('');
+                                            }
+                                        } catch (_e) {}
+                                        machineRowHtml += `<td class="${_summaryBlink}" style="background:#f0f9ff; border-left:2px solid #e2e8f0; padding:10px; vertical-align:middle; border-bottom:1px solid #e2e8f0; vertical-align:top">${_maintChip}${_memoChip}${summaryH}</td></tr>`;
 
                                         // Row-level "clear quick entries" button (replaces this row's placeholder).
                                         // Allowed: admin/superadmin + planner, ppc_ass_manager, ppc_manager.
@@ -2557,13 +2840,23 @@
                                 if (flatMode) {
                                     globalMachineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
                                 } else {
-                                    machineBuffer.push({ html: machineRowHtml, eff: mEff, name: machine });
+                                    machineBuffer.push({ html: machineRowHtml, eff: mEff, oee: mOee, name: machine, entryTypes: machineEntryTypes, hasEntries: machineGood > 0 || machineEst > 0, missingSlots: machineMissingSlots, balComplete: machineBalComplete, planNearDone: machinePlanNearDone });
                                 }
                             }); // End machines loop
 
                             // Append to Line Inner HTML (always, even in flatMode — line totals still update)
-                            lineInnerHtml += machineBuffer.map(m => m.html).join('');
-                            lineInnerHtml += `</tbody></table></div></div>`;
+                            if (mmMode) {
+                                // Machine-wise: capture this line's header (open table + tbody) once,
+                                // and stash each machine's row html across passes for grouped emission.
+                                if (!mmRows[lineName]) { mmRows[lineName] = {}; mmOrder.push(lineName); mmHeader[lineName] = lineInnerHtml; }
+                                machineBuffer.forEach(mb => {
+                                    if (!mmRows[lineName][mb.name]) mmRows[lineName][mb.name] = [];
+                                    mmRows[lineName][mb.name].push(mb); // {html, meta…} per pass
+                                });
+                            } else {
+                                lineInnerHtml += machineBuffer.map(m => m.html).join('');
+                                lineInnerHtml += `</tbody></table></div></div>`;
+                            }
 
                             // Store Totals for this line (Accumulate across dates)
                             if (!window.lineTheTonnages[lineName]) {
@@ -2606,7 +2899,7 @@
 
                             // Capture for Line Sorting (only in normal mode)
                             let calcEff = (lineTotalEstPcs > 0) ? (lineTotalGoodPcs / lineTotalEstPcs) * 100 : 0;
-                            if (!flatMode) {
+                            if (!flatMode && !mmMode) {
                                 lineBuffer.push({
                                     html: lineInnerHtml,
                                     name: lineName,
@@ -2683,12 +2976,97 @@
                                     </div>
                                 </div>
                             `;
-                        } else {
+                        } else if (!mmMode) {
                             // Normal mode: sort lines alphabetically
                             lineBuffer.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
                             masterHtml += lineBuffer.map(x => x.html).join('');
                         }
-                        }); // END allDates.forEach
+                        }); // END renderPasses.forEach
+
+                        // ---- Machine-wise emission: one table per line, rows grouped by machine ----
+                        // Each machine shows its rows for every date+shift together (labelled per row),
+                        // e.g. M-1 04 Day, M-1 04 Night, M-1 05 Day, M-1 05 Night, then M-2, …
+                        if (mmMode && mmOrder.length) {
+                            masterHtml += mmStickyHeader;
+                            const extractIdx = (str) => { const m = String(str).match(/-(\d+)$/); return m ? parseInt(m[1]) : 999999; };
+                            // View Filter: a machine passes if ANY of its date/shift passes matches.
+                            const passesViewFilter = (rows) => {
+                                if (!filterMode || filterMode === 'ShowAll') return true;
+                                return rows.some(r => {
+                                    switch (filterMode) {
+                                        case 'AbovePlan': return r.balComplete === true;
+                                        case 'Pending': return r.missingSlots > 0;
+                                        case 'LowEff': return r.hasEntries && r.eff < 75;
+                                        case 'LowOee': return r.hasEntries && r.oee < 75;
+                                        case 'MouldChange': return r.entryTypes.has('MouldChange') || r.entryTypes.has('MouldChangeover');
+                                        case 'PlanChangeOver': return r.planNearDone === true;
+                                        case 'ManPowerShortage': return r.entryTypes.has('ManPowerShortage');
+                                        case 'MouldMaintenance': return r.entryTypes.has('MouldMaintenance');
+                                        case 'PowerCut': return r.entryTypes.has('PowerCut');
+                                        case 'NoPlan': return r.entryTypes.has('NoPlan') || !r.hasEntries;
+                                        case 'MachineMaintenance': return r.entryTypes.has('Maintenance');
+                                        case 'MouldTrial': return r.entryTypes.has('MouldTrial');
+                                        default: return true;
+                                    }
+                                });
+                            };
+                            const mkSearchText = (machine, rowsHtml) => (machine + ' ' + rowsHtml.replace(/<[^>]+>/g, ' '))
+                                .toLowerCase().replace(/\s+/g, ' ').replace(/"/g, '').trim();
+
+                            if (filterMode) {
+                                // ── View Filter selected → flat list across ALL lines, sorted by the
+                                // relevant metric (Pending: most missing first; Low OEE: lowest OEE;
+                                // everything else incl. "Show All (by EFF)": lowest EFF first). This
+                                // restores the original flat-sorted behaviour of the View filter.
+                                const flat = [];
+                                mmOrder.forEach(lineName => {
+                                    Object.keys(mmRows[lineName]).forEach(machine => {
+                                        const passRows = mmRows[lineName][machine];
+                                        if (!passesViewFilter(passRows)) return;
+                                        flat.push({
+                                            machine,
+                                            rowsHtml: passRows.map(r => r.html).join(''),
+                                            eff: Math.min(...passRows.map(r => r.eff || 0)),
+                                            oee: Math.min(...passRows.map(r => r.oee || 0)),
+                                            missingSlots: Math.max(...passRows.map(r => r.missingSlots || 0))
+                                        });
+                                    });
+                                });
+                                if (filterMode === 'Pending') flat.sort((a, b) => b.missingSlots - a.missingSlots);
+                                else if (filterMode === 'LowOee') flat.sort((a, b) => a.oee - b.oee);
+                                else flat.sort((a, b) => a.eff - b.eff);
+                                mmMachineCount = flat.length;
+
+                                const filterLabels = { ShowAll: 'Show All (by EFF)', AbovePlan: '🔴 Above Plan Qty', Pending: '⚠️ Pending Entries', LowEff: 'Low EFF', LowOee: 'Low OEE', MouldChange: 'Mould Change', PlanChangeOver: 'Plan Change Over (≤20% left)', ManPowerShortage: '🚷 MP Shortage', MouldMaintenance: '🔧 Mould Maintenance', PowerCut: '⚡ Power Cut', NoPlan: '📅 No Plan', MachineMaintenance: '🛠️ Machine Maintenance', MouldTrial: '🧪 Mould Trial' };
+                                let tbodies = '';
+                                flat.forEach(f => { tbodies += `<tbody class="mm-machine" data-search="${mkSearchText(f.machine, f.rowsHtml)}">${f.rowsHtml}</tbody>`; });
+                                const colgroup = `<colgroup><col style="width:220px; min-width:220px"><col style="width:45px; min-width:45px">${Array(12).fill('<col style="width:65px; min-width:65px">').join('')}<col style="width:140px; min-width:140px"></colgroup>`;
+                                masterHtml += `<div class="dpr-line-card"><div style="margin-bottom:24px; background:white; border:1px solid #cbd5e1; border-radius:0 0 12px 12px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.05); margin-top:-1px">
+                                    <div style="display:flex; align-items:center; gap:8px; padding:8px 14px; background:#0f172a; color:#fff; font-size:0.8rem; font-weight:700; letter-spacing:.3px"><i class="bi bi-funnel-fill"></i><span>${filterLabels[filterMode] || filterMode}</span><span style="margin-left:auto; background:${flat.length ? '#3b82f6' : '#64748b'}; padding:2px 10px; border-radius:12px; font-weight:800">${flat.length} machine${flat.length === 1 ? '' : 's'}</span></div>
+                                    <div style="overflow-x:auto"><table style="width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; text-align:center; table-layout:fixed">${colgroup}<tbody></tbody>${tbodies}</table></div></div></div>`;
+                            } else {
+                                // No View Filter → grouped machine-wise (one table per line).
+                                mmOrder.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+                                mmOrder.forEach(lineName => {
+                                    // Close the header's auto-opened (empty) tbody, then give each machine its
+                                    // OWN tbody carrying searchable text (machine + its moulds/orders/clients).
+                                    let html = mmHeader[lineName] + '</tbody>';
+                                    const machs = Object.keys(mmRows[lineName]).sort((a, b) => {
+                                        const ia = extractIdx(a), ib = extractIdx(b);
+                                        if (ia !== ib && ia !== 999999 && ib !== 999999) return ia - ib;
+                                        return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+                                    });
+                                    machs.forEach(machine => {
+                                        const passRows = mmRows[lineName][machine];
+                                        mmMachineCount++;
+                                        const rowsHtml = passRows.map(r => r.html).join('');
+                                        html += `<tbody class="mm-machine" data-search="${mkSearchText(machine, rowsHtml)}">${rowsHtml}</tbody>`;
+                                    });
+                                    html += `</table></div></div>`;
+                                    masterHtml += `<div class="dpr-line-card">${html}</div>`;
+                                });
+                            }
+                        }
 
                         // ---- ENTRIES COUNT: Standalone calculation from raw API data ----
                         // Runs outside the rendering loop so it is never skipped or double-counted.
@@ -2763,6 +3141,10 @@
                         }
 
                         container.innerHTML = masterHtml;
+                        // Total machines shown after View/Line filters (before Search narrows).
+                        window._dprMachineCount = mmMachineCount;
+                        // Re-apply the active search filter to the fresh DOM (also sets the count badge).
+                        try { if (window.applyDprSearch) window.applyDprSearch(); } catch(_) {}
 
                         // ---- KAN-68: Freeze ONLY the date banner + hour-slot header ----
                         // Per request, the filter and plant-total bars now scroll away (position
@@ -2883,7 +3265,11 @@
                             }
 
                             window.__dprStaleMachines = staleMachines;
-                            renderStaleMachineAlerts(container, staleMachines);
+                            // Keep the per-row highlight/badge for stale (no-entry) machines,
+                            // but suppress its own banner — the single top banner is now the
+                            // ">1h no-production, with reason (+carryover)" alert.
+                            renderStaleMachineAlerts(container, staleMachines, { noBanner: true });
+                            dprRenderStoppedBanner(container);
                         } catch (staleErr) {
                             console.warn('Stale-machine alert failed (non-fatal):', staleErr);
                         }
@@ -3079,9 +3465,42 @@
                     });
                 };
 
+                // Show/hide machine blocks by the top Search box (machine / OR / client).
+                // AND-matches space-separated words; hides line cards left with no matches.
+                window.applyDprSearch = function() {
+                    const box = document.getElementById('s-search');
+                    const cont = document.getElementById('summary-container');
+                    if (!cont) return;
+                    const q = (box ? box.value : '').toLowerCase().trim();
+                    const words = q ? q.split(/\s+/) : [];
+                    const blocks = cont.querySelectorAll('tbody.mm-machine');
+                    let shown = 0;
+                    blocks.forEach(tb => {
+                        const hay = tb.getAttribute('data-search') || '';
+                        const match = !words.length || words.every(w => hay.indexOf(w) !== -1);
+                        tb.style.display = match ? '' : 'none';
+                        if (match) shown++;
+                    });
+                    // Hide a line card when none of its machines match (never touches the
+                    // sticky column header, which lives outside .dpr-line-card).
+                    cont.querySelectorAll('.dpr-line-card').forEach(card => {
+                        const vis = card.querySelectorAll('tbody.mm-machine:not([style*="display: none"])').length;
+                        card.style.display = (words.length && vis === 0) ? 'none' : '';
+                    });
+                    const cnt = document.getElementById('s-search-count');
+                    if (cnt) cnt.textContent = words.length ? `${shown} machine${shown === 1 ? '' : 's'}` : '';
+                    // Count badge: total shown (after View/Line filters), or matched/total while searching.
+                    const total = window._dprMachineCount || 0;
+                    const badge = document.getElementById('dpr-machine-count');
+                    if (badge) badge.textContent = words.length ? `${shown} / ${total} machines` : `${total} machine${total === 1 ? '' : 's'}`;
+                };
+
                 document.getElementById('btn-s-apply').onclick = loadSummary;
                 document.getElementById('s-eff-filter')?.addEventListener('change', loadSummary);
                 document.getElementById('s-factory')?.addEventListener('change', loadSummary);
+                // Live search over the rendered machine blocks (machine / OR / client).
+                const dprSearchInput = document.getElementById('s-search');
+                if (dprSearchInput) dprSearchInput.addEventListener('input', () => applyDprSearch());
 
                 // Load factories into the factory dropdown
                 J.api.get('/factories').then(r => {
