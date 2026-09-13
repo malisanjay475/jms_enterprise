@@ -28,11 +28,18 @@ data class FpaUiState(
     val submitting: Boolean = false,
     val error: String? = null,
     val submitted: Boolean = false,
+    // approval workflow
+    val approvalStatus: String? = null,   // "Pending" | "Approved" | "Rejected"
+    val pendingApproval: Boolean = false, // submitted, awaiting QC HOD approval
+    val rejected: Boolean = false,        // rejected — user must correct & re-upload
+    val rejectReason: String? = null,
+    val reviewedBy: String? = null,
     // saved (view mode)
     val savedFormUrl: String? = null,
     val savedProductUrls: List<String> = emptyList(),
     val doneBy: String? = null,
-    val doneAt: String? = null
+    val doneAt: String? = null,
+    val balances: List<com.jmsocean.qc.data.remote.ColourBalance> = emptyList()
 ) {
     val canSubmit: Boolean
         get() = !submitting && formImage != null && productImages.size >= 2
@@ -48,7 +55,14 @@ class FpaViewModel : ViewModel() {
     )
     val state: StateFlow<FpaUiState> = _state.asStateFlow()
 
-    init { checkStatus() }
+    init {
+        checkStatus()
+        _state.value.job?.PlanID?.let { pid ->
+            viewModelScope.launch {
+                repo.colourBalance(pid).onSuccess { b -> _state.update { it.copy(balances = b) } }
+            }
+        }
+    }
 
     private fun checkStatus() {
         val job = _state.value.job
@@ -59,8 +73,29 @@ class FpaViewModel : ViewModel() {
         viewModelScope.launch {
             repo.fpaStatusFull(job.PlanID ?: "", job.JobCardNo ?: "")
                 .onSuccess { st ->
-                    if (st.ok && st.done) applySaved(st)
-                    else _state.update { it.copy(checking = false, alreadyDone = false) }
+                    when {
+                        // Approved -> locked, view-only.
+                        st.ok && st.done -> applySaved(st)
+                        // Submitted but awaiting approval -> show a "Pending Approval" banner (view-only).
+                        st.ok && st.submitted && st.approval_status == "Pending" -> _state.update {
+                            it.copy(
+                                checking = false, alreadyDone = false,
+                                pendingApproval = true, approvalStatus = "Pending",
+                                savedFormUrl = absUrl(st.form_url),
+                                savedProductUrls = parseUrls(st.product_images).map { u -> absUrl(u) ?: u },
+                                doneBy = st.done_by, doneAt = st.done_at
+                            )
+                        }
+                        // Rejected -> show reason and let the QC user correct & re-upload (form stays open).
+                        st.ok && st.submitted && st.approval_status == "Rejected" -> _state.update {
+                            it.copy(
+                                checking = false, alreadyDone = false,
+                                rejected = true, approvalStatus = "Rejected",
+                                rejectReason = st.reject_reason, reviewedBy = st.reviewed_by
+                            )
+                        }
+                        else -> _state.update { it.copy(checking = false, alreadyDone = false) }
+                    }
                 }
                 .onFailure { _state.update { it.copy(checking = false) } } // treat unknown as not-done
         }
@@ -71,6 +106,7 @@ class FpaViewModel : ViewModel() {
             it.copy(
                 checking = false,
                 alreadyDone = true,
+                approvalStatus = "Approved",
                 savedFormUrl = absUrl(st.form_url),
                 savedProductUrls = parseUrls(st.product_images).map { u -> absUrl(u) ?: u },
                 doneBy = st.done_by,
@@ -124,10 +160,27 @@ class FpaViewModel : ViewModel() {
                 remarks = s.remarks,
                 machine = s.machine
             ).onSuccess {
-                _state.update { it.copy(submitting = false, submitted = true, alreadyDone = true) }
-                // reload from server so the saved images render in view mode
+                // FPA now goes to the QC HOD for approval — it is Pending, not yet Approved.
+                _state.update {
+                    it.copy(
+                        submitting = false, submitted = true,
+                        pendingApproval = true, approvalStatus = "Pending",
+                        rejected = false, rejectReason = null,
+                        savedFormUrl = null, savedProductUrls = emptyList()
+                    )
+                }
+                // reload from server so the saved images render in the pending view
                 repo.fpaStatusFull(job.PlanID ?: "", job.JobCardNo ?: "")
-                    .onSuccess { st -> if (st.ok && st.done) applySaved(st) }
+                    .onSuccess { st ->
+                        if (st.ok && st.done) applySaved(st)
+                        else if (st.ok && st.submitted) _state.update {
+                            it.copy(
+                                savedFormUrl = absUrl(st.form_url),
+                                savedProductUrls = parseUrls(st.product_images).map { u -> absUrl(u) ?: u },
+                                doneBy = st.done_by, doneAt = st.done_at
+                            )
+                        }
+                    }
             }.onFailure { e ->
                 _state.update { it.copy(submitting = false, error = e.message ?: "Upload failed") }
             }

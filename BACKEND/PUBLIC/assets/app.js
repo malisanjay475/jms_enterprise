@@ -31,7 +31,7 @@ function escHtml(value) {
  */
 (function initMobileApp() {
     const path = window.location.pathname.toLowerCase();
-    if (window.innerWidth > 768 || path.endsWith('/login.html') || path.includes('/vendor/login.html') || path.includes('/supervisor.html') || path.includes('/qcsupervisor.html') || path.includes('/shifting_supervisor.html') || path.includes('/wip_supervisor.html')) return;
+    if (window.innerWidth > 768 || path.endsWith('/login.html') || path.includes('/vendor/login.html')) return;
     const mobileUser = (() => {
         try {
             return JSON.parse(localStorage.getItem('user') || '{}');
@@ -39,32 +39,39 @@ function escHtml(value) {
             return {};
         }
     })();
-    const canViewSettings = ['admin', 'superadmin'].includes(String(mobileUser.role_code || '').toLowerCase());
+    const perms = mobileUser.permissions || {};
+    const role = String(mobileUser.role_code || '').toLowerCase();
+    const isAdmin = role === 'admin' || role === 'superadmin';
+    const canPlan = isAdmin || ['planner', 'ppc_manager', 'ppc_ass_manager'].includes(role) || Boolean(perms.planning);
+    const canDpr = isAdmin || ['supervisor', 'planner'].includes(role) || Boolean(perms.dpr);
+    const canStats = isAdmin || role === 'management' || Boolean(perms.analyze);
 
-    // Bottom Nav HTML
+    // Dynamic Bottom Nav HTML with access checks and a direct 'Menu' drawer button
     const navHTML = `
-    <nav class="mobile-nav">
+    <nav class="mobile-nav" role="navigation" aria-label="Mobile Navigation">
         <a href="/index.html" class="nav-item ${window.location.pathname.includes('index') || window.location.pathname === '/' ? 'active' : ''}">
             <i class="bi bi-grid-1x2-fill"></i>
             <span>Home</span>
         </a>
+        ${canPlan ? `
         <a href="/planning.html" class="nav-item ${window.location.pathname.includes('planning') ? 'active' : ''}">
             <i class="bi bi-calendar-event"></i>
             <span>Plan</span>
-        </a>
+        </a>` : ''}
+        ${canDpr ? `
         <a href="/dpr.html?view=summary" class="nav-item ${window.location.pathname.includes('dpr') ? 'active' : ''}">
              <i class="bi bi-pencil-square"></i>
             <span>DPR</span>
-        </a>
+        </a>` : ''}
+        ${canStats ? `
         <a href="/analyze.html" class="nav-item ${window.location.pathname.includes('analyze') ? 'active' : ''}">
             <i class="bi bi-graph-up-arrow"></i>
             <span>Stats</span>
-        </a>
-        ${canViewSettings ? `
-         <a href="/settings.html" class="nav-item ${window.location.pathname.includes('settings') ? 'active' : ''}">
-            <i class="bi bi-gear-fill"></i>
-            <span>Settings</span>
         </a>` : ''}
+        <a href="javascript:void(0)" onclick="if(window.JPSMS && window.JPSMS.toggleSidebar){window.JPSMS.toggleSidebar();}else{document.querySelector('.sidebar')?.classList.toggle('mobile-open');}" class="nav-item mobile-nav-menu-btn" aria-label="Toggle All Modules Menu">
+            <i class="bi bi-list"></i>
+            <span>Menu</span>
+        </a>
     </nav>`;
 
     // Inject if not present
@@ -83,6 +90,7 @@ function escHtml(value) {
         { id: 'dpr', label: 'DPR', href: 'dpr.html?view=summary' },
         { id: 'purchase', label: 'Purchase', href: 'purchase_orders.html' },
         { id: 'masters', label: 'Masters', href: 'masters.html' },
+        { id: 'management', label: 'Management', href: 'management.html' },
         { id: 'maintenance', label: 'Maintenance', href: 'maintenance.html?type=machine' },
         { id: 'quality', label: 'Quality', href: 'Quality.html' },
         { id: 'hr', label: 'HR', href: 'hr.html' },
@@ -115,8 +123,11 @@ function escHtml(value) {
         'purchase_vendors.html': 'purchase',
         'purchase_grn.html': 'purchase',
         'masters.html': 'masters',
+        'management.html': 'management',
         'maintenance.html': 'maintenance',
         'quality.html': 'quality',
+        'qc_memo.html': 'quality',
+        'fpa.html': 'quality',
         'hr.html': 'hr',
         'hr_performance.html': 'hr',
         'hr_interview_panel.html': 'hr',
@@ -865,6 +876,45 @@ function escHtml(value) {
             });
         }
 
+        if (!document.body.hasAttribute('data-mobile-sidebar-swipe-bound')) {
+            document.body.setAttribute('data-mobile-sidebar-swipe-bound', 'true');
+            let touchStartX = 0;
+            let touchStartY = 0;
+            let touchEndX = 0;
+            let touchEndY = 0;
+
+            document.addEventListener('touchstart', (e) => {
+                if (!e.touches || e.touches.length !== 1) return;
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+                touchEndX = touchStartX;
+                touchEndY = touchStartY;
+            }, { passive: true });
+
+            document.addEventListener('touchmove', (e) => {
+                if (!e.touches || e.touches.length !== 1) return;
+                touchEndX = e.touches[0].clientX;
+                touchEndY = e.touches[0].clientY;
+            }, { passive: true });
+
+            document.addEventListener('touchend', () => {
+                const diffX = touchEndX - touchStartX;
+                const diffY = Math.abs(touchEndY - touchStartY);
+                if (diffY > 90) return;
+                
+                const sb = document.querySelector('.sidebar');
+                if (!sb) return;
+
+                if (touchStartX < 35 && diffX > 60 && isMobileShellViewport()) {
+                    sb.classList.add('mobile-open');
+                    refreshMobileSidebarControls();
+                } else if (diffX < -60 && sb.classList.contains('mobile-open') && isMobileShellViewport()) {
+                    sb.classList.remove('mobile-open');
+                    refreshMobileSidebarControls();
+                }
+            }, { passive: true });
+        }
+
         refreshMobileSidebarControls();
     }
 
@@ -1308,6 +1358,18 @@ function escHtml(value) {
             ]
         },
         {
+            id: 'management',
+            label: 'Management',
+            icon: 'bi-diagram-3-fill',
+            href: 'management.html',
+            visibleIf: (user) => isSuperadminUser(user),
+            items: [
+                { id: 'mgmt_people', label: 'People (Factory-wise)', icon: 'bi-people-fill', href: 'management.html?tab=people' },
+                { id: 'mgmt_chart', label: 'Org Chart', icon: 'bi-diagram-3', href: 'management.html?tab=chart' },
+                { id: 'mgmt_setup', label: 'Setup', icon: 'bi-sliders', href: 'management.html?tab=setup' }
+            ]
+        },
+        {
             id: 'maintenance',
             label: 'Maintenance',
             icon: 'bi-wrench-adjustable-circle',
@@ -1326,6 +1388,8 @@ function escHtml(value) {
                 { id: 'qc_dash', label: 'QC Dashboard', icon: 'bi-grid-1x2', href: 'Quality.html?view=dashboard' },
                 { id: 'qc_comp', label: 'Compliance Summary', icon: 'bi-table', href: 'Quality.html?view=compliance' },
                 { id: 'qc_hour', label: 'Quality Hourly', icon: 'bi-clock-history', href: 'Quality.html?view=hourly' },
+                { id: 'qc_fpa', label: 'FPA', icon: 'bi-clipboard-check', href: 'fpa.html' },
+                { id: 'qc_memo', label: 'MEMO', icon: 'bi-journal-text', href: 'qc_memo.html' },
                 { id: 'qc_app', label: 'Supervisor App', icon: 'bi-phone', href: 'QCSupervisor.html' }
             ]
         },
@@ -1570,23 +1634,35 @@ function escHtml(value) {
                 const hasSub = subHtml.length > 0;
 
                 navHtml += `
-                <li class="nav-item ${isParentActive ? 'active' : ''}">
-                    <a href="${menu.href}" target="_self" class="nav-link-main">
-                        <i class="bi ${menu.icon || 'bi-circle'}"></i> 
-                        <span class="nav-text">${menu.label}</span>
-                    </a>
+                <li class="nav-item ${isParentActive ? 'active open' : ''} ${hasSub ? 'has-sub' : ''}" data-menu-id="${menu.id}">
+                    <div class="nav-link-row">
+                        <a href="${menu.href}" target="_self" class="nav-link-main">
+                            <i class="bi ${menu.icon || 'bi-circle'}"></i> 
+                            <span class="nav-text">${menu.label}</span>
+                        </a>
+                        ${hasSub ? `<button type="button" class="sub-toggle-btn" aria-label="Toggle ${menu.label} submenu" onclick="this.closest('.nav-item').classList.toggle('open'); event.stopPropagation(); event.preventDefault();"><i class="bi bi-chevron-down"></i></button>` : ''}
+                    </div>
                     ${hasSub ? `<ul class="nav-sub">${subHtml}</ul>` : ''}
                 </li>`;
             }
         });
 
         const html = `
-      <div class="brand" style="justify-content: space-between; padding: 20px 15px;">
+      <div class="brand" style="justify-content: space-between; padding: 18px 15px; align-items:center;">
          <a href="/index.html" class="brand-logo" aria-label="${BRAND_NAME} Home">
              <img src="/assets/jms-logo.png" alt="JMS logo">
              <span>${BRAND_NAME}</span>
          </a>
-         <i class="bi bi-list" id="sidebar-toggle" style="font-size:1.5rem; color: var(--sidebar-text); cursor:pointer; transition: color 0.2s;"></i>
+         <div style="display:flex; align-items:center; gap:8px;">
+           <button class="sidebar-close-btn" onclick="JPSMS.closeSidebar()" aria-label="Close Sidebar"><i class="bi bi-x-lg"></i></button>
+           <i class="bi bi-list" id="sidebar-toggle" style="font-size:1.5rem; color: var(--sidebar-text); cursor:pointer; transition: color 0.2s;"></i>
+         </div>
+      </div>
+      <div class="sidebar-search-box">
+        <div class="search-inner">
+          <i class="bi bi-search"></i>
+          <input type="text" id="sidebarNavSearch" placeholder="Search modules..." aria-label="Search modules" autocomplete="off">
+        </div>
       </div>
       <ul class="nav-links">
         ${navHtml}
@@ -1600,8 +1676,8 @@ function escHtml(value) {
         </div>
           <div class="sidebar-user-meta">
           <div class="sidebar-user-name">${escHtml(user.username || 'Guest')}</div>
-          <div class="sidebar-role-label">${escHtml(roleLabel)}</div>
-          <div class="sidebar-user-unit">${escHtml(inferredFactoryName || 'No Unit Selected')}</div>
+          <div class="sidebar-role-label" id="jms-role-label" title="${escHtml(roleLabel)}">${escHtml(roleLabel)}</div>
+          <div class="sidebar-user-unit" title="${escHtml(inferredFactoryName || 'No Unit Selected')}">${escHtml(inferredFactoryName || 'No Unit Selected')}</div>
         </div>
         
         <div class="sidebar-user-actions">
@@ -1669,6 +1745,54 @@ function escHtml(value) {
         ensureMobileSidebarControls();
         applyViewportLayoutMode();
 
+        // Sidebar Real-Time Module Search Filter
+        const searchInput = sidebar.querySelector('#sidebarNavSearch');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                const query = e.target.value.toLowerCase().trim();
+                const items = sidebar.querySelectorAll('.nav-links > .nav-item');
+                items.forEach(item => {
+                    const mainText = item.querySelector('.nav-link-main .nav-text')?.textContent.toLowerCase() || '';
+                    const subItems = item.querySelectorAll('.nav-sub li');
+                    let matchedSub = false;
+                    subItems.forEach(sub => {
+                        const subText = sub.querySelector('.sub-link .nav-text')?.textContent.toLowerCase() || '';
+                        if (!query || subText.includes(query)) {
+                            sub.style.display = '';
+                            if (query && subText.includes(query)) matchedSub = true;
+                        } else {
+                            sub.style.display = 'none';
+                        }
+                    });
+                    if (!query || mainText.includes(query) || matchedSub) {
+                        item.style.display = '';
+                        if (query && matchedSub) {
+                            item.classList.add('open');
+                        }
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+            });
+        }
+
+        // Auto-wrap tables on mobile screens for smooth horizontal scrolling
+        const ensureMobileTables = () => {
+            if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+                document.querySelectorAll('table').forEach(tbl => {
+                    const parent = tbl.parentElement;
+                    if (parent && !parent.classList.contains('table-responsive-mobile') && !parent.classList.contains('table-responsive') && !parent.classList.contains('table-wrap')) {
+                        const wrap = document.createElement('div');
+                        wrap.className = 'table-responsive-mobile';
+                        parent.insertBefore(wrap, tbl);
+                        wrap.appendChild(tbl);
+                    }
+                });
+            }
+        };
+        setTimeout(ensureMobileTables, 250);
+        window.addEventListener('resize', ensureMobileTables, { passive: true });
+
         // Populate version badge + wire up the "What's New" popup
         const versionBadge = document.getElementById('jms-version-badge');
         if (versionBadge) {
@@ -1686,6 +1810,31 @@ function escHtml(value) {
             // this user has already seen. Access-filtered inside whatsNew.
             exports.whatsNew.maybeShow({ user, version: v.version });
         }).catch(() => {});
+
+        // Resolve the friendly role name (e.g. role_code "quality" → "QC HOD")
+        // so the sidebar shows the label configured in User Management instead of
+        // a title-cased raw code. Cached on the module so we only fetch once.
+        (function applyRoleLabel() {
+            const rawCode = String(user.role || user.role_code || 'operator').toLowerCase();
+            const setLabel = (map) => {
+                const el = document.getElementById('jms-role-label');
+                if (!el) return;
+                const friendly = map && map[rawCode];
+                if (friendly) {
+                    el.textContent = friendly;
+                    el.title = friendly;
+                }
+            };
+            if (exports.__rolesByCode) { setLabel(exports.__rolesByCode); return; }
+            fetch('/api/roles').then(r => r.json()).then(res => {
+                const map = {};
+                (res && res.data || []).forEach(role => {
+                    if (role && role.code) map[String(role.code).toLowerCase()] = role.label || role.code;
+                });
+                exports.__rolesByCode = map;
+                setLabel(map);
+            }).catch(() => {});
+        })();
 
         // Inject Hamburger if Header Exists
         setTimeout(() => {
@@ -1996,6 +2145,41 @@ function escHtml(value) {
         }, 200);
     };
 
+    // --- Native App JS Bridge ---
+    window.JMS_NATIVE = {
+        get isNative() {
+            return Boolean(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+        },
+        async scanBarcode() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BarcodeScanner) {
+                try {
+                    const result = await window.Capacitor.Plugins.BarcodeScanner.scan();
+                    return result.text || null;
+                } catch (err) {
+                    console.warn('[JMS Native] Barcode scan error:', err);
+                    return null;
+                }
+            }
+            return null;
+        },
+        async getGPS() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+                try {
+                    const pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: true });
+                    return {
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude,
+                        acc: pos.coords.accuracy
+                    };
+                } catch (err) {
+                    console.warn('[JMS Native] Geolocation error:', err);
+                    return null;
+                }
+            }
+            return null;
+        }
+    };
+
 })(window.JPSMS);
 
 // =============================================================================
@@ -2118,7 +2302,7 @@ function escHtml(value) {
     'dpr_daily_report.html': 'dpr', 'job_summary.html': 'dpr',
     'purchase_orders.html': 'purchase', 'purchase_vendors.html': 'purchase',
     'purchase_grn.html': 'purchase', 'masters.html': 'masters',
-    'quality.html': 'quality', 'hr.html': 'hr', 'hr_performance.html': 'hr',
+    'quality.html': 'quality', 'qc_memo.html': 'quality', 'fpa.html': 'quality', 'hr.html': 'hr', 'hr_performance.html': 'hr',
     'hr_interview_panel.html': 'hr', 'shifting_reports.html': 'shifting_module',
     'shifting_logs.html': 'shifting_module', 'shifting_summary.html': 'shifting_module',
     'shifting.html': 'shifting_module', 'wip.html': 'wip_internal',

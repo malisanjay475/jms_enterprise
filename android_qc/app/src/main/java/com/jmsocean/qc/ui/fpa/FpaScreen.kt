@@ -6,6 +6,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +38,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -58,7 +61,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.jmsocean.qc.ui.theme.Accent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.jmsocean.qc.ui.theme.Good
+import com.jmsocean.qc.ui.theme.Warn
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -89,7 +98,13 @@ fun FpaScreen(
         ActivityResultContracts.TakePicture()
     ) { ok -> if (ok) pendingProduct?.let { vm.addProductImage(it) } }
 
+    var zoomModel by remember { mutableStateOf<Any?>(null) }
+
     LaunchedEffect(s.submitted) { if (s.submitted) { /* stay on view mode */ } }
+
+    if (zoomModel != null) {
+        ZoomImageDialog(model = zoomModel!!, onDismiss = { zoomModel = null })
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -123,16 +138,43 @@ fun FpaScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(12.dp)) {
-                    Text(job?.productName ?: "—", fontWeight = FontWeight.Bold)
+                    Text(
+                        "Mould: ${job?.Mould?.takeIf { it.isNotBlank() } ?: "—"}",
+                        fontWeight = FontWeight.Bold, fontSize = 14.sp
+                    )
                     Text(
                         buildString {
-                            job?.JobCardNo?.let { append("JC $it") }
-                            if (s.machine.isNotBlank()) append(" · ${s.machine}")
-                            job?.Mould?.let { append(" · Mould $it") }
+                            append("OR ${job?.orderNumber?.ifBlank { "—" } ?: "—"}")
+                            job?.JobCardNo?.takeIf { it.isNotBlank() }?.let { append("  |  JC $it") }
                         },
-                        fontSize = 12.sp,
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    job?.mouldNo?.takeIf { it.isNotBlank() }?.let {
+                        Text("Mould No: $it", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            // Colour balance
+            if (s.balances.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        SectionLabel("Colour balance")
+                        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                            BalHead("Colour", 1.4f); BalHead("Plan", 1f); BalHead("Made", 1f, Good); BalHead("Bal", 1f, Warn)
+                        }
+                        s.balances.forEach { b ->
+                            Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                                BalCell(b.colour, 1.4f, bold = true); BalCell("${b.planQty}", 1f)
+                                BalCell("${b.produced}", 1f, Good); BalCell("${b.balance}", 1f, Warn)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -157,7 +199,9 @@ fun FpaScreen(
                                 .height(200.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.surface)
+                                .clickable { zoomModel = s.savedFormUrl }
                         )
+                        Text("Tap to zoom", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
                         Spacer(Modifier.height(14.dp))
                     }
                     if (s.savedProductUrls.isNotEmpty()) {
@@ -179,6 +223,7 @@ fun FpaScreen(
                                         .aspectRatio(1f)
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(MaterialTheme.colorScheme.surface)
+                                        .clickable { zoomModel = url }
                                 )
                             }
                         }
@@ -191,7 +236,63 @@ fun FpaScreen(
                     Spacer(Modifier.height(24.dp))
                 }
 
+                s.pendingApproval -> Column {
+                    Surface(
+                        color = Color(0xFFFFFBEB),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text("⏳ Pending Approval", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFFB45309))
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Your FPA has been submitted and is waiting for QC HOD approval. It will appear in the DPR Compliance Summary only after it is approved.",
+                                fontSize = 13.sp, color = Color(0xFF92400E)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    if (s.savedFormUrl != null) {
+                        SectionLabel("📋 Submitted FPA form")
+                        AsyncImage(
+                            model = s.savedFormUrl,
+                            contentDescription = "Submitted FPA form",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxWidth().height(200.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surface)
+                                .clickable { zoomModel = s.savedFormUrl }
+                        )
+                        Spacer(Modifier.height(16.dp))
+                    }
+                    Button(
+                        onClick = onBack,
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    ) { Text("Back to Queue", color = MaterialTheme.colorScheme.onPrimary) }
+                    Spacer(Modifier.height(24.dp))
+                }
+
                 else -> {
+                    if (s.rejected) {
+                        Surface(
+                            color = Color(0xFFFEF2F2),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text("❌ FPA Rejected — please correct & re-upload", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFFB91C1C))
+                                if (!s.rejectReason.isNullOrBlank()) {
+                                    Spacer(Modifier.height(6.dp))
+                                    Text("Reason: ${s.rejectReason}", fontSize = 13.sp, color = Color(0xFF991B1B))
+                                }
+                                if (!s.reviewedBy.isNullOrBlank()) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Text("By: ${s.reviewedBy}", fontSize = 12.sp, color = Color(0xFFB91C1C))
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                    }
                     if (s.error != null) {
                         Text(s.error!!, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
                         Spacer(Modifier.height(8.dp))
@@ -259,6 +360,33 @@ fun FpaScreen(
 }
 
 @Composable
+private fun ZoomImageDialog(model: Any, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        var scale by remember { mutableStateOf(1f) }
+        var offset by remember { mutableStateOf(Offset.Zero) }
+        val tState = rememberTransformableState { zoom, pan, _ ->
+            scale = (scale * zoom).coerceIn(1f, 5f)
+            offset += pan
+        }
+        Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.93f)).clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center
+        ) {
+            AsyncImage(
+                model = model, contentDescription = "Zoomed image", contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+                    .graphicsLayer(scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y)
+                    .transformable(tState)
+            )
+            Text(
+                "Pinch to zoom · tap to close", color = Color.White, fontSize = 12.sp,
+                modifier = Modifier.align(Alignment.TopCenter).padding(16.dp)
+            )
+        }
+    }
+}
+
+@Composable
 private fun SectionLabel(text: String) {
     Text(
         text,
@@ -267,6 +395,18 @@ private fun SectionLabel(text: String) {
         modifier = Modifier.padding(bottom = 8.dp)
     )
 }
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.BalHead(
+    t: String, w: Float, color: androidx.compose.ui.graphics.Color? = null
+) = Text(t, Modifier.weight(w), fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold,
+    color = color ?: MaterialTheme.colorScheme.onSurfaceVariant)
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.BalCell(
+    t: String, w: Float, color: androidx.compose.ui.graphics.Color? = null, bold: Boolean = false
+) = Text(t, Modifier.weight(w), fontSize = 12.sp, fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium,
+    color = color ?: MaterialTheme.colorScheme.onSurface)
 
 @Composable
 private fun DoneBanner(submittedNow: Boolean, by: String?, at: String?) {

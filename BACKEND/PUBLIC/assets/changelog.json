@@ -11,8 +11,707 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.51.1",
+  "latest": "1.58.1",
   "versions": [
+    {
+      "version": "1.58.1",
+      "date": "2026-09-13",
+      "title": "Mobile menu drawer alignment",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-list",
+          "changes": [
+            { "type": "fix", "text": "Fixed the mobile side menu: the full menu drawer now shows a clean vertical list with each item's label on the left and its dropdown arrow aligned on the right, instead of the arrows sitting misaligned below each item." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.58.0",
+      "date": "2026-09-13",
+      "title": "FPA approval workflow + Quality Dashboard fixes",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "feat", "text": "New FPA menu under Quality shows line-wise First Piece Approvals with Pending / Approved / Rejected status and the submitted photos." },
+            { "type": "feat", "text": "FPA submitted from the QC app now needs approval: QC HOD / Quality Ass. Manager / admin can Approve or Reject it (rejection asks for a reason)." },
+            { "type": "fix", "text": "Quality Dashboard no longer errors and the rejection charts load again (Machines / Moulds / Products / Defect)." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "Compliance Summary now counts an FPA as Done only after it has been approved; a submitted-but-unapproved or rejected FPA stays Pending." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.9",
+      "date": "2026-09-12",
+      "title": "Complete Production Plan Report: Excel exports all rows",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "fix", "text": "The Complete Production Plan Report Excel download now includes ALL matching plans, not just the 250 shown on screen — it re-fetches the full filtered result set before exporting." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.8",
+      "date": "2026-09-12",
+      "title": "Sidebar: correct role name and full plant name",
+      "modules": [
+        {
+          "app": "all",
+          "label": "General",
+          "icon": "bi-window-sidebar",
+          "changes": [
+            { "type": "fix", "text": "The user card now shows your proper role name (for example \"QC HOD\") instead of the internal code, and the plant name shows in full. Loads the latest app files so the fix takes effect after one refresh." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.7",
+      "date": "2026-09-12",
+      "title": "Complete Production Plan Report: Excel download",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "The Complete Production Plan Report now has an Excel button that downloads the current filtered results — Machine, OR No, Job Card, Mould, Product, Mould No, Client, Plan, Produced, Balance, Actual Start/End, Status, By and Completed At." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.6",
+      "date": "2026-09-12",
+      "title": "Sidebar: correct role name and full plant name",
+      "modules": [
+        {
+          "app": "all",
+          "label": "General",
+          "icon": "bi-window-sidebar",
+          "changes": [
+            { "type": "fix", "text": "The user card now shows your proper role name (for example \"QC HOD\") instead of the internal code." },
+            { "type": "fix", "text": "The plant name under your role now shows in full instead of being cut off with \"...\"." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.5",
+      "date": "2026-09-12",
+      "title": "Create Production Plan: Excel download",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "Create Production Plan now has an Excel button that downloads the selected order's moulds — OR No, mould name/number, item code, moulding sequence, Target/Planned/Balance qty, primary/secondary machine and planned status." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.4",
+      "date": "2026-09-12",
+      "title": "Supervisor: correct plan colours for new units",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "fix", "text": "The Colour & QTY list now shows this unit's own plan colours. New units whose plan number matched an older unit could show the wrong factory's colours." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.3",
+      "date": "2026-09-12",
+      "title": "Fix: User Management error loading users",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "fix", "text": "Fixed an 'Error loading users' on the User Management page introduced in the previous update; the role name now renders correctly." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.2",
+      "date": "2026-09-12",
+      "title": "User Management: show role names",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "fix", "text": "The User Management list now shows the friendly role name (e.g. 'QC HOD') instead of the raw role code ('quality'), and existing databases are corrected so the Quality role reads 'QC HOD'." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.1",
+      "date": "2026-09-12",
+      "title": "Rename Quality Manager role to QC HOD",
+      "modules": [
+        {
+          "app": "users",
+          "label": "User Management",
+          "icon": "bi-person-gear",
+          "changes": [
+            { "type": "improvement", "text": "The 'Quality Manager' role is now shown as 'QC HOD'. Everyone already assigned this role keeps their access and simply shows as QC HOD — no need to reassign." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.57.0",
+      "date": "2026-09-12",
+      "title": "Raised Memo + FPA image delete",
+      "modules": [
+        {
+          "app": "quality",
+          "label": "Quality",
+          "icon": "bi-check-circle",
+          "changes": [
+            { "type": "feat", "text": "New MEMO module: raise a production memo to Moulding with photos/video, remarks and an @mention; it notifies that factory's Moulding managers." },
+            { "type": "feat", "text": "Track every memo end to end — who accepted, reply thread, and the Accept / Solve / Running-Under-Deviation status." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "Compliance Summary shows a memo chip on each machine; an unsolved memo carries into the next shift until it is solved." },
+            { "type": "feat", "text": "Quality, admin and superadmin can now delete an FPA image in the Compliance Summary job view, then capture a fresh one." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.56.1",
+      "date": "2026-09-11",
+      "title": "Fix DPR Compliance Summary error toast",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Removed the 'could not determine data type of parameter' error on the DPR Compliance Summary — the QC memo badge lookup now loads correctly." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.56.0",
+      "date": "2026-09-11",
+      "title": "New plant: Dungra Unit-II fetches its ERP orders",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "feat", "text": "Joyo Plastics - Dungra - Unit-II is now linked to the ERP, so its OR-JR Status, OR-JR Wise Summary and OR-JR Wise Details reports and its orders load automatically just like the other plants." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.23",
+      "date": "2026-09-10",
+      "title": "Mould Wise Item QTY: search by OR number",
+      "modules": [
+        {
+          "app": "reports",
+          "label": "Reports",
+          "icon": "bi-file-earmark-bar-graph",
+          "changes": [
+            { "type": "feat", "text": "The Mould Wise Item QTY report search now also matches the OR / JR number, not just the mould name and number." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.22",
+      "date": "2026-09-09",
+      "title": "Mould Master: upload button always shows on MAIN",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "fix", "text": "The Mould Master file upload (Choose file + Preview Upload) now always shows on the MAIN server, including when viewing another factory's scope — it was sometimes left hidden after the page finished loading." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.21",
+      "date": "2026-09-09",
+      "title": "Compliance Summary: fix View filter crash",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Fixed a 'slots is not defined' error that blanked the DPR Compliance Summary when a View filter (e.g. Show All by EFF) was selected." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.20",
+      "date": "2026-09-09",
+      "title": "Compliance Summary: View filter sorted list",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The DPR Compliance Summary View filter now shows a single sorted list of the matching machines — 'Show All (by EFF)' and 'Low EFF' order worst EFF first, 'Low OEE' worst OEE first, 'Pending Entries' most-pending first — instead of leaving the machines in their normal grouped order." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.19",
+      "date": "2026-09-09",
+      "title": "Mould Master upload button shows on MAIN",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-gem",
+          "changes": [
+            { "type": "fix", "text": "The Mould Master Upload button now appears for Superadmin/Admin on the MAIN server even in All-Factories view. Moulds are company-wide, so the per-factory write lock no longer hides it. Factory servers stay read-only as before." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.18",
+      "date": "2026-09-07",
+      "title": "Compliance Summary: manpower STD vs Actual",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "Each machine's summary box now shows Manpower — STD (mould master) vs Actual (setup) — just above Weight. Actual over STD shows red (over-manned), below STD shows green (saving)." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.17",
+      "date": "2026-09-07",
+      "title": "Compliance Summary: machine count badge",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary now shows a machine count next to Apply — the total number of machines when unfiltered, and the matched count (matched / total) when a View filter or Search is applied." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.16",
+      "date": "2026-09-06",
+      "title": "Compliance Summary: View Filter works in machine-wise",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Fixed the DPR Compliance Summary View filter (Above Plan Qty, Pending Entries, Low EFF/OEE, Mould Change, MP Shortage, etc.) — it now correctly shows only the matching machines in the machine-wise layout." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.15",
+      "date": "2026-09-06",
+      "title": "Compliance Summary: much faster balance calculation",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "perf", "text": "The DPR Compliance Summary no longer scans the whole production history to compute plan balances — it now looks up only the plans shown, so multi-day ranges load a lot faster." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.14",
+      "date": "2026-09-06",
+      "title": "Compliance Summary: faster database query",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "perf", "text": "Added database indexes so the DPR Compliance Summary reads production data much faster — multi-day date ranges in particular now load quickly." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.13",
+      "date": "2026-09-06",
+      "title": "Compliance Summary: faster load for date ranges",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "perf", "text": "The DPR Compliance Summary now loads much faster, especially for past date ranges — the current-shift auto-fill step (a background write) no longer runs or blocks the view when you are looking at earlier dates." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.12",
+      "date": "2026-09-06",
+      "title": "Compliance Summary: search + line filter fixes",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Fixed the DPR Compliance Summary search blanking the whole report — it now correctly shows only the matching machines as you type." },
+            { "type": "improvement", "text": "The Line filter no longer applies the moment you tick a box — tick the lines you want, then press Apply." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.11",
+      "date": "2026-09-05",
+      "title": "Compliance Summary: search + compact filter",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "Added a Search box at the top of the DPR Compliance Summary — type a machine, OR / order number, or client to instantly show only the matching machines." },
+            { "type": "improvement", "text": "The Compliance Summary is now always Machine-wise (the Group By filter was removed), Process is a compact dropdown, the Factory box is smaller, and the whole filter bar fits on one line." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.10",
+      "date": "2026-09-05",
+      "title": "Management: download the Organisation chart",
+      "modules": [
+        {
+          "app": "management",
+          "label": "Management",
+          "icon": "bi-diagram-3",
+          "changes": [
+            { "type": "feat", "text": "The Management Organisation chart has a Download button — it saves the current view (Tree or List) as a PNG image. On servers without internet it falls back to a print / Save-as-PDF window." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.9",
+      "date": "2026-09-05",
+      "title": "Management: Organisation tree chart",
+      "modules": [
+        {
+          "app": "management",
+          "label": "Management",
+          "icon": "bi-diagram-3",
+          "changes": [
+            { "type": "improvement", "text": "The Management Organisation chart now has a top-down tree view with connector lines and cleaner people cards. A Tree / List toggle lets you switch between the new tree and the classic indented list, and your choice is remembered." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.8",
+      "date": "2026-09-05",
+      "title": "Compliance Summary: Machine-wise grouping",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary has a new 'Group By' option: choose Machine-wise to see each machine's rows for every selected date and shift together (e.g. Machine 1 — 04 Sep Day, 04 Sep Night, 05 Sep Day, 05 Sep Night — then the next machine). Date-wise stays the default." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.7",
+      "date": "2026-09-05",
+      "title": "DPR Line Filter dropdown shows above the report",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The Line Filter dropdown on the DPR Compliance Summary now opens above the report instead of appearing behind the legend and totals." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.6",
+      "date": "2026-09-05",
+      "title": "Cleaned up corrupted machine names in old records",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Some old production records stored a machine name with a stray '>' instead of '-' (e.g. 'B -L1>HYD-300-11'), which made those rows drop out of machine-wise history and STD lookups. Those names are now corrected so historical DPR and STD reports line up with the current machine list." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.5",
+      "date": "2026-09-05",
+      "title": "HR Manager can create MC/MP priority schedules",
+      "modules": [
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-calendar3",
+          "changes": [
+            { "type": "feat", "text": "The HR Manager role can now create and view MC/MP priority schedules on the Excel View Timeline, alongside PPC managers. Permission is enforced on the server, not just hidden in the UI." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.4",
+      "date": "2026-09-05",
+      "title": "Compliance Summary: multi-line filter + date range by shift",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary Line filter is now a checkbox dropdown — tick several lines at once to see just those (or leave it on 'All Lines'); it filters as you tick." },
+            { "type": "feat", "text": "The Compliance Summary date picker is now a From–To range: pick a span of days and, with the Both shift, the summary shows a separate block for each day and shift (e.g. 04 Day, 04 Night, 05 Day, 05 Night), each labelled with its date and shift." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.3",
+      "date": "2026-09-05",
+      "title": "Add Employee now saves",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Management",
+          "icon": "bi-diagram-3",
+          "changes": [
+            { "type": "fix", "text": "Adding or editing an employee in Management no longer fails with \"Unknown list\" — the save now reaches the correct handler." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.2",
+      "date": "2026-09-05",
+      "title": "Management People — no more duplicate factories",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Management",
+          "icon": "bi-diagram-3",
+          "changes": [
+            { "type": "fix", "text": "The Management People / Org list no longer shows every factory (and department/grade/designation) twice. Duplicate org rows created by MAIN and LOCAL seeding are now collapsed to one, and their people are kept under the correct unit." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.1",
+      "date": "2026-09-05",
+      "title": "Stopped Machines — correct stop reason",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The 'Machines Stopped' popup now shows the reason from the actual current stoppage (the newest downtime reason after the machine last produced), instead of a stale reason from an earlier entry." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.55.0",
+      "date": "2026-09-04",
+      "title": "Management — Organisation Structure (Superadmin)",
+      "modules": [
+        {
+          "app": "management",
+          "label": "Management",
+          "icon": "bi-diagram-3-fill",
+          "changes": [
+            { "type": "feat", "text": "New Superadmin-only Management app: build the Joyo Plastics organisation — units (factory-wise), departments, grades and roles — and add every employee with who they report to. Create new roles on the fly and insert a person between two levels. Includes a factory-wise people directory and a live org chart." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.54.1",
+      "date": "2026-09-04",
+      "title": "Correct hourly cells when a machine runs two plans of one mould",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "In the Compliance Summary, when the same mould runs on one machine under two different orders (e.g. one order earlier and another later in the day), each plan's hourly entries now stay on its own row — no more false red-cross on a row where an entry was actually made." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.53.0",
+      "date": "2026-09-04",
+      "title": "Machine downtime Excel report (shift-wise)",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "The DPR Compliance Summary 'Machines Stopped' popup now has a Download Excel button: pick a date and shift (Day / Night / Full Day) to get a machine-wise report with each machine's running plan, total shift time, available time, downtime and reasons." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.52.3",
+      "date": "2026-09-04",
+      "title": "Job detail balance now excludes deleted entries",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "The DPR job detail (Compliance) was counting soft-deleted / corrected production entries, so produced was higher and balance lower than the Machine Timeline. It now excludes deleted entries and matches the plan exactly, for all jobs." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.52.2",
+      "date": "2026-09-04",
+      "title": "Accurate balance — fix double-counted production",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "fix", "text": "Fixed produced/balance quantities that were over-counted when a production entry's operator name existed more than once in the user list (multi-factory accounts). The DPR Compliance job detail, summary matrix and per-operator report now match the Machine Timeline exactly." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.52.1",
+      "date": "2026-09-04",
+      "title": "Machines Stopped alert now triggers at 2 hours",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "improvement", "text": "The DPR Compliance Summary 'Machines Stopped' alert now flags a machine after 2 hours with no production (was 1 hour), reducing noise from short pauses." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.52.0",
+      "date": "2026-09-04",
+      "title": "User Management — deactivate users",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-people",
+          "changes": [
+            { "type": "feat", "text": "User Management now has an Active toggle — clear it to deactivate a user so they can no longer log in, and switch it back on to restore access." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.51.2",
+      "date": "2026-09-03",
+      "title": "DPR Compliance Summary — Machines Stopped alert",
+      "modules": [
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-clipboard-data",
+          "changes": [
+            { "type": "feat", "text": "A red banner at the top of the DPR Compliance Summary now shows machines that are stopped — no production for over an hour, for any reason. Click it to see every stopped machine with its running plan, how long it has been stopped, and the reason. Stoppages that carried over from a previous day are included and flagged." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.51.1",
       "date": "2026-09-04",

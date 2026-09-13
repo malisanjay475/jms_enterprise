@@ -29,6 +29,14 @@
                 'orjr', 'orjrwise', 'orjrwisedetail'].includes(currentType)
             && typeof setupUI === 'function') {
           try { setupUI(currentType, typeof currentView !== 'undefined' ? currentView : undefined); } catch (_) { /* non-fatal */ }
+          // The mould upload section's visibility is decided by updateScopedEditState()
+          // (factory-scope write lock), which setupUI does NOT re-run. Its result now
+          // depends on the server type (MAIN-only), so re-evaluate it here — otherwise the
+          // Upload button stays hidden on MAIN because it was computed while the server
+          // type was still unknown (treated as not-MAIN).
+          if (currentType === 'moulds' && typeof updateScopedEditState === 'function') {
+            try { updateScopedEditState(); } catch (_) { /* non-fatal */ }
+          }
           // Moulds: the per-row Edit action is decided during the table render, not in
           // setupUI, so reload the data too once the server type is known — otherwise the
           // Edit column stays hidden on MAIN until a manual refresh (KAN-114).
@@ -268,6 +276,11 @@
 
     function canWriteCurrentFactoryScope() {
       if (currentType === 'users') return JPSMS.auth.can('masters', 'edit');
+      // Moulds are COMPANY-WIDE (not factory-scoped): they master on MAIN and sync to
+      // every factory, so the All-Factories write lock must NOT hide the mould upload —
+      // that lock was leaving the Upload button hidden on MAIN. Still MAIN-only via
+      // jmsMouldWriteAllowed() (LOCAL stays read-only; the server also 403s it). KAN-114.
+      if (currentType === 'moulds') return JPSMS.auth.can('masters', 'edit') && jmsMouldWriteAllowed();
       if (!JPSMS.auth.can('masters', 'edit')) return false;
       if (currentFactoryScope.isAll || currentWriteScope.isAll) return false;
       if (!currentFactoryScope.id || !currentWriteScope.id) return false;
@@ -903,6 +916,18 @@
       if (type === 'moulds' && !jmsMouldWriteAllowed()) {
         document.getElementById('uploadSection').style.display = 'none';
         hintEl.textContent = 'Read-only on this factory server — mould master is managed on MAIN and synced here.';
+      } else if (type === 'moulds' && jmsMouldWriteAllowed() && JPSMS.auth.can('masters', 'edit')) {
+        // Mould master is company-wide and mastered on MAIN, so bulk upload is allowed
+        // for any factory scope. setupUI re-runs after /api/version resolves the server
+        // type, and the first (server-type-unknown) pass or a previous type may have left
+        // the file picker / Preview Upload button hidden — restore them explicitly so the
+        // upload button always shows for moulds on MAIN.
+        const us = document.getElementById('uploadSection');
+        if (us) us.style.display = 'flex';
+        if (fileIn) fileIn.style.display = '';
+        if (hintEl) hintEl.style.display = '';
+        const upBtn = us ? us.querySelector('button[onclick="uploadMaster()"]') : null;
+        if (upBtn) upBtn.style.display = '';
       }
 
       // ERP reports: show a slim bar with a superadmin-only "Fetch Latest Data" button.

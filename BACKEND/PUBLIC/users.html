@@ -10,7 +10,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1e293b">
-    <link rel="stylesheet" href="/assets/app.css?v=11">
+    <link rel="stylesheet" href="/assets/app.css?v=12">
     <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
     <style>
         #userModal {
@@ -335,6 +335,11 @@
                                 <label for="u_global" style="font-weight:600; cursor:pointer">Global Access (Remote Login)</label>
                             </div>
 
+                            <div class="form-group" style="display:flex; align-items:center; gap:8px; margin-bottom:0">
+                                <input type="checkbox" id="u_active" style="width:18px; height:18px" checked>
+                                <label for="u_active" style="font-weight:600; cursor:pointer">Active (can log in)</label>
+                            </div>
+
                             <div class="form-group" style="margin-bottom:0">
                                 <label class="form-label">Assigned Factories</label>
                                 <div id="factoryChecks"
@@ -409,7 +414,7 @@
         </div>
     </div>
 
-    <script src="/assets/app.min.js"></script>
+    <script src="/assets/app.min.js?v=1576"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             JPSMS.auth.requireAuth();
@@ -417,8 +422,8 @@
             if (!JPSMS.auth.can('users', 'add')) {
                 document.getElementById('btnAddUser').style.display = 'none';
             }
-            loadUsers();
-            loadRoles();
+            // Load roles first so the code→label map exists before the user list renders.
+            loadRoles().then(() => loadUsers()).catch(() => loadUsers());
             loadFactories();
             renderAppAccessChecks();
 
@@ -577,7 +582,7 @@
                 ${u.username} 
                 ${u.global_access ? '<i class="bi bi-globe" title="Global Access" style="color:#2563eb; margin-left:4px"></i>' : ''}
             </td>
-            <td><span class="badge">${u.role_code || 'operator'}</span></td>
+            <td><span class="badge">${(window.__rolesByCode && window.__rolesByCode[u.role_code]) || u.role_code || 'operator'}</span></td>
             <td>${u.line || '-'}</td>
             <td>
                 <div>${u.is_active !== false ? 'Active' : 'Inactive'}</div>
@@ -800,6 +805,7 @@
 
             // Checks
             document.getElementById('u_global').checked = false;
+            document.getElementById('u_active').checked = true; // new users active by default
             document.querySelectorAll('.factory-chk').forEach(c => c.checked = false);
 
             populateCopyFromDropdown(null);
@@ -829,6 +835,9 @@
 
             // Global
             document.getElementById('u_global').checked = !!user.global_access;
+
+            // Active (default true when unset)
+            document.getElementById('u_active').checked = user.is_active !== false;
 
             // Factories
             const fList = user.assigned_factories || [];
@@ -871,6 +880,7 @@
                 line: document.getElementById('u_line').value,
                 permissions,
                 global_access: document.getElementById('u_global').checked,
+                is_active: document.getElementById('u_active').checked,
                 factories: Array.from(document.querySelectorAll('.factory-chk:checked')).map(c => parseInt(c.value))
             };
 
@@ -948,6 +958,10 @@
                     if (aRank !== bRank) return aRank - bRank;
                     return String(a.label || '').localeCompare(String(b.label || ''));
                 });
+                // Code → label map so the user list can show friendly role names
+                // (e.g. "QC HOD") instead of the raw role_code ("quality").
+                window.__rolesByCode = {};
+                list.forEach(r => { window.__rolesByCode[r.code] = r.label || r.code; });
                 sel.innerHTML = '';
                 list.forEach(r => {
                     const opt = new Option(r.label, r.code);

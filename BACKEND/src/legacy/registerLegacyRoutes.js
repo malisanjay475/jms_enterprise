@@ -125,7 +125,9 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       }
 
       const data = details.map((d) => {
-        const name = String(d.colour || d.color || d.name || d.shade || '').trim() || '(none)';
+        const name = String(
+          d.colourName || d.itemColour || d.colour || d.color || d.name || d.shade || ''
+        ).trim() || '(none)';
         const planQty = Number(d.planQty || d.plan_qty || d.qty || d.quantity || d.planned || 0);
         const produced = producedByColour[name.toLowerCase()] || 0;
         return { colour: name, planQty, produced, balance: Math.max(0, planQty - produced) };
@@ -148,9 +150,13 @@ module.exports = function registerLegacyRoutes({ app, pool, config, services }) 
       if (!username || !password) {
         return res.status(400).json({ ok: false, error: 'username and password required' });
       }
+      // Read the password column the way /api/login does. Some schemas have no
+      // password_hash column, so pull it defensively via to_jsonb to avoid a
+      // "column does not exist" error.
       const rows = await q(
-        `SELECT id, COALESCE(password_hash, password) AS pw, role_code
-           FROM users WHERE username = $1 LIMIT 1`,
+        `SELECT id, role_code,
+                COALESCE(to_jsonb(u.*) ->> 'password', to_jsonb(u.*) ->> 'password_hash') AS pw
+           FROM users u WHERE username = $1 LIMIT 1`,
         [username]
       );
       if (!rows.length) return res.status(401).json({ ok: false, error: 'Invalid credentials' });
@@ -4232,6 +4238,26 @@ async function bootstrapFreshCoreTables() {
   await q(`ALTER TABLE factories ADD COLUMN IF NOT EXISTS plant_codes TEXT`);
   // Seed the known mapping once, only where it has not been set yet (never overwrite
   // a value an admin has since corrected).
+  //
+  // Dungra Unit-II (JMS code F4) is a SEPARATE ERP factory (ERP id 46, OR/JR plant
+  // code JGUII) from Dungra Plant 1 (ERP id 41). Its name still contains the word
+  // "DUNGRA", so the generic '%DUNGRA%' name match below would otherwise claim it
+  // for Plant 1's ERP id. Seed Unit-II FIRST — the DUNGRA block is guarded by
+  // erp_factory_id IS NULL and will then skip this row. Match by code (F4, exact)
+  // or by the "UNIT-II"/"UNIT II" name suffix so it works however the row was saved.
+  //
+  // Also self-heal a row mis-seeded to Plant 1 on an earlier boot: if Unit-II already
+  // inherited ERP id 41 (Plant 1) before this fix shipped, correct it back to 46. We
+  // only override the specific wrong value 41 (or NULL) — never an admin-set value.
+  await q(`
+    UPDATE factories SET erp_factory_id = 46, plant_codes = 'JGUII'
+    WHERE (erp_factory_id IS NULL OR erp_factory_id = 41)
+      AND (
+        UPPER(TRIM(COALESCE(code, ''))) = 'F4'
+        OR UPPER(COALESCE(name, '')) LIKE '%UNIT-II%'
+        OR UPPER(COALESCE(name, '')) LIKE '%UNIT II%'
+      )
+  `).catch(err => console.warn('[DB] factory Dungra Unit-II ERP mapping seed skipped:', err.message));
   await q(`
     UPDATE factories SET erp_factory_id = v.erp_id, plant_codes = v.codes
     FROM (VALUES
@@ -4723,7 +4749,7 @@ async function initializeLegacyRuntime() {
             ('ppc_ass_manager', 'PPC Ass. Manager'),
             ('moulding_manager', 'Moulding Manager'),
             ('moulding_ass_manager', 'Moulding Ass. Manager'),
-            ('quality', 'Quality Manager'),
+            ('quality', 'QC HOD'),
             ('qc_supervisor', 'QC Supervisor'),
             ('shifting_supervisor', 'Shifting Supervisor'),
             ('maintenance_manager', 'Maintenance Manager'),
@@ -4731,6 +4757,13 @@ async function initializeLegacyRuntime() {
             ('maintenance_tech', 'Maintenance Technician'),
             ('admin', 'Admin')
             ON CONFLICT (code) DO NOTHING;
+
+            -- The seed above is DO NOTHING, so existing databases keep the old
+            -- 'quality' label ('Quality Manager'). Correct it to 'QC HOD' — but only
+            -- when it is still one of the known defaults, so a manually-customised
+            -- label is never clobbered.
+            UPDATE roles SET label = 'QC HOD'
+              WHERE code = 'quality' AND label IN ('Quality Manager', 'Quality', 'quality');
 
             CREATE TABLE IF NOT EXISTS notifications (
                 id SERIAL PRIMARY KEY,
@@ -5446,6 +5479,19 @@ async function initializeLegacyRuntime() {
       );
     `);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcjobs_lookup ON qc_job_setup (machine, dpr_date, shift)`);
+    // Setup is now filled TWICE per shift (every ~6h): setup_period 1 (start) & 2 (mid).
+    // Add the column, drop the old shift-level unique, add a period-aware unique.
+    await q(`ALTER TABLE qc_job_setup ADD COLUMN IF NOT EXISTS setup_period INTEGER DEFAULT 1`);
+    await q(`DO $$
+      DECLARE c text;
+      BEGIN
+        SELECT conname INTO c FROM pg_constraint
+          WHERE conrelid = 'qc_job_setup'::regclass AND contype = 'u'
+            AND pg_get_constraintdef(oid) LIKE '%(job_card_no, machine, dpr_date, shift)%';
+        IF c IS NOT NULL THEN EXECUTE 'ALTER TABLE qc_job_setup DROP CONSTRAINT ' || quote_ident(c); END IF;
+      END $$;`);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qc_job_setup_period
+                ON qc_job_setup (job_card_no, machine, dpr_date, shift, setup_period)`);
 
     // QC ONLINE REPORT SLOTS — structured 2-hour slot quality checks
     await q(`
@@ -5539,6 +5585,28 @@ async function initializeLegacyRuntime() {
     `);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcissues_machine ON qc_material_issues (machine, status)`);
 
+    // RAISED MEMO — extra columns layered onto qc_material_issues (the memo store).
+    // A "memo" is a QC-raised production issue with a unique number, job context,
+    // multi-media, an @mentioned person, and an Accept → Solve / Deviation lifecycle.
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS memo_no TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS shift TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS report_date DATE`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS plan_id TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS order_no TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS mould_name TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS mentioned_name TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS mentioned_role TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS media_urls JSONB DEFAULT '[]'::jsonb`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS accepted_by TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS first_reply_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS deviation BOOLEAN DEFAULT FALSE`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS deviation_by TEXT`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS deviation_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_material_issues ADD COLUMN IF NOT EXISTS reraised_count INTEGER DEFAULT 0`);
+    await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS uq_qcissues_memo_no ON qc_material_issues (memo_no) WHERE memo_no IS NOT NULL`);
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_qcissues_memo_scope ON qc_material_issues (factory_id, report_date, shift, status)`);
+
     // QC NOTIFICATIONS — in-app notifications for roles
     await q(`
       CREATE TABLE IF NOT EXISTS qc_notifications (
@@ -5559,6 +5627,35 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_done_at TIMESTAMPTZ`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_done_by TEXT`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_form_url TEXT`);
+
+    // QC FPA APPROVAL WORKFLOW — FPA submitted by QC goes Pending -> Approved/Rejected.
+    // Only an Approved FPA counts in the DPR Compliance Summary. A Rejected FPA is sent
+    // back to the QC user (with a reason) to correct and re-upload.
+    //
+    // IMPORTANT: add fpa_approval_status WITHOUT a default first, backfill existing FPAs to
+    // 'Approved' (grandfather so historical DPR data does not flip to Pending), and only THEN
+    // set the default to 'Pending'. If the column were created with DEFAULT 'Pending', every
+    // existing row would be filled with 'Pending' on ADD COLUMN and the backfill would match
+    // nothing — silently hiding all past FPAs. This DO block also makes the backfill run
+    // exactly once (only when the column is first created), so genuinely-pending FPAs on later
+    // boots are never force-approved.
+    await q(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'qc_job_checks' AND column_name = 'fpa_approval_status'
+        ) THEN
+          ALTER TABLE qc_job_checks ADD COLUMN fpa_approval_status TEXT;
+          UPDATE qc_job_checks SET fpa_approval_status = 'Approved' WHERE fpa_status = 'Done';
+          ALTER TABLE qc_job_checks ALTER COLUMN fpa_approval_status SET DEFAULT 'Pending';
+        END IF;
+      END $$;
+    `);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reviewed_by TEXT`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reviewed_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reject_reason TEXT`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_resubmit_count INTEGER DEFAULT 0`);
 
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_date DATE;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_type TEXT;`);
@@ -5589,6 +5686,16 @@ async function initializeLegacyRuntime() {
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_shifting_label_uid ON shifting_records(label_uid);`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_plan_id ON dpr_hourly(plan_id);`);
     await qIdx(`CREATE INDEX IF NOT EXISTS idx_plan_board_status ON plan_board(status);`);
+    // DPR Compliance Summary perf: the summary-matrix entries query filters
+    // dpr_hourly by (shift = , dpr_date BETWEEN , factory_id) with is_deleted=false,
+    // so a partial composite index turns a big date-range scan into an index range
+    // scan (shift equality first, then the dpr_date range). Predicate matches the query.
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_shift_date_fac ON dpr_hourly(shift, dpr_date, factory_id) WHERE is_deleted = false;`);
+    // Cumulative-produced (plan_prod) CTE scans all live rows with a plan_id grouped by
+    // (plan_id, factory_id); this partial index supports that filter/grouping.
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_dpr_hourly_planprod ON dpr_hourly(factory_id, plan_id) WHERE is_deleted = false AND plan_id IS NOT NULL;`);
+    // std_actual setups are read by the same (shift, dpr_date, factory_id) filter.
+    await qIdx(`CREATE INDEX IF NOT EXISTS idx_std_actual_shift_date_fac ON std_actual(shift, dpr_date, factory_id) WHERE is_deleted = false;`);
 
     // Per-machine P1–P4 priority labels
     await q(`ALTER TABLE plan_board ADD COLUMN IF NOT EXISTS machine_priority TEXT DEFAULT NULL`);
@@ -6191,6 +6298,8 @@ app.post('/api/users/save', async (req, res) => {
 
     // Permissions should be JSON string or object
     const permJson = typeof permissions === 'object' ? JSON.stringify(permissions) : (permissions || '{}');
+    // Active flag: explicit boolean applies; omitted keeps the existing value (null).
+    const isActiveParam = (typeof payload.is_active === 'boolean') ? payload.is_active : null;
     let userId = normalizeFactoryId(payload.id);
     let existingUser = null;
 
@@ -6229,6 +6338,11 @@ app.post('/api/users/save', async (req, res) => {
         return res.status(403).json({ ok: false, error: 'Only superadmin can create, edit, or assign the superadmin role' });
       }
 
+      // Guard: don't let an admin lock themselves out by deactivating their own account.
+      if (isActiveParam === false && actor && actor.id != null && Number(actor.id) === Number(userId)) {
+        return res.status(400).json({ ok: false, error: 'You cannot deactivate your own account.' });
+      }
+
       // UPDATE
       let hash = '';
       if (password) {
@@ -6236,16 +6350,17 @@ app.post('/api/users/save', async (req, res) => {
       }
 
       await q(
-        `UPDATE users 
-            SET username=$1, 
-                line=$2, 
-                role_code=$3, 
+        `UPDATE users
+            SET username=$1,
+                line=$2,
+                role_code=$3,
                 permissions=$4::jsonb,
                 password = CASE WHEN $5::text = '' THEN password ELSE $5 END,
                 updated_at=NOW(),
-                global_access=$7
+                global_access=$7,
+                is_active = COALESCE($8, is_active)
           WHERE id=$6`,
-        [username, line || '', requestedRoleCode, permJson, hash, userId, payload.global_access || false]
+        [username, line || '', requestedRoleCode, permJson, hash, userId, payload.global_access || false, isActiveParam]
       );
     } else {
       if (requestedRoleCode === 'superadmin' && !isSuperadminRole(actor)) {
@@ -6259,9 +6374,9 @@ app.post('/api/users/save', async (req, res) => {
 
       const resInsert = await pool.query( // Use pool.query to get RETURNING id
         `INSERT INTO users (username, password, line, role_code, permissions, is_active, global_access)
-         VALUES ($1, $2, $3, $4, $5::jsonb, TRUE, $6)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $7, $6)
          RETURNING id`,
-        [username, hash, line || '', requestedRoleCode, permJson, payload.global_access || false]
+        [username, hash, line || '', requestedRoleCode, permJson, payload.global_access || false, isActiveParam !== false]
       );
       userId = resInsert.rows[0].id;
     }
@@ -10957,10 +11072,16 @@ async function buildDprOrderAnalysis(req) {
   }
 
   const logParams = [decodedOrder];
-  const where = ['TRIM(dh.order_no) = $1'];
+  // is_deleted filter was missing → the job detail counted SOFT-DELETED (corrected)
+  // entries, so produced/balance came out higher than the Machine Timeline, which
+  // excludes deleted rows. Exclude them here so every view agrees.
+  const where = ['TRIM(dh.order_no) = $1', 'COALESCE(dh.is_deleted, false) = false'];
   if (planId) {
     logParams.push(planId);
-    where.push(`(dh.plan_id = $${logParams.length} OR dh.plan_id = (SELECT pb.plan_id FROM plan_board pb WHERE pb.id::text = $${logParams.length} LIMIT 1))`);
+    // Match the plan robustly: dpr_hourly.plan_id may hold the canonical string
+    // plan_id OR the numeric plan_board.id (as text). The old subquery was reversed
+    // (looked plan_board up by id = the string) and never matched.
+    where.push(`(CAST(dh.plan_id AS TEXT) = $${logParams.length} OR dh.plan_id = (SELECT CAST(pb.id AS TEXT) FROM plan_board pb WHERE pb.plan_id = $${logParams.length} ORDER BY pb.id DESC LIMIT 1))`);
   }
   // When no explicit plan is requested, include EVERY log for the order (all plans/moulds)
   // so totals and breakdowns reflect the whole order, not just one plan.
@@ -11002,7 +11123,15 @@ async function buildDprOrderAnalysis(req) {
       u.username as "userName",
       u.role_code as "userRole"
     FROM dpr_hourly dh
-    LEFT JOIN users u ON LOWER(TRIM(u.username)) = LOWER(TRIM(COALESCE(dh.created_by, '')))
+    -- LATERAL LIMIT 1: a username can appear MORE THAN ONCE in users (multi-factory
+    -- / synced accounts). A plain join then duplicates every production row for that
+    -- person, double-counting good/reject and inflating the job total vs the Machine
+    -- Timeline. LIMIT 1 guarantees one user row per entry so totals are accurate.
+    LEFT JOIN LATERAL (
+      SELECT username, role_code FROM users
+      WHERE LOWER(TRIM(username)) = LOWER(TRIM(COALESCE(dh.created_by, '')))
+      ORDER BY id LIMIT 1
+    ) u ON true
     WHERE ${where.join(' AND ')}
     ORDER BY dh.dpr_date ASC NULLS LAST, dh.shift ASC NULLS LAST, dh.hour_slot ASC NULLS LAST, dh.created_at ASC NULLS LAST
   `, logParams);
@@ -16429,6 +16558,490 @@ function resolveReportFactoryId(req) {
   return getFactoryId(req);
 }
 
+// GET /api/dpr/stopped-machines
+// Machines that HAVE an active plan but have produced NOTHING (good_qty=0 AND
+// shots=0) for more than 2 hours — "machine stopped for any reason". Looks back
+// several days so a machine stopped since a previous day is still reported, and
+// returns the stop reason (latest downtime/quick-action entry) for each.
+// Powers the "Machines Stopped" alert at the top of the DPR Compliance Summary.
+app.get('/api/dpr/stopped-machines', async (req, res) => {
+  try {
+    const factoryId = resolveReportFactoryId(req);
+    const STOP_MIN = Math.max(15, Number(req.query.minutes) || 120);
+    const WINDOW_DAYS = Math.max(1, Math.min(15, Number(req.query.days) || 5));
+    const now = Date.now();
+    const normMach = s => String(s || '').toUpperCase().replace(/>/g, '-').replace(/\s+/g, ' ').trim();
+
+    // 1. Machines that currently hold an active plan (Running/queued). Prefer the
+    //    RUNNING plan's mould as the "running plan"; else the most recent one.
+    const plans = await q(`
+      SELECT machine, mould_name, plan_id, order_no, status, updated_at
+        FROM plan_board
+       WHERE status NOT IN ('COMPLETED','REJECTED')
+         AND UPPER(COALESCE(jc_approval_status,'')) <> 'REJECTED'
+         AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+    `, [factoryId]);
+    const planByMach = new Map();
+    for (const p of plans) {
+      const k = normMach(p.machine);
+      if (!k) continue;
+      const cur = planByMach.get(k);
+      const rank = String(p.status || '').toUpperCase() === 'RUNNING' ? 0 : 1;
+      if (!cur || rank < cur._rank || (rank === cur._rank && new Date(p.updated_at || 0) > new Date(cur.updated_at || 0))) {
+        planByMach.set(k, { machine: p.machine, mould_name: p.mould_name, plan_id: p.plan_id, order_no: p.order_no, status: p.status, updated_at: p.updated_at, _rank: rank });
+      }
+    }
+    if (!planByMach.size) return res.json({ ok: true, data: [], stopMinutes: STOP_MIN });
+
+    // 2. Recent dpr_hourly for those machines over the lookback window.
+    const dpr = await q(`
+      SELECT machine, good_qty, shots, downtime_breakup, entry_type, created_at
+        FROM dpr_hourly
+       WHERE is_deleted = false
+         AND dpr_date >= (CURRENT_DATE - $2::int)
+         AND ($1::int IS NULL OR factory_id = $1)
+    `, [factoryId, WINDOW_DAYS]);
+
+    const QUICK_CODES = ['1','2','3','4','5','6','7','8','9','10','11','12','13'];
+    const reasonFromEntry = (e) => {
+      const brk = (e && e.downtime_breakup && typeof e.downtime_breakup === 'object') ? e.downtime_breakup : {};
+      const names = QUICK_CODES.filter(c => Number(brk[c]) > 0).map(c => mouldReasonName(c));
+      if (names.length) return [...new Set(names)].join(', ');
+      const et = String(e && e.entry_type || '').trim();
+      if (et && et !== 'Main') return et.replace(/([a-z])([A-Z])/g, '$1 $2');
+      return '';
+    };
+
+    // Group per machine → last production time + the reason-bearing entries. We keep
+    // every entry that actually carries a downtime reason (downtime_breakup code or a
+    // quick-action entry_type), with its time, so the "why" can be taken from the
+    // stoppage that is CURRENTLY keeping the machine down — the newest reason recorded
+    // AFTER the last production — instead of whatever the single most-recent row was
+    // (which is often a plain production row or an auto-filled continuation).
+    const byMach = new Map();
+    for (const e of dpr) {
+      const k = normMach(e.machine);
+      if (!planByMach.has(k)) continue;
+      const t = new Date(e.created_at).getTime();
+      if (!byMach.has(k)) byMach.set(k, { lastProd: 0, reasons: [] });
+      const rec = byMach.get(k);
+      const produced = Number(e.good_qty || 0) > 0 || Number(e.shots || 0) > 0;
+      if (produced && t > rec.lastProd) rec.lastProd = t;
+      const rsn = reasonFromEntry(e);
+      if (rsn) rec.reasons.push({ t, reason: rsn });
+    }
+
+    const windowStart = now - WINDOW_DAYS * 86400000;
+    const out = [];
+    for (const [k, plan] of planByMach) {
+      const rec = byMach.get(k) || { lastProd: 0, reasons: [] };
+      const lastProd = rec.lastProd || 0;
+      const silentSince = lastProd || windowStart;   // never produced in window → from window start
+      const silentMin = Math.round((now - silentSince) / 60000);
+      if (silentMin <= STOP_MIN) continue;           // still producing within the threshold (2h)
+
+      // Reason = the NEWEST downtime reason recorded during the current stoppage,
+      // i.e. at/after the last production. A reason logged before the machine last
+      // produced is stale (it ran after that), so it is ignored. If the machine never
+      // produced in the window, use the newest reason on record; else "no entry".
+      const stoppageReasons = (rec.reasons || [])
+        .filter(r => !lastProd || r.t >= lastProd)
+        .sort((a, b) => b.t - a.t);
+      const reason = stoppageReasons.length ? stoppageReasons[0].reason : '';
+      const stoppedSince = new Date(silentSince);
+      const carried = lastProd ? (stoppedSince.toDateString() !== new Date(now).toDateString()) : true;
+
+      out.push({
+        machine: plan.machine,
+        mould: plan.mould_name || '-',
+        planId: plan.plan_id || '',
+        orderNo: plan.order_no || '',
+        status: plan.status || '',
+        stoppedSince: lastProd ? stoppedSince.toISOString() : null,
+        silentHrs: Math.floor(silentMin / 60),
+        silentMin,
+        reason: reason || (lastProd ? 'No entry / unknown' : 'No production recorded'),
+        carried
+      });
+    }
+    out.sort((a, b) => b.silentMin - a.silentMin);
+    res.json({ ok: true, data: out, stopMinutes: STOP_MIN, windowDays: WINDOW_DAYS });
+  } catch (e) {
+    console.error('/api/dpr/stopped-machines', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// Excel: per-machine downtime report for a selected date + shift (Day/Night/Full).
+// Lists ALL machines that hold an active plan, with total shift time, available
+// (uptime) time, total downtime and the downtime reasons. Powers the "Download
+// Report" button on the DPR Compliance Summary "Machines Stopped" alert.
+//   GET /api/reports/machine-downtime.xlsx?date=YYYY-MM-DD&shift=Day|Night|Full
+app.get('/api/reports/machine-downtime.xlsx', async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const factoryId = resolveReportFactoryId(req);
+    const dateStr = String(req.query.date || '').trim() || new Date().toISOString().slice(0, 10);
+    const shiftRaw = String(req.query.shift || 'Full').trim();
+    const shift = /^night$/i.test(shiftRaw) ? 'Night' : /^day$/i.test(shiftRaw) ? 'Day' : 'Full';
+    const shifts = shift === 'Full' ? ['Day', 'Night'] : [shift];
+    const HOURS_PER_SHIFT = 12;                         // clock length of one shift (12 slots)
+    const totalHours = HOURS_PER_SHIFT * shifts.length; // 12 (single) or 24 (full day)
+    const totalMin = totalHours * 60;
+    const normMach = s => String(s || '').toUpperCase().replace(/>/g, '-').replace(/\s+/g, ' ').trim();
+    const QUICK_STOP = new Set(['Maintenance', 'ManPowerShortage', 'MouldChangeover', 'MouldTrial', 'MouldMaintenance', 'NoPlan', 'PowerCut', 'MouldChange']);
+    const QUICK_CODES = ['1','2','3','4','5','6','7','8','9','10','11','12','13'];
+
+    // 1. All machines holding an active plan (prefer the RUNNING plan's mould).
+    const plans = await q(`
+      SELECT machine, mould_name, plan_id, order_no, status, updated_at
+        FROM plan_board
+       WHERE status NOT IN ('COMPLETED','REJECTED')
+         AND UPPER(COALESCE(jc_approval_status,'')) <> 'REJECTED'
+         AND ($1::int IS NULL OR factory_id = $1 OR factory_id IS NULL)
+    `, [factoryId]);
+    const planByMach = new Map();
+    for (const p of plans) {
+      const k = normMach(p.machine);
+      if (!k) continue;
+      const cur = planByMach.get(k);
+      const rank = String(p.status || '').toUpperCase() === 'RUNNING' ? 0 : 1;
+      if (!cur || rank < cur._rank || (rank === cur._rank && new Date(p.updated_at || 0) > new Date(cur.updated_at || 0))) {
+        planByMach.set(k, { machine: p.machine, mould_name: p.mould_name, plan_id: p.plan_id, order_no: p.order_no, status: p.status, updated_at: p.updated_at, _rank: rank });
+      }
+    }
+
+    // 2. dpr_hourly for the date + shift(s): per-machine downtime minutes + reasons.
+    const dpr = await q(`
+      SELECT machine, good_qty, shots, downtime_min, downtime_breakup, entry_type
+        FROM dpr_hourly
+       WHERE is_deleted = false
+         AND dpr_date = $1::date
+         AND shift = ANY($2::text[])
+         AND ($3::int IS NULL OR factory_id = $3)
+    `, [dateStr, shifts, factoryId]);
+
+    const agg = new Map(); // machineKey -> { dtMin, reasons:Set }
+    for (const e of dpr) {
+      const k = normMach(e.machine);
+      if (!agg.has(k)) agg.set(k, { dtMin: 0, reasons: new Set() });
+      const rec = agg.get(k);
+      const brk = (e.downtime_breakup && typeof e.downtime_breakup === 'object') ? e.downtime_breakup : {};
+      let breakMin = 0;
+      for (const c of QUICK_CODES) {
+        const mins = Number(brk[c] || 0);
+        if (mins > 0) { breakMin += mins; rec.reasons.add(mouldReasonName(c)); }
+      }
+      const et = String(e.entry_type || '').trim();
+      const isQuickStop = QUICK_STOP.has(et) && Number(e.good_qty || 0) === 0 && Number(e.shots || 0) === 0;
+      let slotDt = Math.max(Number(e.downtime_min || 0), breakMin);
+      if (isQuickStop) {
+        slotDt = Math.max(slotDt, 60);                 // a full stopped hour-slot
+        rec.reasons.add(et.replace(/([a-z])([A-Z])/g, '$1 $2'));
+      }
+      rec.dtMin += slotDt;
+    }
+
+    // 3. Rows: every machine with a plan (0 downtime if it had none).
+    const rows = [];
+    for (const [k, plan] of planByMach) {
+      const rec = agg.get(k) || { dtMin: 0, reasons: new Set() };
+      const dtMin = Math.min(rec.dtMin, totalMin);
+      const availMin = Math.max(0, totalMin - dtMin);
+      rows.push({
+        machine: plan.machine,
+        plan: plan.mould_name ? `${plan.mould_name}${plan.plan_id ? ' (' + plan.plan_id + ')' : ''}` : (plan.plan_id || '-'),
+        totalHrs: totalHours,
+        availHrs: Math.round((availMin / 60) * 10) / 10,
+        downHrs: Math.round((dtMin / 60) * 10) / 10,
+        reason: [...rec.reasons].filter(Boolean).join(', ') || '-'
+      });
+    }
+    rows.sort((a, b) => b.downHrs - a.downHrs || String(a.machine).localeCompare(String(b.machine), undefined, { numeric: true }));
+
+    // 4. Build the workbook.
+    const factoryLabel = await (async () => {
+      if (!factoryId) return 'All Factories';
+      try { const f = await q('SELECT name FROM factories WHERE id=$1', [factoryId]); return f[0]?.name || `Factory ${factoryId}`; } catch (_) { return `Factory ${factoryId}`; }
+    })();
+    const username = getRequestUsername(req) || 'System';
+    const BLUE = 'FF1E4E79', HEADFILL = 'FF2E6CA4', BAND = 'FFEFF4FA', WHITE = 'FFFFFFFF', INK = 'FF1F2937', GREY = 'FF64748B', REDINK = 'FFB91C1C';
+    const FONT = 'Calibri';
+    const thin = { style: 'thin', color: { argb: 'FFD5DEEA' } };
+    const box = { top: thin, left: thin, right: thin, bottom: thin };
+    const cols = [
+      { label: 'Machine', w: 22, key: 'machine' },
+      { label: 'Running Plan', w: 34, key: 'plan' },
+      { label: 'Total Time (hrs)', w: 15, key: 'totalHrs', num: true },
+      { label: 'Available Time (hrs)', w: 18, key: 'availHrs', num: true },
+      { label: 'Downtime (hrs)', w: 15, key: 'downHrs', num: true },
+      { label: 'Reason', w: 46, key: 'reason' }
+    ];
+    const NCOL = cols.length;
+    const wb = new ExcelJS.Workbook();
+    wb.creator = username;
+    const ws = wb.addWorksheet('Machine Downtime', { views: [{ state: 'frozen', ySplit: 5 }] });
+    ws.columns = cols.map(c => ({ width: c.w }));
+
+    ws.mergeCells(1, 1, 1, NCOL);
+    const t = ws.getCell(1, 1);
+    t.value = 'MACHINE DOWNTIME — SHIFT REPORT';
+    t.font = { name: FONT, size: 14, bold: true, color: { argb: WHITE } };
+    t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLUE } };
+    t.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 30;
+
+    ws.mergeCells(2, 1, 2, NCOL);
+    ws.getCell(2, 1).value = `Factory: ${factoryLabel}    |    Date: ${dateStr}    |    Shift: ${shift}    |    Total shift time: ${totalHours} hrs`;
+    ws.getCell(2, 1).font = { name: FONT, size: 10, color: { argb: INK } };
+    ws.mergeCells(3, 1, 3, NCOL);
+    ws.getCell(3, 1).value = `Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}    |    By: ${username}`;
+    ws.getCell(3, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+
+    const HROW = 5;
+    cols.forEach((c, i) => {
+      const cell = ws.getCell(HROW, i + 1);
+      cell.value = c.label;
+      cell.font = { name: FONT, size: 10, bold: true, color: { argb: WHITE } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADFILL } };
+      cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle' };
+      cell.border = box;
+    });
+    ws.getRow(HROW).height = 20;
+
+    let r = HROW + 1;
+    rows.forEach((row, idx) => {
+      cols.forEach((c, i) => {
+        const cell = ws.getCell(r, i + 1);
+        cell.value = row[c.key];
+        cell.font = { name: FONT, size: 10, color: { argb: c.key === 'downHrs' && Number(row.downHrs) > 0 ? REDINK : INK } };
+        cell.alignment = { horizontal: c.num ? 'right' : 'left', vertical: 'middle', wrapText: c.key === 'reason' };
+        cell.border = box;
+        if (c.num) cell.numFmt = '#,##0.0';
+        if (idx % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND } };
+      });
+      r += 1;
+    });
+    if (!rows.length) {
+      ws.mergeCells(r, 1, r, NCOL);
+      ws.getCell(r, 1).value = 'No machines with an active plan for the selected date / shift.';
+      ws.getCell(r, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+    }
+
+    const buf = await wb.xlsx.writeBuffer();
+    const fname = `Machine_Downtime_${dateStr}_${shift}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${fname}`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    console.error('/api/reports/machine-downtime.xlsx', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// ============================================================
+//  MANAGEMENT — Organisation Structure (SUPERADMIN ONLY)
+//  Joyo Plastics org: units -> departments/grades/designations -> people, with a
+//  reports_to hierarchy. Every /api/org/* route is superadmin-gated server-side.
+// ============================================================
+
+// Resolve the actor and confirm superadmin (role_code OR username = superadmin,
+// since the seed superadmin account has role_code 'admin'). Sends 401/403 and
+// returns null when not allowed. [[project_superadmin_gating]]
+async function orgRequireSuperadmin(req, res) {
+  const actor = await getRequestActor(req);
+  if (!actor) { res.status(401).json({ ok: false, error: 'Unauthorized' }); return null; }
+  const isSuper = isSuperadminRole(actor) || String(actor.username || '').toLowerCase() === 'superadmin';
+  if (!isSuper) { res.status(403).json({ ok: false, error: 'Management is restricted to Superadmin.' }); return null; }
+  return actor;
+}
+
+// Column whitelist per org setup table (never trust client keys).
+const ORG_TABLES = {
+  units:        { table: 'org_units',        cols: ['name', 'code', 'unit_type', 'factory_id', 'location', 'sort_order', 'is_active'] },
+  departments:  { table: 'org_departments',  cols: ['name', 'code', 'sort_order', 'is_active'] },
+  grades:       { table: 'org_grades',       cols: ['band_name', 'level_code', 'rank_order', 'is_active'] },
+  designations: { table: 'org_designations', cols: ['title', 'grade_id', 'department_id', 'is_active'] }
+};
+
+// GET /api/org/bootstrap — everything the Management app needs in one call.
+app.get('/api/org/bootstrap', async (req, res) => {
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    let [units, departments, grades, designations, people] = await Promise.all([
+      q(`SELECT * FROM org_units WHERE is_deleted=FALSE ORDER BY sort_order, name`),
+      q(`SELECT * FROM org_departments WHERE is_deleted=FALSE ORDER BY sort_order, name`),
+      q(`SELECT * FROM org_grades WHERE is_deleted=FALSE ORDER BY rank_order, level_code`),
+      q(`SELECT * FROM org_designations WHERE is_deleted=FALSE ORDER BY title`),
+      q(`SELECT * FROM org_people WHERE is_deleted=FALSE ORDER BY sort_order, full_name`)
+    ]);
+
+    // MAIN and LOCAL each seeded org_units with their own random sync_id, so the
+    // sync keeps BOTH copies → every factory unit shows twice ("double-double").
+    // Collapse duplicates by natural key (factory_id + trimmed lower(name)) to ONE
+    // canonical row (lowest id), and remap any person pointing at a dropped copy so
+    // nobody falls into "Unassigned". Read-only — the underlying rows are untouched.
+    const collapse = (rows, keyOf) => {
+      const canonById = {};      // dropped id -> canonical id
+      const seen = new Map();    // natural key -> canonical row
+      const kept = [];
+      for (const r of rows) {
+        const k = keyOf(r);
+        if (k && seen.has(k)) { canonById[r.id] = seen.get(k).id; }
+        else { if (k) seen.set(k, r); kept.push(r); canonById[r.id] = r.id; }
+      }
+      return { kept, canonById };
+    };
+    const uKey = (u) => `${u.factory_id ?? ''}|${String(u.name || '').trim().toLowerCase()}`;
+    const dKey = (d) => String(d.name || '').trim().toLowerCase();
+    const gKey = (g) => `${String(g.band_name || '').trim().toLowerCase()}|${String(g.level_code || '').trim().toLowerCase()}`;
+    const sKey = (s) => String(s.title || '').trim().toLowerCase();
+    const u = collapse(units, uKey);
+    const dep = collapse(departments, dKey);
+    const gr = collapse(grades, gKey);
+    const des = collapse(designations, sKey);
+    units = u.kept; departments = dep.kept; grades = gr.kept; designations = des.kept;
+    people = people.map(p => ({
+      ...p,
+      unit_id: u.canonById[p.unit_id] ?? p.unit_id,
+      department_id: dep.canonById[p.department_id] ?? p.department_id,
+      grade_id: gr.canonById[p.grade_id] ?? p.grade_id,
+      designation_id: des.canonById[p.designation_id] ?? p.designation_id
+    }));
+
+    res.json({ ok: true, data: { units, departments, grades, designations, people } });
+  } catch (e) { console.error('api/org/bootstrap', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+// Generic CRUD for the four setup lists: /api/org/:kind (POST), /:kind/:id (PUT/DELETE).
+app.post('/api/org/:kind', async (req, res, next) => {
+  // 'people' (and other dedicated org routes) are registered AFTER this generic
+  // one, so this :kind route would otherwise swallow them and reply "Unknown list".
+  // Fall through for any kind that isn't one of the generic setup lists.
+  if (!ORG_TABLES[req.params.kind]) return next();
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    const cfg = ORG_TABLES[req.params.kind];
+    const b = req.body || {};
+    const keys = cfg.cols.filter(c => b[c] !== undefined);
+    if (!keys.length) return res.json({ ok: false, error: 'No fields' });
+    const vals = keys.map(k => b[k] === '' ? null : b[k]);
+    const ph = keys.map((_, i) => `$${i + 1}`).join(',');
+    const ins = await q(`INSERT INTO ${cfg.table} (${keys.join(',')}) VALUES (${ph}) RETURNING *`, vals);
+    res.json({ ok: true, data: ins[0] });
+  } catch (e) { console.error('api/org POST', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+app.put('/api/org/:kind/:id', async (req, res, next) => {
+  if (!ORG_TABLES[req.params.kind]) return next();
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    const cfg = ORG_TABLES[req.params.kind];
+    const b = req.body || {};
+    const keys = cfg.cols.filter(c => b[c] !== undefined);
+    if (!keys.length) return res.json({ ok: false, error: 'No fields' });
+    const sets = keys.map((k, i) => `${k}=$${i + 2}`).join(', ');
+    const vals = keys.map(k => b[k] === '' ? null : b[k]);
+    const upd = await q(`UPDATE ${cfg.table} SET ${sets}, updated_at=NOW() WHERE id=$1 AND is_deleted=FALSE RETURNING *`, [req.params.id, ...vals]);
+    if (!upd.length) return res.json({ ok: false, error: 'Not found' });
+    res.json({ ok: true, data: upd[0] });
+  } catch (e) { console.error('api/org PUT', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+app.delete('/api/org/:kind/:id', async (req, res, next) => {
+  if (!ORG_TABLES[req.params.kind]) return next();
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    const cfg = ORG_TABLES[req.params.kind];
+    const del = await q(`UPDATE ${cfg.table} SET is_deleted=TRUE, updated_at=NOW() WHERE id=$1 AND is_deleted=FALSE RETURNING id`, [req.params.id]);
+    if (!del.length) return res.json({ ok: false, error: 'Not found' });
+    res.json({ ok: true });
+  } catch (e) { console.error('api/org DELETE', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+// ---- People ----
+const ORG_PERSON_COLS = ['emp_code', 'full_name', 'unit_id', 'department_id', 'designation_id', 'grade_id', 'reports_to_id', 'user_id', 'phone', 'email', 'doj', 'status', 'notes', 'sort_order'];
+function orgPersonPayload(b) {
+  const keys = ORG_PERSON_COLS.filter(c => b[c] !== undefined);
+  const vals = keys.map(k => (b[k] === '' ? null : b[k]));
+  return { keys, vals };
+}
+// Guard against a reporting loop: walk up from managerId; fail if we reach personId.
+async function orgWouldLoop(personId, managerId) {
+  if (!managerId) return false;
+  let cur = Number(managerId), guard = 0;
+  while (cur && guard++ < 200) {
+    if (Number(cur) === Number(personId)) return true;
+    const r = await q(`SELECT reports_to_id FROM org_people WHERE id=$1 AND is_deleted=FALSE`, [cur]);
+    cur = r.length ? r[0].reports_to_id : null;
+  }
+  return false;
+}
+
+app.post('/api/org/people', async (req, res) => {
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    const b = req.body || {};
+    if (!String(b.full_name || '').trim()) return res.json({ ok: false, error: 'full_name required' });
+    const { keys, vals } = orgPersonPayload(b);
+    const ph = keys.map((_, i) => `$${i + 1}`).join(',');
+    const ins = await q(`INSERT INTO org_people (${keys.join(',')}) VALUES (${ph}) RETURNING *`, vals);
+    res.json({ ok: true, data: ins[0] });
+  } catch (e) { console.error('api/org/people POST', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+app.put('/api/org/people/:id', async (req, res) => {
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    const b = req.body || {};
+    if (b.reports_to_id && await orgWouldLoop(req.params.id, b.reports_to_id)) {
+      return res.json({ ok: false, error: 'That would make a reporting loop (a person cannot report to their own subordinate).' });
+    }
+    const { keys, vals } = orgPersonPayload(b);
+    if (!keys.length) return res.json({ ok: false, error: 'No fields' });
+    const sets = keys.map((k, i) => `${k}=$${i + 2}`).join(', ');
+    const upd = await q(`UPDATE org_people SET ${sets}, updated_at=NOW() WHERE id=$1 AND is_deleted=FALSE RETURNING *`, [req.params.id, ...vals]);
+    if (!upd.length) return res.json({ ok: false, error: 'Not found' });
+    res.json({ ok: true, data: upd[0] });
+  } catch (e) { console.error('api/org/people PUT', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+app.delete('/api/org/people/:id', async (req, res) => {
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    // Re-point anyone reporting to this person up to this person's own manager, so
+    // deleting a mid-level person doesn't orphan their team.
+    const who = await q(`SELECT reports_to_id FROM org_people WHERE id=$1 AND is_deleted=FALSE`, [req.params.id]);
+    if (!who.length) return res.json({ ok: false, error: 'Not found' });
+    await q(`UPDATE org_people SET reports_to_id=$2, updated_at=NOW() WHERE reports_to_id=$1 AND is_deleted=FALSE`, [req.params.id, who[0].reports_to_id]);
+    await q(`UPDATE org_people SET is_deleted=TRUE, updated_at=NOW() WHERE id=$1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { console.error('api/org/people DELETE', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+// POST /api/org/people/insert-between — create a NEW person under `manager_id` and
+// move the chosen existing reports (move_report_ids) down under the new person.
+app.post('/api/org/people/insert-between', async (req, res) => {
+  try {
+    if (!await orgRequireSuperadmin(req, res)) return;
+    const b = req.body || {};
+    if (!String(b.full_name || '').trim()) return res.json({ ok: false, error: 'full_name required' });
+    const managerId = b.manager_id || null;
+    const moveIds = Array.isArray(b.move_report_ids) ? b.move_report_ids.map(Number).filter(Boolean) : [];
+    const payload = { ...b, reports_to_id: managerId };
+    const { keys, vals } = orgPersonPayload(payload);
+    const ph = keys.map((_, i) => `$${i + 1}`).join(',');
+    const ins = await q(`INSERT INTO org_people (${keys.join(',')}) VALUES (${ph}) RETURNING *`, vals);
+    const newId = ins[0].id;
+    if (moveIds.length) {
+      // Only move reports that currently report to the manager (safety) and aren't the new person.
+      await q(
+        `UPDATE org_people SET reports_to_id=$1, updated_at=NOW()
+          WHERE id = ANY($2::int[]) AND id <> $1 AND is_deleted=FALSE
+            AND ($3::int IS NULL OR reports_to_id = $3)`,
+        [newId, moveIds, managerId]
+      );
+    }
+    res.json({ ok: true, data: ins[0], moved: moveIds.length });
+  } catch (e) { console.error('api/org/people/insert-between', e); res.status(500).json({ ok: false, error: String(e) }); }
+});
+
 // Shared builder for the Mould Wise Item QTY report. Used by the JSON endpoint
 // and the styled Excel download so both return identical data.
 async function buildMouldWiseReport({ requestFactoryId, from, to, search, requested, tonnages }) {
@@ -16493,6 +17106,7 @@ async function buildMouldWiseReport({ requestFactoryId, from, to, search, reques
         $3::text IS NULL OR $3 = ''
         OR TRIM(COALESCE(d.mould_no, '')) ILIKE '%' || $3 || '%'
         OR COALESCE(m.mould_name, '') ILIKE '%' || $3 || '%'
+        OR TRIM(COALESCE(d.order_no, '')) ILIKE '%' || $3 || '%'
       )
       AND (
         $5::text IS NULL OR $5 = ''
@@ -21325,13 +21939,17 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         TRIM(COALESCE(pb.mould_name, mps.mould_name)) as mould_name,
         ojr.job_card_no,
         COALESCE(ojr.client_name, o.client_name) as client_name,
-        -- QC verified this hour slot in the QC app? (fan-out-safe EXISTS;
-        -- qc_verifications is UNIQUE per machine/date/shift/hour_slot)
-        EXISTS (
-          SELECT 1 FROM qc_verifications qv
-          WHERE qv.machine = d.machine AND qv.dpr_date = d.dpr_date
-            AND qv.shift = d.shift AND qv.hour_slot = d.hour_slot
-        ) AS qc_verified
+        -- QC verify detail for this hour slot (qc_verifications is UNIQUE per
+        -- machine/date/shift/hour_slot; qv/qh joined LATERAL below, fan-out-safe).
+        (qv.id IS NOT NULL)   AS qc_verified,
+        qv.status             AS qc_verify_status,
+        qv.verified_by        AS qc_verified_by,
+        qv.verified_at        AS qc_verified_at,
+        qv.qc_good_qty        AS qc_good_qty,
+        qv.qc_reject_qty      AS qc_reject_qty,
+        qv.remarks            AS qc_remarks,
+        (qh.id IS NOT NULL)   AS qc_hold,
+        qh.reason             AS qc_hold_reason
       FROM (
         SELECT DISTINCT ON (${DPR_HOURLY_KEY}) *
         FROM dpr_hourly
@@ -21357,7 +21975,11 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         FROM mould_planning_summary
         GROUP BY or_jr_no, mould_name
       ) mps ON mps.or_jr_no = d.order_no AND mps.mould_name = pb.mould_name
-      LEFT JOIN users u ON u.username = d.created_by
+      -- LATERAL LIMIT 1: duplicate usernames (multi-factory/synced accounts) would
+      -- otherwise fan out each hourly entry and double-count good/reject in the matrix.
+      LEFT JOIN LATERAL (
+        SELECT line FROM users WHERE username = d.created_by ORDER BY id LIMIT 1
+      ) u ON true
       LEFT JOIN LATERAL(
         SELECT * FROM or_jr_report rpt
         WHERE TRIM(rpt.or_jr_no) = TRIM(COALESCE(d.order_no, pb.order_no))
@@ -21371,6 +21993,22 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
       -- most one orders row matches (null-tolerant for legacy rows). KAN-127.
       LEFT JOIN orders o ON o.order_no = COALESCE(d.order_no, pb.order_no)
         AND (o.factory_id = d.factory_id OR o.factory_id IS NULL OR d.factory_id IS NULL)
+      -- QC verification for this exact slot (Verified / Discrepancy + who/when/remarks)
+      LEFT JOIN LATERAL (
+        SELECT id, status, verified_by, verified_at, qc_good_qty, qc_reject_qty, remarks
+        FROM qc_verifications qv2
+        WHERE qv2.machine = d.machine AND qv2.dpr_date = d.dpr_date
+          AND qv2.shift = d.shift AND qv2.hour_slot = d.hour_slot
+        LIMIT 1
+      ) qv ON true
+      -- Active QC hold on this slot (→ cross in the Compliance Summary)
+      LEFT JOIN LATERAL (
+        SELECT id, reason FROM qc_holds qh2
+        WHERE qh2.machine = d.machine AND qh2.dpr_date = d.dpr_date
+          AND qh2.shift = d.shift AND qh2.slot = d.hour_slot
+          AND UPPER(COALESCE(qh2.status,'ACTIVE')) = 'ACTIVE'
+        ORDER BY qh2.id DESC LIMIT 1
+      ) qh ON true
     `;
     const entryParams = [fDate, tDate, shift];
     if (factoryId) {
@@ -21399,6 +22037,16 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
           WHERE is_deleted = false
             AND plan_id IS NOT NULL
             AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+            -- Only the plans actually shown in this range need a cumulative-produced
+            -- figure. Restricting to them turns a whole-table dedup/aggregate into an
+            -- indexed lookup of a handful of plans (idx_dpr_hourly_planprod), while
+            -- still summing ALL dates for each of those plans (balance stays correct).
+            AND plan_id IN (
+              SELECT plan_id FROM std_actual
+              WHERE dpr_date BETWEEN $1 AND $2 AND shift = $3 AND is_deleted = false
+                AND plan_id IS NOT NULL
+                AND ($4::int IS NULL OR factory_id = $4)
+            )
           ORDER BY ${DPR_HOURLY_KEY}, id DESC
         ) dh
         GROUP BY dh.plan_id, dh.factory_id
@@ -21419,6 +22067,9 @@ app.get('/api/dpr/summary-matrix', async (req, res) => {
         COALESCE(m.cycle_time, m2.cycle_time, m4.cycle_time, m3.cycle_time, 0) as std_cycle_time,
         COALESCE(m.std_wt_kg, m2.std_wt_kg, m4.std_wt_kg, m3.std_wt_kg, 0) as std_weight,
         s.article_act,
+        -- Manpower: STD from the mould master, Actual from the setup (std_actual.man_act).
+        COALESCE(m.manpower, m2.manpower, 0) as std_manpower,
+        s.man_act as act_manpower,
         -- Setup's own cycle / pcs-hr, so the row's STD can fall back to what the
         -- supervisor actually entered when the Mould-Master cycle can't be resolved
         -- (mould_code/name mismatch) — otherwise STD shows 0 despite a valid setup.
@@ -24080,6 +24731,15 @@ WITH RankedPlans AS (
     r.job_card_no as "JobCardNo",
     r.job_card_no,
 
+    --FPA status: 'Done' only when the First Piece Approval has been APPROVED by a QC approver
+    --for this job card on this machine; a submitted-but-not-yet-approved (or rejected) FPA
+    --stays 'Pending'. Always non-null so the app can distinguish it from an old server.
+    COALESCE((SELECT jc.fpa_status FROM qc_job_checks jc
+       WHERE TRIM(COALESCE(jc.job_card_no,'')) = TRIM(COALESCE(r.job_card_no,''))
+         AND jc.machine = pb.machine AND jc.fpa_status = 'Done'
+         AND COALESCE(jc.fpa_approval_status, 'Approved') = 'Approved'
+       ORDER BY jc.updated_at DESC LIMIT 1), 'Pending') as fpa_status,
+
     --Mixing Ratio(Constructed)
     CONCAT(
       CASE WHEN m.material IS NOT NULL THEN m.material || ' ' ELSE '' END,
@@ -26047,11 +26707,13 @@ app.get('/api/qc/fpa/status', async (req, res) => {
     if (!job_card_no) return res.json({ ok: true, done: false });
     const factoryId = getFactoryId(req);
     const rows = await q(
-      `SELECT id, date, shift, fpa_done_at, fpa_done_by, fpa_form_url, product_images
+      `SELECT id, date, shift, fpa_done_at, fpa_done_by, fpa_form_url, product_images,
+              COALESCE(fpa_approval_status,'Approved') AS fpa_approval_status,
+              fpa_reject_reason, fpa_reviewed_by, fpa_reviewed_at
        FROM qc_job_checks
        WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
          AND fpa_status = 'Done'
-         AND ($2 IS NULL OR machine = $2)
+         AND ($2::text IS NULL OR machine = $2::text)
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY fpa_done_at DESC LIMIT 1`,
       [job_card_no, machine || null, factoryId]
@@ -26065,8 +26727,16 @@ app.get('/api/qc/fpa/status', async (req, res) => {
       const fpaDate = r.date
         ? new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(r.date))
         : null;
+      const approval = r.fpa_approval_status || 'Approved';
       return res.json({
-        ok: true, done: true,
+        ok: true,
+        // 'done' now reflects an APPROVED FPA so the app's "already done" gate only trips on
+        // an approved one; a Pending/Rejected FPA still lets the QC user re-submit.
+        done: approval === 'Approved',
+        submitted: true,
+        approval_status: approval,
+        reject_reason: r.fpa_reject_reason || null,
+        reviewed_by: r.fpa_reviewed_by || null,
         date: fpaDate,
         shift: r.shift || null,
         done_by: r.fpa_done_by,
@@ -26075,7 +26745,7 @@ app.get('/api/qc/fpa/status', async (req, res) => {
         product_images: r.product_images
       });
     }
-    res.json({ ok: true, done: false });
+    res.json({ ok: true, done: false, submitted: false, approval_status: null });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -26093,7 +26763,7 @@ app.get('/api/qc/fpa/today', async (req, res) => {
        FROM qc_job_checks
        WHERE date = $1::date
          AND fpa_status = 'Done'
-         AND ($2 IS NULL OR machine = $2)
+         AND ($2::text IS NULL OR machine = $2::text)
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY fpa_done_at DESC
        LIMIT 100`,
@@ -26138,22 +26808,71 @@ app.post('/api/qc/fpa', (req, res, next) => {
     const factoryId = getFactoryId(req);
     const entryDate = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
 
-    await q(`
-      INSERT INTO qc_job_checks(
-        date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name,
-        fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
-        fpa_done_at, fpa_done_by, factory_id, updated_at
-      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,NOW())
-      ON CONFLICT DO NOTHING
-    `, [
-      entryDate, shift || '', hour_slot || '',
-      plan_id || '', job_card_no || '', order_no || '',
-      line || '', machine || '', item_name || '', mould_name || '',
-      formUrl, formUrl, JSON.stringify(productUrls),
-      remarks || '', supervisor, now, supervisor, factoryId
-    ]);
+    // FPA is unique per job card + machine. A re-upload of a REJECTED (or any existing) FPA
+    // updates that row and puts it back into Pending for re-approval, rather than inserting a
+    // duplicate. Only when no prior FPA exists do we insert a fresh row.
+    const existing = job_card_no
+      ? await q(
+          `SELECT id FROM qc_job_checks
+             WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
+               AND machine = $2
+               AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+             ORDER BY id DESC LIMIT 1`,
+          [job_card_no, machine || '', factoryId]
+        )
+      : [];
+
+    let fpaId;
+    if (existing.length) {
+      fpaId = existing[0].id;
+      await q(`
+        UPDATE qc_job_checks SET
+          date=$1, shift=$2, hour_slot=$3, plan_id=$4, order_no=$5, line=$6,
+          item_name=$7, mould_name=$8,
+          fpa_status='Done', fpa_form_image=$9, fpa_form_url=$10, product_images=$11::jsonb,
+          remarks=$12, supervisor=$13, fpa_done_at=$14, fpa_done_by=$15,
+          fpa_approval_status='Pending', fpa_reject_reason=NULL,
+          fpa_reviewed_by=NULL, fpa_reviewed_at=NULL,
+          fpa_resubmit_count=COALESCE(fpa_resubmit_count,0)+1,
+          updated_at=NOW()
+        WHERE id=$16
+      `, [
+        entryDate, shift || '', hour_slot || '', plan_id || '', order_no || '', line || '',
+        item_name || '', mould_name || '',
+        formUrl, formUrl, JSON.stringify(productUrls),
+        remarks || '', supervisor, now, supervisor, fpaId
+      ]);
+    } else {
+      const ins = await q(`
+        INSERT INTO qc_job_checks(
+          date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name,
+          fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
+          fpa_done_at, fpa_done_by, factory_id, fpa_approval_status, updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,'Pending',NOW())
+        RETURNING id
+      `, [
+        entryDate, shift || '', hour_slot || '',
+        plan_id || '', job_card_no || '', order_no || '',
+        line || '', machine || '', item_name || '', mould_name || '',
+        formUrl, formUrl, JSON.stringify(productUrls),
+        remarks || '', supervisor, now, supervisor, factoryId
+      ]);
+      fpaId = ins && ins[0] && ins[0].id;
+    }
+
+    // Notify the FPA approver roles of this factory that an FPA is awaiting approval.
+    try {
+      for (const role of FPA_APPROVER_ROLES) {
+        await q(
+          `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+           VALUES ($1,$2,$3,'FPA',$4)`,
+          [factoryId, role, `FPA awaiting approval — ${machine || '-'} / ${job_card_no || '-'} by ${supervisor}`, fpaId]
+        );
+      }
+    } catch (_) { /* notifications are best-effort */ }
+
     syncService.triggerSync();
-    res.json({ ok: true, form_url: formUrl, product_images: productUrls });
+    res.json({ ok: true, id: fpaId, form_url: formUrl, product_images: productUrls, approval_status: 'Pending' });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -26180,6 +26899,228 @@ app.get('/api/qc/job-checks', async (req, res) => {
       LIMIT ${Math.max(1, Math.min(500, Number(limit || 100)))}
     `, params);
     res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/fpa/delete-image — remove ONE FPA image from a qc_job_checks row.
+// Allowed roles: quality, admin, superadmin — so Quality can drop a bad FPA photo
+// and re-take it. Role is resolved server-side; a client-sent role is never trusted.
+app.post('/api/qc/fpa/delete-image', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const id = parseInt(body.id, 10);
+    const url = String(body.url || '').trim();
+    if (!id || !url) return res.status(400).json({ ok: false, error: 'id and url required' });
+
+    const uname = (body.session ? (() => {
+      try { const s = typeof body.session === 'string' ? JSON.parse(body.session) : body.session; return s.username || s.user || ''; }
+      catch (_) { return ''; }
+    })() : '') || getRequestUsername(req) || '';
+    const urow = uname ? await q('SELECT role_code FROM users WHERE username=$1 LIMIT 1', [uname]) : [];
+    const role = String((urow[0] && urow[0].role_code) || '').toLowerCase();
+    const allowed = role === 'admin' || role === 'superadmin' || role === 'quality' || role === 'quality_manager';
+    if (!allowed) return res.status(403).json({ ok: false, error: 'Only Quality / admin can delete FPA images.' });
+
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT id, fpa_form_image, fpa_form_url, product_images FROM qc_job_checks
+        WHERE id=$1 AND ($2::int IS NULL OR factory_id=$2 OR factory_id IS NULL) LIMIT 1`,
+      [id, factoryId]
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Job check not found' });
+    const row = rows[0];
+
+    let products = [];
+    try { products = Array.isArray(row.product_images) ? row.product_images : JSON.parse(row.product_images || '[]'); }
+    catch (_) { products = []; }
+    const newProducts = products.filter(u => String(u) !== url);
+    const clearedForm = (row.fpa_form_image === url) || (row.fpa_form_url === url);
+    const newForm = clearedForm ? null : row.fpa_form_image;
+    const newFormUrl = clearedForm ? null : row.fpa_form_url;
+    const nothingLeft = !newForm && newProducts.length === 0;
+
+    await q(
+      `UPDATE qc_job_checks
+          SET fpa_form_image=$1, fpa_form_url=$2, product_images=$3::jsonb,
+              fpa_status  = CASE WHEN $4 THEN 'Pending' ELSE fpa_status END,
+              fpa_done_at = CASE WHEN $4 THEN NULL ELSE fpa_done_at END,
+              fpa_done_by = CASE WHEN $4 THEN NULL ELSE fpa_done_by END,
+              updated_at = NOW()
+        WHERE id=$5`,
+      [newForm, newFormUrl, JSON.stringify(newProducts), nothingLeft, id]
+    );
+
+    // Best-effort: delete the physical file only if no other row still references it.
+    try {
+      const base = path.basename(url);
+      const still = await q(
+        `SELECT 1 FROM qc_job_checks
+          WHERE fpa_form_image LIKE $1 OR fpa_form_url LIKE $1 OR product_images::text LIKE $1 LIMIT 1`,
+        ['%' + base + '%']
+      );
+      if (!still.length) {
+        const fp = path.join(_qcImgDir, base);
+        if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      }
+    } catch (_) { /* file cleanup is best-effort */ }
+
+    if (syncService && syncService.triggerSync) syncService.triggerSync();
+    res.json({ ok: true, product_images: newProducts, fpa_form_image: newForm, cleared: nothingLeft });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Helper: resolve the caller's role_code + username from body.session or the request.
+async function resolveCallerRole(req) {
+  const body = req.body || {};
+  const uname = (body.session ? (() => {
+    try { const s = typeof body.session === 'string' ? JSON.parse(body.session) : body.session; return s.username || s.user || ''; }
+    catch (_) { return ''; }
+  })() : '') || getRequestUsername(req) || '';
+  const urow = uname ? await q('SELECT role_code FROM users WHERE username=$1 LIMIT 1', [uname]) : [];
+  return { username: uname, role: String((urow[0] && urow[0].role_code) || '').toLowerCase() };
+}
+
+// GET /api/qc/fpa/list — line-wise FPA status for a date/shift (Quality FPA submenu).
+// Lists active plans (per machine/line) LEFT JOINed to the latest FPA for that job so each
+// line shows: NotDone | Pending | Approved | Rejected, with images + reviewer + reason.
+app.get('/api/qc/fpa/list', async (req, res) => {
+  try {
+    const { date, shift, machine } = req.query;
+    const factoryId = resolveReportFactoryId ? resolveReportFactoryId(req) : getFactoryId(req);
+    const d = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    const mFilter = (machine && machine !== 'All' && machine !== 'All Machines') ? machine : null;
+    const rows = await q(
+      `SELECT
+         jc.id, jc.date, jc.shift, jc.machine, jc.line, jc.job_card_no, jc.order_no,
+         jc.item_name, jc.mould_name, jc.plan_id,
+         jc.fpa_form_url, jc.product_images, jc.remarks,
+         jc.fpa_done_by, jc.fpa_done_at,
+         COALESCE(jc.fpa_approval_status, 'Pending') AS fpa_approval_status,
+         jc.fpa_reviewed_by, jc.fpa_reviewed_at, jc.fpa_reject_reason,
+         COALESCE(jc.fpa_resubmit_count, 0) AS fpa_resubmit_count
+       FROM qc_job_checks jc
+       WHERE jc.fpa_status = 'Done'
+         AND jc.date = $1::date
+         AND ($2::text IS NULL OR jc.shift = $2::text)
+         AND ($3::text IS NULL OR jc.machine = $3::text)
+         AND ($4::int IS NULL OR jc.factory_id = $4 OR jc.factory_id IS NULL)
+       ORDER BY
+         CASE COALESCE(jc.fpa_approval_status,'Pending')
+           WHEN 'Pending' THEN 0 WHEN 'Rejected' THEN 1 ELSE 2 END,
+         jc.machine ASC, jc.fpa_done_at DESC
+       LIMIT 300`,
+      [d, shift || null, mFilter, factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/fpa/mine — a QC user's own FPAs (for the native app: see Pending / Rejected).
+app.get('/api/qc/fpa/mine', async (req, res) => {
+  try {
+    const { username, status, limit } = req.query;
+    const factoryId = getFactoryId(req);
+    const uname = username || getRequestUsername(req) || '';
+    const rows = await q(
+      `SELECT id, date, shift, machine, line, job_card_no, order_no, item_name, mould_name,
+              fpa_form_url, product_images, remarks, fpa_done_by, fpa_done_at,
+              COALESCE(fpa_approval_status,'Pending') AS fpa_approval_status,
+              fpa_reviewed_by, fpa_reviewed_at, fpa_reject_reason,
+              COALESCE(fpa_resubmit_count,0) AS fpa_resubmit_count
+         FROM qc_job_checks
+        WHERE fpa_status = 'Done'
+          AND ($1::text IS NULL OR fpa_done_by = $1::text)
+          AND ($2::text IS NULL OR COALESCE(fpa_approval_status,'Pending') = $2::text)
+          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+        ORDER BY fpa_done_at DESC
+        LIMIT $4`,
+      [uname || null, status || null, factoryId, Math.min(200, parseInt(limit) || 100)]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/fpa/:id/approve — approver marks an FPA approved (then it counts in DPR).
+app.post('/api/qc/fpa/:id/approve', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ ok: false, error: 'id required' });
+    const { role, username } = await resolveCallerRole(req);
+    if (!isFpaApprover(role, username)) {
+      return res.status(403).json({ ok: false, error: 'Only QC HOD / Quality / admin can approve FPA.' });
+    }
+    const factoryId = getFactoryId(req);
+    const reviewer = String(username || 'QC').replace(/[^\w\s\-\.@]/g, '').slice(0, 100);
+    const upd = await q(
+      `UPDATE qc_job_checks
+          SET fpa_approval_status='Approved', fpa_reviewed_by=$1, fpa_reviewed_at=NOW(),
+              fpa_reject_reason=NULL, updated_at=NOW()
+        WHERE id=$2 AND fpa_status='Done'
+          AND ($3::int IS NULL OR factory_id=$3 OR factory_id IS NULL)
+        RETURNING id, machine, job_card_no, fpa_done_by`,
+      [reviewer, id, factoryId]
+    );
+    if (!upd.length) return res.status(404).json({ ok: false, error: 'FPA not found' });
+    // Notify the submitting QC that their FPA was approved.
+    try {
+      const r = upd[0];
+      if (r.fpa_done_by) {
+        await q(`INSERT INTO qc_notifications (factory_id, recipient_role, recipient_name, message, ref_type, ref_id)
+                 VALUES ($1,$2,$3,$4,'FPA',$5)`,
+          [factoryId, 'qc_supervisor', r.fpa_done_by,
+           `FPA approved — ${r.machine || '-'} / ${r.job_card_no || '-'}`, id]);
+      }
+    } catch (_) {}
+    if (syncService && syncService.triggerSync) syncService.triggerSync();
+    res.json({ ok: true, id, approval_status: 'Approved' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/fpa/:id/reject — approver rejects with a reason; QC must correct & re-upload.
+app.post('/api/qc/fpa/:id/reject', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const reason = String((req.body && req.body.reason) || '').trim().slice(0, 500);
+    if (!id) return res.status(400).json({ ok: false, error: 'id required' });
+    if (!reason) return res.status(400).json({ ok: false, error: 'Reject reason required' });
+    const { role, username } = await resolveCallerRole(req);
+    if (!isFpaApprover(role, username)) {
+      return res.status(403).json({ ok: false, error: 'Only QC HOD / Quality / admin can reject FPA.' });
+    }
+    const factoryId = getFactoryId(req);
+    const reviewer = String(username || 'QC').replace(/[^\w\s\-\.@]/g, '').slice(0, 100);
+    const upd = await q(
+      `UPDATE qc_job_checks
+          SET fpa_approval_status='Rejected', fpa_reject_reason=$1,
+              fpa_reviewed_by=$2, fpa_reviewed_at=NOW(), updated_at=NOW()
+        WHERE id=$3 AND fpa_status='Done'
+          AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
+        RETURNING id, machine, job_card_no, fpa_done_by`,
+      [reason, reviewer, id, factoryId]
+    );
+    if (!upd.length) return res.status(404).json({ ok: false, error: 'FPA not found' });
+    // Notify the submitting QC that their FPA was rejected (with reason).
+    try {
+      const r = upd[0];
+      if (r.fpa_done_by) {
+        await q(`INSERT INTO qc_notifications (factory_id, recipient_role, recipient_name, message, ref_type, ref_id)
+                 VALUES ($1,$2,$3,$4,'FPA',$5)`,
+          [factoryId, 'qc_supervisor', r.fpa_done_by,
+           `FPA rejected — ${r.machine || '-'} / ${r.job_card_no || '-'}: ${reason.slice(0, 80)}`, id]);
+      }
+    } catch (_) {}
+    if (syncService && syncService.triggerSync) syncService.triggerSync();
+    res.json({ ok: true, id, approval_status: 'Rejected' });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -26464,16 +27405,53 @@ app.get('/api/qc/online-report', async (req, res) => {
        ORDER BY slot ASC`,
       [machine, date, shift, factoryId]
     );
-    // Also fetch the active job context for item/mould names
-    const jobRows = await q(
-      `SELECT d.job_card_no, d.order_no, d.item_name, d.mould_name
-       FROM dpr_hourly d
-       WHERE d.machine = $1 AND d.dpr_date = $2::date AND d.shift = $3 AND d.is_deleted = false
-         AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
-       ORDER BY d.id DESC LIMIT 1`,
-      [machine, date, shift, factoryId]
+    // Also fetch the active job context for item/mould names.
+    // dpr_hourly has no item_name/mould_name columns, so pull those from plan_board.
+    // Wrapped so a failure here never 500s the whole report.
+    let job = null;
+    try {
+      const jobRows = await q(
+        `SELECT d.job_card_no, d.order_no, pb.item_name, pb.mould_name
+         FROM dpr_hourly d
+         LEFT JOIN LATERAL (
+           SELECT item_name, mould_name FROM plan_board
+           WHERE machine = d.machine AND order_no = d.order_no
+           ORDER BY updated_at DESC NULLS LAST LIMIT 1
+         ) pb ON true
+         WHERE d.machine = $1 AND d.dpr_date = $2::date AND d.shift = $3 AND d.is_deleted = false
+           AND ($4::int IS NULL OR d.factory_id = $4 OR d.factory_id IS NULL)
+         ORDER BY d.id DESC LIMIT 1`,
+        [machine, date, shift, factoryId]
+      );
+      job = jobRows[0] || null;
+    } catch (_) { job = null; }
+    res.json({ ok: true, data: rows || [], job });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/online-report/list — manager view: all slots for a date/shift
+// across every machine (or one machine if given). Factory-scoped.
+app.get('/api/qc/online-report/list', async (req, res) => {
+  try {
+    const { date, shift, machine } = req.query;
+    if (!date) return res.json({ ok: false, error: 'date required' });
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT machine, dpr_date, shift, slot, job_card_no, order_no, item_name, mould_name,
+              visual_status, visual_problem, visual_remarks,
+              colour_status, colour_problem, colour_remarks,
+              ff_status, ff_problem, ff_photo_url, entered_by, entered_at
+         FROM qc_online_report_slots
+        WHERE dpr_date = $1::date
+          AND ($2::text IS NULL OR $2 = '' OR shift = $2)
+          AND ($3::text IS NULL OR $3 = '' OR machine = $3)
+          AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+        ORDER BY machine ASC, slot ASC`,
+      [date, shift || '', machine || '', factoryId]
     );
-    res.json({ ok: true, data: rows || [], job: jobRows[0] || null });
+    res.json({ ok: true, data: rows || [] });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -26536,15 +27514,18 @@ app.get('/api/qc/job-setup', async (req, res) => {
     const { job_card_no, date, shift, machine, mould_name } = req.query;
     const factoryId = getFactoryId(req);
 
-    // Get existing QC setup
-    const setup = await q(
+    // Get existing QC setup — both periods (1 = start of shift, 2 = mid-shift).
+    const setupRows = await q(
       `SELECT * FROM qc_job_setup
        WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
          AND machine = $2 AND dpr_date = $3::date AND shift = $4
          AND ($5::int IS NULL OR factory_id = $5 OR factory_id IS NULL)
-       ORDER BY setup_at DESC LIMIT 1`,
+       ORDER BY COALESCE(setup_period,1) ASC, setup_at DESC`,
       [job_card_no || '', machine || '', date, shift || 'Day', factoryId]
     );
+    const setups = { 1: null, 2: null };
+    for (const r of setupRows) { const p = r.setup_period || 1; if (!setups[p]) setups[p] = r; }
+    const setup = [setups[1] || null];  // keep the legacy `setup` shape (array-indexed [0])
 
     // Get STD values from mould master
     let std = { std_weight: null, std_cycle_time: null, std_cavity: null };
@@ -26571,7 +27552,7 @@ app.get('/api/qc/job-setup', async (req, res) => {
       if (mouldRows.length) std = { std_weight: mouldRows[0].std_weight, std_cycle_time: mouldRows[0].std_cycle_time, std_cavity: mouldRows[0].std_cavity };
     }
 
-    res.json({ ok: true, setup: setup[0] || null, std });
+    res.json({ ok: true, setup: setup[0] || null, setups, std });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -26583,22 +27564,25 @@ app.post('/api/qc/job-setup', async (req, res) => {
     const { job_card_no, machine, dpr_date, shift, act_weight, act_cycle_time, act_cavity,
             std_weight, std_cycle_time, std_cavity } = req.body || {};
     if (!job_card_no || !machine || !dpr_date || !shift) return res.json({ ok: false, error: 'job_card_no, machine, dpr_date, shift required' });
+    // setup_period: 1 (start of shift) or 2 (mid-shift). Filled twice per shift.
+    let setupPeriod = parseInt(req.body.setup_period, 10);
+    if (setupPeriod !== 1 && setupPeriod !== 2) setupPeriod = 1;
     const rawUser = (req.body.session ? (() => { try { const s = typeof req.body.session === 'string' ? JSON.parse(req.body.session) : req.body.session; return s.username || s.supervisor || s.user || ''; } catch(_) { return ''; } })() : '') || '';
     const setup_by = String(rawUser).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || 'QC';
     const factoryId = getFactoryId(req);
     const toN = v => (v !== '' && v !== null && v !== undefined && !isNaN(Number(v))) ? Number(v) : null;
 
     await q(`
-      INSERT INTO qc_job_setup (factory_id, job_card_no, machine, dpr_date, shift,
+      INSERT INTO qc_job_setup (factory_id, job_card_no, machine, dpr_date, shift, setup_period,
         std_weight, act_weight, std_cycle_time, act_cycle_time, std_cavity, act_cavity, setup_by)
-      VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12)
-      ON CONFLICT (job_card_no, machine, dpr_date, shift)
+      VALUES ($1,$2,$3,$4::date,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      ON CONFLICT (job_card_no, machine, dpr_date, shift, setup_period)
       DO UPDATE SET
         std_weight = EXCLUDED.std_weight, act_weight = EXCLUDED.act_weight,
         std_cycle_time = EXCLUDED.std_cycle_time, act_cycle_time = EXCLUDED.act_cycle_time,
         std_cavity = EXCLUDED.std_cavity, act_cavity = EXCLUDED.act_cavity,
         setup_by = EXCLUDED.setup_by, setup_at = NOW()
-    `, [factoryId, job_card_no, machine, dpr_date, shift,
+    `, [factoryId, job_card_no, machine, dpr_date, shift, setupPeriod,
         toN(std_weight), toN(act_weight), toN(std_cycle_time), toN(act_cycle_time),
         toN(std_cavity) ? Math.round(toN(std_cavity)) : null,
         toN(act_cavity) ? Math.round(toN(act_cavity)) : null, setup_by]);
@@ -26692,7 +27676,7 @@ app.get('/api/qc/holds', async (req, res) => {
       `SELECT * FROM qc_holds
        WHERE machine = $1
          AND ($2::date IS NULL OR dpr_date = $2::date)
-         AND ($3 IS NULL OR status = $3)
+         AND ($3::text IS NULL OR status = $3::text)
          AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
        ORDER BY hold_at DESC LIMIT 50`,
       [machine || '', date || null, status || null, factoryId]
@@ -26730,7 +27714,7 @@ app.get('/api/qc/hold/active', async (req, res) => {
     const rows = await q(
       `SELECT id, reason, hold_by FROM qc_holds
        WHERE status = 'ACTIVE'
-         AND (($1 IS NOT NULL AND TRIM(COALESCE(job_card_no,'')) = TRIM($1)) OR ($2 IS NOT NULL AND machine = $2))
+         AND (($1::text IS NOT NULL AND TRIM(COALESCE(job_card_no,'')) = TRIM($1)) OR ($2::text IS NOT NULL AND machine = $2::text))
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY hold_at DESC LIMIT 1`,
       [job_card_no || null, machine || null, factoryId]
@@ -26785,8 +27769,8 @@ app.get('/api/qc/material-issues', async (req, res) => {
     const factoryId = getFactoryId(req);
     const rows = await q(
       `SELECT * FROM qc_material_issues
-       WHERE ($1 IS NULL OR machine = $1)
-         AND ($2 IS NULL OR status = $2)
+       WHERE ($1::text IS NULL OR machine = $1::text)
+         AND ($2::text IS NULL OR status = $2::text)
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY created_at DESC
        LIMIT $4`,
@@ -26834,6 +27818,309 @@ app.post('/api/qc/material-issues/:id/resolve', async (req, res) => {
       [by, resolution_notes || '', JSON.stringify([{ action: 'RESOLVED', by, at: new Date().toISOString(), notes: resolution_notes || '' }]), id, factoryId]
     );
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RAISED MEMO — QC raises a production memo to Moulding; lifecycle:
+//   RAISED → ACCEPTED → SOLVED   (or DEVIATION = "Running Under Deviation")
+// Notifies moulding_manager + moulding_ass_manager of the raising factory only.
+// Built on qc_material_issues (+ memo columns). New /api/qc/memos* aliases.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The two Moulding roles a memo is sent to, by role_code (factory-scoped).
+const MEMO_TARGET_ROLES = ['moulding_manager', 'moulding_ass_manager'];
+// Roles allowed to Approve/Reject an FPA (QC HOD = role_code 'quality', Quality Ass. Manager,
+// plus admins). Enforced server-side; superadmin also passes via username check.
+const FPA_APPROVER_ROLES = ['quality', 'quality_ass__manager', 'admin', 'superadmin'];
+function isFpaApprover(role, username) {
+  const r = String(role || '').toLowerCase();
+  return FPA_APPROVER_ROLES.includes(r) || String(username || '').toLowerCase() === 'superadmin';
+}
+// Roles allowed to change a memo's lifecycle (accept/solve/deviation).
+const MEMO_MOULDING_ACTORS = ['moulding_manager', 'moulding_ass_manager', 'admin', 'superadmin'];
+// Roles that see every factory's memos and may reply/re-raise.
+const MEMO_QUALITY_ROLES = ['quality', 'quality_manager', 'quality_supervisor', 'qc_supervisor', 'admin', 'superadmin'];
+
+// Extract the acting username from a request (authenticated header, session JSON,
+// or explicit field). Prefer the server-known username over any client-sent value.
+function memoActor(req, fallback = 'QC') {
+  const b = req.body || {};
+  const raw = (getRequestUsername(req) || '') ||
+    (b.session ? (() => {
+      try { const s = typeof b.session === 'string' ? JSON.parse(b.session) : b.session; return s.username || s.supervisor || s.user || ''; }
+      catch (_) { return ''; }
+    })() : '') || b.created_by || b.by || '';
+  return String(raw).replace(/[^\w\s\-\.@]/g, '').slice(0, 100) || fallback;
+}
+
+// Resolve the caller's REAL role_code from the users table (never trust a
+// client-sent ?role / body.role — that would let anyone claim Quality).
+async function memoRole(req) {
+  try {
+    const uname = getRequestUsername(req);
+    if (!uname) return '';
+    const r = await q('SELECT role_code FROM users WHERE username=$1 LIMIT 1', [uname]);
+    return String((r && r[0] && r[0].role_code) || '').toLowerCase();
+  } catch (_) { return ''; }
+}
+
+// Is the authenticated caller a Quality manager (sees every factory + can reply)?
+async function isQualityManager(req) {
+  return MEMO_QUALITY_ROLES.includes(await memoRole(req));
+}
+
+// POST /api/qc/memos — raise a memo (multi image/video, job context, @mention)
+app.post('/api/qc/memos', (req, res, next) => {
+  uploadQC.array('media_files', 12)(req, res, err => {
+    if (err) return res.status(400).json({ ok: false, error: err.message || 'Upload error' });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { machine, job_card_no, plan_id, order_no, mould_name, issue_description,
+            severity, shift, report_date, mentioned_name, mentioned_role } = body;
+    if (!machine || !issue_description) return res.json({ ok: false, error: 'machine and issue_description required' });
+    const created_by = memoActor(req);
+    const factoryId = getFactoryId(req);
+    const files = Array.isArray(req.files) ? req.files : [];
+    const mediaUrls = files.map(f => `/uploads/qc-images/${path.basename(f.filename || f.path)}`);
+    const now = new Date().toISOString();
+    const initAudit = JSON.stringify([{ action: 'RAISED', by: created_by, at: now, notes: issue_description }]);
+
+    const ins = await q(
+      `INSERT INTO qc_material_issues
+         (factory_id, machine, job_card_no, plan_id, order_no, mould_name, issue_description,
+          severity, media_url, media_urls, assigned_to_role, mentioned_name, mentioned_role,
+          created_by, shift, report_date, status, action_history)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16,'RAISED',$17::jsonb)
+       RETURNING id`,
+      [factoryId, machine, job_card_no || '', plan_id || '', order_no || '', mould_name || '',
+       issue_description, severity || 'Medium', mediaUrls[0] || null, JSON.stringify(mediaUrls),
+       'moulding_manager', mentioned_name || '', mentioned_role || '', created_by,
+       shift || '', report_date || null, initAudit]
+    );
+    const id = ins[0].id;
+    // Unique, human-readable memo number: MEMO-<factory>-<id> (id is globally unique).
+    const memoNo = `MEMO-${factoryId || 0}-${id}`;
+    await q(`UPDATE qc_material_issues SET memo_no=$1 WHERE id=$2`, [memoNo, id]);
+
+    // Notify the two Moulding roles of THIS factory only.
+    for (const role of MEMO_TARGET_ROLES) {
+      await q(
+        `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+         VALUES ($1,$2,$3,'MEMO',$4)`,
+        [factoryId, role, `${memoNo}: new memo on ${machine} by ${created_by} — ${issue_description.slice(0, 80)}`, id]
+      );
+    }
+    // Also directly notify the @mentioned person, if any.
+    if (mentioned_name) {
+      await q(
+        `INSERT INTO qc_notifications (factory_id, recipient_role, recipient_name, message, ref_type, ref_id)
+         VALUES ($1,$2,$3,$4,'MEMO',$5)`,
+        [factoryId, mentioned_role || 'moulding_manager', mentioned_name,
+         `${memoNo}: you were mentioned on ${machine} by ${created_by}`, id]
+      );
+    }
+    res.json({ ok: true, id, memo_no: memoNo, media_urls: mediaUrls });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/memos — list memos. Quality managers see all factories; others own factory.
+app.get('/api/qc/memos', async (req, res) => {
+  try {
+    const { machine, status, limit } = req.query;
+    const factoryId = getFactoryId(req);
+    const seeAll = await isQualityManager(req);
+    const rows = await q(
+      `SELECT *,
+              EXTRACT(EPOCH FROM (COALESCE(first_reply_at, accepted_at) - created_at))/60 AS response_mins,
+              EXTRACT(EPOCH FROM (resolved_at - created_at))/60 AS resolution_mins
+         FROM qc_material_issues
+        WHERE memo_no IS NOT NULL
+          AND ($1::text IS NULL OR machine = $1::text)
+          AND ($2::text IS NULL OR status = $2::text)
+          AND ($3::boolean IS TRUE OR $4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
+        ORDER BY created_at DESC
+        LIMIT $5`,
+      [machine || null, status || null, seeAll, factoryId, Math.min(200, parseInt(limit) || 100)]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/memos/active-by-machine — open memos for the DPR Compliance badge.
+// Carryover: anything not SOLVED stays visible into the next shift; SOLVED drops off.
+app.get('/api/qc/memos/active-by-machine', async (req, res) => {
+  try {
+    const { machine } = req.query;
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT id, memo_no, machine, job_card_no, plan_id, issue_description, severity,
+              created_by, created_at, status, deviation, accepted_by, accepted_at, shift, report_date
+         FROM qc_material_issues
+        WHERE memo_no IS NOT NULL
+          AND status <> 'SOLVED'
+          AND ($1::text IS NULL OR machine = $1)
+          AND ($2::int IS NULL OR factory_id = $2 OR factory_id IS NULL)
+        ORDER BY created_at DESC`,
+      [machine || null, factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/accept — Moulding accepts the memo (starts the clock).
+app.post('/api/qc/memos/:id/accept', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!MEMO_MOULDING_ACTORS.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only Moulding managers can accept a memo.' });
+    const by = memoActor(req, 'Moulding');
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+          SET accepted_by=$1, accepted_at=NOW(),
+              first_reply_at = COALESCE(first_reply_at, NOW()),
+              status = CASE WHEN status IN ('SOLVED') THEN status ELSE 'ACCEPTED' END,
+              action_history = action_history || $2::jsonb
+        WHERE id=$3 AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)`,
+      [by, JSON.stringify([{ action: 'ACCEPTED', by, at: new Date().toISOString() }]), id, factoryId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/solve — Moulding marks the memo solved.
+app.post('/api/qc/memos/:id/solve', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!MEMO_MOULDING_ACTORS.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only Moulding managers can solve a memo.' });
+    const { resolution_notes } = req.body || {};
+    const by = memoActor(req, 'Moulding');
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+          SET resolved_by=$1, resolved_at=NOW(), status='SOLVED',
+              deviation=FALSE, resolution_notes=$2,
+              first_reply_at = COALESCE(first_reply_at, NOW()),
+              action_history = action_history || $3::jsonb
+        WHERE id=$4 AND ($5::int IS NULL OR factory_id=$5 OR factory_id IS NULL)`,
+      [by, resolution_notes || '', JSON.stringify([{ action: 'SOLVED', by, at: new Date().toISOString(), notes: resolution_notes || '' }]), id, factoryId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/deviation — Moulding runs the job Under Deviation.
+app.post('/api/qc/memos/:id/deviation', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!MEMO_MOULDING_ACTORS.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only Moulding managers can run a memo under deviation.' });
+    const { notes } = req.body || {};
+    const by = memoActor(req, 'Moulding');
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+          SET deviation=TRUE, deviation_by=$1, deviation_at=NOW(), status='DEVIATION',
+              first_reply_at = COALESCE(first_reply_at, NOW()),
+              action_history = action_history || $2::jsonb
+        WHERE id=$3 AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)`,
+      [by, JSON.stringify([{ action: 'DEVIATION', by, at: new Date().toISOString(), notes: notes || '' }]), id, factoryId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/reply — threaded reply (Quality or Moulding).
+app.post('/api/qc/memos/:id/reply', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { message } = req.body || {};
+    if (!message || !String(message).trim()) return res.json({ ok: false, error: 'message required' });
+    const role = await memoRole(req);
+    if (!MEMO_QUALITY_ROLES.includes(role) && !MEMO_TARGET_ROLES.includes(role)) {
+      return res.status(403).json({ ok: false, error: 'Only Quality or Moulding can reply to a memo.' });
+    }
+    const seeAll = MEMO_QUALITY_ROLES.includes(role);
+    const by = memoActor(req, 'User');
+    const factoryId = getFactoryId(req);
+    await q(
+      `UPDATE qc_material_issues
+          SET first_reply_at = COALESCE(first_reply_at, NOW()),
+              action_history = action_history || $1::jsonb
+        WHERE id=$2 AND ($3::int IS NULL OR factory_id=$3 OR factory_id IS NULL OR $4::boolean IS TRUE)`,
+      [JSON.stringify([{ action: 'REPLY', by, at: new Date().toISOString(), notes: String(message).slice(0, 1000) }]),
+       id, factoryId, seeAll]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/memos/:id/reraise — QC reopens a memo that was not really solved.
+app.post('/api/qc/memos/:id/reraise', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!MEMO_QUALITY_ROLES.includes(await memoRole(req))) return res.status(403).json({ ok: false, error: 'Only QC / Quality can re-raise a memo.' });
+    const { notes } = req.body || {};
+    const by = memoActor(req, 'QC');
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `UPDATE qc_material_issues
+          SET status='RAISED', deviation=FALSE, resolved_by=NULL, resolved_at=NULL,
+              reraised_count = COALESCE(reraised_count,0) + 1,
+              action_history = action_history || $1::jsonb
+        WHERE id=$2 AND ($3::int IS NULL OR factory_id=$3 OR factory_id IS NULL)
+        RETURNING factory_id, machine, memo_no`,
+      [JSON.stringify([{ action: 'RERAISED', by, at: new Date().toISOString(), notes: notes || '' }]), id, factoryId]
+    );
+    // Re-notify the Moulding roles.
+    if (rows && rows[0]) {
+      for (const role of MEMO_TARGET_ROLES) {
+        await q(
+          `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+           VALUES ($1,$2,$3,'MEMO',$4)`,
+          [rows[0].factory_id, role, `${rows[0].memo_no}: re-raised by ${by} on ${rows[0].machine}`, id]
+        );
+      }
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/factory-people — Moulding people in a factory, for the @mention picker.
+app.get('/api/qc/factory-people', async (req, res) => {
+  try {
+    const factoryId = getFactoryId(req);
+    const rows = await q(
+      `SELECT DISTINCT u.username, u.role_code, COALESCE(u.full_name, u.username) AS name
+         FROM users u
+         LEFT JOIN user_factories uf ON uf.user_id = u.id
+        WHERE COALESCE(u.is_active, TRUE) = TRUE
+          AND LOWER(COALESCE(u.role_code,'')) = ANY($1::text[])
+          AND ($2::int IS NULL OR u.global_access = TRUE OR uf.factory_id = $2)
+        ORDER BY name`,
+      [MEMO_TARGET_ROLES, factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -27146,7 +28433,7 @@ SUM(qty_checked) as total_checked,
     const activeIssues = Number((issueRes[0] || {}).c || 0);
 
     // 3. FPA done today
-    let fpaSql = `SELECT COUNT(DISTINCT job_card_no) as c FROM qc_job_checks WHERE date = $1::date AND fpa_status = 'Done'`;
+    let fpaSql = `SELECT COUNT(DISTINCT job_card_no) as c FROM qc_job_checks WHERE date = $1::date AND fpa_status = 'Done' AND COALESCE(fpa_approval_status,'Approved') = 'Approved'`;
     const fpaParams = [d1];
     if (machine && machine !== 'All' && machine !== 'All Machines') {
       fpaParams.push(machine);
@@ -27202,8 +28489,8 @@ app.get('/api/qc/dashboard/analysis', async (req, res) => {
 
     let baseWhere = `date >= $1 AND date <= $2`;
     let params = [d1, d2];
-    if (machine && machine !== 'All') {
-      baseWhere += ` AND machine = $3`;
+    if (machine && machine !== 'All' && machine !== 'All Machines') {
+      baseWhere += ` AND machine = $${params.length + 1}`;
       params.push(machine);
     }
 
@@ -28516,8 +29803,13 @@ app.get('/api/analyze/supervisor', async (req, res) => {
         dh.good_qty, dh.reject_qty, dh.downtime_min,
         u.username AS user_name, u.role_code AS user_role
       FROM dpr_hourly dh
-      LEFT JOIN users u
-        ON LOWER(TRIM(u.username)) = LOWER(TRIM(COALESCE(NULLIF(TRIM(dh.supervisor), ''), dh.created_by, '')))
+      -- LATERAL LIMIT 1: duplicate usernames would fan out entries and inflate the
+      -- per-owner good/reject/downtime totals.
+      LEFT JOIN LATERAL (
+        SELECT username, role_code FROM users
+        WHERE LOWER(TRIM(username)) = LOWER(TRIM(COALESCE(NULLIF(TRIM(dh.supervisor), ''), dh.created_by, '')))
+        ORDER BY id LIMIT 1
+      ) u ON true
       WHERE ${where.join(' AND ')}
     `, params);
 
