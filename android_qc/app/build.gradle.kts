@@ -17,7 +17,9 @@ android {
         // published build (the old 0.12.x/0.13.x feed used codes ~12–13, which
         // otherwise out-ranked this newer app and made the updater offer a
         // downgrade). Keep future bumps strictly increasing from here.
-        versionCode = 100
+        // versionCode is set by CI (APP_VERSION_CODE = 1000 + run number) so it
+        // ALWAYS increases and phones auto-update. Local builds fall back to 100.
+        versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 100
         versionName = "1.1.0"
 
         // Base URL of the JMS API. Change here to point at LOCAL / staging / prod.
