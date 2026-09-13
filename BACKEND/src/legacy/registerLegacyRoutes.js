@@ -5628,6 +5628,19 @@ async function initializeLegacyRuntime() {
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_done_by TEXT`);
     await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_form_url TEXT`);
 
+    // QC FPA APPROVAL WORKFLOW — FPA submitted by QC goes Pending -> Approved/Rejected.
+    // Only an Approved FPA counts in the DPR Compliance Summary. A Rejected FPA is sent
+    // back to the QC user (with a reason) to correct and re-upload.
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_approval_status TEXT DEFAULT 'Pending'`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reviewed_by TEXT`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reviewed_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_reject_reason TEXT`);
+    await q(`ALTER TABLE qc_job_checks ADD COLUMN IF NOT EXISTS fpa_resubmit_count INTEGER DEFAULT 0`);
+    // Grandfather: any FPA already submitted before this feature is treated as Approved so
+    // historical DPR Compliance data does not suddenly flip to Pending.
+    await q(`UPDATE qc_job_checks SET fpa_approval_status = 'Approved'
+             WHERE fpa_status = 'Done' AND fpa_approval_status IS NULL`);
+
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_date DATE;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS shift_type TEXT;`);
     await q(`ALTER TABLE shifting_records ADD COLUMN IF NOT EXISTS status TEXT;`);
@@ -24702,11 +24715,13 @@ WITH RankedPlans AS (
     r.job_card_no as "JobCardNo",
     r.job_card_no,
 
-    --FPA status: 'Done' when First Piece Approved for this job card on this machine,
-    --else 'Pending'. Always non-null so the app can distinguish it from an old server.
+    --FPA status: 'Done' only when the First Piece Approval has been APPROVED by a QC approver
+    --for this job card on this machine; a submitted-but-not-yet-approved (or rejected) FPA
+    --stays 'Pending'. Always non-null so the app can distinguish it from an old server.
     COALESCE((SELECT jc.fpa_status FROM qc_job_checks jc
        WHERE TRIM(COALESCE(jc.job_card_no,'')) = TRIM(COALESCE(r.job_card_no,''))
          AND jc.machine = pb.machine AND jc.fpa_status = 'Done'
+         AND COALESCE(jc.fpa_approval_status, 'Approved') = 'Approved'
        ORDER BY jc.updated_at DESC LIMIT 1), 'Pending') as fpa_status,
 
     --Mixing Ratio(Constructed)
@@ -26676,11 +26691,13 @@ app.get('/api/qc/fpa/status', async (req, res) => {
     if (!job_card_no) return res.json({ ok: true, done: false });
     const factoryId = getFactoryId(req);
     const rows = await q(
-      `SELECT id, date, shift, fpa_done_at, fpa_done_by, fpa_form_url, product_images
+      `SELECT id, date, shift, fpa_done_at, fpa_done_by, fpa_form_url, product_images,
+              COALESCE(fpa_approval_status,'Approved') AS fpa_approval_status,
+              fpa_reject_reason, fpa_reviewed_by, fpa_reviewed_at
        FROM qc_job_checks
        WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
          AND fpa_status = 'Done'
-         AND ($2 IS NULL OR machine = $2)
+         AND ($2::text IS NULL OR machine = $2::text)
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY fpa_done_at DESC LIMIT 1`,
       [job_card_no, machine || null, factoryId]
@@ -26694,8 +26711,16 @@ app.get('/api/qc/fpa/status', async (req, res) => {
       const fpaDate = r.date
         ? new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(r.date))
         : null;
+      const approval = r.fpa_approval_status || 'Approved';
       return res.json({
-        ok: true, done: true,
+        ok: true,
+        // 'done' now reflects an APPROVED FPA so the app's "already done" gate only trips on
+        // an approved one; a Pending/Rejected FPA still lets the QC user re-submit.
+        done: approval === 'Approved',
+        submitted: true,
+        approval_status: approval,
+        reject_reason: r.fpa_reject_reason || null,
+        reviewed_by: r.fpa_reviewed_by || null,
         date: fpaDate,
         shift: r.shift || null,
         done_by: r.fpa_done_by,
@@ -26704,7 +26729,7 @@ app.get('/api/qc/fpa/status', async (req, res) => {
         product_images: r.product_images
       });
     }
-    res.json({ ok: true, done: false });
+    res.json({ ok: true, done: false, submitted: false, approval_status: null });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -26722,7 +26747,7 @@ app.get('/api/qc/fpa/today', async (req, res) => {
        FROM qc_job_checks
        WHERE date = $1::date
          AND fpa_status = 'Done'
-         AND ($2 IS NULL OR machine = $2)
+         AND ($2::text IS NULL OR machine = $2::text)
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY fpa_done_at DESC
        LIMIT 100`,
@@ -26767,22 +26792,71 @@ app.post('/api/qc/fpa', (req, res, next) => {
     const factoryId = getFactoryId(req);
     const entryDate = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
 
-    await q(`
-      INSERT INTO qc_job_checks(
-        date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name,
-        fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
-        fpa_done_at, fpa_done_by, factory_id, updated_at
-      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,NOW())
-      ON CONFLICT DO NOTHING
-    `, [
-      entryDate, shift || '', hour_slot || '',
-      plan_id || '', job_card_no || '', order_no || '',
-      line || '', machine || '', item_name || '', mould_name || '',
-      formUrl, formUrl, JSON.stringify(productUrls),
-      remarks || '', supervisor, now, supervisor, factoryId
-    ]);
+    // FPA is unique per job card + machine. A re-upload of a REJECTED (or any existing) FPA
+    // updates that row and puts it back into Pending for re-approval, rather than inserting a
+    // duplicate. Only when no prior FPA exists do we insert a fresh row.
+    const existing = job_card_no
+      ? await q(
+          `SELECT id FROM qc_job_checks
+             WHERE TRIM(COALESCE(job_card_no,'')) = TRIM($1)
+               AND machine = $2
+               AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+             ORDER BY id DESC LIMIT 1`,
+          [job_card_no, machine || '', factoryId]
+        )
+      : [];
+
+    let fpaId;
+    if (existing.length) {
+      fpaId = existing[0].id;
+      await q(`
+        UPDATE qc_job_checks SET
+          date=$1, shift=$2, hour_slot=$3, plan_id=$4, order_no=$5, line=$6,
+          item_name=$7, mould_name=$8,
+          fpa_status='Done', fpa_form_image=$9, fpa_form_url=$10, product_images=$11::jsonb,
+          remarks=$12, supervisor=$13, fpa_done_at=$14, fpa_done_by=$15,
+          fpa_approval_status='Pending', fpa_reject_reason=NULL,
+          fpa_reviewed_by=NULL, fpa_reviewed_at=NULL,
+          fpa_resubmit_count=COALESCE(fpa_resubmit_count,0)+1,
+          updated_at=NOW()
+        WHERE id=$16
+      `, [
+        entryDate, shift || '', hour_slot || '', plan_id || '', order_no || '', line || '',
+        item_name || '', mould_name || '',
+        formUrl, formUrl, JSON.stringify(productUrls),
+        remarks || '', supervisor, now, supervisor, fpaId
+      ]);
+    } else {
+      const ins = await q(`
+        INSERT INTO qc_job_checks(
+          date, shift, hour_slot, plan_id, job_card_no, order_no, line, machine, item_name, mould_name,
+          fpa_status, fpa_form_image, fpa_form_url, product_images, remarks, supervisor,
+          fpa_done_at, fpa_done_by, factory_id, fpa_approval_status, updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Done',$11,$12,$13::jsonb,$14,$15,$16,$17,$18,'Pending',NOW())
+        RETURNING id
+      `, [
+        entryDate, shift || '', hour_slot || '',
+        plan_id || '', job_card_no || '', order_no || '',
+        line || '', machine || '', item_name || '', mould_name || '',
+        formUrl, formUrl, JSON.stringify(productUrls),
+        remarks || '', supervisor, now, supervisor, factoryId
+      ]);
+      fpaId = ins && ins[0] && ins[0].id;
+    }
+
+    // Notify the FPA approver roles of this factory that an FPA is awaiting approval.
+    try {
+      for (const role of FPA_APPROVER_ROLES) {
+        await q(
+          `INSERT INTO qc_notifications (factory_id, recipient_role, message, ref_type, ref_id)
+           VALUES ($1,$2,$3,'FPA',$4)`,
+          [factoryId, role, `FPA awaiting approval — ${machine || '-'} / ${job_card_no || '-'} by ${supervisor}`, fpaId]
+        );
+      }
+    } catch (_) { /* notifications are best-effort */ }
+
     syncService.triggerSync();
-    res.json({ ok: true, form_url: formUrl, product_images: productUrls });
+    res.json({ ok: true, id: fpaId, form_url: formUrl, product_images: productUrls, approval_status: 'Pending' });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -26878,6 +26952,159 @@ app.post('/api/qc/fpa/delete-image', async (req, res) => {
 
     if (syncService && syncService.triggerSync) syncService.triggerSync();
     res.json({ ok: true, product_images: newProducts, fpa_form_image: newForm, cleared: nothingLeft });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Helper: resolve the caller's role_code + username from body.session or the request.
+async function resolveCallerRole(req) {
+  const body = req.body || {};
+  const uname = (body.session ? (() => {
+    try { const s = typeof body.session === 'string' ? JSON.parse(body.session) : body.session; return s.username || s.user || ''; }
+    catch (_) { return ''; }
+  })() : '') || getRequestUsername(req) || '';
+  const urow = uname ? await q('SELECT role_code FROM users WHERE username=$1 LIMIT 1', [uname]) : [];
+  return { username: uname, role: String((urow[0] && urow[0].role_code) || '').toLowerCase() };
+}
+
+// GET /api/qc/fpa/list — line-wise FPA status for a date/shift (Quality FPA submenu).
+// Lists active plans (per machine/line) LEFT JOINed to the latest FPA for that job so each
+// line shows: NotDone | Pending | Approved | Rejected, with images + reviewer + reason.
+app.get('/api/qc/fpa/list', async (req, res) => {
+  try {
+    const { date, shift, machine } = req.query;
+    const factoryId = resolveReportFactoryId ? resolveReportFactoryId(req) : getFactoryId(req);
+    const d = date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    const mFilter = (machine && machine !== 'All' && machine !== 'All Machines') ? machine : null;
+    const rows = await q(
+      `SELECT
+         jc.id, jc.date, jc.shift, jc.machine, jc.line, jc.job_card_no, jc.order_no,
+         jc.item_name, jc.mould_name, jc.plan_id,
+         jc.fpa_form_url, jc.product_images, jc.remarks,
+         jc.fpa_done_by, jc.fpa_done_at,
+         COALESCE(jc.fpa_approval_status, 'Pending') AS fpa_approval_status,
+         jc.fpa_reviewed_by, jc.fpa_reviewed_at, jc.fpa_reject_reason,
+         COALESCE(jc.fpa_resubmit_count, 0) AS fpa_resubmit_count
+       FROM qc_job_checks jc
+       WHERE jc.fpa_status = 'Done'
+         AND jc.date = $1::date
+         AND ($2::text IS NULL OR jc.shift = $2::text)
+         AND ($3::text IS NULL OR jc.machine = $3::text)
+         AND ($4::int IS NULL OR jc.factory_id = $4 OR jc.factory_id IS NULL)
+       ORDER BY
+         CASE COALESCE(jc.fpa_approval_status,'Pending')
+           WHEN 'Pending' THEN 0 WHEN 'Rejected' THEN 1 ELSE 2 END,
+         jc.machine ASC, jc.fpa_done_at DESC
+       LIMIT 300`,
+      [d, shift || null, mFilter, factoryId]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/qc/fpa/mine — a QC user's own FPAs (for the native app: see Pending / Rejected).
+app.get('/api/qc/fpa/mine', async (req, res) => {
+  try {
+    const { username, status, limit } = req.query;
+    const factoryId = getFactoryId(req);
+    const uname = username || getRequestUsername(req) || '';
+    const rows = await q(
+      `SELECT id, date, shift, machine, line, job_card_no, order_no, item_name, mould_name,
+              fpa_form_url, product_images, remarks, fpa_done_by, fpa_done_at,
+              COALESCE(fpa_approval_status,'Pending') AS fpa_approval_status,
+              fpa_reviewed_by, fpa_reviewed_at, fpa_reject_reason,
+              COALESCE(fpa_resubmit_count,0) AS fpa_resubmit_count
+         FROM qc_job_checks
+        WHERE fpa_status = 'Done'
+          AND ($1::text IS NULL OR fpa_done_by = $1::text)
+          AND ($2::text IS NULL OR COALESCE(fpa_approval_status,'Pending') = $2::text)
+          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+        ORDER BY fpa_done_at DESC
+        LIMIT $4`,
+      [uname || null, status || null, factoryId, Math.min(200, parseInt(limit) || 100)]
+    );
+    res.json({ ok: true, data: rows || [] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/fpa/:id/approve — approver marks an FPA approved (then it counts in DPR).
+app.post('/api/qc/fpa/:id/approve', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ ok: false, error: 'id required' });
+    const { role, username } = await resolveCallerRole(req);
+    if (!isFpaApprover(role, username)) {
+      return res.status(403).json({ ok: false, error: 'Only QC HOD / Quality / admin can approve FPA.' });
+    }
+    const factoryId = getFactoryId(req);
+    const reviewer = String(username || 'QC').replace(/[^\w\s\-\.@]/g, '').slice(0, 100);
+    const upd = await q(
+      `UPDATE qc_job_checks
+          SET fpa_approval_status='Approved', fpa_reviewed_by=$1, fpa_reviewed_at=NOW(),
+              fpa_reject_reason=NULL, updated_at=NOW()
+        WHERE id=$2 AND fpa_status='Done'
+          AND ($3::int IS NULL OR factory_id=$3 OR factory_id IS NULL)
+        RETURNING id, machine, job_card_no, fpa_done_by`,
+      [reviewer, id, factoryId]
+    );
+    if (!upd.length) return res.status(404).json({ ok: false, error: 'FPA not found' });
+    // Notify the submitting QC that their FPA was approved.
+    try {
+      const r = upd[0];
+      if (r.fpa_done_by) {
+        await q(`INSERT INTO qc_notifications (factory_id, recipient_role, recipient_name, message, ref_type, ref_id)
+                 VALUES ($1,$2,$3,$4,'FPA',$5)`,
+          [factoryId, 'qc_supervisor', r.fpa_done_by,
+           `FPA approved — ${r.machine || '-'} / ${r.job_card_no || '-'}`, id]);
+      }
+    } catch (_) {}
+    if (syncService && syncService.triggerSync) syncService.triggerSync();
+    res.json({ ok: true, id, approval_status: 'Approved' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/qc/fpa/:id/reject — approver rejects with a reason; QC must correct & re-upload.
+app.post('/api/qc/fpa/:id/reject', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const reason = String((req.body && req.body.reason) || '').trim().slice(0, 500);
+    if (!id) return res.status(400).json({ ok: false, error: 'id required' });
+    if (!reason) return res.status(400).json({ ok: false, error: 'Reject reason required' });
+    const { role, username } = await resolveCallerRole(req);
+    if (!isFpaApprover(role, username)) {
+      return res.status(403).json({ ok: false, error: 'Only QC HOD / Quality / admin can reject FPA.' });
+    }
+    const factoryId = getFactoryId(req);
+    const reviewer = String(username || 'QC').replace(/[^\w\s\-\.@]/g, '').slice(0, 100);
+    const upd = await q(
+      `UPDATE qc_job_checks
+          SET fpa_approval_status='Rejected', fpa_reject_reason=$1,
+              fpa_reviewed_by=$2, fpa_reviewed_at=NOW(), updated_at=NOW()
+        WHERE id=$3 AND fpa_status='Done'
+          AND ($4::int IS NULL OR factory_id=$4 OR factory_id IS NULL)
+        RETURNING id, machine, job_card_no, fpa_done_by`,
+      [reason, reviewer, id, factoryId]
+    );
+    if (!upd.length) return res.status(404).json({ ok: false, error: 'FPA not found' });
+    // Notify the submitting QC that their FPA was rejected (with reason).
+    try {
+      const r = upd[0];
+      if (r.fpa_done_by) {
+        await q(`INSERT INTO qc_notifications (factory_id, recipient_role, recipient_name, message, ref_type, ref_id)
+                 VALUES ($1,$2,$3,$4,'FPA',$5)`,
+          [factoryId, 'qc_supervisor', r.fpa_done_by,
+           `FPA rejected — ${r.machine || '-'} / ${r.job_card_no || '-'}: ${reason.slice(0, 80)}`, id]);
+      }
+    } catch (_) {}
+    if (syncService && syncService.triggerSync) syncService.triggerSync();
+    res.json({ ok: true, id, approval_status: 'Rejected' });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
@@ -27433,7 +27660,7 @@ app.get('/api/qc/holds', async (req, res) => {
       `SELECT * FROM qc_holds
        WHERE machine = $1
          AND ($2::date IS NULL OR dpr_date = $2::date)
-         AND ($3 IS NULL OR status = $3)
+         AND ($3::text IS NULL OR status = $3::text)
          AND ($4::int IS NULL OR factory_id = $4 OR factory_id IS NULL)
        ORDER BY hold_at DESC LIMIT 50`,
       [machine || '', date || null, status || null, factoryId]
@@ -27471,7 +27698,7 @@ app.get('/api/qc/hold/active', async (req, res) => {
     const rows = await q(
       `SELECT id, reason, hold_by FROM qc_holds
        WHERE status = 'ACTIVE'
-         AND (($1 IS NOT NULL AND TRIM(COALESCE(job_card_no,'')) = TRIM($1)) OR ($2 IS NOT NULL AND machine = $2))
+         AND (($1::text IS NOT NULL AND TRIM(COALESCE(job_card_no,'')) = TRIM($1)) OR ($2::text IS NOT NULL AND machine = $2::text))
          AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
        ORDER BY hold_at DESC LIMIT 1`,
       [job_card_no || null, machine || null, factoryId]
@@ -27589,6 +27816,13 @@ app.post('/api/qc/material-issues/:id/resolve', async (req, res) => {
 
 // The two Moulding roles a memo is sent to, by role_code (factory-scoped).
 const MEMO_TARGET_ROLES = ['moulding_manager', 'moulding_ass_manager'];
+// Roles allowed to Approve/Reject an FPA (QC HOD = role_code 'quality', Quality Ass. Manager,
+// plus admins). Enforced server-side; superadmin also passes via username check.
+const FPA_APPROVER_ROLES = ['quality', 'quality_ass__manager', 'admin', 'superadmin'];
+function isFpaApprover(role, username) {
+  const r = String(role || '').toLowerCase();
+  return FPA_APPROVER_ROLES.includes(r) || String(username || '').toLowerCase() === 'superadmin';
+}
 // Roles allowed to change a memo's lifecycle (accept/solve/deviation).
 const MEMO_MOULDING_ACTORS = ['moulding_manager', 'moulding_ass_manager', 'admin', 'superadmin'];
 // Roles that see every factory's memos and may reply/re-raise.
@@ -28183,7 +28417,7 @@ SUM(qty_checked) as total_checked,
     const activeIssues = Number((issueRes[0] || {}).c || 0);
 
     // 3. FPA done today
-    let fpaSql = `SELECT COUNT(DISTINCT job_card_no) as c FROM qc_job_checks WHERE date = $1::date AND fpa_status = 'Done'`;
+    let fpaSql = `SELECT COUNT(DISTINCT job_card_no) as c FROM qc_job_checks WHERE date = $1::date AND fpa_status = 'Done' AND COALESCE(fpa_approval_status,'Approved') = 'Approved'`;
     const fpaParams = [d1];
     if (machine && machine !== 'All' && machine !== 'All Machines') {
       fpaParams.push(machine);
@@ -28239,8 +28473,8 @@ app.get('/api/qc/dashboard/analysis', async (req, res) => {
 
     let baseWhere = `date >= $1 AND date <= $2`;
     let params = [d1, d2];
-    if (machine && machine !== 'All') {
-      baseWhere += ` AND machine = $3`;
+    if (machine && machine !== 'All' && machine !== 'All Machines') {
+      baseWhere += ` AND machine = $${params.length + 1}`;
       params.push(machine);
     }
 

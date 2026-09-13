@@ -192,7 +192,11 @@ data class RecentSlot(
 @Serializable
 data class FpaStatus(
     val ok: Boolean = false,
-    val done: Boolean = false,
+    val done: Boolean = false,          // true only when the FPA is APPROVED
+    val submitted: Boolean = false,     // an FPA exists (Pending / Approved / Rejected)
+    val approval_status: String? = null, // "Pending" | "Approved" | "Rejected"
+    val reject_reason: String? = null,
+    val reviewed_by: String? = null,
     val error: String? = null,
     val done_by: String? = null,
     val done_at: String? = null,

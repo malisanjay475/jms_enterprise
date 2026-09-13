@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JMS OCEAN - FPA</title>
+    <link rel="stylesheet" href="/assets/app.css">
+    <link rel="stylesheet" href="/assets/bootstrap-icons.min.css">
+    <style>
+        .fpa-toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+        .fpa-stats { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+        .fpa-stat { border:1px solid #e2e8f0; border-radius:10px; padding:10px 16px; background:#fff; min-width:120px; }
+        .fpa-stat .n { font-size:1.4rem; font-weight:800; line-height:1; }
+        .fpa-stat .l { font-size:11px; color:#6b7280; margin-top:4px; text-transform:uppercase; letter-spacing:.03em; }
+        .s-pending .n { color:#b45309; } .s-approved .n { color:#047857; } .s-rejected .n { color:#b91c1c; }
+        .fpa-card { border:1px solid #e2e8f0; border-left:4px solid #94a3b8; border-radius:10px; padding:14px 16px; background:#fff; margin-bottom:12px; }
+        .fpa-card.st-Pending  { border-left-color:#f59e0b; }
+        .fpa-card.st-Approved { border-left-color:#10b981; }
+        .fpa-card.st-Rejected { border-left-color:#ef4444; }
+        .fpa-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+        .fpa-title { font-weight:800; font-size:14px; color:#0f172a; }
+        .fpa-meta { font-size:12px; color:#6b7280; margin-top:6px; display:flex; gap:14px; flex-wrap:wrap; }
+        .badge { border-radius:999px; padding:3px 12px; font-size:11px; font-weight:700; white-space:nowrap; }
+        .b-Pending  { background:#fffbeb; color:#b45309; border:1px solid #fcd34d; }
+        .b-Approved { background:#ecfdf5; color:#047857; border:1px solid #6ee7b7; }
+        .b-Rejected { background:#fef2f2; color:#b91c1c; border:1px solid #fca5a5; }
+        .fpa-imgs { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+        .fpa-imgs a { display:block; }
+        .fpa-imgs img { width:78px; height:78px; object-fit:cover; border-radius:8px; border:1px solid #e2e8f0; }
+        .fpa-reject { margin-top:10px; background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:8px; padding:8px 12px; font-size:13px; }
+        .fpa-actions { display:flex; gap:8px; margin-top:12px; }
+        .empty { color:var(--text-muted); padding:24px; text-align:center; }
+        /* Lightbox */
+        .lb-mask { position:fixed; inset:0; background:rgba(15,23,42,.8); z-index:1300; display:none; align-items:center; justify-content:center; }
+        .lb-mask.open { display:flex; }
+        .lb-mask img { max-width:92vw; max-height:92vh; border-radius:8px; }
+        /* Reject modal */
+        .rj-mask { position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:1250; display:none; align-items:center; justify-content:center; }
+        .rj-mask.open { display:flex; }
+        .rj-box { background:#fff; border-radius:12px; padding:20px; width:min(440px,92vw); }
+    </style>
+</head>
+
+<body>
+    <div class="main-content">
+        <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <div class="page-title" style="font-size:1.5rem;font-weight:700;">FPA — First Piece Approval</div>
+            <button class="btn btn-outline small" onclick="loadFpa()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+        </div>
+
+        <div class="fpa-toolbar">
+            <label style="font-size:13px;font-weight:600;color:var(--text-muted)">Date</label>
+            <input type="date" id="f-date" class="form-input" style="width:170px;">
+            <label style="font-size:13px;font-weight:600;color:var(--text-muted)">Shift</label>
+            <select id="f-shift" class="form-input" style="width:130px;">
+                <option value="">All</option>
+                <option value="Day">Day</option>
+                <option value="Night">Night</option>
+            </select>
+            <label style="font-size:13px;font-weight:600;color:var(--text-muted)">Machine</label>
+            <select id="f-machine" class="form-input" style="width:180px;">
+                <option value="All Machines">All Machines</option>
+            </select>
+            <button class="btn btn-primary small" onclick="loadFpa()">Apply</button>
+        </div>
+
+        <div class="fpa-stats" id="fpa-stats"></div>
+        <div id="fpa-list"><div class="empty">Loading…</div></div>
+    </div>
+
+    <div class="lb-mask" id="lb-mask" onclick="this.classList.remove('open')"><img id="lb-img" src="" alt=""></div>
+
+    <div class="rj-mask" id="rj-mask">
+        <div class="rj-box">
+            <div style="font-weight:800;font-size:15px;margin-bottom:10px;">Reject FPA</div>
+            <div style="font-size:13px;color:#6b7280;margin-bottom:8px;" id="rj-sub"></div>
+            <textarea id="rj-reason" class="form-input" rows="3" placeholder="Reason for rejection (the QC user will see this)…" style="width:100%;resize:vertical;"></textarea>
+            <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
+                <button class="btn btn-outline small" onclick="closeReject()">Cancel</button>
+                <button class="btn small" style="background:#ef4444;color:#fff;" onclick="confirmReject()">Reject</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/app.min.js?v=1576"></script>
+    <script>
+        JPSMS.auth.requireAuth();
+        JPSMS.renderShell('quality');
+
+        const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const user = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch (_) { return {}; } })();
+        const roleCode = String(user.role_code || '').toLowerCase();
+        const uname = String(user.username || '').toLowerCase();
+        const APPROVER_ROLES = ['quality', 'quality_ass__manager', 'admin', 'superadmin'];
+        const canApprove = APPROVER_ROLES.includes(roleCode) || uname === 'superadmin';
+
+        const fmtDT = v => { try { return v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''; } catch (_) { return ''; } };
+        const parseImgs = v => { try { return Array.isArray(v) ? v : JSON.parse(v || '[]'); } catch (_) { return []; } };
+
+        function openLightbox(url) { document.getElementById('lb-img').src = url; document.getElementById('lb-mask').classList.add('open'); }
+
+        // Machine dropdown
+        (async function loadMachines() {
+            try {
+                const res = await JPSMS.api.get('/machines?process=Moulding');
+                const list = (res.data || res || []).map(m => (typeof m === 'string' ? m : m.machine)).filter(Boolean);
+                const sel = document.getElementById('f-machine');
+                list.forEach(m => sel.add(new Option(m, m)));
+            } catch (_) { /* non-fatal */ }
+        })();
+
+        // Default date = today (local)
+        document.getElementById('f-date').value = new Date().toLocaleDateString('en-CA');
+
+        function statCard(cls, n, label) {
+            return `<div class="fpa-stat ${cls}"><div class="n">${n}</div><div class="l">${label}</div></div>`;
+        }
+
+        function cardHtml(r) {
+            const st = r.fpa_approval_status || 'Pending';
+            const imgs = parseImgs(r.product_images);
+            const formUrl = r.fpa_form_url;
+            const thumbs = [];
+            if (formUrl) thumbs.push(`<a href="#" onclick="openLightbox('${esc(formUrl)}');return false;" title="FPA form"><img src="${esc(formUrl)}" alt="form"></a>`);
+            imgs.forEach(u => thumbs.push(`<a href="#" onclick="openLightbox('${esc(u)}');return false;" title="Product"><img src="${esc(u)}" alt="product"></a>`));
+            const actions = (canApprove && st !== 'Approved')
+                ? `<div class="fpa-actions">
+                     <button class="btn small" style="background:#10b981;color:#fff;" onclick="approveFpa(${r.id})"><i class="bi bi-check-lg"></i> Approve</button>
+                     <button class="btn small" style="background:#ef4444;color:#fff;" onclick="openReject(${r.id}, '${esc((r.machine||'') + ' / ' + (r.job_card_no||''))}')"><i class="bi bi-x-lg"></i> Reject</button>
+                   </div>`
+                : '';
+            const rejectNote = (st === 'Rejected' && r.fpa_reject_reason)
+                ? `<div class="fpa-reject"><b>Rejected:</b> ${esc(r.fpa_reject_reason)}${r.fpa_reviewed_by ? ' — ' + esc(r.fpa_reviewed_by) : ''}</div>` : '';
+            const reviewNote = (st === 'Approved' && r.fpa_reviewed_by)
+                ? `<div style="font-size:12px;color:#047857;margin-top:8px;">Approved by ${esc(r.fpa_reviewed_by)} ${r.fpa_reviewed_at ? '· ' + fmtDT(r.fpa_reviewed_at) : ''}</div>` : '';
+            const resub = (r.fpa_resubmit_count > 0) ? ` <span style="color:#b45309;">(re-uploaded ${r.fpa_resubmit_count}×)</span>` : '';
+            return `<div class="fpa-card st-${st}">
+                <div class="fpa-head">
+                    <div>
+                        <div class="fpa-title">${esc(r.machine || '-')}${r.line ? ' · Line ' + esc(r.line) : ''} — JC ${esc(r.job_card_no || '-')}</div>
+                        <div class="fpa-meta">
+                            <span><i class="bi bi-box-seam"></i> ${esc(r.item_name || '-')}</span>
+                            <span><i class="bi bi-hammer"></i> ${esc(r.mould_name || '-')}</span>
+                            <span><i class="bi bi-person"></i> ${esc(r.fpa_done_by || '-')}</span>
+                            <span><i class="bi bi-clock"></i> ${fmtDT(r.fpa_done_at)}${resub}</span>
+                        </div>
+                    </div>
+                    <span class="badge b-${st}">${st === 'Pending' ? 'Pending Approval' : st}</span>
+                </div>
+                ${thumbs.length ? `<div class="fpa-imgs">${thumbs.join('')}</div>` : ''}
+                ${rejectNote}${reviewNote}${actions}
+            </div>`;
+        }
+
+        async function loadFpa() {
+            const date = document.getElementById('f-date').value;
+            const shift = document.getElementById('f-shift').value;
+            const machine = document.getElementById('f-machine').value;
+            const list = document.getElementById('fpa-list');
+            const stats = document.getElementById('fpa-stats');
+            list.innerHTML = '<div class="empty">Loading…</div>';
+            stats.innerHTML = '';
+            try {
+                const qs = `?date=${encodeURIComponent(date)}&shift=${encodeURIComponent(shift)}&machine=${encodeURIComponent(machine)}`;
+                const res = await JPSMS.api.get('/qc/fpa/list' + qs);
+                const rows = (res.ok && Array.isArray(res.data)) ? res.data : [];
+                const c = { Pending: 0, Approved: 0, Rejected: 0 };
+                rows.forEach(r => { c[r.fpa_approval_status] = (c[r.fpa_approval_status] || 0) + 1; });
+                stats.innerHTML =
+                    statCard('s-pending', c.Pending || 0, 'Pending Approval') +
+                    statCard('s-approved', c.Approved || 0, 'Approved') +
+                    statCard('s-rejected', c.Rejected || 0, 'Rejected');
+                if (!rows.length) { list.innerHTML = '<div class="empty">No FPA submissions for this date / shift / machine.</div>'; return; }
+                list.innerHTML = rows.map(cardHtml).join('');
+            } catch (e) {
+                list.innerHTML = '<div class="empty">Failed to load FPA list.</div>';
+            }
+        }
+
+        async function approveFpa(id) {
+            if (!confirm('Approve this FPA? It will then count in the DPR Compliance Summary.')) return;
+            try {
+                const res = await JPSMS.api.post(`/qc/fpa/${id}/approve`, {});
+                if (res.ok) { JPSMS.toast('FPA approved'); loadFpa(); }
+                else JPSMS.toast(res.error || 'Approve failed', 'error');
+            } catch (e) { JPSMS.toast('Approve failed', 'error'); }
+        }
+
+        let rejectId = null;
+        function openReject(id, sub) { rejectId = id; document.getElementById('rj-sub').textContent = sub || ''; document.getElementById('rj-reason').value = ''; document.getElementById('rj-mask').classList.add('open'); }
+        function closeReject() { rejectId = null; document.getElementById('rj-mask').classList.remove('open'); }
+        async function confirmReject() {
+            const reason = document.getElementById('rj-reason').value.trim();
+            if (!reason) return JPSMS.toast('Enter a reason', 'error');
+            try {
+                const res = await JPSMS.api.post(`/qc/fpa/${rejectId}/reject`, { reason });
+                if (res.ok) { JPSMS.toast('FPA rejected'); closeReject(); loadFpa(); }
+                else JPSMS.toast(res.error || 'Reject failed', 'error');
+            } catch (e) { JPSMS.toast('Reject failed', 'error'); }
+        }
+
+        loadFpa();
+    </script>
+</body>
+
+</html>
