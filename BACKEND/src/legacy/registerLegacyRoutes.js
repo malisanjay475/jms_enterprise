@@ -4612,11 +4612,30 @@ async function bootstrapFreshCoreTables() {
     console.warn('[DB] Bootstrap factory seed skipped:', factorySeedErr.message);
   }
 
-  // One-time rename: update factory 1 to correct display name and location.
+  // One-time rename: correct factory display names and locations (owner request).
+  // Guarded to only touch the known auto-seeded / previous names so an admin's own
+  // edits are never clobbered, and idempotent (skips when already correct).
+  // Factory 1 (F1 / Dungra) -> JOYO PLASTICS - DUNGRA - UNIT-I. The "UNIT-I" suffix
+  // does NOT match the Unit-II ('%UNIT-II%') ERP self-heal above, so it stays F1/ERP 41.
   await q(
-    `UPDATE factories SET name = 'Dungra Plant 1', location = 'Dungra, Vapi', updated_at = NOW()
-     WHERE id = 1 AND (name IS DISTINCT FROM 'Dungra Plant 1' OR location IS DISTINCT FROM 'Dungra, Vapi')`
+    `UPDATE factories SET name = 'JOYO PLASTICS - DUNGRA - UNIT-I', location = 'Dungra, Vapi', updated_at = NOW()
+     WHERE id = 1 AND name IN ('Dungra Plant 1', 'Factory 1')
+       AND (name IS DISTINCT FROM 'JOYO PLASTICS - DUNGRA - UNIT-I' OR location IS DISTINCT FROM 'Dungra, Vapi')`
   ).catch(err => console.warn('[DB] Factory 1 rename skipped:', err.message));
+  // Factory 2 (F2 / Shivani) -> Shivani-Kachigam, location Kachigam.
+  await q(
+    `UPDATE factories SET name = 'Shivani-Kachigam', location = 'Kachigam', updated_at = NOW()
+     WHERE UPPER(TRIM(COALESCE(code, ''))) = 'F2'
+       AND name IN ('Factory 2', 'Shivani', 'Shivani-Kachigam')
+       AND (name IS DISTINCT FROM 'Shivani-Kachigam' OR location IS DISTINCT FROM 'Kachigam')`
+  ).catch(err => console.warn('[DB] Factory 2 rename skipped:', err.message));
+  // Factory 3 (F3 / Premier - Kachigam) -> add location Kachigam (name unchanged).
+  await q(
+    `UPDATE factories SET location = 'Kachigam', updated_at = NOW()
+     WHERE UPPER(TRIM(COALESCE(code, ''))) = 'F3'
+       AND name = 'Premier - Kachigam'
+       AND location IS DISTINCT FROM 'Kachigam'`
+  ).catch(err => console.warn('[DB] Factory 3 location update skipped:', err.message));
 
   if (process.env.SEED_DEFAULT_SUPERADMIN === '0') {
     return;
@@ -5122,11 +5141,30 @@ async function initializeLegacyRuntime() {
       console.warn('[DB] Default factory seed skipped:', factorySeedError.message);
     }
 
-    // One-time rename: update factory 1 to correct display name and location.
+    // One-time rename: correct factory display names and locations (owner request).
+    // Guarded to only touch the known auto-seeded / previous names so an admin's own
+    // edits are never clobbered, and idempotent (skips when already correct).
+    // Factory 1 (F1 / Dungra) -> JOYO PLASTICS - DUNGRA - UNIT-I. The "UNIT-I" suffix
+    // does NOT match the Unit-II ('%UNIT-II%') ERP self-heal above, so it stays F1/ERP 41.
     await q(
-      `UPDATE factories SET name = 'Dungra Plant 1', location = 'Dungra, Vapi', updated_at = NOW()
-       WHERE id = 1 AND (name IS DISTINCT FROM 'Dungra Plant 1' OR location IS DISTINCT FROM 'Dungra, Vapi')`
+      `UPDATE factories SET name = 'JOYO PLASTICS - DUNGRA - UNIT-I', location = 'Dungra, Vapi', updated_at = NOW()
+       WHERE id = 1 AND name IN ('Dungra Plant 1', 'Factory 1')
+         AND (name IS DISTINCT FROM 'JOYO PLASTICS - DUNGRA - UNIT-I' OR location IS DISTINCT FROM 'Dungra, Vapi')`
     ).catch(err => console.warn('[DB] Factory 1 rename skipped:', err.message));
+    // Factory 2 (F2 / Shivani) -> Shivani-Kachigam, location Kachigam.
+    await q(
+      `UPDATE factories SET name = 'Shivani-Kachigam', location = 'Kachigam', updated_at = NOW()
+       WHERE UPPER(TRIM(COALESCE(code, ''))) = 'F2'
+         AND name IN ('Factory 2', 'Shivani', 'Shivani-Kachigam')
+         AND (name IS DISTINCT FROM 'Shivani-Kachigam' OR location IS DISTINCT FROM 'Kachigam')`
+    ).catch(err => console.warn('[DB] Factory 2 rename skipped:', err.message));
+    // Factory 3 (F3 / Premier - Kachigam) -> add location Kachigam (name unchanged).
+    await q(
+      `UPDATE factories SET location = 'Kachigam', updated_at = NOW()
+       WHERE UPPER(TRIM(COALESCE(code, ''))) = 'F3'
+         AND name = 'Premier - Kachigam'
+         AND location IS DISTINCT FROM 'Kachigam'`
+    ).catch(err => console.warn('[DB] Factory 3 location update skipped:', err.message));
 
     // [FIX] Universal Schema Fix for Sync
     // Ensure ALL sync tables have sync_id, factory_id, and UNIQUE INDEX on sync_id
