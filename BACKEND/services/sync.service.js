@@ -195,11 +195,19 @@ const CONFLICT_KEYS = {
     machine_operators: 'id',
     machine_status_logs: 'id',
     mould_audit_logs: 'id',
-    qc_deviations: 'id',
-    qc_issue_memos: 'id',
-    qc_job_checks: 'id',
-    qc_online_reports: 'id',
-    qc_training_sheets: 'id',
+    // QC entry tables — surrogate UUID key. These are LOCAL-writable and factory-scoped
+    // (each carries factory_id), with no stable business composite. Under full
+    // replication the serial id collides across factories, so ON CONFLICT (id) would let
+    // one factory's row overwrite an unrelated same-id row from another. sync_id is UNIQUE
+    // with a gen_random_uuid() default; all five are in SYNC_ID_REQUIRED_TABLES and get a
+    // DETERMINISTIC backfill (SYNC_ID_SEED_COLUMNS) so the same physical row already present
+    // on MAIN and a LOCAL derives the SAME sync_id and dedups instead of duplicating.
+    // Same pattern as assembly_plans/dpr_reasons. [[project_full_replication_all_locals]]
+    qc_deviations: 'sync_id',
+    qc_issue_memos: 'sync_id',
+    qc_job_checks: 'sync_id',
+    qc_online_reports: 'sync_id',
+    qc_training_sheets: 'sync_id',
     shifting_records: 'id',
     std_actual: 'plan_id, shift, dpr_date, machine',
     // Natural key matches uq_eqa_natural — serial id diverges LOCAL↔MAIN
@@ -379,12 +387,32 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'qc_online_reports', 'qc_issue_memos', 'qc_training_sheets', 'qc_deviations', 'qc_job_checks'];
+
+// Deterministic sync_id backfill seeds for tables converted to a surrogate UUID key.
+// The same physical row already exists on MAIN AND on its factory's LOCAL (LOCAL pushed
+// it up). A random gen_random_uuid() default would assign two DIFFERENT ids to that one
+// logical row, so the first full-replication pull would treat them as distinct and
+// DUPLICATE it. Seeding sync_id from stable business columns (md5 -> uuid, identical on
+// both servers because the columns are set once at insert and synced verbatim) makes both
+// sides derive the SAME id and dedup. Columns must be immutable after insert and, together,
+// unique per logical row — created_at (row-birth timestamp, synced) provides that.
+// ensureSyncIdSchema routes any SYNC_ID_REQUIRED_TABLES entry with a seed here through the
+// deterministic path; entries without one fall back to a plain random backfill.
+// [[project_full_replication_all_locals]] [[project_sync_conflict_natural_key]]
+const SYNC_ID_SEED_COLUMNS = {
+    qc_online_reports: ['factory_id', 'date', 'shift', 'hour_slot', 'line', 'machine', 'item_name', 'mould_name', 'defect_description', 'created_at'],
+    qc_issue_memos: ['factory_id', 'date', 'line', 'machine', 'issue_description', 'responsibility', 'supervisor', 'created_at'],
+    qc_training_sheets: ['factory_id', 'date', 'trainee_name', 'trainer_name', 'topic', 'created_at'],
+    qc_deviations: ['factory_id', 'date', 'part_name', 'machine', 'deviation_details', 'reason', 'created_at'],
+    qc_job_checks: ['factory_id', 'date', 'shift', 'hour_slot', 'plan_id', 'job_card_no', 'machine', 'item_name', 'mould_name', 'created_at']
+};
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
 // re-runs the full startup sweep once instead of skipping it on the cached marker.
 // 2026-08-03: drop the obsolete uq_sync_conflict_notifications index (see ensureSyncIdSchema).
-const SYNC_SCHEMA_READY_VERSION = '2026-08-03-drop-notif-conflict-idx-v1';
+// 2026-09-14: qc_* tables converted to surrogate sync_id key for full replication (Phase A batch 1).
+const SYNC_SCHEMA_READY_VERSION = '2026-09-14-qc-sync-id-v1';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been
@@ -2375,6 +2403,52 @@ async function ensureSyncUpdatedAtSchema() {
     console.log('[Sync] updated_at tracking ready');
 }
 
+// Backfill NULL sync_ids from a deterministic md5(business columns) -> uuid so the same
+// physical row derives an identical id on MAIN and every LOCAL (avoids duplication on the
+// first full-replication pull), then repair any collisions the seed produced by handing
+// duplicates a fresh random id. Only columns that actually exist on the table are used, so
+// a seed listing an optional column is safe. Same md5->uuid shape as the notifications /
+// assembly_plans branches. [[project_full_replication_all_locals]]
+async function backfillDeterministicSyncId(table, seedColumns) {
+    const present = [];
+    for (const col of seedColumns) {
+        if (await tableHasColumn(table, col)) present.push(col);
+    }
+    // Fall back to random if none of the seed columns exist (schema drift) — better a
+    // valid unique id than a NULL that blocks the unique index.
+    if (present.length === 0) {
+        await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
+        return;
+    }
+    await pool.query(`
+        WITH source AS (
+            SELECT id, md5(concat_ws('|', ${present.map((c) => `COALESCE(${c}::text, '')`).join(', ')})) AS seed
+              FROM ${table}
+             WHERE sync_id IS NULL
+        )
+        UPDATE ${table} t
+           SET sync_id = (
+               substr(source.seed, 1, 8) || '-' ||
+               substr(source.seed, 9, 4) || '-' ||
+               substr(source.seed, 13, 4) || '-' ||
+               substr(source.seed, 17, 4) || '-' ||
+               substr(source.seed, 21, 12)
+           )::uuid
+          FROM source
+         WHERE t.id = source.id
+    `);
+    // Two genuinely distinct rows can share a seed (identical business columns AND
+    // created_at). Give the later row(s) a fresh random id so the unique index can build.
+    await pool.query(`
+        WITH ranked AS (
+            SELECT id, ROW_NUMBER() OVER (PARTITION BY sync_id ORDER BY id) AS rn
+              FROM ${table} WHERE sync_id IS NOT NULL
+        )
+        UPDATE ${table} t SET sync_id = gen_random_uuid()
+          FROM ranked r WHERE t.id = r.id AND r.rn > 1
+    `);
+}
+
 async function ensureSyncIdSchema() {
     await pool.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
 
@@ -2525,6 +2599,8 @@ async function ensureSyncIdSchema() {
                     UPDATE ${table} t SET sync_id = gen_random_uuid()
                       FROM ranked r WHERE t.id = r.id AND r.rn > 1
                 `);
+            } else if (SYNC_ID_SEED_COLUMNS[table]) {
+                await backfillDeterministicSyncId(table, SYNC_ID_SEED_COLUMNS[table]);
             } else {
                 await pool.query(`UPDATE ${table} SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
             }
