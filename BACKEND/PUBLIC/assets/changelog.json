@@ -11,8 +11,26 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.62.0",
+  "latest": "1.63.0",
   "versions": [
+    {
+      "version": "1.63.0",
+      "date": "2026-09-15",
+      "title": "Mould verification review screen & history",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "feat", "text": "Approving a verification step now opens a review screen showing the mould's full details as read-only — they cannot be changed here." },
+            { "type": "feat", "text": "Approvers can add their own notes or observations at each step without altering the master mould data." },
+            { "type": "feat", "text": "The review screen shows the mould's moulding production for the last 7 and 30 days — good, reject, downtime and machines used." },
+            { "type": "improvement", "text": "The Quality Check step is now for QC HOD and Quality Ass. Manager." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.62.0",
       "date": "2026-09-15",
