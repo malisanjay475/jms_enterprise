@@ -11,8 +11,24 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.65.0",
+  "latest": "1.66.0",
   "versions": [
+    {
+      "version": "1.66.0",
+      "date": "2026-09-15",
+      "title": "Verification Excel — full detail & Verified first",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "improvement", "text": "The verification Excel now includes every mould's full details, and each step shows who completed it and when in separate columns." },
+            { "type": "improvement", "text": "Verified moulds are now listed first in the Excel, followed by in-progress and not-started." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.65.0",
       "date": "2026-09-15",
