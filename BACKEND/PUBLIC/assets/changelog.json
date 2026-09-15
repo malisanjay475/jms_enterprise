@@ -11,8 +11,49 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.60.0",
+  "latest": "1.61.0",
   "versions": [
+    {
+      "version": "1.61.0",
+      "date": "2026-09-15",
+      "title": "Supervisor spacing, priority controls & data fixes",
+      "modules": [
+        {
+          "app": "supervisor_app",
+          "label": "Supervisor",
+          "icon": "bi-clipboard-check",
+          "changes": [
+            { "type": "fix", "text": "Trimmed the empty space above the header so the dashboard sits higher on the screen." },
+            { "type": "fix", "text": "Job colour and quantity now always reflect the correct factory's plan." }
+          ]
+        },
+        {
+          "app": "planning",
+          "label": "Planning",
+          "icon": "bi-diagram-3",
+          "changes": [
+            { "type": "feat", "text": "Creating a machine priority now requires the proper role, enforced on the server." },
+            { "type": "feat", "text": "HR Managers can now set Create Priority for MC/MP scheduling." }
+          ]
+        },
+        {
+          "app": "dpr",
+          "label": "DPR",
+          "icon": "bi-journal-text",
+          "changes": [
+            { "type": "fix", "text": "A DPR entry now matches only its own order's row, preventing cross-order mix-ups." }
+          ]
+        },
+        {
+          "app": "all",
+          "label": "Data",
+          "icon": "bi-hdd-network",
+          "changes": [
+            { "type": "fix", "text": "Cleaned up corrupted machine names so machines display and group correctly across reports." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.60.0",
       "date": "2026-09-13",
