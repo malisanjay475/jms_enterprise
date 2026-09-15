@@ -1546,6 +1546,22 @@ async function migrateMouldMasterSchema() {
     ['sfg_bag_size', 'TEXT'],
     ['std_volume_cap', 'TEXT'],
     ['labour_job_machine', 'TEXT'],
+    // ---- Mould Verification workflow (strict 6-step: PPC -> Quality -> Moulding
+    // -> Tool Room -> GM Approve -> NKB Authorise). Each step stamps who + when.
+    // Company-wide like the rest of the mould master: mastered on MAIN, synced to
+    // every LOCAL via SELECT * full-pull. verify_nkb_at NOT NULL == fully verified.
+    ['verify_ppc_by', 'TEXT'],
+    ['verify_ppc_at', 'TIMESTAMPTZ'],
+    ['verify_quality_by', 'TEXT'],
+    ['verify_quality_at', 'TIMESTAMPTZ'],
+    ['verify_moulding_by', 'TEXT'],
+    ['verify_moulding_at', 'TIMESTAMPTZ'],
+    ['verify_toolroom_by', 'TEXT'],
+    ['verify_toolroom_at', 'TIMESTAMPTZ'],
+    ['verify_gm_by', 'TEXT'],
+    ['verify_gm_at', 'TIMESTAMPTZ'],
+    ['verify_nkb_by', 'TEXT'],
+    ['verify_nkb_at', 'TIMESTAMPTZ'],
     ['updated_at', 'TIMESTAMPTZ DEFAULT NOW()'],
     ['factory_id', 'INTEGER'],
     ['last_updated_at', 'TIMESTAMP'],
@@ -4774,6 +4790,7 @@ async function initializeLegacyRuntime() {
             ('maintenance_manager', 'Maintenance Manager'),
             ('toolroom_manager', 'Toolroom Manager'),
             ('maintenance_tech', 'Maintenance Technician'),
+            ('general_manager', 'General Manager'),
             ('admin', 'Admin')
             ON CONFLICT (code) DO NOTHING;
 
@@ -23730,6 +23747,160 @@ app.get('/api/moulds/history/:id', async (req, res) => {
     const rows = await q(`SELECT * FROM mould_audit_logs WHERE mould_id = $1 ORDER BY changed_at DESC LIMIT 50`, [req.params.id]);
     res.json({ ok: true, data: rows });
   } catch (e) { res.status(500).json({ ok: false, error: String(e) }); }
+});
+
+/* ============================================================
+   MOULD VERIFICATION WORKFLOW (strict 6-step)
+   PPC -> Quality -> Moulding -> Tool Room -> GM Approve -> NKB Authorise.
+   Each step must be completed in order; a step stamps who + when on the
+   moulds row. Once NKB authorises, the mould shows the Verification Badge.
+   Mould master is company-wide + MAIN-mastered, so writes are MAIN-only and
+   sync out to every LOCAL via the SELECT * full-pull (same as the rest of the
+   mould columns).
+============================================================ */
+// Ordered steps. `roles` = role_codes allowed for that step (admin/superadmin
+// may act on any step). `label` is for messages/audit.
+const MOULD_VERIFY_STEPS = [
+  { key: 'ppc',      col: 'ppc',      label: 'PPC Check',            roles: ['ppc_manager', 'ppc_ass_manager'] },
+  { key: 'quality',  col: 'quality',  label: 'Quality Check',        roles: ['quality', 'qc_supervisor'] },
+  { key: 'moulding', col: 'moulding', label: 'Moulding Check',       roles: ['moulding_manager', 'moulding_ass_manager'] },
+  { key: 'toolroom', col: 'toolroom', label: 'Tool Room Check',      roles: ['toolroom_manager'] },
+  { key: 'gm',       col: 'gm',       label: 'General Manager Approve', roles: ['general_manager'] },
+  { key: 'nkb',      col: 'nkb',      label: 'NKB Authorise',        roles: [] } // superadmin only
+];
+
+function mouldVerifyStepAllowed(step, roleCode, roleLabel) {
+  const role = String(roleCode || '').toLowerCase();
+  const label = String(roleLabel || '').toLowerCase();
+  if (role === 'superadmin') return true;           // superadmin (NKB) can do any step
+  if (step.key === 'nkb') return false;             // NKB Authorise is superadmin-only
+  if (role === 'admin') return true;                // admin may act on steps 1-5
+  if (step.roles.includes(role)) return true;
+  // Fallback for the GM step when the role_code differs but the label matches.
+  if (step.key === 'gm' && label.includes('general manager')) return true;
+  return false;
+}
+
+// POST /api/moulds/:id/verify  { step, session:{username} }  (id = mould_number)
+app.post('/api/moulds/:id/verify', async (req, res) => {
+  try {
+    if (guardMouldWriteMainOnly(res)) return; // MAIN-only master
+    const { id } = req.params;
+    const stepKey = String(req.body?.step || '').toLowerCase();
+    const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const stepIdx = MOULD_VERIFY_STEPS.findIndex(s => s.key === stepKey);
+    if (stepIdx === -1) return res.status(400).json({ ok: false, error: 'Invalid verification step' });
+    const step = MOULD_VERIFY_STEPS[stepIdx];
+
+    const urow = (await q(
+      `SELECT u.role_code, LOWER(COALESCE(r.label,'')) AS role_label
+         FROM users u LEFT JOIN roles r ON r.code = u.role_code
+        WHERE u.username = $1 LIMIT 1`,
+      [username]
+    ))[0];
+    if (!urow) return res.status(403).json({ ok: false, error: 'User not found' });
+    if (!mouldVerifyStepAllowed(step, urow.role_code, urow.role_label)) {
+      return res.status(403).json({ ok: false, error: `You do not have permission to complete "${step.label}".` });
+    }
+
+    const rows = await q(`SELECT * FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
+    const mould = rows[0];
+
+    // Strict order: every prior step must already be stamped.
+    for (let i = 0; i < stepIdx; i++) {
+      if (!mould[`verify_${MOULD_VERIFY_STEPS[i].col}_at`]) {
+        return res.status(409).json({ ok: false, error: `Complete "${MOULD_VERIFY_STEPS[i].label}" first.` });
+      }
+    }
+    // Idempotent: already done.
+    if (mould[`verify_${step.col}_at`]) {
+      return res.json({ ok: true, message: `${step.label} already completed.` });
+    }
+
+    const factoryId = mould.factory_id || null;
+    ttlCacheClear('moulds');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE moulds
+            SET verify_${step.col}_by = $1,
+                verify_${step.col}_at = NOW(),
+                updated_at = NOW()
+          WHERE mould_number = $2`,
+        [username, id]
+      );
+      await client.query(
+        `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+         VALUES($1, 'VERIFY', $2, $3, $4)`,
+        [id, JSON.stringify({ message: `${step.label} completed` }), username, factoryId]
+      );
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+    res.json({ ok: true, message: `${step.label} completed.` });
+  } catch (e) {
+    console.error('mould verify error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/moulds/:id/verify/reset  { session:{username} }  (superadmin only)
+// Clears the whole verification chain — used when a mould is re-worked and must
+// be re-verified from scratch.
+app.post('/api/moulds/:id/verify/reset', async (req, res) => {
+  try {
+    if (guardMouldWriteMainOnly(res)) return;
+    const { id } = req.params;
+    const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
+    const urow = (await q('SELECT role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
+    const role = String(urow?.role_code || '').toLowerCase();
+    if (role !== 'superadmin' && String(username).toLowerCase() !== 'superadmin') {
+      return res.status(403).json({ ok: false, error: 'Only Superadmin can reset verification.' });
+    }
+
+    const rows = await q(`SELECT factory_id FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
+    const factoryId = rows[0].factory_id || null;
+
+    ttlCacheClear('moulds');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const setNull = MOULD_VERIFY_STEPS
+        .map(s => `verify_${s.col}_by = NULL, verify_${s.col}_at = NULL`)
+        .join(', ');
+      await client.query(`UPDATE moulds SET ${setNull}, updated_at = NOW() WHERE mould_number = $1`, [id]);
+      await client.query(
+        `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+         VALUES($1, 'VERIFY', $2, $3, $4)`,
+        [id, JSON.stringify({ message: 'Verification reset' }), username, factoryId]
+      );
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+    res.json({ ok: true, message: 'Verification reset.' });
+  } catch (e) {
+    console.error('mould verify reset error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
 });
 
 

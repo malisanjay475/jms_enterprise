@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.61.0",
+  "latest": "1.62.0",
   "versions": [
+    {
+      "version": "1.62.0",
+      "date": "2026-09-15",
+      "title": "Mould Master verification badge",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "feat", "text": "Moulds now carry a 6-step verification: PPC, Quality, Moulding and Tool Room checks, then General Manager approval and NKB authorisation." },
+            { "type": "feat", "text": "Each step unlocks only after the previous one is done, and only the right role can complete its step." },
+            { "type": "feat", "text": "Once NKB authorises, the mould shows a green Verified badge in the list; until then it shows how many steps are done." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.61.0",
       "date": "2026-09-15",
