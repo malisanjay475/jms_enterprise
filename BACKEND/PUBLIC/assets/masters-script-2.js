@@ -1426,12 +1426,13 @@
           cols = ['action', 'priority', 'plan_status', 'status_change', 'confirmation_action', 'factory_name', 'mould_progress', ...orJrCols.filter(c => c !== 'factory_name')];
         } else if (currentType === 'machines' && JPSMS.auth.can('masters', 'edit')) {
           if (!cols.includes('actions')) cols.unshift('actions');
-        } else if (currentType === 'moulds' && jmsMouldWriteAllowed()) {
-          // Mould master writes are MAIN/STANDALONE only — no per-row action on LOCAL (KAN-114).
-          // On MAIN we always add the actions column so the Verification button is
-          // reachable by approvers who may lack the masters:edit permission (PPC /
-          // Quality / Moulding / Tool Room / GM). Edit + History inside the cell stay
-          // gated by masters:edit.
+        } else if (currentType === 'moulds') {
+          // Always add the actions column for moulds — on MAIN and on LOCAL.
+          // The Verification button lives here and verification is now allowed on
+          // LOCAL too (forwarded to MAIN), so approvers on a factory server must be
+          // able to reach it. Edit + History inside the cell stay gated by
+          // masters:edit AND jmsMouldWriteAllowed() (mould MASTER edits remain
+          // MAIN/STANDALONE only — KAN-114).
           if (!cols.includes('actions')) cols.unshift('actions');
         }
 
@@ -1521,7 +1522,7 @@
                   // view the 6-step verification progress; write actions gated below.
                   const verified = !!row.verify_nkb_at;
                   const verifyBtn = `<button onclick="openMouldVerifyModal(JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon" title="Verification"><i class="bi ${verified ? 'bi-patch-check-fill' : 'bi-patch-check'}" style="color:${verified ? '#16a34a' : '#64748b'}"></i></button>`;
-                  const canEditMould = JPSMS.auth.can('masters', 'edit') && canWriteCurrentFactoryScope();
+                  const canEditMould = JPSMS.auth.can('masters', 'edit') && canWriteCurrentFactoryScope() && jmsMouldWriteAllowed();
                   const editBtns = canEditMould
                     ? `<button onclick="openMouldModal('edit', JSON.parse(decodeURIComponent('${safeData}')))" class="btn-action-icon" title="Edit"><i class="bi bi-pencil-square text-blue-600"></i></button>
                        <button onclick="viewMouldHistory('${row.mould_number}')" class="btn-action-icon" title="History"><i class="bi bi-clock-history text-gray-600"></i></button>`

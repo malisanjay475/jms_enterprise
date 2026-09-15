@@ -11,8 +11,25 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.63.0",
+  "latest": "1.64.0",
   "versions": [
+    {
+      "version": "1.64.0",
+      "date": "2026-09-15",
+      "title": "Verify on factory servers + last-run & downtime reasons",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "feat", "text": "Verification steps can now be approved from a factory (LOCAL) server too — the action is sent to the main server automatically." },
+            { "type": "feat", "text": "The review screen now shows when the mould last ran and on which machine." },
+            { "type": "feat", "text": "The moulding history now compares the downtime reasons for the mould over the last 7 and 30 days." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.63.0",
       "date": "2026-09-15",
