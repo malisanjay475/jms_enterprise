@@ -382,7 +382,7 @@
     ============================================================ */
     const MOULD_VERIFY_STEPS = [
       { key: 'ppc',      col: 'ppc',      label: 'PPC Check',              roles: ['ppc_manager', 'ppc_ass_manager'] },
-      { key: 'quality',  col: 'quality',  label: 'Quality Check',          roles: ['quality', 'qc_supervisor'] },
+      { key: 'quality',  col: 'quality',  label: 'Quality Check',          roles: ['quality', 'quality_ass__manager'] },
       { key: 'moulding', col: 'moulding', label: 'Moulding Check',         roles: ['moulding_manager', 'moulding_ass_manager'] },
       { key: 'toolroom', col: 'toolroom', label: 'Tool Room Check',        roles: ['toolroom_manager'] },
       { key: 'gm',       col: 'gm',       label: 'General Manager Approve', roles: ['general_manager'] },
@@ -442,7 +442,7 @@
                      <span style="color:#94a3b8">${new Date(at).toLocaleString()}</span>
                    </span>`;
         } else if (canAct) {
-          right = `<button onclick="submitMouldVerifyStep('${s.key}')" class="btn-action"
+          right = `<button onclick="openMouldVerifyDetail('${s.key}')" class="btn-action"
                      style="padding:5px 14px; font-size:0.76rem; background:#2563eb">Approve</button>`;
         } else if (isNext) {
           right = `<span style="color:#94a3b8; font-size:0.72rem">Awaiting ${s.label}</span>`;
@@ -489,6 +489,156 @@
           { session: JPSMS.auth.getUser() }
         );
         alert(res.message || 'Reset');
+        document.getElementById('mouldVerifyModal').style.display = 'none';
+        loadMasterData();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    /* ---- Verification Detail modal (read-only master + history + notes + confirm) ---- */
+    let _mvdStepKey = null;
+
+    function mvEsc(v) {
+      return String(v == null ? '' : v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    }
+
+    async function openMouldVerifyDetail(stepKey) {
+      if (!_mvCurrentMouldNumber) return;
+      _mvdStepKey = stepKey;
+      const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
+      document.getElementById('mvdTitle').textContent = 'Verification — ' + (step ? step.label : 'Review');
+      document.getElementById('mvdMouldTitle').textContent = '';
+      document.getElementById('mvdMasterGrid').innerHTML = '';
+      document.getElementById('mvdNotes').innerHTML = '';
+      document.getElementById('mvdNoteInput').value = '';
+      document.getElementById('mvdHistory').innerHTML = 'Loading…';
+      document.getElementById('mvdConfirmLabel').textContent = 'Confirm ' + (step ? step.label : 'Approval');
+      document.getElementById('mouldVerifyDetailModal').style.display = 'flex';
+
+      try {
+        const res = await JPSMS.api.get('/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-detail');
+        if (!res.ok) throw new Error(res.error);
+        renderVerifyDetail(res.data);
+      } catch (e) {
+        document.getElementById('mvdMasterGrid').innerHTML = `<span style="color:#dc2626">Failed to load: ${mvEsc(e.message)}</span>`;
+      }
+      // History loads independently so a DPR hiccup doesn't block approval.
+      try {
+        const h = await JPSMS.api.get('/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/moulding-history');
+        if (h.ok) renderMouldingHistory(h.data);
+        else document.getElementById('mvdHistory').innerHTML = '<span style="color:#94a3b8">No history available.</span>';
+      } catch (_) {
+        document.getElementById('mvdHistory').innerHTML = '<span style="color:#94a3b8">No history available.</span>';
+      }
+    }
+
+    function renderVerifyDetail(data) {
+      const m = data.mould || {};
+      document.getElementById('mvdMouldTitle').textContent =
+        `${m.mould_number || ''}${m.mould_name ? ' — ' + m.mould_name : ''}`;
+      // Read-only master fields (plain text, no inputs => cannot be edited here).
+      document.getElementById('mvdMasterGrid').innerHTML = mouldFields.map(k => {
+        const label = mouldColumnTitles[k] || k.replace(/_/g, ' ').toUpperCase();
+        const val = m[k];
+        return `<div style="padding:5px 0; border-bottom:1px solid #f1f5f9">
+                  <div style="font-size:0.64rem; color:#94a3b8; letter-spacing:0.02em">${label}</div>
+                  <div style="color:#0f172a; font-weight:600">${val == null || val === '' ? '—' : mvEsc(val)}</div>
+                </div>`;
+      }).join('');
+      renderVerifyNotes(data.notes || []);
+    }
+
+    function renderVerifyNotes(notes) {
+      const wrap = document.getElementById('mvdNotes');
+      if (!notes.length) {
+        wrap.innerHTML = '<span style="color:#94a3b8; font-size:0.76rem">No details added yet.</span>';
+        return;
+      }
+      const stepLabel = k => (MOULD_VERIFY_STEPS.find(s => s.key === k) || {}).label || k;
+      wrap.innerHTML = notes.map(n => `
+        <div style="border:1px solid #e2e8f0; border-radius:6px; padding:7px 10px; background:#f8fafc">
+          <div style="font-size:0.82rem; color:#0f172a; white-space:pre-wrap">${mvEsc(n.note)}</div>
+          <div style="font-size:0.66rem; color:#94a3b8; margin-top:3px">${mvEsc(stepLabel(n.step))} · ${mvEsc(n.created_by || '')} · ${new Date(n.created_at).toLocaleString()}</div>
+        </div>`).join('');
+    }
+
+    function renderMouldingHistory(data) {
+      const blocks = [['d7', 'Last 7 Days'], ['d30', 'Last 30 Days']]
+        .filter(([k]) => data[k])
+        .map(([k, title]) => {
+          const w = data[k];
+          const t = w.totals || {};
+          const daily = (w.daily || []).map(r => `
+            <tr>
+              <td style="padding:3px 8px">${new Date(r.d).toLocaleDateString()}</td>
+              <td style="padding:3px 8px; text-align:right">${Number(r.good).toLocaleString('en-IN')}</td>
+              <td style="padding:3px 8px; text-align:right">${Number(r.reject).toLocaleString('en-IN')}</td>
+              <td style="padding:3px 8px; text-align:right">${Number(r.downtime).toLocaleString('en-IN')}</td>
+              <td style="padding:3px 8px; text-align:right">${r.machines}</td>
+            </tr>`).join('');
+          const machines = (w.byMachine || []).slice(0, 8).map(mm =>
+            `<span style="display:inline-block; margin:2px 4px 0 0; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:0.68rem">${mvEsc(mm.machine || 'Unassigned')}: ${Number(mm.good).toLocaleString('en-IN')}</span>`
+          ).join('');
+          return `
+            <div style="flex:1; min-width:320px; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px">
+              <div style="font-weight:700; color:#0f172a; margin-bottom:6px">${title}</div>
+              <div style="display:flex; flex-wrap:wrap; gap:10px; font-size:0.74rem; margin-bottom:8px">
+                <span>Good: <b style="color:#166534">${Number(t.good || 0).toLocaleString('en-IN')}</b></span>
+                <span>Reject: <b style="color:#b91c1c">${Number(t.reject || 0).toLocaleString('en-IN')}</b></span>
+                <span>Reject %: <b>${t.rejectPct || 0}%</b></span>
+                <span>Downtime: <b>${Number(t.downtime || 0).toLocaleString('en-IN')} min</b></span>
+                <span>Active days: <b>${t.activeDays || 0}</b></span>
+                <span>Machines: <b>${t.machines || 0}</b></span>
+              </div>
+              ${machines ? `<div style="margin-bottom:8px">${machines}</div>` : ''}
+              ${daily
+                ? `<div style="max-height:150px; overflow:auto; border-top:1px solid #f1f5f9">
+                     <table style="width:100%; border-collapse:collapse; font-size:0.72rem">
+                       <thead><tr style="color:#94a3b8; text-align:left">
+                         <th style="padding:3px 8px">Date</th><th style="padding:3px 8px; text-align:right">Good</th>
+                         <th style="padding:3px 8px; text-align:right">Reject</th><th style="padding:3px 8px; text-align:right">Downtime</th>
+                         <th style="padding:3px 8px; text-align:right">Mc</th>
+                       </tr></thead><tbody>${daily}</tbody>
+                     </table>
+                   </div>`
+                : '<div style="color:#94a3b8; font-size:0.74rem">No production recorded in this period.</div>'}
+            </div>`;
+        });
+      document.getElementById('mvdHistory').innerHTML =
+        `<div style="display:flex; gap:12px; flex-wrap:wrap">${blocks.join('')}</div>`;
+    }
+
+    async function addMouldVerifyNote() {
+      if (!_mvCurrentMouldNumber || !_mvdStepKey) return;
+      const note = document.getElementById('mvdNoteInput').value.trim();
+      if (!note) { alert('Please type a detail to add.'); return; }
+      try {
+        const res = await JPSMS.api.post(
+          '/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-note',
+          { step: _mvdStepKey, note, session: JPSMS.auth.getUser() }
+        );
+        if (!res.ok) throw new Error(res.error);
+        document.getElementById('mvdNoteInput').value = '';
+        // Reload just the notes.
+        const d = await JPSMS.api.get('/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify-detail');
+        if (d.ok) renderVerifyNotes(d.data.notes || []);
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function confirmMouldVerifyFromDetail() {
+      if (!_mvCurrentMouldNumber || !_mvdStepKey) return;
+      const step = MOULD_VERIFY_STEPS.find(s => s.key === _mvdStepKey);
+      if (!confirm(`Confirm "${step ? step.label : 'this step'}" for mould ${_mvCurrentMouldNumber}? This cannot be undone (only Superadmin can reset).`)) return;
+      try {
+        const res = await JPSMS.api.post(
+          '/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify',
+          { step: _mvdStepKey, session: JPSMS.auth.getUser() }
+        );
+        alert(res.message || 'Done');
+        document.getElementById('mouldVerifyDetailModal').style.display = 'none';
         document.getElementById('mouldVerifyModal').style.display = 'none';
         loadMasterData();
       } catch (e) {

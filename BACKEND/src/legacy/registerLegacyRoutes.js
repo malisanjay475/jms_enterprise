@@ -1636,6 +1636,28 @@ async function migrateMouldMasterSchema() {
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_audit_mould_id_changed_at ON mould_audit_logs(mould_id, changed_at DESC)`);
   await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_audit_sync_id ON mould_audit_logs(sync_id)`);
 
+  // Mould Verification "added details" — additive notes an approver attaches at a
+  // verification step. Never touches the mould master columns (read-only master).
+  // Company-wide like the mould master; synced by surrogate sync_id.
+  await q(`
+    CREATE TABLE IF NOT EXISTS mould_verify_notes (
+      id SERIAL PRIMARY KEY,
+      mould_number TEXT NOT NULL,
+      step TEXT NOT NULL,
+      note TEXT NOT NULL,
+      created_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      factory_id INTEGER,
+      sync_id UUID DEFAULT gen_random_uuid(),
+      sync_status TEXT
+    )
+  `);
+  await q(`ALTER TABLE mould_verify_notes ADD COLUMN IF NOT EXISTS sync_id UUID DEFAULT gen_random_uuid()`);
+  await q(`ALTER TABLE mould_verify_notes ADD COLUMN IF NOT EXISTS sync_status TEXT`);
+  await q(`UPDATE mould_verify_notes SET sync_id = gen_random_uuid() WHERE sync_id IS NULL`);
+  await qIdx(`CREATE INDEX IF NOT EXISTS idx_mould_verify_notes_mould ON mould_verify_notes(mould_number, created_at DESC)`);
+  await qIdx(`CREATE UNIQUE INDEX IF NOT EXISTS idx_mould_verify_notes_sync_id ON mould_verify_notes(sync_id)`);
+
   // Local/main sync can insert explicit audit IDs. Keep the serial sequence ahead
   // of existing rows so future Mould Master uploads never reuse an old primary key.
   await q(`
@@ -23762,7 +23784,7 @@ app.get('/api/moulds/history/:id', async (req, res) => {
 // may act on any step). `label` is for messages/audit.
 const MOULD_VERIFY_STEPS = [
   { key: 'ppc',      col: 'ppc',      label: 'PPC Check',            roles: ['ppc_manager', 'ppc_ass_manager'] },
-  { key: 'quality',  col: 'quality',  label: 'Quality Check',        roles: ['quality', 'qc_supervisor'] },
+  { key: 'quality',  col: 'quality',  label: 'Quality Check',        roles: ['quality', 'quality_ass__manager'] },
   { key: 'moulding', col: 'moulding', label: 'Moulding Check',       roles: ['moulding_manager', 'moulding_ass_manager'] },
   { key: 'toolroom', col: 'toolroom', label: 'Tool Room Check',      roles: ['toolroom_manager'] },
   { key: 'gm',       col: 'gm',       label: 'General Manager Approve', roles: ['general_manager'] },
@@ -23899,6 +23921,152 @@ app.post('/api/moulds/:id/verify/reset', async (req, res) => {
     res.json({ ok: true, message: 'Verification reset.' });
   } catch (e) {
     console.error('mould verify reset error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/moulds/:id/verify-detail
+// Read-only detail for the verification Approve screen: full mould master row
+// (never edited from here), all added notes, and the computed step status.
+app.get('/api/moulds/:id/verify-detail', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const rows = await q(`SELECT * FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
+    const mould = rows[0];
+    const notes = await q(
+      `SELECT id, step, note, created_by, created_at
+         FROM mould_verify_notes
+        WHERE mould_number = $1
+        ORDER BY created_at DESC LIMIT 200`,
+      [id]
+    );
+    const steps = MOULD_VERIFY_STEPS.map(s => ({
+      key: s.key, label: s.label,
+      by: mould[`verify_${s.col}_by`] || null,
+      at: mould[`verify_${s.col}_at`] || null
+    }));
+    res.json({ ok: true, data: { mould, notes, steps } });
+  } catch (e) {
+    console.error('mould verify-detail error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// POST /api/moulds/:id/verify-note  { step, note, session:{username} }
+// Adds an approver's extra detail for a step. ADDITIVE ONLY — never touches the
+// mould master columns. Role-gated the same way as completing that step.
+app.post('/api/moulds/:id/verify-note', async (req, res) => {
+  try {
+    if (guardMouldWriteMainOnly(res)) return; // MAIN-only master
+    const { id } = req.params;
+    const stepKey = String(req.body?.step || '').toLowerCase();
+    const note = String(req.body?.note || '').trim();
+    const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
+    if (!username) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    if (!note) return res.status(400).json({ ok: false, error: 'Note cannot be empty' });
+
+    const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
+    if (!step) return res.status(400).json({ ok: false, error: 'Invalid verification step' });
+
+    const urow = (await q(
+      `SELECT u.role_code, LOWER(COALESCE(r.label,'')) AS role_label
+         FROM users u LEFT JOIN roles r ON r.code = u.role_code
+        WHERE u.username = $1 LIMIT 1`,
+      [username]
+    ))[0];
+    if (!urow) return res.status(403).json({ ok: false, error: 'User not found' });
+    if (!mouldVerifyStepAllowed(step, urow.role_code, urow.role_label)) {
+      return res.status(403).json({ ok: false, error: `You do not have permission to add details for "${step.label}".` });
+    }
+
+    const mrows = await q(`SELECT factory_id FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
+    if (!mrows.length) return res.status(404).json({ ok: false, error: 'Mould not found' });
+    const factoryId = mrows[0].factory_id || null;
+
+    await q(
+      `INSERT INTO mould_verify_notes(mould_number, step, note, created_by, factory_id)
+       VALUES($1, $2, $3, $4, $5)`,
+      [id, stepKey, note, username, factoryId]
+    );
+    await q(
+      `INSERT INTO mould_audit_logs(mould_id, action_type, changed_fields, changed_by, factory_id)
+       VALUES($1, 'VERIFY_NOTE', $2, $3, $4)`,
+      [id, JSON.stringify({ message: `Added detail for ${step.label}` }), username, factoryId]
+    );
+
+    if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+    res.json({ ok: true, message: 'Detail added.' });
+  } catch (e) {
+    console.error('mould verify-note error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/moulds/:id/moulding-history?days=7  (defaults to both 7 & 30)
+// Aggregates this mould's production from dpr_hourly over the trailing window:
+// per-day totals + a period summary + a per-machine breakdown. Matches on
+// dpr_hourly.mould_no = moulds.mould_number, factory-tolerant.
+app.get('/api/moulds/:id/moulding-history', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const factoryId = getFactoryId(req);
+
+    async function windowStats(days) {
+      const daily = await q(
+        `SELECT dpr_date::date AS d,
+                COALESCE(SUM(good_qty),0)     AS good,
+                COALESCE(SUM(reject_qty),0)   AS reject,
+                COALESCE(SUM(shots),0)        AS shots,
+                COALESCE(SUM(downtime_min),0) AS downtime,
+                COUNT(DISTINCT machine)       AS machines
+           FROM dpr_hourly
+          WHERE mould_no = $1
+            AND is_deleted = false
+            AND dpr_date >= (CURRENT_DATE - ($2::int - 1))
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+          GROUP BY d ORDER BY d DESC`,
+        [id, days, factoryId]
+      );
+      const byMachine = await q(
+        `SELECT machine,
+                COALESCE(SUM(good_qty),0)   AS good,
+                COALESCE(SUM(reject_qty),0) AS reject,
+                COUNT(DISTINCT dpr_date::date) AS active_days
+           FROM dpr_hourly
+          WHERE mould_no = $1
+            AND is_deleted = false
+            AND dpr_date >= (CURRENT_DATE - ($2::int - 1))
+            AND ($3::int IS NULL OR factory_id = $3 OR factory_id IS NULL)
+          GROUP BY machine ORDER BY good DESC`,
+        [id, days, factoryId]
+      );
+      const totals = daily.reduce((a, r) => ({
+        good: a.good + Number(r.good), reject: a.reject + Number(r.reject),
+        shots: a.shots + Number(r.shots), downtime: a.downtime + Number(r.downtime)
+      }), { good: 0, reject: 0, shots: 0, downtime: 0 });
+      const produced = totals.good + totals.reject;
+      return {
+        days,
+        totals: {
+          ...totals,
+          rejectPct: produced > 0 ? +(totals.reject / produced * 100).toFixed(2) : 0,
+          activeDays: daily.length,
+          machines: byMachine.length
+        },
+        daily,
+        byMachine
+      };
+    }
+
+    const reqDays = Number(req.query.days);
+    if (reqDays === 7 || reqDays === 30) {
+      return res.json({ ok: true, data: { [`d${reqDays}`]: await windowStats(reqDays) } });
+    }
+    const [d7, d30] = await Promise.all([windowStats(7), windowStats(30)]);
+    res.json({ ok: true, data: { d7, d30 } });
+  } catch (e) {
+    console.error('mould moulding-history error', e);
     res.status(500).json({ ok: false, error: String(e) });
   }
 });
