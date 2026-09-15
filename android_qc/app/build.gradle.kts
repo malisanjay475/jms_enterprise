@@ -17,16 +17,19 @@ android {
         // published build (the old 0.12.x/0.13.x feed used codes ~12–13, which
         // otherwise out-ranked this newer app and made the updater offer a
         // downgrade). Keep future bumps strictly increasing from here.
-        versionCode = 100
+        // versionCode is set by CI (APP_VERSION_CODE = 1000 + run number) so it
+        // ALWAYS increases and phones auto-update. Local builds fall back to 100.
+        versionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull() ?: 100
         versionName = "1.1.0"
 
         // Base URL of the JMS API. Change here to point at LOCAL / staging / prod.
-        //  - Production (https, reachable anywhere):          https://jmsocean.cloud/  ← active
-        //  - LOCAL factory server (no geofence, shop-floor): http://192.168.1.173:3001/
+        //  - LOCAL factory server (no geofence, shop-floor): http://192.168.1.173:3001/  ← active
+        //  - Production (https, reachable anywhere):          https://jmsocean.cloud/
         //  - Staging (http, VPN/office):                      http://72.62.228.195:9093/
-        // NOTE: MAIN enforces a GPS geofence at /api/login (admins bypass); non-admins
-        // must be at the factory. Switch back to the LOCAL URL for shop-floor LAN builds.
-        buildConfigField("String", "BASE_URL", "\"https://jmsocean.cloud/\"")
+        // Shop-floor build: phones talk to the on-site LOCAL server over the factory
+        // LAN (no GPS geofence). The phone MUST be on the factory Wi-Fi. Auto-update
+        // is served by the LOCAL server's own /qc-app feed (which mirrors MAIN's).
+        buildConfigField("String", "BASE_URL", "\"http://192.168.1.173:3001/\"")
     }
 
     // Release signing reads from env / CI secrets — NEVER commit a keystore or

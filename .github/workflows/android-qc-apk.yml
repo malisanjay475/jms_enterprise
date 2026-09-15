@@ -44,6 +44,12 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      # Auto versionCode = 1000 + run number (GitHub expressions have no maths, so
+      # compute it in the shell). Always increasing, always above the local 100
+      # fallback, so every merged build is newer and phones auto-update.
+      - name: Compute versionCode
+        run: echo "APP_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon --stacktrace
 
@@ -90,7 +96,9 @@ jobs:
       - name: Auto-publish release to MAIN feed
         if: ${{ github.ref == 'refs/heads/main' && env.HAS_KEYSTORE == 'true' && env.HAS_PUBLISH == 'true' }}
         run: |
-          VC=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts | head -1)
+          # versionCode is the CI-computed APP_VERSION_CODE (matches the built APK,
+          # not the build.gradle fallback); versionName is the human label from gradle.
+          VC=$APP_VERSION_CODE
           VN=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
           APK=app/build/outputs/apk/release/app-release.apk
           echo "Publishing versionCode=$VC versionName=$VN"

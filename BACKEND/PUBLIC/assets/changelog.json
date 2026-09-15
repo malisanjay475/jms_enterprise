@@ -11,8 +11,54 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.58.1",
+  "latest": "1.60.0",
   "versions": [
+    {
+      "version": "1.60.0",
+      "date": "2026-09-13",
+      "title": "Executive Control Deck & Fleet Intelligence in Analytics",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Analytics",
+          "icon": "bi-speedometer2",
+          "changes": [
+            { "type": "improvement", "text": "Unified executive control deck saving 140px vertical space with zero-state mould tooling fleet hub, dynamic date controls, and 3-pillar plant OEE breakdown." },
+            { "type": "feat", "text": "Added dual-mode views (Cards vs Compact Table) for Order and Machine Fleet with instant OEE status filtering, column sorting, and 3D Supervisor podium rankings." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.59.0",
+      "date": "2026-09-13",
+      "title": "Complete Redesign of Analytics Portal (analyze.html)",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Analytics",
+          "icon": "bi-graph-up-arrow",
+          "changes": [
+            { "type": "feat", "text": "Brand new high-performance Analytics Portal with interactive Plant OEE gauge, multi-factor trend toggles, searchable Machine fleet matrix with visual utilization bars, 6-tab Order drilldown modal, Mould tooling analytics, Supervisor shift leaderboard podium, and Downtime Cockpit with Excel and CSV exports." }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.58.2",
+      "date": "2026-09-13",
+      "title": "Mobile menu drawer fix on all pages",
+      "modules": [
+        {
+          "app": "all",
+          "label": "Platform",
+          "icon": "bi-list",
+          "changes": [
+            { "type": "fix", "text": "The mobile menu drawer alignment fix now applies on every page — pages that loaded the stylesheet without a version (Shifting, Supervisor, Quality, Scanning, WIP and others) were still showing the old cached layout." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.58.1",
       "date": "2026-09-13",
