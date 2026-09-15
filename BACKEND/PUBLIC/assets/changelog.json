@@ -11,8 +11,27 @@
       "7. `date` is the release date in YYYY-MM-DD."
     ]
   },
-  "latest": "1.64.0",
+  "latest": "1.65.0",
   "versions": [
+    {
+      "version": "1.65.0",
+      "date": "2026-09-15",
+      "title": "Verification status board, pending badges & faster LOCAL sync",
+      "modules": [
+        {
+          "app": "masters",
+          "label": "Masters",
+          "icon": "bi-box-seam",
+          "changes": [
+            { "type": "feat", "text": "Mould Master now shows a Verification Status strip — how many moulds are Verified, In progress and Not started, with a pending count per department." },
+            { "type": "feat", "text": "A 'Pending your verification' badge shows each department how many moulds are waiting for them; click it to filter the list to just those moulds." },
+            { "type": "feat", "text": "Everyone can now download the full verification status of every mould as an Excel file." },
+            { "type": "improvement", "text": "Approving on a factory server now updates instantly, so the next department sees it without waiting for a sync." },
+            { "type": "improvement", "text": "Admins can now approve any verification step (including the final authorisation) and reset, the same as Superadmin." }
+          ]
+        }
+      ]
+    },
     {
       "version": "1.64.0",
       "date": "2026-09-15",
