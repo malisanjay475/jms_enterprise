@@ -427,7 +427,10 @@
       const banner = document.getElementById('mvBadgeBanner');
       banner.style.display = prog.verified ? 'flex' : 'none';
 
-      const writeAllowed = (typeof jmsMouldWriteAllowed === 'function') ? jmsMouldWriteAllowed() : true;
+      // Verification is allowed on LOCAL too (the server forwards the action to
+      // MAIN), so this is NOT gated by jmsMouldWriteAllowed() — unlike mould master
+      // edits. Role + strict order are still enforced client- and server-side.
+      const writeAllowed = true;
       const html = MOULD_VERIFY_STEPS.map((s, i) => {
         const at = row['verify_' + s.col + '_at'];
         const by = row['verify_' + s.col + '_by'];
@@ -580,6 +583,22 @@
           const machines = (w.byMachine || []).slice(0, 8).map(mm =>
             `<span style="display:inline-block; margin:2px 4px 0 0; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:0.68rem">${mvEsc(mm.machine || 'Unassigned')}: ${Number(mm.good).toLocaleString('en-IN')}</span>`
           ).join('');
+          // Downtime reason comparison for the period (largest first).
+          const dtr = (w.downtimeReasons || []);
+          const maxMin = dtr.length ? Number(dtr[0].minutes) || 1 : 1;
+          const reasonsHtml = dtr.length
+            ? `<div style="margin:8px 0; border-top:1px solid #f1f5f9; padding-top:6px">
+                 <div style="font-size:0.68rem; color:#94a3b8; margin-bottom:4px">DOWNTIME REASONS</div>
+                 ${dtr.map(d => {
+                   const pct = Math.max(4, Math.round((Number(d.minutes) / maxMin) * 100));
+                   return `<div style="display:flex; align-items:center; gap:8px; margin-bottom:3px">
+                             <span style="flex:0 0 42%; font-size:0.72rem; color:#475569; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">${mvEsc(d.reason)}</span>
+                             <span style="flex:1; height:8px; background:#f1f5f9; border-radius:4px; overflow:hidden"><span style="display:block; height:100%; width:${pct}%; background:#f59e0b"></span></span>
+                             <span style="flex:0 0 auto; font-size:0.72rem; color:#0f172a; font-weight:600">${Number(d.minutes).toLocaleString('en-IN')}m</span>
+                           </div>`;
+                 }).join('')}
+               </div>`
+            : '';
           return `
             <div style="flex:1; min-width:320px; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px">
               <div style="font-weight:700; color:#0f172a; margin-bottom:6px">${title}</div>
@@ -592,6 +611,7 @@
                 <span>Machines: <b>${t.machines || 0}</b></span>
               </div>
               ${machines ? `<div style="margin-bottom:8px">${machines}</div>` : ''}
+              ${reasonsHtml}
               ${daily
                 ? `<div style="max-height:150px; overflow:auto; border-top:1px solid #f1f5f9">
                      <table style="width:100%; border-collapse:collapse; font-size:0.72rem">
@@ -605,8 +625,15 @@
                 : '<div style="color:#94a3b8; font-size:0.74rem">No production recorded in this period.</div>'}
             </div>`;
         });
+      const lr = data.lastRun;
+      const lastRunHtml = lr
+        ? `<div style="margin-bottom:10px; font-size:0.8rem; color:#0f172a">
+             <i class="bi bi-clock-history" style="color:#2563eb"></i>
+             <b>Last run:</b> ${new Date(lr.date).toLocaleDateString()}${lr.machine ? ' · ' + mvEsc(lr.machine) : ''}
+           </div>`
+        : `<div style="margin-bottom:10px; font-size:0.8rem; color:#94a3b8"><i class="bi bi-clock-history"></i> Last run: no production recorded yet</div>`;
       document.getElementById('mvdHistory').innerHTML =
-        `<div style="display:flex; gap:12px; flex-wrap:wrap">${blocks.join('')}</div>`;
+        lastRunHtml + `<div style="display:flex; gap:12px; flex-wrap:wrap">${blocks.join('')}</div>`;
     }
 
     async function addMouldVerifyNote() {
