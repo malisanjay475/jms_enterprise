@@ -24238,10 +24238,18 @@ app.get('/api/moulds/verification-summary', async (req, res) => {
 app.get('/api/moulds/verification-status.xlsx', async (req, res) => {
   try {
     const ExcelJS = require('exceljs');
-    const rows = await q(MOULD_VERIFY_SELECT, []);
+    // Full rows so the export carries ALL mould detail, not just the verify columns.
+    const rows = await q('SELECT * FROM moulds ORDER BY mould_number ASC', []);
     const standing = computeMouldVerifyStanding(rows);
     const byNumber = new Map(rows.map(r => [r.mould_number, r]));
     const username = getRequestUsername(req) || 'System';
+
+    // Verified moulds first, then in-progress, then not-started; each by number.
+    const rankMould = m => (m.verified ? 0 : (m.done > 0 ? 1 : 2));
+    standing.moulds.sort((a, b) =>
+      rankMould(a) - rankMould(b) ||
+      String(a.mould_number || '').localeCompare(String(b.mould_number || ''), undefined, { numeric: true })
+    );
 
     const BLUE = 'FF1E4E79', HEADFILL = 'FF2E6CA4', BAND = 'FFEFF4FA', WHITE = 'FFFFFFFF', INK = 'FF1F2937', GREY = 'FF64748B', GREEN = 'FF166534';
     const FONT = 'Calibri';
@@ -24250,12 +24258,20 @@ app.get('/api/moulds/verification-status.xlsx', async (req, res) => {
     const fmtWhen = v => v ? new Date(v).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '';
 
     const stepCols = MOULD_VERIFY_STEPS.map(s => ({ label: s.label, col: s.col }));
+    const prettyLabel = k => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    // All mould master detail fields (except the two identity fields already shown).
+    const detailFields = MOULD_MASTER_FIELDS.filter(f => f !== 'mould_number' && f !== 'mould_name');
     const cols = [
       { label: 'Mould Number', w: 20, key: 'mould_number' },
       { label: 'Mould Name', w: 30, key: 'mould_name' },
       { label: 'Status', w: 16, key: 'status' },
       { label: 'Next Pending Dept', w: 22, key: 'next' },
-      ...stepCols.map(sc => ({ label: sc.label, w: 26, key: 'step_' + sc.col }))
+      // Each step split into who + when so "who completed and when" is explicit.
+      ...stepCols.flatMap(sc => ([
+        { label: sc.label + ' — By', w: 18, key: 'stepby_' + sc.col },
+        { label: sc.label + ' — When', w: 20, key: 'stepat_' + sc.col }
+      ])),
+      ...detailFields.map(f => ({ label: prettyLabel(f), w: 16, key: 'd_' + f }))
     ];
     const NCOL = cols.length;
 
@@ -24303,7 +24319,12 @@ app.get('/api/moulds/verification-status.xlsx', async (req, res) => {
       };
       stepCols.forEach(sc => {
         const by = raw[`verify_${sc.col}_by`]; const at = raw[`verify_${sc.col}_at`];
-        rowData['step_' + sc.col] = at ? `${by || ''} · ${fmtWhen(at)}` : 'Pending';
+        rowData['stepby_' + sc.col] = at ? (by || '') : 'Pending';
+        rowData['stepat_' + sc.col] = at ? fmtWhen(at) : '';
+      });
+      detailFields.forEach(f => {
+        const v = raw[f];
+        rowData['d_' + f] = (v === null || v === undefined) ? '' : v;
       });
       cols.forEach((c, i) => {
         const cell = ws.getCell(r, i + 1);
