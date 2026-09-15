@@ -23824,9 +23824,8 @@ const MOULD_VERIFY_STEPS = [
 function mouldVerifyStepAllowed(step, roleCode, roleLabel) {
   const role = String(roleCode || '').toLowerCase();
   const label = String(roleLabel || '').toLowerCase();
-  if (role === 'superadmin') return true;           // superadmin (NKB) can do any step
-  if (step.key === 'nkb') return false;             // NKB Authorise is superadmin-only
-  if (role === 'admin') return true;                // admin may act on steps 1-5
+  // admin AND superadmin can complete ANY step (including NKB Authorise) and reset.
+  if (role === 'superadmin' || role === 'admin') return true;
   if (step.roles.includes(role)) return true;
   // Fallback for the GM step when the role_code differs but the label matches.
   if (step.key === 'gm' && label.includes('general manager')) return true;
@@ -23840,7 +23839,27 @@ app.post('/api/moulds/:id/verify', async (req, res) => {
     // LOCAL forwards to MAIN (authoritative); MAIN's result syncs back here.
     if (isLocalServer()) {
       const fwd = await forwardMouldVerifyToMain(id, '/verify', req.body);
-      if (fwd.ok) { ttlCacheClear('moulds'); if (typeof syncService.triggerSync === 'function') syncService.triggerSync(); }
+      if (fwd.ok) {
+        ttlCacheClear('moulds');
+        // OPTIMISTIC LOCAL APPLY: stamp the same step locally right now so the NEXT
+        // department sees it move to them instantly, without waiting for the pull
+        // cycle. Idempotent — the subsequent pull brings MAIN's identical values.
+        try {
+          const stepKey = String(req.body?.step || '').toLowerCase();
+          const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
+          const actor = req.body?.session?.username || req.body?._user || 'MAIN';
+          if (step) {
+            await q(
+              `UPDATE moulds SET verify_${step.col}_by = COALESCE(verify_${step.col}_by, $1),
+                                 verify_${step.col}_at = COALESCE(verify_${step.col}_at, NOW()),
+                                 updated_at = NOW()
+                WHERE mould_number = $2`,
+              [actor, id]
+            );
+          }
+        } catch (applyErr) { console.warn('[verify] optimistic local apply skipped:', applyErr.message); }
+        if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+      }
       return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
     }
     const stepKey = String(req.body?.step || '').toLowerCase();
@@ -23919,7 +23938,17 @@ app.post('/api/moulds/:id/verify/reset', async (req, res) => {
     const { id } = req.params;
     if (isLocalServer()) {
       const fwd = await forwardMouldVerifyToMain(id, '/verify/reset', req.body);
-      if (fwd.ok) { ttlCacheClear('moulds'); if (typeof syncService.triggerSync === 'function') syncService.triggerSync(); }
+      if (fwd.ok) {
+        ttlCacheClear('moulds');
+        // Optimistic local clear so the reset is visible immediately (see /verify).
+        try {
+          const setNull = MOULD_VERIFY_STEPS
+            .map(s => `verify_${s.col}_by = NULL, verify_${s.col}_at = NULL`)
+            .join(', ');
+          await q(`UPDATE moulds SET ${setNull}, updated_at = NOW() WHERE mould_number = $1`, [id]);
+        } catch (applyErr) { console.warn('[verify/reset] optimistic local apply skipped:', applyErr.message); }
+        if (typeof syncService.triggerSync === 'function') syncService.triggerSync();
+      }
       return res.status(fwd.ok ? 200 : fwd.status).json(fwd.json);
     }
     const username = req.body?.session?.username || req.body?._user || getRequestUsername(req);
@@ -23927,8 +23956,8 @@ app.post('/api/moulds/:id/verify/reset', async (req, res) => {
 
     const urow = (await q('SELECT role_code FROM users WHERE username = $1 LIMIT 1', [username]))[0];
     const role = String(urow?.role_code || '').toLowerCase();
-    if (role !== 'superadmin' && String(username).toLowerCase() !== 'superadmin') {
-      return res.status(403).json({ ok: false, error: 'Only Superadmin can reset verification.' });
+    if (role !== 'superadmin' && role !== 'admin' && String(username).toLowerCase() !== 'superadmin') {
+      return res.status(403).json({ ok: false, error: 'Only Admin or Superadmin can reset verification.' });
     }
 
     const rows = await q(`SELECT factory_id FROM moulds WHERE mould_number = $1 LIMIT 1`, [id]);
@@ -24155,6 +24184,151 @@ app.get('/api/moulds/:id/moulding-history', async (req, res) => {
   } catch (e) {
     console.error('mould moulding-history error', e);
     res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Shared: compute each mould's verification standing (next-pending step + counts).
+// Read-only; visible to everyone.
+function computeMouldVerifyStanding(rows) {
+  const steps = MOULD_VERIFY_STEPS;
+  const pendingByStep = {}; steps.forEach(s => { pendingByStep[s.key] = 0; });
+  let verified = 0, notStarted = 0, inProgress = 0;
+  const moulds = rows.map(m => {
+    let doneCount = 0, nextKey = null, nextLabel = null;
+    for (const s of steps) {
+      if (m[`verify_${s.col}_at`]) doneCount++;
+      else { nextKey = s.key; nextLabel = s.label; break; }
+    }
+    const isVerified = !!m.verify_nkb_at;
+    if (isVerified) verified++;
+    else {
+      pendingByStep[nextKey] = (pendingByStep[nextKey] || 0) + 1;
+      if (doneCount === 0) notStarted++; else inProgress++;
+    }
+    return {
+      mould_number: m.mould_number, mould_name: m.mould_name, factory_id: m.factory_id,
+      done: doneCount, verified: isVerified, nextStep: isVerified ? null : nextKey, nextStepLabel: isVerified ? null : nextLabel
+    };
+  });
+  return {
+    totals: { total: rows.length, verified, inProgress, notStarted },
+    pendingByStep, moulds
+  };
+}
+
+const MOULD_VERIFY_SELECT = `SELECT mould_number, mould_name, factory_id,
+    verify_ppc_by, verify_ppc_at, verify_quality_by, verify_quality_at,
+    verify_moulding_by, verify_moulding_at, verify_toolroom_by, verify_toolroom_at,
+    verify_gm_by, verify_gm_at, verify_nkb_by, verify_nkb_at
+  FROM moulds ORDER BY mould_number ASC`;
+
+// GET /api/moulds/verification-summary — counts + per-mould next-pending step.
+// Read-only; any logged-in user (drives the status panel + pending badges).
+app.get('/api/moulds/verification-summary', async (req, res) => {
+  try {
+    const rows = await q(MOULD_VERIFY_SELECT, []);
+    res.json({ ok: true, data: computeMouldVerifyStanding(rows), steps: MOULD_VERIFY_STEPS.map(s => ({ key: s.key, label: s.label })) });
+  } catch (e) {
+    console.error('mould verification-summary error', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /api/moulds/verification-status.xlsx — downloadable status of every mould.
+app.get('/api/moulds/verification-status.xlsx', async (req, res) => {
+  try {
+    const ExcelJS = require('exceljs');
+    const rows = await q(MOULD_VERIFY_SELECT, []);
+    const standing = computeMouldVerifyStanding(rows);
+    const byNumber = new Map(rows.map(r => [r.mould_number, r]));
+    const username = getRequestUsername(req) || 'System';
+
+    const BLUE = 'FF1E4E79', HEADFILL = 'FF2E6CA4', BAND = 'FFEFF4FA', WHITE = 'FFFFFFFF', INK = 'FF1F2937', GREY = 'FF64748B', GREEN = 'FF166534';
+    const FONT = 'Calibri';
+    const thin = { style: 'thin', color: { argb: 'FFD5DEEA' } };
+    const box = { top: thin, left: thin, right: thin, bottom: thin };
+    const fmtWhen = v => v ? new Date(v).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '';
+
+    const stepCols = MOULD_VERIFY_STEPS.map(s => ({ label: s.label, col: s.col }));
+    const cols = [
+      { label: 'Mould Number', w: 20, key: 'mould_number' },
+      { label: 'Mould Name', w: 30, key: 'mould_name' },
+      { label: 'Status', w: 16, key: 'status' },
+      { label: 'Next Pending Dept', w: 22, key: 'next' },
+      ...stepCols.map(sc => ({ label: sc.label, w: 26, key: 'step_' + sc.col }))
+    ];
+    const NCOL = cols.length;
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = username;
+    const ws = wb.addWorksheet('Verification Status', { views: [{ state: 'frozen', ySplit: 5 }] });
+    ws.columns = cols.map(c => ({ width: c.w }));
+
+    ws.mergeCells(1, 1, 1, NCOL);
+    const t = ws.getCell(1, 1);
+    t.value = 'MOULD MASTER — VERIFICATION STATUS';
+    t.font = { name: FONT, size: 14, bold: true, color: { argb: WHITE } };
+    t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLUE } };
+    t.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 30;
+
+    const tt = standing.totals;
+    const pend = MOULD_VERIFY_STEPS.map(s => `${s.label}: ${standing.pendingByStep[s.key] || 0}`).join('    |    ');
+    ws.mergeCells(2, 1, 2, NCOL);
+    ws.getCell(2, 1).value = `Total: ${tt.total}    |    Verified: ${tt.verified}    |    In progress: ${tt.inProgress}    |    Not started: ${tt.notStarted}`;
+    ws.getCell(2, 1).font = { name: FONT, size: 10, bold: true, color: { argb: INK } };
+    ws.mergeCells(3, 1, 3, NCOL);
+    ws.getCell(3, 1).value = `Pending — ${pend}    ||    Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} by ${username}`;
+    ws.getCell(3, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+
+    const HROW = 5;
+    cols.forEach((c, i) => {
+      const cell = ws.getCell(HROW, i + 1);
+      cell.value = c.label;
+      cell.font = { name: FONT, size: 10, bold: true, color: { argb: WHITE } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADFILL } };
+      cell.alignment = { horizontal: 'left', vertical: 'middle' };
+      cell.border = box;
+    });
+    ws.getRow(HROW).height = 20;
+
+    let r = HROW + 1;
+    standing.moulds.forEach((m, idx) => {
+      const raw = byNumber.get(m.mould_number) || {};
+      const rowData = {
+        mould_number: m.mould_number,
+        mould_name: m.mould_name,
+        status: m.verified ? 'VERIFIED' : (m.done === 0 ? 'Not started' : 'In progress'),
+        next: m.verified ? '—' : (m.nextStepLabel || '')
+      };
+      stepCols.forEach(sc => {
+        const by = raw[`verify_${sc.col}_by`]; const at = raw[`verify_${sc.col}_at`];
+        rowData['step_' + sc.col] = at ? `${by || ''} · ${fmtWhen(at)}` : 'Pending';
+      });
+      cols.forEach((c, i) => {
+        const cell = ws.getCell(r, i + 1);
+        cell.value = rowData[c.key];
+        const isVerifiedCell = c.key === 'status' && m.verified;
+        cell.font = { name: FONT, size: 10, bold: isVerifiedCell, color: { argb: isVerifiedCell ? GREEN : INK } };
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        cell.border = box;
+        if (idx % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND } };
+      });
+      r += 1;
+    });
+    if (!standing.moulds.length) {
+      ws.mergeCells(r, 1, r, NCOL);
+      ws.getCell(r, 1).value = 'No moulds found.';
+      ws.getCell(r, 1).font = { name: FONT, size: 10, italic: true, color: { argb: GREY } };
+    }
+
+    const buf = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=Mould_Verification_Status_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    res.send(Buffer.from(buf));
+  } catch (e) {
+    console.error('/api/moulds/verification-status.xlsx', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
 

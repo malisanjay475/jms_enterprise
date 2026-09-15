@@ -1091,6 +1091,14 @@
         box.appendChild(addBtn);
       }
 
+      // Mould Verification Status panel — shown for EVERYONE on the moulds master
+      // (read-only counts + per-department pending badge + Excel), hidden elsewhere.
+      if (type === 'moulds') {
+        if (typeof loadMouldVerifyStatus === 'function') loadMouldVerifyStatus();
+      } else if (typeof hideMouldVerifyStatus === 'function') {
+        hideMouldVerifyStatus();
+      }
+
       // Clear Data Button (Superadmin Only)
       const user = JPSMS.auth.getUser();
       let clearBtn = document.getElementById('clearDataBtn');
