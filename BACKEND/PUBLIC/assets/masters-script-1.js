@@ -374,6 +374,128 @@
       }
     }
 
+    /* ============================================================
+       MOULD VERIFICATION (strict 6-step badge workflow)
+       PPC -> Quality -> Moulding -> Tool Room -> GM Approve -> NKB Authorise.
+       Server enforces order + role; the UI mirrors it so only the eligible
+       next step is actionable for the current user.
+    ============================================================ */
+    const MOULD_VERIFY_STEPS = [
+      { key: 'ppc',      col: 'ppc',      label: 'PPC Check',              roles: ['ppc_manager', 'ppc_ass_manager'] },
+      { key: 'quality',  col: 'quality',  label: 'Quality Check',          roles: ['quality', 'qc_supervisor'] },
+      { key: 'moulding', col: 'moulding', label: 'Moulding Check',         roles: ['moulding_manager', 'moulding_ass_manager'] },
+      { key: 'toolroom', col: 'toolroom', label: 'Tool Room Check',        roles: ['toolroom_manager'] },
+      { key: 'gm',       col: 'gm',       label: 'General Manager Approve', roles: ['general_manager'] },
+      { key: 'nkb',      col: 'nkb',      label: 'NKB Authorise',          roles: [] } // superadmin only
+    ];
+
+    // How many of the ordered steps are stamped, and whether fully verified.
+    function mouldVerifyProgress(row) {
+      let done = 0;
+      for (const s of MOULD_VERIFY_STEPS) {
+        if (row['verify_' + s.col + '_at']) done++; else break;
+      }
+      return { done, total: MOULD_VERIFY_STEPS.length, verified: !!row.verify_nkb_at };
+    }
+
+    function currentUserCanVerifyStep(step) {
+      const u = JPSMS.auth.getUser() || {};
+      const role = String(u.role_code || '').toLowerCase();
+      if (role === 'superadmin') return true;
+      if (step.key === 'nkb') return false;
+      if (role === 'admin') return true;
+      return step.roles.includes(role);
+    }
+
+    let _mvCurrentMouldNumber = null;
+
+    function openMouldVerifyModal(row) {
+      _mvCurrentMouldNumber = row.mould_number;
+      document.getElementById('mvMouldTitle').textContent =
+        `${row.mould_number || ''}${row.mould_name ? ' — ' + row.mould_name : ''}`;
+      renderMouldVerifySteps(row);
+      const u = JPSMS.auth.getUser() || {};
+      const isSuper = String(u.role_code || '').toLowerCase() === 'superadmin';
+      const resetBtn = document.getElementById('mvResetBtn');
+      const anyDone = MOULD_VERIFY_STEPS.some(s => row['verify_' + s.col + '_at']);
+      resetBtn.style.display = (isSuper && anyDone) ? 'inline-block' : 'none';
+      document.getElementById('mouldVerifyModal').style.display = 'flex';
+    }
+
+    function renderMouldVerifySteps(row) {
+      const prog = mouldVerifyProgress(row);
+      const banner = document.getElementById('mvBadgeBanner');
+      banner.style.display = prog.verified ? 'flex' : 'none';
+
+      const writeAllowed = (typeof jmsMouldWriteAllowed === 'function') ? jmsMouldWriteAllowed() : true;
+      const html = MOULD_VERIFY_STEPS.map((s, i) => {
+        const at = row['verify_' + s.col + '_at'];
+        const by = row['verify_' + s.col + '_by'];
+        const isDone = !!at;
+        const isNext = !isDone && i === prog.done;
+        const canAct = isNext && writeAllowed && currentUserCanVerifyStep(s);
+
+        let right = '';
+        if (isDone) {
+          right = `<span style="color:#166534; font-size:0.72rem; text-align:right">
+                     <i class="bi bi-check-circle-fill"></i> ${by || ''}<br>
+                     <span style="color:#94a3b8">${new Date(at).toLocaleString()}</span>
+                   </span>`;
+        } else if (canAct) {
+          right = `<button onclick="submitMouldVerifyStep('${s.key}')" class="btn-action"
+                     style="padding:5px 14px; font-size:0.76rem; background:#2563eb">Approve</button>`;
+        } else if (isNext) {
+          right = `<span style="color:#94a3b8; font-size:0.72rem">Awaiting ${s.label}</span>`;
+        } else {
+          right = `<span style="color:#cbd5e1; font-size:0.72rem"><i class="bi bi-lock-fill"></i> Locked</span>`;
+        }
+
+        const circleBg = isDone ? '#16a34a' : (isNext ? '#2563eb' : '#e2e8f0');
+        const circleColor = (isDone || isNext) ? '#fff' : '#94a3b8';
+        return `
+          <div style="display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid ${isNext ? '#bfdbfe' : '#e2e8f0'}; border-radius:8px; background:${isDone ? '#f0fdf4' : (isNext ? '#eff6ff' : '#f8fafc')}">
+            <div style="width:26px; height:26px; border-radius:50%; background:${circleBg}; color:${circleColor}; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.8rem; flex:0 0 auto">${isDone ? '<i class=\"bi bi-check-lg\"></i>' : (i + 1)}</div>
+            <div style="flex:1"><div style="font-weight:600; font-size:0.86rem; color:#0f172a">${s.label}</div></div>
+            <div>${right}</div>
+          </div>`;
+      }).join('');
+      document.getElementById('mvSteps').innerHTML = html;
+    }
+
+    async function submitMouldVerifyStep(stepKey) {
+      if (!_mvCurrentMouldNumber) return;
+      const step = MOULD_VERIFY_STEPS.find(s => s.key === stepKey);
+      if (!step) return;
+      if (!confirm(`Confirm "${step.label}" for mould ${_mvCurrentMouldNumber}?`)) return;
+      try {
+        const res = await JPSMS.api.post(
+          '/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify',
+          { step: stepKey, session: JPSMS.auth.getUser() }
+        );
+        alert(res.message || 'Done');
+        document.getElementById('mouldVerifyModal').style.display = 'none';
+        loadMasterData();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function resetMouldVerify() {
+      if (!_mvCurrentMouldNumber) return;
+      if (!confirm(`Reset the ENTIRE verification chain for mould ${_mvCurrentMouldNumber}? All 6 steps must be redone.`)) return;
+      try {
+        const res = await JPSMS.api.post(
+          '/moulds/' + encodeURIComponent(_mvCurrentMouldNumber) + '/verify/reset',
+          { session: JPSMS.auth.getUser() }
+        );
+        alert(res.message || 'Reset');
+        document.getElementById('mouldVerifyModal').style.display = 'none';
+        loadMasterData();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
     async function viewMouldHistory(id) {
       try {
         const res = await JPSMS.api.get('/moulds/history/' + encodeURIComponent(id));
