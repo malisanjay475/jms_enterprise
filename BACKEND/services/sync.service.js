@@ -90,6 +90,7 @@ const SYNC_ALL = [
     'mould_audit_logs',
     'mould_planning_report',
     'mould_planning_summary',
+    'mould_verify_notes',
     'moulds',
     'notifications',
     'operator_history',
@@ -195,6 +196,9 @@ const CONFLICT_KEYS = {
     machine_operators: 'id',
     machine_status_logs: 'id',
     mould_audit_logs: 'id',
+    // Verification notes carry a surrogate sync_id so LOCAL & MAIN never collide on
+    // their independent serial ids (same pattern as assembly_plans).
+    mould_verify_notes: 'sync_id',
     qc_deviations: 'id',
     qc_issue_memos: 'id',
     qc_job_checks: 'id',
@@ -363,6 +367,7 @@ const SYNC_CONFLICT_INDEXES = {
 // factories on MAIN (e.g. moulds imported under factory_id = 2 when LOCAL is factory 1).
 const GLOBAL_MASTER_TABLES = new Set([
     'moulds',       // Mould master — company-wide reference, not factory-scoped
+    'mould_verify_notes', // Verification notes ride with the company-wide mould master
     // Users are company-wide: a person created on MAIN carries a single users.factory_id
     // (their "home" factory), but can be granted access to OTHER factories via
     // user_factories. Factory-scoping the users pull on users.factory_id meant a user
@@ -379,12 +384,12 @@ const GLOBAL_MASTER_TABLES = new Set([
     'erp_mould_item'
 ]);
 
-const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people'];
+const SYNC_ID_REQUIRED_TABLES = ['notifications', 'dpr_reasons', 'assembly_plans', 'assembly_scans', 'maintenance_tickets', 'maintenance_worklogs', 'org_units', 'org_departments', 'org_grades', 'org_designations', 'org_people', 'mould_verify_notes'];
 const SYNC_SCHEMA_READY_KEY = 'SYNC_SCHEMA_READY_VERSION';
 // Bump this whenever ensureSyncRuntimeSchema()'s migrations change, so every server
 // re-runs the full startup sweep once instead of skipping it on the cached marker.
 // 2026-08-03: drop the obsolete uq_sync_conflict_notifications index (see ensureSyncIdSchema).
-const SYNC_SCHEMA_READY_VERSION = '2026-08-03-drop-notif-conflict-idx-v1';
+const SYNC_SCHEMA_READY_VERSION = '2026-09-15-mould-verify-notes-sync-id-v1';
 
 // "Sync token" columns: app-schema UNIQUE columns that carry a per-row identity
 // token (a UUID) MAIN considers authoritative, but which a LOCAL row may have been

@@ -736,6 +736,54 @@
     </div>
   </div>
 
+  <!-- Mould Verification Detail Modal (opened when an approver clicks Approve) -->
+  <div id="mouldVerifyDetailModal" class="modal"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1300; justify-content:center; align-items:center;">
+    <div style="background:white; padding:22px; border-radius:10px; width:820px; max-width:96%; max-height:92vh; overflow:auto">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px">
+        <div>
+          <h3 style="margin:0 0 2px 0" id="mvdTitle">Verification — Review</h3>
+          <div id="mvdMouldTitle" style="font-size:0.82rem; color:#64748b"></div>
+        </div>
+        <button onclick="document.getElementById('mouldVerifyDetailModal').style.display='none'"
+          style="border:none; background:none; font-size:1.6rem; line-height:1; cursor:pointer">&times;</button>
+      </div>
+
+      <!-- Read-only master details -->
+      <div style="margin-top:14px">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px">
+          <h4 style="margin:0; font-size:0.9rem; color:#0f172a">Mould Details</h4>
+          <span style="font-size:0.68rem; color:#64748b; background:#f1f5f9; padding:2px 8px; border-radius:999px"><i class="bi bi-lock-fill"></i> Read-only — cannot be changed here</span>
+        </div>
+        <div id="mvdMasterGrid" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px 14px; font-size:0.8rem"></div>
+      </div>
+
+      <!-- Moulding history -->
+      <div style="margin-top:18px">
+        <h4 style="margin:0 0 8px 0; font-size:0.9rem; color:#0f172a">Moulding History</h4>
+        <div id="mvdHistory" style="font-size:0.8rem; color:#475569">Loading…</div>
+      </div>
+
+      <!-- Added details (notes) -->
+      <div style="margin-top:18px">
+        <h4 style="margin:0 0 8px 0; font-size:0.9rem; color:#0f172a">Added Details</h4>
+        <div id="mvdNotes" style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px"></div>
+        <div id="mvdNoteAddWrap" style="display:flex; gap:8px; align-items:flex-start">
+          <textarea id="mvdNoteInput" rows="2" placeholder="Add any detail / observation for this step…"
+            style="flex:1; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.82rem; resize:vertical"></textarea>
+          <button type="button" onclick="addMouldVerifyNote()" class="btn-action" style="padding:8px 14px; font-size:0.8rem; background:#475569">Add Detail</button>
+        </div>
+      </div>
+
+      <div style="text-align:right; margin-top:20px; display:flex; justify-content:flex-end; gap:10px; border-top:1px solid #eee; padding-top:12px">
+        <button type="button" onclick="document.getElementById('mouldVerifyDetailModal').style.display='none'"
+          style="padding:8px 18px; border:1px solid #ddd; background:white; border-radius:6px">Cancel</button>
+        <button type="button" id="mvdConfirmBtn" onclick="confirmMouldVerifyFromDetail()" class="btn-action"
+          style="padding:8px 22px; background:#16a34a"><i class="bi bi-patch-check"></i> <span id="mvdConfirmLabel">Confirm Approval</span></button>
+      </div>
+    </div>
+  </div>
+
   <!-- Auduts Modal -->
   <div id="historyModal" class="modal"
     style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1200; justify-content:center; align-items:center;">
